@@ -466,16 +466,21 @@ internal object GitHubTestChecklist {
         val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
         if (GitHubIntegrationAcceptance.requiresBuildBinding(task) && GitHubIntegrationAcceptance.binding(observations)["verified"] != JsonPrimitive(true)) {
             val runtime = GitHubRuntimeIdentity.current()
-            val status = tools.firstOrNull { it.modelVisible && it.name.githubOperationFamily() == "github_context" && (it.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true }
-            val args = buildJsonObject {
-                put("action", "status")
-                put("verify_live", true)
-            }
-            if (status != null &&
-                GitHubSelfTestReads.valid(status, args) &&
-                observations.none { it.text("tool") == status.name && (it["arguments"] == args || GitHubActionIdentity.matches(status.name, args, it)) && it["runtime_identity"] == runtime }
-            ) {
-                call(status.name, args).takeIf(::eligible)?.let { return it }
+            for (tool in githubFamilyTools(tools, "github_context")) {
+                val live = (tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true
+                val args = buildJsonObject {
+                    put("action", "status")
+                    if (live) put("verify_live", true)
+                }
+                val candidate = call(tool.name, args)
+                val attempted = observations.any { receipt ->
+                    val prior = receipt["arguments"] as? JsonObject
+                    receipt.text("tool") == tool.name &&
+                        prior?.text("action") == "status" &&
+                        (!live || prior["verify_live"] == JsonPrimitive(true)) &&
+                        receipt["runtime_identity"] == runtime
+                }
+                if (!attempted && eligible(candidate)) return candidate
             }
         }
         // A cached observation is useful evidence but cannot qualify transport.
@@ -543,6 +548,10 @@ internal object GitHubTestChecklist {
         // dependencies are observed, finish an admissible fixture while its
         // cleanup allowance still fits instead of spending it on more samples.
         if (read != null && GitHubSelfTestReads.isDependency(read)) return read
+        if (read != null && GitHubChecklistScope.exhaustive(task) && remaining != null) {
+            val cannotFinish = inventoryCoverage(receipts, remaining).any { (it as? JsonObject)?.get("fits_remaining_call_budget") == JsonPrimitive(false) }
+            if (cannotFinish) return read
+        }
         continuation(task, tools, receipts, localOnly = false, workflowDependencyOnly = true)?.takeIf(::eligible)?.let { return it }
         // A fixture is bounded and must leave capacity for its verification and
         // cleanup; optional inventory sampling runs only after this decision.
@@ -1046,9 +1055,24 @@ internal object GitHubTestChecklist {
         }
         put("acceptance", JsonArray(acceptance.map(::JsonPrimitive)))
         put("pending_pages", JsonArray(pendingPages(receipts)))
-        put("pagination_resume", paginationResume(task, receipts, tools, (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull))
+        val pagination = paginationResume(task, receipts, tools, (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull)
+        val deadline = budget["stop_reason"] == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")
+        put(
+            "pagination_resume",
+            if (deadline) {
+                JsonObject(
+                    pagination + buildJsonObject {
+                        put("next_action", "Authorize a new time window before the saved read can run.")
+                        put("recovery_action", "AUTHORIZE_NEW_TIME_WINDOW")
+                        put("resume_allowed", false)
+                    }
+                )
+            } else {
+                pagination
+            }
+        )
         put("fixtures", GitHubSelfTestFixtures.checkpoint(receipts))
-        put("inventory_coverage", inventoryCoverage(receipts))
+        put("inventory_coverage", inventoryCoverage(receipts, (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull))
         put("evidence_count", trusted(receipts).size)
         put("new_workflow_executions", workflowExecutions(receipts))
         put("application_tests", "UNTESTED unless a newly executed test run/job result is bound to the exact requested SHA; generic workflow success is not application coverage")
@@ -1151,7 +1175,7 @@ internal object GitHubTestChecklist {
         "${row.text("retrieved")} of ${row.text("total")} retrieved; ${row.text("coverage")}"
     }
 
-    fun inventoryCoverage(receipts: Map<String, JsonObject>): JsonArray {
+    fun inventoryCoverage(receipts: Map<String, JsonObject>, remainingCalls: Int? = null): JsonArray {
         val pending = pendingPages(receipts)
         val trusted = trusted(receipts)
         fun filters(receipt: JsonObject, useObservedRevision: Boolean = true): JsonObject {
@@ -1281,6 +1305,14 @@ internal object GitHubTestChecklist {
                     put("consumed", kotlinx.serialization.json.JsonNull)
                     put("consumption_status", "NOT_RECORDED")
                     put("retained_review_records", records.size)
+                    val perPage = (key.third["per_page"] as? JsonPrimitive)?.longOrNull
+                    if (total != null && total > 0 && perPage != null && perPage > 0) {
+                        val minimum = (total - 1) / perPage + 1
+                        val outstanding = (minimum - byPage.keys.count { it in 1..minimum }).coerceAtLeast(0)
+                        put("minimum_pages", minimum)
+                        put("minimum_remaining_page_calls", outstanding)
+                        remainingCalls?.let { put("fits_remaining_call_budget", outstanding <= it) }
+                    }
                     put("total", total?.toString() ?: "unknown total")
                     put("coverage", if (complete) "retrieval complete at observation" else "incomplete or pending pagination")
                 }

@@ -2689,6 +2689,9 @@ class IncidentReportContractTest(unittest.TestCase):
         _, issue = issue_from_report(report)
         self.assertIn("| replay_budget_state | `REQUIRED_SAVED_PAGE_NOT_PRESENT` |", issue["body"])
         self.assertIn("| pending_saved_page_count | `1` |", issue["body"])
+        bounded = {**fields, "replay_budget_state": "SAVED_PAGE_EXCEEDS_ALLOWANCE",
+                   "minimum_page_body_tokens": 25001, "source_allowance": 24000}
+        validate_diagnostics(self.capture("INCIDENT", bounded))
         self.assertEqual(before, json.dumps(report, separators=(",", ":")))
         for invalid in (-1, 16_000_001, True, "1", None, {"body": "private source"}):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):

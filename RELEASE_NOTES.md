@@ -2,6 +2,8 @@
 
 Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+GitHub integration reports show the saved page after a time limit and the minimum remaining inventory calls. Phone maps identify the pinned revision and source coverage. Source reads preserve captured lines across files, and saved-page recovery distinguishes missing data, delivery mismatches and measured capacity. Private planning uses a separate token record. Failed provider requests show the retained reads available for inspection.
+
 Keep titles, technical terms, quantities and contextual readings together during live Kokoro speech. Reuse pack-bound native tokens on CPU, GPU and NPU and measure text-ready joins and warm first-presentation latency in audible Stability runs.
 
 Physical ROG Phone 9 Pro playback and three-listener pronunciation comparisons remain unmeasured for the revised planner. Native FP32 processor preference requires device-specific qualification.

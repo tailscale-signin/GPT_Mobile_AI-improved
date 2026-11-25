@@ -11,6 +11,19 @@ internal class DiagnosticCaptureTimings(private val nanoTime: () -> Long = Syste
     private data class Sample(var calls: Long = 0, var nanos: Long = 0)
     private val samples = linkedMapOf<Phase, Sample>()
     private var redactionReuseHits = 0L
+    private val verifiedShapes = linkedSetOf<Pair<Int, String>>()
+    private var shapeReuseHits = 0L
+
+    fun hasVerifiedShape(nodeBudget: Int, digest: String): Boolean {
+        val hit = (nodeBudget to digest) in verifiedShapes
+        if (hit) shapeReuseHits++
+        return hit
+    }
+
+    fun retainVerifiedShape(nodeBudget: Int, digest: String) {
+        verifiedShapes.add(nodeBudget to digest)
+        if (verifiedShapes.size > 32) verifiedShapes.remove(verifiedShapes.first())
+    }
 
     fun redactionReused() {
         redactionReuseHits++
@@ -43,6 +56,7 @@ internal class DiagnosticCaptureTimings(private val nanoTime: () -> Long = Syste
     fun json(): JsonObject = buildJsonObject {
         put("scope", "Current stage attempt only; excludes earlier resumed parts. Query includes bounded cursor materialization; hydration includes protected projection. Timings are elapsed observations, not CPU time or a complete stage sum.")
         put("redactionReuseHits", redactionReuseHits)
+        put("protectedShapeReuseHits", shapeReuseHits)
         put(
             "phases",
             buildJsonObject {

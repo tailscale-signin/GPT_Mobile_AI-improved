@@ -104,6 +104,7 @@ internal fun RepositoryGraphStatusContent(
         state.indexingOnGateway -> "Building on gateway"
         state.busy -> if (state.operation == "index") "Updating index" else "Checking"
         jobState == "FAILED" -> "Indexing needs attention"
+        state.onPhone && processed == 0 && partial && metadata?.get("inventory_available") == JsonPrimitive(true) -> "Tree only"
         canContinue -> if (state.onPhone) "Source indexing available" else "Paused"
         graph.nodes.isNotEmpty() -> if (partial) "Partial map" else "Map available"
         indexedEmpty -> "No source links"

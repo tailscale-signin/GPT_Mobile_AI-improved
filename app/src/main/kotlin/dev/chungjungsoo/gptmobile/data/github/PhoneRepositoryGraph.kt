@@ -89,8 +89,14 @@ internal object PhoneRepositoryGraph {
                 }
             )
         }
+        fun sourceCoverage(graph: JsonObject) = when {
+            graph["complete"] == JsonPrimitive(true) -> "INDEXED"
+            scanned == 0 -> "TREE_ONLY"
+            else -> "PARTIALLY_INDEXED"
+        }
         fun base(graph: JsonObject, outcome: String = "INDEXED") = buildJsonObject {
             put("status", outcome)
+            put("source_coverage_state", sourceCoverage(graph))
             put("graph", graph)
             put("map_source", "phone")
             put("graph_source", "PHONE")
@@ -98,7 +104,8 @@ internal object PhoneRepositoryGraph {
             put("limitations", LIMITATIONS)
         }
         if (action == "status" || action == "index") {
-            return JsonObject(status + base(metadata()) + mapOf("has_more" to (status["has_more"] ?: JsonPrimitive(false))))
+            val graph = metadata()
+            return JsonObject(status + base(graph, sourceCoverage(graph)) + mapOf("has_more" to (status["has_more"] ?: JsonPrimitive(false))))
         }
         val focus = (arguments["paths"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.onEach { require(validPath(it)) { "Use a repository-relative source path." } }.take(8)
         val topology = restored ?: buildTopology(entries, byPath, shards, focus).also { capture?.invoke(it) }

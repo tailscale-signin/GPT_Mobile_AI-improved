@@ -179,7 +179,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                         Text(if (state.onPhone) "Source analysis shows structural links and possible dependencies. Caller, callee and impact results are candidates from the indexed files." else "Source relationships guide investigation. Test results and current GitHub checks remain authoritative.", style = MaterialTheme.typography.bodySmall)
                         if (result["stale"] == JsonPrimitive(true)) Text("The branch has moved. This map describes ${context.commitSha.take(10)}.", color = MaterialTheme.colorScheme.error)
                         if (result["truncated"] == JsonPrimitive(true)) Text("Showing a bounded selection. Search for a narrower symbol or subsystem.")
-                        if (metadata != null) Text("${metadata.text("processed_files")} / ${metadata.text("expected_files")} files · ${metadata.text("nodes", "—")} ${if (state.onPhone) "sources and symbols" else "symbols"} · ${metadata.text("unresolved_references", "—")} unresolved", style = MaterialTheme.typography.bodySmall)
+                        if (metadata != null) Text("${metadata.text("commit_sha").take(12)} · ${metadata.text("processed_files")} / ${metadata.text("expected_files")} source files · ${metadata.text("nodes", "—")} ${if (state.onPhone) "sources and symbols" else "symbols"} · ${metadata.text("unresolved_references", "—")} unresolved", style = MaterialTheme.typography.bodySmall)
                         if (result.text("status") == "NOT_INDEXED") Text("Index this revision to build its local repository map.")
                         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }

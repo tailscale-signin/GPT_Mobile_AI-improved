@@ -24,6 +24,14 @@ data class GitHubConversationContext(
         require(ref.isNotBlank() && commitSha.matches(Regex("[a-fA-F0-9]{40}")))
     }
 
+    internal fun requestsCurrentMap(request: String): Boolean {
+        if ((stagedFileCount ?: 0) > 0 || ref.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) return false
+        val text = GitHubTaskContinuity.request(request)
+        if (Regex("""(?i)\b[0-9a-f]{7,64}\b|\b(?:historical|pinned|as of)\b""").containsMatchIn(text)) return false
+        return Regex("""(?i)\b(?:current|latest|newest|up.to.date)\b""").containsMatchIn(text) &&
+            Regex("""(?i)\b(?:branch|main|head|repo(?:sitory)?|map|pr|pull request)\b""").containsMatchIn(text)
+    }
+
     /** Request-local scope only; this does not grant tools, credentials or write access. */
     fun promptContext(request: String = "", contextTokens: Int = Int.MAX_VALUE): String {
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(request)

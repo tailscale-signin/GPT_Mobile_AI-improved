@@ -17,6 +17,24 @@ import org.junit.Test
 class PhoneRepositoryGraphTest {
     private val context = GitHubTaskSnapshot("account", "connection", "conversation", "map", "owner", "repo", "main", "a".repeat(40), "b".repeat(40))
 
+    @Test fun phoneStatusSeparatesTreePartialAndCompleteCoverageAtOneSha() {
+        val tree = tree("src/A.kt", "src/B.kt")
+        for ((processed, expected) in listOf(0 to "TREE_ONLY", 1 to "PARTIALLY_INDEXED", 2 to "INDEXED")) {
+            val status = buildJsonObject { put("phone_indexed_supported_files", processed) }
+            val result = PhoneRepositoryGraph.execute(context, tree, emptyMap(), status, buildJsonObject { put("action", "status") })
+            assertEquals(expected, result.text("status"))
+            val graph = result.getValue("graph").jsonObject
+            assertEquals(JsonPrimitive(processed), graph["processed_files"])
+            assertEquals(JsonPrimitive(2), graph["expected_files"])
+            assertEquals(JsonPrimitive(context.commitSha), graph["commit_sha"])
+        }
+        val chat = GitHubConversationContext("connection", "owner", "repo", "main", context.commitSha, "profile")
+        assertTrue(chat.requestsCurrentMap("Review the latest PR branch"))
+        assertTrue(!chat.copy(ref = context.commitSha).requestsCurrentMap("Review the current map"))
+        assertTrue(!chat.requestsCurrentMap("Review the current map at ${context.commitSha}"))
+        assertTrue(!chat.copy(stagedFileCount = 1).requestsCurrentMap("Review current main"))
+    }
+
     @Test fun separateChatsReuseTopologyAndMissingPagesTriggerARebuild() = runBlocking {
         val store = GitHubRepositoryStateStore()
         val tree = tree("src/A.kt")
@@ -41,7 +59,7 @@ class PhoneRepositoryGraphTest {
     @Test fun emptySourceCacheStillDisplaysPinnedDirectoryAndFileStructure() {
         val tree = tree("src/A.kt", "src/B.kt")
         val status = execute(tree, action = "status")
-        assertEquals("INDEXED", status.text("status"))
+        assertEquals("TREE_ONLY", status.text("status"))
         assertEquals(context.commitSha, status["graph"]!!.jsonObject.text("commit_sha"))
         assertEquals("false", status["graph"]!!.jsonObject.text("coverage_complete"))
         val map = execute(tree)

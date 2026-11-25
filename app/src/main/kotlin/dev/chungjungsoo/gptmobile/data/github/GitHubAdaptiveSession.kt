@@ -51,18 +51,28 @@ internal class GitHubAdaptiveSession(
                                 if (event.text.length > 12000 - text.length) throw PlanningContractFailure("The planning response exceeded its size limit.", invocationId)
                                 text.append(event.text)
                             }
-                            is ProviderEvent.Failed -> throw PlanningFailure(event)
+                            is ProviderEvent.Failed -> {
+                                if (!event.transportComplete ||
+                                    event.providerLimit != null ||
+                                    !(event.errorCode in setOf("OUTPUT_LIMIT", "MAX_TOKENS") || dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message))
+                                ) {
+                                    throw PlanningFailure(event)
+                                }
+                                // The adapter can represent a confirmed length boundary as Failed without Completed.
+                                completed = true
+                                outputLimitReached = true
+                            }
                             is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> throw PlanningContractFailure("A text-only planning pass requested a tool.", invocationId)
                             is ProviderEvent.Usage -> {
                                 event.invocationId?.let { invocationId = it }
                                 if (event.finishReason == "content_filter") throw PlanningContractFailure("The provider filtered the planning response.", invocationId, "PROVIDER")
-                                val limited = event.finishReason == "length" || event.finishReason == "max_tokens"
+                                val limited = event.finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit")
                                 if (limited) outputLimitReached = true
                                 // This finish reason belongs to a private pass. Keep its usage separate from the primary answer's completion.
-                                emit(if (limited) event.copy(finishReason = null) else event)
+                                emit(event.copy(advisoryRole = stage))
                             }
                             ProviderEvent.Completed -> completed = true
-                            is ProviderEvent.ThinkingDelta -> Unit
+                            is ProviderEvent.ThinkingDelta, is ProviderEvent.RequestConfigured -> Unit
                             else -> emit(event)
                         }
                     }

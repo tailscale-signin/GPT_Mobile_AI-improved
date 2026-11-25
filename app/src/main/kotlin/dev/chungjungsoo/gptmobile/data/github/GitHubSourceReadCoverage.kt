@@ -20,7 +20,12 @@ internal object GitHubSourceReadCoverage {
             return (start..end).takeIf { start >= 1 && end in start..total }
         }
         val before = (prior?.get("captured_ranges") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull(::interval)
-        val current = items.filter { it["range_complete"] == JsonPrimitive(true) }.mapNotNull(::interval)
+        val current = items.mapNotNull { item ->
+            if (item["range_complete"] == JsonPrimitive(true)) return@mapNotNull interval(item)
+            val start = (item["captured_start_line"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
+            val end = (item["captured_end_line"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
+            (start..end).takeIf { start >= 1 && end in start..total }
+        }
         val union = mutableListOf<IntRange>()
         for (range in (before + current).sortedBy { it.first }) {
             val last = union.lastOrNull()

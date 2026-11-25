@@ -38,7 +38,8 @@ internal suspend fun readWorkspaceDiagnosticPayload(
     storedSize: suspend (String) -> Long?,
     read: suspend (String) -> ByteArray?,
     omitted: (String) -> Unit,
-    projector: DiagnosticValueProjector? = null
+    projector: DiagnosticValueProjector? = null,
+    timings: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings? = null
 ): WorkspaceDiagnosticPayload {
     require(maximumBytes in 1024..1_048_576)
     val chunks = metadata["protectedChunks"]
@@ -104,15 +105,21 @@ internal suspend fun readWorkspaceDiagnosticPayload(
             val digest = DiagnosticRecordChunks.hex(MessageDigest.getInstance("SHA-256").apply { update(output, 0, used) }.digest())
             if (digest != expectedDigest) return missing("PROTECTED_DIGEST_MISMATCH")
         }
-        val shapeFailure = try {
-            val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
-            InputStreamReader(ByteArrayInputStream(output, 0, used), decoder).use { reader ->
-                diagnosticJsonShapeFailure(reader, diagnosticNodeBudget(maximumBytes))
+        val nodes = diagnosticNodeBudget(maximumBytes)
+        // Only authenticated bytes with a freshly verified digest can reuse shape validation.
+        // Projection, redaction and authorization still run for this row and its own budgets.
+        if (expectedDigest == null || timings?.hasVerifiedShape(nodes, expectedDigest) != true) {
+            val shapeFailure = try {
+                val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
+                InputStreamReader(ByteArrayInputStream(output, 0, used), decoder).use { reader ->
+                    diagnosticJsonShapeFailure(reader, nodes)
+                }
+            } catch (_: CharacterCodingException) {
+                return missing("PROTECTED_PAYLOAD_INVALID_UTF8")
             }
-        } catch (_: CharacterCodingException) {
-            return missing("PROTECTED_PAYLOAD_INVALID_UTF8")
+            if (shapeFailure != null) return missing(shapeFailure)
+            if (expectedDigest != null) timings?.retainVerifiedShape(nodes, expectedDigest)
         }
-        if (shapeFailure != null) return missing(shapeFailure)
         val value = try {
             ByteArrayInputStream(output, 0, used).use { Json.decodeFromStream(JsonElement.serializer(), it) as? JsonObject }
         } catch (_: IllegalArgumentException) {

@@ -359,7 +359,8 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         maximumBytes: Int,
         beforeRead: suspend () -> Unit,
         omitted: (String) -> Unit,
-        projector: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector? = null
+        projector: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector? = null,
+        timings: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings? = null
     ): WorkspaceDiagnosticPayload {
         if (kind !in setOf("context", "github_evidence", "synthesis_checkpoint", "github_engineering_memory")) {
             return WorkspaceDiagnosticPayload(false)
@@ -389,7 +390,8 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             storedSize = vault::storedSize,
             read = vault::read,
             omitted = omitted,
-            projector = projector
+            projector = projector,
+            timings = timings
         )
     }
 

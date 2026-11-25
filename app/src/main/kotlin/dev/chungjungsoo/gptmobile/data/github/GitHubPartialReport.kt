@@ -81,6 +81,14 @@ internal object GitHubPartialReport {
         facts.lastOrNull { it["comparison_observed"] == JsonPrimitive(true) }?.let { row ->
             lines += "Comparison captured: `${row.text("base_sha")}` → `${row.text("head_sha")}`. Source-review completion remains unverified" + cite(row)
         }
+        val sourceRows = facts.flatMap { fact ->
+            (fact["source_ranges"] as? kotlinx.serialization.json.JsonArray).orEmpty().filterIsInstance<JsonObject>().map { it to fact }
+        }.associateBy { (row, _) -> row.text("commit_sha") to row.text("path") }.values
+        sourceRows.toList().takeLast(12).forEach { (row, fact) ->
+            val unread = row["first_unread"] as? JsonObject
+            val coverage = if (unread != null) "First unread lines ${unread.text("start_line")}–${unread.text("end_line")}" else "All recorded lines captured"
+            lines += "${safe(row.text("path"))}: ${row.text("captured_lines")} lines captured. $coverage" + cite(fact)
+        }
         return if (lines.isEmpty()) "" else "**Established observations**\n\n" + lines.joinToString("\n") { "- $it" } + "\n\nThese retained observations do not establish completion of the requested task."
     }
 

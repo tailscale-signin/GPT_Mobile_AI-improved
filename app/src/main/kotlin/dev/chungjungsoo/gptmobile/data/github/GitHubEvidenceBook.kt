@@ -1262,6 +1262,13 @@ internal class GitHubEvidenceBook(
         )
         val explained = JsonObject(durable + (GitHubAcceptanceExplanation.KEY to GitHubAcceptanceExplanation.record(durable, taskContract ?: load("task_contract"))))
         saveCurrent("verification", explained)
+        // A terminal page can land after the last planning checkpoint. Mirror the
+        // receipt-fenced final cursor so reopening the checklist uses that same page.
+        val finalChecklist = explained["test_checklist"] as? JsonObject
+        if (finalChecklist != null && (explained["stop_reason"] as? JsonObject)?.get("code") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+            val terminalFields = explained.filterKeys { it in setOf("binding", "stop_reason", "effective_recovery", "execution_ledger", "task_recovery_checkpoint", "next_action", "next_action_decision", "evidence_retention_complete") }
+            saveCurrent("checklist", JsonObject(finalChecklist + terminalFields))
+        }
         return explained
     }
 

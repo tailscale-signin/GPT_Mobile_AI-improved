@@ -25,6 +25,37 @@ class GitHubAdaptiveSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(*events)
     }
 
+    @Test fun completedPrivateLimitCannotConsumeThePublicRepair() = runBlocking {
+        val privatePass = session(
+            ProviderEvent.RequestConfigured(effectiveOutputTokens = 1024),
+            ProviderEvent.Usage(outputTokens = 1024, reasoningTokens = 360, finishReason = "length", invocationId = "private-plan"),
+            ProviderEvent.Failed("The response reached its output limit.", transportComplete = true)
+        )
+        val public = session(ProviderEvent.ThinkingDelta("working"), ProviderEvent.Usage(finishReason = "stop", invocationId = "public-turn"), ProviderEvent.Completed)
+        val adaptive = GitHubAdaptiveSession(
+            public,
+            GitHubAdaptiveSession.INTENT_ROLE,
+            "binding",
+            open = { _, _ -> privatePass },
+            continueWith = { error("Capped private plan cannot direct execution") },
+            load = { null },
+            save = { error("Capped plan cannot be saved") }
+        )
+        var repairs = 0
+        var saved: JsonObject? = null
+        val output = dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(adaptive, saveCheckpoint = { saved = it }) { _, _, _ ->
+            repairs++
+            session(ProviderEvent.TextDelta("Verified public answer"), ProviderEvent.Completed)
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, repairs)
+        assertTrue(output.filterIsInstance<ProviderEvent.TextDelta>().any { "Verified public answer" in it.text })
+        val usage = output.filterIsInstance<ProviderEvent.Usage>().single { it.advisoryRole != null }
+        assertEquals("private-plan", usage.invocationId)
+        assertEquals(360, usage.reasoningTokens)
+        assertEquals(JsonPrimitive(1), saved?.get("no_output_repairs"))
+        assertFalse((saved?.get("no_output_observation") as? JsonObject).toString().contains("private-plan"))
+    }
+
     @Test fun optionsSurviveFailedSelectionAndResumeRunsOnlyUnfinishedStage() = runBlocking {
         var saved: JsonObject? = null
         var failSelection = true
@@ -119,7 +150,8 @@ class GitHubAdaptiveSessionTest {
             assertEquals(listOf("original"), events.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
             val usage = events.filterIsInstance<ProviderEvent.Usage>().single()
             assertEquals(15, usage.outputTokens)
-            assertEquals(null, usage.finishReason)
+            assertEquals(reason, usage.finishReason)
+            assertEquals(GitHubAdaptiveSession.INTENT_ROLE, usage.advisoryRole)
         }
         for (response in listOf(plan, "unstructured answer", plan.replace("MIXED", "AUTHORIZE"))) {
             var saved: JsonObject? = null

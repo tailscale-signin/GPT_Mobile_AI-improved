@@ -38,6 +38,22 @@ internal object GitHubSemanticSummary {
                 put("action", action)
                 put("source_result_sha256", GitHubEvidenceBook.digest(source.toString()))
                 put("hash_scope", "IMMUTABLE_SOURCE_RESULT")
+                if (operation.githubOperationFamily() == "github_read" && action in setOf("", "ranges", "read_ranges")) {
+                    val coverage = (data["source_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                    if (coverage.isNotEmpty()) {
+                        put(
+                            "source_ranges",
+                            JsonArray(
+                                coverage.take(12).map { row ->
+                                    buildJsonObject {
+                                        for (key in listOf("path", "commit_sha", "captured_lines", "complete_file")) row[key]?.let { put(key, it) }
+                                        (row["unread_ranges"] as? JsonArray)?.firstOrNull()?.let { put("first_unread", it) }
+                                    }
+                                }
+                            )
+                        )
+                    }
+                }
                 put("scope", "Captured observations only; task completion and required-check policy are independently verified.")
                 data.text("base_sha").takeIf(sha::matches)?.let { put("base_sha", it) }
                 if (consistentHead) {
@@ -335,7 +351,7 @@ internal object GitHubSemanticSummary {
         if (JsonObject(retained).toString().length <= maxCharacters) return JsonObject(retained)
         // Legacy or malformed summaries cannot consume an unbounded replay. Keep
         // identity and the first useful observation, not an all-or-nothing placeholder.
-        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "pr_head_ref", "pr_head_repo", "source_result_sha256", "apk_size_failure", "failed_job_step", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
+        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "pr_head_ref", "pr_head_repo", "source_result_sha256", "apk_size_failure", "failed_job_step", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "source_ranges", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
         val bounded = linkedMapOf<String, kotlinx.serialization.json.JsonElement>("summary_truncated" to JsonPrimitive(true))
         for (key in priority + retained.keys) {
             if (key in bounded) continue

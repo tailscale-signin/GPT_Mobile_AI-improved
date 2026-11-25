@@ -462,7 +462,8 @@ class DiagnosticDatabaseSource @Inject constructor(
                             maximumCharacters,
                             beforeRead,
                             ::recordOmission,
-                            projector
+                            projector,
+                            timings
                         )
                     }
                     if (protected.decodedBytes > 0) {

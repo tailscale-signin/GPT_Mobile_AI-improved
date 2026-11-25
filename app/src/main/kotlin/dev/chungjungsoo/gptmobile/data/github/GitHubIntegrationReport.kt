@@ -33,7 +33,9 @@ internal object GitHubIntegrationReport {
         val admitted = admissions.count { it.text("admission") == "READY" }
         val discoverySelected = admissions.any { it["discovery_selected"] == JsonPrimitive(true) }
         val admissionReasons = admissions.filter { it.text("admission") != "READY" }.groupingBy { it.text("admission") }.eachCount()
+        val deadlineReached = (checklist["stage_budget"] as? JsonObject)?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED"
         val reason = when {
+            deadlineReached -> "ACCEPTED_TASK_DEADLINE_REACHED" to "The accepted time window expired. Completed checks and the latest pagination receipt are saved."
             integration && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
             receipts.values.lastOrNull()?.get("error_code") == JsonPrimitive("COMBINED_BUDGET_EXHAUSTED") ->
@@ -84,6 +86,7 @@ internal object GitHubIntegrationReport {
                     } else {
                         "RECONCILE_CATALOG_SNAPSHOT"
                     }
+                    "ACCEPTED_TASK_DEADLINE_REACHED" -> "AUTHORIZE_NEW_TIME_WINDOW"
                     "COMBINED_BUDGET_EXHAUSTED" -> "REVIEW_SHARED_COMBINED_ALLOWANCE"
                     "WAITING_FOR_APPROVAL" -> "RESOLVE_BOUND_APPROVAL"
                     "FIXTURE_CLEANUP_UNVERIFIED" -> if (cleanupStoppedBeforeDispatch) "RECHECK_OWNED_FIXTURE_PREFLIGHT" else "RECONCILE_OWNED_FIXTURE"
@@ -156,8 +159,22 @@ internal object GitHubIntegrationReport {
         if (!complete) {
             val preparation = checkpoint["preparation"] as? JsonObject
             val groups = preparation?.array("blockers").orEmpty()
-            val next = groups.firstOrNull { it.text("code") == "FIXTURE_APPROVAL_MODE_REQUIRED" } ?: groups.firstOrNull()
-            next?.strings("explanations")?.firstOrNull()?.let { append("**Next action** · ${safe(it)}\n\n") }
+            val nextRead = (checkpoint["pagination_resume"] as? JsonObject)?.get("next_call") as? JsonObject
+            if (stop.text("recovery_action") == "AUTHORIZE_NEW_TIME_WINDOW") {
+                append("**Next action** · Send “${GitHubExecutionLimits.RENEWAL_EXAMPLE}” to authorize more time.")
+                nextRead?.let { read ->
+                    val args = read["arguments"] as? JsonObject
+                    append(" Saved read after renewal: ${safe(read.text("tool"))}")
+                    args?.text("action")?.takeIf(String::isNotBlank)?.let { append(" / ${safe(it)}") }
+                    args?.number("page")?.let { append(", page $it") }
+                    append(".")
+                }
+                append("\n\n")
+            } else {
+                val required = requiredCapabilities.mapTo(mutableSetOf()) { it.text("id") }
+                val next = groups.firstOrNull { group -> group.strings("capability_ids").any(required::contains) }
+                next?.strings("explanations")?.firstOrNull()?.let { append("**Next action** · ${safe(it)}\n\n") }
+            }
         }
         append("### Verification details\n\n")
         append("Of the passed required capabilities, ${passedCapabilities.count { it["live_verified"] == JsonPrimitive(true) }} have live response evidence and ${passedCapabilities.count { it["live_verified"] != JsonPrimitive(true) }} qualify only the recorded response scope. Cached or local acceptance does not establish live transport or application/device execution.\n\n")
@@ -239,7 +256,13 @@ internal object GitHubIntegrationReport {
             append("| $name | ${value.text("count")} | ${if (name == "HISTORICAL_CI_OBSERVATION") "Observed remote CI; does not establish a newly executed app/device test" else value.text("status").ifBlank { "${ids(value["receipt_ids"] as? JsonArray)}" }} |\n")
         }
         append("\n### Repository inventory and stop reason\n\n")
-        checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${safe(GitHubTestChecklist.inventorySummary(row))}.\n") }
+        checkpoint.array("inventory_coverage").forEach { row ->
+            append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${safe(GitHubTestChecklist.inventorySummary(row))}.")
+            if (row["fits_remaining_call_budget"] == JsonPrimitive(false)) {
+                append(" At least ${row.text("minimum_remaining_page_calls")} more page calls are needed for this inventory alone. Preserve the unfinished scope across allowances.")
+            }
+            append("\n")
+        }
         if (complete) append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         if ((stop.number("pending_continuations") ?: 0) > 0) {
             append("\nRetained continuation recipes: ${stop.text("pending_continuations")}. Further reads retain the task's scope, authorization and remaining budget.\n")

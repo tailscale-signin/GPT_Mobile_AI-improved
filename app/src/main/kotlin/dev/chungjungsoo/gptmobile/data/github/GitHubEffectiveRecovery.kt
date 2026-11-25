@@ -158,11 +158,30 @@ internal object GitHubEffectiveRecovery {
         return JsonObject(report + mapOf("effective_recovery" to decision.json(), "task_recovery_checkpoint" to checkpoint))
     }
 
+    fun publicationText(text: String, report: JsonObject, receipts: Map<String, JsonObject>): String {
+        val decision = resolve(report)
+        val original = report["original_failure"] as? JsonObject ?: return text
+        if (decision.kind != Kind.INSPECT_FAILURE || decision.action != "INSPECT_EXECUTION_FAILURE") return text
+        val invocation = original.text("invocation_id").takeIf { it.matches(Regex("[A-Za-z0-9_.:-]{1,128}")) }
+        val reads = receipts.values.count {
+            it["trusted"] == JsonPrimitive(true) &&
+                it["success"] == JsonPrimitive(true) &&
+                (it["arguments"] as? JsonObject)?.let { args -> dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(it.text("tool"), args) } == true
+        }
+        val beforeAction = text.substringBeforeLast("\n\n**Next action:** ", text).trimEnd()
+        return buildString {
+            append(beforeAction)
+            append("\n\n**Next action** · Review the failed provider request")
+            invocation?.let { append(" `$it`") }
+            append(" and $reads retained successful read receipts. Check remote acceptance before starting a fresh task from the saved evidence. The failed request remains paused.")
+        }
+    }
+
     private fun inspection(action: String): Decision = Decision(
         Kind.INSPECT_FAILURE,
         when (action) {
             "RESUME_VERIFICATION" -> "INSPECT_VERIFICATION_FAILURE"
-            "", "NONE", "RESUME_UNFINISHED_WORK" -> "INSPECT_EXECUTION_FAILURE"
+            "", "NONE", "RESUME_UNFINISHED_WORK", "CONTINUE_FROM_THE_FIRST_UNVERIFIED_CRITERION" -> "INSPECT_EXECUTION_FAILURE"
             else -> action
         },
         "Review recovery details"

@@ -56,7 +56,9 @@ sealed interface ProviderEvent {
         val invocationId: String? = null,
         /** Bounded backend attempt observations; their presence does not supply token usage. */
         val gatewayRecovery: JsonObject? = null,
-        val cachedPromptTokens: Int? = null
+        val cachedPromptTokens: Int? = null,
+        /** A private advisory invocation is metered independently of the public reply. */
+        val advisoryRole: String? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */

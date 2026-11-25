@@ -19,6 +19,33 @@ class GitHubEffectiveRecoveryTest {
         put("execution_ledger", buildJsonObject { put("recovery", "INSPECT_VERIFICATION_FAILURE") })
     }
 
+    @Test fun postBodyFailureUsesOneInspectionActionWithTheRetainedReads() {
+        val original = buildJsonObject {
+            put("code", "TLS_FAILED")
+            put("invocation_id", "attempt-42")
+            put("resume_allowed", false)
+        }
+        val report = buildJsonObject {
+            put("original_failure", original)
+            put("recovery_action", "CONTINUE_FROM_THE_FIRST_UNVERIFIED_CRITERION")
+            put("task_outcome", "PARTIAL")
+        }
+        val read = buildJsonObject {
+            put("trusted", true)
+            put("success", true)
+            put("tool", "github_context")
+            put("arguments", buildJsonObject { put("action", "status") })
+        }
+        val receipts = (1..7).associate { "read-$it" to read }
+        val decision = GitHubEffectiveRecovery.resolve(report)
+        assertEquals("INSPECT_EXECUTION_FAILURE", decision.action)
+        assertFalse(decision.continueWork)
+        val result = GitHubEffectiveRecovery.publicationText("Saved results.\n\n**Next action:** Resume from the first unverified criterion.", report, receipts)
+        assertTrue(result.contains("attempt-42"))
+        assertTrue(result.contains("7 retained successful read receipts"))
+        assertFalse(result.contains("Resume from"))
+    }
+
     @Test fun outputCheckpointCannotOverrideTheTaskRecoveryDenial() {
         val report = buildJsonObject {
             put("task_outcome", "PARTIAL")

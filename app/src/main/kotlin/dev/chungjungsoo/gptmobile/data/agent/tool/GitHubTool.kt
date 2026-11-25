@@ -31,6 +31,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -201,6 +202,32 @@ class GitHubTool(
             } ?: return bound
             return bound.copy(ref = snapshot.ref, commitSha = snapshot.commitSha, observedAtMillis = snapshot.updatedAt)
         }
+        val mapSelection = kotlinx.coroutines.sync.Mutex()
+        suspend fun scopeForRead(arguments: JsonObject): dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext {
+            val options = arguments["options"] as? JsonObject
+            if (!bound.requestsCurrentMap(taskRequest.orEmpty()) ||
+                options?.containsKey("commit_sha") == true ||
+                arguments["action"] in setOf(JsonPrimitive("note"), JsonPrimitive("index")) ||
+                arguments["map_source"] == JsonPrimitive("gateway")
+            ) {
+                return currentScope()
+            }
+            return mapSelection.withLock {
+                if (workspaceClient.taskSnapshot() == null) {
+                    validateSavedViewAccess()
+                    workspaceClient.execute(
+                        "resolve_context",
+                        buildJsonObject {
+                            put("owner", bound.owner)
+                            put("repo", bound.repo)
+                            put("ref", bound.ref)
+                            put("refresh", true)
+                        }
+                    )
+                }
+                currentScope()
+            }
+        }
         fun forScope(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) = RepositoryGraphTool(
             "repository_graph$suffix",
             nativeStatus = nativeStatus,
@@ -244,7 +271,7 @@ class GitHubTool(
         object : AgentTool {
             override val definition = forScope(bound).definition
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
-                forScope(currentScope()).execute(callId, arguments)
+                forScope(scopeForRead(arguments)).execute(callId, arguments)
         }
     }
 

@@ -2186,13 +2186,25 @@ class AgentRunner(
                 replay.exchanges
             }
             if (owed.isNotEmpty() && !deliveryOnly) {
+                val measured = owed.mapNotNull { (id, digest) ->
+                    originalResults[id]?.takeIf { digest != null && ToolResultDeliveryProof.digest(it.content, replayRenderCache) == digest }
+                        ?.let { replayRenderCache.measure(it.content).tokens }
+                }
+                val smallest = measured.minOrNull()
+                val state = when {
+                    owed.any { (id, digest) -> digest == null || originalResults[id] == null } -> "SAVED_PAGE_BODY_UNAVAILABLE"
+                    measured.size == owed.size && smallest != null && smallest > sourceAllowance -> "SAVED_PAGE_EXCEEDS_ALLOWANCE"
+                    else -> "SAVED_PAGE_DELIVERY_MISMATCH"
+                }
+                val pageIds = owed.keys.take(3).filter { it.matches(Regex("[A-Za-z0-9_.:-]{1,96}")) }.joinToString(", ")
+                val recovery = when (state) {
+                    "SAVED_PAGE_BODY_UNAVAILABLE" -> "The original saved page body is unavailable. Reopen the same page from its authorized checkpoint."
+                    "SAVED_PAGE_EXCEEDS_ALLOWANCE" -> "The smallest outstanding page needs at least $smallest estimated body tokens and the source allowance is $sourceAllowance. Narrow the requested range or authorize more context."
+                    else -> "The delivered saved page does not match its expected body. Restore the exact page from the saved checkpoint before continuing."
+                }
                 emit(
                     ProviderEvent.Failed(
-                        if (requiredSavedPageDigests.values.any { it == null }) {
-                            "A restored GitHub page retains read-admission evidence but its original body is unavailable. Reopen that exact saved page from its original checkpoint or in a new authorized read task before continuing; no further automatic read was dispatched."
-                        } else {
-                            "A saved GitHub page cannot be delivered in full within this request's replay allowance. Saved evidence remains available; narrow the pending batch or resume with enough context before reading further pages."
-                        },
+                        recovery + if (pageIds.isEmpty()) "" else " Outstanding page receipts: $pageIds.",
                         errorCode = "REPLAY_EVIDENCE_REQUIRED",
                         taskOutcome = "BLOCKED",
                         failureDetails = buildJsonObject {
@@ -2200,8 +2212,10 @@ class AgentRunner(
                             put("dispatched", false)
                             put("logical_continuation_allowed", false)
                             put("failure_origin", "APPLICATION")
-                            put("replay_budget_state", if (requiredSavedPageDigests.values.any { it == null }) "SAVED_PAGE_BODY_UNAVAILABLE" else "SAVED_PAGE_DELIVERY_MISMATCH")
-                            put("pending_saved_page_count", requiredSavedPageDigests.size)
+                            put("replay_budget_state", state)
+                            put("pending_saved_page_count", owed.size)
+                            smallest?.let { put("minimum_page_body_tokens", it) }
+                            put("source_allowance", sourceAllowance)
                             put("replay_exchange_count", exchanges.size)
                             put("retryable", false)
                             put("replay_tokens", replay.compactedTokens)
@@ -2444,7 +2458,7 @@ class AgentRunner(
                         roundReasoningTokens = if (event.cumulative) maxOf(roundReasoningTokens ?: 0L, tokens.toLong()) else (roundReasoningTokens ?: 0L) + tokens
                     }
                     event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
-                    event.finishReason?.let { roundFinishReason = it }
+                    if (event.advisoryRole == null) event.finishReason?.let { roundFinishReason = it }
                     roundSettingsConfirmed = roundSettingsConfirmed || event.effectiveSettingsConfirmed
                     roundRuntime = event.actualRuntime ?: roundRuntime
                     roundInput.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)

@@ -46,6 +46,32 @@ class GitHubIntegrationReportTest {
     }
     private fun source() = receipt("source", "github_context", json("""{"action":"status"}"""), json("""{"branch":"main","commit_sha":"$sha","repository":{"default_branch":"main"}}"""))
 
+    @Test fun terminalTimeWindowUsesLatestPageAndLeavesFixtureApprovalWithItsCriterion() {
+        val records = mapOf("source" to source())
+        val base = GitHubTestChecklist.checkpoint(task, records, tools, 128)
+        val stopBudget = JsonObject((base.getValue("stage_budget") as JsonObject) + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")))
+        val page = json("""{"next_call":{"tool":"github_ci","arguments":{"action":"runs","page":117,"per_page":100}}}""")
+        val end = JsonObject(base + mapOf("stage_budget" to stopBudget, "pagination_resume" to page))
+        val reason = GitHubIntegrationReport.stopReason(task, records, tools, 128, end)
+        assertEquals(JsonPrimitive("AUTHORIZE_NEW_TIME_WINDOW"), reason["recovery_action"])
+        val report = GitHubIntegrationReport.render(task, records, tools, 128, checkpoint = end)
+        val next = report.lines().single { it.startsWith("**Next action**") }
+        assertTrue(next.contains(GitHubExecutionLimits.RENEWAL_EXAMPLE))
+        assertTrue(next.contains("page 117"))
+        assertFalse(next.contains("fixture", ignoreCase = true))
+        assertFalse(report.contains("INVENTORY_CONTINUATION_BLOCKED"))
+    }
+
+    @Test fun firstInventoryTotalEstimatesMinimumRemainingCallsUnderOriginalLimit() {
+        val args = json("""{"action":"runs","per_page":100,"page":1}""")
+        val result = json("""{"total_count":40000,"page":1,"per_page":100,"has_more":true,"workflow_runs":[{"id":14}]}""")
+        val records = mapOf("page1" to receipt("page1", "github_ci", args, result))
+        val row = GitHubTestChecklist.inventoryCoverage(records, 255).single().jsonObject
+        assertEquals(JsonPrimitive(400L), row["minimum_pages"])
+        assertEquals(JsonPrimitive(399L), row["minimum_remaining_page_calls"])
+        assertEquals(JsonPrimitive(false), row["fits_remaining_call_budget"])
+    }
+
     @Test fun everyUnresolvedCapabilityAppearsInThePrerequisiteLedgerBeyondThePreview() {
         val receipts = mapOf("source" to source())
         val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, 204)

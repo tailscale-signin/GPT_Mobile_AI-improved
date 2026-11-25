@@ -572,6 +572,10 @@ internal class GitHubOutputContinuationSession(
                         emit(event)
                     }
                     is ProviderEvent.Usage -> {
+                        if (event.advisoryRole != null) {
+                            emit(event)
+                            return@collect
+                        }
                         finishReason = event.finishReason ?: finishReason
                         event.outputTokens?.takeIf { it >= 0 }?.let { outputTokens = it }
                         event.reasoningTokens?.takeIf { it >= 0 }?.let { reasoningTokens = it }

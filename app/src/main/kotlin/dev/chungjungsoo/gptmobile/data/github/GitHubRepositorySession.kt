@@ -1713,7 +1713,7 @@ internal class GitHubRepositorySession(
             selected.map { (path, entry) -> async { permits.withPermit { path to blob(context, entry).s("content") } } }.awaitAll().toMap()
         }
         var remaining = MAX_EXCERPT_BYTES
-        val results = resolvedRanges.map { range ->
+        val results = resolvedRanges.mapIndexed { index, range ->
             val path = range.s("path").also { GitHubWorkspaceClient.filePath(it) }
             val entry = selected.getValue(path)
             require(range.s("expected_blob_sha").let { it.isBlank() || it.equals(entry.s("sha"), true) }) { "Requested blob does not match the pinned tree." }
@@ -1730,7 +1730,8 @@ internal class GitHubRepositorySession(
             require(requestedEnd == null || requestedEnd == -1 || requestedEnd >= start && requestedEnd.toLong() - start < 2000) {
                 "end_line must be -1 for EOF or a range of at most 2000 lines."
             }
-            val boundedEnd = (start.toLong() + (maximumLines ?: if (requestedEnd == -1) 2000 else 300) - 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val defaultLines = if (resolvedRanges.size == 1) 300 else (300 / resolvedRanges.size).coerceAtLeast(24)
+            val boundedEnd = (start.toLong() + (maximumLines ?: if (requestedEnd == -1) 2000 else defaultLines) - 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             val end = when (requestedEnd) {
                 null -> boundedEnd
                 -1 -> minOf(lines.size.coerceAtLeast(start), boundedEnd)
@@ -1738,7 +1739,8 @@ internal class GitHubRepositorySession(
             }
             val selected = lines.drop(start - 1).take(end - start + 1).joinToString("\n")
             val offset = (range["start_offset"]?.jsonPrimitive?.intOrNull ?: 0).also { require(it in 0..selected.length && (it == 0 || it == selected.length || !Character.isLowSurrogate(selected[it]))) { "start_offset must be a valid UTF-16 character boundary." } }
-            val excerpt = utf8Prefix(selected.substring(offset), remaining)
+            val share = remaining / (resolvedRanges.size - index)
+            val excerpt = utf8Prefix(selected.substring(offset), share)
             remaining -= excerpt.encodeToByteArray().size
             val truncated = offset + excerpt.length < selected.length
             buildJsonObject {
@@ -1753,7 +1755,14 @@ internal class GitHubRepositorySession(
                 put("requested_eof", requestedEnd == -1)
                 put("line_limit", if (requestedEnd == -1) 2000L else maximumLines?.toLong() ?: (end.toLong() - start + 1))
                 put("start_offset", offset)
-                put("content_start_line", start + (0 until offset).count { selected[it] == '\n' })
+                val firstLine = start + (0 until offset).count { selected[it] == '\n' }
+                put("content_start_line", firstLine)
+                val wholeStart = firstLine + if (offset > 0 && selected[offset - 1] != '\n') 1 else 0
+                val wholeEnd = if (truncated) firstLine + excerpt.count { it == '\n' } - 1 else minOf(end, lines.size)
+                if (excerpt.isNotEmpty() && wholeStart <= wholeEnd) {
+                    put("captured_start_line", wholeStart)
+                    put("captured_end_line", wholeEnd)
+                }
                 put("content", excerpt)
                 put("truncated", truncated || end < lines.size || start > 1 || offset > 0)
                 put("range_complete", offset == 0 && !truncated)

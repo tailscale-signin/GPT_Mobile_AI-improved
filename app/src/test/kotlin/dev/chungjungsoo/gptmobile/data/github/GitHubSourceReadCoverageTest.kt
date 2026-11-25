@@ -26,6 +26,15 @@ class GitHubSourceReadCoverageTest {
         put("range_complete", complete)
     }
 
+    @Test fun partlyDeliveredRangeCreditsOnlyWholeCapturedLines() {
+        val item = JsonObject(range(1, 120, false) + mapOf("captured_start_line" to JsonPrimitive(1), "captured_end_line" to JsonPrimitive(11)))
+        val coverage = GitHubSourceReadCoverage.merge(null, identity(120), "receipt", listOf(item))
+        assertEquals(JsonPrimitive(11L), coverage["captured_lines"])
+        val unread = coverage.getValue("unread_ranges").jsonArray.single() as JsonObject
+        assertEquals(JsonPrimitive(12), unread["start_line"])
+        assertEquals(JsonPrimitive(false), coverage["complete_file"])
+    }
+
     @Test fun fiveAdjacentSubrangesCertifyCompleteCaptureWithoutARepeatedWholeFileRead() {
         val items = listOf(range(1, 50), range(51, 100), range(101, 150), range(151, 200), range(201, 217))
         val coverage = GitHubSourceReadCoverage.merge(null, identity(), "first", items)

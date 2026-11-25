@@ -1090,9 +1090,17 @@ internal class GitHubVerifiedSession(
             val fixturePreflight = if (GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null
             val coverage = if (GitHubTaskCoverage.matches(task)) {
                 val reportingRemaining = remainingToolCalls()
-                val reportingBudget = evidence.stageBudget(receipts, reportingRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
+                val baseBudget = evidence.stageBudget(receipts, reportingRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
+                val reportingBudget = if (originalFailure?.failureDetails?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+                    JsonObject(baseBudget + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")))
+                } else {
+                    baseBudget
+                }
                 withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget, evidence.acceptedPromptContract(), fixturePreflight, lastChecklist?.get("execution_plan") as? JsonObject)
+                    val accepted = evidence.acceptedPromptContract()
+                    dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.measure("github_integration_report") {
+                        GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget, accepted, fixturePreflight, lastChecklist?.get("execution_plan") as? JsonObject)
+                    }
                 }
             } else {
                 null
@@ -1161,7 +1169,7 @@ internal class GitHubVerifiedSession(
             val previous = evidence.diagnostic()
             val previousProgressDigest = GitHubEvidenceBook.publishedChecklistDigest(previous)
             val stalled = progressDigest != null && previousProgressDigest == kotlinx.serialization.json.JsonPrimitive(progressDigest)
-            val text = if (stalled) {
+            val text = if (stalled && originalFailure == null) {
                 val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }
                 "No new test evidence or changed blockers since the saved checkpoint. ${receipts.size} receipts retained. " +
                     "Send “Show the last useful report” to reopen earlier findings. Remaining dependencies:\n\n" + blockers.distinctBy { it["blocker"] }.joinToString("\n") { "- ${(it["blocker"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()}" }
@@ -1235,6 +1243,10 @@ internal class GitHubVerifiedSession(
                                 put("code", failure.failureDetails?.get("stop_reason") as? kotlinx.serialization.json.JsonPrimitive ?: kotlinx.serialization.json.JsonPrimitive(failure.errorCode ?: "RECORDED_EXECUTION_FAILURE"))
                                 put("detail", failure.message)
                                 put("source", "RECORDED_EXECUTION_FAILURE")
+                                failure.failureDetails?.get("recovery_action")?.let { put("recovery_action", it) }
+                                if (failure.failureDetails?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+                                    (checklist?.get("pagination_resume") as? JsonObject)?.get("next_call")?.let { put("next_call_after_renewal", it) }
+                                }
                                 remainingToolCalls()?.let { put("remaining_tool_calls", it) }
                             }
                         )
@@ -1242,6 +1254,7 @@ internal class GitHubVerifiedSession(
                             "original_failure",
                             buildJsonObject {
                                 put("code", failure.errorCode.orEmpty())
+                                failure.invocationId?.let { put("invocation_id", it) }
                                 put("message", failure.message)
                                 put("transport_complete", failure.transportComplete)
                                 failure.failureDetails?.forEach { (key, value) -> put(key, value) }
@@ -1355,7 +1368,7 @@ internal class GitHubVerifiedSession(
                 ""
             }
             Publication(
-                cause + reconciliationNotice + approvalNotice + text + packagingEvidence + resources?.let(GitHubAnswerPresentation::resourceNotice).orEmpty() + failures + retentionNotice,
+                cause + reconciliationNotice + approvalNotice + GitHubEffectiveRecovery.publicationText(text, effectiveReport, publicationReceipts) + packagingEvidence + resources?.let(GitHubAnswerPresentation::resourceNotice).orEmpty() + failures + retentionNotice,
                 effectivePartial,
                 effectiveReport,
                 publicationEpoch,

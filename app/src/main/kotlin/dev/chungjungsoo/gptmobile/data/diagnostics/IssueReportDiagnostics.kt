@@ -227,6 +227,7 @@ internal data class IssueReportDiagnostics(
         if ((values["github_prerequisite_observation"] as? JsonPrimitive)?.contentOrNull in IssueReportIncidentCapsule.reviewCatalogObservations) add(REVIEW_CATALOG_FEATURE)
         if ("app_search_readiness" in values.keys + omittedFields) add(SEARCH_READINESS_FEATURE)
         if ((values.keys + omittedFields).any { it in silencedInputFields }) add(SILENCED_INPUT_FEATURE)
+        if ((values.keys + omittedFields).any { it in setOf("minimum_page_body_tokens", "source_allowance") } || values["replay_budget_state"] == JsonPrimitive("SAVED_PAGE_EXCEEDS_ALLOWANCE")) add("SAVED_PAGE_CAPACITY_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in replayBudgetFields }) add("REPLAY_BUDGET_EVIDENCE_V1")
         if ("pending_saved_page_count" in values.keys + omittedFields || values["replay_budget_state"] == JsonPrimitive("REQUIRED_SAVED_PAGE_NOT_PRESENT")) add(SAVED_PAGE_REPLAY_FEATURE)
         if ("graph_transport_kind" in values || "graph_transport_kind" in omittedFields) add("GRAPH_TRANSPORT_EVIDENCE_V1")
@@ -315,7 +316,7 @@ internal data class IssueReportDiagnostics(
         const val REPEAT_PRIOR_CAUSE_FEATURE = "TOOL_REPEAT_PRIOR_CAUSE_V1"
         const val PROFILE_BEHAVIOR_FEATURE = "PROFILE_BEHAVIOR_CHANGE_V1"
         const val SAVED_PAGE_REPLAY_FEATURE = "SAVED_PAGE_REPLAY_EVIDENCE_V1"
-        private val replayBudgetCounts = setOf("replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count")
+        private val replayBudgetCounts = setOf("replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count", "minimum_page_body_tokens", "source_allowance")
         internal val replayBudgetFields = replayBudgetCounts + "replay_budget_state"
         private val reconciliationEvidenceFields = setOf("reconciliation_source", "reconciliation_tracked_signature_count")
         internal val graphTransportKinds = setOf("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN")
@@ -471,7 +472,7 @@ internal data class IssueReportDiagnostics(
             "conflict_stream_job_relation" to setOf("MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"),
             "acceptance_capability_scope" to setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES"),
             "reconciliation_source" to setOf("SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"),
-            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH"),
+            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH", "SAVED_PAGE_EXCEEDS_ALLOWANCE"),
             "graph_transport_kind" to graphTransportKinds,
             "graph_local_phase" to graphLocalPhases,
             "graph_local_reason" to graphLocalReasons,

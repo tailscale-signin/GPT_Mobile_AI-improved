@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a763ed8e881705065ce3e6a37b5a90a08ee5920266e00222436935808a70453f",
+  "source_digest": "bb87cf1261dc93ee772c0e06020aff3bbbf3800a6b86497bb54ed9ae24015b60",
   "file_count": 3133,
-  "indexed_line_count": 534467,
+  "indexed_line_count": 534478,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -59,7 +59,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24542
+      "indexed_line_count": 24545
     },
     {
       "id": "mcp_plugins",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 300,
-      "indexed_line_count": 55650
+      "indexed_line_count": 55658
     },
     {
       "id": "research",
@@ -2867,7 +2867,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "4fe9779a537b151eb17dd724b9fe9bbcb497f9993bd0c32aaf592bf1a7c10c37",
+      "sha256": "770bb3f48208ae5a00d8e15f4f5d35fa978c09781473143bafc27f3a92a192c9",
       "indexed_lines": 1676
     },
     {
@@ -2888,8 +2888,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "e55b1b7f994c604dbb54473cba89b9916bfca14a9bfc3912a451219cecb9b305",
-      "indexed_lines": 1054
+      "sha256": "230827217b5d8c73666259a33489b96f0e7fb94bce904fc2ed0594c17bef1654",
+      "indexed_lines": 1057
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedFragments.kt",
@@ -7774,8 +7774,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryQuery.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "2a20bf222dd0155500986169cd3c6d6039d93f530f38a75802c8d6321e268de0",
-      "indexed_lines": 75
+      "sha256": "c67fefd7952f27a3b223e36ea915c73742e16f7536a0f370e3c23e1237494344",
+      "indexed_lines": 83
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIssueRemediation.kt",

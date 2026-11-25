@@ -12,6 +12,13 @@ internal object GitHubInventoryQuery {
     fun commitSha(value: JsonElement?): JsonPrimitive? =
         (value as? JsonPrimitive)?.takeIf { it.isString && it.content.matches(fullSha) }?.let { JsonPrimitive(it.content.lowercase(Locale.ROOT)) }
 
+    /** These endpoints address a run, an explicit branch, or a repository search independently of the selected ref. */
+    fun ignoresWorkspaceRef(tool: String, action: String?): Boolean = when (tool.githubOperationFamily()) {
+        "github_ci" -> action in setOf("jobs", "list_workflow_jobs", "artifacts", "list_workflow_artifacts")
+        "github_context" -> action in setOf("branch_dependencies", "commit_search", "search_commits")
+        else -> false
+    }
+
     fun arguments(tool: String, arguments: JsonObject, observedCommit: JsonElement? = null): JsonObject {
         val action = (arguments["action"] as? JsonPrimitive)?.content
         val family = tool.githubOperationFamily()
@@ -27,6 +34,7 @@ internal object GitHubInventoryQuery {
             runs -> setOf("ref", "commit_sha")
             // An opaque issue after cursor advances one remote collection, not a new query.
             issues -> setOf("after")
+            ignoresWorkspaceRef(tool, action) -> setOf("ref")
             else -> emptySet()
         }
         val normalized = arguments.filterKeys { it !in ignored }.toMutableMap()

@@ -1145,9 +1145,9 @@ internal class GitHubOperationTool(
                 val canonical = operation.removeSuffix("_inspect")
                 val full = definition(canonical, modelName)
                 val fields = if (canonical == "github_pr") {
-                    setOf("owner", "repo", "action", "pull_number", "state", "head", "base", "page", "per_page", "include_health", "expected_head_sha", "expected_base_sha", "include_files", "include_checks", "include_patches", "check_page", "verify_live", "view_cursor", "response_detail")
+                    setOf("owner", "repo", "action", "pull_number", "state", "head", "base", "sort", "direction", "page", "per_page", "include_health", "expected_head_sha", "expected_base_sha", "include_files", "include_checks", "include_patches", "check_page", "verify_live", "view_cursor", "response_detail")
                 } else {
-                    setOf("owner", "repo", "action", "ref", "branch", "commit_sha", "page", "per_page", "verify_live", "view_cursor", "response_detail")
+                    setOf("owner", "repo", "action", "ref", "branch", "commit_sha", "page", "per_page", "include_patches", "verify_live", "view_cursor", "response_detail")
                 }
                 val actions = if (canonical == "github_pr") listOf("list", "headers", "context") else listOf("resolve", "status", "branches", "branch", "commits", "commit", "checks", "repository")
                 val properties = (full.inputSchema["properties"] as JsonObject).filterKeys { it in fields }.mapValues { (field, value) ->

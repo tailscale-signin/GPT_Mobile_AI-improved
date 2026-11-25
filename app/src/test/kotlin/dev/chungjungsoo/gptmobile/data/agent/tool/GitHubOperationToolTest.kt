@@ -1312,6 +1312,47 @@ class GitHubOperationToolTest {
         assertEquals(listOf(JsonPrimitive("commit_files")), backend.calls.map { it["action"] })
     }
 
+    @Test fun inspectionAliasesAdmitTheirOwnReturnedPaginationControls() {
+        val fixtures = listOf(
+            Triple("github_pr", args("""{"action":"list"}"""), args("""{"action":"list_pull_requests","state":"open","sort":"updated","direction":"desc","page":2,"per_page":20}""")),
+            Triple("github_context", args("""{"action":"commit","commit_sha":"$sha"}"""), args("""{"action":"get_commit_detail","commit_sha":"$sha","ref":"$sha","page":2,"per_page":30,"include_patches":false}"""))
+        )
+        for ((name, request, native) in fixtures) {
+            val alias = "${name}_inspect"
+            val shown = GitHubResultViews().present("inspection", name, alias, AgentToolResult("first", ToolResultContent.Json(buildJsonObject { put("continuation", native) }), false), request)
+            val call = result(shown).getValue("continuation_call").jsonObject
+            val next = call.getValue("arguments").jsonObject
+            assertEquals(JsonPrimitive(alias), call["tool"])
+            val schema = GitHubOperationTool.definition(alias)
+            val focused = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(schema, request.getValue("action").jsonPrimitive.content))
+            assertTrue(ToolArgumentValidator.errors(next, schema.inputSchema).isEmpty())
+            assertTrue(ToolArgumentValidator.errors(next, focused.inputSchema).isEmpty())
+            assertEquals(native, GitHubOperationTool.nativeArguments(alias, next))
+        }
+    }
+
+    @Test fun selectedWorkspaceRefCannotSplitAnUnfilteredTraversalOrInvalidateItsNextCall() {
+        val fixtures = listOf(
+            "github_ci" to args("""{"action":"jobs","run_id":12}"""),
+            "github_ci" to args("""{"action":"artifacts","run_id":12}"""),
+            "github_context" to args("""{"action":"branch_dependencies","branch":"feature"}"""),
+            "github_context" to args("""{"action":"commit_search","query":"release"}""")
+        )
+        for ((name, request) in fixtures) {
+            val first = requireNotNull(GitHubOperationTool.nativeArguments(name, request))
+            val native = JsonObject(first + mapOf("ref" to JsonPrimitive("main"), "page" to JsonPrimitive(2)))
+            val view = GitHubResultViews().present("selected-ref", name, name, AgentToolResult("first", ToolResultContent.Json(buildJsonObject { put("continuation", native) }), false), request)
+            val next = continuation(result(view))
+            assertEquals(JsonObject(request + ("page" to JsonPrimitive(2))), next)
+            val definition = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(GitHubOperationTool.definition(name), request.getValue("action").jsonPrimitive.content))
+            assertTrue(ToolArgumentValidator.errors(next, definition.inputSchema).isEmpty())
+            assertEquals(
+                dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(name, first),
+                dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(name, native)
+            )
+        }
+    }
+
     @Test fun commitStatusAndFailureContinuationsRetainPageAttemptAndPinnedHead() {
         val cases = listOf(
             args("""{"action":"status","ref":"main"}""") to

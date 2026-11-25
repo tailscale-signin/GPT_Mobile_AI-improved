@@ -695,6 +695,9 @@ internal class GitHubResultViews(
                 )
             )
         }
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.ignoresWorkspaceRef(operation, (values["action"] as? JsonPrimitive)?.content)) {
+            values.remove("ref")
+        }
         return JsonObject(values.filterKeys { it in properties })
     }
 

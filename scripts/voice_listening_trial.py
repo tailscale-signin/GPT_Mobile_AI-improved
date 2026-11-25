@@ -3,9 +3,11 @@
 import argparse
 import csv
 import hashlib
+import io
 import json
 import random
 import re
+import secrets
 import shutil
 import subprocess
 import wave
@@ -16,6 +18,10 @@ CORPUS = Path(__file__).resolve().parents[1] / "app/src/androidTest/assets/voice
 ARMS = ("previous", "candidate", "streaming")
 ROUTES = ("CPU", "QNN_GPU", "QNN_HTP", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU")
 TEST = "dev.chungjungsoo.gptmobile.presentation.ui.voice.KokoroListeningInstrumentedTest#playPublicFixture"
+SCHEMA_VERSION = 2
+MAX_COORDINATOR_BYTES = 128 * 1024
+MAX_SHEET_BYTES = 128 * 1024
+RATING_FIELDS = ("trial_id", "listener_id", "manifest_sha256", "clip", "target", "expected", "correct", "unnatural_pause")
 
 
 def fixtures():
@@ -59,44 +65,104 @@ def prepare(args):
         arms = list(ARMS)
         rng.shuffle(arms)
         orders[row["id"]] = arms
+    # The seed controls allocation only. A repeated allocation is still a new trial.
+    identities = [secrets.token_hex(16) for _ in range(4)]
+    if len(set(identities)) != 4:
+        raise ValueError("Trial and listener identities must be distinct")
+    trial_id = identities[0]
+    listener_ids = {str(listener): identities[listener] for listener in range(1, 4)}
     args.output.mkdir(parents=True, exist_ok=False)
     key = []
-    fields = ("clip", "target", "expected", "correct", "unnatural_pause")
+    sheets = {}
     try:
         for listener in range(3):
             folder = args.output / f"listener-{listener + 1}"
             folder.mkdir()
             order = rows.copy()
             rng.shuffle(order)
+            sheets[listener + 1] = []
+            sequence = 0
+            for row in order:
+                rotation = orders[row["id"]]
+                for arm in rotation[listener:] + rotation[:listener]:
+                    sequence += 1
+                    clip = f"{sequence:03}"
+                    source, _ = inputs[row["id"], arm]
+                    # Rebuild the WAV header so recording metadata cannot disclose the arm.
+                    with wave.open(str(source), "rb") as src, wave.open(str(folder / (clip + ".wav")), "wb") as dst:
+                        dst.setparams(src.getparams())
+                        dst.writeframes(src.readframes(src.getnframes()))
+                    sheets[listener + 1].append(dict(trial_id=trial_id, listener_id=listener_ids[str(listener + 1)],
+                                                   clip=clip, target=row["target"], expected=row["expected"],
+                                                   correct="", unnatural_pause=""))
+                    key.append(dict(listener=listener + 1, clip=clip, fixture=row["id"], arm=arm))
+        manifest = dict(schemaVersion=SCHEMA_VERSION, trialId=trial_id, listenerIds=listener_ids,
+                        corpusSha256=hashlib.sha256(CORPUS.read_bytes()).hexdigest(), assignments=key)
+        manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+        (args.output / "coordinator.json").write_bytes(manifest_bytes)
+        manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+        for listener, ratings in sheets.items():
+            folder = args.output / f"listener-{listener}"
             with (folder / "ratings.csv").open("w", newline="", encoding="utf-8") as output:
-                writer = csv.DictWriter(output, fieldnames=fields)
+                writer = csv.DictWriter(output, fieldnames=RATING_FIELDS)
                 writer.writeheader()
-                sequence = 0
-                for row in order:
-                    rotation = orders[row["id"]]
-                    for arm in rotation[listener:] + rotation[:listener]:
-                        sequence += 1
-                        clip = f"{sequence:03}"
-                        source, _ = inputs[row["id"], arm]
-                        # Rebuild the WAV header so recording metadata cannot disclose the arm.
-                        with wave.open(str(source), "rb") as src, wave.open(str(folder / (clip + ".wav")), "wb") as dst:
-                            dst.setparams(src.getparams())
-                            dst.writeframes(src.readframes(src.getnframes()))
-                        writer.writerow(dict(clip=clip, target=row["target"], expected=row["expected"], correct="", unnatural_pause=""))
-                        key.append(dict(listener=listener + 1, clip=clip, fixture=row["id"], arm=arm))
-        keyfile = args.output / "coordinator.json"
-        keyfile.write_text(json.dumps(dict(corpusSha256=hashlib.sha256(CORPUS.read_bytes()).hexdigest(), assignments=key), indent=2))
+                for row in ratings:
+                    writer.writerow(dict(row, manifest_sha256=manifest_sha256))
     except Exception:
         shutil.rmtree(args.output)
         raise
     print("Three counterbalanced listener folders created. Give each listener only their own folder.")
 
 
+def _read_bounded(path, limit):
+    with path.open("rb") as source:
+        data = source.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"Trial file exceeds {limit} bytes: {path.name}")
+    return data
+
+
+def _unique_object(pairs):
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError("Duplicate coordinator field: " + name)
+        result[name] = value
+    return result
+
+
 def score(folder):
-    key = json.loads((folder / "coordinator.json").read_text())
+    manifest_bytes = _read_bounded(folder / "coordinator.json", MAX_COORDINATOR_BYTES)
+    manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+    key = json.loads(manifest_bytes, object_pairs_hook=_unique_object)
+    if not isinstance(key, dict) or set(key) != {"schemaVersion", "trialId", "listenerIds", "corpusSha256", "assignments"}:
+        raise ValueError("Expected a complete versioned trial manifest")
+    if type(key["schemaVersion"]) is not int or key["schemaVersion"] != SCHEMA_VERSION:
+        raise ValueError("Unsupported listening trial schema; prepare a new trial")
+    if not isinstance(key["trialId"], str) or re.fullmatch(r"[0-9a-f]{32}", key["trialId"]) is None:
+        raise ValueError("Invalid trial identity")
+    listener_ids = key["listenerIds"]
+    if not isinstance(listener_ids, dict) or set(listener_ids) != {"1", "2", "3"}:
+        raise ValueError("Expected exactly three listener identities")
+    if any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{32}", value) is None for value in listener_ids.values()):
+        raise ValueError("Invalid listener identity")
+    if len(set(listener_ids.values())) != 3 or key["trialId"] in listener_ids.values():
+        raise ValueError("Trial and listener identities must be distinct")
     if key["corpusSha256"] != hashlib.sha256(CORPUS.read_bytes()).hexdigest():
         raise ValueError("Fixture set differs from the trial")
-    known = {row["id"] for row in fixtures()}
+    prompts = {row["id"]: row for row in fixtures()}
+    known = set(prompts)
+    clips = {f"{n:03}" for n in range(1, 73)}
+    if not isinstance(key["assignments"], list) or len(key["assignments"]) != 216:
+        raise ValueError("Expected exactly 216 blinded assignments")
+    for assignment in key["assignments"]:
+        if not isinstance(assignment, dict) or set(assignment) != {"listener", "clip", "fixture", "arm"}:
+            raise ValueError("Invalid blinded assignment fields")
+        if (type(assignment["listener"]) is not int or assignment["listener"] not in (1, 2, 3) or
+                not isinstance(assignment["clip"], str) or assignment["clip"] not in clips or
+                not isinstance(assignment["fixture"], str) or assignment["fixture"] not in known or
+                not isinstance(assignment["arm"], str) or assignment["arm"] not in ARMS):
+            raise ValueError("Unknown listener, clip, fixture or arm in blinded assignments")
     votes = defaultdict(dict)
     for listener in range(1, 4):
         assignments = [x for x in key["assignments"] if x["listener"] == listener]
@@ -104,13 +170,27 @@ def score(folder):
         if len(assignments) != 72 or len(mapping) != 72 or set(mapping.values()) != {(arm, f) for arm in ARMS for f in known}:
             raise ValueError("Incomplete or duplicate blinded assignments")
         seen = set()
-        with (folder / f"listener-{listener}" / "ratings.csv").open(newline="", encoding="utf-8-sig") as sheet:
-            for row in csv.DictReader(sheet):
+        sheet_bytes = _read_bounded(folder / f"listener-{listener}" / "ratings.csv", MAX_SHEET_BYTES)
+        try:
+            reader = csv.DictReader(io.StringIO(sheet_bytes.decode("utf-8-sig"), newline=""), strict=True)
+            if reader.fieldnames != list(RATING_FIELDS):
+                raise ValueError(f"Unexpected sheet headers for listener {listener}")
+            for row_number, row in enumerate(reader, 1):
+                if row_number > 72 or set(row) != set(RATING_FIELDS) or any(value is None for value in row.values()):
+                    raise ValueError(f"Unexpected sheet cells or row count for listener {listener}")
+                if (row["trial_id"] != key["trialId"] or row["listener_id"] != listener_ids[str(listener)] or
+                        row["manifest_sha256"] != manifest_sha256):
+                    raise ValueError(f"Sheet does not belong to this trial, manifest and listener {listener}")
                 clip = row["clip"]
                 if clip not in mapping or clip in seen or any(row[name] not in ("0", "1") for name in ("correct", "unnatural_pause")):
                     raise ValueError(f"Missing, invalid or duplicate rating in listener {listener}")
+                prompt = prompts[mapping[clip][1]]
+                if row["target"] != prompt["target"] or row["expected"] != prompt["expected"]:
+                    raise ValueError(f"Prompt differs from the assigned fixture for listener {listener}")
                 seen.add(clip)
                 votes[mapping[clip]][listener] = (int(row["correct"]), int(row["unnatural_pause"]))
+        except csv.Error as error:
+            raise ValueError(f"Malformed CSV for listener {listener}") from error
         if seen != set(mapping):
             raise ValueError(f"Incomplete sheet for listener {listener}")
     results = {}
@@ -121,7 +201,8 @@ def score(folder):
                             correctnessDisagreements=sum(len({v[0] for v in r.values()}) > 1 for r in ratings),
                             pauseDisagreements=sum(len({v[1] for v in r.values()}) > 1 for r in ratings))
     candidate = results["candidate"]
-    return dict(results=results, listeningPassed=(candidate["correct"] / 72 >= .95 and
+    return dict(trialId=key["trialId"], manifestSha256=manifest_sha256, results=results,
+                listeningPassed=(candidate["correct"] / 72 >= .95 and
                 candidate["correct"] >= results["streaming"]["correct"] and
                 candidate["unnaturalPauses"] < results["previous"]["unnaturalPauses"]))
 

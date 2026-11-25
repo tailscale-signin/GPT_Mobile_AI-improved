@@ -452,7 +452,7 @@ internal data class VoiceSpeechBenchmarkReport(
         if (configuration.sustainedTargetAudioMs < 300_000) return emptyList()
         val qualified = comparable.filter { backend ->
             val rows = playbackResults.filter { it.requestedBackend == backend }
-            val gaps = rows.flatMap { row -> row.chunkRecords.mapNotNull { it.join?.readyUnpunctuatedGapMs } }
+            val gaps = rows.filter { !it.warmup }.flatMap { row -> row.chunkRecords.mapNotNull { it.join?.readyUnpunctuatedGapMs } }
             rows.filter { it.scenario == VoiceSpeechPlaybackScenario.SUSTAINED }.all { it.activePlaybackUnderruns == 0 } &&
                 gaps.size >= 20 &&
                 (VoiceSpeechBenchmarkBackendResult.percentile(gaps, .95) ?: Long.MAX_VALUE) <= 150

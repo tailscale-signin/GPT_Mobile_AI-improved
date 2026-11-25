@@ -1447,6 +1447,7 @@
     "scripts/tests/test_release_trigger.py",
     "scripts/tests/test_repository_reference.py",
     "scripts/tests/test_secret_history_reporting.py",
+    "scripts/tests/test_voice_listening_trial.py",
     "scripts/voice_listening_trial.py"
   ],
   "publicationRequest": {

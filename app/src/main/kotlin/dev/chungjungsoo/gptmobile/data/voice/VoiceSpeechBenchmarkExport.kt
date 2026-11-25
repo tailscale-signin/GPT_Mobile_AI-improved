@@ -1079,7 +1079,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
         require(result.effectiveProvider == null && result.failedEffectiveProvider == null && !result.acceleratorExecutionObserved)
         require(result.requestedThreads == null && result.effectiveThreads == null && result.validatedChunks == 0)
         require(result.failureObservation == null)
-        require(result.chunkRecords.all { it.effectiveProvider == null && !it.verifiedAudio && it.acceleratorKernels == null && it.cpuKernels == null && it.observation == null && it.audioObservation == null })
+        require(result.chunkRecords.all { it.effectiveProvider == null && !it.verifiedAudio && it.acceleratorKernels == null && it.cpuKernels == null && it.observation == null && it.audioObservation == null && it.join == null })
     } else {
         require(result.requestedDelegate == null && result.observedProviderStatus == null && result.streamedAudioValidated == null && result.engineStreamCalls == null && result.engineStreamWallMs == null && result.omittedPcmRecords == 0)
     }

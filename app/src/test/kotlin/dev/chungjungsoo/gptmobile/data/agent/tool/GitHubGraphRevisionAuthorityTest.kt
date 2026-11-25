@@ -86,6 +86,59 @@ class GitHubGraphRevisionAuthorityTest {
         }
     }
 
+    @Test fun invalidIndexOptionsDoNotResolveTheBranchBeforeRejection() = runTest {
+        for (key in listOf("repository", "owner", "repo", "branch", "commit_sha", "ref", "action", "map_source")) {
+            val requests = mutableListOf<String>()
+            client(requests::add).use { http ->
+                val scopes = mutableListOf<String>()
+                val tool = GitHubTool(
+                    "token",
+                    http,
+                    connectionUid = bound.connectionUid,
+                    conversationId = "invalid-index-$key",
+                    taskId = "current",
+                    persistentState = false,
+                    repositoryScope = bound,
+                    taskRequest = "Inspect the latest branch map",
+                    graphQuery = { scope, _ ->
+                        scopes += scope.commitSha
+                        buildJsonObject { put("source_head_sha", scope.commitSha) }
+                    }
+                )
+                val graph = requireNotNull(tool.graphTool())
+                val rejected = graph.execute(
+                    "invalid-index-$key",
+                    buildJsonObject {
+                        put("action", "index")
+                        put("options", buildJsonObject { put(key, if (key == "commit_sha") original else "override") })
+                    }
+                )
+                assertTrue(key, rejected.isError)
+                assertEquals(key, "INVALID_ARGUMENTS", rejected.errorCode)
+                assertFalse(key, rejected.dispatched)
+                assertTrue("$key must be rejected before resolving its branch", requests.isEmpty())
+                assertTrue("$key must be rejected before querying the graph", scopes.isEmpty())
+
+                val status = graph.execute("status-after-$key", buildJsonObject { put("action", "status") })
+                assertFalse(status.toString(), status.isError)
+                assertEquals(listOf("/repos/owner/repo/commits/main"), requests)
+                assertEquals(listOf(current), scopes)
+                assertEquals(JsonPrimitive(current), (status.content as ToolResultContent.Json).value.jsonObject["source_head_sha"])
+
+                val assertedStatus = graph.execute(
+                    "asserted-status-after-$key",
+                    buildJsonObject {
+                        put("action", "status")
+                        put("options", buildJsonObject { put("commit_sha", current) })
+                    }
+                )
+                assertFalse(assertedStatus.toString(), assertedStatus.isError)
+                assertEquals(listOf("/repos/owner/repo/commits/main"), requests)
+                assertEquals(listOf(current, current), scopes)
+            }
+        }
+    }
+
     @Test fun nativeRefreshSupersedesTheChatBindingForTheNextGraphRead() = runTest {
         client().use { http ->
             val observed = mutableListOf<GitHubConversationContext>()

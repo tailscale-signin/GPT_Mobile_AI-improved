@@ -237,6 +237,51 @@ class VoiceSpeechPlaybackProtocolTest {
         assertNull(report.copy(results = report.results.map { it.copy(state = VoiceSpeechBenchmarkBackendState.FAILED) }).recommendation())
     }
 
+    @Test fun stabilityJoinQualificationExcludesWarmupsAndKeepsMeasuredCountAndP95Limits() {
+        val config = configuration(full = true).copy(
+            mode = VoiceSpeechBenchmarkMode.STABILITY,
+            playbackScenarios = VoiceSpeechPlaybackScenario.entries
+        )
+        val rows = VoiceSpeechPlaybackProtocol.expandedPlans(config, 2).map { plan ->
+            observed(plan).let { result ->
+                if (plan.cancellationTarget == null) result else result.copy(state = VoiceSpeechPlaybackState.CANCELLED, cancellationMs = 7, cancellationTargetReached = true)
+            }
+        }
+        fun report(measuredGapMs: Long = 20, measuredJoinCount: Int = 20): VoiceSpeechBenchmarkReport {
+            var remaining = measuredJoinCount
+            return VoiceSpeechBenchmarkReport(
+                1,
+                config,
+                VoiceSpeechBenchmarkRunState.COMPLETE,
+                results = listOf(VoiceSpeechBenchmarkBackendResult(VoiceSpeechBackend.CPU, VoiceSpeechBenchmarkBackendState.COMPLETE)),
+                playbackResults = rows.map { row ->
+                    val gap = when {
+                        row.warmup -> 500L
+                        row.cancellationTarget == null && remaining > 0 -> {
+                            remaining--
+                            measuredGapMs
+                        }
+                        else -> null
+                    }
+                    val join = gap?.let {
+                        VoiceSpeechPhraseJoin(
+                            24_000, VoiceSpeechJoinBoundary.TOKEN_LIMIT, VoiceSpeechJoinPunctuation.NONE,
+                            it, it, 1_000, 0, (it * 24).toInt(), 0, (it * 24).toInt(), 0
+                        )
+                    }
+                    row.copy(chunkRecords = row.chunkRecords.map { chunk -> chunk.copy(join = join.takeIf { chunk.index == 0 }) })
+                }
+            )
+        }
+        val qualified = report()
+        assertEquals(listOf(500L, 500L), qualified.playbackResults.filter { it.warmup }.flatMap { row -> row.chunkRecords.mapNotNull { it.join?.readyUnpunctuatedGapMs } })
+        assertEquals(List(20) { 20L }, qualified.playbackResults.filter { !it.warmup }.flatMap { row -> row.chunkRecords.mapNotNull { it.join?.readyUnpunctuatedGapMs } })
+        assertEquals(listOf(VoiceSpeechBackend.CPU), qualified.qualifiedPlaybackBackends())
+        assertEquals(listOf(VoiceSpeechBackend.CPU), report(measuredGapMs = 150).qualifiedPlaybackBackends())
+        assertTrue(report(measuredGapMs = 151).qualifiedPlaybackBackends().isEmpty())
+        assertTrue(report(measuredJoinCount = 19).qualifiedPlaybackBackends().isEmpty())
+    }
+
     @Test fun playbackRankingRejectsFastShortenedNativeAudioAndUnobservedLegacySignals() {
         val configuration = configuration(full = true).copy(backends = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU), playbackScenarios = VoiceSpeechPlaybackScenario.entries)
         val cpu = VoiceSpeechPlaybackProtocol.expandedPlans(configuration, 2).map { plan ->

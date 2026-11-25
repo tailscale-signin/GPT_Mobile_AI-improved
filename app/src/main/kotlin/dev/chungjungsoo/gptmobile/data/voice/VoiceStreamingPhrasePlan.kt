@@ -28,7 +28,7 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
             consumed = firstContent
             return null
         }
-        // A hard split can stop immediately before a word separator. Keep that
+        // A bounded phrase can stop immediately before a word separator. Keep that
         // original separator in the following chunk; only initial padding is skipped.
         if (consumed == 0) consumed = firstContent
         val ceiling = minOf(text.length, consumed + characterLimit)
@@ -50,14 +50,21 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
             }
         }
         if (end == consumed) {
-            // Oversized unbroken words still make progress without splitting a code point or
-            // combining sequence. Preserve every character; no ellipsis or silent omission.
+            // A separator may cross the ceiling even when the preceding group fits.
+            // Find a character boundary, then require a complete pronunciation group below.
             end = if (ceiling == text.length || characters.isBoundary(ceiling)) ceiling else characters.preceding(ceiling)
             if (end <= consumed) end = characters.following(consumed)
         }
         // Do not send a whitespace-only phrase or silently discard an oversized
         // separator to make it fit. The same bound applies to incremental SDK input.
-        require(end > firstContent) { "STREAM_INPUT_LIMIT" }
+        require(end > firstContent && end <= ceiling) { "STREAM_INPUT_LIMIT" }
+        var lastContent = end - 1
+        while (lastContent > consumed && text[lastContent].isWhitespace()) lastContent--
+        var nextContent = end
+        while (nextContent < text.length && text[nextContent].isWhitespace()) nextContent++
+        require(nextContent == text.length || groups.groupAt(sources[lastContent].first) != groups.groupAt(sources[nextContent].first)) {
+            "STREAM_INPUT_LIMIT"
+        }
         val phrase = VoiceStreamingPhrase(text.substring(consumed, end), sources.subList(consumed, end))
         consumed = end
         return phrase

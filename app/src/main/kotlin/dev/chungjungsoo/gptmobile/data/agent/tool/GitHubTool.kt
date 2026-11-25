@@ -210,7 +210,7 @@ class GitHubTool(
             if (!bound.requestsCurrentMap(taskRequest.orEmpty()) ||
                 action == "note" ||
                 gatewayWrite ||
-                options?.keys?.any { it in setOf("commit_sha", "ref", "branch", "repository", "owner", "repo", "index_cursor", "cursor") } == true
+                options?.keys?.any { it in setOf("commit_sha", "ref", "branch", "repository", "owner", "repo", "index_cursor", "cursor", "action", "map_source") } == true
             ) {
                 return currentScope()
             }

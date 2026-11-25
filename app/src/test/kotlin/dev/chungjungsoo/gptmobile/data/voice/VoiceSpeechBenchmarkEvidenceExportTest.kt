@@ -256,6 +256,48 @@ class VoiceSpeechBenchmarkEvidenceExportTest {
         }
     }
 
+    @Test fun sdkPlaybackRoundTripsWithoutNativeJoinEvidenceAndRejectsAnInsertedJoin() {
+        val sdk = sdkReport()
+        val row = VoiceSpeechPlaybackResult(
+            VoiceSpeechBackend.PHONON_CPU, VoiceSpeechPlaybackState.COMPLETE, totalSynthesisMs = 1, totalAudioMs = 1, chunks = 1,
+            protocolVersion = VoiceSpeechPlaybackProtocol.VERSION,
+            chunkRecords = listOf(VoiceSpeechPlaybackChunk(0, 1, 1, 1, null, null, null, false, null, null, null)),
+            requestedDelegate = "CPU", observedProviderStatus = "NOT_EXPOSED_BY_SDK", streamedAudioValidated = true,
+            engineStreamCalls = 1, engineStreamWallMs = 1, cleanupState = "RETIRED"
+        )
+        val report = sdk.copy(
+            configuration = sdk.configuration.copy(mode = VoiceSpeechBenchmarkMode.FULL, playback = true),
+            engineResults = listOf(sdk.engineResults.single().copy(samples = emptyList())),
+            playbackResults = listOf(row)
+        )
+        val original = speechBenchmarkJson(report, local = true)
+        assertEquals(report, speechBenchmarkReportFromJson(original))
+        val exported = original.getValue("playbackResults").jsonArray.single().jsonObject
+        val chunk = exported.getValue("chunkRecords").jsonArray.single().jsonObject
+        assertFalse(chunk.containsKey("join"))
+        val join = JsonObject(
+            mapOf(
+                "startFrame" to JsonPrimitive(24_000),
+                "boundary" to JsonPrimitive("TOKEN_LIMIT"),
+                "punctuation" to JsonPrimitive("NONE"),
+                "rawQuietMs" to JsonPrimitive(20),
+                "retainedQuietMs" to JsonPrimitive(20),
+                "headroomMs" to JsonPrimitive(1_000),
+                "textWaitMs" to JsonPrimitive(0),
+                "rawTailFrames" to JsonPrimitive(240),
+                "rawHeadFrames" to JsonPrimitive(240),
+                "retainedTailFrames" to JsonPrimitive(240),
+                "retainedHeadFrames" to JsonPrimitive(240),
+                "refillMs" to JsonPrimitive(0)
+            )
+        )
+        val changedChunk = JsonObject(chunk + ("join" to join))
+        val changedRow = JsonObject(exported + ("chunkRecords" to JsonArray(listOf(changedChunk))))
+        val changed = JsonObject(original + ("playbackResults" to JsonArray(listOf(changedRow))))
+        assertEquals(chunk, JsonObject(changedChunk - "join"))
+        assertNull(speechBenchmarkReportFromJson(changed))
+    }
+
     @Test fun compiledContextEvidenceAndSelectedModelConfigurationRoundTripWithoutConferringAcceleration() {
         val observation = failure(false).copy(
             graphPreparationSource = "DISK_CONTEXT",

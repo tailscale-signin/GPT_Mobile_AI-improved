@@ -451,7 +451,11 @@ class ToolExecutionBudget(
                 } catch (cancellation: CancellationException) {
                     val stoppedLocalIndex = phoneInterruption.close()
                     if (stoppedLocalIndex != null) combinedResult = stoppedLocalIndex
-                    if (!replayableRead && stoppedLocalIndex == null) unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", "Operation interrupted", dispatched = physicalToolStarted)))
+                    // A cancelled queue or authority check has no invocation to reconcile.
+                    if (physicalToolStarted && !replayableRead && stoppedLocalIndex == null) {
+                        val interrupted = ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", "Operation interrupted", dispatched = true)
+                        unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(interruptionCall, interrupted))
+                    }
                     val cancellationContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
                     val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "PARENT_CANCELLED"
                     reason = "CANCELED_$origin"

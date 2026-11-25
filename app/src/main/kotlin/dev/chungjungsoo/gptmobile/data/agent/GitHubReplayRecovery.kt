@@ -139,7 +139,13 @@ internal object GitHubReplayRecovery {
                 val read = verifiedReads[id] ?: continue
                 val identity = immutablePageIdentity(read) ?: continue
                 val capacity = GitHubSavedReadProgress.cursor(identity[1])?.bytes ?: continue
-                if ((capacity.toLong() + 2) / 3 + 512 > pageBudget) continue
+                // An issued cursor sets an upper bound. A compacted result can have a much
+                // smaller native body, so prefer the original measured size when available.
+                val execution = read.resultIdentity["execution_receipt"] as? JsonObject
+                val measuredBytes = (execution?.get("saved_view_body_bytes") as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 1..capacity }
+                val bytes = measuredBytes ?: capacity
+                if ((bytes.toLong() + 2) / 3 + 512 > pageBudget && (measuredBytes != null || digest != null)) continue
+                if (pageBudget <= 512) continue
                 val body = bodies[id]?.content
                 if (!reopenAvailable && digest != null && body != null && ToolResultDeliveryProof.digest(body) == digest) continue
                 val retryId = "saved-result-consume-restore-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(identity.joinToString("|")).take(24)

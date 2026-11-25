@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -461,6 +462,12 @@ class GitHubSavedPageCapacityTest {
         val pending = state.pendingSavedPageDeliveries(listOf(exchange), ToolResultDeliveryProof.capture(listOf(projected)))
         assertEquals(setOf(call.callId), pending.keys)
         assertNull(pending.getValue(call.callId))
+        val measured = requireNotNull(original.executionReceipt).getValue("saved_view_body_bytes").jsonPrimitive.int
+        val capacity = requireNotNull(GitHubSavedReadProgress.cursor(call.arguments)).bytes
+        assertTrue(measured in 1..capacity)
+        val sufficient = (measured + 2) / 3 + 512
+        assertEquals(call.arguments, state.restoreMissingPage(pending, listOf(exchange), fixture.tools, sufficient)?.arguments)
+        assertNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools, sufficient - 1))
         assertNull(state.restoreMissingPage(pending, listOf(exchange), emptyList()))
         val restore = requireNotNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools))
         assertEquals(call.name, restore.name)

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1c8f808fd35d78ee5054182d3ed3c7de8ffedb28ecf4f69dd7d715adad0eafe9",
+  "source_digest": "27a7b4416f728d54e04ec5da1f7b236c26d5681895372b6cd266e2a11d92373e",
   "file_count": 3146,
-  "indexed_line_count": 537259,
+  "indexed_line_count": 537289,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 608,
-      "indexed_line_count": 107894
+      "indexed_line_count": 107910
     },
     {
       "id": "accessibility_and_localization",
@@ -53,13 +53,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 257,
-      "indexed_line_count": 46216
+      "indexed_line_count": 46226
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24567
+      "indexed_line_count": 24568
     },
     {
       "id": "mcp_plugins",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 303,
-      "indexed_line_count": 56289
+      "indexed_line_count": 56292
     },
     {
       "id": "research",
@@ -1684,8 +1684,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "a76e459e5e86de6d8a088e2b05947e06d7c9bcf92fbf007e828e7132bf9ee01f",
-      "indexed_lines": 741
+      "sha256": "e70fafc722d700e2433398f8f23d9e16e9538e44cd0ec375cdab76a0f831475a",
+      "indexed_lines": 747
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRequirementToolFocus.kt",
@@ -2237,8 +2237,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "89e4c9bc6567241f5330e810423a080d4498c475a4364162879cd8fb2a52dfd0",
-      "indexed_lines": 817
+      "sha256": "b53f2bd5e9784da3000c7ba7531f907ed2937798d8b51a21cb64b6e7a6332abf",
+      "indexed_lines": 821
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadata.kt",
@@ -2888,8 +2888,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "8d2cd1b35e16d6bf7f1aee098ec902732f03e5aaa3197bfa7f1254c0c04cd130",
-      "indexed_lines": 1076
+      "sha256": "b1478daaac4e12894407a16d9879a47377b7436d52c9313b6bd63335d67af3e2",
+      "indexed_lines": 1077
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedFragments.kt",
@@ -4778,8 +4778,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "e4634552652b779d95734f8df2bc47549aa640b7a5f29226585be36cc6914d47",
-      "indexed_lines": 233
+      "sha256": "949493cf744edbbf340422345eb5cba0377320889e7689bfbe926bf7d128b273",
+      "indexed_lines": 249
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
@@ -7291,8 +7291,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchRepository.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "58bfa7d4d9d52fe9738d431526625129cca0b91e8bea1772ee7cd9cc7e7eb4a8",
-      "indexed_lines": 591
+      "sha256": "bdf743dbbf7a8d37ba80f75e3def1ac3d4d6fee6da0434a3b4de13a23cc93c36",
+      "indexed_lines": 594
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchWorker.kt",

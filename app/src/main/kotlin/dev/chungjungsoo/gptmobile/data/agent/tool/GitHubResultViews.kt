@@ -403,6 +403,7 @@ internal class GitHubResultViews(
             dispatched = false,
             executionReceipt = JsonObject(
                 sourceIdentity(entry) + savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256) + buildJsonObject {
+                    put("saved_view_body_bytes", page.toString().encodeToByteArray().size)
                     if (context.isNotEmpty()) put("saved_view_selectors_hash", selectorsHash(cursor, context))
                 }
             )

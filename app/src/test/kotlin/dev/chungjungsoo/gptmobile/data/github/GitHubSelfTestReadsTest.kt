@@ -77,6 +77,9 @@ class GitHubSelfTestReadsTest {
         fun detail(records: List<JsonObject>) = GitHubSelfTestReads.available(listOf(definition), records).singleOrNull { it.arguments["action"] == JsonPrimitive("detail") }
         val args = requireNotNull(detail(listOf(listed, tags))).arguments
         assertEquals(JsonPrimitive(452622158), args["release_id"])
+        val focused = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(definition, "detail"))
+        assertTrue(GitHubSelfTestReads.valid(focused, args))
+        assertEquals(args, GitHubSelfTestReads.available(listOf(focused), listOf(listed, tags)).single { it.arguments["action"] == JsonPrimitive("detail") }.arguments)
         assertTrue("tag_name" !in args)
         assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_release", args).isEmpty())
         val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments("github_release", args)

@@ -636,7 +636,12 @@ internal class GitHubResultViews(
 
     private fun continuationArguments(operation: String, request: JsonObject, continuation: JsonObject): JsonObject {
         val properties = (GitHubOperationTool.definition(operation).inputSchema["properties"] as JsonObject).keys
-        val values = (request - "view_cursor").toMutableMap()
+        val nextAction = continuation["action"]
+        // Pagination keeps its query. A follow-up to a different operation starts with its own
+        // selectors, so write fields or old filters cannot contaminate the next read.
+        val changesAction = nextAction != null && GitHubOperationTool.nativeArguments(operation, request)?.get("action") != nextAction
+        val inherited = if (changesAction) request.filterKeys { it in setOf("owner", "repo", "verify_live", "response_detail") } else request
+        val values = (inherited - "view_cursor").toMutableMap()
         continuation.filterKeys { it in properties && it != "action" }.forEach { (key, value) -> values[key] = value }
         if (operation == "github_context") {
             val native = (continuation["action"] as? JsonPrimitive)?.content
@@ -661,6 +666,7 @@ internal class GitHubResultViews(
             val action = mapOf("list_issues" to "list", "issue_context" to "context", "issue_comments" to "comments", "issue_events" to "history")[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
         }
+        if (operation == "github_repository" && nextAction == JsonPrimitive("repository_lifecycle_status")) values["action"] = JsonPrimitive("status")
         if (operation == "github_release") {
             val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail", "get_release" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
@@ -682,7 +688,8 @@ internal class GitHubResultViews(
                     buildJsonObject {
                         put("path", continuation.getValue("path"))
                         put("start_line", start)
-                        put("end_line", continuation["end_line"] ?: JsonPrimitive(start + 199))
+                        continuation["end_line"]?.let { put("end_line", it) }
+                        continuation["max_lines"]?.let { put("max_lines", it) }
                         continuation["start_offset"]?.let { put("start_offset", it) }
                     }
                 )

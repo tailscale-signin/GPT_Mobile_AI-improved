@@ -62,6 +62,7 @@ internal object GitHubOperationArguments {
                 listOf("status") to listOf("operation", "operation_id"),
                 listOf("status") to listOf("operation", "destination_owner", "destination_repo", "owner_type", "visibility", "expected_repository_id")
             )
+            "github_write" -> listOf(listOf("commit") to listOf("branch", "expected_head_sha", "message", "files"))
             "github_commit" -> listOf(
                 listOf("branch", "delete_branch") to listOf("branch", "expected_head_sha"),
                 listOf("delete_fixture_branch") to listOf("branch", "expected_head_sha", "origin_head_sha"),
@@ -87,7 +88,7 @@ internal object GitHubOperationArguments {
         }
         val default = when (operation) {
             "github_repository" -> "capabilities"
-            "github_commit" -> "commit"
+            "github_commit", "github_write" -> "commit"
             "github_pr" -> "context"
             "github_issue" -> "list"
             else -> "workflows"

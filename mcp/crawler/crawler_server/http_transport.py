@@ -8,6 +8,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import json
+import re
 import ssl
 import socket
 import threading
@@ -92,14 +93,28 @@ class Handler(BaseHTTPRequestHandler):
         if origin and (len(origin) != 1 or origin[0] not in self.server.origins):
             self.reply(403)
             return False
-        protocol = self.headers.get("MCP-Protocol-Version")
-        if protocol is not None and protocol not in PROTOCOLS:
-            self.reply(400, {"error": "Unsupported MCP protocol."})
-            return False
         return True
 
+    def accepts_protocol(self, message=None):
+        versions = self.headers.get_all("MCP-Protocol-Version", [])
+        if not versions or len(versions) == 1 and versions[0] in PROTOCOLS:
+            return True
+        if message and message.get("method") == "server/discover" and len(versions) == 1:
+            requested = versions[0]
+            request_id, params = message.get("id"), message.get("params")
+            metadata = params.get("_meta") if isinstance(params, dict) else None
+            if (type(request_id) in (str, int) and len(str(request_id)) <= 128
+                    and isinstance(metadata, dict) and metadata.get("io.modelcontextprotocol/protocolVersion") == requested
+                    and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", requested)):
+                self.reply(400, {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32022,
+                                 "message": "Use a supported session protocol.",
+                                 "data": {"requested": requested, "supported": list(PROTOCOLS)}}})
+                return False
+        self.reply(400, {"error": "Unsupported MCP protocol."})
+        return False
+
     def do_GET(self):
-        if self.authorize():
+        if self.authorize() and self.accepts_protocol():
             self.reply(405, headers={"Allow": "POST"})
 
     do_DELETE = do_GET
@@ -125,6 +140,8 @@ class Handler(BaseHTTPRequestHandler):
             require(len(body) == length, "Incomplete request body.")
             message = json.loads(body, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Nonfinite JSON")))
             require(type(message) is dict and message.get("jsonrpc") == "2.0", "Expected one JSON-RPC request.")
+            if not self.accepts_protocol(message):
+                return
             request_id = message.get("id")
             if "id" not in message:
                 method = message.get("method")

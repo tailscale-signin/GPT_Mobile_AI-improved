@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "483c889112d6a9fb293d25b853f3a4625e864874d66a30c3eebd3845014547df",
+  "source_digest": "a763ed8e881705065ce3e6a37b5a90a08ee5920266e00222436935808a70453f",
   "file_count": 3133,
-  "indexed_line_count": 534431,
+  "indexed_line_count": 534467,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,13 +53,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 257,
-      "indexed_line_count": 46079
+      "indexed_line_count": 46081
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24537
+      "indexed_line_count": 24542
     },
     {
       "id": "mcp_plugins",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 300,
-      "indexed_line_count": 55638
+      "indexed_line_count": 55650
     },
     {
       "id": "research",
@@ -179,7 +179,7 @@
       "id": "external_integrations",
       "label": "External integration servers",
       "file_count": 63,
-      "indexed_line_count": 6490
+      "indexed_line_count": 6507
     },
     {
       "id": "other_production",
@@ -1593,8 +1593,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubActionSchema.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "90e4a4edbda0f971fdcbd9482ac8ad82d4ef75eb1840ba4cb2a5b742b76cbe99",
-      "indexed_lines": 142
+      "sha256": "f9ec38a03c7a91d43c9a3c214412178c53ec7eacf71295ce3b7e02267b7aa281",
+      "indexed_lines": 144
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiInvestigationRecovery.kt",
@@ -2860,15 +2860,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationArguments.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "dbfbbc0054527cf519c9fc6af44bf8e9ff8d1aa1ed1dbc70c4f4256004d345c4",
-      "indexed_lines": 463
+      "sha256": "431d26b69468c4db15cd9148a122e5292d61468f14e47ee3755f1002c3cbc4a4",
+      "indexed_lines": 464
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "425826d2413f4fa355e68f330e8533566f092dfc9403e7c023a98dadebba7799",
-      "indexed_lines": 1679
+      "sha256": "4fe9779a537b151eb17dd724b9fe9bbcb497f9993bd0c32aaf592bf1a7c10c37",
+      "indexed_lines": 1676
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
@@ -2888,8 +2888,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "db6129da96511ee9bd7208f903a1893efcf13c4904af4c1a100d045e49a1e3cc",
-      "indexed_lines": 1047
+      "sha256": "e55b1b7f994c604dbb54473cba89b9916bfca14a9bfc3912a451219cecb9b305",
+      "indexed_lines": 1054
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedFragments.kt",
@@ -8110,8 +8110,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryLifecycle.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "4d8a68e9692d8e09b71180cc2df7dc9032d0241668772e6d4017324fb6df41bc",
-      "indexed_lines": 405
+      "sha256": "8d36417ae28d6ad463a1ee89468f3e6ed8f3ed43f23e2b36647df2a788c72652",
+      "indexed_lines": 417
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryReadiness.kt",
@@ -22012,8 +22012,8 @@
       "path": "mcp/crawler/crawler_server/http_transport.py",
       "area_id": "external_integrations",
       "kind": "source",
-      "sha256": "26461869a0b10831428ca83596b02047ce1f5a0403cd8325abf8a83943dd8bc1",
-      "indexed_lines": 154
+      "sha256": "4bf76ffeccd7fc38903dcb3ed1753aba875ebde9fa3f1d4c4841167f509a1510",
+      "indexed_lines": 171
     },
     {
       "path": "mcp/crawler/crawler_server/network.py",

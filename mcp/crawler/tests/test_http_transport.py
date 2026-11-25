@@ -46,6 +46,46 @@ class HttpTransportTest(unittest.TestCase):
         self.assertEqual(405, self.send(method="GET")[0])
         self.assertFalse(self.fixture.network.started.is_set())
 
+    def test_android_discovery_negotiates_then_lists_and_calls_with_a_work_grant(self):
+        modern = "2026-07-28"
+        headers = {"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": modern, "Mcp-Method": "server/discover"}
+        probe = {"jsonrpc": "2.0", "id": "phone-discovery", "method": "server/discover",
+                 "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": modern}}}
+        status, frame = self.send(probe, headers=headers)
+        self.assertEqual((400, "2.0", probe["id"], -32022), (status, frame["jsonrpc"], frame["id"], frame["error"]["code"]))
+        supported = frame["error"]["data"]["supported"]
+        self.assertEqual(modern, frame["error"]["data"]["requested"])
+        self.assertNotIn(modern, supported)
+        self.assertIn("2025-11-25", supported)
+        session = {"MCP-Protocol-Version": "2025-11-25"}
+        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25",
+                "capabilities": {}, "clientInfo": {"name": "GPT Mobile", "version": "test"}}}
+        self.assertEqual("2025-11-25", self.send(init, headers=session)[1]["result"]["protocolVersion"])
+        self.assertEqual(202, self.send({"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=session)[0])
+        tools = self.send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=session)[1]["result"]["tools"]
+        self.assertIn("fetch", [tool["name"] for tool in tools])
+        call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "fetch", "_meta": self.fixture.meta,
+                "arguments": {"url": "https://example.org/read", "outputBytes": 60000, "outputTokens": 20000}}}
+        status, frame = self.send(call, headers=session)
+        self.assertEqual((200, 3, False), (status, frame["id"], frame["result"]["isError"]))
+
+    def test_unsupported_version_never_runs_work_or_negotiates_without_a_matching_probe(self):
+        modern = "2026-07-28"
+        headers = {"MCP-Protocol-Version": modern}
+        probe = {"jsonrpc": "2.0", "id": "probe", "method": "server/discover",
+                 "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": modern}}}
+        self.assertEqual(401, self.send(probe, headers=dict(headers, Authorization="Bearer wrong"))[0])
+        self.assertEqual(403, self.send(probe, headers=dict(headers, Origin="https://unknown.example"))[0])
+        call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "fetch", "_meta": self.fixture.meta,
+                "arguments": {"url": "https://example.org/read", "outputBytes": 60000, "outputTokens": 20000}}}
+        mismatch = {"_meta": {"io.modelcontextprotocol/protocolVersion": "2025-11-25"}}
+        for message in (dict(probe, params={}), dict(probe, params=mismatch), dict(probe, id=None), call):
+            status, frame = self.send(message, headers=headers)
+            self.assertEqual(400, status)
+            self.assertNotIn("result", frame)
+            self.assertNotIn("id", frame)
+        self.assertFalse(self.fixture.network.started.is_set())
+
     def test_bad_auth_origin_protocol_and_transport_never_reach_acquisition(self):
         request = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
         for headers, expected in [({"Authorization": "Bearer wrong"}, 401), ({"Origin": "https://untrusted.example"}, 403),

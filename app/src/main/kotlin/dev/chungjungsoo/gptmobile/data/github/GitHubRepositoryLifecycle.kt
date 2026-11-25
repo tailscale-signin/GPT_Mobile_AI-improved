@@ -397,7 +397,19 @@ internal class GitHubRepositoryLifecycle(
         put("source_repository", source)
         put("destination_repository", target.fullName)
         put("remote_state_verified", false)
-        put("next_action", "Use github_repository action=status with expected_repository_id=$id to verify this asynchronous fork; do not create another fork.")
+        put(
+            "continuation",
+            buildJsonObject {
+                put("action", "repository_lifecycle_status")
+                put("operation", action)
+                put("destination_owner", target.owner)
+                put("destination_repo", target.repo)
+                put("owner_type", target.ownerType)
+                put("visibility", target.visibility)
+                put("expected_repository_id", id)
+            }
+        )
+        put("next_action", "Use the retained status continuation to verify this asynchronous fork.")
     }
 }
 

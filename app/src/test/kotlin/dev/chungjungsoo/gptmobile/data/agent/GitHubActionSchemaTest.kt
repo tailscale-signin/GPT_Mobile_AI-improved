@@ -100,6 +100,19 @@ class GitHubActionSchemaTest {
         )
     }
 
+    @Test fun focusedBranchDependenciesAdmitsTheNextPage() {
+        val schema = requireNotNull(GitHubActionSchema.project(GitHubOperationTool.definition("github_context"), "branch_dependencies")).inputSchema
+        val next = buildJsonObject {
+            put("action", "branch_dependencies")
+            put("owner", "team")
+            put("repo", "app")
+            put("branch", "feature/one")
+            put("page", 2)
+        }
+        assertTrue(ToolArgumentValidator.errors(next, schema).isEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_context", next).isEmpty())
+    }
+
     @Test fun searchCorrectsTheReadLimitWithoutRewritingPinnedContinuationArguments() {
         val definition = GitHubOperationTool.definition("github_search")
         val arguments = Json.parseToJsonElement("""{"action":"search","query":"object Task","max_new_blobs":0}""") as JsonObject

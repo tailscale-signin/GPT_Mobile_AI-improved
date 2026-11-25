@@ -799,6 +799,8 @@ class GitHubOperationToolTest {
         val next = continuation(result(first))
         valid("github_release", next)
         assertEquals("tag", next.getValue("action").jsonPrimitive.content)
+        assertTrue("target_commitish" !in next)
+        assertTrue(ToolArgumentValidator.errors(next, requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool.definition, "tag")).inputSchema).isEmpty())
         tool.execute("read", next)
         assertEquals(listOf("create_tag", "tag_context"), backend.calls.map { it.getValue("action").jsonPrimitive.content })
     }
@@ -812,6 +814,8 @@ class GitHubOperationToolTest {
         val next = continuation(result(first))
         valid("github_issue", next)
         assertEquals("context", next.getValue("action").jsonPrimitive.content)
+        assertTrue(setOf("title", "body").none { it in next })
+        assertTrue(ToolArgumentValidator.errors(next, requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool.definition, "context")).inputSchema).isEmpty())
         tool.execute("read", next)
         assertEquals(listOf("create_issue", "issue_context"), backend.calls.map { it.getValue("action").jsonPrimitive.content })
     }
@@ -1284,6 +1288,57 @@ class GitHubOperationToolTest {
         assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit", "github_write"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
     }
 
+    @Test fun savedWriteResultReopensThroughAdvertisedSchemasWithoutAnotherWrite() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "write-cursor")
+        val write = args("""{"action":"commit","branch":"fix/example","expected_head_sha":"$sha","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated","expected_blob_sha":"$sha"}]}""")
+        val sent = tool.execute("first", write)
+        assertFalse(sent.isError)
+        val cursor = result(sent).getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
+        val focused = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool.definition, "commit"))
+        for (definition in listOf(tool.definition, focused)) {
+            val schema = definition.inputSchema
+            for (exposed in listOf(schema, dev.chungjungsoo.gptmobile.data.agent.provider.modelCompatibleGitHubToolSchema(schema))) {
+                assertTrue(ToolArgumentValidator.errors(cursor, exposed).isEmpty())
+                assertTrue(ToolArgumentValidator.errors(write, exposed).isEmpty())
+                for (required in listOf("branch", "expected_head_sha", "message", "files")) {
+                    assertTrue(required, ToolArgumentValidator.errors(JsonObject(write - required), exposed).isNotEmpty())
+                }
+            }
+            assertTrue(ToolArgumentValidator.errors(JsonObject(write + cursor), schema).isNotEmpty())
+        }
+        val saved = tool.execute("recover", cursor)
+        assertFalse(saved.isError)
+        assertEquals(listOf(JsonPrimitive("commit_files")), backend.calls.map { it["action"] })
+    }
+
+    @Test fun commitStatusAndFailureContinuationsRetainPageAttemptAndPinnedHead() {
+        val cases = listOf(
+            args("""{"action":"status","ref":"main"}""") to
+                args("""{"action":"get_commit_status_summary","ref":"$sha","commit_sha":"$sha","page":2}"""),
+            args("""{"action":"failure","run_id":24}""") to
+                args("""{"action":"ci_failure_digest","run_id":24,"run_attempt":2,"expected_head_sha":"$sha","page":11}""")
+        )
+        for ((request, native) in cases) {
+            val views = GitHubResultViews()
+            val first = views.present("ci-pages", "github_ci", "github_ci", AgentToolResult("first", ToolResultContent.Json(buildJsonObject { put("continuation", native) }), false), request)
+            val next = continuation(result(first))
+            val action = request.getValue("action").jsonPrimitive.content
+            val schema = GitHubOperationTool.definition("github_ci")
+            val focused = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(schema, action))
+            assertTrue(ToolArgumentValidator.errors(next, focused.inputSchema).isEmpty())
+            assertTrue(GitHubOperationArguments.errors("github_ci", next).isEmpty())
+            assertEquals(native, GitHubOperationTool.nativeArguments("github_ci", next))
+        }
+    }
+
+    @Test fun focusedThreadSchemaAcceptsTheHeadBoundCursor() {
+        val tool = GitHubOperationTool.definition("github_pr")
+        val focused = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool, "threads"))
+        val next = args("""{"action":"threads","owner":"o","repo":"r","pull_number":7,"after":"next","expected_head_sha":"$sha"}""")
+        assertTrue(ToolArgumentValidator.errors(next, focused.inputSchema).isEmpty())
+    }
+
     @Test fun directWriteAdvertisesGuardedMultiFileCommits() {
         val schema = GitHubOperationTool.definition("github_write").inputSchema
         val arguments = args(
@@ -1409,6 +1464,19 @@ class GitHubOperationToolTest {
         assertEquals("read_ranges", native["action"]?.jsonPrimitive?.content)
         assertEquals(300, native["ranges"]!!.jsonArray.single().jsonObject["start_offset"]!!.jsonPrimitive.content.toInt())
         assertEquals(4, native["ranges"]!!.jsonArray.single().jsonObject["end_line"]!!.jsonPrimitive.content.toInt())
+    }
+
+    @Test fun readContinuationPreservesRequestedLineCountOnRedispatch() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"ranges":[{"path":"src/File.kt","continuation":{"path":"src/File.kt","start_line":6,"max_lines":5,"commit_sha":"$sha"}}]}""")
+        }
+        val tool = GitHubOperationTool("github_read", backend, "line-count")
+        val request = args("""{"owner":"team","repo":"app","ranges":[{"path":"src/File.kt","start_line":1,"max_lines":5}]}""")
+        val next = continuation(result(tool.execute("first", request)))
+        valid("github_read", next)
+        assertEquals(JsonPrimitive(sha), next["commit_sha"])
+        tool.execute("second", next)
+        assertEquals(args("""{"path":"src/File.kt","start_line":6,"max_lines":5}"""), backend.calls.last().getValue("ranges").jsonArray.single())
     }
 
     @Test fun searchAndChangedFileContinuationsRoundtripSnapshotAndCursor() = runBlocking {

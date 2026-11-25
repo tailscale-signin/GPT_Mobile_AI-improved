@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "67dce0e844603c704bf87c51112de243eac73c48",
+  "workingBranch": "release/native-stripping-2026-11-24",
+  "integrationParent": "bcd4494a32f059dc0d76664ddcf7189cfcdb55b4",
+  "pullRequest": 2527,
+  "intent": "Complete the final review corrections for concurrent whole-commit CI continuation and missing-tool diagnostic identity without losing the existing release changes.",
+  "changes": [
+    "Whole-commit monitoring retains every returned latest-filtered check row. Matching application, suite, display name or a larger numeric ID does not prove supersession. Existing ordinary summary behavior is retained.",
+    "Prepare the final branch-head read outside the watch mutex, then require the same persisted watch and task membership and current run, conversation, profile and GitHub authority before enqueueing the existing exact-key continuation. Stop during the remote read prevents delivery.",
+    "Require CATALOG_MISSING_TOOL_IDENTITY_V1 when missing_tool_hash is present or explicitly omitted. Advertise it only in the extended receiver catalogue and require it in deployment readiness, retaining legacy RECOVERY_REPORT_EVIDENCE_V1, exact approved bytes, current permission checks and the 4096-byte response limit.",
+    "Revalidate queued GitHub findings against the current evidence when they are presented; a real FIFO regression retains fresh observations and suppresses superseded queued findings.",
+    "Negotiate GITHUB_POLICY_SELECTION_FIELDS_V1 before sending approved reports that retain the new GitHub policy-selection fields. Preserve older report delivery, exact approved bytes and closed receiver vocabularies.",
+    "Retain actual 48-byte web-search and page-reader budget controls, execute the empty catalog alias locally without dispatch, and recognize only the existing two CI read aliases while retaining connection suffixes and strict malformed negatives.",
+    "Exercise automatic catalog recovery through the actual runner: only the bound local catalog can resolve a missing-tool call; foreign or unavailable catalogs cannot acquire dispatch or retry authority."
+  ],
+  "regressionSources": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+    "authentication/test_app.py",
+    "scripts/tests/test_issue_reporting_configuration.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GitHubPolicyReportSubmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt"
+  ],
+  "verification": {
+    "localCanonicalCommand": "bash scripts/validate-local.sh fast",
+    "sourceReview": "The original D review remains historical. The complete composition includes explicit raw-row V3 regression migration, typed queue/Room consumption, current90 CI aliases, queued-finding freshness and separately negotiated policy-selection reporting. Assigned source reviews are complete; final current-source runtime qualification remains required. The latest09 saved-page proof and additive actual-runner local-catalog identity control are included in the final source composition.",
+    "runtimeEvidence": "New regressions require the final combined commit hosted checks. Source review does not assert application, device or provider execution.",
+    "releaseEvidence": "All required current-head checks, main checks, unchanged APK size limits, signatures and coordinated publication verification remain required."
+  },
+  "preserved": [
+    "Every ancestor release-source change",
+    "230 MiB universal and 180 MiB per-ABI APK limits",
+    "Existing permission and task-deadline authority",
+    "Existing durable continuation queue key",
+    "All release limitations and required workflows"
+  ],
+  "state": "IMPLEMENTED_AWAITING_CURRENT_SOURCE_GATES",
+  "followup": {
+    "task": "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
+    "supersededAssumption": "The original same-suite supersession expectation was unsupported. Its regression is explicitly renamed and changes only the cancelled-plus-success expected result from PASSED to FAILED; the other eight existing methods remain byte-exact. Three raw-row controls are added.",
+    "typedContinuation": "The followup adds a typed payload and real queue/Room validation to carry the existing saved continuation through its actual consumer boundary.",
+    "integrationParent": "3cabe8c49b0e6fe03f34a0ed4db20b5ddf9c1044",
+    "selectedParallelSource": "09fcf793cf1eb1384bd9c30b4830eb78b22a8698"
+  }
+}

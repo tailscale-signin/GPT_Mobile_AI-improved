@@ -126,7 +126,7 @@ unconfirmed execution, unavailable provider observations, or changed frozen
 identities remain incomplete evidence. Summary `outcomeComplete` and attempt
 rates are separate from complete secondary `score` qualification.
 
-### Grade a separately obtained ChatGPT or Codex answer
+### Grade a separately obtained assistant answer
 
 The desktop CLI exports the public prompt and output schema for one fixture. Give
 the same prompt, schema, starting files and generation budget to each assistant.
@@ -144,8 +144,8 @@ python gateway/grade_external_reference.py submit --root ROOT --trial chatgpt.sq
 python gateway/grade_external_reference.py status --root ROOT --trial chatgpt.sqlite
 ```
 
-For Codex, use the same `task.json`, `--source Codex`, its answer file and a new
-trial file. Compare completed outcomes with matching task, grader and environment
+The available manual labels are ChatGPT, Codex, Claude Code and GPT Mobile AI. Use the same
+`task.json`, the corresponding source, its answer file and a new trial file. Compare completed outcomes with matching task, grader and environment
 digests, pack and seed. The source label is operator-supplied. The CLI reports
 provider identity as unverified and leaves generation settings, token usage and
 cost unknown. The result measures one executable fixture. The separate
@@ -160,6 +160,46 @@ original identity if the operator decides to stop. A reported `REMOVED` is final
 for that identity. If retirement explicitly reports `NOT_DISPATCHED`, a new trial
 can be prepared for a new submission. Preserve any observed original run in the
 comparison history.
+
+### Matched native product trials
+
+Use `gateway/grade_external_reference.py` from an independent lab controller. Each candidate runs on its native surface under the same allowed actions, task, starting revision, fixture, hardware class and cost/time ceiling. Use separate observer and hidden-grader Ed25519 PEM keys kept outside all candidate workspaces. Give the comparative reader only the public keys. The administrative commands print JSON to stdout. Candidate output contains private content and should stay with the grader.
+
+1. Prepare a plan JSON with `versions` mapping `GPT Mobile AI` and each selected peer (`ChatGPT`, `Codex` or `Claude Code`) to its exact tested product version, `controlsDigest` of the controls, random 64-hex `orderSeed`, `cache` of `cold` or `warm`, `maxSeconds`, `maxCostUsd`, `marginPoints`, `repeats` and `cases`. Each case has a stable independent `family`, `taskDigest`, `graderDigest` and `environmentDigest` from the public task. Include only common supported tasks in the preregistered lane. Record product-only capabilities separately. Freeze before running any product; archive the signed plan with the independent grader.
+2. Run `freeze-native --definition plan-input.json --observer-key observer.pem > plan.json`, then `schedule-native --plan plan.json --observer-public observer.pub`. Follow the ordered rows and reset each arm to its preregistered state. Record the actual controls, order, versions, any interventions, and observed cost and wall time. Use JSON null for unavailable cost.
+3. Capture a fresh native single-task session. For ChatGPT, extract just the selected conversation object or a one-conversation JSON array from the account export locally. The reader follows the active message tree and accepts one unbranched user task with a completed public text answer. Tool results and intermediate messages stay out of the candidate. Record the ChatGPT surface, enabled connector and observed version in the frozen controls. Use common repository lookup tasks when that surface has read access. Codex accepts the JSONL output of `codex exec --json`, Claude Code the JSON result of `claude -p --output-format json`, and GPT Mobile AI the complete saved Gateway conversation readback from the desktop client. Use the same authorized tool surface for all arms. Product model identity remains distinct from an observed application version.
+4. For each dispatch, the observer records `planDigest` (SHA-256 of sorted compact ASCII plan payload JSON), `controlsDigest`, `product`, `version`, `taskDigest`, `repeat`, zero-based `scheduleIndex`, `cache`, `seconds`, `costUsd`, `interventions` and `state`. Run `observe-native --plan plan.json --observer-key observer.pem --measurements row.json --capture native-output --candidate-out answer.json`. For `PRODUCT_FAILURE`, `HARNESS_FAILURE` and `UNSUPPORTED`, supply a unique 64-hex digest of the observed dispatch identity as `runId`, and omit both capture and candidate output. The observer must independently establish the origin and match the session to the dispatched task before signing. Imported unobserved labels alone never enter a comparison.
+5. Use the normal `prepare`, `submit` and `status` commands for each delivered answer. The independent grader runs `grade-native --root ROOT --trial grade.sqlite --plan plan.json --observation observation.json --observer-public observer.pub --grader-key grader.pem`. It rereads the original Gateway result, checks task, artifact, grader and environment, and signs a product-blind grade. Save the signed observations and grades in separate JSON arrays.
+6. Run `compare-native --plan plan.json --observations observations.json --grades grades.json --observer-public observer.pub --grader-public grader.pub`. The product verdict is confined to the registered suite and versions. Verified outcomes outside either budget and assisted deliveries receive zero. Missing receipt pairs, unavailable evaluators, unsupported routes and unknown cost for a passing candidate remain visible and prevent a comparative win. Each task family has equal weight; repeated trials stay within that family. One-sided Hoeffding lower bounds use the number of preregistered peers to control family-wise error at 5%. Every selected comparison must clear the preregistered margin. A historical three-product plan retains its two original comparisons and trial order.
+
+OpenAI documents the JSON conversation export and the repository access available on each ChatGPT surface. [Exporting ChatGPT data](https://help.openai.com/en/articles/7260999-exporting-your-chatgpt-history-and-data) · [Connecting GitHub to ChatGPT](https://help.openai.com/en/articles/11145903-connecting-github-to-chatgpt)
+
+The Gateway grader in this workflow measures its own held-out executable fixture pack. An independently instrumented live-repository campaign needs its own hidden grader bound to that campaign's task, artifact, environment and grade receipt schema. Importing a transcript does not execute a native product or establish a fact about an unobserved provider.
+
+### Blind preview study
+
+The grader evaluates the actual public text against a replay shared by both renderers. Freeze the test set before tuning. Include a successful job, a failed check, a wait with no new evidence, a head change with a correction, and a turn that warrants silence. Record whether the input came from a synthetic replay, host, emulator or physical device. Do not label sample transcripts as production output.
+
+The JSON study contains `readers` (preregistered pseudonyms) and a `cases` array. Each case contains `id` (an anonymous ID), `family`, `question`, `events`, and arrays of actual `current` and `proposed` updates. Use milliseconds from the same turn start. A minimal single case looks like the following. This example supplies fixture data only.
+
+```json
+{
+  "readers": ["r01"],
+  "cases": [{
+    "id": "01", "family": "ci", "question": "Why did the PR stop?",
+    "events": [{"id": "e1", "ms": 2000, "fact": "pr7@abc-ci-failed", "kind": "finding",
+                "required": true, "accepted": ["CI failed.", "The check failed."]}],
+    "current": [],
+    "proposed": [{"ms": 2300, "text": "CI failed.", "clauses": [{"text": "CI failed.", "eventId": "e1"}]}]
+  }]
+}
+```
+
+Record the actual full text and the full ordered sequence of clauses. An ungrounded clause uses `eventId: null`. Independently author or blind-adjudicate the phrases that each source observation supports before decoding the arms. An unrecognized paraphrase receives no support credit. A fact key identifies its criterion, subject, revision and value across paraphrases and workers. Event kinds are `intent`, `status`, `finding` and `correction`. A newer observation can list earlier event IDs under `invalidates`. An empty update array records silence. Use neutral text and case IDs so the reader cannot identify a product from the prompt.
+
+Run `blind-previews --study study.json --blinding-key study.secret > reader-packet.json`. The command creates the private randomization key on its first run and reuses it for replay. Send only the reader packet to judges. For every preregistered reader and case, collect `{"studyId":"<packet id>","reader":"r01","case":"01","prefer":"A","readability":{"A":4,"B":3}}`. Preference can be A, B or tie. Readability uses 1–5. Ask judges which transcript better explains what changed, why it matters and what remains open.
+
+Run `score-previews --study study.json --blinding-key study.secret --ballots ballots.json` using a JSON array of ballots. The report returns per-arm unsupported clauses, stale assertions, repeated material facts, missing corrections and milestones, and time to the first supported finding where observed. Readability and preference remain separate. Missing ballots block the preference decision. Family-weighted preferences use half credit for ties and one-sided 95% bounds conditional on the registered readers. A comparison needs a lower bound above 50% and a clean truth gate for the proposed renderer.
 
 ### Cancellation before an admission reply
 
@@ -300,3 +340,27 @@ The comparison checks all ten task contracts, initial commit of each merge targe
 settings, budgets, GitHub actor and repository permissions, binding privacy and tool policy, model bindings and separate job IDs. Its difference describes the
 observed runs. ChatGPT and Codex need equivalent capabilities and independently
 attributable run evidence before a comparison can be reported.
+
+### Review the five targets that need independently labelled evidence
+
+Use a saved, complete ten-job production qualification report. The observer and grader keep distinct Ed25519 PEM keys outside the tested product. The commands run offline on the lab controller and print JSON.
+
+```bash
+python gateway/grade_external_reference.py prepare-target-review --qualification run.json > inventory.json
+python gateway/grade_external_reference.py observe-targets --qualification run.json --inventory inventory.json --observer-key observer.pem > observation.json
+python gateway/grade_external_reference.py grade-targets --qualification run.json --observation observation.json --observer-public observer.pub > labels.json
+python gateway/grade_external_reference.py grade-targets --qualification run.json --observation observation.json --observer-public observer.pub --grades labels.json --grader-key grader.pem > grades.json
+python gateway/grade_external_reference.py score-targets --qualification run.json --observation observation.json --observer-public observer.pub --grades grades.json --grader-public grader.pub > reviewed-targets.json
+```
+
+Before signing the inventory, the observer fills the relevant job and target lists with the SHA-256 of each immutable trace event, including its job and unique event identity. A complete inventory includes every eligible event. Use an empty list for an audited case with zero events, and JSON null for an unavailable inventory. The observer keeps the underlying trace locally.
+
+| Target | Events to inventory | A positive judgment means |
+| --- | --- | --- |
+| Valid task intent | One accepted task and the system's interpretation per job | It matches the independently labelled user intent |
+| Unnecessary tool calls | Every executed call, including retries | The call served no necessary purpose |
+| False implementation claims | Every assertion that a change was implemented | The assertion contradicts the verified outcome |
+| Unreconciled duplicate writes | Every observed remote write effect | This was an excess effect still outstanding after reconciliation |
+| Preventable provider payload failures | Every physical provider dispatch, including retries | The dispatch encountered a preventable payload rejection |
+
+Before signing the grades, the independent grader replaces each reviewed event's null with an object containing a boolean `positive` and the SHA-256 `evidenceDigest` of the supporting judgment. Leave an ungraded event null. The final command verifies both signatures, the exact report, the complete case and event inventory, and any available provider receipts. It produces a numeric reviewed value only with complete case coverage and at least one graded event. Percentages use event counts across cases. These labels supplement the target report and preserve the existing 100-point score.

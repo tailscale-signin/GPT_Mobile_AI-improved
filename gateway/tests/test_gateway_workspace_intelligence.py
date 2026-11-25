@@ -253,6 +253,36 @@ class WorkspaceIntelligenceTests(unittest.TestCase):
         receipt = {'check_id': name, 'receipt_sha256': name, 'head_sha': 'a' * 40, 'patch_identity': patch_id}
         self.job['data'].setdefault('workspace_receipts', []).append(receipt)
 
+    def test_next_work_uses_admitted_dependencies_and_current_receipts_without_a_new_check(self):
+        plan = [{'id': 'first', 'requirement_ids': ['r1']},
+                {'id': 'dependent', 'requirement_ids': ['r2'], 'depends_on': ['first']}]
+        self.observe_check('other', ['test.two'])
+        workspace_task_plan.act(self.job, {'action': 'task_plan', 'items': plan})
+        self.assertEqual('first', workspace_task_plan.next_work(self.job)['id'])
+        self.observe_check('valid', ['test.one'])
+        self.observe_check('stale', ['test.one'], source_sha='b' * 40)
+        decision = workspace_task_plan.next_work(self.job)
+        self.assertEqual(['valid'], decision['receipt_sha256'])
+        self.assertFalse(decision['completion_authority'])
+        workspace_task_plan.act(self.job, decision)
+        self.assertEqual('dependent', workspace_task_plan.next_work(self.job)['id'])
+        self.job['data']['changes'] = [{'path': 'changed.py', 'content': 'new'}]
+        self.assertEqual('first', workspace_task_plan.next_work(self.job)['id'])
+        with self.assertRaisesRegex(ValueError, 'earlier candidate'):
+            workspace_task_plan.act(self.job, decision)
+        self.job['data']['head_sha'] = 'b' * 40
+        self.assertIsNone(workspace_task_plan.next_work(self.job))
+
+    def test_next_work_does_not_combine_different_candidate_patches(self):
+        self.observe_check('one', ['test.one'], patch_id='1' * 64)
+        self.observe_check('two', ['test.two'], patch_id='2' * 64)
+        workspace_task_plan.act(self.job, {'action': 'task_plan', 'items': [{'id': 'both', 'requirement_ids': ['r1', 'r2']}]})
+        self.assertNotIn('receipt_sha256', workspace_task_plan.next_work(self.job))
+        self.observe_check('pair', ['test.one', 'test.two'], patch_id='1' * 64)
+        self.assertEqual(['pair'], workspace_task_plan.next_work(self.job)['receipt_sha256'])
+        self.job['data']['changes'] = [{'path': 'other.py', 'content': 'new'}]
+        self.assertNotIn('receipt_sha256', workspace_task_plan.next_work(self.job))
+
     def test_task_completion_uses_real_named_cases_at_one_exact_patch(self):
         self.observe_check('one', ['test.one'])
         workspace_task_plan.act(self.job, {'action': 'task_plan', 'items': [{'id': 'both', 'requirement_ids': ['r1', 'r2']}]})

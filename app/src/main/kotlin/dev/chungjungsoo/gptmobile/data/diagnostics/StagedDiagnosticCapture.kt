@@ -73,12 +73,13 @@ data class DiagnosticCaptureResult(
 private class DiagnosticCaptureLimit(val reason: String) : IOException(reason)
 
 /** Numeric source location only; record values and private identifiers never enter memory telemetry. */
-internal data class DiagnosticSourceRecord(val table: String, val rowId: Long, val sourceBytes: Long, val maximumBytes: Int) {
+internal data class DiagnosticSourceRecord(val table: String, val rowId: Long, val sourceBytes: Long, val maximumBytes: Int, val hydratedBytes: Int = 0) {
     fun json(): JsonObject = buildJsonObject {
         put("table", table)
         put("rowId", rowId)
         put("sourceBytes", sourceBytes)
         put("sourceByteScope", "STORED_DATABASE_ROW")
+        if (hydratedBytes > 0) put("hydratedBytes", hydratedBytes)
         put("maximumSourceBytes", maximumBytes)
     }
 }
@@ -91,12 +92,22 @@ class DiagnosticStageSink internal constructor(
     private val minimumHeadroom: Long,
     initialProgress: JsonObject? = null,
     initialCursor: JsonObject? = null,
-    private val saveProgress: ((JsonObject) -> Unit)? = null
+    private val saveProgress: ((JsonObject) -> Unit)? = null,
+    private val recordDirectory: File
 ) {
     private val payloadReferences = DiagnosticPayloadReferences()
     internal val phaseTimings = DiagnosticCaptureTimings()
 
     internal suspend fun redactedRecord(value: JsonElement, maximumCharacters: Int, evidence: Boolean = true) {
+        val source = sourceRecord
+        if (source?.table == "workspace_records" && maxOf(source.sourceBytes, source.hydratedBytes.toLong()) > maximumCharacters / 2 && maximumCharacters >= 2048) {
+            payloadReferences.write(value, phaseTimings) { safe ->
+                logicalRecord {
+                    DiagnosticRecordChunks.streamRedacted(safe, recordDirectory, maximumCharacters) { record(it, evidence) }
+                }
+            }
+            return
+        }
         payloadReferences.writeEncoded(value, phaseTimings) { redacted ->
             logicalRecord {
                 if (redacted.length <= maximumCharacters / 2) {
@@ -130,7 +141,15 @@ class DiagnosticStageSink internal constructor(
 
     // Bound source materialization on the first reduced-memory pass, not only
     // after an allocation failure has already interrupted critical evidence.
-    internal val sourcePageSize: Int get() = if (options.reducedMemory || options.cooperativeHeapRecovery) 1 else 16
+    internal val sourcePageSize: Int
+        get() = if (options.reducedMemory ||
+            options.cooperativeHeapRecovery ||
+            minimumObservedHeadroomBytes?.let { it - minimumHeadroom < maxOf(4L * 1024 * 1024, minimumHeadroom / 2) } == true
+        ) {
+            1
+        } else {
+            16
+        }
     internal var heapDeferral: JsonObject? = null
         private set
     private var minimumObservedHeadroomBytes: Long? = null
@@ -368,7 +387,17 @@ object StagedDiagnosticCapture {
         val collectionStarted = System.nanoTime()
         // Reserve useful evidence by capturing every cheap section before history can exhaust the archive budget.
         // Prioritize configuration without changing its guard or the caller's durable stage plan.
-        val ordered = stages.sortedWith(compareBy<DiagnosticCaptureStage> { !it.critical }.thenBy { !it.lowMemorySafe }.thenBy { it.content != DiagnosticStageContent.CONFIGURATION })
+        val ordered = stages.sortedWith(
+            compareBy<DiagnosticCaptureStage> { !it.critical }.thenBy { !it.lowMemorySafe }
+                .thenBy { it.content != DiagnosticStageContent.CONFIGURATION }
+                .thenBy {
+                    when (it.id) {
+                        "run_journal" -> 0
+                        "timeline" -> 1
+                        else -> 2
+                    }
+                }
+        )
         for (stage in ordered) {
             currentCoroutineContext().ensureActive()
             options.guard()
@@ -674,7 +703,8 @@ object StagedDiagnosticCapture {
                         }
                     } else {
                         null
-                    }
+                    },
+                    recordDirectory = requireNotNull(part.parentFile)
                 )
                 val target = requireNotNull(sink)
                 try {

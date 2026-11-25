@@ -37,7 +37,8 @@ data class ChatMcpToolConfig(
     val githubDraftRepair: GitHubDraftRepair? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy? = null,
-    @kotlinx.serialization.Transient val githubRecoveryExecutionAllowed: Boolean = false
+    @kotlinx.serialization.Transient val githubRecoveryExecutionAllowed: Boolean = false,
+    @kotlinx.serialization.Transient val githubPatchReviewAllowed: Boolean = false
 ) {
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =
         (delegation?.applyTo(defaults) ?: defaults.normalized()).let { research?.applyTo(it) ?: it }

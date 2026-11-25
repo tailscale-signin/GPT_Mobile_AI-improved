@@ -21,6 +21,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceDiagnosticPayloadTest {
+    @Test fun verifiedShapeReuseStillRechecksDigestAuthorizationAndRedactsEveryRow() = runBlocking {
+        val text = """{"token":"must-be-redacted","result":"ok"}"""
+        val meta = metadata(listOf("workspace-memory-7-one"), text)
+        val timings = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings()
+        suspend fun decode(value: String, authorized: Boolean) = readWorkspaceDiagnosticPayload(
+            7, meta, 1024, {}, { authorized }, { value.length + 38L }, { value.toByteArray() }, {}, timings = timings
+        )
+        val first = decode(text, true)
+        assertEquals(first, decode(text, true))
+        assertFalse(first.payload.toString().contains("must-be-redacted"))
+        assertEquals(JsonPrimitive(1L), timings.json()["protectedShapeReuseHits"])
+        assertEquals("PROTECTED_DIGEST_MISMATCH", decode(text.replace("ok", "no"), true).omissionReason)
+        assertEquals("PROTECTED_SOURCE_UNAVAILABLE", decode(text, false).omissionReason)
+    }
+
     @Test fun sharedRowProjectorBoundsProtectedExpansionTogetherWithMetadata() = runBlocking {
         val text = JsonObject(mapOf("result" to JsonPrimitive("x".repeat(700)), "token" to JsonPrimitive("must-be-redacted"))).toString()
         val omissions = mutableListOf<String>()

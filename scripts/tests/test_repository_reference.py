@@ -17,7 +17,13 @@ class RepositoryReferenceTests(unittest.TestCase):
         self.feature = dict(id='example-feature', title='Example', terms=['example'], paths=['example.kt'],
                             tests=['ExampleTest.kt'], commands=['a command is data'], documents=['guide.md'],
                             invariants=['Preserve identity'])
-        for path, content in {'example.kt': 'fun example() = 1\n', 'ExampleTest.kt': 'test source\n',
+        self.feature['routing'] = dict(role='evidence', entry='example.kt', proof='Observed source',
+            admission='Bound profile', decline='Retain the partial answer', positive_fixture='ExampleTest.kt#allowed',
+            negative_fixture='ExampleTest.kt#denied', plugins=['example'], tools=['example'], decline_terms=[])
+        plugin = self.root / reference.PLUGIN_SOURCE
+        plugin.parent.mkdir(parents=True)
+        plugin.write_text('object ToolPluginId {\n    const val EXAMPLE = "example"\n}\n')
+        for path, content in {'example.kt': 'fun example() = 1\n', 'ExampleTest.kt': '@Test fun allowed() {}\n@Test fun denied() {}\n',
                               'guide.md': '# Example\nExplanation\n'}.items():
             (self.root / path).write_text(content)
         self.write_source()
@@ -57,6 +63,29 @@ class RepositoryReferenceTests(unittest.TestCase):
         second = json.loads((self.root / reference.TARGET).read_text())
         self.assertNotEqual(first['file_blobs']['example.kt'], second['file_blobs']['example.kt'])
         self.assertEqual(first['features'], second['features'])
+
+    def test_new_plugin_and_unbound_proofs_cannot_ship_without_classification(self):
+        plugin = self.root / reference.PLUGIN_SOURCE
+        original = plugin.read_text()
+        plugin.write_text(original.replace('}', '    const val NEW_SOURCE = "unclassified"\n}'))
+        with self.assertRaisesRegex(ValueError, 'coverage differs'):
+            reference.document(self.root)
+        plugin.write_text(original)
+        self.feature['routing']['negative_fixture'] = 'ExampleTest.kt#missing'
+        self.write_source()
+        with self.assertRaisesRegex(ValueError, 'Missing routing fixture'):
+            reference.document(self.root)
+
+    def test_generated_tool_hints_use_only_tool_producing_features_and_detect_drift(self):
+        reference.synchronize(self.root)
+        compiled = self.root / reference.ROUTE_TARGET
+        self.assertIn('ReviewedFeatureRoute("example-feature"', compiled.read_text())
+        compiled.write_text('stale')
+        self.assertTrue(reference.synchronize(self.root, check=True))
+        self.feature['routing']['role'] = 'presentation'
+        self.write_source()
+        with self.assertRaisesRegex(ValueError, 'executable or evidence'):
+            reference.document(self.root)
 
     def test_deleted_test_cannot_leave_a_valid_reference(self):
         (self.root / 'ExampleTest.kt').unlink()

@@ -183,8 +183,8 @@ internal class DeferredKokoroOutput(
         if (current == null) completed("Install the voice model before calibration.") else current.benchmark(voice, completed)
     }
 
-    override fun prewarm(voice: KokoroVoice) {
-        output()?.prewarm(voice)
+    override fun prewarm(voice: KokoroVoice, assetsOnly: Boolean) {
+        output()?.prewarm(voice, assetsOnly)
     }
 
     override fun cancelPrewarm() {
@@ -452,7 +452,10 @@ internal class KokoroVoiceOutput(
             factory.requiresKokoroAssets == other.factory.requiresKokoroAssets &&
             (!factory.requiresKokoroAssets || lexicon == other.lexicon && threads == other.threads)
     }
-    private data class WarmupKey(val model: ModelKey, val speaker: Int, val rateBits: Int)
+    private data class WarmupKey(val model: ModelKey, val speaker: Int, val rateBits: Int, val assetsOnly: Boolean, val performance: VoicePerformanceMode)
+
+    // The pack and its pinned digest belong to this output. Accessed only on the synthesis worker.
+    private var preparedLexicon: Pair<String, Set<String>>? = null
     private class LexiconUnavailable : IllegalStateException()
     private class LoadedModel(val key: ModelKey, val engine: VoicePhraseEngine, val words: Set<String>, val leasedKokoroAssets: Boolean) {
         val warmupIdentity = Any()
@@ -596,11 +599,12 @@ internal class KokoroVoiceOutput(
         if (active == null && !calibrating) speechFactory.cancelPending()
     }
 
-    override fun prewarm(voice: KokoroVoice) {
+    override fun prewarm(voice: KokoroVoice, assetsOnly: Boolean) {
         val factory = speechFactory
         if (closed || active != null || calibrating || !factory.isReady() || factory.requiresKokoroAssets && !models.isInstalled()) return
         val speed = VoiceCpuCalibrationProtocol.rate(rate())
-        val key = WarmupKey(ModelKey(voice.lexicon, effectiveThreads(voice, speed), factory), voice.speakerId, speed.toBits())
+        if (assetsOnly && !factory.requiresKokoroAssets) return
+        val key = WarmupKey(ModelKey(voice.lexicon, threadCount, factory), voice.speakerId, speed.toBits(), assetsOnly, performance)
         if (warmupRequest == key) return
         warmupRequest = key
         val generation = ++warmupGeneration
@@ -609,13 +613,23 @@ internal class KokoroVoiceOutput(
             if (warmupRequest != key || warmupGeneration != generation) return@execute
             try {
                 ConversationPrivacyContext.withCaptured(capturedPrivacy) {
+                    // Parse the large verified pronunciation dictionary before waiting behind Moonshine.
+                    // The real model still acquires its own validated installation lease before JNI opens it.
+                    if (factory.requiresKokoroAssets && reusableModel(key.model) == null && preparedLexicon?.first != voice.lexicon) {
+                        if (!models.acquireUse()) return@withCaptured
+                        try {
+                            readLexicon(voice.lexicon)
+                        } finally {
+                            models.releaseUse()
+                        }
+                    }
+                    if (assetsOnly || warmupGeneration != generation) return@withCaptured
                     VoiceNativeEngineGate.exclusive {
                         if (!closed && active == null && !calibrating && warmupRequest == key && warmupGeneration == generation) {
                             // Preference hydration precedes this task on the same worker. Resolve
                             // its measured thread choice now, instead of warming the startup fallback.
-                            val resolved = key.copy(model = key.model.copy(threads = effectiveThreads(voice, speed)))
-                            val model = loadModelExclusive(resolved.model)
-                            if (warmupGeneration == generation) warmupRequest = resolved
+                            val resolved = key.model.copy(threads = effectiveThreads(voice, speed))
+                            val model = loadModelExclusive(resolved)
                             warmFirstCpuInference(model, voice, speed, generation)
                         }
                     }
@@ -631,9 +645,13 @@ internal class KokoroVoiceOutput(
     }
 
     private fun warmFirstCpuInference(model: LoadedModel, voice: KokoroVoice, speed: Float, generation: Long) {
-        // Explicit CPU selection alone opts in. Accelerators retain their existing
-        // admission and benchmark paths; Gateway never receives a warmup phrase.
-        if (model.key.factory.selectedBackend != VoiceSpeechBackend.CPU || powerManager?.currentThermalStatus !in 0..1) return
+        val selected = model.key.factory.selectedBackend
+        if ((selected != VoiceSpeechBackend.CPU && selected != VoiceSpeechBackend.AUTO) ||
+            model.engine.executionProvider != "cpu" ||
+            powerManager?.currentThermalStatus !in 0..1
+        ) {
+            return
+        }
         val hardware = DeviceHardwareGovernor.inspectHardwareState(application)
         if (hardware.isModeratePressure || hardware.isThrottlingRequired) return
         fun authorized() = !closed && active == null && !calibrating && warmupGeneration == generation && loaded === model
@@ -814,7 +832,11 @@ internal class KokoroVoiceOutput(
                         main.postDelayed({ acquireFocus(attempt + 1) }, retryDelay)
                     } else {
                         val message = if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
-                            "Android denied audio focus. When the call or other audio ends, return to Voice and tap replay on this reply."
+                            if (mode == AudioManager.MODE_NORMAL) {
+                                "Android denied audio focus. When audio is available, tap replay on this reply."
+                            } else {
+                                "Android denied audio focus. When the call or other audio ends, return to Voice and tap replay on this reply."
+                            }
                         } else {
                             "Android audio focus is unavailable. Reopen Voice to replay this reply."
                         }
@@ -891,9 +913,16 @@ internal class KokoroVoiceOutput(
             // This worker consumes one playback's ordered queue. Its bounded pronunciation
             // context dies with that playback, including cancellation or a failed phrase.
             val speechContext = KokoroSpeechContext()
+            val joins = VoiceSpeechJoinTracker()
+            var waitingForTextMs = 0L
             while (active === playback) {
                 playback.synthesizing = false
-                val segment = playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS)
+                val segment = playback.segments.poll() ?: run {
+                    val waitingSince = SystemClock.elapsedRealtime()
+                    playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS).also {
+                        waitingForTextMs += SystemClock.elapsedRealtime() - waitingSince
+                    }
+                }
                 if (segment == null) {
                     if (playback.sealed && playback.segments.isEmpty()) break
                     continue
@@ -944,17 +973,28 @@ internal class KokoroVoiceOutput(
                 }
                 segmentIndex++
                 val plan = KokoroPhrasePlan(phrases)
+                val tokenRetries = ArrayDeque<KokoroPhrase>()
                 while (true) {
                     if (active !== playback) return
-                    val phrase = plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
+                    val phrase = tokenRetries.removeFirstOrNull() ?: plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
                     if (model.engine.supportsStreaming) {
                         val ranges = phrase.wordRanges.takeIf { playback.onRange != null || playback.onTimedRange != null }
                         if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.speech, ranges, speed, silence)) return
                         continue
                     }
                     playback.diagnostics?.synthesisStarted()
+                    val reserveAtStartMs = bufferedAudioMs(playback)
                     val synthesisStarted = SystemClock.elapsedRealtime()
-                    val generate = { model.engine.generate(phrase.speech, playback.voice.speakerId, speed) }
+                    val encoded = try {
+                        model.engine.preparePhrase(phrase.speech)
+                    } catch (failure: dev.melo.kokoro.TimedKokoro.Failure) {
+                        if (failure.code != "FRONTEND_TOKEN_LIMIT") throw failure
+                        val parts = phrase.splitAtGroup() ?: throw failure
+                        tokenRetries.addFirst(parts.second)
+                        tokenRetries.addFirst(parts.first)
+                        continue
+                    }
+                    val generate = { model.engine.generatePrepared(phrase.speech, encoded, playback.voice.speakerId, speed) }
                     val generated = performanceHint?.measure(VoiceCpuSchedulingPolicy.targetNanos(!playback.queuedAudio, bufferedAudioMs(playback)), generate) ?: generate()
                     if (active !== playback) return
                     val provider = model.engine.executionProvider
@@ -969,6 +1009,21 @@ internal class KokoroVoiceOutput(
                     val boundaries = if (timedCaptions) measuredBoundaries else IntArray(0)
                     val samples = silence?.filter(generated.samples, boundaries) ?: generated.samples
                     val audioMs = samples.size.toLong() * 1_000 / sampleRate
+                    val join = joins.observe(
+                        phrase.speech.last(),
+                        phrase.endBoundary,
+                        generated.samples,
+                        samples,
+                        playback.enqueuedFrames.get(),
+                        reserveAtStartMs,
+                        waitingForTextMs,
+                        sampleRate
+                    )
+                    waitingForTextMs = 0
+                    if (join != null) {
+                        playback.measurements?.phraseJoin(join)
+                        timing("phrase_join", playback, "boundary=${join.boundary} · punctuation=${join.punctuation} · rawQuietMs=${join.rawQuietMs} · retainedQuietMs=${join.retainedQuietMs} · rawTailFrames=${join.rawTailFrames} · rawHeadFrames=${join.rawHeadFrames} · retainedTailFrames=${join.retainedTailFrames} · retainedHeadFrames=${join.retainedHeadFrames} · headroomMs=${join.headroomMs} · textWaitMs=${join.textWaitMs}")
+                    }
                     runCatching { playback.measurements?.pcmReady(synthesisMs, samples.size, sampleRate, model.engine.executionEvidence) }
                     // Reserve against the retained PCM duration, since trimming silence also
                     // removes time during which the following phrase could be synthesized.
@@ -1252,6 +1307,7 @@ internal class KokoroVoiceOutput(
         var framesWritten = 0L
         var playing = false
         var drainedAt: Long? = null
+        var drainedFrame = 0L
         while (active === playback) {
             val first = playback.pcm.poll(POLL_MS, TimeUnit.MILLISECONDS)
             if (first == null) {
@@ -1276,6 +1332,7 @@ internal class KokoroVoiceOutput(
                     playing = false
                     playback.refilling = true
                     drainedAt = SystemClock.elapsedRealtime()
+                    drainedFrame = framesWritten
                     measuredSynthesis.update { it.copy(bufferState = "refilling") }
                     playback.adaptive.underrun()
                     publishFeedback(playback)
@@ -1312,7 +1369,9 @@ internal class KokoroVoiceOutput(
                                 }
                                 drainedAt?.let { drained ->
                                     playback.bufferRestarts++
-                                    playback.longestRefillMs = maxOf(playback.longestRefillMs, SystemClock.elapsedRealtime() - drained)
+                                    val refillMs = SystemClock.elapsedRealtime() - drained
+                                    playback.longestRefillMs = maxOf(playback.longestRefillMs, refillMs)
+                                    if (!playback.focusState.paused) playback.measurements?.refillAt(drainedFrame, refillMs)
                                 }
                                 drainedAt = null
                                 playback.queuedAudio = true
@@ -1403,6 +1462,16 @@ internal class KokoroVoiceOutput(
         it.key.sameResident(key) && (it.engine as? VoiceFailoverPhraseEngine)?.canReuse != false
     }
 
+    private fun readLexicon(name: String): Set<String> {
+        preparedLexicon?.takeIf { it.first == name }?.let { return it.second }
+        val words = File(models.modelDirectory(), name).useLines(block = KokoroLexicon::words)
+        val missing = KokoroLexicon.missingRequiredWords(words)
+        AppLogRecorder.record("VoiceEngine", "kokoro_lexicon · lexicon=$name · entries=${words.size} · missingRequiredWords=$missing · projectionVersion=2")
+        if (missing != 0) throw LexiconUnavailable()
+        preparedLexicon = name to words
+        return words
+    }
+
     private fun loadModelExclusive(key: ModelKey): LoadedModel {
         check(!closed)
         check(quarantinedModel == null && quarantinedPreparation == null) { "Previous native speech retirement failed; restart the app before opening another model." }
@@ -1420,16 +1489,7 @@ internal class KokoroVoiceOutput(
         AppLogRecorder.record("VoiceEngine", "kokoro_start · engineId=$engineId · threads=${key.threads}")
         try {
             val directory = if (leasedKokoroAssets) models.modelDirectory() else application.noBackupFilesDir
-            val words = if (leasedKokoroAssets) {
-                val lexicon = File(directory, key.lexicon)
-                lexicon.useLines(block = KokoroLexicon::words).also {
-                    val missingRequiredWords = KokoroLexicon.missingRequiredWords(it)
-                    AppLogRecorder.record("VoiceEngine", "kokoro_lexicon · engineId=$engineId · lexicon=${key.lexicon} · entries=${it.size} · missingRequiredWords=$missingRequiredWords · projectionVersion=2")
-                    if (missingRequiredWords != 0) throw LexiconUnavailable()
-                }
-            } else {
-                emptySet()
-            }
+            val words = if (leasedKokoroAssets) readLexicon(key.lexicon) else emptySet()
             val engine = key.factory.create(directory, key.lexicon, key.threads)
             AppLogRecorder.record("VoiceEngine", "kokoro_ready · engineId=$engineId · threads=${key.threads} · durationMs=${SystemClock.elapsedRealtime() - started}")
             return LoadedModel(key, engine, words, leasedKokoroAssets).also { loaded = it }
@@ -1617,6 +1677,8 @@ internal class KokoroVoiceOutput(
     }
 
     private fun releaseModel() {
+        // The synthesis worker is the single owner. An empty teardown must not queue behind capture.
+        if (loaded == null) return
         VoiceNativeEngineGate.exclusive {
             val model = loaded ?: return@exclusive
             loaded = null
@@ -1640,7 +1702,10 @@ internal class KokoroVoiceOutput(
             calibrationTicket++
             runCatching { loaded?.engine?.cancel() }
         }
-        synthesis.execute(::releaseModel)
+        synthesis.execute {
+            preparedLexicon = null
+            releaseModel()
+        }
     }
 
     private fun end(playback: Playback, reason: String, cancellationOrigin: String? = null) {

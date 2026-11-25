@@ -147,10 +147,13 @@ class ChatCompletionsEventAssembler {
 }
 
 /** A closed parser-owned reason. Never retain tool arguments or provider fragments. */
-private fun invalidToolFrame(message: String, kind: String): ProviderEvent.Failed = ProviderEvent.Failed(
+internal fun invalidToolFrame(message: String, kind: String): ProviderEvent.Failed = ProviderEvent.Failed(
     message,
     errorCode = "TOOL_PROTOCOL_INVALID_FRAME",
-    failureDetails = buildJsonObject { put("tool_protocol_frame_kind", kind) }
+    failureDetails = buildJsonObject {
+        put("tool_protocol_frame_kind", kind)
+        put("failed_stage", "response_stream")
+    }
 )
 
 internal fun toolCall(callId: String, name: String, arguments: String, reportedModelId: String? = null): List<ProviderEvent> {

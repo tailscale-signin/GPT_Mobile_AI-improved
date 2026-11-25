@@ -156,6 +156,25 @@ class GitHubWorkspaceClient(
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
 
+    /** Select the current revision before a graph read without computing the separate lexical index. */
+    internal suspend fun refreshGraphRevision(scope: GitHubConversationContext) {
+        refreshCredential()
+        val root = "/repos/${segment(scope.owner)}/${segment(scope.repo)}"
+        val args = buildJsonObject {
+            put("ref", scope.ref)
+            put("refresh", true)
+        }
+        withContext(Invocation(GitHubRepositoryStateStore.digest("graph-revision|$root|${GitHubExecutionJournal.canonical(args)}"))) {
+            revalidateSelection(root, scope.ref)
+            repositorySession.resolve(scope.owner, scope.repo, args, selectContext = true)
+        }
+    }
+
+    private fun revalidateSelection(root: String, ref: String) {
+        refAvailability.revalidateRepository(root)
+        if (ref.isNotBlank()) refAvailability.revalidate(root, ref)
+    }
+
     /** Native map transport stays outside the agent action catalogue and never submits a repository mutation. */
     internal suspend fun repositoryMap(owner: String, repo: String, arguments: JsonObject): JsonObject {
         refreshCredential()
@@ -353,9 +372,8 @@ class GitHubWorkspaceClient(
             ).execute(root, action, args)
         }
         if (action == "resolve_context" && args["refresh"] == JsonPrimitive(true)) {
-            refAvailability.revalidateRepository(root)
             val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
-            if (selectedRef.isNotBlank()) refAvailability.revalidate(root, selectedRef)
+            revalidateSelection(root, selectedRef)
         }
         if (action in setOf("repository_details", "get_repository") && args["refresh"] == JsonPrimitive(true)) refAvailability.revalidateRepository(root)
         if (action == "get_branch_head" && args["refresh"] == JsonPrimitive(true)) {
@@ -2218,6 +2236,13 @@ class GitHubWorkspaceClient(
         val requestedStart = args["start_line"]?.jsonPrimitive?.content?.toIntOrNull()
         val requestedEnd = args["end_line"]?.jsonPrimitive?.content?.toIntOrNull()
         if (requestedStart != null) require(requestedStart >= 1 && (requestedEnd ?: requestedStart + 99) >= requestedStart && (requestedEnd ?: requestedStart + 99) - requestedStart < 2000)
+        val sizeGate = if (requestedStart == null) {
+            GitHubCiSizeGate.find(lines)
+        } else {
+            val from = (requestedStart - 1).coerceAtMost(lines.size)
+            val until = minOf(lines.size.toLong(), requestedEnd?.toLong() ?: requestedStart.toLong() + 99).toInt()
+            GitHubCiSizeGate.find(lines.subList(from, until), requestedStart)
+        }
         val selected = if (requestedStart != null) {
             ((requestedStart - 1)..minOf(lines.lastIndex, (requestedEnd ?: requestedStart + 99) - 1)).toSet()
         } else {
@@ -2244,6 +2269,7 @@ class GitHubWorkspaceClient(
             emptySet()
         }
         return buildJsonObject {
+            sizeGate?.let { put("apk_size_failure", it) }
             put("diagnosis", GitHubCiDiagnosis.group(excerpts, changedPaths))
             put("changed_file_scope", "First page of the exact commit's changed files; absence of a match is not proof of no relationship")
             put("status", "available")

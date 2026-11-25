@@ -8,6 +8,38 @@ from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQ
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
+    def test_policy_selection_requires_its_own_extended_reporter_capability(self):
+        feature = "GITHUB_POLICY_SELECTION_FIELDS_V1"
+        self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+        self.assertIn("CHANGED_POLICY_FIELDS_V1", readiness["reportDiagnosticFeatures"])
+        self.assertIn("ISSUE_RECOVERY_DETAILS_V1", readiness["reportDiagnosticFeatures"])
+        self.assertIn("CATALOG_MISSING_TOOL_IDENTITY_V1", readiness["reportDiagnosticFeatures"])
+        body = json.dumps(readiness, separators=(",", ":")).encode()
+        self.assertLessEqual(len(body), MAX_READINESS_BYTES)
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: body)
+        readiness["reportDiagnosticFeatures"].append(feature)
+        body = json.dumps(readiness, separators=(",", ":")).encode()
+        self.assertLessEqual(len(body), MAX_READINESS_BYTES)
+        check_readiness("https://reports.project.org", lambda _: body)
+
+    def test_catalog_missing_tool_identity_requires_more_than_legacy_recovery_support(self):
+        feature = "CATALOG_MISSING_TOOL_IDENTITY_V1"
+        self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+        self.assertIn("RECOVERY_REPORT_EVIDENCE_V1", readiness["reportDiagnosticFeatures"])
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append(feature)
+        body = json.dumps(readiness, separators=(",", ":")).encode()
+        self.assertLessEqual(len(body), MAX_READINESS_BYTES)
+        check_readiness("https://reports.project.org", lambda _: body)
+
     def test_deployment_probe_requires_replay_local_graph_and_provider_limit_evidence(self):
         for feature in ("SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1", "PRIVACY_FINAL_REQUEST_EVIDENCE_V1"):
             with self.subTest(feature=feature):

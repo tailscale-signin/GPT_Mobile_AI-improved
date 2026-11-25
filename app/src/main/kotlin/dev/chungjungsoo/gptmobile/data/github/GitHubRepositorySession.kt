@@ -159,9 +159,16 @@ internal class GitHubRepositorySession(
         }
     }
 
+    private suspend fun retainedTree(context: GitHubTaskSnapshot): JsonObject? {
+        val sourceScope = blobScope(context)
+        val treeKey = "phone-graph:tree-v1:${context.treeSha}"
+        return cachedSource(sourceScope, treeKey)?.takeIf { it.s("tree_sha") == context.treeSha }
+            ?: cachedSource(sourceScope, "tree:${context.commitSha}")?.takeIf { it.s("tree_sha") == context.treeSha }?.also { store.write(sourceScope, treeKey, it) }
+    }
+
     private suspend fun tree(context: GitHubTaskSnapshot): JsonObject {
         val scope = blobScope(context)
-        cachedSource(scope, "tree:${context.commitSha}")?.let { return it }
+        retainedTree(context)?.let { return it }
         val response = request("${root(context.owner, context.repo)}/git/trees/${context.treeSha}?recursive=1").jsonObject
         val entries = response["tree"]?.jsonArray.orEmpty()
         val bounded = buildJsonObject {
@@ -169,11 +176,7 @@ internal class GitHubRepositorySession(
             put("truncated", entries.size > 20000 || response["truncated"]?.jsonPrimitive?.booleanOrNull == true)
             put("tree_sha", context.treeSha)
         }
-        store.write(scope, "tree:${context.commitSha}", bounded)
-        val old = store.read(scope, "tree_keys")?.get("keys")?.jsonArray.orEmpty().map { it.jsonPrimitive.content }.filter { it != context.commitSha }
-        val keys = old + context.commitSha
-        keys.dropLast(12).forEach { store.remove(scope, "tree:$it") }
-        store.write(scope, "tree_keys", buildJsonObject { put("keys", JsonArray(keys.takeLast(12).map(::JsonPrimitive))) })
+        store.write(scope, "phone-graph:tree-v1:${context.treeSha}", bounded)
         return bounded
     }
 
@@ -496,7 +499,7 @@ internal class GitHubRepositorySession(
     internal suspend fun repositoryMap(owner: String, repo: String, args: JsonObject): JsonObject = withContext(Dispatchers.Default) {
         require(args.toString().length <= 64_000) { "Repository map request is too large." }
         val action = args.s("action").ifBlank { "status" }
-        if (action !in setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics", "task_context_bundle")) {
+        if (action !in setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics", "task_context_bundle", "cached_path_hints")) {
             throw GatewayGraphResultException("PHONE_GRAPH_OPERATION_UNSUPPORTED", "This operation requires the optional Gateway map.", "SELECT_GATEWAY_ANALYSIS")
         }
         require(args.s("commit_sha").sha()) { "Repository map requires an immutable selected commit." }
@@ -506,6 +509,11 @@ internal class GitHubRepositorySession(
         val budget = GitHubReadWorkBudget(readOperationTimeoutMs)
         val context = budget.run { resolve(owner, repo, args) }
             ?: throw GatewayGraphResultException("READ_DEADLINE", "The pinned repository could not be resolved within the read budget.", "REFRESH_PHONE_MAP")
+        if (action == "cached_path_hints") {
+            return@withContext GitHubCompactTaskContext.prepare(context, retainedTree(context), args.s("query")) { sha ->
+                if (args["allow_cached_source"] == JsonPrimitive(true)) cachedSource(blobScope(context), "blob:$sha") else null
+            }
+        }
         val tree = budget.run {
             if (action == "task_context_bundle") taskContextPhase(PhoneTaskContextPhase.TREE_SELECTION) { tree(context) } else tree(context)
         } ?: throw readBudgetExpired(context, "phone_index_tree")
@@ -681,7 +689,11 @@ internal class GitHubRepositorySession(
             put("index_coverage_scope", "ELIGIBLE_TEXT_SOURCE_ONLY")
             put("compiler_resolution", false)
         }
-        val result = PhoneRepositoryGraph.execute(context, tree, cached, status, args)
+        val topologyKey = if (inspect && !forceLiveReads()) PhoneMapTopology.key(context, cached, args["paths"] as? JsonArray) else null
+        val retained = topologyKey?.let { PhoneMapTopology.load(store, sourceScope, it) }
+        var built: PhoneMapTopology? = null
+        val result = PhoneRepositoryGraph.execute(context, tree, cached, status, args, retained) { built = it }
+        if (topologyKey != null) built?.save(store, sourceScope, topologyKey)
         if (action == "status") {
             val summary = store.read(scope, "phone-context-summary:${context.commitSha}")?.takeIf { it.s("source_sha") == context.commitSha }
             JsonObject(result + mapOf("source_storage" to store.sourceStorageStatus()) + summary?.let { mapOf("task_context" to it) }.orEmpty())
@@ -1701,7 +1713,7 @@ internal class GitHubRepositorySession(
             selected.map { (path, entry) -> async { permits.withPermit { path to blob(context, entry).s("content") } } }.awaitAll().toMap()
         }
         var remaining = MAX_EXCERPT_BYTES
-        val results = resolvedRanges.map { range ->
+        val results = resolvedRanges.mapIndexed { index, range ->
             val path = range.s("path").also { GitHubWorkspaceClient.filePath(it) }
             val entry = selected.getValue(path)
             require(range.s("expected_blob_sha").let { it.isBlank() || it.equals(entry.s("sha"), true) }) { "Requested blob does not match the pinned tree." }
@@ -1718,7 +1730,8 @@ internal class GitHubRepositorySession(
             require(requestedEnd == null || requestedEnd == -1 || requestedEnd >= start && requestedEnd.toLong() - start < 2000) {
                 "end_line must be -1 for EOF or a range of at most 2000 lines."
             }
-            val boundedEnd = (start.toLong() + (maximumLines ?: if (requestedEnd == -1) 2000 else 300) - 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val defaultLines = if (resolvedRanges.size == 1) 300 else (300 / resolvedRanges.size).coerceAtLeast(24)
+            val boundedEnd = (start.toLong() + (maximumLines ?: if (requestedEnd == -1) 2000 else defaultLines) - 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             val end = when (requestedEnd) {
                 null -> boundedEnd
                 -1 -> minOf(lines.size.coerceAtLeast(start), boundedEnd)
@@ -1726,7 +1739,8 @@ internal class GitHubRepositorySession(
             }
             val selected = lines.drop(start - 1).take(end - start + 1).joinToString("\n")
             val offset = (range["start_offset"]?.jsonPrimitive?.intOrNull ?: 0).also { require(it in 0..selected.length && (it == 0 || it == selected.length || !Character.isLowSurrogate(selected[it]))) { "start_offset must be a valid UTF-16 character boundary." } }
-            val excerpt = utf8Prefix(selected.substring(offset), remaining)
+            val share = remaining / (resolvedRanges.size - index)
+            val excerpt = utf8Prefix(selected.substring(offset), share)
             remaining -= excerpt.encodeToByteArray().size
             val truncated = offset + excerpt.length < selected.length
             buildJsonObject {
@@ -1741,7 +1755,14 @@ internal class GitHubRepositorySession(
                 put("requested_eof", requestedEnd == -1)
                 put("line_limit", if (requestedEnd == -1) 2000L else maximumLines?.toLong() ?: (end.toLong() - start + 1))
                 put("start_offset", offset)
-                put("content_start_line", start + (0 until offset).count { selected[it] == '\n' })
+                val firstLine = start + (0 until offset).count { selected[it] == '\n' }
+                put("content_start_line", firstLine)
+                val wholeStart = firstLine + if (offset > 0 && selected[offset - 1] != '\n') 1 else 0
+                val wholeEnd = if (truncated) firstLine + excerpt.count { it == '\n' } - 1 else minOf(end, lines.size)
+                if (excerpt.isNotEmpty() && wholeStart <= wholeEnd) {
+                    put("captured_start_line", wholeStart)
+                    put("captured_end_line", wholeEnd)
+                }
                 put("content", excerpt)
                 put("truncated", truncated || end < lines.size || start > 1 || offset > 0)
                 put("range_complete", offset == 0 && !truncated)

@@ -36,15 +36,17 @@ class VoiceStreamingPhrasePlanTest {
     }
 
     @Test fun unbrokenUnicodeTextDoesNotSplitSurrogatesOrDropCombiningMarks() {
-        val text = "🙂xe\u0301".repeat(100)
-        val plan = VoiceStreamingPhrasePlan(text, emptyMap(), .5f)
-        val phrases = generateSequence { plan.next(8) }.toList()
-        assertEquals(text, phrases.joinToString("") { it.text })
-        assertTrue(phrases.size > 1)
-        assertTrue(phrases.all { it.text.length <= 64 })
-        assertTrue(phrases.all { !it.text.first().isLowSurrogate() && !it.text.last().isHighSurrogate() })
-        assertTrue(phrases.all { it.text.first() != '\u0301' })
-        assertFalse(phrases.any { it.text.isBlank() })
+        for (separator in listOf("", " ")) {
+            val text = List(100) { "🙂xe\u0301" }.joinToString(separator)
+            val plan = VoiceStreamingPhrasePlan(text, emptyMap(), .5f)
+            val phrases = generateSequence { plan.next(8) }.toList()
+            assertEquals(text, phrases.joinToString("") { it.text })
+            assertTrue(phrases.size > 1)
+            assertTrue(phrases.all { it.text.length <= 64 })
+            assertTrue(phrases.all { !it.text.first().isLowSurrogate() && !it.text.last().isHighSurrogate() })
+            assertTrue(phrases.all { it.text.first() != '\u0301' })
+            assertFalse(phrases.any { it.text.isBlank() })
+        }
     }
 
     @Test fun sdkCorrectionsUseFullSymbolicTermsAndKeepOriginalWordCues() {
@@ -57,6 +59,36 @@ class VoiceStreamingPhrasePlanTest {
         val range = phrase.sourceCharacters[start]
         assertEquals("C#", text.substring(range))
         assertTrue(phrase.sourceCharacters.subList(start, start + 5).all { it == range })
+    }
+
+    @Test fun aPronunciationGroupMustFitWholeWithinTheRateDependentCharacterCeiling() {
+        val input = "Sentoria"
+        val pronunciation = List(8) { "pronouncing" }.joinToString(" ")
+        val overrides = mapOf(input to pronunciation)
+        assertEquals(95, pronunciation.length)
+        assertTrue(VoicePronunciationOverrides.valid(input, pronunciation))
+
+        val slow = VoiceStreamingPhrasePlan(input, overrides, .5f)
+        val failure = assertThrows(IllegalArgumentException::class.java) { slow.next(4) }
+        assertEquals("STREAM_INPUT_LIMIT", failure.message)
+
+        val normal = VoiceStreamingPhrasePlan(input, overrides, 1f)
+        val phrase = normal.next(4)!!
+        assertEquals(pronunciation, phrase.text)
+        assertTrue(phrase.text.length <= 128)
+        assertEquals(List(pronunciation.length) { input.indices }, phrase.sourceCharacters)
+        assertEquals(null, normal.next(4))
+    }
+
+    @Test fun literalFallbackKeepsSingleCharacterCorrectionsAndContextualNamesWhole() {
+        val name = "Dr. " + "A".repeat(80)
+        for ((input, overrides) in listOf("X" to mapOf("X" to "spoken".repeat(13)), name to emptyMap())) {
+            val slow = VoiceStreamingPhrasePlan(input, overrides, .5f)
+            assertEquals("STREAM_INPUT_LIMIT", assertThrows(IllegalArgumentException::class.java) { slow.next(4) }.message)
+            val normal = VoiceStreamingPhrasePlan(input, overrides, 1f)
+            assertEquals(overrides[input] ?: input, normal.next(4)!!.text)
+            assertEquals(null, normal.next(4))
+        }
     }
 
     @Test fun separatorAfterTheExactCharacterCeilingRemainsInTheFollowingChunk() {
@@ -75,21 +107,23 @@ class VoiceStreamingPhrasePlanTest {
     @Test fun repeatedWhitespaceBoundariesRemainExactAtEveryCharacterCeiling() {
         for ((speed, ceiling) in listOf(.5f to 64, 1f to 128, 1.5f to 192)) {
             for (separator in listOf(" ", "\t", "\n", " \t\n")) {
-                val input = "a".repeat(ceiling) + separator + "b".repeat(ceiling) + separator + "c".repeat(ceiling) + separator + "end"
-                val plan = VoiceStreamingPhrasePlan(input, emptyMap(), speed)
-                val phrases = generateSequence { plan.next(4) }.toList()
+                for (width in listOf(ceiling - separator.length, ceiling)) {
+                    val input = listOf("a".repeat(ceiling), "b".repeat(width), "c".repeat(width), "end").joinToString(separator)
+                    val plan = VoiceStreamingPhrasePlan(input, emptyMap(), speed)
+                    val phrases = generateSequence { plan.next(4) }.toList()
 
-                assertEquals(input, phrases.joinToString("") { it.text })
-                assertTrue(phrases.all { it.text.length <= ceiling && it.text.isNotBlank() })
-                for (phrase in phrases) {
-                    assertEquals(phrase.text, phrase.sourceCharacters.joinToString("") { input.substring(it) })
+                    assertEquals(input, phrases.joinToString("") { it.text })
+                    assertTrue(phrases.all { it.text.length <= ceiling && it.text.isNotBlank() })
+                    for (phrase in phrases) {
+                        assertEquals(phrase.text, phrase.sourceCharacters.joinToString("") { input.substring(it) })
+                    }
                 }
             }
         }
     }
 
     @Test fun anUnbrokenWordDoesNotGainASeparatorAtTheSameCharacterBoundary() {
-        for (length in listOf(129, 256, 257, 513)) {
+        for (length in listOf(1, 64, 127, 128, 129, 256, 257, 513)) {
             val input = "a".repeat(length - 1) + "b"
             val plan = VoiceStreamingPhrasePlan(input, emptyMap(), 1f)
             val phrases = generateSequence { plan.next(8) }.toList()

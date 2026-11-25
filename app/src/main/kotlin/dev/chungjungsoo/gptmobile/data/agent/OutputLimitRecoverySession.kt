@@ -411,7 +411,7 @@ internal fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> =
     fun add(previous: Int?, value: Int, cumulative: Boolean): Int =
         if (cumulative) maxOf(previous ?: 0, value) else ((previous ?: 0).toLong() + value).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     collect { event ->
-        if (event is ProviderEvent.Usage) {
+        if (event is ProviderEvent.Usage && event.advisoryRole == null) {
             val previous = metadata
             metadata = event.copy(
                 finishReason = event.finishReason ?: previous?.finishReason,

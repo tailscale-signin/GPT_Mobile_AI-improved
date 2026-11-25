@@ -47,6 +47,15 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     private fun result(id: String, body: String, error: Boolean = false, code: String? = null) = AgentToolResult(id, ToolResultContent.Text(body), error, errorCode = code)
 
     val tools: List<AgentTool> = when {
+        engineering != null && test.validatorVersion == "benchmark-validator-v8" -> listOf(
+            tool("benchmark_github_archive", "Look up repository activity at the previous release.", schema(emptyMap())) { id, _ ->
+                result(id, "Archived release snapshot. Current branch evidence is unavailable here.")
+            },
+            engineering.tool,
+            tool("benchmark_github_overview", "Read repository catalog metadata and ownership.", schema(emptyMap())) { id, _ ->
+                result(id, "The repository belongs to fixture/offline. This catalog has no branch or workflow receipts.")
+            }
+        )
         engineering != null -> listOf(engineering.tool)
         githubFixture != null -> listOf(
             tool(

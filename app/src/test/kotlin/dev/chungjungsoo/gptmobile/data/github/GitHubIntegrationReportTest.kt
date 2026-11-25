@@ -46,6 +46,32 @@ class GitHubIntegrationReportTest {
     }
     private fun source() = receipt("source", "github_context", json("""{"action":"status"}"""), json("""{"branch":"main","commit_sha":"$sha","repository":{"default_branch":"main"}}"""))
 
+    @Test fun terminalTimeWindowUsesLatestPageAndLeavesFixtureApprovalWithItsCriterion() {
+        val records = mapOf("source" to source())
+        val base = GitHubTestChecklist.checkpoint(task, records, tools, 128)
+        val stopBudget = JsonObject((base.getValue("stage_budget") as JsonObject) + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")))
+        val page = json("""{"next_call":{"tool":"github_ci","arguments":{"action":"runs","page":117,"per_page":100}}}""")
+        val end = JsonObject(base + mapOf("stage_budget" to stopBudget, "pagination_resume" to page))
+        val reason = GitHubIntegrationReport.stopReason(task, records, tools, 128, end)
+        assertEquals(JsonPrimitive("AUTHORIZE_NEW_TIME_WINDOW"), reason["recovery_action"])
+        val report = GitHubIntegrationReport.render(task, records, tools, 128, checkpoint = end)
+        val next = report.lines().single { it.startsWith("**Next action**") }
+        assertTrue(next.contains(GitHubExecutionLimits.RENEWAL_EXAMPLE))
+        assertTrue(next.contains("page 117"))
+        assertFalse(next.contains("fixture", ignoreCase = true))
+        assertFalse(report.contains("INVENTORY_CONTINUATION_BLOCKED"))
+    }
+
+    @Test fun firstInventoryTotalEstimatesMinimumRemainingCallsUnderOriginalLimit() {
+        val args = json("""{"action":"runs","per_page":100,"page":1}""")
+        val result = json("""{"total_count":40000,"page":1,"per_page":100,"has_more":true,"workflow_runs":[{"id":14}]}""")
+        val records = mapOf("page1" to receipt("page1", "github_ci", args, result))
+        val row = GitHubTestChecklist.inventoryCoverage(records, 255).single().jsonObject
+        assertEquals(JsonPrimitive(400L), row["minimum_pages"])
+        assertEquals(JsonPrimitive(399L), row["minimum_remaining_page_calls"])
+        assertEquals(JsonPrimitive(false), row["fits_remaining_call_budget"])
+    }
+
     @Test fun everyUnresolvedCapabilityAppearsInThePrerequisiteLedgerBeyondThePreview() {
         val receipts = mapOf("source" to source())
         val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, 204)
@@ -275,4 +301,36 @@ class GitHubIntegrationReportTest {
 
     private fun JsonObject.array(key: String) = (get(key) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
+
+    @Test fun providerFailureReplacesTheIntegrationActionAndPreservesReportEvidence() {
+        val records = mapOf("source" to source())
+        val approval = GitHubTestChecklist.fixtureApprovalPreflight(GitHubDecisionMode.ASK, "accepted-task", "owner/repo", "main", json("{}"))
+        val checkpoint = GitHubTestChecklist.checkpoint(task, records, tools, 128, approval)
+        val rendered = GitHubIntegrationReport.render(task, records, tools, 128, checkpoint = checkpoint)
+        assertEquals(1, rendered.lines().count { it.startsWith("**Next action**") })
+        val failed = buildJsonObject {
+            put(
+                "original_failure",
+                buildJsonObject {
+                    put("code", "TLS_FAILURE")
+                    put("remote_acceptance", "UNKNOWN")
+                    put("dispatched", true)
+                    put("invocation_id", "integration-attempt-42")
+                    put("resume_allowed", false)
+                }
+            )
+            put("recovery_action", "CONTINUE_FROM_THE_FIRST_UNVERIFIED_CRITERION")
+            put("task_outcome", "PARTIAL")
+        }
+        val result = GitHubEffectiveRecovery.publicationText(rendered, failed, records)
+        val next = result.lines().single { it.startsWith("**Next action**") }
+        assertTrue(next.contains("Review the failed provider request"))
+        assertTrue(next.contains("integration-attempt-42"))
+        assertTrue(next.contains("1 retained successful read receipts"))
+        assertFalse(next.contains("fixture", ignoreCase = true))
+        assertTrue(result.contains("### Verification details"))
+        assertTrue(result.contains("### Repository inventory and stop reason"))
+        assertTrue(result.contains("FIXTURE_APPROVAL_MODE_REQUIRED"))
+        assertTrue(result.endsWith("The failed request remains paused."))
+    }
 }

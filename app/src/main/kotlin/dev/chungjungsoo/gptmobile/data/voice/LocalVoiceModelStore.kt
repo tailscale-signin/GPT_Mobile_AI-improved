@@ -105,10 +105,10 @@ class LocalVoiceModelStore internal constructor(
 
     internal fun releaseUse() = synchronized(shared) { shared.users = (shared.users - 1).coerceAtLeast(0) }
 
-    suspend fun refresh() = withContext(Dispatchers.IO) {
+    suspend fun refresh(forceVerification: Boolean = true) = withContext(Dispatchers.IO) {
         shared.mutex.withLock {
-            shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
-            val ready = verifyInstalledFiles()
+            if (forceVerification || !isInstalled()) shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
+            val ready = verifyInstalledFiles(force = forceVerification, requireChangeTime = true)
             shared.state.value = LocalVoiceModelState(
                 status = if (ready) LocalVoiceModelStatus.READY else LocalVoiceModelStatus.NOT_INSTALLED,
                 downloadedBytes = if (ready) totalBytes else 0,
@@ -119,7 +119,7 @@ class LocalVoiceModelStore internal constructor(
     }
 
     /** Also called on the recognition worker before JNI sees any file. Never performs network IO. */
-    internal fun verifyInstalledFiles(force: Boolean = true): Boolean = synchronized(shared) {
+    internal fun verifyInstalledFiles(force: Boolean = true, requireChangeTime: Boolean = false): Boolean = synchronized(shared) {
         try {
             val marker = File(installed, "verified")
             if (!marker.isFile || marker.length() > 256 || marker.readText() != revision) {
@@ -130,7 +130,7 @@ class LocalVoiceModelStore internal constructor(
                 shared.verifiedGeneration = null
                 return@synchronized false
             }
-            if (!force && shared.verifiedGeneration == before) return@synchronized true
+            if (!force && shared.verifiedGeneration == before && (!requireChangeTime || before.stamps.all { it.changed != null })) return@synchronized true
             if (!verifyFiles(installed) || installationStamp() != before) {
                 shared.verifiedGeneration = null
                 return@synchronized false

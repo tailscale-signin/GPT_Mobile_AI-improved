@@ -188,7 +188,7 @@ class ToolExecutionBudget(
                 }
             }
             if (invalid.isNotEmpty()) {
-                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid, searchValidationOwner = tool.searchValidationOwner)
+                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid, searchValidationOwner = tool.searchValidationOwner, catalog = tool.argumentCatalog())
                 return { withBudgetState(rejected) }
             }
             semanticArgumentRejections[signature]?.let { previous ->
@@ -230,7 +230,7 @@ class ToolExecutionBudget(
             } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
                 authorityPrecheck(callId, definition.name, rejected)?.let { return { bounded(it) } }
                 if (ToolResultEnvelope.isAuthorizationRejection(rejected.code)) terminalToolFailures[tool.definition.name] = rejected.code
-                return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
+                return { bounded(authorizationRefusal(callId, rejected)) }
             } catch (error: Exception) {
                 authorityPrecheck(callId, definition.name, error)?.let { return { bounded(it) } }
                 // An unexpected admission exception is not a failed tool
@@ -389,7 +389,7 @@ class ToolExecutionBudget(
                     } else {
                         permits.withPermit {
                             if (!canExecute() && remainingBytes.get() <= 0) return@withPermit failure(outputBudgetMessage())
-                            withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
+                            withContext(ToolOutputAllowance(sourceExcerptAllowance(remainingOutputBytes()))) {
                                 withTimeoutOrNull(if (limits.researchAcquisition) dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.operationMillis(tool.definition.name, limits.toolTimeoutMillis) else limits.toolTimeoutMillis) { invokeObserved() }
                             }
                                 ?: phoneInterruption.close() ?: if (replayableRead
@@ -409,6 +409,9 @@ class ToolExecutionBudget(
                     val boundedResult = bounded(
                         result,
                         preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME,
+                        shareSourceBudget = !separateResultAllowance &&
+                            remainingCalls()?.let { it > 0 } == true &&
+                            (tool.definition.name in setOf("read_url", "web_search") || tool.definition.capabilities.any { it == AgentToolCapability.WEB_SEARCH || it == AgentToolCapability.PAGE_READER }),
                         observationLimitBytes = if (tool.definition.name in ACADEMIC_ACQUISITION_TOOLS) 256 * 1024 else 64 * 1024
                     )
                     val normalizedResult = if (
@@ -472,7 +475,7 @@ class ToolExecutionBudget(
                         statistics?.rejectedBeforeDispatch(statisticsId)
                         statisticsId = null
                         if (ToolResultEnvelope.isAuthorizationRejection(error.code)) terminalToolFailures[tool.definition.name] = error.code
-                        val result = bounded(ToolResultEnvelope.error(callId, error.code, error.message.orEmpty()))
+                        val result = bounded(authorizationRefusal(callId, error))
                         combinedResult = result
                         return@execution result
                     }
@@ -577,6 +580,19 @@ class ToolExecutionBudget(
         }
     }
 
+    private fun authorizationRefusal(callId: String, failure: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected): AgentToolResult {
+        val result = ToolResultEnvelope.error(callId, failure.code, failure.message.orEmpty())
+        if (failure !is dev.chungjungsoo.gptmobile.data.permissions.DuplicateToolAction) return result
+        return result.copy(
+            executionReceipt = buildJsonObject {
+                put("schema", "gptmobile.duplicate-approval.v1")
+                put("call_id", callId)
+                put("previous_approval_state", failure.previousState)
+                put("failed_stage", "tool_precheck")
+            }
+        )
+    }
+
     private fun recordAuthorityFailure(result: AgentToolResult) {
         if (ToolFailureMetadata.authorityCode(result) != null) invalidatedAuthority.compareAndSet(null, result)
     }
@@ -604,6 +620,7 @@ class ToolExecutionBudget(
     private fun bounded(
         rawResult: AgentToolResult,
         preserveSuccessfulHandoff: Boolean = false,
+        shareSourceBudget: Boolean = false,
         observationLimitBytes: Int = 64 * 1024
     ): AgentToolResult {
         // Academic acquisition must see the bounded typed page before model compaction.
@@ -625,7 +642,11 @@ class ToolExecutionBudget(
         // Debit the admitted excerpt, rather than allowing a single raw JSON/page
         // payload to consume the entire turn's research budget. Keep full results
         // separately for UI and recovery, as before.
-        val resultAllowance = if (evidenceBytesPerResult != null) {
+        val resultAllowance = if (shareSourceBudget) {
+            // Charge metadata and excerpts together. The reader's body cap alone
+            // cannot leave room for another source when the URL envelope is large.
+            sourceExcerptAllowance(outputByteLimit.get())
+        } else if (evidenceBytesPerResult != null) {
             outputByteLimit.get()
         } else if (preserveSuccessfulHandoff) {
             Int.MAX_VALUE
@@ -760,6 +781,9 @@ class ToolExecutionBudget(
     }
 
     private companion object {
+        // Below a useful excerpt, spend the remaining bytes on one source and report exhaustion.
+        fun sourceExcerptAllowance(totalBytes: Int) = minOf(totalBytes, 16 * 1024, (totalBytes / 4).coerceAtLeast(256))
+
         const val DELEGATION_TOOL_NAME = "delegate_to_model"
         const val DELEGATION_HANDOFF_RESERVE_BYTES = 64 * 1024
         val ACADEMIC_ACQUISITION_TOOLS = setOf("deep_research_search_papers", "deep_research_read_paper")

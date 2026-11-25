@@ -473,6 +473,8 @@ class GatewayEngineeringRepository @Inject constructor(
         check(savedBinding != null || preferences.contextVariant == (featuresAtAdmission.githubProfileOverrides[profile.uid]?.contextVariant ?: GitHubContextVariant.TASK)) { "The repository context choice changed during model preparation. Review the retained draft before sending it." }
         val batchMode = if (savedSnapshot != null) savedSnapshot.executionMode ?: "standard" else preferences.executionBatchMode
         val contextVariant = if (savedSnapshot != null) savedSnapshot.contextVariant ?: GitHubContextVariant.TASK else preferences.contextVariant
+        val selectedPolicy = if (savedSnapshot != null) savedSnapshot.nextActionPolicy ?: GitHubNextActionMode.LEGACY else preferences.nextActionPolicy
+        check(savedBinding != null || preferences.nextActionPolicy == (featuresAtAdmission.githubProfileOverrides[profile.uid]?.nextActionPolicy ?: GitHubNextActionMode.ACTIVE)) { "The next action policy changed during model preparation. Review the retained draft before sending it." }
         check(batchMode in setOf("standard", "smart", "full")) { "Choose a supported Gateway execution mode." }
         check(
             batchMode == "standard" ||
@@ -507,7 +509,8 @@ class GatewayEngineeringRepository @Inject constructor(
                 executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair, samplingPolicy = preferences.sampling,
                 executionMode = batchMode.takeUnless { it == "standard" },
                 batchPolicyVersion = 1.takeIf { batchMode == "full" },
-                contextVariant = contextVariant
+                contextVariant = contextVariant,
+                nextActionPolicy = selectedPolicy.takeIf { capability.nextActionPolicyProtocol == 1 }
             ).let { request ->
                 if (capability.admissionPreflightProtocol == 1) {
                     val preflight = client.preflight(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, request)

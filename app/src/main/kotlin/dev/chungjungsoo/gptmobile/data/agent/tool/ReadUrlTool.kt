@@ -59,6 +59,7 @@ class ReadUrlTool(
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = "read_url",
         description = "Read a public HTTP or HTTPS URL and return bounded plain text.",
+        capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER),
         inputSchema = buildJsonObject {
             put("type", "object")
             put(

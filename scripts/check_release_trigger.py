@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 
 def version_identity(source: str) -> tuple[str, int]:
@@ -71,6 +72,35 @@ def coordinated_release(event: str, before: str) -> bool:
 
 
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--unsigned-pr":
+        base = sys.argv[2]
+        if not re.fullmatch(r"[0-9a-f]{40}", base):
+            raise ValueError("A pull request requires an exact base revision")
+        changed = release_requested("push", base)
+        if not changed:
+            # A version can stay fixed while its APK contents or size rules change.
+            # Include deleted and renamed inputs via a path-limited Git diff.
+            packaging = (
+                ":(glob)**/build.gradle*", ":(glob)**/src/**/AndroidManifest.xml",
+                ":(glob)**/src/**/cpp/**", ":(glob)**/src/**/jniLibs/**",
+                ":(glob)**/src/**/assets/**", ":(glob)**/*-rules.pro",
+                "gradle/", "gradle.properties", "settings.gradle.kts",
+                "scripts/check_apk_size.py", "scripts/android_pipeline.py",
+                "scripts/optimize_release_apks.py", "scripts/check_local_runtime_apk.py",
+                "scripts/install_android_native_dependencies.sh",
+                ".github/workflows/unsigned-release-build.yml", ".github/workflows/release-build.yml",
+            )
+            changed = bool(subprocess.check_output(["git", "diff", "--name-only", "-z", base, "--", *packaging]))
+        path = "release-scope.json"
+        if not changed and Path(path).is_file():
+            request = json.loads(Path(path).read_text(encoding="utf-8")).get("publicationRequest")
+            if request is not None:
+                prior = subprocess.check_output(["git", "ls-tree", "--name-only", base, "--", path], text=True)
+                previous = json.loads(subprocess.check_output(["git", "show", f"{base}:{path}"], text=True)) if prior.strip() else {}
+                changed = previous.get("publicationRequest") != request
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+            output.write(f"build={str(changed).lower()}\n")
+        return
     publish = release_requested(
         os.environ["GITHUB_EVENT_NAME"],
         os.environ.get("PUSH_BEFORE_SHA", ""),

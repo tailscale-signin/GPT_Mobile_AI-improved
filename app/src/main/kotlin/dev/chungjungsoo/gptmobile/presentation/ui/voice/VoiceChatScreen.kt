@@ -73,6 +73,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroOutput
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
@@ -80,18 +81,22 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
+import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoicePreparation
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreparationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSearchOpening
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import dev.chungjungsoo.gptmobile.data.voice.shouldCheckpointDraft
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.resolvePlatformModel
 import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatRevealPanel
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
@@ -243,8 +248,11 @@ private fun VoiceChatSessionScreen(
     val features by model.featureSettings.collectAsStateWithLifecycle()
     val messages by model.groupedMessages.collectAsStateWithLifecycle()
     val runs by model.agentRunsById.collectAsStateWithLifecycle()
+    val toolEvents by model.toolEventsByRun.collectAsStateWithLifecycle()
     val profiles by model.platformsInApp.collectAsStateWithLifecycle()
     val activeProfiles by model.activePlatformUids.collectAsStateWithLifecycle()
+    val room by model.chatRoom.collectAsStateWithLifecycle()
+    val chatModels by model.chatPlatformModels.collectAsStateWithLifecycle()
     var retainedMessageId by rememberSaveable { mutableIntStateOf(0) }
     var retainedRunId by rememberSaveable { mutableStateOf("") }
     var retainedRevision by rememberSaveable { mutableIntStateOf(-1) }
@@ -256,8 +264,9 @@ private fun VoiceChatSessionScreen(
     var chatView by rememberSaveable { mutableStateOf(initialChatView) }
     var listeningEnabled by rememberSaveable { mutableStateOf(!initialChatView) }
     val selectedProfile = activeProfiles.singleOrNull()?.let { uid -> profiles.singleOrNull { it.uid == uid && it.enabled } }
-    var profilePreflightReady by remember(model, selectedProfile) { mutableStateOf(false) }
-    var profilePreflightError by remember(model, selectedProfile) { mutableStateOf<String?>(null) }
+        ?.let { resolvePlatformModel(it, chatModels) }
+    var profilePreflightReady by remember(model, room.id, room.privacyModeLocked, selectedProfile) { mutableStateOf(false) }
+    var profilePreflightError by remember(model, room.id, room.privacyModeLocked, selectedProfile) { mutableStateOf<String?>(null) }
     val approvals by model.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
     val inputs by model.pendingMcpInput.collectAsStateWithLifecycle()
     val consent by model.pendingFreeToolConsent.collectAsStateWithLifecycle()
@@ -331,11 +340,11 @@ private fun VoiceChatSessionScreen(
     var modelChangeError by remember { mutableStateOf<String?>(null) }
     var tuning by remember { mutableStateOf(VoiceTuningPreferences()) }
     var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(model, loaded, roomReady, selectedProfile, lifecycleState, settingsOpen) {
+    LaunchedEffect(model, enabled, roomReady, room.id, room.privacyModeLocked, selectedProfile, lifecycleState, settingsOpen) {
         profilePreflightReady = false
         profilePreflightError = null
         val profile = selectedProfile ?: return@LaunchedEffect
-        if (!loaded || !roomReady || settingsOpen || lifecycleState != Lifecycle.State.RESUMED) return@LaunchedEffect
+        if (!enabled || !roomReady || settingsOpen || lifecycleState != Lifecycle.State.RESUMED) return@LaunchedEffect
         try {
             // This checks the same retained account/policy used at dispatch. A
             // changed selection cancels the old check before it can open capture.
@@ -443,40 +452,54 @@ private fun VoiceChatSessionScreen(
         remaining = 0
     }
     LaunchedEffect(state.transcript) { draft = state.transcript }
-    LaunchedEffect(state.awaitingReply, performance, speakWhileGenerating, lifecycleState, settingsOpen, routeOpen, benchmarkRunning) {
-        if (!state.awaitingReply || performance != VoicePerformanceMode.AUTO || !speakWhileGenerating || lifecycleState != Lifecycle.State.RESUMED || settingsOpen || routeOpen || benchmarkRunning) return@LaunchedEffect
+    val foregroundVoice = enabled && roomReady && lifecycleState == Lifecycle.State.RESUMED && !settingsOpen && !routeOpen && !benchmarkRunning
+    val prepareProfile = foregroundVoice && room.id > 0 && !chatView && profilePreflightReady && features.readiness.enabled && !state.awaitingReply
+    val networkEpoch by ReadinessHints.networkEpoch.collectAsStateWithLifecycle()
+    LaunchedEffect(prepareProfile, selectedProfile, features.readiness, room.id, room.privacyModeLocked, networkEpoch) {
+        val profile = selectedProfile ?: return@LaunchedEffect
+        if (prepareProfile) runtimeOwner.prepareProfile(profile, features.readiness, room.id, room.privacyModeLocked)
+    }
+    LaunchedEffect(session, state.reply, state.awaitingReply, performance, speakWhileGenerating, foregroundVoice) {
+        if (!foregroundVoice) return@LaunchedEffect
         while (true) {
-            delay(100)
+            val remainingMs = session.nextSpeechFlushDelayMs() ?: break
+            delay(remainingMs)
             session.flushSpeech()
+            // An oversized word needs another provider token before the buffer can advance.
+            if (session.nextSpeechFlushDelayMs() == 0L) break
         }
     }
-    LaunchedEffect(preferencesApplied, enabled, voiceReady, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, backend.factory, backend.streamingModels, lifecycleState, state.phase, state.awaitingReply, state.hasDraft, admission?.stage, settingsOpen, benchmarkRunning) {
-        if (!preferencesApplied || settingsOpen || benchmarkOwnership.value != null) {
-            kokoroOutput?.cancelPrewarm()
-            return@LaunchedEffect
-        }
-        if (enabled && loaded && roomReady && LocalVoiceModelStore.supportsLanguage(language) && lifecycleState == Lifecycle.State.RESUMED) {
-            val modelReady = backend.speechModelReady(kokoroModel)
-            // Local preparation may overlap turn admission after speech ends. The native gate
-            // still waits for decoder teardown; remote preparation retains admission consent.
-            if (spokenReplies &&
-                voiceReady &&
-                modelReady &&
-                VoicePreparationPolicy.shouldPrepare(
-                    phase = state.phase,
-                    awaitingReply = state.awaitingReply,
-                    hasDraft = state.hasDraft,
-                    local = backend.backend != VoiceSpeechBackend.GATEWAY_CUDA,
-                    admitted = admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.ACCEPTED
-                )
-            ) {
-                kokoroVoice?.let { kokoroOutput?.prewarm(it) }
-            } else {
-                kokoroOutput?.cancelPrewarm()
-            }
+    val localSpeech = backend.backend != VoiceSpeechBackend.GATEWAY_CUDA
+    val prepareSpeech = foregroundVoice &&
+        preferencesApplied &&
+        spokenReplies &&
+        selectedProfile != null &&
+        backend.loaded &&
+        backend.speechModelReady(kokoroModel) &&
+        LocalVoiceModelStore.supportsLanguage(language) &&
+        (localSpeech || voiceReady) &&
+        (!chatView || state.awaitingReply)
+    val preparation = if (prepareSpeech) {
+        VoicePreparationPolicy.stage(
+            state.phase,
+            state.awaitingReply,
+            state.hasDraft,
+            localSpeech,
+            admission?.stage == VoiceAdmissionStage.ACCEPTED,
+            openingMicrophone = listeningEnabled && !state.muted && (recognitionReady || localModel.status == LocalVoiceModelStatus.CHECKING)
+        )
+    } else {
+        VoicePreparation.NONE
+    }
+    // STARTING may cancel an earlier output as the microphone takes ownership. Re-arm the
+    // asset stage there, then queue native preparation once capture owns the exclusive gate.
+    LaunchedEffect(kokoroOutput, preparation, state.phase, kokoroVoice, rate, kokoroThreads, performance, backend.factory, enabled, loaded, roomReady, language) {
+        val voice = kokoroVoice
+        if (preparation != VoicePreparation.NONE && voice != null && benchmarkOwnership.value == null) {
+            kokoroOutput?.prewarm(voice, assetsOnly = preparation == VoicePreparation.ASSETS)
         } else {
             kokoroOutput?.cancelPrewarm()
-            if (!enabled || !loaded || !roomReady || !LocalVoiceModelStore.supportsLanguage(language)) kokoroOutput?.releaseWarmModel()
+            if (!enabled || !roomReady || !LocalVoiceModelStore.supportsLanguage(language)) kokoroOutput?.releaseWarmModel()
         }
     }
     LaunchedEffect(settingsOpen, routeOpen, recognitionReady, preferencesApplied, listeningEnabled, benchmarkRunning) {
@@ -576,6 +599,7 @@ private fun VoiceChatSessionScreen(
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     if (event == Lifecycle.Event.ON_STOP) benchmarkOwner.cancel()
                     refreshMutedBaseline = true
+                    kokoroOutput?.cancelPrewarm()
                     session.access(currentEnabled, permission, false)
                     systemAudio.releaseRecognition()
                     runtimeOwner.pause(runtime)
@@ -588,6 +612,7 @@ private fun VoiceChatSessionScreen(
             lifecycle.removeObserver(observer)
             benchmarkOwner.cancel()
             refreshMutedBaseline = true
+            kokoroOutput?.cancelPrewarm()
             session.access(currentEnabled, permission, false)
             systemAudio.releaseRecognition()
             runtimeOwner.pause(runtime)
@@ -606,7 +631,7 @@ private fun VoiceChatSessionScreen(
         val accepted = admission ?: return@LaunchedEffect
         session.admission(accepted.stage, accepted.reason, accepted.requestId)
     }
-    LaunchedEffect(loaded, roomReady, messages, runs, enabled, backend.loaded, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning) {
+    LaunchedEffect(loaded, roomReady, messages, runs, admission, toolEvents, enabled, backend.loaded, spokenReplies, speakWhileGenerating, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning, approvals.isEmpty(), inputs.isEmpty(), consent, chatView) {
         if (!loaded || !roomReady || benchmarkOwnership.value != null) return@LaunchedEffect
         // Restoration publishes messages before loaded=true. Read the current flow snapshot so
         // separate Compose collectors cannot accidentally prime from an empty history.
@@ -635,13 +660,40 @@ private fun VoiceChatSessionScreen(
             activeMessage = null
         }
         if (playback.active == null) {
-            val next = playback.next() ?: return@LaunchedEffect
+            val accepted = model.voiceAdmission.value
+            val run = accepted?.takeIf {
+                it.stage == VoiceAdmissionStage.ACCEPTED && it.chatId == room.id && it.profileUid == selectedProfile?.uid
+            }?.run(runSnapshot)
+            val lookup = if (run != null &&
+                run.status == AgentRunStatus.RUNNING &&
+                currentSession.awaitingReply &&
+                currentSession.phase == VoicePhase.THINKING &&
+                spokenReplies &&
+                speakWhileGenerating &&
+                !chatView &&
+                !room.privacyModeLocked &&
+                approvals.isEmpty() &&
+                inputs.isEmpty() &&
+                consent == null
+            ) {
+                val prompt = messageSnapshot.userMessages.lastOrNull { it.id == run.userMessageId && it.chatId == run.chatId }?.content
+                prompt?.takeIf { it == currentSession.transcript }?.let {
+                    VoiceSearchOpening.line(it, run.runId, model.toolEventsByRun.value[run.runId].orEmpty())
+                }
+            } else {
+                null
+            }
+            val identity = run?.takeIf { lookup != null }?.let { VoiceMessageIdentity(it.assistantMessageId, it.runId) }
+            val next = playback.next(identity) ?: return@LaunchedEffect
             if (!session.beginMessage(next.identity.key, diagnosticRunId = next.identity.runId, readAloud = next.readAloud)) {
                 playback.finish()
                 return@LaunchedEffect
             }
             activeMessage = next.identity.takeIf { next.readAloud }
             retainMessage(next.identity)
+            if (lookup != null && next.identity == identity && next.text.isBlank() && !next.complete && next.readAloud) {
+                session.offerSearchOpening(next.identity.key, lookup)
+            }
         }
         session.autoContinue = listeningEnabled && !playback.hasPending
         val pending = playback.active
@@ -712,8 +764,8 @@ private fun VoiceChatSessionScreen(
         state.recoveryAction != null -> "Speech setup needs attention"
         state.phase == VoicePhase.STARTING -> "Starting microphone"
         state.phase == VoicePhase.FINALIZING -> "Finishing your words"
-        state.phase == VoicePhase.THINKING && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.CHECKING -> "Checking your AI profile"
-        state.phase == VoicePhase.THINKING && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.QUEUED -> "Message queued"
+        state.phase == VoicePhase.THINKING && admission?.stage == VoiceAdmissionStage.CHECKING -> "Checking your AI profile"
+        state.phase == VoicePhase.THINKING && admission?.stage == VoiceAdmissionStage.QUEUED -> "Message queued"
         state.phase == VoicePhase.THINKING -> "Thinking"
         state.muted -> "Microphone muted"
         state.phase == VoicePhase.LISTENING -> "Listening"

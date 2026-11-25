@@ -1,12 +1,17 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import androidx.work.WorkManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApiFactory
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceDao
@@ -16,9 +21,12 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -211,11 +219,180 @@ class GitHubCheckWatchConcurrencyTest {
         put("wait_timeout_seconds", seconds)
     }
 
-    private fun api(response: suspend () -> String) = object : GitHubEngineeringApi({ "token" }) {
+    private fun api(expectedPath: String = "/repos/owner/repo/actions/runs/42", response: suspend () -> String) = object : GitHubEngineeringApi({ "token" }) {
         override suspend fun request(path: String, method: String, body: JSONObject?): String {
-            assertEquals("/repos/owner/repo/actions/runs/42", path)
+            assertEquals(expectedPath, path)
             return response()
         }
+    }
+
+    @Test fun wholeCommitWatchWaitsForTheOtherWorkflowAfterAnchorSucceeds() = runBlocking {
+        var secondStatus = "in_progress"
+        var secondConclusion: String? = null
+        val aggregateApi = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun request(path: String, method: String, body: JSONObject?): String = when (path) {
+                "/repos/owner/repo/commits/$head/check-runs?per_page=100&page=1" -> {
+                    val second = buildJsonObject {
+                        put("id", 2)
+                        put("status", secondStatus)
+                        secondConclusion?.let { put("conclusion", it) }
+                    }
+                    """{"total_count":2,"check_runs":[{"id":1,"status":"completed","conclusion":"success"},$second]}"""
+                }
+                "/repos/owner/repo/commits/$head/status?per_page=100" -> """{"total_count":0,"statuses":[]}"""
+                else -> error("Unexpected watch request $path")
+            }
+        }
+        val repository = fixture(aggregateApi).repository
+        val watch = watch().copy(allChecks = true)
+        val pending = repository.inspect(watch, aggregateApi)
+        assertEquals("RUNNING", pending.status)
+        assertFalse(pending.terminal)
+        secondStatus = "completed"
+        secondConclusion = "failure"
+        val failed = repository.inspect(pending, aggregateApi)
+        assertEquals("FAILED", failed.status)
+        assertTrue(failed.terminal)
+    }
+
+    @Test fun terminalAggregateResumesOnlyItsBoundSourceOnceAndIgnoresAChangedHead() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "CI", model = "tester")
+        val scope = GitHubConversationContext("connection", "owner", "repo", "main", head, "profile")
+        val task = GitHubCiWatchTask("original", 10, "main", "tester", GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning))
+        val terminal = watch().copy(allChecks = true, waitingTasks = listOf(task), status = "PASSED")
+        var live = head
+        val fixture = fixture(api("/repos/owner/repo/commits/main") { """{"sha":"$live"}""" }, initial = record(terminal), profile = profile, features = AppFeatureSettings(conversationGitHub = mapOf(1 to scope)))
+        val db = fixture.workspace.database
+        var state = AgentRunStatus.RUNNING
+        coEvery { db.agentRunDao().getById("original") } answers { AgentRun("original", 1, 10, 11, "profile", "OPENAI", "tester", state) }
+        coEvery { db.agentPersistenceDao().rawRecoveryMessage(10) } returns MessageV2(id = 10, chatId = 1, platformType = null, content = "Diagnose CI failures")
+        coEvery { db.agentPersistenceDao().getChatRoom(1) } returns ChatRoomV2(id = 1, title = "CI", activePlatform = listOf("profile"))
+        val queue = mockk<DurablePromptQueue>(relaxed = true)
+        val lazyQueue = dagger.Lazy { queue }
+        assertFalse(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        state = AgentRunStatus.COMPLETED
+        assertTrue(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        assertTrue(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        live = "b".repeat(40)
+        fixture.record.set(record(terminal))
+        assertTrue(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        coVerify(exactly = 1) {
+            queue.enqueue(1, "Continue", match { it.recovery?.sourceMessageId == 10 && it.tools.github?.commitSha == head }, "github-ci-task:${terminal.id}:$head:10")
+        }
+    }
+
+    @Test fun stopWinsWhileTerminalTaskHeadReadIsSuspended() = runBlocking {
+        mockkObject(WorkManager.Companion, GitHubWatchNotifications)
+        try {
+            val manager = mockk<WorkManager>(relaxed = true)
+            every { WorkManager.getInstance(any()) } returns manager
+            every { GitHubWatchNotifications.publish(any(), any()) } returns Unit
+            withTimeout(5000) {
+                val entered = CompletableDeferred<Unit>()
+                val release = CompletableDeferred<Unit>()
+                val (fixture, terminal) = terminalTaskFixture(
+                    api("/repos/owner/repo/commits/main") {
+                        entered.complete(Unit)
+                        release.await()
+                        """{"sha":"$head"}"""
+                    }
+                )
+                val queue = mockk<DurablePromptQueue>(relaxed = true)
+                val delivery = async { fixture.repository.deliverTerminalTasks(terminal.id, dagger.Lazy { queue }) }
+                entered.await()
+                val stopping = async(start = CoroutineStart.UNDISPATCHED) { fixture.repository.cancel(terminal.id) }
+                try {
+                    assertTrue("Stop must not wait for the suspended GitHub response", stopping.isCompleted)
+                    assertEquals("CANCELLED", fixture.retained().status)
+                } finally {
+                    release.complete(Unit)
+                }
+                stopping.await()
+                assertTrue(delivery.await())
+                assertEquals("CANCELLED", fixture.retained().status)
+                coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+            }
+        } finally {
+            unmockkObject(WorkManager.Companion, GitHubWatchNotifications)
+        }
+    }
+
+    @Test fun changedTerminalTasksAreRetriedWithoutConsumingAReplacementWatch() = runBlocking {
+        withTimeout(5000) {
+            for (replacementStatus in listOf("PASSED", "RUNNING")) {
+                val entered = CompletableDeferred<Unit>()
+                val release = CompletableDeferred<Unit>()
+                val (fixture, terminal) = terminalTaskFixture(
+                    api("/repos/owner/repo/commits/main") {
+                        entered.complete(Unit)
+                        release.await()
+                        """{"sha":"$head"}"""
+                    }
+                )
+                val queue = mockk<DurablePromptQueue>(relaxed = true)
+                val delivery = async { fixture.repository.deliverTerminalTasks(terminal.id, dagger.Lazy { queue }) }
+                entered.await()
+                val replacement = terminal.copy(
+                    status = replacementStatus,
+                    observationGeneration = terminal.observationGeneration + 1,
+                    waitingTasks = listOf(terminal.waitingTasks.single().copy(runId = "replacement", sourceMessageId = 20))
+                )
+                fixture.record.set(record(replacement))
+                release.complete(Unit)
+                // The same terminal watch needs a delivery retry; an active replacement owns its poll chain.
+                assertEquals(replacementStatus != "PASSED", delivery.await())
+                assertEquals(replacement, fixture.retained())
+                coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+                coVerify(exactly = 0) { fixture.dao.save(any()) }
+            }
+        }
+    }
+
+    @Test fun terminalTaskRechecksRunRoomProfileAndPermissionAfterTheRemoteRead() = runBlocking {
+        withTimeout(5000) {
+            for (change in listOf("model", "permission", "run_status", "archived_room")) {
+                val entered = CompletableDeferred<Unit>()
+                val release = CompletableDeferred<Unit>()
+                val (fixture, terminal) = terminalTaskFixture(
+                    api("/repos/owner/repo/commits/main") {
+                        entered.complete(Unit)
+                        release.await()
+                        """{"sha":"$head"}"""
+                    }
+                )
+                val queue = mockk<DurablePromptQueue>(relaxed = true)
+                val delivery = async { fixture.repository.deliverTerminalTasks(terminal.id, dagger.Lazy { queue }) }
+                entered.await()
+                when (change) {
+                    "model" -> coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(PlatformV2(uid = "profile", name = "CI", model = "changed"))
+                    "permission" -> {
+                        val scope = GitHubConversationContext("connection", "owner", "repo", "main", head, "profile")
+                        coEvery { fixture.settings.getFeatureSettings() } returns AppFeatureSettings(
+                            conversationGitHub = mapOf(1 to scope),
+                            githubProfileOverrides = mapOf("profile" to GitHubChatProfileOverride(githubTools = false))
+                        )
+                    }
+                    "run_status" -> coEvery { fixture.workspace.database.agentRunDao().getById("original") } returns AgentRun("original", 1, 10, 11, "profile", "OPENAI", "tester", AgentRunStatus.RUNNING)
+                    "archived_room" -> coEvery { fixture.workspace.database.agentPersistenceDao().getChatRoom(1) } returns ChatRoomV2(id = 1, title = "CI", activePlatform = listOf("profile"), isArchived = true)
+                }
+                release.complete(Unit)
+                assertEquals(change != "run_status", delivery.await())
+                coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+            }
+        }
+    }
+
+    private fun terminalTaskFixture(api: GitHubEngineeringApi): Pair<Fixture, GitHubCheckWatch> {
+        val profile = PlatformV2(uid = "profile", name = "CI", model = "tester")
+        val scope = GitHubConversationContext("connection", "owner", "repo", "main", head, "profile")
+        val task = GitHubCiWatchTask("original", 10, "main", "tester", GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning))
+        val terminal = watch().copy(allChecks = true, waitingTasks = listOf(task), status = "PASSED")
+        val fixture = fixture(api, initial = record(terminal), profile = profile, features = AppFeatureSettings(conversationGitHub = mapOf(1 to scope)))
+        val db = fixture.workspace.database
+        coEvery { db.agentRunDao().getById("original") } returns AgentRun("original", 1, 10, 11, "profile", "OPENAI", "tester", AgentRunStatus.COMPLETED)
+        coEvery { db.agentPersistenceDao().rawRecoveryMessage(10) } returns MessageV2(id = 10, chatId = 1, platformType = null, content = "Diagnose CI failures")
+        coEvery { db.agentPersistenceDao().getChatRoom(1) } returns ChatRoomV2(id = 1, title = "CI", activePlatform = listOf("profile"))
+        return fixture to terminal
     }
 
     private fun run(status: String, conclusion: String? = null): String = buildJsonObject {
@@ -256,7 +433,11 @@ class GitHubCheckWatchConcurrencyTest {
             coEvery { getFeatureSettings() } returns features
         }
         val factory = mockk<GitHubEngineeringApiFactory> { every { createForEndpoint(any(), any()) } returns api }
-        return Fixture(GitHubCheckWatchRepository(mockk(relaxed = true), workspace, connections, settings, mockk(), factory), workspace, dao, stored, settings)
+        val auth = mockk<GitHubPublicAuthCoordinator> {
+            coEvery { accessToken(connection) } returns "fixture-token"
+            coEvery { durableIdentity("connection") } returns "verified-test-account"
+        }
+        return Fixture(GitHubCheckWatchRepository(mockk(relaxed = true), workspace, connections, settings, auth, factory), workspace, dao, stored, settings)
     }
 
     private inner class Fixture(val repository: GitHubCheckWatchRepository, val workspace: WorkspaceRepository, val dao: WorkspaceDao, val record: AtomicReference<WorkspaceRecord>, val settings: SettingRepository) {

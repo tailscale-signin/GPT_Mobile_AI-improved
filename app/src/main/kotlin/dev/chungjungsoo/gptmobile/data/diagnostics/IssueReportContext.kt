@@ -366,6 +366,8 @@ internal data class IssueReportContext(
             return type?.let { digest("exception", (listOf(it) + frames).joinToString("\n")) }
         }
 
+        internal fun anrFingerprint(frames: List<String>): String = digest("anr-main-thread", frames.joinToString("\n"))
+
         private fun digest(kind: String, value: String): String = MessageDigest.getInstance("SHA-256")
             .digest("gptmobile.issue-context.v1:$kind:$value".toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }

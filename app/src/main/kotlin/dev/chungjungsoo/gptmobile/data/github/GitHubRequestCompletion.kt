@@ -18,6 +18,7 @@ internal object GitHubRequestCompletion {
     private val knowledge = Regex("(?i)^$POLITE(?:explain|describe|show(?: me)?)\\s+(?:how|why|what|whether)\\b")
     private val compoundMutation = Regex("(?i)(?:\\band(?:\\s+then)?|\\bthen|\\balso|\\bafterwards|,)\\s+$POLITE$ACTION\\b")
     private val quotedMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
+    private val repositoryInspection = Regex("(?i)^$POLITE(?:inspect|examine|review|read|look at)\\s+(?:(?:the|this|our|my|selected|current)\\s+)+(?:repo(?:sitory)?|codebase|branch|pull request)\\b")
     private val repositorySubject = Regex("(?i)\\b(?:repo(?:sitory)?|repositories|codebase|branches|branch|pull requests?|ci|workflows?|tests?|build|files?|features?|bugs?|fixes|patch(?:es)?|implementation|commits?)\\b|\\b[A-Za-z0-9_.-]+\\.(?:kt|java|md|py|js|ts|tsx|yml|yaml|json|xml)\\b")
     private val sessionReviewIntent = Regex("(?i)\\b(?:review|audit|diagnose|investigate|inspect|analy[sz]e|examine|summarize|read)\\b")
     private val sessionReviewSource = Regex("(?i)\\b(?:sessions?|captures?|diagnostic exports?|(?:app|diagnostic|saved|retained|attached|this|these)\\s+(?:logs?|traces?))\\b")
@@ -36,7 +37,7 @@ internal object GitHubRequestCompletion {
     fun requiresRepositoryEvidence(task: String): Boolean {
         if (GitHubRepositoryLifecycle.intent(task) != null || GitHubIssueRemediation.requested(task)) return true
         val request = requestText(task)
-        return requestsAction(request) && repositorySubject.containsMatchIn(request)
+        return repositoryInspection.containsMatchIn(request) || requestsAction(request) && repositorySubject.containsMatchIn(request)
     }
 
     fun informational(task: String): Boolean {
@@ -63,7 +64,7 @@ internal object GitHubRequestCompletion {
 
     fun requirements(task: String): List<String> = requirements(task, null)
 
-    fun requirements(task: String, issueWork: GitHubIssueRemediation.Context?): List<String> {
+    fun requirements(task: String, issueWork: GitHubIssueRemediation.Context?, semantic: JsonObject? = null): List<String> {
         if (GitHubStatusRequest.matches(task)) {
             return GitHubStatusRequest.requirements(task)
         }
@@ -94,13 +95,14 @@ internal object GitHubRequestCompletion {
         val requested = if (informational(task) || GitHubTestChecklist.integration(task)) requestedLines else requestedLines.flatMap(GitHubAcceptanceContract::split).distinct()
         // Reviews have two distinct evidence obligations: findings must cite retained
         // observations, while recommendations must be explicitly marked as inference.
+        val refined = GitHubAcceptanceContract.applySemanticSteps(task, requested, semantic)
         return if (informational(task) && sessionReview(requestText(task)) && requested.none { it.startsWith("Evidence-backed findings", true) }) {
-            requested + listOf(
+            refined + listOf(
                 "Evidence-backed findings link each material observation to its trusted receipt and preserve its observation time",
                 "Recommendations are clearly labeled and distinguish evidence from inference"
             )
         } else {
-            requested + GitHubIssueRemediation.requirements(task, issueWork)
+            refined + GitHubIssueRemediation.requirements(task, issueWork)
         }
     }
     private val sectionHeading = Regex("""(?i)^(?:#{1,6}\s+)?(?:\*\*|__)?(acceptance criteria|request details):?(?:\*\*|__)?:?$""")
@@ -189,7 +191,7 @@ internal object GitHubRequestCompletion {
             ?: assessments.first()
     }
 
-    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), omittedOptionalClaimIndexes: Set<Int> = emptySet(), issueWork: GitHubIssueRemediation.Context? = null): JsonObject {
+    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), omittedOptionalClaimIndexes: Set<Int> = emptySet(), issueWork: GitHubIssueRemediation.Context? = null, semantic: JsonObject? = null): JsonObject {
         val informational = informational(task)
         val sessionReview = informational && sessionReview(requestText(task))
         val acceptedClaimStatuses = if (sessionReview) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
@@ -197,7 +199,7 @@ internal object GitHubRequestCompletion {
         // claim. It still prevents that requirement from being counted as covered.
         val factualClaims = claims.filterIndexed { index, claim -> index !in omittedOptionalClaimIndexes && !GitHubEvidencePolicy.explicitlyUnmeasured(claim) }
         val verified = factualClaims.isNotEmpty() && factualClaims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
-        val requirements = requirements(task, issueWork)
+        val requirements = requirements(task, issueWork, semantic)
         val criteria = GitHubAcceptanceContract.criteria(task, requirements).associateBy { it.id }
         val completedCriteria = mutableSetOf<String>()
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()

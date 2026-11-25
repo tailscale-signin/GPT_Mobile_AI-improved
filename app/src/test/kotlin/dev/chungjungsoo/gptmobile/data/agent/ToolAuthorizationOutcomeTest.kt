@@ -2,6 +2,10 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.permissions.DuplicateToolAction
 import dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
@@ -186,6 +190,31 @@ class ToolAuthorizationOutcomeTest {
         assertEquals("AUTH_REQUIRED", second.errorCode)
         assertEquals(1, authorizations)
         assertEquals(0, dispatches)
+    }
+
+    @Test fun duplicateApprovalsKeepThePriorStateAndGroupOnlyMatchingLocalRefusals() = runTest {
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("mcp_lookup", "lookup", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Duplicate was dispatched")
+        }
+        var state = "COMPLETED"
+        val budget = ToolExecutionBudget(AgentRunLimits())
+        val wrapped = budget.bind(tool, authorize = { _, _ -> throw DuplicateToolAction(state) })
+        suspend fun refusal(id: String, connection: String = "search"): ToolReportDiagnostics.PrecheckIdentity {
+            val args = buildJsonObject { put("query", "private") }
+            val result = wrapped.execute(id, args)
+            assertFalse(result.dispatched)
+            assertEquals("DUPLICATE_ACTION", result.errorCode)
+            assertEquals(JsonPrimitive(state), result.executionReceipt?.get("previous_approval_state"))
+            val event = ToolEvent("event-$id", "run", 1, id, connection, null, tool.definition.name, tool.definition.name, args.toString(), null, null, ToolEventStatus.RUNNING)
+            return ToolReportDiagnostics.fields(event, result)["local_precheck_identity"] as ToolReportDiagnostics.PrecheckIdentity
+        }
+        val completed = refusal("first")
+        assertEquals(completed, refusal("second"))
+        assertFalse(completed == refusal("third", "another-connection"))
+        state = "OUTCOME_UNKNOWN"
+        assertFalse(completed == refusal("fourth"))
+        assertEquals(0, budget.usedCalls())
     }
 
     @Test fun duplicateActionIsNotReportedAsPermissionDenialAndNeverExecutes() = runTest {

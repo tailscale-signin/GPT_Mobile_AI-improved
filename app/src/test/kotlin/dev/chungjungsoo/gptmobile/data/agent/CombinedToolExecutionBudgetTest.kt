@@ -12,6 +12,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedToolExecutionBudgetTest {
+    @Test fun fourSourceExcerptsShareTheTurnEvenWithLargeEnvelopes() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 24, maxToolOutputBytes = 1536))
+        val reader = budget.bind(tool("read_url") { id, _ -> AgentToolResult(id, ToolResultContent.Text("source".repeat(512)), false) })
+        for (index in 1..4) {
+            val result = reader.execute("source-$index", JsonObject(mapOf("url" to JsonPrimitive("https://example.com/$index"))))
+            assertFalse(result.isError)
+            assertEquals(1536 - index * 384, budget.remainingOutputBytes())
+        }
+        assertFalse(budget.canExecute())
+    }
+
     @Test
     fun timedOutGitHubReadConsumesWorkButDoesNotFenceFreshReadAsMutation() = runBlocking {
         val fixture = fixture(3)

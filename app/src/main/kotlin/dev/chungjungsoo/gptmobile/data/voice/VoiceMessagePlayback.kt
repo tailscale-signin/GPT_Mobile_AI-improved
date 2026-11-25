@@ -72,9 +72,11 @@ class VoiceMessagePlayback {
         highWaterMark = maxOf(highWaterMark, replies.maxOfOrNull { it.identity.messageId } ?: 0)
     }
 
-    fun next(): VoiceMessageReply? {
+    fun next(opening: VoiceMessageIdentity? = null): VoiceMessageReply? {
         if (active != null || manualOwner != null) return null
-        val next = pending.values.firstOrNull { it.text.isNotBlank() || it.complete } ?: return null
+        val next = pending.values.firstOrNull { it.text.isNotBlank() || it.complete }
+            ?: opening?.let { pending[it.key] }?.takeIf { it.readAloud }
+            ?: return null
         pending.remove(next.identity.key)
         consumed += next.identity.key
         active = next

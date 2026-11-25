@@ -53,7 +53,7 @@ AREAS = {
 
 def source_area(path):
     """Association is a coverage inventory, not evidence a file was exercised."""
-    value = str(path)
+    value = path.as_posix()
     for prefix, area in (
         ('local-kokoro-runtime/', 'voice_and_media'), ('local-gguf-runtime/', 'native_bridge'), ('core-domain/', 'portable_domain'),
         ('gateway/', 'gateway_software'), ('authentication/', 'authentication_service'),
@@ -151,7 +151,7 @@ def production_paths(root):
                     paths.add(path)
                     if len(paths) > MAX_FILES:
                         raise ValueError('Production source inventory exceeds the explicit file bound')
-    return sorted(paths)
+    return sorted(paths, key=lambda path: path.relative_to(root).parts)
 
 
 def document(root=ROOT):
@@ -170,7 +170,7 @@ def document(root=ROOT):
             raise ValueError('Source changed while generating its inventory')
         data.decode('utf-8')
         relative = path.relative_to(root)
-        kind = 'ui_resource' if '/res/' in str(relative) else 'source'
+        kind = 'ui_resource' if '/res/' in relative.as_posix() else 'source'
         files.append({'path': relative.as_posix(), 'area_id': source_area(relative), 'kind': kind,
                       'sha256': hashlib.sha256(data).hexdigest(),
                       'indexed_lines': data.count(b'\n') + int(bool(data) and not data.endswith(b'\n'))})

@@ -101,8 +101,12 @@ internal fun restoredResponsesEvidence(exchanges: List<AgentToolExchange>): Resp
     return ResponseInputMessage("user", ResponseInputContent.text(evidence.toString()))
 }
 
-internal fun AgentToolResult.modelText(): String = if (assistMetadata.isNotEmpty()) {
-    JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata))).toString()
+internal fun AgentToolResult.modelText(): String = if (assistMetadata.isNotEmpty() || savedPageReading != null) {
+    buildJsonObject {
+        put("data", dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content))
+        if (assistMetadata.isNotEmpty()) put("assist", JsonArray(assistMetadata))
+        savedPageReading?.let { put("saved_page_reading", it) }
+    }.toString()
 } else {
     when (val value = content) {
         is ToolResultContent.Text -> value.text
@@ -111,8 +115,12 @@ internal fun AgentToolResult.modelText(): String = if (assistMetadata.isNotEmpty
     }.ifBlank { if (isError) "Tool failed without error details." else "Tool returned no content." }
 }
 
-private fun AgentToolResult.modelJson(): JsonObject = if (assistMetadata.isNotEmpty()) {
-    JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata)))
+private fun AgentToolResult.modelJson(): JsonObject = if (assistMetadata.isNotEmpty() || savedPageReading != null) {
+    buildJsonObject {
+        put("data", dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content))
+        if (assistMetadata.isNotEmpty()) put("assist", JsonArray(assistMetadata))
+        savedPageReading?.let { put("saved_page_reading", it) }
+    }
 } else {
     when (val value = content) {
         is ToolResultContent.Json -> value.value.asResponseObject()

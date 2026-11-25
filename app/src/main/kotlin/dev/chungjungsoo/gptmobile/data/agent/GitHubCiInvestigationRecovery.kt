@@ -44,6 +44,9 @@ internal class GitHubCiInvestigationRecovery(task: String?) {
                 for (key in listOf("commit_sha", "head_sha", "branch", "run_id", "run_attempt", "job_id", "status", "conclusion", "total_lines")) {
                     (data[key] ?: summary?.get(key))?.let { put(key, it) }
                 }
+                if (arguments.text("action") in setOf("logs", "failure")) {
+                    (summary?.get("apk_size_failure") as? JsonObject ?: dev.chungjungsoo.gptmobile.data.github.GitHubCiSizeGate.observation(arguments, JsonObject(data)))?.let { put("apk_size_failure", it) }
+                }
                 for (collection in listOf("workflow_runs", "jobs")) {
                     (data[collection] as? JsonArray)?.let { rows ->
                         put(
@@ -220,6 +223,18 @@ internal class GitHubCiInvestigationRecovery(task: String?) {
                 }.distinctBy { it.positiveLong("id") }
             for (job in jobs.take(2)) {
                 val jobId = requireNotNull(job.positiveLong("id"))
+                if (scoped.any { observation ->
+                        val gate = observation.data["apk_size_failure"] as? JsonObject
+                        observation.successful &&
+                            observation.call.name == ciName &&
+                            gate?.get("run_id") == JsonPrimitive(runId) &&
+                            gate["run_attempt"] == JsonPrimitive(attempt) &&
+                            gate["job_id"] == JsonPrimitive(jobId) &&
+                            gate.text("head_sha") == head
+                    }
+                ) {
+                    continue
+                }
                 val logIdentity = JsonObject(
                     identity + buildJsonObject {
                         put("action", "logs")

@@ -6,7 +6,7 @@ import java.util.Locale
 
 private const val KOKORO_CONTEXT_CHARS = 64
 
-internal enum class KokoroPronunciationFailure { UNSUPPORTED_SCRIPT, UNKNOWN_WORD, MISSING_LETTER }
+internal enum class KokoroPronunciationFailure { UNSUPPORTED_SCRIPT, UNKNOWN_WORD, MISSING_LETTER, GROUP_TOO_LONG }
 
 /** Contains counts and finite reasons only; never retains words, phonemes, or the source response. */
 internal data class KokoroPronunciationObservation(
@@ -19,7 +19,12 @@ internal data class KokoroPronunciationObservation(
     val unknownWordLength: Int? = null
 )
 
-internal data class KokoroPhrase(val speech: String, val wordRanges: List<IntRange>)
+internal data class KokoroPhrase(
+    val speech: String,
+    val wordRanges: List<IntRange>,
+    val groups: List<Int> = wordRanges.map { it.first },
+    val endBoundary: VoiceSpeechJoinBoundary = VoiceSpeechJoinBoundary.SOURCE_END
+)
 
 internal data class KokoroSpeechProjection(val phrases: List<KokoroPhrase>?, val observation: KokoroPronunciationObservation) {
     val parts: List<String>? get() = phrases?.map { it.speech }
@@ -103,7 +108,6 @@ internal object KokoroSpeechText {
     )
     private val frequencies = mapOf("Hz" to "hertz", "kHz" to "kilohertz", "MHz" to "megahertz", "GHz" to "gigahertz")
     private const val MAX_INPUT = 12_000
-    private const val MAX_PART_CHARS = 128
     private const val MAX_PART_WORDS = 16
     private const val MAX_POLICY_WORDS = 24
 
@@ -144,6 +148,9 @@ internal object KokoroSpeechText {
         // Compose correction and Unicode origins. One displayed character can expand into
         // several spoken characters, but captions must still highlight its original term.
         val origins = normalized.second
+        val boundaries = VoicePhraseBoundaries(projected)
+        val groupIds = mutableListOf<Int>()
+        val correctionKeys = VoicePronunciationOverrides.clean(overrides).keys
         var sourceRange = IntRange.EMPTY
         var knownWords = 0
         var initialismWords = 0
@@ -159,16 +166,17 @@ internal object KokoroSpeechText {
         var words = 0
         fun flush() {
             if (words > 0) {
-                result += KokoroPhrase(part.toString(), wordRanges.toList())
+                result += KokoroPhrase(part.toString(), wordRanges.toList(), groupIds.toList())
+                groupIds.clear()
                 wordRanges.clear()
             }
             part.clear()
             words = 0
         }
         fun appendWord(word: String) {
-            if (words == wordLimit || part.length + word.length + 1 > MAX_PART_CHARS) flush()
             if (part.isNotEmpty()) part.append(' ')
             part.append(word)
+            groupIds += boundaries.groupAt(sourceRange.first)
             if (timed) wordRanges += sourceRange
             words++
         }
@@ -184,14 +192,12 @@ internal object KokoroSpeechText {
         for (match in token.findAll(plain)) {
             val value = match.value
             if (value.length == 1 && value[0] in ".,!?;:\n") {
-                if (words > 0 && value != "\n" && part.length < MAX_PART_CHARS && part.last().isLetter()) part.append(value)
+                if (words > 0 && value != "\n" && part.last().isLetter()) part.append(value)
                 if (value[0] in ".!?\n") flush()
                 continue
             }
-            if (timed) {
-                val original = origins[match.range.first].first..origins[match.range.last].last
-                sourceRange = if (original.last < clipped.length) original else IntRange.EMPTY
-            }
+            val original = origins[match.range.first].first..origins[match.range.last].last
+            sourceRange = if (original.last < clipped.length) original else IntRange.EMPTY
             val before = if (match.range.first >= KOKORO_CONTEXT_CHARS) {
                 plain.substring(match.range.first - KOKORO_CONTEXT_CHARS, match.range.first)
             } else {
@@ -201,6 +207,12 @@ internal object KokoroSpeechText {
             val key = value.lowercase(Locale.ROOT)
             val explicitInitialism = dottedInitialism.matches(value) && key !in abbreviations
             val expanded = when {
+                key == "read" || key == "lead" -> {
+                    val corrected = correctionKeys.isNotEmpty() &&
+                        original.last < projected.length &&
+                        VoicePronunciationOverrides.key(projected.substring(original)) in correctionKeys
+                    if (corrected) value else contextualReading(key, before, plain.substring(match.range.last + 1, minOf(plain.length, match.range.last + 65)), isKnown)
+                }
                 key in abbreviations -> abbreviations.getValue(key)
                 explicitInitialism -> value.filter(Char::isLetter).uppercase(Locale.ROOT)
                 key in technicalNames -> technicalNames.getValue(key)
@@ -277,7 +289,31 @@ internal object KokoroSpeechText {
             }
         }
         flush()
-        return outcome(result)
+        val plan = KokoroPhrasePlan(result)
+        val bounded = mutableListOf<KokoroPhrase>()
+        try {
+            while (true) bounded += plan.next(wordLimit, finishSlack = 0) ?: break
+        } catch (_: KokoroGroupTooLong) {
+            return outcome(null, KokoroPronunciationFailure.GROUP_TOO_LONG)
+        }
+        return outcome(bounded)
+    }
+
+    private val pastBefore = Regex("""(?i)\b(?:have|has|had|already|just|recently|yesterday)\s+$""")
+    private val futureBefore = Regex("""(?i)\b(?:to|will|can|shall|please|must|should)\s+$""")
+    private val pastAfter = Regex("""(?i)^([^.,!?;:\n]*?\s)?(?:yesterday|earlier|previously|ago|last\s+(?:night|week|month|year))\b""")
+    private val habitualAfter = Regex("""(?i)^([^.,!?;:\n]*?\s)?(?:every|daily|often|usually|tomorrow)\b""")
+    private val metalBefore = Regex("""(?i)\b(?:made of|composed of|exposure to)\s+$""")
+    private val metalAfter = Regex("""(?i)^\s+(?:pipe|paint|poisoning|metal|battery|shielding)\b""")
+
+    private fun contextualReading(key: String, before: String, after: String, isKnown: (String) -> Boolean): String {
+        val reading = when {
+            key == "lead" && (metalBefore.containsMatchIn(before) || metalAfter.containsMatchIn(after)) -> "led"
+            key == "read" && (pastBefore.containsMatchIn(before) || pastAfter.containsMatchIn(after)) -> "red"
+            key == "read" && (futureBefore.containsMatchIn(before) || habitualAfter.containsMatchIn(after)) -> "reed"
+            else -> return key
+        }
+        return reading.takeIf(isKnown) ?: key
     }
 
     private fun normalizeCharacters(text: String, sourceCharacters: List<IntRange> = text.indices.map { it..it }): Pair<String, List<IntRange>> {

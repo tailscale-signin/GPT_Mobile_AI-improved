@@ -11,10 +11,10 @@ namespace Gateway.Desktop;
 
 public partial class MainWindow
 {
-    private sealed class TurnPreview
+    private sealed class TurnPreview(string turn)
     {
-        public PublicPreview State {get;}=new();
-        public Dictionary<string,string> Sources {get;}=[];
+        public PublicPreview State {get;}=new(turn);
+        public string Conversation {get; set;}="";
     }
     private readonly Dictionary<string,TurnPreview> previews=[];
     private readonly Dictionary<string,string> jobTurns=[];
@@ -47,13 +47,18 @@ public partial class MainWindow
         if(next.Length>32000)throw new InvalidOperationException("This selection exceeds the draft limit.");
         await Call("draft-save",WithIdentity(new JsonObject{["draft"]=next,["model"]=draft.Text("model",""),["conversation_id"]=CID(openedConversation)}));draft["draft"]=next;Navigate("Chat");
     }
-    private void AcceptActivity(JsonNode? ev)
+    private void AcceptActivity(JsonNode? ev, string conversation, string? liveCommand = null)
     {
-        string turn=ev.Text("turn_id","");if(turn.Length==0)return;
-        if(!previews.TryGetValue(turn,out var model))previews[turn]=model=new();
+        if (identity == null || ev.Text("gateway_id","") != identity.Text("gateway_id","") ||
+            ev.Text("principal_id","") != identity.Text("principal_id","")) return;
+        string turn=ev.Text("turn_id",""), bound=ev.Text("conversation_id","");
+        if (turn.Length==0 || (liveCommand!=null && turn!=liveCommand)) return;
+        if (liveCommand==null ? bound!=conversation : bound.Length>0 && conversation.Length>0 && bound!=conversation) return;
+        if(!previews.TryGetValue(turn,out var model))previews[turn]=model=new(turn);
+        if (bound.Length>0 && model.Conversation.Length>0 && bound!=model.Conversation) return;
+        if (bound.Length>0) model.Conversation=bound;
         if(!model.State.Apply(ev))return;
         if(ev.Text("job_id","") is {Length:>0} job)jobTurns[job]=turn;
-        foreach(var r in ev.Array("sources"))if(r.Text("url","") is {Length:>0} url)model.Sources[url]=r.Text("title",url);
         if(previews.Count>800)previews.Remove(previews.Keys.First());
     }
     private async Task RefreshChatActivity()
@@ -62,10 +67,11 @@ public partial class MainWindow
         readingActivity=true;
         try{
             bool more;do{
+                var requestedScope=loadedScope;
                 var result=await Call("public-activity",WithIdentity(new JsonObject{["conversation_id"]=cid,["after"]=eventCursors.GetValueOrDefault(cid)}));
-                if(cid!=CID(openedConversation)||selectedPage!="Chat")return;
+                if(requestedScope!=loadedScope||cid!=CID(openedConversation)||selectedPage!="Chat")return;
                 if(result.Flag("gap"))activityGaps.Add(cid);
-                foreach(var ev in result.Array("items")){AcceptActivity(ev);eventCursors[cid]=Math.Max(eventCursors.GetValueOrDefault(cid),(long)(ev.Number("sequence")??0));}
+                foreach(var ev in result.Array("items")){AcceptActivity(ev,cid);eventCursors[cid]=Math.Max(eventCursors.GetValueOrDefault(cid),(long)(ev.Number("sequence")??0));}
                 more=result.Flag("has_more")&&result.Array("items").Count>0;
             }while(more);
             updatePreviews?.Invoke();
@@ -107,7 +113,9 @@ public partial class MainWindow
         var rendered=new Dictionary<string,FrameworkElement>();var previousRefresh=new Dictionary<string,DateTime>();
         void Slot(string turn){
             if(turn.Length==0 || previewViews.ContainsKey(turn))return;
-            var brief=new ActivityText(()=>ReducedMotion);var body=new StackPanel();var sources=new StackPanel();
+            var brief=new ActivityText(()=>ReducedMotion);
+            AutomationProperties.SetLiveSetting(brief,AutomationLiveSetting.Polite);
+            var body=new StackPanel();var sources=new StackPanel();
             var exp=new Expander{Header=brief,Content=body,Visibility=Visibility.Collapsed,HorizontalContentAlignment=HorizontalAlignment.Stretch};
             AutomationProperties.SetName(exp,"Public activity · expand details");
             messages.Children.Add(exp);messages.Children.Add(sources);previewViews[turn]=(exp,body,brief,sources);
@@ -116,21 +124,31 @@ public partial class MainWindow
         void Redraw(){
             foreach(var (turn,slot) in previewViews){
                 if(!previews.TryGetValue(jobTurns.GetValueOrDefault(turn,turn),out var state))continue;
-                bool active=turn==liveTurn || turn==openedConversation?.Text("command_id") || turn==activeEngineeringTurn;
+                bool active=!state.State.FinalStarted && (turn==liveTurn || turn==openedConversation?.Text("command_id") || turn==activeEngineeringTurn);
                 slot.Brief.SetActive(active && (engineering || chatMode=="Engineering"));
                 if(active)state.State.Summarize(DateTimeOffset.Now.ToUnixTimeMilliseconds()/1000d);
                 var lines=state.State.Lines;
                 string text=string.Join("\n",lines.TakeLast(PublicPreview.CollapsedLines).Select(a=>a.Text));
                 if(lines.Count==0)continue;
                 slot.Exp.Visibility=Visibility.Visible;
-                if(ReducedMotion || !previousRefresh.TryGetValue(turn,out var last) || (DateTime.UtcNow-last).TotalMilliseconds>=PublicPreview.ChangeIntervalMs){
+                if(lines[^1].Kind is "correction" or "blocker" or "recovery" || ReducedMotion || !previousRefresh.TryGetValue(turn,out var last) || (DateTime.UtcNow-last).TotalMilliseconds>=PublicPreview.ChangeIntervalMs){
                     if(slot.Exp.Tag?.ToString()!=text || ReducedMotion){slot.Brief.Present(text);slot.Exp.Tag=text;previousRefresh[turn]=DateTime.UtcNow;}}
-                if(slot.Body.Tag?.ToString()!=string.Join('|',lines.Select(l=>l.Text))){
-                    slot.Body.Children.Clear();foreach(var line in lines)slot.Body.Children.Add(Ui.Text(line.Text,13,line.Kind=="summary"?"SecondaryBrush":"MutedBrush"));
-                    slot.Body.Tag=string.Join('|',lines.Select(l=>l.Text));
+                var displayed=(state.State.Cursor, lines.Count, lines[^1].Time);
+                if(!Equals(slot.Body.Tag, displayed)){
+                    slot.Body.Children.Clear();
+                    slot.Sources.Children.Clear();
+                    var shownSources=new HashSet<string>();
+                    foreach(var line in lines){
+                        var item=Ui.Column(Ui.Text(line.Text,13,line.Kind is "summary" or "correction" ? "SecondaryBrush":"MutedBrush"));
+                        if (line.EvidenceId!=null)
+                            item.Children.Add(Ui.Text($"Revision {line.Revision} · Evidence {line.EvidenceId}",12,"MutedBrush"));
+                        slot.Body.Children.Add(item);
+                        foreach (var source in line.Sources ?? Array.Empty<PublicPreview.Source>())
+                            if(shownSources.Add(source.Url))
+                                slot.Sources.Children.Add(Ui.Button($"[{shownSources.Count}] {source.Title}",()=>OpenWeb(source.Url)));
+                    }
+                    slot.Body.Tag=displayed;
                 }
-                if(slot.Sources.Children.Count!=state.Sources.Count){slot.Sources.Children.Clear();int n=0;
-                    foreach(var (url,title) in state.Sources)slot.Sources.Children.Add(Ui.Button($"[{++n}] {title}",()=>OpenWeb(url)));}
             }
         }
         foreach(var m in transcript.OfType<JsonObject>()){
@@ -206,7 +224,7 @@ public partial class MainWindow
                 var receipt=await bridge.Call("chat-send",args,(kind,value)=>{
                     if(closed)return;
                     if(kind=="accepted"){detachSafe=value.Flag("detach_safe");status.Text="Gateway accepted the request.";activeJobForStop=value.Text("job_id","");}
-                    else if(kind=="activity"){AcceptActivity(value);updatePreviews?.Invoke();}
+                    else if(kind=="activity"){AcceptActivity(value,cid,turn);updatePreviews?.Invoke();}
                     else if(kind=="delta"){liveText+=value?.ToString();updateLive?.Invoke();}
                 });
                 var opened=await Call("conversation-read",WithIdentity(new JsonObject{["conversation_id"]=receipt.Text("conversation_id")}));

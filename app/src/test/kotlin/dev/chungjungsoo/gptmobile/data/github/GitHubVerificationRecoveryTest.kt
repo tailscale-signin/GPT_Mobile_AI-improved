@@ -19,6 +19,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerificationRecoveryTest {
+    @Test fun onlyTheRecordedPlanningChangeQualifiesForAWatchReattachment() {
+        fun stopped(field: String, tool: String = "github_watch_checks") = json("""{"tool":"$tool","error_code":"DISPATCH_POLICY_CHANGED","execution":{"changed_policy_fields":["githubProfileOverride","$field"]}}""")
+        assertTrue(GitHubVerificationRecovery.watchPlanningChange(stopped("githubProfileOverride.intelligenceLevel")))
+        assertFalse(GitHubVerificationRecovery.watchPlanningChange(stopped("providerPermissions")))
+        assertFalse(GitHubVerificationRecovery.watchPlanningChange(stopped("githubProfileOverride.intelligenceLevel", "github_commit")))
+    }
+
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
     private fun answer(text: String) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)

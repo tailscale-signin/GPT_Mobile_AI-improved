@@ -199,9 +199,77 @@ class ProviderAdaptersTest {
         assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
         assertEquals(JsonPrimitive("ABSENT"), failure.failureDetails?.get("provider_error_code_state"))
         assertEquals(JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"), failure.failureDetails?.get("provider_error_origin"))
-        assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("NO_TEXT_EMITTED"), failure.failureDetails?.get("stream_answer_state"))
         assertFalse(failure.failureDetails.toString().contains("Provider response failed without a typed code"))
         assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test fun streamErrorAnswerEvidenceUsesPublishedTextAfterReasoningSeparation() = runBlocking {
+        val error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Provider response failed", retryable = false)
+        val scenarios = listOf(
+            Triple(
+                listOf(
+                    ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "<think>Unpublished reasoning</think>")))),
+                    ChatCompletionChunk(error = error)
+                ),
+                "",
+                "NO_TEXT_EMITTED"
+            ),
+            Triple(
+                listOf(
+                    ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "<think>Unpublished reasoning</think>Retained answer.")))),
+                    ChatCompletionChunk(error = error)
+                ),
+                "Retained answer.",
+                "PARTIAL_TEXT_EMITTED"
+            ),
+            Triple(
+                listOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Retained answer."), finishReason = "stop")), error = error)),
+                "Retained answer.",
+                "PARTIAL_TEXT_EMITTED"
+            ),
+            Triple(
+                listOf(
+                    ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Retained answer."), finishReason = "stop"))),
+                    ChatCompletionChunk(error = error)
+                ),
+                "Retained answer.",
+                "FINAL_TEXT_EMITTED"
+            )
+        )
+        for (type in listOf(ClientType.LLAMA, ClientType.NVIDIA)) {
+            for ((chunks, expectedText, expectedState) in scenarios) {
+                val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow { chunks.forEach { emit(it) } })))
+                val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                    .openSession(turns(), platform(type).copy(token = "one,two"))
+                    .streamRound(emptyList(), emptyList()).toList()
+                assertEquals(expectedText, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+                assertEquals(JsonPrimitive(expectedState), failure.failureDetails?.get("stream_answer_state"))
+                assertEquals(JsonPrimitive(if (expectedText.isEmpty()) "BEFORE_VISIBLE_OUTPUT" else "AFTER_VISIBLE_OUTPUT"), failure.failureDetails?.get("failure_boundary"))
+                assertEquals(JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"), failure.failureDetails?.get("provider_error_origin"))
+                assertEquals(JsonPrimitive("ABSENT"), failure.failureDetails?.get("provider_error_code_state"))
+                assertEquals(JsonPrimitive(false), failure.failureDetails?.get("retryable"))
+                assertFalse(failure.failureDetails.toString().contains("Unpublished reasoning"))
+                assertFalse(events.contains(ProviderEvent.Completed))
+                assertEquals(1, api.chatRequests.size)
+                assertNull(error.failureDetails)
+            }
+        }
+    }
+
+    @Test fun unrecognizedStreamCodesPreserveAnswerStateAndTheProducingStage() {
+        val error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("private text", code = "unknown_private_code")
+        val partial = streamErrorDetails(error, visible = true, finished = false)
+        assertEquals(JsonPrimitive("PARTIAL_TEXT_EMITTED"), partial["stream_answer_state"])
+        assertEquals(JsonPrimitive("PROVIDER"), partial["failure_origin"])
+        assertFalse(partial.toString().contains("private"))
+        val original = error.copy(failureDetails = JsonObject(mapOf("failed_stage" to JsonPrimitive("verification"))))
+        val final = streamErrorDetails(original, visible = true, finished = true)
+        assertEquals(JsonPrimitive("FINAL_TEXT_EMITTED"), final["stream_answer_state"])
+        assertEquals(JsonPrimitive("verification"), final["failed_stage"])
     }
 
     @Test fun benchmarkProgressCannotReplaceVerifiedJobAffinity() = runBlocking {
@@ -725,6 +793,35 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test fun missingTerminalReceiptRetainsVisibleTextAndNeverBindsAReplay() = runBlocking {
+        for (visible in listOf(false, true)) {
+            val text = "Retained partial"
+            val responses = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(if (visible) flowOf(OutputTextDeltaEvent("item", 0, 0, text)) else emptyFlow())))
+            val compatible = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(if (visible) flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = text))))) else emptyFlow())))
+            val groq = FakeGroqAPI(ArrayDeque(listOf(if (visible) flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(index = 0, delta = GroqDelta(content = text))))) else emptyFlow())))
+            val sessions = listOf(
+                OpenAIResponsesAdapter(responses, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI)),
+                OpenAICompatibleAdapter(compatible, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OPENROUTER)),
+                OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ))
+            )
+            for (session in sessions) {
+                val events = session.streamRound(emptyList(), emptyList()).toList()
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals(if (visible) text else "", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                assertEquals("INCOMPLETE_PROVIDER_STREAM", failure.errorCode)
+                assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+                assertEquals(JsonPrimitive(if (visible) "PARTIAL_TEXT_EMITTED" else "NO_TEXT_EMITTED"), failure.failureDetails?.get("stream_answer_state"))
+                assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+                assertFalse(failure.transportComplete)
+                assertFalse(events.contains(ProviderEvent.Completed))
+            }
+            assertEquals(1, responses.responseRequests.size)
+            assertEquals(1, compatible.chatRequests.size)
+            assertEquals(1, groq.requests.size)
+        }
+    }
+
     @Test fun compatiblePartialUsageStaysInterimUntilTheFinalUsageReceipt() = runBlocking {
         val partial = NetworkClient.json.decodeFromString<ChatCompletionChunk>(
             """{"choices":[{"index":0,"delta":{"content":"Partial"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"""
@@ -1186,15 +1283,23 @@ class ProviderAdaptersTest {
         val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Remote rejection"))))))
         val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<GroqChatCompletionChunk>("""{"error":{"message":"Remote rejection"}}""")))))
         val google = FakeGoogleAPI(ArrayDeque(listOf(flowOf(GenerateContentResponse(error = dev.chungjungsoo.gptmobile.data.dto.google.response.ErrorDetail(message = "Remote rejection"))))))
+        val groqStreamEvidence = buildJsonObject {
+            put("provider_error_origin", "OPENAI_COMPAT_STREAM_ERROR_VALUE")
+            put("provider_error_code_state", "ABSENT")
+            put("failed_stage", "response_stream")
+            put("failure_origin", "PROVIDER")
+            put("failure_boundary", "BEFORE_VISIBLE_OUTPUT")
+            put("stream_answer_state", "NO_TEXT_EMITTED")
+        }
         val sessions = listOf(
-            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
-            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
-            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)) to null,
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)) to groqStreamEvidence,
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE)) to null
         )
-        for (session in sessions) {
+        for ((session, expectedEvidence) in sessions) {
             val failure = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
             assertEquals("Remote rejection", failure.message)
-            assertNull(failure.failureDetails)
+            assertEquals(expectedEvidence, failure.failureDetails)
             assertNull(failure.invocationId)
         }
     }

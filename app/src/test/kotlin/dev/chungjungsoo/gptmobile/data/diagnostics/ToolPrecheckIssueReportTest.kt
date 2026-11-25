@@ -18,6 +18,9 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException
+import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import dev.chungjungsoo.gptmobile.data.repository.ToolEventRecorder
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -60,6 +63,41 @@ class ToolPrecheckIssueReportTest {
         assertEquals(JsonPrimitive("PRIVACY_SERVICE_UNVERIFIED"), report.context?.diagnostics?.values?.get("tool_error_code"))
         assertNull(report.context?.httpStatus)
         assertFalse(report.toString().contains("private rejected request"))
+    }
+
+    @Test fun repeatedArgumentPrechecksKeepFirstAndLastCallWithoutCombiningTargetsOrGrants() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        suspend fun reject(id: String, path: String = "private-a", grant: String = "grant-a", attempt: Int = 1) {
+            val event = ToolEvent("event-$id", "same-run", 1, id, grant, null, "github_read", "github_read", buildJsonObject { put("path", path) }.toString(), null, null, ToolEventStatus.RUNNING)
+            val dao = mockk<AgentPersistenceDao>()
+            coEvery { dao.getToolEventById(event.eventId) } returns event
+            coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
+            val receipt = buildJsonObject {
+                put("failed_stage", "tool_precheck")
+                put("argument_validation_call_id", id)
+                put("reason_code", "TOOL_ARGUMENT_SCHEMA_REJECTED")
+                put("argument_repair_attempt", attempt)
+                put("argument_repair_exhausted", attempt >= 2)
+            }
+            val result = ToolResultEnvelope.error(id, "INVALID_ARGUMENTS", "Invalid arguments").copy(dispatched = false, executionReceipt = receipt)
+            ToolEventRecorder(dao, mockk()).finishTool(event.eventId, result, 2L)
+        }
+        reject("one")
+        val original = IssueReportIncidents.pending.value.single()
+        reject("two", attempt = 2)
+        reject("two", attempt = 2)
+        val grouped = IssueReportIncidents.pending.value.single()
+        assertEquals(original.reportId, grouped.reportId)
+        val fields = checkNotNull(grouped.context?.diagnostics).values
+        assertEquals(JsonPrimitive(2), fields["precheck_rejection_count"])
+        assertEquals(JsonPrimitive(2), fields["argument_repair_attempt"])
+        val calls = kotlinx.serialization.json.JsonArray(listOf("one", "two").map { JsonPrimitive(IssueReportContext.identifierHash("call", it)) })
+        assertEquals(calls, fields["precheck_call_hashes"])
+        assertFalse("precheck_rejection_count" in checkNotNull(original.context?.diagnostics).values)
+        assertFalse(grouped.toString().contains("private-a"))
+        reject("other-target", path = "private-b")
+        reject("other-grant", grant = "grant-b")
+        assertEquals(3, IssueReportIncidents.pending.value.size)
     }
 
     @Before
@@ -429,6 +467,153 @@ class ToolPrecheckIssueReportTest {
         assertNull(ToolReportDiagnostics.fields(null, result)["graph_index_attempt_hash"])
         assertNull(ToolReportDiagnostics.fields(event.copy(callId = "another-call"), result)["graph_index_attempt_hash"])
         assertNull(ToolReportDiagnostics.fields(event.copy(modelToolName = "web_search"), result)["graph_index_attempt_hash"])
+    }
+
+    @Test fun phoneReadDeadlineKeepsItsExecutionStageThroughRecordingAndPayloadRestore() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (action in listOf("index", "query")) {
+            for (observedRead in listOf(false, true)) {
+                val arguments = buildJsonObject {
+                    put("action", action)
+                    if (action == "index") put("map_source", "phone")
+                    put("query", "private source query")
+                }
+                val result = phoneDeadline("private-$action-$observedRead", arguments, observedRead)
+                val receipt = requireNotNull(result.executionReceipt)
+                val originalReceipt = receipt.toString()
+                assertEquals("READ_DEADLINE", result.errorCode)
+                assertEquals(observedRead, result.dispatched)
+                assertEquals(JsonPrimitive("phone_read_deadline"), receipt["failed_stage"])
+                assertEquals(JsonPrimitive("CANCELLED_LOCALLY"), receipt["phase"])
+                for (key in listOf("requires_reconciliation", "index_outcome_unknown", "current_index_outcome_unknown", "replay_safe", "request_replay_allowed")) {
+                    assertEquals(key, JsonPrimitive(false), receipt[key])
+                }
+                val report = record("repository_graph", result, arguments)
+                val context = requireNotNull(report.context)
+                val values = requireNotNull(context.diagnostics).values
+                assertEquals("READ_DEADLINE", report.errorCode)
+                assertEquals("tool_execution", context.stage)
+                assertEquals(observedRead, context.dispatched)
+                assertEquals(if (observedRead) 200 else null, context.httpStatus)
+                assertEquals(false, context.retryable)
+                assertEquals(false, context.requiresReconciliation)
+                assertEquals(JsonPrimitive("tool_execution"), values["incident_phase"])
+                assertEquals(JsonPrimitive("READ_DEADLINE"), values["causal_failure_code"])
+                assertEquals(JsonPrimitive("READ_DEADLINE"), values["tool_error_code"])
+                assertEquals(JsonPrimitive("CANCELLED_LOCALLY"), values["tool_dispatch_phase"])
+                assertEquals(if (action == "index") JsonPrimitive(action) else null, values["tool_action"])
+                val payload = report.approvedPayload()
+                val restored = IssueReport.json.decodeFromString(IssueReport.serializer(), payload)
+                assertEquals(context.stage, restored.context?.stage)
+                assertEquals(context.diagnostics, restored.context?.diagnostics)
+                assertFalse(payload.contains("private"))
+                assertFalse(payload.contains("phone_read_deadline"))
+                assertTrue(payload.encodeToByteArray().size <= IssueReport.MAX_PAYLOAD_BYTES)
+                assertEquals(originalReceipt, requireNotNull(result.executionReceipt).toString())
+            }
+        }
+    }
+
+    @Test fun unboundPhoneReadDeadlineReceiptsKeepThePublicStageUnavailable() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val arguments = buildJsonObject {
+            put("action", "index")
+            put("map_source", "phone")
+        }
+        val result = phoneDeadline("private-bound-deadline", arguments)
+        val receipt = requireNotNull(result.executionReceipt)
+        val required = listOf("schema", "call_id", "error_code", "action", "map_source", "failed_stage", "phase", "dispatched", "retryable", "local_work_stopped", "requires_reconciliation", "index_outcome_unknown", "current_index_outcome_unknown", "replay_safe", "request_replay_allowed", "authorization_recheck_required", "mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations")
+        val missing = required.map { key -> key to result.copy(executionReceipt = JsonObject(receipt - key)) }
+        val replaced = listOf(
+            "schema" to JsonPrimitive("foreign.receipt.v1"),
+            "call_id" to JsonPrimitive("another-call"),
+            "error_code" to JsonPrimitive("APP_ERROR"),
+            "action" to JsonPrimitive("query"),
+            "map_source" to JsonPrimitive("gateway"),
+            "failed_stage" to JsonPrimitive("private-stage"),
+            "phase" to JsonPrimitive("FAILED"),
+            "phase" to JsonPrimitive("CANCELLED_LOCALLY private"),
+            "dispatched" to JsonPrimitive(true),
+            "retryable" to JsonPrimitive(true),
+            "local_work_stopped" to JsonPrimitive(false),
+            "requires_reconciliation" to JsonPrimitive(true),
+            "request_replay_allowed" to JsonPrimitive(true),
+            "unknown_mutations" to JsonPrimitive(1)
+        ).map { (key, value) -> "$key=$value" to result.copy(executionReceipt = JsonObject(receipt + (key to value))) }
+        val event = ToolEvent("event", "private-run", 1, result.callId, null, null, "repository_graph", "repository_graph", arguments.toString(), null, null, ToolEventStatus.RUNNING, startedAt = 1L)
+        for ((label, unbound) in missing + replaced) {
+            assertFalse(label, "failed_stage" in ToolReportDiagnostics.fields(event, unbound))
+        }
+        val recordedRejections = missing.filter { it.first in setOf("phase", "local_work_stopped") } +
+            replaced.filter { it.first.startsWith("call_id=") || it.first.startsWith("action=") || it.first.startsWith("phase=") || it.first.startsWith("schema=") }
+        for ((label, unbound) in recordedRejections) {
+            val report = record("repository_graph", unbound, arguments)
+            assertNull(label, report.context?.stage)
+            assertEquals(label, JsonPrimitive("unknown"), report.context?.diagnostics?.values?.get("incident_phase"))
+            assertFalse(label, report.approvedPayload().contains("private"))
+        }
+        for ((operation, unboundArguments) in listOf(
+            "web_search" to arguments,
+            "repository_graph" to buildJsonObject {
+                put("action", "query")
+                put("map_source", "phone")
+            },
+            "repository_graph" to buildJsonObject {
+                put("action", "index")
+                put("map_source", "gateway")
+            }
+        )) {
+            val report = record(operation, result, unboundArguments)
+            assertNull(report.context?.stage)
+            assertEquals(JsonPrimitive("unknown"), report.context?.diagnostics?.values?.get("incident_phase"))
+        }
+        for (unbound in listOf(event.copy(callId = "another-call"), event.copy(arguments = "private malformed arguments"), null)) {
+            assertFalse("failed_stage" in ToolReportDiagnostics.fields(unbound, result))
+        }
+        for (unbound in listOf(result.copy(isError = false), result.copy(dispatched = true), result.copy(errorCode = "APP_ERROR"), result.copy(executionReceipt = null))) {
+            assertFalse("failed_stage" in ToolReportDiagnostics.fields(event, unbound))
+        }
+    }
+
+    @Test fun phoneReadDeadlineRecordingStillHonorsDisabledDiagnosticsAndPrivacy() = runBlocking {
+        val arguments = buildJsonObject {
+            put("action", "index")
+            put("map_source", "phone")
+        }
+        try {
+            for ((enabled, privateMode) in listOf(false to false, true to true)) {
+                LocalDiagnosticsPolicy.setEnabled(enabled)
+                IssueReportIncidents.privacyChanged(privateMode)
+                val before = IssueReportIncidents.pending.value
+                val result = phoneDeadline("private-deadline-$enabled-$privateMode", arguments)
+                val event = ToolEvent("event-${result.callId}", "private-run", 1, result.callId, null, null, "repository_graph", "repository_graph", arguments.toString(), null, null, ToolEventStatus.RUNNING, startedAt = 1L)
+                val dao = mockk<AgentPersistenceDao>()
+                coEvery { dao.getToolEventById(event.eventId) } returns event
+                coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
+                ToolEventRecorder(dao, mockk()).finishTool(event.eventId, result, 2L)
+                assertEquals(before, IssueReportIncidents.pending.value)
+            }
+        } finally {
+            IssueReportIncidents.privacyChanged(false)
+            LocalDiagnosticsPolicy.setEnabled(false)
+        }
+    }
+
+    private suspend fun phoneDeadline(callId: String, arguments: JsonObject, observedRead: Boolean = false): AgentToolResult {
+        val tool = RepositoryGraphTool("repository_graph") {
+            if (observedRead) {
+                val requestId = GitHubDispatchAccounting.started(false, "/repos/private-owner/private-repo/contents/private-path")
+                GitHubDispatchAccounting.responded(false, 200, requestId)
+            }
+            throw GatewayGraphOperationException(
+                GatewayGraphResultException("READ_DEADLINE", "private deadline detail", "READ_PHONE_INDEX_STATUS"),
+                "private-revision",
+                "private repository",
+                "READ_PHONE_INDEX_STATUS",
+                false
+            )
+        }
+        return tool.execute(callId, arguments)
     }
 
     private suspend fun record(operation: String, result: AgentToolResult, arguments: JsonObject = buildJsonObject {}): IssueReport {

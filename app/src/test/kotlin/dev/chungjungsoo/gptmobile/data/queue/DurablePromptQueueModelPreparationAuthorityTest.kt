@@ -202,7 +202,7 @@ class DurablePromptQueueModelPreparationAuthorityTest {
                 maxPolls = 1,
                 operations = operations
             )
-            queue = DurablePromptQueue(database, mockk(relaxed = true), settings, coordinator, RuntimeEnvironment.getApplication(), store, mockk(relaxed = true), scopes, preparation)
+            queue = DurablePromptQueue(database, mockk(relaxed = true), settings, coordinator, RuntimeEnvironment.getApplication(), store, mockk(relaxed = true), scopes, preparation, dagger.Lazy { mockk(relaxed = true) })
         }
 
         suspend fun admit(): GatewayQueuedChatState = queue.startGatewayTurn(

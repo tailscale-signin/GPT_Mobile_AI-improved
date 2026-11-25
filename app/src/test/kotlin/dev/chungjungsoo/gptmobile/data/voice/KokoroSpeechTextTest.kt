@@ -204,8 +204,8 @@ class KokoroSpeechTextTest {
         val chunks = mutableListOf<String>()
         for (end in 1..text.length) chunks += requireNotNull(buffer.append(text.take(end), final = false, earlyStart = true))
         chunks += requireNotNull(buffer.append(text, final = true, earlyStart = true))
-        assertTrue(chunks.any { it.endsWith("12 ") })
-        assertTrue(chunks.any { it.startsWith("MB/s") })
+        assertTrue(chunks.any { "12 MB/s" in it })
+        assertFalse(chunks.any { it.trimEnd().endsWith("12") })
         val context = KokoroSpeechContext()
         val actual = chunks.flatMap { context.project(it, { true }, emptyMap(), 16, true).parts!! }.joinToString(" ")
         assertEquals("here is the measured transfer rate at twelve megabytes per second.", actual)
@@ -243,4 +243,17 @@ class KokoroSpeechTextTest {
 
     private fun normalize(text: String, isKnown: (String) -> Boolean = { true }) =
         KokoroSpeechText.parts(text, isKnown)?.joinToString(" ")
+
+    @Test fun contextualReadingsUseInstalledWordsAndPreserveExplicitCorrections() {
+        fun spoken(input: String, corrections: Map<String, String> = emptyMap()) =
+            KokoroSpeechText.withPolicy(input, { true }, corrections, 16, true).parts!!.joinToString(" ")
+        assertEquals("i red it yesterday.", spoken("I read it yesterday."))
+        assertEquals("i reed it every day.", spoken("I read it every day."))
+        assertEquals("a led pipe.", spoken("A lead pipe."))
+        assertEquals("the pipe is made of led.", spoken("The pipe is made of lead."))
+        assertEquals("we red the minutes last night.", spoken("We read the minutes last night."))
+        assertEquals("they lead us.", spoken("They lead us."))
+        assertEquals("i reed it yesterday.", spoken("I read it yesterday.", mapOf("read" to "reed")))
+        assertEquals("i read it yesterday.", spoken("I read it yesterday.", mapOf("read" to "read")))
+    }
 }

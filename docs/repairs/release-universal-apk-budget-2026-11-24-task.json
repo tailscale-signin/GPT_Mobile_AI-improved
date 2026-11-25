@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "task": "release-universal-apk-budget-2026-11-24",
+  "status": "implemented_pending_hosted_qualification",
+  "source": {
+    "base_commit": "67dce0e844603c704bf87c51112de243eac73c48",
+    "failed_workflow_run": 45391491438,
+    "failed_job": 138492478888,
+    "failed_step": "Sign and verify APKs and bundle"
+  },
+  "observation": {
+    "cause": "The signed universal APK passed APK signature, runtime, telemetry and ABI checks, then the explicit release size gate returned exit 1.",
+    "artifact": "app-universal-release.apk",
+    "measured_bytes": 253719782,
+    "prior_budget_bytes": 241172480,
+    "arm64_bytes": 185614407,
+    "x86_64_bytes": 108177898,
+    "publication_created": false,
+    "qualification_scope": "Historical signed package at the recorded main commit and workflow run; not a measurement of the final release candidate."
+  },
+  "change": {
+    "universal_budget_bytes": 241172480,
+    "arm64_budget_bytes": 188743680,
+    "x86_64_budget_bytes": 188743680,
+    "rationale": "Preserve the reviewed 230 MiB universal and 180 MiB per-ABI release limits. Retain the existing native stripping and bounded lossless compression before signing, and require a fresh signed package measurement to pass the unchanged size gate.",
+    "historical_package_passed": false,
+    "historical_over_budget_bytes": 12547302
+  },
+  "behavior_coverage": [
+    "Classifies a sparse fixture with both ABI entries as universal.",
+    "Rejects the historical 253,719,782-byte size under the unchanged 230 MiB limit, with exactly 12,547,302 bytes of overage.",
+    "Rejects the same fixture when the universal ceiling is one byte below its size.",
+    "Asserts that both single-ABI release ceilings remain 180 MiB."
+  ],
+  "qualification": [
+    "Run scripts/tests/test_check_apk_size.py.",
+    "Run the canonical scoped host validator and release-scope checks.",
+    "Require all applicable PR checks on the exact final head.",
+    "After merge, require all exact-main workflows and the existing signed joint publisher.",
+    "Verify Android 0.9.66.16 build 150 and Gateway 18.1.3 public assets, checksums and attestations against the actual merge commit."
+  ],
+  "limitations": [
+    "The historical signed package remains over budget. A synthetic fixture does not establish a current artifact size or device performance.",
+    "The superseded 250 MiB proposal is retained only as history; the active universal release gate remains 230 MiB.",
+    "No release may be claimed until the normal publisher completes and public readback is verified."
+  ],
+  "superseded_proposal": {
+    "universal_budget_bytes": 262144000,
+    "nominal_headroom_bytes": 8424218,
+    "status": "superseded_by_preserved_230_MiB_publication_contract",
+    "reason": "Increasing the limit does not reduce the observed package and is not part of the reviewed release contract."
+  },
+  "diagnostic_apk_packaging_followup": {
+    "source_head": "a48b458f7ab0a7f585fddfeb28881730808f4979",
+    "workflow_run": 45535381657,
+    "job": 138940713885,
+    "evidence_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45535381657/job/138940713885",
+    "observation": "The debug APK build reached :app:packageDebug, then the 1140-second process deadline returned exit 124 before the later push cancellation. No compiler failure was observed in the complete job log.",
+    "process_limit_seconds": 1980,
+    "step_limit_minutes": 35,
+    "job_limit_minutes": 135,
+    "preserved": "The full unit suite and lint, single worker, 4096 MiB heap, bounded common pool, 15-minute watchdog, failure propagation and artifact uploads remain unchanged.",
+    "qualification": "Fresh final-source hosted APK packaging and lint must pass; the historical timeout is not a successful current build."
+  },
+  "build_150_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "67dce0e844603c704bf87c51112de243eac73c48",
+    "working_branch": "fix/release-universal-apk-budget-2026-11-24",
+    "reviewed_head": "49ed78143b5bc4a1a954b62b4f8820584b1dd3f7",
+    "intent": "Complete the remaining Quality playback and tool precheck findings from the build 150 audit and qualify the coordinated release.",
+    "handset_followup": {
+      "reported_test_merge": "37a94eb9abd05da35ff4b4856245c04e33ea7f1f",
+      "issues_reviewed": [2539, 2540, 2541, 2542, 2543, 2544, 2545],
+      "regressions": [
+        "An admitted saved page could displace the exact page required by this model request during final context compaction.",
+        "A rejected CI log request could omit its required job ID from the missing-field count and discovery recipe."
+      ],
+      "other_observations": [
+        "Fixture proof was conditional, one CI claim lacked supporting evidence, and the path preflight rejected a missing path.",
+        "The provider connection failed after the request body was sent. Remote acceptance was unknown."
+      ]
+    },
+    "open_issue_review": {
+      "starting_head": "a48b458f7ab0a7f585fddfeb28881730808f4979",
+      "issue_ranges": [[2441, 2526], [2529, 2553]],
+      "closure_basis": "Record the action for each report, including whether the result is a code fix, verified existing behavior, or improved diagnostics for an unreproducible incident.",
+      "affected_paths": [
+        "Saved-page reading and checkpoint reconciliation",
+        "Repository evidence collection and CI diagnosis",
+        "Premature provider stream termination",
+        "Repository-map revision assertions and duplicate tool approvals"
+      ],
+      "original_report_check": "All 111 approved payloads matched their recorded SHA-256 digests. Posting each twice to the local HTTP fixture produced 111 distinct publisher writes."
+    }
+  },
+  "final_composition_followup": {
+    "source_parent": "d62f2d3c44452964f14639f5a09c0e4c2994d45c",
+    "source_tree": "4f8d68283758f570e994ee7105d1e4049869b2de",
+    "concurrent_changes": "Preserve all current saved-page, provider, authorization, CI evidence, pronunciation-group, source coverage, private planner usage and diagnostic changes through the selected source parent.",
+    "reviewed_repository_continuation": "A locally generated missing-repository-evidence review refusal may return one read-only acquisition to the existing runner. Exact event origin, accepted task contract, current authorization, finite remaining calls, existing deadline and unresolved-outcome checks remain required. The private draft is never published by the handoff.",
+    "single_recovery_action": "Replace both existing deterministic next-action line formats when a provider request remains paused, preserving all subsequent report evidence and approval prerequisites. Exercise the actual integration renderer in the regression.",
+    "native_input_measurement": "The native encoder owns the final byte-count field on prepared phrases. The current frontend admits ASCII text, for which the previous Java length agrees; this is defensive measurement ownership, not a claim that accented input was previously admitted.",
+    "native_regression": "Keep two-rate text/prepared audio timing, public-array tamper sealing and foreign-vocabulary rejection. Check admitted ASCII invalid-speed diagnostic parity and separately reject unsupported accented input with its actual native byte count.",
+    "test_identity": "Retain VoicePcmCaptionsTest.expansionCanCrossPhraseLimitWithoutLosingItsOriginalRange with the complete strengthened 26b body; no additional retired runtime identity.",
+    "qualification": "Canonical host validation and the final-source hosted Android suites are required. Physical handset, accelerator and listening qualifications still require their own actual evidence."
+  }
+}

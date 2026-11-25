@@ -36,7 +36,9 @@ internal object GitHubReviewComparison {
         "RATE_LIMITED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "RECONCILIATION_REQUIRED", "TOOL_OUTCOME_UNKNOWN"
     )
     private val resolutionRecoveryActions = setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RETRY_AFTER_CONFIGURATION_CHANGE")
-    const val INSTRUCTION = "Branch review: establish exact base_sha and head_sha first. Resolve a user-supplied baseline commit, tag or branch to an exact SHA. Otherwise use an observed matching PR base, or resolve the default branch at a full SHA for a non-default selected branch. If the selected branch is the default branch and no baseline was supplied, ask for a baseline in the current task; never infer an empty diff by comparing the branch to itself. Call github_context action=changes with both pinned revisions, then read the relevant changed source at those revisions. Checks and branch inventories do not constitute a source review."
+    const val CORE_INSTRUCTION = "Branch review: pin exact base_sha/head_sha. Resolve a supplied baseline to SHA. Else use an observed matching PR base or default-branch SHA for a non-default selection. On default without baseline, ask; never infer a self-diff. Run github_context action=changes; read short changed code/matching test ranges at both SHAs. Resume source coverage's first unread exact range; retain requested lines and completed evidence. Bound guidance separately outside code/test allowance. Checks/inventories are not source review."
+    const val DETAIL_INSTRUCTION = "Resolve every commit, tag or branch to an exact SHA. Never infer an empty diff by comparing a branch to itself. Start with short changed implementation and matching test ranges around affected symbols. Consult source coverage before subsequent reads. Keep guidance in a separate bounded request. Checks and branch inventories do not constitute a source review."
+    const val INSTRUCTION = CORE_INSTRUCTION + " " + DETAIL_INSTRUCTION
     data class Plan(val checkpoint: JsonObject, val nextCall: ProviderEvent.ToolCall?)
     private data class BaselineSelection(val ref: String? = null, val invalid: Boolean = false)
 

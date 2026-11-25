@@ -963,6 +963,9 @@ interface AgentPersistenceDao :
     @Query("SELECT * FROM pending_prompts WHERE id = :id AND userMessageId IS NULL")
     suspend fun pendingPrompt(id: String): dev.chungjungsoo.gptmobile.data.queue.PendingPrompt?
 
+    @Query("SELECT * FROM workspace_records WHERE id = :id AND kind = 'github_checks'")
+    suspend fun queuedGitHubCheckWatch(id: String): dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord?
+
     @Query("UPDATE pending_prompts SET userMessageId = :messageId WHERE id = :id AND userMessageId IS NULL")
     suspend fun consumePrompt(id: String, messageId: Int): Int
 
@@ -1048,6 +1051,7 @@ interface AgentPersistenceDao :
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
         var queuedRecovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null
+        var queuedRecoveryNotice = "Reconciling the saved GitHub approval from its original task."
         request.queuedPromptId?.let { id ->
             val pending = requireNotNull(pendingPrompt(id)) { "Queued input has already been dispatched or removed." }
             require(pending.chatId == request.chatRoom.id && !pending.paused)
@@ -1066,9 +1070,22 @@ interface AgentPersistenceDao :
             require(firstPendingId(pending.chatId) == id) { "Queue order changed." }
             require(queuedTurnReady(pending.chatId, request.queuedPausedProfiles)) { "Conversation is still running or awaiting its combined answer." }
             require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
+            val ciContinuation = pending.details().githubCiWatch
+            require(ciContinuation == null || pending.details().recovery != null) { "The queued CI continuation has lost its original task." }
             pending.details().recovery?.let { descriptor ->
                 val original = requireNotNull(rawRecoveryMessage(descriptor.sourceMessageId)) { "The queued continuation's original task is unavailable." }
                 val github = pending.details().tools.github
+                val typedContinuationMatches = if (ciContinuation == null) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(pending.text)
+                } else {
+                    val watch = dev.chungjungsoo.gptmobile.data.github.GitHubCiWatchContinuation.decode(queuedGitHubCheckWatch(ciContinuation.watchId))
+                    val prior = recoveryRun(descriptor.generationId)
+                    watch != null &&
+                        prior != null &&
+                        request.runs.singleOrNull()?.modelSnapshot == prior.modelSnapshot &&
+                        request.runs.singleOrNull()?.providerSnapshot == prior.providerSnapshot &&
+                        ciContinuation.matches(pending, watch, prior, original, currentRoom)
+                }
                 require(
                     github != null &&
                         accepted == null &&
@@ -1079,9 +1096,10 @@ interface AgentPersistenceDao :
                         descriptor.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_RUN &&
                         !descriptor.allowNewToolBudget &&
                         !descriptor.allowUndispatchedBudgetRetry &&
-                        dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(pending.text)
+                        typedContinuationMatches
                 ) { "The queued approval continuation no longer matches its original task." }
                 queuedRecovery = descriptor
+                if (ciContinuation != null) queuedRecoveryNotice = "Continuing the saved GitHub diagnosis after its watched checks finished."
             }
         }
         val pinnedRequestRoom = request.chatRoom.let { original ->
@@ -1151,7 +1169,7 @@ interface AgentPersistenceDao :
                     queuedRecovery?.let { descriptor ->
                         dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
                             type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
-                            content = "Reconciling the saved GitHub approval from its original task.",
+                            content = queuedRecoveryNotice,
                             recovery = descriptor.copy(generationId = draft.runId)
                         )
                     },

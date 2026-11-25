@@ -90,6 +90,20 @@ class VoiceSessionTest {
         assertEquals("Answer first.", output.spoken.joinToString("").trim())
     }
 
+    @Test fun qualityStreamsSixStableWordsAndPlaysTheRemainingReplyOnce() {
+        audio.streamsReplies = true
+        start()
+        session.performanceMode = VoicePerformanceMode.QUALITY
+        audio.listeners.last().final("Explain solar panels")
+        val opening = "Solar panels turn sunlight into electricity "
+        session.streamReply("quality", opening + "as light reaches ")
+        assertEquals(listOf(opening), audio.spoken)
+        val final = opening + "as light reaches each cell."
+        session.reply("quality", final)
+        assertEquals(final, audio.spoken.joinToString(""))
+        assertEquals(1, audio.sealed)
+    }
+
     @Test fun disablingEarlySpeechKeepsCaptionsLiveAndWaitsForTheTerminalReply() {
         audio.streamsReplies = true
         start()
@@ -620,6 +634,191 @@ class VoiceSessionTest {
         assertEquals(VoicePhase.SPEAKING, session.state.phase)
         audio.done?.invoke()
         assertEquals(1, audio.listeners.size)
+    }
+
+    @Test fun interruptedCaptureWaitsForExplicitSendAndPlaysItsReply() {
+        for (streams in listOf(false, true)) {
+            val output = Audio().apply { streamsReplies = streams }
+            val sent = mutableListOf<String>()
+            var time = 1_000L
+            val voice = VoiceSession(output, {
+                sent += it
+                true
+            }, {}, { time }).apply { autoContinue = true }
+            val capture = interruptCaptureForReview(voice, output)
+            time += 60_000
+            voice.tick()
+            voice.resume()
+            capture.partial("Stale partial")
+            capture.final("Stale final")
+            capture.error("Stale error")
+            assertEquals(VoicePhase.REVIEWING, voice.state.phase)
+            assertEquals("Keep my captured words", voice.state.transcript)
+            assertTrue(voice.state.hasDraft)
+            assertFalse(voice.state.awaitingReply)
+            assertTrue(sent.isEmpty())
+            assertTrue(output.spoken.isEmpty())
+            assertEquals(1, output.listeners.size)
+
+            voice.editDraft("Keep my edited words")
+            voice.sendDraft()
+            voice.sendDraft()
+            assertEquals(listOf("Keep my edited words"), sent)
+            assertEquals(VoicePhase.THINKING, voice.state.phase)
+            assertTrue(voice.state.awaitingReply)
+            assertEquals(1, output.listeners.size)
+            if (streams) {
+                voice.streamReply("reviewed", "The answer is ready, ")
+                assertEquals(listOf("The answer is ready, "), output.spoken)
+                assertEquals(VoicePhase.SPEAKING, voice.state.phase)
+                assertEquals(1, output.opened)
+            }
+            val answer = "The answer is ready, and complete."
+            voice.reply("reviewed", answer)
+            assertEquals(answer, output.spoken.joinToString(""))
+            assertEquals(answer, voice.state.reply)
+            assertTrue(voice.state.replyComplete)
+            assertEquals(VoicePhase.SPEAKING, voice.state.phase)
+            assertEquals(1, output.listeners.size)
+            if (streams) assertEquals(1, output.sealed)
+            val completion = requireNotNull(output.done)
+            completion()
+            assertEquals(VoicePhase.LISTENING, voice.state.phase)
+            assertEquals(2, output.listeners.size)
+            completion()
+            capture.final("Another stale final")
+            assertEquals(2, output.listeners.size)
+            assertEquals(listOf("Keep my edited words"), sent)
+            voice.close()
+        }
+    }
+
+    @Test fun sendingAnInterruptedDraftPreservesMutedAndPermissionlessCaptureGates() {
+        for (streams in listOf(false, true)) {
+            for (permissionDenied in listOf(false, true)) {
+                val output = Audio().apply { streamsReplies = streams }
+                val sent = mutableListOf<String>()
+                var time = 1_000L
+                val voice = VoiceSession(output, {
+                    sent += it
+                    true
+                }, {}, { time }).apply { autoContinue = true }
+                interruptCaptureForReview(voice, output)
+                time += 60_000
+                voice.tick()
+                if (permissionDenied) voice.access(true, false, true) else voice.mute()
+                voice.sendDraft()
+                voice.reply("reviewed", "This reply can be heard.")
+                assertEquals(listOf("Keep my captured words"), sent)
+                assertEquals("This reply can be heard.", output.spoken.joinToString(""))
+                assertEquals(VoicePhase.SPEAKING, voice.state.phase)
+                requireNotNull(output.done).invoke()
+                assertEquals(VoicePhase.PAUSED, voice.state.phase)
+                assertEquals(1, output.listeners.size)
+                assertEquals(1, sent.size)
+                voice.close()
+            }
+        }
+    }
+
+    @Test fun interruptedDraftSendStillRequiresNonemptyTextAndCurrentAccess() {
+        for (gate in listOf("empty", "disabled", "background", "audio_held", "closed")) {
+            val output = Audio()
+            val sent = mutableListOf<String>()
+            var time = 1_000L
+            val voice = VoiceSession(output, {
+                sent += it
+                true
+            }, {}, { time }).apply { autoContinue = true }
+            val capture = interruptCaptureForReview(voice, output)
+            when (gate) {
+                "disabled" -> voice.access(false, true, true)
+                "background" -> voice.access(true, true, false)
+                "audio_held" -> voice.holdAudio(true)
+                "closed" -> voice.close()
+            }
+            voice.sendDraft(if (gate == "empty") " \n " else voice.state.transcript)
+            capture.final("Stale final")
+            voice.reply("unsent", "Must remain silent.")
+            time += 60_000
+            voice.tick()
+            assertTrue("Unexpected submission for $gate", sent.isEmpty())
+            assertTrue("Unexpected speech for $gate", output.spoken.isEmpty())
+            assertEquals(1, output.listeners.size)
+            if (gate == "empty") {
+                assertEquals(VoicePhase.REVIEWING, voice.state.phase)
+                assertEquals("Keep my captured words", voice.state.transcript)
+                assertTrue(voice.state.hasDraft)
+            }
+            voice.close()
+        }
+    }
+
+    @Test fun rejectedInterruptedDraftSubmissionKeepsWordsWithoutPlaybackOrRetry() {
+        for (acceptedForAdmission in listOf(false, true)) {
+            val output = Audio().apply { streamsReplies = true }
+            val attempted = mutableListOf<String>()
+            var time = 1_000L
+            val voice = VoiceSession(
+                output,
+                {
+                    attempted += it
+                    acceptedForAdmission
+                },
+                {},
+                { time },
+                awaitsAdmission = true,
+                submittedRequestId = { "reviewed-request" }
+            ).apply {
+                autoContinue = true
+                submissionRejection = { "PROFILE_UNAVAILABLE" }
+            }
+            interruptCaptureForReview(voice, output)
+            voice.sendDraft()
+            voice.sendDraft()
+            if (acceptedForAdmission) {
+                voice.admission(VoiceAdmissionStage.ACCEPTED, requestId = "stale-request")
+                assertTrue(voice.state.hasDraft)
+                assertEquals("reviewed-request", voice.state.submittedDraftRequestId)
+                voice.admission(VoiceAdmissionStage.FAILED, "SELECTED_MODEL_NOT_LOADED", "reviewed-request")
+            }
+            assertEquals(VoicePhase.ERROR, voice.state.phase)
+            assertTrue(voice.state.hasDraft)
+            assertFalse(voice.state.awaitingReply)
+            assertEquals("Keep my captured words", voice.state.transcript)
+            voice.streamReply("rejected", "Must remain silent.")
+            voice.reply("rejected", "Must remain silent.")
+            time += 60_000
+            voice.tick()
+            assertEquals(VoicePhase.ERROR, voice.state.phase)
+            assertEquals(listOf("Keep my captured words"), attempted)
+            assertTrue(output.spoken.isEmpty())
+            assertEquals(1, output.listeners.size)
+            voice.resume()
+            assertEquals(VoicePhase.REVIEWING, voice.state.phase)
+            assertEquals("Keep my captured words", voice.state.transcript)
+            assertEquals(1, output.listeners.size)
+            assertEquals(1, attempted.size)
+            voice.close()
+        }
+    }
+
+    private fun interruptCaptureForReview(voice: VoiceSession, output: Audio): VoiceAudio.Listener {
+        voice.access(true, true, true)
+        voice.resume()
+        val capture = output.listeners.single()
+        capture.partial("Keep my captured words")
+        capture.failure(
+            "Microphone input was interrupted",
+            "VOICE_MICROPHONE_BUSY",
+            retryMillis = 500,
+            retryable = true,
+            cause = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", retryable = true)
+        )
+        assertEquals(VoicePhase.REVIEWING, voice.state.phase)
+        assertTrue(voice.state.hasDraft)
+        assertFalse(voice.state.awaitingReply)
+        return capture
     }
 
     @Test fun `background stops playback and ignores late completion`() {

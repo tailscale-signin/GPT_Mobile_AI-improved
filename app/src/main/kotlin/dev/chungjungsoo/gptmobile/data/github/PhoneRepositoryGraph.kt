@@ -30,7 +30,7 @@ internal object PhoneRepositoryGraph {
 
     fun sourceIndex(path: String, text: String, checkpoint: () -> Unit = {}): JsonObject = PhoneRepositorySourceIndex.build(path, text, checkpoint)
 
-    fun execute(context: GitHubTaskSnapshot, tree: JsonObject, cached: Map<String, JsonObject>, status: JsonObject, arguments: JsonObject): JsonObject {
+    fun execute(context: GitHubTaskSnapshot, tree: JsonObject, cached: Map<String, JsonObject>, status: JsonObject, arguments: JsonObject, restored: PhoneMapTopology? = null, capture: ((PhoneMapTopology) -> Unit)? = null): JsonObject {
         val action = arguments.text("action").ifBlank { "status" }
         if (action !in actions) fail("PHONE_GRAPH_OPERATION_UNSUPPORTED", "This analysis is available through the optional Gateway. The phone map supports files, symbols, import/call candidates, paths and impact.", "SELECT_GATEWAY_ANALYSIS")
         require(context.commitSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) { "The phone map requires an immutable commit." }
@@ -89,8 +89,14 @@ internal object PhoneRepositoryGraph {
                 }
             )
         }
+        fun sourceCoverage(graph: JsonObject) = when {
+            graph["complete"] == JsonPrimitive(true) -> "INDEXED"
+            scanned == 0 -> "TREE_ONLY"
+            else -> "PARTIALLY_INDEXED"
+        }
         fun base(graph: JsonObject, outcome: String = "INDEXED") = buildJsonObject {
             put("status", outcome)
+            put("source_coverage_state", sourceCoverage(graph))
             put("graph", graph)
             put("map_source", "phone")
             put("graph_source", "PHONE")
@@ -98,9 +104,142 @@ internal object PhoneRepositoryGraph {
             put("limitations", LIMITATIONS)
         }
         if (action == "status" || action == "index") {
-            return JsonObject(status + base(metadata()) + mapOf("has_more" to (status["has_more"] ?: JsonPrimitive(false))))
+            val graph = metadata()
+            return JsonObject(status + base(graph, sourceCoverage(graph)) + mapOf("has_more" to (status["has_more"] ?: JsonPrimitive(false))))
         }
         val focus = (arguments["paths"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.onEach { require(validPath(it)) { "Use a repository-relative source path." } }.take(8)
+        val topology = restored ?: buildTopology(entries, byPath, shards, focus).also { capture?.invoke(it) }
+        var graphTruncated = topology.truncated
+        val unresolved = topology.unresolved
+        val allNodes = topology.nodes
+        val nodes = allNodes.associateBy { it.text("id") }
+        val allEdges = topology.edges
+        val query = arguments.text("query").trim().take(2000)
+        val symbol = arguments.text("symbol").take(4000)
+        fun matches(value: String): List<JsonObject> = nodes[value]?.let(::listOf) ?: allNodes.filter { it.text("name") == value || it.text("qualified") == value || it.text("path") == value }
+        val selected = matches(symbol.ifBlank { arguments.text("source") })
+        fun selectedIds(): Set<String> {
+            val ids = selected.mapTo(linkedSetOf()) { it.text("id") }
+            val files = selected.filter { it.text("kind") == "file" }.mapTo(mutableSetOf()) { it.text("path") }
+            val directories = selected.filter { it.text("kind") == "directory" }.map { it.text("path") }
+            allNodes.filter { it.text("path") in files || directories.any { path -> it.text("path").startsWith("$path/") } }.forEach { ids += it.text("id") }
+            return ids
+        }
+        var resultNodes = allNodes
+        var resultEdges = allEdges
+        var outcome = "INDEXED"
+        val extra = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
+        when (action) {
+            "architecture" -> if (focus.isNotEmpty()) {
+                val focused = allNodes.filter { focus.any { path -> it.text("path") == path || it.text("path").startsWith("$path/") } }.mapTo(linkedSetOf()) { it.text("id") }
+                val nearby = allEdges.filter { it.text("source") in focused || it.text("target") in focused }
+                nearby.forEach {
+                    focused += it.text("source")
+                    focused += it.text("target")
+                }
+                resultNodes = allNodes.filter { it.text("id") in focused }
+                resultEdges = nearby
+            }
+            "query" -> {
+                val (matches, strategy) = queryNodes(allNodes, query)
+                resultNodes = matches
+                extra["search_strategy"] = JsonPrimitive(strategy)
+            }
+            "node" -> {
+                val ids = selected.mapTo(mutableSetOf()) { it.text("id") }
+                resultEdges = allEdges.filter { it.text("source") in ids || it.text("target") in ids }
+                val neighbors = resultEdges.flatMapTo(linkedSetOf()) { listOf(it.text("source"), it.text("target")) }
+                resultNodes = selected + allNodes.filter { it.text("id") in neighbors && it.text("id") !in ids }
+                extra["candidates"] = JsonArray(selected)
+            }
+            "callers", "callees" -> {
+                val ids = selectedIds().toMutableSet()
+                resultEdges = allEdges.filter { it.text("relation") == "call_candidate" && it.text(if (action == "callers") "target" else "source") in ids }
+                resultEdges.forEach {
+                    ids += it.text("source")
+                    ids += it.text("target")
+                }
+                resultNodes = allNodes.filter { it.text("id") in ids }
+                extra["relationship_scope"] = JsonPrimitive("LEXICAL_CALL_CANDIDATES")
+            }
+            "impact" -> {
+                val traversal = traverse(selectedIds().toList(), allEdges.filter { it.text("relation") != "contains" && it.text("relation") != "declares" }, reverse = true)
+                val distances = traversal.distances
+                resultNodes = allNodes.filter { it.text("id") in distances }
+                resultEdges = allEdges.filter { it.text("source") in distances && it.text("target") in distances }
+                extra["paths"] = JsonArray(
+                    resultNodes.distinctBy { it.text("path") }.map {
+                        buildJsonObject {
+                            put("path", it.text("path"))
+                            put("distance", distances[it.text("id")] ?: 0)
+                        }
+                    }
+                )
+                extra["relationship_scope"] = JsonPrimitive("CANDIDATE_IMPACT_REQUIRES_VERIFICATION")
+                extra["impact_search_complete"] = JsonPrimitive(traversal.complete)
+                if (!traversal.complete) {
+                    graphTruncated = true
+                    outcome = "IMPACT_SEARCH_LIMIT_REACHED"
+                }
+            }
+            "path" -> {
+                val targets = matches(arguments.text("target")).mapTo(mutableSetOf()) { it.text("id") }
+                val search = findPath(selected.map { it.text("id") }, targets, allEdges)
+                val sequence = search.path
+                if (!search.complete) graphTruncated = true
+                resultNodes = sequence.mapNotNull(nodes::get)
+                resultEdges = sequence.zipWithNext().mapNotNull { (from, to) -> allEdges.firstOrNull { it.text("source") == from && it.text("target") == to } }
+                extra["path"] = JsonArray(sequence.map(::JsonPrimitive))
+                extra["path_search_complete"] = JsonPrimitive(search.complete)
+                if (sequence.isEmpty()) outcome = if (search.complete) "NO_PATH_IN_INDEX" else "PATH_SEARCH_LIMIT_REACHED"
+            }
+            "metrics" -> {
+                extra["metrics"] = buildJsonObject {
+                    put("files", entries.count { it.text("type") == "blob" })
+                    put("symbols", allNodes.count { it.text("kind") !in setOf("file", "directory") })
+                    put("candidate_links", allEdges.count { it.text("confidence") == "candidate" })
+                }
+            }
+        }
+        if (resultNodes.isEmpty() && outcome == "INDEXED") outcome = "NOT_FOUND_IN_INDEX"
+        val graph = metadata(nodes.size, allEdges.size, graphTruncated, unresolved)
+        val snapshot = digest(
+            buildString {
+                append(context.accountId)
+                append('\u0000')
+                append(context.connectionUid)
+                append('\u0000')
+                append(context.owner.lowercase(Locale.ROOT))
+                append('/')
+                append(context.repo.lowercase(Locale.ROOT))
+                append('\u0000')
+                append(context.ref)
+                append('\u0000')
+                append(context.commitSha)
+                append('\u0000')
+                append(context.treeSha)
+                entries.forEach {
+                    append('\u0000')
+                    append(it.text("path"))
+                    append(':')
+                    append(it.text("sha"))
+                }
+                shards.forEach { (path, shard) ->
+                    append('\u0000')
+                    append(path)
+                    append(':')
+                    append(shard.text("source_hash"))
+                    append(':')
+                    append(shard["complete"])
+                }
+            }
+        ).take(24)
+        val queryVersion = if (action == "query") "symbol-search-v2:" else ""
+        val queryIdentity = digest(queryVersion + JsonObject(arguments.filterKeys { it !in setOf("result_cursor", "budget_bytes") }.toSortedMap())).take(24)
+        return page(base(graph, outcome), resultNodes, resultEdges, arguments, snapshot, queryIdentity, extra)
+    }
+
+    private fun buildTopology(entries: List<JsonObject>, byPath: Map<String, JsonObject>, shards: Map<String, JsonObject>, focus: List<String>): PhoneMapTopology {
         val nodes = linkedMapOf<String, JsonObject>()
         val edges = linkedMapOf<String, JsonObject>()
         var graphTruncated = false
@@ -210,131 +349,7 @@ internal object PhoneRepositoryGraph {
                 candidates.forEach { target -> edge(owner, target, "call_candidate", "candidate", call.number("line"), all.size > 1 || call["qualified_receiver"] == JsonPrimitive(true)) }
             }
         }
-        val allNodes = nodes.values.toList()
-        val allEdges = edges.values.toList()
-        val query = arguments.text("query").trim().take(2000)
-        val symbol = arguments.text("symbol").take(4000)
-        fun matches(value: String): List<JsonObject> = nodes[value]?.let(::listOf) ?: allNodes.filter { it.text("name") == value || it.text("qualified") == value || it.text("path") == value }
-        val selected = matches(symbol.ifBlank { arguments.text("source") })
-        fun selectedIds(): Set<String> {
-            val ids = selected.mapTo(linkedSetOf()) { it.text("id") }
-            val files = selected.filter { it.text("kind") == "file" }.mapTo(mutableSetOf()) { it.text("path") }
-            val directories = selected.filter { it.text("kind") == "directory" }.map { it.text("path") }
-            allNodes.filter { it.text("path") in files || directories.any { path -> it.text("path").startsWith("$path/") } }.forEach { ids += it.text("id") }
-            return ids
-        }
-        var resultNodes = allNodes
-        var resultEdges = allEdges
-        var outcome = "INDEXED"
-        val extra = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
-        when (action) {
-            "architecture" -> if (focus.isNotEmpty()) {
-                val focused = allNodes.filter { focus.any { path -> it.text("path") == path || it.text("path").startsWith("$path/") } }.mapTo(linkedSetOf()) { it.text("id") }
-                val nearby = allEdges.filter { it.text("source") in focused || it.text("target") in focused }
-                nearby.forEach {
-                    focused += it.text("source")
-                    focused += it.text("target")
-                }
-                resultNodes = allNodes.filter { it.text("id") in focused }
-                resultEdges = nearby
-            }
-            "query" -> {
-                val (matches, strategy) = queryNodes(allNodes, query)
-                resultNodes = matches
-                extra["search_strategy"] = JsonPrimitive(strategy)
-            }
-            "node" -> {
-                val ids = selected.mapTo(mutableSetOf()) { it.text("id") }
-                resultEdges = allEdges.filter { it.text("source") in ids || it.text("target") in ids }
-                val neighbors = resultEdges.flatMapTo(linkedSetOf()) { listOf(it.text("source"), it.text("target")) }
-                resultNodes = selected + allNodes.filter { it.text("id") in neighbors && it.text("id") !in ids }
-                extra["candidates"] = JsonArray(selected)
-            }
-            "callers", "callees" -> {
-                val ids = selectedIds().toMutableSet()
-                resultEdges = allEdges.filter { it.text("relation") == "call_candidate" && it.text(if (action == "callers") "target" else "source") in ids }
-                resultEdges.forEach {
-                    ids += it.text("source")
-                    ids += it.text("target")
-                }
-                resultNodes = allNodes.filter { it.text("id") in ids }
-                extra["relationship_scope"] = JsonPrimitive("LEXICAL_CALL_CANDIDATES")
-            }
-            "impact" -> {
-                val traversal = traverse(selectedIds().toList(), allEdges.filter { it.text("relation") != "contains" && it.text("relation") != "declares" }, reverse = true)
-                val distances = traversal.distances
-                resultNodes = allNodes.filter { it.text("id") in distances }
-                resultEdges = allEdges.filter { it.text("source") in distances && it.text("target") in distances }
-                extra["paths"] = JsonArray(
-                    resultNodes.distinctBy { it.text("path") }.map {
-                        buildJsonObject {
-                            put("path", it.text("path"))
-                            put("distance", distances[it.text("id")] ?: 0)
-                        }
-                    }
-                )
-                extra["relationship_scope"] = JsonPrimitive("CANDIDATE_IMPACT_REQUIRES_VERIFICATION")
-                extra["impact_search_complete"] = JsonPrimitive(traversal.complete)
-                if (!traversal.complete) {
-                    graphTruncated = true
-                    outcome = "IMPACT_SEARCH_LIMIT_REACHED"
-                }
-            }
-            "path" -> {
-                val targets = matches(arguments.text("target")).mapTo(mutableSetOf()) { it.text("id") }
-                val search = findPath(selected.map { it.text("id") }, targets, allEdges)
-                val sequence = search.path
-                if (!search.complete) graphTruncated = true
-                resultNodes = sequence.mapNotNull(nodes::get)
-                resultEdges = sequence.zipWithNext().mapNotNull { (from, to) -> allEdges.firstOrNull { it.text("source") == from && it.text("target") == to } }
-                extra["path"] = JsonArray(sequence.map(::JsonPrimitive))
-                extra["path_search_complete"] = JsonPrimitive(search.complete)
-                if (sequence.isEmpty()) outcome = if (search.complete) "NO_PATH_IN_INDEX" else "PATH_SEARCH_LIMIT_REACHED"
-            }
-            "metrics" -> {
-                extra["metrics"] = buildJsonObject {
-                    put("files", entries.count { it.text("type") == "blob" })
-                    put("symbols", allNodes.count { it.text("kind") !in setOf("file", "directory") })
-                    put("candidate_links", allEdges.count { it.text("confidence") == "candidate" })
-                }
-            }
-        }
-        if (resultNodes.isEmpty() && outcome == "INDEXED") outcome = "NOT_FOUND_IN_INDEX"
-        val graph = metadata(nodes.size, edges.size, graphTruncated, unresolved)
-        val snapshot = digest(
-            buildString {
-                append(context.accountId)
-                append('\u0000')
-                append(context.connectionUid)
-                append('\u0000')
-                append(context.owner.lowercase(Locale.ROOT))
-                append('/')
-                append(context.repo.lowercase(Locale.ROOT))
-                append('\u0000')
-                append(context.ref)
-                append('\u0000')
-                append(context.commitSha)
-                append('\u0000')
-                append(context.treeSha)
-                entries.forEach {
-                    append('\u0000')
-                    append(it.text("path"))
-                    append(':')
-                    append(it.text("sha"))
-                }
-                shards.forEach { (path, shard) ->
-                    append('\u0000')
-                    append(path)
-                    append(':')
-                    append(shard.text("source_hash"))
-                    append(':')
-                    append(shard["complete"])
-                }
-            }
-        ).take(24)
-        val queryVersion = if (action == "query") "symbol-search-v2:" else ""
-        val queryIdentity = digest(queryVersion + JsonObject(arguments.filterKeys { it !in setOf("result_cursor", "budget_bytes") }.toSortedMap())).take(24)
-        return page(base(graph, outcome), resultNodes, resultEdges, arguments, snapshot, queryIdentity, extra)
+        return PhoneMapTopology(nodes.values.toList(), edges.values.toList(), graphTruncated, unresolved)
     }
 
     private fun queryNodes(nodes: List<JsonObject>, query: String): Pair<List<JsonObject>, String> {

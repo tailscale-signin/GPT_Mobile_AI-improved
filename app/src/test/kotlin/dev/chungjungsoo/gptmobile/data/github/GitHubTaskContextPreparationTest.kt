@@ -8,9 +8,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -30,19 +32,38 @@ class GitHubTaskContextPreparationTest {
     private val receipt = buildJsonObject { put("selected_ranges", JsonArray(listOf(buildJsonObject { put("excerpt", "AUTHORIZED_SOURCE_CANARY") }))) }
 
     @Test fun disabledSmallAndUnauthorizedTurnsDoNotReadAnyRepository() = runTest {
-        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.CURRENT, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID))
-        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 4096, listOf(source), GitHubEngineeringMemoryMode.HYBRID))
-        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, emptyList(), GitHubEngineeringMemoryMode.HYBRID))
+        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.CURRENT, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID).text)
+        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 1024, listOf(source), GitHubEngineeringMemoryMode.HYBRID).text)
+        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, emptyList(), GitHubEngineeringMemoryMode.HYBRID).text)
         coVerify(exactly = 0) { connections.getConnection(any()) }
         coVerify(exactly = 0) { maps.executeForMap(any(), any(), any()) }
+    }
+
+    @Test fun smallProfilesUseOneCompactAttemptAndExplainACacheMissOrTimeout() = runTest {
+        coEvery { connections.getConnection("selected") } returns connection
+        val cold = buildJsonObject {
+            put("source_sha", context.commitSha)
+            put("tree_reused", false)
+            put("source_read_candidates", JsonArray(emptyList()))
+        }
+        coEvery { maps.executeForMap(context, match { it["action"] == JsonPrimitive("cached_path_hints") }, true) } returns response().copy(result = cold)
+        val result = preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 4096, listOf(source), GitHubEngineeringMemoryMode.SESSION_ONLY)
+        assertEquals(RepositoryContextAvailability.NO_CACHED_TREE, result.availability)
+        assertTrue(result.nextAction.contains("authorized reader"))
+        assertEquals("", result.text)
+        coEvery { maps.executeForMap(context, any(), true) } coAnswers { awaitCancellation() }
+        val timeout = preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 4096, listOf(source), GitHubEngineeringMemoryMode.SESSION_ONLY)
+        assertEquals(RepositoryContextAvailability.DEADLINE, timeout.availability)
+        coVerify(exactly = 2) { maps.executeForMap(context, any(), true) }
+        coVerify(exactly = 0) { semantic.rankEngineering(any(), any(), any()) }
     }
 
     @Test fun preparedSourceIsInjectedAsUntrustedDataAfterCurrentConnectionRevalidation() = runTest {
         coEvery { connections.getConnection("selected") } returns connection
         coEvery { maps.executeForMap(context, any(), true) } returns response()
         val result = preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID)
-        assertTrue(result.contains("untrusted source data"))
-        assertTrue(result.contains("AUTHORIZED_SOURCE_CANARY"))
+        assertTrue(result.text.contains("untrusted source data"))
+        assertTrue(result.text.contains("AUTHORIZED_SOURCE_CANARY"))
         coVerify(exactly = 2) { connections.getConnection("selected") }
         coVerify(exactly = 0) { semantic.rankEngineering(any(), any(), any()) }
     }
@@ -50,7 +71,7 @@ class GitHubTaskContextPreparationTest {
     @Test fun connectionChangeAfterPreparationDiscardsSource() = runTest {
         coEvery { connections.getConnection("selected") } returnsMany listOf(connection, connection.copy(updatedAt = connection.updatedAt + 1))
         coEvery { maps.executeForMap(context, any(), true) } returns response()
-        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID))
+        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID).text)
     }
 
     @Test fun candidateOnlyContextSurvivesPreparationButStillRevalidatesItsConnection() = runTest {
@@ -75,11 +96,11 @@ class GitHubTaskContextPreparationTest {
         coEvery { maps.executeForMap(context, any(), true) } returns GatewayGraphResponse(candidates, "task_context_bundle", "", "On this phone", durableIndexJobs = false, modelAccess = "NATIVE_GITHUB_AUTHORIZED")
         coEvery { connections.getConnection("selected") } returns connection
         val prepared = preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID)
-        assertTrue(prepared.contains("src/Parser.kt"))
-        assertTrue(prepared.contains("unread paths"))
-        assertTrue(prepared.contains("\"source_loaded\":false"))
+        assertTrue(prepared.text.contains("src/Parser.kt"))
+        assertTrue(prepared.text.contains("unread paths"))
+        assertTrue(prepared.text.contains("\"source_loaded\":false"))
         coEvery { connections.getConnection("selected") } returnsMany listOf(connection, connection.copy(updatedAt = connection.updatedAt + 1))
-        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID))
+        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID).text)
     }
 
     @Test fun cancellationStillCancelsTheOriginalTask() = runTest {
@@ -112,7 +133,7 @@ class GitHubTaskContextPreparationTest {
             assertNull(ranker.rank("parser task", mapOf("Parser.kt" to "current source"), "admitted-account"))
             response()
         }
-        assertTrue(preparation.prepare(context, 1, "parser task", GitHubContextVariant.SEMANTIC, 12_000, listOf(source), GitHubEngineeringMemoryMode.SESSION_ONLY).contains("AUTHORIZED_SOURCE_CANARY"))
+        assertTrue(preparation.prepare(context, 1, "parser task", GitHubContextVariant.SEMANTIC, 12_000, listOf(source), GitHubEngineeringMemoryMode.SESSION_ONLY).text.contains("AUTHORIZED_SOURCE_CANARY"))
         coVerify(exactly = 0) { semantic.rankEngineering(any(), any(), any()) }
     }
 
@@ -126,7 +147,7 @@ class GitHubTaskContextPreparationTest {
             response()
         }
         for (mode in listOf(GitHubEngineeringMemoryMode.PERSISTENT, GitHubEngineeringMemoryMode.HYBRID)) {
-            assertTrue(preparation.prepare(context, 1, "parser task", GitHubContextVariant.SEMANTIC, 12_000, listOf(source), mode).contains("AUTHORIZED_SOURCE_CANARY"))
+            assertTrue(preparation.prepare(context, 1, "parser task", GitHubContextVariant.SEMANTIC, 12_000, listOf(source), mode).text.contains("AUTHORIZED_SOURCE_CANARY"))
         }
         coVerify(exactly = 2) { semantic.rankEngineering("parser task", GitHubTaskContextPreparation.semanticScope(context, 1, connection.updatedAt, "admitted-account"), mapOf("Parser.kt" to "current source")) }
     }

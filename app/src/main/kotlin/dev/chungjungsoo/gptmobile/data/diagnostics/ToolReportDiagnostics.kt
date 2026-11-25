@@ -139,6 +139,53 @@ internal object ToolReportDiagnostics {
         }
     }
 
+    /** Exists only in memory. Receipt JSON cannot impersonate a recorder-owned group key. */
+    internal data class PrecheckIdentity(val digest: String)
+
+    private fun precheckIdentity(event: ToolEvent, result: AgentToolResult, arguments: JsonObject): PrecheckIdentity? {
+        val receipt = result.executionReceipt ?: return null
+        if (!result.isError ||
+            result.dispatched ||
+            event.runId.isBlank() ||
+            event.modelToolName.isBlank() ||
+            receipt["requires_reconciliation"] == JsonPrimitive(true) ||
+            receipt["remote_acceptance"] in setOf(JsonPrimitive("YES"), JsonPrimitive("UNKNOWN"))
+        ) {
+            return null
+        }
+        val duplicateApproval = result.errorCode == "DUPLICATE_ACTION" &&
+            receipt["schema"] == JsonPrimitive("gptmobile.duplicate-approval.v1") &&
+            receipt["call_id"] == JsonPrimitive(event.callId) &&
+            (receipt["previous_approval_state"] as? JsonPrimitive)?.content in setOf("PENDING", "APPROVED", "EXECUTING", "COMPLETED", "OUTCOME_UNKNOWN", "INTERRUPTED")
+        val eligible = duplicateApproval ||
+            receipt["argument_validation_call_id"] == JsonPrimitive(event.callId) &&
+            result.errorCode == "INVALID_ARGUMENTS" ||
+            receipt["schema"] == JsonPrimitive("gptmobile.round-tool-catalog.v1") &&
+            receipt["call_id"] == JsonPrimitive(event.callId) &&
+            receipt["reason_code"] == JsonPrimitive("UNKNOWN_TOOL") &&
+            receipt["catalog_revision_hash"] != null ||
+            receipt["failed_stage"] == JsonPrimitive("tool_precheck") &&
+            receipt["dependency_admission_reasons"] is JsonArray &&
+            result.errorCode in setOf("DEPENDENCY_DEFERRED", "DEPENDENCY_FAILED", "NOT_DISPATCHED")
+        if (!eligible) return null
+        val scope = receipt.filterKeys { key ->
+            key in setOf("schema", "previous_approval_state", "reason_code", "reasonCode", "missing_tool_hash", "discovery_available", "native_dependency_state", "dependency_admission_reasons", "dependency_call_id_hashes", "dependency_repeat_scope", "dependency_repeat_limit", "argument_repair_signature_hash", "tool_schema_hash", "recovery_action", "repair_action") ||
+                listOf("grant", "policy", "authority", "revision", "checkpoint_binding").any(key::contains)
+        }
+        val identity = JsonArray(
+            listOf(
+                JsonPrimitive(event.runId),
+                JsonPrimitive(event.connectionUidSnapshot),
+                JsonPrimitive(event.toolName),
+                JsonPrimitive(event.modelToolName),
+                arguments,
+                JsonPrimitive(result.errorCode),
+                JsonObject(scope)
+            )
+        )
+        return PrecheckIdentity(dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(identity))
+    }
+
     fun fields(event: ToolEvent?, result: AgentToolResult, precheckReason: String? = null): Map<String, Any?> = buildMap {
         if (event == null || event.callId != result.callId) return@buildMap
         put("diagnostic_area", "TOOL")
@@ -237,6 +284,11 @@ internal object ToolReportDiagnostics {
                 pathReceipt["retryable"] == JsonPrimitive(false)
             ) {
                 (pathReceipt["discovery_available"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("round_catalog_discovery_available", it) }
+                (pathReceipt["catalog_revision_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let {
+                    put("catalog_revision_hash", it)
+                    put("catalog_rejection_count", 1)
+                    (pathReceipt["missing_tool_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.matches(Regex("[a-f0-9]{64}")) }?.let { value -> put("missing_tool_hash", value) }
+                }
             }
             (pathReceipt["available_tool_count"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..100_000 }?.let { put("round_catalog_tool_count", it) }
         }
@@ -260,6 +312,7 @@ internal object ToolReportDiagnostics {
         if (missingPathPrecheck) put("tool_reason_code", "GITHUB_PATH_NOT_FOUND")
         val arguments = event.arguments.takeIf { it.length <= MAX_ARGUMENT_CHARS }
             ?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        if (arguments != null) precheckIdentity(event, result, arguments)?.let { put("local_precheck_identity", it) }
         val stoppedPhoneIndex = result.isError &&
             result.errorCode == "PHONE_INDEX_INTERRUPTED" &&
             event.modelToolName.substringBefore("__") == "repository_graph" &&
@@ -294,6 +347,10 @@ internal object ToolReportDiagnostics {
             pathReceipt["request_replay_allowed"] == JsonPrimitive(false) &&
             pathReceipt["authorization_recheck_required"] == JsonPrimitive(true) &&
             listOf("mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations").all { pathReceipt[it] == JsonPrimitive(0) }
+        if (stoppedPhoneDeadline && pathReceipt?.get("phase") == JsonPrimitive("CANCELLED_LOCALLY")) {
+            // Use the existing public stage only for this bound local stop; retain its exact code and phase.
+            put("failed_stage", "tool_execution")
+        }
         (result.executionReceipt?.get("phase") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?.takeIf { it in phases && (it != "CANCELLED_LOCALLY" || stoppedPhoneIndex || stoppedPhoneDeadline) }?.let { put("tool_dispatch_phase", it) }
         put("original_reason_code_hash", IssueReportContext.identifierHash("tool-reason-code", reason))
@@ -341,6 +398,7 @@ internal object ToolReportDiagnostics {
                         else -> "OTHER_SCHEMA_CONSTRAINT"
                     }
                     put("catalog_selector_state", selector)
+                    if (names is JsonArray) put("catalog_selector_count", names.size.coerceAtMost(100_000))
                 }
                 "github_read" -> if (result.errorCode in setOf("EVIDENCE_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) {
                     val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content

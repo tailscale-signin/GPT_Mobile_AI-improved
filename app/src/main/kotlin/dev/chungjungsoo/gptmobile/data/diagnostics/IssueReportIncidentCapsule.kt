@@ -45,7 +45,7 @@ internal object IssueReportIncidentCapsule {
     val policyFieldNames = setOf(
         "profileBehavior.delegationEnabled", "profileBehavior.delegationCloudPermission", "profileBehavior.crawlersEnabled", "profileBehavior.crawlerToolIds", "profileBehavior.maxCrawlPages", "profileBehavior.toolPluginStates", "profileBehavior.researchDepthOverride", "profileBehavior.researchEnabledOverride", "profileBehavior.academicSourcesAllowed",
         "githubProfileOverride.webSearch", "githubProfileOverride.githubTools", "githubProfileOverride.engineeringMode", "githubProfileOverride.maximumContext", "githubProfileOverride.contextVariant", "githubProfileOverride.engineeringMemory", "githubProfileOverride.allowCloudEngineeringMemory", "githubProfileOverride.workflowPreset", "githubProfileOverride.quickWorkflows", "githubProfileOverride.engineeringGatewayProfileUid", "githubProfileOverride.executionBatchMode", "githubProfileOverride.sampling",
-        "githubProfileOverride.intelligenceLevel", "githubProfileOverride.recoveryConsultConsent", "githubProfileOverride.engineeringTeamConsent", "githubProfileOverride.recoveryExecutionConsent",
+        "githubProfileOverride.intelligenceLevel", "githubProfileOverride.nextActionPolicy", "githubProfileOverride.evidenceElaboration", "githubProfileOverride.recoveryConsultConsent", "githubProfileOverride.engineeringTeamConsent", "githubProfileOverride.recoveryExecutionConsent", "githubProfileOverride.primaryPatchReviewConsent",
         "assist", "assistPolicy", "budget", "conversationDelegation", "conversationGateway",
         "conversationResearch", "delegation", "engineering", "githubProfileOverride", "githubProfileSelection",
         "llamaReasoning", "location", "plugins", "profile", "profile.accelerator",
@@ -68,7 +68,9 @@ internal object IssueReportIncidentCapsule {
         "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash", "crash_surface", "crash_boundary"
     )
     private val policyObservation = setOf("OBSERVED", "UNOBSERVED", "INVALID_RESPONSE", "ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE", "RATE_LIMITED", "UNAVAILABLE", "HTTP_FAILURE")
-    val failedEventFields = setOf("failed_event_provider_text_seen", "failed_event_answer_emitted", "failed_event_code_present", "failed_event_invocation_present", "failed_event_details_present")
+    const val FAILED_EVENT_OUTPUT_FEATURE = "FAILED_EVENT_OUTPUT_FIELDS_V1"
+    val failedEventOutputFields = setOf("failed_event_provider_text_seen", "failed_event_answer_emitted")
+    val failedEventFields = failedEventOutputFields + setOf("failed_event_code_present", "failed_event_invocation_present", "failed_event_details_present")
     private val recoveryCauseFields = setOf("verification_phase", "continuation_cause", "continuation_trigger", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "checkpoint_mismatch_reason", "observed_checkpoint_state", "provider_wait_observed_checkpoint_hash")
     const val CONVERSATION_RECOVERY_FEATURE = "CONVERSATION_RECOVERY_DIAGNOSTICS_V1"
     val conversationRecoveryFields = recoveryCauseFields + setOf("issue_continuation_state", "acceptance_advertised_tool_count")

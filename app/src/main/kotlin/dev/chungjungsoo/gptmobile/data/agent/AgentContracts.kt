@@ -56,7 +56,9 @@ sealed interface ProviderEvent {
         val invocationId: String? = null,
         /** Bounded backend attempt observations; their presence does not supply token usage. */
         val gatewayRecovery: JsonObject? = null,
-        val cachedPromptTokens: Int? = null
+        val cachedPromptTokens: Int? = null,
+        /** A private advisory invocation is metered independently of the public reply. */
+        val advisoryRole: String? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */
@@ -160,7 +162,8 @@ data class AgentToolResult(
     val combinedWorkBudgetExhausted: Boolean = false,
     val repeatAdmissionEvidence: ToolRepeatAdmissionEvidence? = null,
     val inventoryPaginationEvidence: ToolInventoryPaginationEvidence? = null,
-    val searchValidationEvidence: GitHubSearchValidationEvidence? = null
+    val searchValidationEvidence: GitHubSearchValidationEvidence? = null,
+    val savedPageReading: JsonObject? = null
 )
 
 /** Managed content reference, never an arbitrary local path or remote download instruction. */

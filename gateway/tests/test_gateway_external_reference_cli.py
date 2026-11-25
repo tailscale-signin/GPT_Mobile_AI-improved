@@ -9,7 +9,11 @@ from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 
 import test_gateway_benchmark_api_v2 as benchmark_api
+from test_gateway_native_product_trials import chatgpt_capture
 from benchmarks.contracts import content_digest, digest
+from benchmarks import product_trials
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 from desktop.conversation_client import ClientError, scope_key
 from grade_external_reference import grade, main, prepare, public_task
 
@@ -101,7 +105,7 @@ class ReferenceCliTests(unittest.TestCase):
         cli('task', '--root', root, '--id', 'pagination-1', '--output', str(task_file))
         self.assertEqual(self.task['prompt'], json.loads(task_file.read_bytes())['prompt'])
         results = []
-        for source in ('ChatGPT', 'Codex'):
+        for source in ('ChatGPT', 'Codex', 'Claude Code', 'GPT Mobile AI'):
             trial = str(self.trial.with_name(source + '.sqlite'))
             cli('prepare', '--source', source, '--candidate', str(candidate), '--task', str(task_file), '--trial', trial)
             cli('submit', '--root', root, '--trial', trial, '--candidate', str(candidate))
@@ -112,6 +116,55 @@ class ReferenceCliTests(unittest.TestCase):
         self.assertNotEqual(results[0]['runId'], results[1]['runId'])
         for key in ('fixture_digest', 'grader_digest', 'environment_digest'):
             self.assertEqual(results[0][key], results[1][key])
+
+    def test_native_cli_blinds_grade_and_incomplete_cohort_cannot_claim_superiority(self):
+        directory = self.trial.parent
+        def save(name, value):
+            p = directory / name
+            p.write_text(json.dumps(value))
+            return str(p)
+        def invoke(*args):
+            output = io.StringIO()
+            with patch('grade_external_reference.Client', return_value=self.client), patch('sys.argv', ['grade', *args]), redirect_stdout(output):
+                main()
+            return json.loads(output.getvalue())
+        def pem(name):
+            private = Ed25519PrivateKey.generate()
+            priv, pub = directory / (name + '.pem'), directory / (name + '.pub')
+            priv.write_bytes(private.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()))
+            pub.write_bytes(private.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo))
+            return str(priv), str(pub)
+        observer, pub = pem('observer')
+        grader, grader_pub = pem('grader')
+        case = {k: self.task[k] for k in ('taskDigest', 'graderDigest', 'environmentDigest')}
+        definition = dict(orderSeed=digest('order'), versions={p: 'v1' for p in product_trials.PRODUCTS},
+                          controlsDigest=digest('controls'), cache='cold', marginPoints=5, repeats=1,
+                          maxSeconds=1200, maxCostUsd=1, cases=[dict(case, family='pagination')])
+        plan = invoke('freeze-native', '--observer-key', observer, '--definition', save('definition', definition))
+        path = save('plan', plan)
+        schedule = invoke('schedule-native', '--observer-public', pub, '--plan', path)
+        captures = {'Claude Code': dict(type='result', subtype='success', is_error=False, session_id='s', result=self.proposal),
+                    'ChatGPT': chatgpt_capture(self.proposal)}
+        for product, capture in captures.items():
+            index, slot = next((i, v) for i, v in enumerate(schedule) if v['product'] == product)
+            row = dict(slot, scheduleIndex=index, planDigest=digest(plan['payload']), controlsDigest=definition['controlsDigest'],
+                       state='DELIVERED', seconds=1, costUsd=.01, cache='cold', interventions=0, version='v1')
+            observation = invoke('observe-native', '--observer-key', observer, '--plan', path, '--measurements', save('row', row),
+                                 '--capture', save('capture', capture), '--candidate-out', str(directory / (product + '-candidate')))
+            self.assertEqual(self.proposal.encode(), (directory / (product + '-candidate')).read_bytes())
+            # Grade the same artifact with a fresh executable task/admission.
+            trial = directory / (product + '-trial.sqlite')
+            prepare(trial, self.task, product, self.proposal)
+            queued = grade(self.client, trial, self.proposal)
+            self.service.run_one(queued['runId'])
+            judged = invoke('grade-native', '--root', str(directory), '--trial', str(trial), '--observer-public', pub,
+                            '--plan', path, '--observation', save('observation', observation), '--grader-key', grader)
+            self.assertEqual('FAIL', judged['payload']['result'])
+            self.assertNotIn('product', judged['payload'])
+            results = invoke('compare-native', '--plan', path, '--observer-public', pub, '--grader-public', grader_pub,
+                             '--observations', save('observations', [observation]), '--grades', save('grades', [judged]))
+            self.assertEqual('INCOMPLETE', results['verdict'])
+            self.assertEqual({'FAIL': 1}, results['coverage'][product])
 
     def test_concurrent_submissions_share_one_admission(self):
         barrier = threading.Barrier(2)

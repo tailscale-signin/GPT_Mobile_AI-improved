@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /** One synthesis worker owns this model and closes it after its final phrase. */
 public final class TimedKokoro implements AutoCloseable {
     public static final int SAMPLE_RATE = 24000;
-    public static final String RUNTIME_ID = "ort1.28.2-qnn2.8-qairt2.52-convex2-profile6-cache3-progress1-parser3-validation2-context2";
+    public static final String RUNTIME_ID = "ort1.28.2-qnn2.8-qairt2.52-convex2-profile6-cache3-progress1-parser3-validation2-context3";
     public static final int MAX_INPUT_BYTES = 128;
     static { System.loadLibrary("timed_kokoro"); }
 
@@ -143,7 +143,9 @@ public final class TimedKokoro implements AutoCloseable {
             durationMax = current && data[42] == 1 ? data[45] : null;
             graphPreparationSource = data.length >= 56 ? new String[] {"NONE", "CPU_DYNAMIC", "COMPILED", "DISK_CONTEXT", "RESIDENT"}[(int) data[48]] : null;
             contextCacheStatus = data.length >= 56 ? new String[] {
-                    "DISABLED", "MISS", "HIT", "STORED", "INVALIDATED", "UNAVAILABLE", "PENDING", "WRITE_FAILED", "TOO_LARGE", "BUSY", "NOT_ACCESSED"
+                    "DISABLED", "MISS", "HIT", "STORED", "INVALIDATED", "UNAVAILABLE", "PENDING", "WRITE_FAILED", "TOO_LARGE", "BUSY", "NOT_ACCESSED",
+                    "INVALID_CONFIGURATION", "IDENTITY_UNAVAILABLE", "FIRMWARE_UNAVAILABLE", "DIRECTORY_UNAVAILABLE",
+                    "LOCK_UNAVAILABLE", "INVENTORY_UNAVAILABLE", "SPACE_QUERY_FAILED", "INSUFFICIENT_STORAGE", "HIT_PREVIOUS_PROCESS"
             }[(int) data[49]] : null;
             contextLoadMs = data.length >= 56 ? data[50] : null;
             contextStoreMs = data.length >= 56 ? data[51] : null;
@@ -170,12 +172,13 @@ public final class TimedKokoro implements AutoCloseable {
             if (data[11] == 1) valid &= data[34] == 1 && data[47] == 1 && data[33] == 0 && data[21] == 0;
             if (data[33] == 9 || data[33] == 10) valid &= data[34] == 1;
             if (data.length >= 56) {
-                valid &= data[48] >= 0 && data[48] <= 4 && data[49] >= 0 && data[49] <= 10 &&
+                valid &= data[48] >= 0 && data[48] <= 4 && data[49] >= 0 && data[49] <= 19 &&
                         (data[54] == 0 || data[54] == 1) && data[55] >= -1 && data[55] <= 2;
                 for (int index = 50; index <= 53; index++) valid &= data[index] >= 0;
                 valid &= data[52] <= 256L * 1024 * 1024;
-                if (data[48] == 3) valid &= data[49] == 2 || data[49] == 4;
+                if (data[48] == 3) valid &= data[49] == 2 || data[49] == 4 || data[49] == 19;
                 if (data[48] == 4) valid &= data[14] == 1;
+                if (data[49] == 19) valid &= data[48] == 3 && data[52] > 0;
                 if (data[49] == 3) valid &= data[11] == 1 && data[12] == 1 && data[1] > 0 && data[52] > 0;
             }
             if (data[33] == 12) {
@@ -206,6 +209,7 @@ public final class TimedKokoro implements AutoCloseable {
         }
     }
 
+    private final String vocabulary;
     private long handle;
     // Cancellation may run beside generate; close waits for both without blocking cancellation.
     private final ReentrantReadWriteLock lifetime = new ReentrantReadWriteLock();
@@ -226,6 +230,7 @@ public final class TimedKokoro implements AutoCloseable {
             throw new IllegalArgumentException("Invalid HTP performance mode");
         if (!contextDirectory.isEmpty() && (!contextDirectory.startsWith("/") || !contextIdentity.matches("[0-9a-f]{64}")))
             throw new IllegalArgumentException("Invalid speech context cache configuration");
+        vocabulary = KokoroFrontend.vocabularyKey(tokens, lexicon);
         handle = open(model, voices, tokens, lexicon, threads, provider, libraryDirectory, profilePrefix,
                 contextDirectory, contextIdentity, htpPerformanceMode);
     }
@@ -235,6 +240,24 @@ public final class TimedKokoro implements AutoCloseable {
         try {
             if (handle == 0) throw new IllegalStateException("Kokoro is closed");
             return generatePhrase(handle, phrase, speaker, speed);
+        } finally { lifetime.readLock().unlock(); }
+    }
+
+    /** Encode using the active pack without running the acoustic graph. */
+    public KokoroFrontend.EncodedPhrase encode(String phrase) {
+        lifetime.readLock().lock();
+        try {
+            if (handle == 0) throw new IllegalStateException("Kokoro is closed");
+            return encodeModelPhrase(handle, phrase).bind(vocabulary);
+        } finally { lifetime.readLock().unlock(); }
+    }
+
+    public Audio generate(KokoroFrontend.EncodedPhrase phrase, int speaker, float speed) {
+        lifetime.readLock().lock();
+        try {
+            if (handle == 0) throw new IllegalStateException("Kokoro is closed");
+            if (!phrase.matches(vocabulary)) throw new IllegalArgumentException("Kokoro vocabulary differs");
+            return generateEncodedPhrase(handle, phrase.inferenceTokens(), phrase.inferenceWords(), phrase.inputBytes, speaker, speed);
         } finally { lifetime.readLock().unlock(); }
     }
 
@@ -294,6 +317,8 @@ public final class TimedKokoro implements AutoCloseable {
     private static native long[] executionProgress(long handle);
     private static native String executionDiscovery(long handle);
     private static native Audio generatePhrase(long handle, String phrase, int speaker, float speed);
+    private static native KokoroFrontend.EncodedPhrase encodeModelPhrase(long handle, String phrase);
+    private static native Audio generateEncodedPhrase(long handle, long[] tokens, int[] words, int bytes, int speaker, float speed);
     private static native void cancelGeneration(long handle);
     private static native void resetGeneration(long handle);
     private static native void release(long handle);

@@ -14,6 +14,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportDiagnosticsTest {
+    @Test fun missingCatalogToolIdentityNegotiatesSeparatelyFromExistingRecoveryEvidence() {
+        val legacy = requireNotNull(
+            IssueReportDiagnostics.fromFields(
+                "TOOL_RESULT",
+                mapOf("diagnostic_area" to "TOOL", "catalog_revision_hash" to "a".repeat(64), "catalog_rejection_count" to 1),
+                1_000L
+            )
+        )
+        val feature = IssueReportDiagnostics.MISSING_TOOL_IDENTITY_FEATURE
+        assertTrue(IssueReportDiagnostics.RECOVERY_REPORT_FEATURE in legacy.requiredServiceFeatures())
+        assertFalse(feature in legacy.requiredServiceFeatures())
+        val observed = legacy.copy(values = legacy.values + ("missing_tool_hash" to JsonPrimitive("b".repeat(64))))
+        val omitted = legacy.copy(omittedFields = listOf("missing_tool_hash"))
+        for (snapshot in listOf(observed, omitted)) {
+            assertTrue(snapshot.isValid())
+            assertEquals(legacy.requiredServiceFeatures() + feature, snapshot.requiredServiceFeatures())
+            val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.parseToJsonElement(IssueReport.json.encodeToString(IssueReportDiagnostics.serializer(), snapshot))))
+            assertEquals(snapshot, restored)
+            assertTrue(feature in restored.requiredServiceFeatures())
+        }
+        assertFalse(legacy.copy(values = legacy.values + ("missing_tool_hash" to JsonPrimitive("private_tool_name"))).isValid())
+    }
+
+    @Test fun newFreezeEvidenceNegotiatesItsReporterBeforeDispatch() {
+        val base = mapOf("diagnostic_area" to "APP", "app_exit_kind" to "APP_NOT_RESPONDING")
+        val legacy = requireNotNull(IssueReportDiagnostics.fromFields("PROCESS_EXIT", base, 1000))
+        val updated = requireNotNull(IssueReportDiagnostics.fromFields("PROCESS_EXIT", base + mapOf("anr_frame_count" to 2, "anr_trace_state" to "MAIN_THREAD_CAPTURED"), 1000))
+        assertFalse(IssueReportDiagnostics.RECOVERY_REPORT_FEATURE in legacy.requiredServiceFeatures())
+        assertTrue(IssueReportDiagnostics.RECOVERY_REPORT_FEATURE in updated.requiredServiceFeatures())
+    }
 
     @Test fun streamingVoiceCapabilityDependsOnEmittedValuesAcrossSnapshotAndContextRestoration() {
         val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE

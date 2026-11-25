@@ -35,7 +35,7 @@ internal interface KokoroOutput {
     fun configureCaptionOffset(milliseconds: Int) = Unit
     fun configureEngine(factory: VoicePhraseEngineFactory) = Unit
     fun benchmark(voice: KokoroVoice, completed: (String) -> Unit) = completed("This speech engine does not support calibration.")
-    fun prewarm(voice: KokoroVoice) = Unit
+    fun prewarm(voice: KokoroVoice, assetsOnly: Boolean = false) = Unit
     fun cancelPrewarm() = Unit
     fun releaseWarmModel() = Unit
     fun stop()

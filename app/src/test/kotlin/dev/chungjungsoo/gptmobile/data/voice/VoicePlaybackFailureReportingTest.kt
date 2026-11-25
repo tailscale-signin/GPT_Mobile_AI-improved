@@ -85,6 +85,9 @@ class VoicePlaybackFailureReportingTest {
         manager.setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
         val models = mockk<LocalVoiceModelStore>()
         val output = createKokoroVoiceOutput(context, models, ::attributes, { 1f })
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
+        val probe = trace.advance(1, reset = true)
+        output.bindDiagnostics(probe)
         val failures = mutableListOf<String>()
         try {
             val reply = requireNotNull(
@@ -97,6 +100,13 @@ class VoicePlaybackFailureReportingTest {
             reply.finish()
             shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(3))
             assertTrue(failures.single().contains("tap replay"))
+            val report = requireNotNull(VoiceDiagnosticTrace.manualSnapshot())
+            assertEquals(JsonPrimitive("DENIED"), report.values["voice_focus_result"])
+            assertEquals(JsonPrimitive("NORMAL"), report.values["voice_playback_audio_mode"])
+            assertEquals(JsonPrimitive(3), report.values["voice_playback_focus_attempts"])
+            assertTrue("VOICE_FOCUS_RETRY_COUNT_V1" in report.requiredServiceFeatures())
+            probe.playbackFocus(VoiceDiagnosticTrace.Focus.DENIED, 2, VoiceDiagnosticTrace.PlaybackAudioMode.IN_CALL)
+            assertFalse("VOICE_FOCUS_RETRY_COUNT_V1" in requireNotNull(VoiceDiagnosticTrace.manualSnapshot()).requiredServiceFeatures())
             io.mockk.verify(exactly = 0) { models.acquireUse() }
         } finally {
             output.close()

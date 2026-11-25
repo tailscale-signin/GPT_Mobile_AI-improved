@@ -118,7 +118,7 @@ class DurablePromptQueueModelPreparationTest {
         queue = newQueue()
     }
 
-    private fun newQueue() = DurablePromptQueue(database, mockk(relaxed = true), settings, coordinator, RuntimeEnvironment.getApplication(), store, mockk(relaxed = true), scopes, preparation)
+    private fun newQueue() = DurablePromptQueue(database, mockk(relaxed = true), settings, coordinator, RuntimeEnvironment.getApplication(), store, mockk(relaxed = true), scopes, preparation, dagger.Lazy { mockk(relaxed = true) })
 
     @After fun close() = database.close()
 

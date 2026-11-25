@@ -221,8 +221,8 @@ internal object GitHubIssueRemediation {
     }
 
     /** Work through a large frozen cohort without dropping unselected obligations from acceptance. */
-    fun verificationWindow(task: String, context: Context?, receipts: Map<String, JsonObject>, now: Long): List<String> {
-        val all = GitHubRequestCompletion.requirements(task, context).distinct()
+    fun verificationWindow(task: String, context: Context?, receipts: Map<String, JsonObject>, now: Long, semantic: JsonObject? = null): List<String> {
+        val all = GitHubRequestCompletion.requirements(task, context, semantic).distinct()
         if (context == null) return all
         val maximum = GitHubClaimBatches.REQUIREMENTS_PER_BATCH * GitHubClaimBatches.MAX_BATCHES
         val base = all.filter { group(it, context) == null }

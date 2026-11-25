@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
@@ -20,6 +21,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RepositoryMapToolTest {
+    @Test fun statusChecksTheCopiedCommitAgainstTheSelectedMapBeforeRemovingIt() = runTest {
+        val sha = "ab".repeat(20)
+        val scope = GitHubConversationContext("github", "owner", "repo", "main", sha, "profile")
+        val queries = mutableListOf<JsonObject>()
+        val tool = RepositoryGraphTool("repository_graph__github_api", repositoryScope = scope) { payload ->
+            queries += payload
+            buildJsonObject { put("map_source", payload.getValue("map_source")) }
+        }
+        fun request(commit: String, source: String = "phone", action: String = "status", extra: Boolean = false) = buildJsonObject {
+            put("action", action)
+            put("map_source", source)
+            put(
+                "options",
+                buildJsonObject {
+                    put("commit_sha", commit)
+                    if (extra) put("repo", "other")
+                }
+            )
+        }
+        for (source in listOf("phone", "gateway")) {
+            assertFalse(tool.execute("matching-$source", request(sha.uppercase(), source)).isError)
+            assertEquals(JsonPrimitive(source), queries.last()["map_source"])
+            assertFalse("commit_sha" in queries.last())
+        }
+        for (invalid in listOf(request("cd".repeat(20)), request("main"), request(sha, action = "index"), request(sha, extra = true))) {
+            val rejected = tool.execute("refused", invalid)
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+        }
+        val mismatch = tool.execute("different-commit", request("cd".repeat(20)))
+        assertEquals("GITHUB_VALIDATION_FAILED", mismatch.errorCode)
+        assertEquals(JsonPrimitive("EVIDENCE_REVISION_MISMATCH"), mismatch.executionReceipt?.get("reason_code"))
+        assertEquals(2, queries.size)
+    }
+
     @Test fun localPhoneCooldownKeepsWaitEvidenceWithoutDispatchOrSourceFallback() = runTest {
         for (nested in listOf(false, true)) {
             val cooldown = cooldown()

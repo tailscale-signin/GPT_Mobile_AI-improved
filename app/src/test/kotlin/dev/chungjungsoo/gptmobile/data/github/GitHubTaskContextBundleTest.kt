@@ -23,6 +23,30 @@ class GitHubTaskContextBundleTest {
     private val guide = "docs/architecture/repository-guide.md"
     private val code = "package sample\n\nclass RepairStore {\n    fun repairReceipt() = true\n}\n"
 
+    @Test fun smallProfileReceivesOnlyRankedUnreadPathsWithinItsUtf8Budget() {
+        val tree = buildJsonObject {
+            put(
+                "tree",
+                JsonArray(
+                    (listOf("README.md", "src/Other.kt", "src/RepairStore.kt", "../RepairStore", "docs/RepairStore.md") + (1..8).map { "src/RepairStore$it.kt" }).map { path ->
+                        buildJsonObject {
+                            put("type", "blob")
+                            put("mode", if (path.startsWith("docs/")) "120000" else "100644")
+                            put("path", path)
+                        }
+                    }
+                )
+            )
+        }
+        val hints = GitHubTaskContextBundle.cachedPathHints("owner/repo", "main", commit, tree, "Inspect src/RepairStore.kt")
+        val paths = hints.getValue("source_read_candidates") as JsonArray
+        assertEquals(JsonPrimitive("src/RepairStore.kt"), paths.first())
+        assertTrue(paths.size <= 4)
+        assertFalse(paths.any { ".." in it.toString() || "docs/" in it.toString() })
+        assertTrue(hints.toString().toByteArray().size <= 640)
+        assertTrue((GitHubTaskContextBundle.cachedPathHints("owner/repo", "main", commit, null, "Repair")["source_read_candidates"] as JsonArray).isEmpty())
+    }
+
     @Test fun currentArmDoesNotReadSourceOrReferences() = runBlocking {
         val result = build(GitHubContextVariant.CURRENT) { error("CURRENT must not fetch context") }
         assertEquals(JsonArray(emptyList()), result["selected_ranges"])
@@ -44,6 +68,8 @@ class GitHubTaskContextBundleTest {
         assertEquals(JsonPrimitive("PREPARED"), result["delivery_status"])
         val feature = (result["features"] as JsonArray).single().jsonObject
         assertEquals(JsonPrimitive("REFERENCED_BLOBS_VERIFIED"), feature["freshness"])
+        assertEquals(JsonPrimitive(implementation), feature.getValue("routing").jsonObject["entry"])
+        assertEquals(JsonPrimitive(false), feature.getValue("routing").jsonObject["execution_authority"])
         assertEquals(JsonArray(listOf(JsonPrimitive("A repair receipt belongs to its selected source."))), feature["invariants"])
     }
 
@@ -107,6 +133,7 @@ class GitHubTaskContextBundleTest {
         assertTrue(ranges.none { it["path"] == JsonPrimitive(implementation) && it["reason"] == JsonPrimitive("FEATURE_REFERENCE") })
         val feature = (result["features"] as JsonArray).single().jsonObject
         assertEquals(JsonPrimitive("STALE_OR_MISSING_REFERENCES"), feature["freshness"])
+        assertFalse(feature.containsKey("routing"))
         assertEquals(JsonArray(emptyList()), feature["invariants"])
         assertEquals(JsonArray(emptyList()), feature["commands"])
     }
@@ -124,6 +151,7 @@ class GitHubTaskContextBundleTest {
         assertTrue((result["stale_manifest_paths"] as JsonArray).contains(JsonPrimitive(test)))
         val feature = (result["features"] as JsonArray).single().jsonObject
         assertEquals(JsonPrimitive("STALE_OR_MISSING_REFERENCES"), feature["freshness"])
+        assertFalse(feature.containsKey("routing"))
         assertEquals(JsonArray(emptyList()), feature["invariants"])
     }
 
@@ -301,6 +329,16 @@ class GitHubTaskContextBundleTest {
                     buildJsonObject {
                         put("id", "repair")
                         put("title", "Repair receipts")
+                        put(
+                            "routing",
+                            buildJsonObject {
+                                put("entry", implementation)
+                                put("role", "evidence")
+                                put("proof", "Bound receipt")
+                                put("admission", "Selected repository")
+                                put("decline", "No receipt source")
+                            }
+                        )
                         put("terms", JsonArray(listOf(JsonPrimitive("repairReceipt"))))
                         put("paths", JsonArray(listOf(JsonPrimitive(implementation))))
                         put("tests", JsonArray(listOf(JsonPrimitive(test))))

@@ -6,16 +6,36 @@ public final class KokoroFrontend implements AutoCloseable {
     public static final class EncodedPhrase {
         public final long[] tokenIds;
         public final int[] wordTokens;
-        private EncodedPhrase(long[] tokenIds, int[] wordTokens) {
+        private String vocabulary;
+        final int inputBytes;
+        private long[] sealedTokens;
+        private int[] sealedWords;
+
+        private EncodedPhrase(long[] tokenIds, int[] wordTokens, int inputBytes) {
             this.tokenIds = tokenIds;
             this.wordTokens = wordTokens;
+            this.inputBytes = inputBytes;
         }
+        EncodedPhrase bind(String key) {
+            vocabulary = key;
+            sealedTokens = tokenIds.clone();
+            sealedWords = wordTokens.clone();
+            return this;
+        }
+        boolean matches(String key) { return key.equals(vocabulary); }
+        long[] inferenceTokens() { return sealedTokens; }
+        int[] inferenceWords() { return sealedWords; }
     }
+    static String vocabularyKey(String tokens, String lexicon) { return tokens + (char) 0 + lexicon; }
+    private final String vocabulary;
     private long handle;
-    public KokoroFrontend(String tokens, String lexicon) { handle = open(tokens, lexicon); }
+    public KokoroFrontend(String tokens, String lexicon) {
+        vocabulary = vocabularyKey(tokens, lexicon);
+        handle = open(tokens, lexicon);
+    }
     public synchronized EncodedPhrase encode(String phrase) {
         if (handle == 0) throw new IllegalStateException("Kokoro frontend is closed");
-        return encodePhrase(handle, phrase);
+        return encodePhrase(handle, phrase).bind(vocabulary);
     }
     @Override public synchronized void close() {
         if (handle != 0) release(handle);

@@ -15,6 +15,17 @@ internal class PhoneIndexInterruption(private val call: ProviderEvent.ToolCall) 
     companion object Key : CoroutineContext.Key<PhoneIndexInterruption> {
         const val CODE = "PHONE_INDEX_INTERRUPTED"
         private const val SCHEMA = "gptmobile.phone-index-interruption.v1"
+
+        fun scopeHash(scope: GitHubConversationContext, account: String) = GitHubRepositoryStateStore.digest(
+            buildJsonObject {
+                put("account", account)
+                put("connection", scope.connectionUid)
+                put("profile", scope.mainProfileUid)
+                put("repository", scope.repository.fullName)
+                put("ref", scope.ref)
+                put("commit", scope.commitSha)
+            }.toString()
+        )
     }
 
     private var attempt: Attempt? = null
@@ -155,19 +166,7 @@ internal class PhoneIndexInterruption(private val call: ProviderEvent.ToolCall) 
                             put("request_replay_allowed", false)
                             put("authorization_recheck_required", true)
                             put("source_head_sha", scope.commitSha)
-                            put(
-                                "scope_hash",
-                                GitHubRepositoryStateStore.digest(
-                                    buildJsonObject {
-                                        put("account", account)
-                                        put("connection", scope.connectionUid)
-                                        put("profile", scope.mainProfileUid)
-                                        put("repository", scope.repository.fullName)
-                                        put("ref", scope.ref)
-                                        put("commit", scope.commitSha)
-                                    }.toString()
-                                )
-                            )
+                            put("scope_hash", scopeHash(scope, account))
                         }
                     )
                 )

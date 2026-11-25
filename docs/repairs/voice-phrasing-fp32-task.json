@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "67dce0e844603c704bf87c51112de243eac73c48",
+  "workingBranch": "fix/release-universal-apk-budget-2026-11-24",
+  "startingHead": "a48b458f7ab0a7f585fddfeb28881730808f4979",
+  "pullRequest": 2528,
+  "intent": "Preserve pronunciation groups through live and native speech, improve contextual readings, and compare FP32 playback with the streaming CPU listening reference.",
+  "deviceQualification": "Pending matched ROG Phone 9 Pro playback and independent listening.",
+  "hostEvidence": {
+    "modelDigestsVerified": {
+      "originalFp32": "b40f62b166ac8164b0627ef48a0b358eda0985e272fb03ef5252e7206305da11"
+    },
+    "cpuJniPreparedVersusString": {
+      "phrase": "the voice is ready.",
+      "speaker": 0,
+      "rates": [
+        1,
+        1.25
+      ],
+      "fp32Frames": [
+        54000,
+        43200
+      ],
+      "int8Frames": [
+        54000,
+        43800
+      ],
+      "sameWordTokensAndDurations": true,
+      "foreignVocabularyRejected": true
+    },
+    "hardwareRanking": "No target-device result",
+    "publicCorpus": {
+      "build": "d31591420eb0246fdf02c7524570b929f22c9a84",
+      "fixtures": 24,
+      "model": "originalFp32",
+      "provider": "host CPU",
+      "voice": "Heart",
+      "rate": 1.0,
+      "threads": 2,
+      "characterAndWordInputProducedSameWords": true,
+      "phrases": 47,
+      "validatedFrames": 2350800,
+      "sampleRateHz": 24000,
+      "captionCountsMatched": true
+    },
+    "suites": {
+      "fastRepositoryHostChecks": 819,
+      "voiceJvmTests": 788,
+      "focusedVoiceTestsIncludingHistory": 198,
+      "blindScorerControls": [
+        "incomplete ratings rejected",
+        "passing synthetic ratings accepted",
+        "failing synthetic ratings rejected"
+      ]
+    }
+  }
+}

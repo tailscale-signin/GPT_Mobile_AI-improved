@@ -31,6 +31,30 @@ class EngineeringCredentialTests(unittest.TestCase):
     def connection(self, token='host-github-secret', **values):
         return dict(env={'GITHUB_PERSONAL_ACCESS_TOKEN': token}, **values)
 
+    def test_reconciles_only_disjoint_descendants_of_the_verified_pr_head(self):
+        old, new = 'a' * 40, 'b' * 40
+        job = {'id': 'job', 'request': {'repository': 'owner/repo', 'branch': 'work', 'acceptance': [{'paths': ['tests/test_a.py']}]},
+               'data': {'head_sha': old, 'pr': 7, 'changed_paths': ['src/a.py']}}
+        observed = {'head_sha': new, 'state': 'OPEN', 'pr': 7}
+        comparison = {'status': 'ahead', 'merge_base_commit': {'sha': old}, 'files': [{'filename': 'docs/topic.md', 'status': 'added'}]}
+        self.backend.identity = Mock()
+        self.backend.ref = Mock(return_value=new)
+        self.backend.api = Mock(return_value=comparison)
+        accepted = self.backend.reconcile_ci_head(job, observed)
+        self.assertEqual(new, accepted['head_sha'])
+        self.assertFalse(accepted['remote_mutation'])
+        self.backend.api.assert_called_once_with('/repos/owner/repo/compare/' + old + '...' + new, job=job)
+        for files in ([{'filename': 'tests/test_a.py'}], [{'filename': 'renamed.py', 'status': 'renamed', 'previous_filename': 'src/a.py'}],
+                      [{'filename': 'src/AGENTS.md'}], [{'filename': 'other.py'}] * 300):
+            with self.subTest(files=files[:1]):
+                self.backend.api.return_value = dict(comparison, files=files)
+                self.assertIsNone(self.backend.reconcile_ci_head(job, observed))
+        self.backend.api.return_value = dict(comparison, status='diverged')
+        self.assertIsNone(self.backend.reconcile_ci_head(job, observed))
+        self.backend.api.return_value = comparison
+        self.backend.ref.return_value = 'c' * 40
+        self.assertIsNone(self.backend.reconcile_ci_head(job, observed))
+
     def test_single_enabled_host_github_connection_is_the_default_and_is_reloaded(self):
         self.config['github-official'] = self.connection()
         self.assertTrue(self.backend.available())

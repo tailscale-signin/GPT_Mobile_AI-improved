@@ -73,6 +73,12 @@ class IssueReportIncidentCapsuleTest {
         val diagnostic = requireNotNull(context.diagnostics)
         assertEquals(JsonPrimitive("AGENT_FAILED_EVENT"), diagnostic.values["incident_capture_site"])
         assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), diagnostic.values["incident_phase_provenance"])
+        val feature = IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE
+        assertTrue(feature in diagnostic.requiredServiceFeatures())
+        val names = IssueReportIncidentCapsule.failedEventOutputFields
+        val withoutFlags = diagnostic.copy(values = diagnostic.values - names)
+        assertFalse(feature in withoutFlags.requiredServiceFeatures())
+        assertTrue(feature in withoutFlags.copy(omittedFields = names.sorted()).requiredServiceFeatures())
         for (key in IssueReportIncidentCapsule.failedEventFields) {
             assertEquals(JsonPrimitive(false), diagnostic.values[key])
             assertNull(diagnostic.copy(values = diagnostic.values + (key to JsonPrimitive("private-value"))).validated())
@@ -428,9 +434,12 @@ class IssueReportIncidentCapsuleTest {
     @Test fun intelligencePolicyNamesFromAuthorityRetainOnlyClosedChangeEvidence() {
         val additions = mapOf(
             "intelligenceLevel" to JsonPrimitive("MAXIMUM_INTELLIGENCE"),
+            "nextActionPolicy" to JsonPrimitive("SHADOW"),
+            "evidenceElaboration" to JsonPrimitive(false),
             "recoveryConsultConsent" to JsonPrimitive("PRIVATE_RECOVERY_CONSENT"),
             "engineeringTeamConsent" to JsonPrimitive("PRIVATE_TEAM_CONSENT"),
-            "recoveryExecutionConsent" to JsonPrimitive("PRIVATE_EXECUTION_CONSENT")
+            "recoveryExecutionConsent" to JsonPrimitive("PRIVATE_EXECUTION_CONSENT"),
+            "primaryPatchReviewConsent" to JsonPrimitive("PRIVATE_PATCH_REVIEW_CONSENT")
         )
         for ((name, setting) in additions) {
             val field = "githubProfileOverride.$name"
@@ -489,7 +498,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(81, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(84, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,

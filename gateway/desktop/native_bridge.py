@@ -78,20 +78,23 @@ def chat_send(root, args, output):
         state.save(draft=prompt, model=model, pending=pending)
 
         journal = PublicActivity(root, identity)
-        def observe(key, kind, text, sources=(), receipt=None):
+        def observe(key, kind, text, sources=(), receipt=None, fact=None):
             binding = receipt or {}
             emit('activity', journal.append(command, key, kind, text, sources,
-                 binding.get('conversation_id'), binding.get('job_id')), output)
+                 binding.get('conversation_id'), binding.get('job_id'), fact=fact), output)
 
         first_text_start = None
         accepted_job = None
+        accepted_receipt = None
         def progress(event, value):
-            nonlocal first_text_start, accepted_job
-            if event == 'delta' and first_text_start is not None and accepted_job:
+            nonlocal first_text_start, accepted_job, accepted_receipt
+            if event == 'delta' and value and first_text_start is not None and accepted_job:
+                observe('answer', 'final', '', receipt=accepted_receipt)
                 journal.timing(accepted_job, round((time.monotonic()-first_text_start)*1000))
                 first_text_start = None
             if event == 'accepted':
                 first_text_start, accepted_job = time.monotonic(), value.get('job_id')
+                accepted_receipt = value
                 state.save(pending=dict(pending, receipt=value))
                 observe('admission', 'activity', 'Gateway accepted the request.', receipt=value)
             emit(event, value, output)
@@ -108,8 +111,11 @@ def chat_send(root, args, output):
                     if not found.get('sources'):
                         raise ValueError('No source records returned. Check the web search service in Tools → Add-ons / MCP.')
                     kwargs['sources'] = found['sources']
-                    observe('search', 'finding', f"Retrieved {len(found['sources'])} sources using {found['engine']}.",
-                            [{k: item[k] for k in ('url', 'title')} for item in found['sources']])
+                    sources = [{k: item[k] for k in ('url', 'title')} for item in found['sources']]
+                    fingerprint = hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
+                    fact = dict(scope_id=command, criterion_id='search', subject_id='retrieved-sources',
+                                revision_id=fingerprint, value=str(len(sources)), evidence_id=fingerprint)
+                    observe('search', 'finding', f"Retrieved {len(sources)} sources using {found['engine']}.", sources, fact=fact)
                 except (OSError, RuntimeError, ValueError, KeyError) as error:
                     raise ClientError(str(error), not_dispatched=True) from None
             receipt = client.send(model, prompt, command, conversation=conversation,
@@ -120,11 +126,56 @@ def chat_send(root, args, output):
             raise
         if receipt.get('command_id') != command or not receipt.get('conversation_id'):
             raise ValueError('The response needs reconciliation. Check the original send.')
+        journal.append(command, 'answer', 'final', '', conversation=receipt['conversation_id'], job=receipt.get('job_id'))
         journal.save_draft(pending['draft_conversation'], '', model)
         state.save(draft='', pending=None, last_conversation_id=receipt['conversation_id'])
         return receipt
     finally:
         lock.release()
+
+
+def _engineering_activity(phase, previous_kind):
+    messages = {'PLAN': 'Planning the repository work.', 'READ': 'Reading the selected repository sources.',
+                'IMPLEMENT': 'Preparing the requested changes.', 'REVIEW': 'Reviewing the candidate changes.',
+                'COMMIT': 'Recording the candidate changes.', 'OPEN_PR': 'Preparing the pull request.',
+                'CI': 'Checking the pull request runs.', 'PROMOTE': 'Checking readiness for review.',
+                'MERGE_READY': 'The pull request is ready for merge review.', 'MERGE': 'Processing the merge.',
+                'VERIFY': 'Verifying the resulting revision.', 'COMPLETED': 'The engineering run finished.',
+                'CANCELLING': 'Cancellation is in progress.', 'CANCELLED': 'The engineering run was cancelled.',
+                'FAILED': 'The engineering run stopped with a failure.', 'NEEDS_INPUT': 'The engineering job is waiting for input.'}
+    if phase not in messages:
+        return 'unsupported', ''
+    if phase in {'NEEDS_INPUT', 'FAILED'}:
+        return 'blocker', messages[phase]
+    if previous_kind == 'blocker' and phase not in {'CANCELLED', 'CANCELLING'}:
+        return 'recovery', 'Work resumed. ' + messages[phase]
+    return 'activity', messages[phase]
+
+
+def engineering_findings(journal, job, turn, cid, jid):
+    revision = job.get('revision')
+    if type(revision) is not int or revision < 0:
+        return
+    ci = job.get('ci_observation') or {}
+    sha, verdict, pr = ci.get('revision'), ci.get('verdict'), ci.get('pr')
+    statuses = {'PASSED': 'passed', 'FAILED': 'failed', 'BLOCKED': 'are blocked', 'PENDING': 'are pending'}
+    if isinstance(sha, str) and re.fullmatch('(?:[a-f0-9]{40}|[a-f0-9]{64})', sha) and verdict in statuses and type(pr) is int and pr > 0:
+        fact = dict(scope_id=turn, criterion_id='ci', subject_id=f'pr-{pr}', revision_id=sha,
+                    value=verdict, evidence_id=f'{jid}/{revision}')
+        repository = job.get('repository')
+        sources = []
+        if isinstance(repository, str) and re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+            sources = [{'url': f'https://github.com/{repository}/commit/{sha}', 'title': f'Checked commit {sha[:12]}'}]
+        journal.append(turn, 'ci', 'finding', f'Checks for PR #{pr} {statuses[verdict]} on {sha[:12]}.',
+                       sources, conversation=cid, job=jid, fact=fact, observation_version=revision)
+    for item in job.get('workspace_tests', [])[-12:]:
+        check, status, sha = item.get('check_id'), item.get('status'), item.get('revision')
+        if (isinstance(check, str) and re.fullmatch('[a-f0-9]{64}', check) and status in {'PASSED', 'FAILED', 'BLOCKED'}
+                and isinstance(sha, str) and re.fullmatch('(?:[a-f0-9]{40}|[a-f0-9]{64})', sha)):
+            fact = dict(scope_id=turn, criterion_id='workspace-check', subject_id=check, revision_id=sha,
+                        value=status, evidence_id=check)
+            journal.append(turn, 'test-' + check, 'finding', f'Workspace check {check[:12]} returned {status.lower()} on {sha[:12]}.',
+                           conversation=cid, job=jid, fact=fact, observation_version=revision)
 
 
 def reconcile_chat(root):
@@ -321,7 +372,7 @@ def dispatch(root, action, args, output):
             jid = conversation['active_job_id']
             if not re.fullmatch(r'eng_[a-f0-9]{32}', jid):
                 raise ValueError('Invalid engineering job identity.')
-            rev = journal.engine_cursor(jid)
+            rev, previous_kind = journal.engine_position(jid)
             job = client.request('GET', '/gateway/engineering/jobs/' + jid, params={'after_revision': rev})
             if job.get('conversation_id') != cid or job.get('id') != jid:
                 raise ValueError('The original job changed.')
@@ -329,12 +380,13 @@ def dispatch(root, action, args, output):
             for item in job.get('updates', []):
                 phase, revision = item.get('state'), item.get('revision')
                 if isinstance(phase, str) and re.fullmatch('[A-Z_]{1,48}', phase) and type(revision) is int and revision > rev:
-                    journal.append(turn, 'revision-' + str(revision), 'activity',
-                                   'Engineering · ' + phase.replace('_', ' ').lower(), conversation=cid, job=jid, observed=item.get('created_at'))
-            for item in job.get('workspace_tests', [])[-12:]:
-                check, status = item.get('name',''), item.get('status','')
-                if re.fullmatch('[a-f0-9]{1,12}', check) and status in {'PASSED','FAILED','BLOCKED'}:
-                    journal.append(turn, 'test-' + check, 'finding', f'Check {check} returned {status.lower()}.', conversation=cid, job=jid)
+                    kind, text = _engineering_activity(phase, previous_kind)
+                    event = journal.append(turn, 'revision-' + str(revision), kind, text,
+                                           conversation=cid, job=jid, observed=item.get('created_at'))
+                    previous_kind = event['event_type']
+            engineering_findings(journal, job, turn, cid, jid)
+            if not job.get('has_more_updates') and job.get('state') in {'COMPLETED', 'FAILED', 'CANCELLED'}:
+                journal.append(turn, 'answer', 'final', '', conversation=cid, job=jid)
         return journal.replay(cid, args.get('after', 0))
     if action.startswith('engineering-'):
         client = connected(root, args.get('identity'))

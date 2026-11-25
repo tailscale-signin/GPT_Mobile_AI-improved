@@ -147,9 +147,12 @@ class VoiceSession(
     private var lastReply: String? = null
     private var streamId: String? = null
     private var streamDiagnosticId: String? = null
+    private var skipPreamble = false
     private var speechBuffer = VoiceSpeechBuffer(now, preserveLiteralTerms = true)
     private val queuedSpeech = ArrayDeque<String>()
     private var chunkPlaying = false
+    private enum class LookupSpeech { AVAILABLE, PREPARING, AUDIBLE, FINISHED }
+    private var lookupSpeech = LookupSpeech.AVAILABLE
     private var streamComplete = false
     private var streamAudio = true
     private var playbackSequence = 0L
@@ -158,10 +161,12 @@ class VoiceSession(
     private var playbackFinished = false
     private var manualPlayback = false
     private var includeSpeechDetails = false
-    private fun resetStream() {
+    private fun resetStream(prompt: String = "") {
+        skipPreamble = VoiceSpokenLead.forQuestion(prompt)
         streamId = null
         streamDiagnosticId = null
-        speechBuffer = VoiceSpeechBuffer(now, preserveLiteralTerms = true)
+        lookupSpeech = LookupSpeech.AVAILABLE
+        speechBuffer = VoiceSpeechBuffer(now, preserveLiteralTerms = true, skipPreamble = skipPreamble)
         includeSpeechDetails = false
         queuedSpeech.clear()
         chunkPlaying = false
@@ -218,8 +223,10 @@ class VoiceSession(
         if (state.phase != VoicePhase.REVIEWING || !accessAllowed() || submittedDraft != null) return
         val prompt = text.trim().take(8000)
         if (prompt.isEmpty()) return
+        // Sending a reviewed draft resumes its reply playback without restarting capture.
+        engaged = true
         submittedDraft = null
-        resetStream()
+        resetStream(prompt)
         diagnosticProbe = diagnosticTrace.beginReply(generation)
         audio.bindDiagnostics(diagnosticProbe)
         waiting = true
@@ -382,6 +389,10 @@ class VoiceSession(
     }
     private fun stopAudio(reason: String = "session_reset") {
         generation++
+        if (lookupSpeech == LookupSpeech.PREPARING || lookupSpeech == LookupSpeech.AUDIBLE) {
+            lookupSpeech = LookupSpeech.FINISHED
+            update(state.copy(notice = null))
+        }
         diagnosticProbe = diagnosticTrace.advance(generation)
         queuedSpeech.clear()
         chunkPlaying = false
@@ -508,7 +519,15 @@ class VoiceSession(
             )
             // Partial speech is user input, not a disposable failed attempt.
             automaticRetry = retry && !draftPending
-            update(state.copy(retryAtMillis = now() + if (retryable) maxOf(500, retryMillis) else retryMillis, recoveryAction = recoveryAction))
+            val review = draftPending && captureFailure?.code == "MICROPHONE_CAPTURE_SILENCED"
+            update(
+                state.copy(
+                    phase = if (review) VoicePhase.REVIEWING else state.phase,
+                    notice = if (review) "Microphone input was interrupted. Review your captured words before sending." else state.notice,
+                    retryAtMillis = now() + if (retryable) maxOf(500, retryMillis) else retryMillis,
+                    recoveryAction = recoveryAction
+                )
+            )
         }
         audio.listen(object : VoiceAudio.Listener {
             override fun ready() {
@@ -571,9 +590,52 @@ class VoiceSession(
         })
     }
 
+    /** A running lookup may speak once, on the same accepted reply. Its audio never counts as AI answer audio. */
+    internal fun offerSearchOpening(id: String, line: String) {
+        if (lookupSpeech != LookupSpeech.AVAILABLE ||
+            streamId != id ||
+            !waiting ||
+            state.phase != VoicePhase.THINKING ||
+            state.reply.isNotBlank() ||
+            !speakWhileGenerating ||
+            !streamAudio ||
+            !state.speaker ||
+            !playbackAllowed() ||
+            manualPlayback
+        ) {
+            return
+        }
+        lookupSpeech = if (audio.reportsPlaybackStart) LookupSpeech.PREPARING else LookupSpeech.AUDIBLE
+        val ticket = generation
+        fun current() = ticket == generation && lookupSpeech != LookupSpeech.FINISHED && streamId == id
+        fun finished() {
+            if (!current()) return
+            lookupSpeech = LookupSpeech.FINISHED
+            audio.bindPlaybackStarted(null)
+            audio.bindDiagnostics(diagnosticProbe)
+            update(state.copy(phase = VoicePhase.THINKING, notice = null))
+            pumpSpeech()
+        }
+        audio.bindDiagnostics(null)
+        audio.bindPlaybackStarted {
+            if (current() && lookupSpeech == LookupSpeech.PREPARING) {
+                lookupSpeech = LookupSpeech.AUDIBLE
+                diagnosticProbe.lookupAudioStarted()
+                update(state.copy(phase = VoicePhase.SPEAKING))
+            }
+        }
+        update(state.copy(phase = if (lookupSpeech == LookupSpeech.AUDIBLE) VoicePhase.SPEAKING else VoicePhase.PREPARING, notice = line))
+        audio.speakWithFailure(line, complete = ::finished, error = { finished() })
+    }
+
     /** Stable words may meet the adaptive time budget while the provider pauses between chunks. */
+    internal fun nextSpeechFlushDelayMs(): Long? {
+        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return null
+        return speechBuffer.nextFlushDelayMs(synthesisFeedback())
+    }
+
     fun flushSpeech() {
-        if (performanceMode != VoicePerformanceMode.AUTO || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return
+        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return
         streamId?.let { streamReply(it, state.reply) }
     }
 
@@ -592,7 +654,7 @@ class VoiceSession(
         // While generating, start after a stable phrase. A completed response or explicit
         // replay already has its full text and can retain natural sentence boundaries.
         val chunks = if (complete || speakWhileGenerating) {
-            speechBuffer.append(text, complete, earlyStart = !complete, followUpWords = performanceMode.followUpWords, feedback = synthesisFeedback(), adaptive = performanceMode == VoicePerformanceMode.AUTO)
+            speechBuffer.append(text, complete, earlyStart = !complete, followUpWords = performanceMode.followUpWords, feedback = synthesisFeedback(), adaptive = performanceMode.usesMeasuredPhraseLength)
         } else {
             emptyList()
         }
@@ -610,6 +672,16 @@ class VoiceSession(
     }
     private fun pumpSpeech() {
         if (chunkPlaying || state.phase == VoicePhase.CLOSED) return
+        if (lookupSpeech == LookupSpeech.AUDIBLE) return
+        if (lookupSpeech == LookupSpeech.PREPARING) {
+            if (queuedSpeech.isEmpty() && !streamComplete) return
+            // The answer beat the acknowledgement to the speaker. Retire only the optional audio.
+            lookupSpeech = LookupSpeech.FINISHED
+            audio.stop("answer_ready")
+            audio.bindPlaybackStarted(null)
+            audio.bindDiagnostics(diagnosticProbe)
+            update(state.copy(phase = VoicePhase.THINKING, notice = null))
+        }
         if (!streamAudio || !playbackAllowed() || !state.speaker && !manualPlayback) {
             queuedSpeech.clear()
             if (streamComplete) {
@@ -689,7 +761,9 @@ class VoiceSession(
                 if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return
                 // Require an exact visible-text match. Pronunciation and Markdown transforms can change the source.
                 if (index != activeUtterance) {
-                    val projected = VoiceSpeechText.forPlayback(state.reply, final = streamComplete || !waiting, includeDetails = includeSpeechDetails)
+                    val final = streamComplete || !waiting
+                    val original = VoiceSpeechText.forPlayback(state.reply, final = final, includeDetails = includeSpeechDetails)
+                    val projected = if (skipPreamble) VoiceSpokenLead.trim(original, final) else original
                     playbackCaption = projected.takeIf { it != state.reply }
                     utteranceStart = projected.indexOf(utterance, startIndex = captionSearchFrom).takeIf {
                         it >= captionSearchFrom && projected.substring(captionSearchFrom, it).all(Char::isWhitespace)
@@ -833,7 +907,7 @@ class VoiceSession(
             continueTurn()
             return
         }
-        val spoken = VoiceSpeechBuffer(includeDetails = includeSpeechDetails, preserveLiteralTerms = true).append(text, final = true).orEmpty().joinToString(" ").trim()
+        val spoken = VoiceSpeechBuffer(includeDetails = includeSpeechDetails, preserveLiteralTerms = true, skipPreamble = skipPreamble).append(text, final = true).orEmpty().joinToString(" ").trim()
         if (spoken.isEmpty()) {
             continueTurn()
             return
@@ -913,12 +987,13 @@ class VoiceSession(
 internal fun speechChunks(text: String, limit: Int = 3000): List<String> {
     require(limit >= 2)
     val chunks = mutableListOf<String>()
+    val boundaries = if (text.length > limit) VoicePhraseBoundaries(text) else null
     var start = 0
     while (start < text.length) {
         var end = start + minOf(limit, text.length - start)
         if (end < text.length) {
             // Prefer a nearby word break while keeping long unbroken tokens bounded.
-            val boundary = (end - 1 downTo start + limit / 2).firstOrNull { text[it].isWhitespace() }
+            val boundary = (end - 1 downTo start + limit / 2).firstOrNull { text[it].isWhitespace() && boundaries?.permits(it + 1) == true }
             if (boundary != null) end = boundary + 1
             if (text[end - 1].isHighSurrogate()) end--
         }

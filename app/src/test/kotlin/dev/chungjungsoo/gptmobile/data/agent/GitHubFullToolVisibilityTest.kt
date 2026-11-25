@@ -313,6 +313,72 @@ class GitHubFullToolVisibilityTest {
         assertEquals("GITHUB_TOOL_CONTRACT_UNSUPPORTED", unsupported.errorCode)
     }
 
+    @Test fun automaticCatalogMissRecoveryRequiresTheBoundLocalCatalog() = runTest {
+        for (local in listOf(false, true)) {
+            var coldCalls = 0
+            var fakeCalls = 0
+            val catalog = ProgressiveToolCatalog(emptyList(), "Inspect the authorized tool catalog", acquireCold = { _, _ ->
+                coldCalls++
+                emptyList()
+            })
+            val original = if (local) catalog else tool(catalog.definition) { fakeCalls++ }
+            val limits = AgentRunLimits(maxRounds = 4, maxToolCalls = 4, maxReplayTokens = 8192, maxReplayResultTokens = 4096)
+            val bound = ToolExecutionBudget(limits).bind(original.withRunContext("catalog-identity-$local"))
+            assertFalse(bound is ProgressiveToolCatalog)
+            assertEquals(catalog.definition, bound.definition)
+            val missing = ProviderEvent.ToolCall("missing-capability", "unregistered_fixture", buildJsonObject { put("url", "https://example.org/article") })
+            val expectedArguments = buildJsonObject {
+                put("query", missing.name)
+                put("catalog_only", true)
+            }
+            var rounds = 0
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    assertEquals(listOf(bound.definition), tools)
+                    if (++rounds == 1) {
+                        emit(missing)
+                    } else {
+                        assertEquals(2, rounds)
+                        val miss = exchanges.single { exchange -> exchange.calls.any { it.callId == missing.callId } }
+                        assertEquals(missing.name, miss.calls.single().name)
+                        assertEquals(missing.arguments, miss.calls.single().arguments)
+                        val rejection = miss.results.single()
+                        assertTrue(rejection.isError)
+                        assertFalse(rejection.dispatched)
+                        assertEquals("TOOL_NOT_AVAILABLE", rejection.errorCode)
+                        assertEquals(JsonPrimitive(true), rejection.executionReceipt?.get("discovery_available"))
+                        // Prove both actual misses are eligible before the runner's local-object gate.
+                        val eligible = requireNotNull(CatalogMissRecovery.next(listOf(miss), tools, emptySet()))
+                        assertEquals(ProgressiveToolCatalog.NAME, eligible.name)
+                        assertEquals(expectedArguments, eligible.arguments)
+                        val recovered = exchanges.flatMap { it.calls }.filter { CatalogMissRecovery.isRecovery(it.callId) }
+                        assertEquals(if (local) 1 else 0, recovered.size)
+                        if (local) {
+                            val lookup = recovered.single()
+                            assertEquals(eligible.callId, lookup.callId)
+                            assertEquals(eligible.name, lookup.name)
+                            assertEquals(expectedArguments, lookup.arguments)
+                            val result = exchanges.flatMap { it.results }.single { it.callId == lookup.callId }
+                            assertFalse(result.isError)
+                            assertFalse(result.dispatched)
+                        }
+                        emit(ProviderEvent.TextDelta("The requested capability is unavailable."))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val events = AgentRunner(limits).run(session, listOf(bound)).toList()
+            assertEquals(2, rounds)
+            assertEquals(0, fakeCalls)
+            assertEquals(0, coldCalls)
+            val started = events.filterIsInstance<AgentRunEvent.ToolStarted>()
+            assertEquals(if (local) 1 else 0, started.size)
+            assertTrue(started.all { it.call.name == ProgressiveToolCatalog.NAME && it.call.arguments == expectedArguments })
+            assertTrue(events.toString(), events.providerFailures().isEmpty())
+            assertTrue(events.any { it is AgentRunEvent.Provider && it.event == ProviderEvent.Completed })
+        }
+    }
+
     private fun schema(name: String) = AgentToolDefinition(name, "Authorized operation", buildJsonObject {})
 
     private fun tool(definition: AgentToolDefinition, execute: () -> Unit = {}) = object : AgentTool {

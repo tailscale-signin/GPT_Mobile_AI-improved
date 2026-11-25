@@ -10,6 +10,21 @@ class VoiceMessagePlaybackTest {
     private fun reply(id: Int, run: String = "run-$id", text: String = "Here is the reply.", complete: Boolean = false) =
         VoiceMessageReply(VoiceMessageIdentity(id, run), text, complete)
 
+    @Test fun onlyAFreshAudibleGenerationCanOwnALookupBeforeAnswerText() {
+        val playback = VoiceMessagePlayback()
+        val historical = reply(1, text = "")
+        val muted = reply(2, text = "")
+        val eligible = reply(3, text = "")
+        playback.observe(listOf(historical), true)
+        assertNull(playback.next(historical.identity))
+        playback.observe(listOf(muted), false)
+        assertNull(playback.next(muted.identity))
+        playback.observe(listOf(eligible), true)
+        assertEquals(eligible, playback.next(eligible.identity))
+        playback.finish()
+        assertNull(playback.next(eligible.identity))
+    }
+
     @Test fun terminalDurableReadReplacesAStaleBlankOrPrefixBeforeConsumingTheReply() {
         for (stale in listOf("", "Here is")) {
             val playback = VoiceMessagePlayback()

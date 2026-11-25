@@ -247,7 +247,8 @@ class DiagnosticDatabaseSource @Inject constructor(
         checkpoint: (JsonObject) -> Unit = {},
         sourceRecord: (DiagnosticSourceRecord?) -> Unit = {},
         sourcePageSize: Int = 16,
-        timings: DiagnosticCaptureTimings = DiagnosticCaptureTimings()
+        timings: DiagnosticCaptureTimings = DiagnosticCaptureTimings(),
+        currentPageSize: () -> Int = { sourcePageSize }
     ) = withContext(Dispatchers.IO) {
         require(chatId > 0 && maximumCharacters in 1024..1_048_576 && maximumSourceBytes in maximumCharacters..1_048_576)
         require(sourcePageSize in 1..16)
@@ -275,7 +276,7 @@ class DiagnosticDatabaseSource @Inject constructor(
             val state = tableStates[table.name] as? JsonObject
             if (state?.get("completed") == JsonPrimitive(true)) continue
             try {
-                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata, state, { save(table.name, it) }, sourceRecord, sourcePageSize, timings)
+                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata, state, { save(table.name, it) }, sourceRecord, sourcePageSize, timings, currentPageSize)
             } catch (_: SQLException) {
                 omitted("DIAGNOSTIC_TABLE_READ_FAILED")
                 consume(
@@ -302,7 +303,8 @@ class DiagnosticDatabaseSource @Inject constructor(
         checkpoint: (JsonObject) -> Unit,
         sourceRecord: (DiagnosticSourceRecord?) -> Unit,
         sourcePageSize: Int,
-        timings: DiagnosticCaptureTimings
+        timings: DiagnosticCaptureTimings,
+        currentPageSize: () -> Int
     ) {
         var omissionCount = saved?.number("omissionCount") ?: 0L
         fun recordOmission(reason: String) {
@@ -366,6 +368,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 }
             )
         }
+        var pageSize = sourcePageSize
         var rowsSinceCheckpoint = 0
         var bytesSinceCheckpoint = 0L
         fun advance(rowId: Long, order: Long, sourceBytes: Long) {
@@ -375,7 +378,7 @@ class DiagnosticDatabaseSource @Inject constructor(
             bytesSinceCheckpoint += sourceBytes.coerceIn(0, 128 * 1024L)
             // A durable cursor and file byte boundary always move together. Normal
             // workspace capture may replay at most seven small rows after process death.
-            if (table.name != "workspace_records" || sourcePageSize == 1 || rowsSinceCheckpoint >= 8 || bytesSinceCheckpoint >= 128 * 1024) {
+            if (table.name != "workspace_records" || pageSize == 1 || rowsSinceCheckpoint >= 8 || bytesSinceCheckpoint >= 128 * 1024) {
                 save()
                 rowsSinceCheckpoint = 0
                 bytesSinceCheckpoint = 0
@@ -385,13 +388,14 @@ class DiagnosticDatabaseSource @Inject constructor(
         while (true) {
             currentCoroutineContext().ensureActive()
             beforeRead()
+            pageSize = currentPageSize().coerceIn(1, sourcePageSize)
             val page = timings.measure(DiagnosticCaptureTimings.Phase.QUERY_MATERIALIZATION) {
                 database.query(
                     SimpleSQLiteQuery(
                         if (table.newestFirst) {
-                            "SELECT t.rowid, $rowLength, $sort FROM ${table.name} t WHERE ($where) AND ($sort, t.rowid) < (?, ?) AND t.rowid <= ? ORDER BY $sort DESC, t.rowid DESC LIMIT $sourcePageSize"
+                            "SELECT t.rowid, $rowLength, $sort FROM ${table.name} t WHERE ($where) AND ($sort, t.rowid) < (?, ?) AND t.rowid <= ? ORDER BY $sort DESC, t.rowid DESC LIMIT $pageSize"
                         } else {
-                            "SELECT t.rowid, $rowLength, t.rowid FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT $sourcePageSize"
+                            "SELECT t.rowid, $rowLength, t.rowid FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT $pageSize"
                         },
                         if (table.newestFirst) arrayOf<Any?>(afterSort, after, highWatermark) else arrayOf<Any?>(after, highWatermark)
                     )
@@ -458,8 +462,12 @@ class DiagnosticDatabaseSource @Inject constructor(
                             maximumCharacters,
                             beforeRead,
                             ::recordOmission,
-                            projector
+                            projector,
+                            timings
                         )
+                    }
+                    if (protected.decodedBytes > 0) {
+                        sourceRecord(DiagnosticSourceRecord(table.name, rowId, sourceBytes, maximumCharacters, hydratedBytes = protected.decodedBytes))
                     }
                     val payload = if (!protected.protected) {
                         projector.text(storedPayload)
@@ -502,7 +510,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 emittedRows++
                 advance(rowId, order, sourceBytes)
                 sourceRecord(null)
-                if (sourcePageSize == 1) kotlinx.coroutines.yield()
+                if (pageSize == 1) kotlinx.coroutines.yield()
             }
         }
         if (inspectedRows != expectedRows) recordOmission("DATABASE_ROW_COUNT_CHANGED")
@@ -528,7 +536,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 put("resumed", saved != null)
                 put("newestFirst", table.newestFirst)
                 put("omittedValuesOrRows", omissionCount)
-                put("pageSize", sourcePageSize)
+                put("pageSize", pageSize)
                 put("rowLimit", kotlinx.serialization.json.JsonNull)
                 put("startedAtMillis", startedAt)
                 put("completedAtMillis", System.currentTimeMillis())

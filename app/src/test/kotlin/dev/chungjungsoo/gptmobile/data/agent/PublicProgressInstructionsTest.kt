@@ -37,6 +37,57 @@ class PublicProgressInstructionsTest {
         assertFalse(prompt.contains("[bounded GitHub context]"))
     }
 
+    @Test fun maximumInlineBindingPreservesEveryCompoundTaskAndWholeOptionalSections() {
+        val binding = context.copy(owner = "o".repeat(39), repo = "r".repeat(121), ref = "b".repeat(180))
+        val prompt = binding.promptContext("Test all tools, review the selected branch and fix the issue")
+        assertTrue(prompt.length < 2000)
+        assertTrue(prompt.contains("GitHub workspace: ${binding.owner}/${binding.repo}\nBranch: ${binding.ref}\n"))
+        listOf(binding.commitSha, "never infer write approval", "Branch review", "first unread exact range", "Testing acceptance", "github_stage_patch").forEach {
+            assertTrue(it, prompt.contains(it))
+        }
+        val details = dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.DETAIL_INSTRUCTION
+        assertFalse(prompt.contains(details.substringBefore('.')) && !prompt.contains(details))
+        assertFalse(prompt.contains("untrusted continuation"))
+
+        val statusPrompts = listOf(
+            "Review the selected branch and repository status",
+            "Review the selected branch and repository status [github-workflow-preset:implement_issue]"
+        ).map { binding.promptContext(it) }
+        (statusPrompts + prompt).forEach { bounded ->
+            assertTrue(bounded.length < 2000)
+            assertTrue(bounded.contains("GitHub workspace: ${binding.owner}/${binding.repo}\nBranch: ${binding.ref}\n"))
+            listOf(
+                binding.commitSha,
+                "never infer write approval",
+                "pin exact base_sha/head_sha",
+                "Resolve a supplied baseline to SHA",
+                "observed matching PR base or default-branch SHA for a non-default selection",
+                "On default without baseline, ask; never infer a self-diff",
+                "github_context action=changes",
+                "short changed code/matching test ranges at both SHAs",
+                "source coverage's first unread exact range",
+                "retain requested lines and completed evidence",
+                "Bound guidance separately outside code/test allowance",
+                "Checks/inventories are not source review"
+            ).forEach { required -> assertTrue(required, bounded.contains(required)) }
+            assertFalse(bounded.contains(details.substringBefore('.')) && !bounded.contains(details))
+            assertFalse(bounded.contains("untrusted continuation"))
+        }
+        val statusDetails = dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.DETAIL_INSTRUCTION
+        statusPrompts.forEach { bounded ->
+            listOf(
+                "read-only selected repo/branch, recent commits, open PRs and checks",
+                "pin all pages to selected repo and observed SHA",
+                "Health needs branch policy, recent failures and current PR review decisions",
+                "Keep call limits; missing/incomplete data stays partial",
+                "Do not read source, resume work, edit or poll",
+                "Separate latest workflow from required checks; unknown worktree/tests stay unknown"
+            ).forEach { required -> assertTrue(required, bounded.contains(required)) }
+            assertFalse(bounded.contains(statusDetails.substringBefore('.')) && !bounded.contains(statusDetails))
+        }
+        assertTrue(statusPrompts.last().contains("github_stage_patch"))
+    }
+
     @Test fun compactIntegrationContextKeepsTheSamePrimaryPreviewProtocol() {
         val repository = context.promptContext("Test all GitHub integration tools", contextTokens = 8192)
         val system = toolStageInstructions(toolProgressInstructions(githubMode = true)) + "\n" + repository

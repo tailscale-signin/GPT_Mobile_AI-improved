@@ -32,7 +32,9 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 
 class OpenAIResponsesEventAssembler {
     private var reportedModelId: String? = null
@@ -81,8 +83,10 @@ class OpenAIResponsesEventAssembler {
             } else {
                 val callId = event.item.callId
                 val name = event.item.name
-                if (callId == null || name == null) {
-                    listOf(ProviderEvent.Failed("OpenAI returned an incomplete function call."))
+                if (name.isNullOrBlank()) {
+                    listOf(invalidToolFrame("OpenAI returned an incomplete function call.", "MISSING_FUNCTION_NAME"))
+                } else if (callId.isNullOrBlank()) {
+                    listOf(invalidToolFrame("OpenAI returned an incomplete function call.", "UNFINISHED_STREAM"))
                 } else {
                     toolGuard.slot(event.item.id)
                     toolGuard.identifier(callId)
@@ -108,18 +112,27 @@ class OpenAIResponsesEventAssembler {
 
         is FunctionCallArgumentsDoneEvent -> {
             val call = pending.remove(event.itemId)
-                ?: return listOf(ProviderEvent.Failed("OpenAI returned arguments for an unknown function call."))
+                ?: return listOf(invalidToolFrame("OpenAI returned arguments for an unknown function call.", "UNFINISHED_STREAM"))
             toolCall(call.callId, call.name, event.arguments, reportedModelId)
         }
 
         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent -> buildList {
             event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }
             val reason = (event.response.incompleteDetails?.get("reason") as? JsonPrimitive)?.content
-            if (reason == "max_output_tokens") {
-                add(ProviderEvent.Usage(finishReason = "max_tokens"))
-                add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results are retained for bounded continuation.", transportComplete = true))
-            } else {
-                add(ProviderEvent.Failed("The response was incomplete. Saved output and tool results will be used to continue on the next request."))
+            val details = buildJsonObject {
+                put("failed_stage", "response_stream")
+                if (reason == "content_filter") {
+                    put("retryable", false)
+                    put("request_replay_allowed", false)
+                }
+            }
+            when (reason) {
+                "max_output_tokens" -> {
+                    add(ProviderEvent.Usage(finishReason = "max_tokens"))
+                    add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results are retained for bounded continuation.", errorCode = "OUTPUT_LIMIT", transportComplete = true, failureDetails = details))
+                }
+                "content_filter" -> add(ProviderEvent.Failed("The provider stopped this response under its content policy. Saved output is retained.", errorCode = "PROVIDER_CONTENT_POLICY", failureDetails = details))
+                else -> add(ProviderEvent.Failed("The response was incomplete. Saved output and tool results are retained.", errorCode = "INCOMPLETE_PROVIDER_STREAM", failureDetails = details))
             }
         }
 

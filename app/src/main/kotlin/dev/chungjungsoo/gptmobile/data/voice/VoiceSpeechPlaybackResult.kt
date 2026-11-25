@@ -14,7 +14,8 @@ internal data class VoiceSpeechPlaybackChunk(
     val acceleratorKernels: Int?,
     val cpuKernels: Int?,
     val observation: VoiceSpeechBenchmarkFailureObservation?,
-    val audioObservation: VoiceSpeechAudioObservation? = null
+    val audioObservation: VoiceSpeechAudioObservation? = null,
+    val join: VoiceSpeechPhraseJoin? = null
 )
 
 internal data class VoiceSpeechReserveObservation(val phase: String, val elapsedMs: Long, val targetMs: Long, val acceptedMs: Long, val exitReason: String, val startMs: Long? = null, val endMs: Long? = null)
@@ -154,6 +155,8 @@ internal interface VoicePlaybackMeasurementObserver {
     /** Each production reply captures its observer once, before any asynchronous work starts. */
     fun forPlayback(): VoicePlaybackMeasurementObserver = this
     fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) = Unit
+    fun phraseJoin(join: VoiceSpeechPhraseJoin) = Unit
+    fun refillAt(frame: Long, elapsedMs: Long) = Unit
     fun pcmQueued() = Unit
     fun captionsPrepared(segment: Int, ranges: List<IntRange>) = Unit
     fun firstPresented(clockBasis: String, route: String) = Unit
@@ -223,6 +226,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var attemptStarted: Long? = null
     private var attemptBytes: Int? = null
     private var attemptHash: String? = null
+    private var pendingJoin: VoiceSpeechPhraseJoin? = null
     private var attemptAudio: VoiceSpeechAudioObservation? = null
     private val expectedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
     private val observedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
@@ -295,6 +299,19 @@ internal class VoiceSpeechPlaybackMeasurement(
         }
     }
 
+    @Synchronized override fun phraseJoin(join: VoiceSpeechPhraseJoin) {
+        if (stoppedAt == null) pendingJoin = join
+    }
+
+    @Synchronized override fun refillAt(frame: Long, elapsedMs: Long) {
+        // The output writer reports the exact previously drained PCM frame on restart.
+        val index = chunkRecords.indexOfLast { it.join?.startFrame == frame }
+        if (index < 0) return
+        val record = chunkRecords[index]
+        val join = requireNotNull(record.join)
+        chunkRecords[index] = record.copy(join = join.copy(refillMs = elapsedMs))
+    }
+
     @Synchronized override fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) {
         if (stoppedAt != null) return
         if (firstPcm == null) firstPcm = elapsed()
@@ -320,13 +337,14 @@ internal class VoiceSpeechPlaybackMeasurement(
             chunkRecords += VoiceSpeechPlaybackChunk(
                 chunks - 1, elapsed(), synthesisMs.coerceAtLeast(0), duration, attemptBytes, attemptHash, evidence?.effectiveProvider?.takeIf { it in PROVIDERS }, valid,
                 evidence?.acceleratorKernels?.takeIf { evidence.profileAvailable == true }, evidence?.cpuKernels?.takeIf { evidence.profileAvailable == true }, evidence?.let(VoiceSpeechBenchmarkFailureObservation::from),
-                attemptAudio
+                attemptAudio, pendingJoin
             )
         } else if (backend.isStreamingLocal) {
             omittedPcmRecords++
         } else {
             violations++
         }
+        pendingJoin = null
         attemptStarted = null
         currentStage = VoiceSpeechStage.READY
     }

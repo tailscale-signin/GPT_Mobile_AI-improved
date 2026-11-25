@@ -56,7 +56,8 @@ data class ToolBatchRecoverySnapshot(
     val completedExchanges: List<AgentToolExchange> = emptyList(),
     val consumedCallIds: Set<String> = emptySet(),
     val pendingCompletedExchange: AgentToolExchange? = null,
-    val deliveredResultDigests: Map<String, String> = emptyMap()
+    val deliveredResultDigests: Map<String, String> = emptyMap(),
+    val savedPageReading: JsonObject? = null
 ) {
     val unknownCount: Int get() = unsettledCalls.size
 }
@@ -99,7 +100,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)
 
-    @Serializable private data class State(val binding: String, val schemaVersion: Int = 2, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap(), val jobContext: ToolBatchJobContext? = null, val consumedCallIds: Set<String> = emptySet(), val batches: List<List<String>> = emptyList(), val deliveredResultDigests: Map<String, String> = emptyMap())
+    @Serializable private data class State(val binding: String, val schemaVersion: Int = 2, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap(), val jobContext: ToolBatchJobContext? = null, val consumedCallIds: Set<String> = emptySet(), val batches: List<List<String>> = emptyList(), val deliveredResultDigests: Map<String, String> = emptyMap(), val savedPageReading: JsonObject? = null)
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
     private val json = Json {
         encodeDefaults = true
@@ -154,6 +155,9 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                         dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body) == digest
                 }
         ) { "Tool recovery ledger has invalid delivered-result proof." }
+        saved.savedPageReading?.let {
+            SavedPageReading.validate(it, saved.entries.mapValues { (_, entry) -> ToolHandoffReceipt.fingerprint(entry.call.event()) }, saved.deliveredResultDigests)
+        }
         if (!providerRecoveryValidated && (expectedProviderEvidenceDigest != null || expectedProviderJournalDigest != null)) {
             val receipts = saved.journalReceipts()
             ProviderRecoveryFailure.require(
@@ -343,8 +347,23 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         GitHubProviderReplayEvidence.settledHandoffDigest(checkpoint, receipts)
     }
 
+    /** A private reading round can append notes only for the exact invocation and bytes in this journal. */
+    internal suspend fun eligibleReadingSources(calls: Map<String, ProviderEvent.ToolCall>, bodies: Map<String, String?>): Set<String> = locked {
+        val state = read()
+        val acknowledged = SavedPageReading.fingerprints(state.savedPageReading)
+        bodies.filter { (id, digest) ->
+            val entry = state.entries[id]
+            val result = entry?.result
+            id !in acknowledged &&
+                result != null &&
+                calls[id] == entry.call.event() &&
+                result.canProveDelivery() &&
+                (result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)) == digest
+        }.keys
+    }
+
     /** Preserve legacy consumption while qualifying only the exact delivered checkpoint projection. */
-    suspend fun markConsumed(ids: Set<String>, deliveredResultDigests: Map<String, String> = emptyMap()) = locked {
+    suspend fun markConsumed(ids: Set<String>, deliveredResultDigests: Map<String, String> = emptyMap(), savedPageReading: JsonObject? = null) = locked {
         require(deliveredResultDigests.size <= ToolResultDeliveryProof.MAX_RESULTS && deliveredResultDigests.all { (id, digest) -> id in ids && ToolResultDeliveryProof.valid(digest) }) { "Delivered-result proof is malformed or exceeds capacity." }
         val state = read()
         val consumed = state.consumedCallIds + ids.filter { state.entries[it]?.result != null }
@@ -355,7 +374,22 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         // A summary can be consumed without proving its original source was read.
         // Later summaries also cannot erase a previously witnessed full projection.
         val delivered = state.deliveredResultDigests + matched
-        if (consumed != state.consumedCallIds || delivered != state.deliveredResultDigests) write(state.copy(consumedCallIds = consumed, deliveredResultDigests = delivered))
+        if (savedPageReading != null) {
+            if (matched.size != deliveredResultDigests.size) return@locked false
+            try {
+                SavedPageReading.requireAppend(state.savedPageReading, savedPageReading, deliveredResultDigests.keys)
+                SavedPageReading.validate(savedPageReading, state.entries.mapValues { (_, entry) -> ToolHandoffReceipt.fingerprint(entry.call.event()) }, delivered)
+            } catch (_: IllegalArgumentException) {
+                // Another runner can advance the journal between preparation and acknowledgement.
+                return@locked false
+            }
+        }
+        val reading = savedPageReading ?: state.savedPageReading
+        if (consumed != state.consumedCallIds || delivered != state.deliveredResultDigests || reading != state.savedPageReading) {
+            // The note and its full-body delivery proof are one AtomicFile transaction.
+            write(state.copy(consumedCallIds = consumed, deliveredResultDigests = delivered, savedPageReading = reading))
+        }
+        true
     }
 
     // A claimed call with no receipt may have executed. A saved pre-dispatch
@@ -427,6 +461,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 completedExchanges = state.settledExchanges(pendingIds.toSet()),
                 consumedCallIds = state.consumedCallIds,
                 deliveredResultDigests = state.deliveredResultDigests,
+                savedPageReading = state.savedPageReading,
                 // Observe these receipts once, but replay the assistant batch only
                 // after its unsettled members also have terminal results.
                 pendingCompletedExchange = pendingCompleted.takeIf { it.isNotEmpty() }?.let { settled ->
@@ -451,7 +486,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             // Both dispatcher handoffs must complete before releasing the guard.
             // A cancelled snapshot must leave the next restoration fenced.
             providerRecoveryValidated = true
-            return snapshot.copy(consumedCallIds = current.consumedCallIds, deliveredResultDigests = current.deliveredResultDigests, jobContext = current.jobContext)
+            return snapshot.copy(consumedCallIds = current.consumedCallIds, deliveredResultDigests = current.deliveredResultDigests, savedPageReading = current.savedPageReading, jobContext = current.jobContext)
         }
         return snapshot
     }

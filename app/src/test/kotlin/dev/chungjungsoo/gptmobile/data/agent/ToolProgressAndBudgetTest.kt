@@ -66,6 +66,41 @@ class ToolProgressAndBudgetTest {
         assertTrue((exhausted.content as ToolResultContent.Text).text.contains("Tool-result byte budget exhausted"))
     }
 
+    @Test fun capabilitySelectedReadersKeepSmallExcerptsAndStopFurtherDispatch() = runBlocking {
+        for (capability in listOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER)) {
+            var executions = 0
+            val observedAllowances = mutableListOf<Int?>()
+            val text = "Kotlin documentation https://kotlinlang.org " + "snippet ".repeat(30)
+            val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4, maxToolOutputBytes = 48))
+            val reader = budget.bind(object : AgentTool {
+                override val definition = AgentToolDefinition("current_reader", "Read source", buildJsonObject {}, capabilities = setOf(capability))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    executions++
+                    observedAllowances += kotlin.coroutines.coroutineContext[ToolOutputAllowance]?.bytes
+                    return AgentToolResult(callId, ToolResultContent.Text(text), false)
+                }
+            })
+
+            val result = reader.execute("source", buildJsonObject {})
+
+            assertFalse(result.isError)
+            assertEquals(listOf(48), observedAllowances)
+            assertTrue(result.outputBudgetExhausted)
+            assertEquals(48, result.toolResultBudgetUsedBytes)
+            assertEquals(48, result.toolResultBudgetLimitBytes)
+            assertEquals(text.take(48), (result.content as ToolResultContent.Text).text)
+            assertTrue((result.content as ToolResultContent.Text).text.contains("https://kotlinlang.org"))
+            assertEquals(text, (result.retainedContent as ToolResultContent.Text).text)
+            assertEquals(0, budget.remainingOutputBytes())
+            assertFalse(budget.canExecute())
+            val blocked = reader.execute("next-source", buildJsonObject {})
+            assertTrue(blocked.isError)
+            assertTrue(blocked.outputBudgetExhausted)
+            assertEquals(1, executions)
+            assertEquals(listOf(48), observedAllowances)
+        }
+    }
+
     @Test fun `zero or sub-codepoint budgets never produce an empty error`() = runBlocking {
         for (bytes in listOf(0, 1, 3)) {
             val tool = ToolExecutionBudget(AgentRunLimits(maxToolOutputBytes = bytes)).bind(object : AgentTool {

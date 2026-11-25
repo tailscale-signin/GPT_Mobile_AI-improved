@@ -4,7 +4,9 @@ import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
+import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -160,5 +162,159 @@ class ResponseContinuationPlanTest {
         val archived = kotlinx.serialization.json.Json.decodeFromString<CombinedRequestedPolicy>("""{"participantUids":["p"],"requestedModels":{"p":"model"},"userPrompt":"History","singlePass":true}""")
         assertFalse(archived.appendContinuations)
         assertFalse(archived.settings.continueLongAnswers)
+    }
+
+    @Test fun savedPageReadingSurvivesSourceEvictionHistoryCompactionAndAnswerTailTrimming() = kotlinx.coroutines.runBlocking {
+        val request = "Finish the answer using the retained page facts."
+        val reading = buildJsonObject {
+            put("schema", "saved_page_reading.v1")
+            put("evidence_kind", "UNTRUSTED_MODEL_DERIVED_NOTES_NOT_CURRENT_RAW_SOURCE")
+            put(
+                "reads",
+                kotlinx.serialization.json.buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put(
+                                "sources",
+                                buildJsonObject {
+                                    put(
+                                        "saved-page",
+                                        buildJsonObject {
+                                            put("invocation_sha256", "a".repeat(64))
+                                            put("body_sha256", "b".repeat(64))
+                                        }
+                                    )
+                                }
+                            )
+                            put("notes", "FIRST_REQUIRED_FACT: a quoted \"fact\".\nLAST_REQUIRED_FACT: preserve this exact note.")
+                        }
+                    )
+                }
+            )
+        }
+        val pendingCall = ProviderEvent.ToolCall("pending", "github_read", buildJsonObject { put("scope", "Pinned pending scope. ".repeat(2000)) })
+        val pending = AgentToolExchange(listOf(pendingCall), listOf(AgentToolResult("pending", ToolResultContent.Text("Pinned pending receipt."), false)))
+        val cursor = "retained-page:0:1"
+        val pageCall = ProviderEvent.ToolCall("saved-result-consume-${GitHubEvidenceBook.digest("github_read:$cursor").take(24)}", "github_read", buildJsonObject { put("view_cursor", cursor) })
+        val page = AgentToolExchange(listOf(pageCall), listOf(AgentToolResult(pageCall.callId, ToolResultContent.Text("OPTIONAL_SOURCE_BODY ".repeat(3000)), false, savedPageReading = reading)))
+        assertTrue(SavedViewRecoveryBatch.isComplete(page))
+        val exchanges = listOf(pending, page)
+        assertEquals(listOf("pending"), ToolExchangeCompactor.compact(exchanges, 8192, 8192 / 3).flatMap { it.calls }.map { it.callId })
+        val history = ConversationTurn(MessageV2(id = 0, chatId = 1, platformType = null, content = "OPTIONAL_OLD_HISTORY ".repeat(3000)), null, isCurrentTurn = false)
+        val draft = (1..4000).joinToString(" ") { "saved$it" }
+        val reopenedPlans = mutableListOf<dev.chungjungsoo.gptmobile.data.context.ContextPlan>()
+        val downstreamRequests = mutableListOf<String>()
+        val downstreamFacts = mutableListOf<String>()
+        val downstreamExchanges = mutableListOf<List<AgentToolExchange>>()
+        val downstreamSessions = mutableListOf<AgentProviderSession>()
+        val initial = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> =
+                kotlinx.coroutines.flow.flowOf(ProviderEvent.TextDelta(draft), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)
+        }
+        val output = GitHubOutputContinuationSession(initial, maxContinuations = 1) { savedDraft, retainedExchanges, definitions ->
+            assertEquals(draft, savedDraft)
+            assertEquals(exchanges, retainedExchanges)
+            val reopenedPlan = planResponseContinuation(
+                listOf(history, current(request)),
+                "Preserve the original request and distinguish observations from verification.",
+                TokenBudgetSettings(contextTokens = 4096, outputTokens = 512),
+                savedDraft,
+                "Finish the next outstanding section.",
+                retainedExchanges,
+                advertisedTools = definitions,
+                fitProviderBudget = true
+            )
+            reopenedPlans += reopenedPlan
+            val freshRequest = reopenedPlan.turns.single().userMessage.content
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> {
+                    downstreamRequests += freshRequest
+                    downstreamExchanges += exchanges
+                    assertTrue(exchanges.isEmpty())
+                    // This fresh session has only its reopened request, not the prior page fixture.
+                    val carriedJson = freshRequest.lineSequence().single { it.startsWith("{\"schema\":\"saved_page_reading.v1\"") }
+                    val carried = kotlinx.serialization.json.Json.parseToJsonElement(carriedJson) as kotlinx.serialization.json.JsonObject
+                    val facts = (carried.getValue("reads") as kotlinx.serialization.json.JsonArray).joinToString("\n") {
+                        ((it as kotlinx.serialization.json.JsonObject).getValue("notes") as kotlinx.serialization.json.JsonPrimitive).content
+                    }
+                    downstreamFacts += facts
+                    return kotlinx.coroutines.flow.flowOf(ProviderEvent.TextDelta("\n$facts"), ProviderEvent.Completed)
+                }
+            }.also { downstreamSessions += it }
+        }.streamRound(emptyList(), exchanges).toList()
+        assertEquals(1, downstreamSessions.size)
+        assertTrue(downstreamSessions.single() !== initial)
+        assertEquals(listOf(emptyList<AgentToolExchange>()), downstreamExchanges)
+        assertEquals("FIRST_REQUIRED_FACT: a quoted \"fact\".\nLAST_REQUIRED_FACT: preserve this exact note.", downstreamFacts.single())
+        assertEquals(draft + "\n" + downstreamFacts.single(), output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(output.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Failed })
+        assertEquals(ProviderEvent.Completed, output.last())
+        val plan = reopenedPlans.single()
+        val sent = plan.turns.single().userMessage.content
+        assertEquals(sent, downstreamRequests.single())
+        assertTrue(sent.startsWith(request))
+        assertTrue(sent.contains(reading.toString()))
+        assertTrue(sent.contains(requireNotNull(SavedPageReading.instruction(exchanges))))
+        assertTrue(sent.contains("untrusted model-derived notes") && sent.contains("not that those raw bodies are in this request or that any claim is verified"))
+        assertTrue(sent.contains("github_read") && sent.contains("saved4000"))
+        assertFalse(sent.contains("OPTIONAL_SOURCE_BODY") || sent.contains("OPTIONAL_OLD_HISTORY") || sent.contains("saved1 saved2"))
+        val prompt = plan.promptTokens.toLong()
+        assertTrue(prompt + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(prompt) + 512 <= 4096)
+        assertEquals(reading, page.results.single().savedPageReading)
+    }
+
+    @Test fun mandatorySavedPageReadingCapacityRefusesBeforeDispatchWithoutTruncation() {
+        val reading = buildJsonObject {
+            put("schema", "saved_page_reading.v1")
+            put("evidence_kind", "UNTRUSTED_MODEL_DERIVED_NOTES_NOT_CURRENT_RAW_SOURCE")
+            put(
+                "reads",
+                kotlinx.serialization.json.buildJsonArray {
+                    repeat(20) { index ->
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "sources",
+                                    buildJsonObject {
+                                        put(
+                                            "saved-page-$index",
+                                            buildJsonObject {
+                                                put("invocation_sha256", "a".repeat(64))
+                                                put("body_sha256", "b".repeat(64))
+                                            }
+                                        )
+                                    }
+                                )
+                                put("notes", "Mandatory page observation. ".repeat(40))
+                            }
+                        )
+                    }
+                }
+            )
+        }
+        val call = ProviderEvent.ToolCall("saved-page", "github_read", buildJsonObject {})
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("Small optional source projection."), false, savedPageReading = reading)
+        val exchanges = listOf(AgentToolExchange(listOf(call), listOf(result)))
+        var dispatched = 0
+        for (fitProviderBudget in listOf(false, true)) {
+            for (draft in listOf("", "Retained partial answer.")) {
+                val error = runCatching {
+                    planResponseContinuation(
+                        listOf(current("Finish the original answer.")),
+                        "Retain the saved evidence.",
+                        TokenBudgetSettings(contextTokens = 1024, outputTokens = 256),
+                        draft,
+                        "Continue.",
+                        exchanges,
+                        fitProviderBudget = fitProviderBudget
+                    ).also { dispatched++ }
+                }.exceptionOrNull()
+                assertTrue(error is IllegalArgumentException)
+                assertTrue(error?.message.orEmpty().contains("CONTINUATION_CONTEXT_CAPACITY"))
+                assertTrue(error?.message.orEmpty().contains("No request was dispatched"))
+            }
+        }
+        assertEquals(0, dispatched)
+        assertEquals(reading, result.savedPageReading)
     }
 }

@@ -88,6 +88,35 @@ internal object GitHubStatusRequest {
         }
         call("github_context", buildJsonObject { put("action", "status") })?.let { return it }
         if (head != null) {
+            val scopedChecks = selectedReceipts.values.filter { row ->
+                contextTool != null &&
+                    sameOperation((row["tool"] as? JsonPrimitive)?.content.orEmpty(), contextTool.name) &&
+                    GitHubStatusEvidence.operation(row, "github_context", "checks") &&
+                    fresh(row)
+            }
+            val lastCheck = scopedChecks.lastOrNull()
+            val lastArgs = lastCheck?.get("arguments") as? JsonObject
+            val lastData = lastCheck?.let(GitHubStatusEvidence::data)
+            if (lastCheck?.get("error_code") == JsonPrimitive("GITHUB_PAGINATION_INCOMPLETE") &&
+                lastCheck["success"] == JsonPrimitive(false) &&
+                lastArgs != null &&
+                lastData != null &&
+                GitHubStatusEvidence.changedCheckHead(lastArgs, lastData) == head &&
+                scopedChecks.none { row ->
+                    val args = row["arguments"] as? JsonObject
+                    args?.get("commit_sha") == JsonPrimitive(head) && args["verify_live"] == JsonPrimitive(true) && (args["page"] ?: JsonPrimitive(1)) == JsonPrimitive(1)
+                }
+            ) {
+                call(
+                    "github_context",
+                    buildJsonObject {
+                        put("action", "checks")
+                        put("commit_sha", head)
+                        put("page", 1)
+                        put("verify_live", true)
+                    }
+                )?.let { return it }
+            }
             call(
                 "github_context",
                 buildJsonObject {
@@ -310,5 +339,6 @@ internal object GitHubStatusRequest {
 
     fun isGreeting(text: String): Boolean = GitHubTaskContinuity.request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '?', '!').trim() in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
 
-    const val INSTRUCTION = "Status: inspect the current repository/branch, recent commits, open PRs and latest checks with bounded read-only calls. Keep checks and their continuation pages pinned to the observed commit. A health request also requires branch policy, recent failures and current PR review decisions. Respect the accepted call allowance; unavailable or incomplete observations remain partial. Do not read source, resume work, edit or poll. Separate latest workflow from required checks; unknown worktree/tests stay unknown."
+    const val INSTRUCTION = "Status: read-only selected repo/branch, recent commits, open PRs and checks; pin all pages to selected repo and observed SHA. Health needs branch policy, recent failures and current PR review decisions. Keep call limits; missing/incomplete data stays partial. Do not read source, resume work, edit or poll. Separate latest workflow from required checks; unknown worktree/tests stay unknown."
+    const val DETAIL_INSTRUCTION = "Keep continuation pages pinned to the same repository and commit. Do not read source, resume work, edit or poll. Distinguish the latest workflow from required checks and leave unknown worktree or test results unverified."
 }

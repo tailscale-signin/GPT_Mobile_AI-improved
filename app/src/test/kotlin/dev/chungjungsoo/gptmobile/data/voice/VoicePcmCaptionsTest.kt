@@ -56,7 +56,7 @@ class VoicePcmCaptionsTest {
     @Test fun expansionCanCrossPhraseLimitWithoutLosingItsOriginalRange() {
         val text = "go ".repeat(15) + "API done."
         val phrases = KokoroSpeechText.timed(text) { true }.phrases!!
-        assertEquals(listOf("go ".repeat(15) + "a", "p i done."), phrases.map { it.speech })
+        assertEquals(listOf("go ".repeat(15).trimEnd(), "a p i done."), phrases.map { it.speech })
         assertEquals(listOf("API", "API", "API", "done"), phrases.flatMap { it.wordRanges }.takeLast(4).map { text.substring(it) })
     }
 

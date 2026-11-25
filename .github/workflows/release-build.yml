@@ -162,8 +162,9 @@ jobs:
           python3 scripts/check_android_unit_compile_memory.py | tee release-validation-unit-memory.log
           python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/release-validation-unit-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee release-validation-unit-compile.log
       - name: Run release validation unit tests
-        timeout-minutes: 25
-        run: python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --no-daemon --max-workers=1 --console=plain
+        # The full suite was still passing when preview run 45517338096 reached 25 minutes.
+        timeout-minutes: 55
+        run: python3 scripts/gradle_retry.py --timeout-seconds 3180 -- :app:testDebugUnitTest --no-daemon --max-workers=1 --console=plain
       - name: Lint debug in a separate process
         timeout-minutes: 65
         run: python3 scripts/gradle_retry.py --timeout-seconds 3840 -- :app:lintDebug --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
@@ -245,7 +246,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: bash scripts/install_android_native_dependencies.sh
+        run: bash scripts/install_android_native_dependencies.sh --release-apks
       - name: Require green main checks on this exact candidate
         id: main_checks
         if: github.ref_name == 'main'
@@ -284,6 +285,7 @@ jobs:
           python3 scripts/android_pipeline.py --variant release --phase package --output build/reports/pipeline/package.json
           rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
           python3 scripts/android_pipeline.py --variant release --phase bundle --output build/reports/pipeline/bundle.json
+          python3 scripts/optimize_release_apks.py --zipalign "$ANDROID_HOME/build-tools/37.0.0/zipalign" app/build/outputs/apk/release/*-unsigned.apk
       - name: Sign and verify APKs and bundle
         env:
           EXPECTED_CERT_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}
@@ -324,8 +326,8 @@ jobs:
           test -n "$(find release-artifacts -name '*.apk' -print -quit)"
           python3 scripts/check_local_runtime_apk.py release-artifacts/*.apk
           python3 scripts/check_no_telemetry.py release-artifacts/*.apk
-          python3 scripts/check_apk_size.py release-artifacts --build-type release --report release-apk-size-report.json
           python3 scripts/inventory_optional_payloads.py release-artifacts/*.apk --output release-artifacts/optional-payload-inventory.json
+          python3 scripts/check_apk_size.py release-artifacts --build-type release --report release-apk-size-report.json
           python3 scripts/check_mediapipe_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_objectbox_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_play_bundle.py app/build/outputs/bundle/release/*.aab
@@ -414,7 +416,9 @@ jobs:
         with:
           retention-days: 14
           name: signed-apk-size-${{ github.sha }}
-          path: release-apk-size-report.json
+          path: |
+            release-apk-size-report.json
+            release-artifacts/optional-payload-inventory.json
           if-no-files-found: ignore
 
       - name: Retain release performance and shrinker reports

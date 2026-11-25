@@ -63,8 +63,8 @@ internal data class VoiceSpeechCaptionManifest(val hash: String, val spans: Set<
 }
 
 internal object VoiceSpeechPlaybackProtocol {
-    const val VERSION = 4
-    const val MAX_SAMPLES_PER_BACKEND = 48
+    const val VERSION = 5
+    const val MAX_SAMPLES_PER_BACKEND = 96
     const val MAX_CHUNKS_PER_SAMPLE = 128
     const val FIRST_AUDIO_TARGET_MS = 5_000L
     const val CANCELLATION_TARGET_MS = 500L
@@ -86,7 +86,8 @@ internal object VoiceSpeechPlaybackProtocol {
     }
 
     fun plans(configuration: VoiceSpeechBenchmarkConfiguration): List<VoiceSpeechPlaybackPlan> {
-        val full = configuration.mode == VoiceSpeechBenchmarkMode.FULL
+        val full = configuration.mode != VoiceSpeechBenchmarkMode.QUICK
+        val stability = configuration.mode == VoiceSpeechBenchmarkMode.STABILITY
         val repeats = if (full) 5 else 2
         val long = VoiceSpeechBenchmarkFixture.LONG.text
         return configuration.playbackScenarios.flatMap { scenario ->
@@ -98,9 +99,10 @@ internal object VoiceSpeechPlaybackProtocol {
                 VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS -> List(repeats) {
                     VoiceSpeechPlaybackPlan(scenario, it, long.split(Regex("(?<=[.!?])\\s+")).filter(String::isNotBlank), expectedResident = it > 0, arrivalIntervalMs = 500)
                 }
-                VoiceSpeechPlaybackScenario.VARIED_SHAPES -> List(repeats + 1) {
-                    val fixture = VoiceSpeechBenchmarkFixture.entries[it % VoiceSpeechBenchmarkFixture.entries.size]
-                    VoiceSpeechPlaybackPlan(scenario, it, listOf(fixture.text), expectedResident = it > 0)
+                VoiceSpeechPlaybackScenario.VARIED_SHAPES -> List(if (stability) 1 + configuration.mode.warmRepeats * VoiceSpeechBenchmarkFixture.entries.size else repeats + 1) {
+                    val index = if (stability && it > 0) it - 1 else it
+                    val fixture = VoiceSpeechBenchmarkFixture.entries[index % VoiceSpeechBenchmarkFixture.entries.size]
+                    VoiceSpeechPlaybackPlan(scenario, it, listOf(fixture.text), warmup = stability && it == 0, expectedResident = it > 0)
                 }
                 VoiceSpeechPlaybackScenario.SUSTAINED -> listOf(
                     VoiceSpeechPlaybackPlan(scenario, 0, listOf(List(6) { long }.joinToString(" ")))

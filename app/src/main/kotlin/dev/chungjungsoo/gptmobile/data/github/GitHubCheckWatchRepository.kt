@@ -9,10 +9,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.agent.ToolRunContext
 import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringApiException
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApiFactory
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord
@@ -34,6 +36,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -69,7 +72,11 @@ internal data class GitHubCheckWatch(
     val failureCount: Int = 0,
     val followPullRequest: Boolean = false,
     val permissionRevision: String = "",
-    val observationGeneration: Long = 0
+    val observationGeneration: Long = 0,
+    val runAttempt: Int? = null,
+    val accountScopeHash: String = "",
+    val allChecks: Boolean = false,
+    val waitingTasks: List<GitHubCiWatchTask> = emptyList()
 ) {
     val terminal: Boolean get() = status !in setOf("RUNNING", "UNKNOWN", "NONE", "RETRYING") && !(followPullRequest && status in setOf("PASSED", "FAILED", "SKIPPED"))
 }
@@ -104,12 +111,19 @@ class GitHubCheckWatchRepository @Inject constructor(
         val connection = requireNotNull(connections.getConnection(watch.connectionUid)) { "GitHub connection removed." }
         val permission = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl)
         require(connection.type == "GITHUB" && (if (watch.permissionRevision.isBlank()) connection.updatedAt == watch.connectionUpdatedAt else watch.permissionRevision == permission)) { "GitHub permissions changed; start a new watch." }
+        if (watch.accountScopeHash.isNotEmpty()) {
+            require(watch.accountScopeHash == GitHubRepositoryStateStore.digest(auth.durableIdentity(watch.connectionUid))) { "The GitHub account changed. Open a new check watch for the current account." }
+        }
         val savedFeatures = settings.getFeatureSettings()
-        val scope = savedFeatures.conversationGitHub[watch.chatId]?.takeIf {
+        val selected = savedFeatures.conversationGitHub[watch.chatId]
+        val scope = selected?.takeIf {
             it.connectionUid == watch.connectionUid &&
                 it.mainProfileUid == watch.profileUid &&
                 it.owner.equals(watch.owner, ignoreCase = true) &&
                 it.repo.equals(watch.repo, ignoreCase = true)
+        }
+        if (selected != null && scope == null) {
+            throw GitHubReadValidation("PERMISSION_DENIED", buildJsonObject { put("message", "This conversation now uses a different repository, profile or GitHub connection. Reopen its current check card.") })
         }
         val features = GitHubChatPolicy.features(savedFeatures, watch.profileUid, scope)
         val profile = settings.fetchPlatformV2s().firstOrNull { it.uid == watch.profileUid }
@@ -161,14 +175,17 @@ class GitHubCheckWatchRepository @Inject constructor(
         var reattached = false
         mutex.withLock {
             val existing = workspace.dao.get(id)?.let(::decode)
-            val replace = existing == null || existing.terminal || existing.headSha != initial.headSha
+            val sameAuthority = existing != null && existing.headSha == initial.headSha && existing.permissionRevision == initial.permissionRevision && existing.accountScopeHash == initial.accountScopeHash
+            val replace = !sameAuthority || requireNotNull(existing).terminal || !initial.allChecks && existing.runAttempt != initial.runAttempt
+            val tasks = ((existing?.waitingTasks.orEmpty().takeIf { sameAuthority && existing?.terminal == false }).orEmpty() + initial.waitingTasks).distinctBy { it.sourceMessageId }
+            require(tasks.size <= 20) { "This watch already has 20 waiting tasks." }
             require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
             if (replace) {
-                save(initial)
-                durableWatch = initial
-            } else if (requireNotNull(existing).followPullRequest != initial.followPullRequest) {
-                save(existing.copy(followPullRequest = initial.followPullRequest))
-                durableWatch = existing.copy(followPullRequest = initial.followPullRequest)
+                durableWatch = initial.copy(waitingTasks = tasks)
+                save(durableWatch)
+            } else if (requireNotNull(existing).followPullRequest != initial.followPullRequest || existing.waitingTasks != tasks) {
+                durableWatch = existing.copy(followPullRequest = initial.followPullRequest, waitingTasks = tasks)
+                save(durableWatch)
                 reattached = true
             } else {
                 durableWatch = requireNotNull(existing)
@@ -192,6 +209,8 @@ class GitHubCheckWatchRepository @Inject constructor(
             put("head_sha", initial.headSha)
             initial.pullNumber?.let { put("pr_number", it) }
             initial.runId?.let { put("run_id", it) }
+            initial.runAttempt?.let { put("run_attempt", it) }
+            if (initial.allChecks) put("all_checks", true)
             put("status", "SUBSCRIBED")
             put("background_subscription", true)
             put("monitoring_transport", "ANDROID_BACKGROUND_POLLING")
@@ -210,6 +229,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         put("detail", watch.detail)
         put("observed_at_ms", watch.updatedAt)
         watch.runId?.let { put("run_id", it) }
+        if (watch.allChecks) put("all_checks", true)
         watch.pullNumber?.let { put("pr_number", it) }
     }
 
@@ -223,22 +243,45 @@ class GitHubCheckWatchRepository @Inject constructor(
         require(pull != null || run != null) { "Supply pr_number or run_id." }
         require((pull == null || pull > 0) && (run == null || run > 0)) { "PR and workflow run IDs must be positive." }
         val connection = requireNotNull(connections.getConnection(connectionUid))
-        val id = "github-checks:" + GitHubRepositoryStateStore.digest("$chatId|$connectionUid|$profileUid|$owner/$repo|$pull|$run")
+        val allChecks = args["all_checks"] == JsonPrimitive(true)
+        val requestedHead = args["commit_sha"]?.jsonPrimitive?.contentOrNull
+        require(!allChecks || requestedHead?.matches(Regex("[a-fA-F0-9]{40}")) == true) { "All-check monitoring requires an exact commit_sha." }
+        val target = if (allChecks) "all|$pull|${requestedHead?.lowercase()}" else "$pull|$run"
+        val id = "github-checks:" + GitHubRepositoryStateStore.digest("$chatId|$connectionUid|$profileUid|$owner/$repo|$target")
         val follow = args["follow_pr"]?.jsonPrimitive?.booleanOrNull == true
         require(!follow || pull != null && run == null) { "Follow PR requires pr_number without a fixed run_id." }
-        val initial = GitHubCheckWatch(id, chatId, connectionUid, profileUid, owner, repo, pull, run, "", connection.updatedAt, followPullRequest = follow, permissionRevision = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl))
+        val provisional = GitHubCheckWatch(id, chatId, connectionUid, profileUid, owner, repo, pull, run, "", connection.updatedAt, followPullRequest = follow, permissionRevision = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl))
+        val initial = if (background) {
+            api(provisional, true)
+            auth.accessToken(connection)
+            provisional.copy(accountScopeHash = GitHubRepositoryStateStore.digest(auth.durableIdentity(connectionUid)))
+        } else {
+            provisional
+        }
         val api = api(initial, background)
         val pullData = pull?.let { Json.parseToJsonElement(api.request("$root/pulls/$it")).jsonObject }
         val pullHead = pullData?.get("head")?.jsonObject?.get("sha")?.jsonPrimitive?.content
         val branch = pullData?.get("head")?.jsonObject?.get("ref")?.jsonPrimitive?.contentOrNull.orEmpty()
         val draft = pullData?.get("draft")?.jsonPrimitive?.booleanOrNull == true
-        val runHead = run?.let { Json.parseToJsonElement(api.request("$root/actions/runs/$it")).jsonObject["head_sha"]?.jsonPrimitive?.content }
+        val runData = run?.let { Json.parseToJsonElement(api.request("$root/actions/runs/$it")).jsonObject }
+        val runHead = runData?.get("head_sha")?.jsonPrimitive?.content
+        val attempt = runData?.get("run_attempt")?.jsonPrimitive?.intOrNull
+        if ("run_attempt" in args) {
+            val expected = args["run_attempt"]?.jsonPrimitive?.intOrNull
+            require(run != null && expected != null && expected > 0 && attempt == expected) { "The observed workflow attempt changed. Refresh this run before subscribing." }
+        }
         require(pullHead == null || runHead == null || pullHead == runHead) { "The workflow run belongs to a different PR revision." }
         val head = requireNotNull(pullHead ?: runHead).also { require(it.matches(Regex("[a-fA-F0-9]{40}"))) }
         args["commit_sha"]?.jsonPrimitive?.content?.let { expected ->
             require(expected.equals(head, true)) { "The PR or run head differs from commit_sha. Refresh the exact revision before subscribing." }
         }
-        return initial.copy(headSha = head, branch = branch, draft = draft)
+        if (background) api(initial, true)
+        val task = if (background && allChecks) {
+            kotlin.coroutines.coroutineContext[ToolRunContext]?.runId?.let { GitHubCiWatchTask.capture(it, chatId, profileUid, owner, repo, workspace.database, settings) }
+        } else {
+            null
+        }
+        return initial.copy(headSha = head, branch = branch, draft = draft, runAttempt = attempt, allChecks = allChecks, waitingTasks = listOfNotNull(task))
     }
 
     internal suspend fun refresh(id: String) {
@@ -254,6 +297,10 @@ class GitHubCheckWatchRepository @Inject constructor(
                 watch.pullNumber?.let { put("pr_number", it) }
                 watch.runId?.let { put("run_id", it) }
                 put("follow_pr", watch.followPullRequest)
+                if (watch.allChecks) {
+                    put("all_checks", true)
+                    put("commit_sha", watch.headSha)
+                }
             },
             trigger = GitHubWatchTrigger.EXPLICIT_REFRESH
         )
@@ -298,7 +345,7 @@ class GitHubCheckWatchRepository @Inject constructor(
             watch.copy(status = "EXPIRED", detail = "Background watch expired. CI has not been verified.")
         } else {
             try {
-                inspect(watch, api(watch))
+                inspect(watch, api(watch)).also { if (watch.accountScopeHash.isNotEmpty()) api(watch) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: EngineeringApiException) {
@@ -325,6 +372,79 @@ class GitHubCheckWatchRepository @Inject constructor(
                 current?.terminal ?: true
             }
         }
+    }
+
+    /** Recheck the captured account and scope after waiting in the durable queue. */
+    internal suspend fun validateQueuedContinuation(prompt: dev.chungjungsoo.gptmobile.data.queue.PendingPrompt): Boolean {
+        val payload = prompt.details()
+        val continuation = payload.githubCiWatch ?: return false
+        val watch = workspace.dao.get(continuation.watchId)?.let(::decode) ?: return false
+        val descriptor = payload.recovery ?: return false
+        val prior = workspace.database.agentRunDao().getById(descriptor.generationId) ?: return false
+        val original = workspace.database.agentPersistenceDao().rawRecoveryMessage(descriptor.sourceMessageId) ?: return false
+        val room = workspace.database.agentPersistenceDao().getChatRoom(prompt.chatId) ?: return false
+        if (!continuation.matches(prompt, watch, prior, original, room)) return false
+        val current = GitHubCiWatchTask.capture(prior.runId, watch.chatId, watch.profileUid, watch.owner, watch.repo, workspace.database, settings)
+        if (current != continuation.task(payload)) return false
+        val selected = settings.getFeatureSettings().conversationGitHub[watch.chatId] ?: return false
+        if (selected.copy(commitSha = watch.headSha) != payload.tools.github) return false
+        try {
+            api(watch)
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+        return true
+    }
+
+    /** A persistent queue key fences delivery if the worker restarts after inserting the continuation. */
+    internal suspend fun deliverTerminalTasks(id: String, queue: dagger.Lazy<DurablePromptQueue>): Boolean {
+        val watch = mutex.withLock { workspace.dao.get(id)?.let(::decode) } ?: return true
+        if (!watch.allChecks || watch.waitingTasks.isEmpty() || watch.status !in setOf("PASSED", "FAILED", "SKIPPED")) return true
+        val initialApi = try {
+            api(watch)
+        } catch (_: IllegalArgumentException) {
+            return true
+        }
+        val prepared = watch.waitingTasks.map { it to it.prepare(watch, workspace.database, settings, initialApi) }
+        return mutex.withLock {
+            val current = workspace.dao.get(id)?.let(::decode)
+            // Equality includes the head, authority, generation, status and exact task membership.
+            // Cancellation or a replacement wins over the suspended remote read.
+            if (current != watch) return@withLock terminalDeliverySettled(watch, current)
+            val remaining = mutableListOf<GitHubCiWatchTask>()
+            for ((task, delivery) in prepared) {
+                when (delivery) {
+                    GitHubCiWatchTask.Delivery.Waiting -> remaining += task
+                    GitHubCiWatchTask.Delivery.Discarded -> Unit
+                    is GitHubCiWatchTask.Delivery.Ready -> {
+                        val ready = task.currentDelivery(watch, workspace.database, settings)
+                        if (ready is GitHubCiWatchTask.Delivery.Ready) {
+                            try {
+                                api(watch)
+                            } catch (_: IllegalArgumentException) {
+                                return@withLock true
+                            }
+                            val latest = workspace.dao.get(id)?.let(::decode)
+                            if (latest != watch) return@withLock terminalDeliverySettled(watch, latest)
+                            val key = "github-ci-task:${watch.id}:${watch.headSha}:${task.sourceMessageId}"
+                            queue.get().enqueue(watch.chatId, "Continue", ready.payload, key)
+                        } else if (ready == GitHubCiWatchTask.Delivery.Waiting) {
+                            remaining += task
+                        }
+                    }
+                }
+            }
+            if (remaining.size != watch.waitingTasks.size) save(watch.copy(waitingTasks = remaining))
+            remaining.isEmpty()
+        }
+    }
+
+    private fun terminalDeliverySettled(observed: GitHubCheckWatch, current: GitHubCheckWatch?): Boolean {
+        if (current == null) return true
+        // An active/replaced watch owns its own polling chain. A changed task set on
+        // this same terminal snapshot must be retried rather than silently consumed.
+        val sameTerminal = current.copy(observationGeneration = observed.observationGeneration, waitingTasks = observed.waitingTasks) == observed
+        return !sameTerminal || current.waitingTasks.isEmpty()
     }
 
     internal suspend fun scheduleNext(id: String) = withContext(Dispatchers.IO) {
@@ -374,9 +494,12 @@ class GitHubCheckWatchRepository @Inject constructor(
             }
             closedPullRequestWatch(watch, pull)?.let { return it }
         }
-        if (watch.runId != null) {
+        if (watch.runId != null && !watch.allChecks) {
             val run = Json.parseToJsonElement(api.request("$root/actions/runs/${watch.runId}")).jsonObject
             require(run["head_sha"]?.jsonPrimitive?.content == watch.headSha) { "Workflow revision changed." }
+            if (watch.runAttempt != null && run["run_attempt"]?.jsonPrimitive?.intOrNull != watch.runAttempt) {
+                return observed.copy(status = "STALE", detail = "A new workflow attempt started. Refresh this watch to observe the current attempt.", health = null)
+            }
             // A paired PR/run subscription must fence the PR on both sides of the run read.
             // The immutable run can pass while a concurrent push changes the mutable PR.
             if (watch.pullNumber != null) {
@@ -399,14 +522,32 @@ class GitHubCheckWatchRepository @Inject constructor(
             runs += rows
             if (rows.size < 100 || runs.size >= total) break
         }
-        val statuses = Json.parseToJsonElement(api.request("$root/commits/${watch.headSha}/status?per_page=100")).jsonObject
+        val statusPath = "$root/commits/${watch.headSha}/status?per_page=100"
+        var statuses = Json.parseToJsonElement(api.request(statusPath)).jsonObject
+        if (watch.allChecks && (statuses["total_count"]?.jsonPrimitive?.intOrNull ?: 0) > 100) {
+            val totalStatuses = statuses["total_count"]?.jsonPrimitive?.intOrNull
+            val contexts = statuses["statuses"]?.jsonArray.orEmpty().toMutableList()
+            for (page in 2..10) {
+                if (contexts.size >= requireNotNull(totalStatuses)) break
+                val next = Json.parseToJsonElement(api.request("$statusPath&page=$page")).jsonObject
+                if (next["total_count"] != statuses["total_count"] || next["state"] != statuses["state"]) return observed.copy(status = "UNKNOWN", detail = "Commit status inventory changed during pagination.")
+                val rows = next["statuses"]?.jsonArray.orEmpty()
+                contexts += rows
+                if (rows.size < 100) break
+            }
+            statuses = JsonObject(statuses + ("statuses" to JsonArray(contexts)))
+        }
         val summary = gitHubCheckSummary(
             buildJsonObject {
                 put("total_count", total)
                 put("check_runs", JsonArray(runs))
             },
-            statuses
+            statuses,
+            waitForAll = watch.allChecks
         )
+        if (watch.pullNumber == null) {
+            return observed.copy(status = summary, detail = "Checks at ${watch.headSha.take(12)}", retryAt = 0)
+        }
         val health = try {
             gitHubPullRequestHealth(Json.parseToJsonElement(api.pullRequestHealth(watch.owner, watch.repo, requireNotNull(watch.pullNumber).toInt())).jsonObject, watch.headSha)
         } catch (cancelled: CancellationException) {

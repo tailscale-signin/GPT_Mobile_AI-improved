@@ -99,14 +99,40 @@ class KokoroStreamingOutputTest {
         }
     }
 
+    /** Dictionary prewarming borrows assets briefly before native model preparation takes its own lease. */
+    private class MappedAssetLeases(models: LocalVoiceModelStore) {
+        private val held = AtomicInteger()
+        private val mapped = AtomicBoolean()
+        private val releasedWhileMapped = AtomicBoolean()
+
+        init {
+            every { models.acquireUse() } answers {
+                held.incrementAndGet()
+                true
+            }
+            every { models.releaseUse() } answers {
+                if (held.decrementAndGet() <= 0 && mapped.get()) releasedWhileMapped.set(true)
+            }
+        }
+
+        fun markNativeOpen() {
+            assertEquals("Native preparation must hold one independent model lease", 1, held.get())
+            mapped.set(true)
+        }
+
+        fun assertNativeAssetsRetained() {
+            assertFalse("Mapped assets were released before native retirement", releasedWhileMapped.get())
+            assertEquals("Only the quarantined native owner should retain a lease", 1, held.get())
+        }
+    }
+
     @Test fun failedNativeDestructionRetainsTheModelLeaseAndBlocksReplacement() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val directory = Files.createTempDirectory("failed-speech-retirement").toFile()
         File(directory, KokoroVoice.HEART.lexicon).writeText(listOf("here", "the", "you", "hello", "word", "voice", "answer", "this", "that", "read").joinToString("\n") { "$it HH" })
         val models = mockk<LocalVoiceModelStore>()
         every { models.isInstalled() } returns true
-        every { models.acquireUse() } returns true
-        every { models.releaseUse() } returns Unit
+        val leases = MappedAssetLeases(models)
         every { models.modelDirectory() } returns directory
         val created = CountDownLatch(1)
         val closed = CountDownLatch(1)
@@ -115,6 +141,7 @@ class KokoroStreamingOutputTest {
             override val identity = "failed-retirement-model"
             override val selectedBackend = VoiceSpeechBackend.GATEWAY_CUDA
             override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+                leases.markNativeOpen()
                 creations.incrementAndGet()
                 created.countDown()
                 return object : VoicePhraseEngine {
@@ -138,7 +165,7 @@ class KokoroStreamingOutputTest {
             output.close()
             assertFalse(output.awaitClosed(1_000))
             assertEquals(1, creations.get())
-            verify(exactly = 0) { models.releaseUse() }
+            leases.assertNativeAssetsRetained()
         } finally {
             output.close()
             directory.deleteRecursively()
@@ -151,8 +178,7 @@ class KokoroStreamingOutputTest {
         File(directory, KokoroVoice.HEART.lexicon).writeText(listOf("here", "the", "you", "hello", "word", "voice", "answer", "this", "that", "read").joinToString("\n") { "$it HH" })
         val models = mockk<LocalVoiceModelStore>()
         every { models.isInstalled() } returns true
-        every { models.acquireUse() } returns true
-        every { models.releaseUse() } returns Unit
+        val leases = MappedAssetLeases(models)
         every { models.modelDirectory() } returns directory
         val failed = CountDownLatch(1)
         val pending = AtomicBoolean()
@@ -161,6 +187,7 @@ class KokoroStreamingOutputTest {
             override val selectedBackend = VoiceSpeechBackend.GATEWAY_CUDA
             override val nativeCleanupPending: Boolean get() = pending.get()
             override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+                leases.markNativeOpen()
                 pending.set(true)
                 failed.countDown()
                 error("Native task initialization and cleanup failed")
@@ -173,7 +200,7 @@ class KokoroStreamingOutputTest {
             assertTrue(failed.await(3, TimeUnit.SECONDS))
             output.close()
             assertFalse(output.awaitClosed(1_000))
-            verify(exactly = 0) { models.releaseUse() }
+            leases.assertNativeAssetsRetained()
         } finally {
             output.close()
             directory.deleteRecursively()
@@ -734,8 +761,14 @@ class KokoroStreamingOutputTest {
                 // The first caption may be delivered after the first 2400-frame queue
                 // slice, before the worker writes the rest of this known 4800-frame chunk.
                 assertTrue(PausePcmTrack.writes.sumOf { it.size } in 1..4_800)
+                assertTrue(
+                    "The first chunk must drain while the producer holds the tail",
+                    awaitMainCondition {
+                        output.synthesisFeedback.value.bufferState == "refilling" && PausePcmTrack.writes.sumOf { it.size } == 4_800
+                    }
+                )
                 release.countDown()
-                awaitMain(cleared)
+                awaitMain(cleared, advancePlaybackClock = true)
                 assertEquals(0L, cleared.count)
                 assertFalse(returned.get())
                 val final = timings.first { it.first.isEmpty() }.second
@@ -976,9 +1009,11 @@ class KokoroStreamingOutputTest {
         return condition()
     }
 
-    private fun awaitMain(latch: CountDownLatch) {
+    private fun awaitMain(latch: CountDownLatch, advancePlaybackClock: Boolean = false) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
         while (latch.count > 0 && System.nanoTime() < deadline) {
+            // The playback worker measures its refill deadline on Android's clock. A paused looper keeps that clock still.
+            if (advancePlaybackClock) ShadowSystemClock.advanceBy(10, TimeUnit.MILLISECONDS)
             shadowOf(Looper.getMainLooper()).idle()
             latch.await(10, TimeUnit.MILLISECONDS)
         }

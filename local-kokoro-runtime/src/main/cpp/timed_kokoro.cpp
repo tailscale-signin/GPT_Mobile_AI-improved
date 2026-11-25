@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <unistd.h>
 #if defined(__ANDROID__)
@@ -63,6 +64,7 @@ struct Frontend {
     std::ifstream dictionary(lexicon_path);
     Require(token_file.good() && dictionary.good(), "Kokoro dictionary unavailable");
     symbols = sherpa_onnx::ReadTokens(token_file);
+    for (const auto &symbol : symbols) vocabulary_ids.insert(symbol.second);
     for (auto &entry : sherpa_onnx::ParseLexiconFile(dictionary, nullptr)) {
       std::vector<int32_t> ids;
       for (const auto &phone : entry.phonemes) {
@@ -74,6 +76,7 @@ struct Frontend {
   }
 
   Phrase Encode(const std::string &text) const {
+    std::lock_guard<std::mutex> guard(encode_lock);
     const int bytes = static_cast<int>(std::min<size_t>(text.size(), INT32_MAX));
     if (text.empty()) throw kokoro_runtime::InputFailure("FRONTEND_INPUT_EMPTY", bytes);
     if (text.size() > kokoro_runtime::kInputByteLimit)
@@ -118,6 +121,37 @@ struct Frontend {
     return phrase;
   }
 
+  Phrase FromEncoded(JNIEnv *env, jlongArray ids, jintArray ranges, int bytes) const {
+    const int count = ids ? env->GetArrayLength(ids) : 0;
+    const int size = ranges ? env->GetArrayLength(ranges) : 0;
+    if (bytes < 1 || bytes > kokoro_runtime::kInputByteLimit || count < 3 || count > max_tokens + 1 ||
+        size < 2 || size % 2 != 0 || size / 2 > count - 2)
+      throw kokoro_runtime::InputFailure("FRONTEND_INPUT_INVALID", bytes, count);
+    std::vector<jlong> tokens(count);
+    Phrase phrase;
+    phrase.word_tokens.resize(size);
+    env->GetLongArrayRegion(ids, 0, count, tokens.data());
+    env->GetIntArrayRegion(ranges, 0, size, phrase.word_tokens.data());
+    if (env->ExceptionCheck()) throw std::runtime_error("Kokoro input copy failed");
+    if (tokens.front() != 0 || tokens.back() != 0)
+      throw kokoro_runtime::InputFailure("FRONTEND_INPUT_INVALID", bytes, count);
+    for (int i = 1; i < count - 1; ++i) {
+      if (tokens[i] == 0 || !vocabulary_ids.count(tokens[i]))
+        throw kokoro_runtime::InputFailure("FRONTEND_INPUT_INVALID", bytes, count);
+    }
+    int last = 1;
+    for (int i = 0; i < size; i += 2) {
+      const int start = phrase.word_tokens[i], end = phrase.word_tokens[i + 1];
+      if (start < last || end <= start || end > count - 1)
+        throw kokoro_runtime::InputFailure("FRONTEND_INPUT_INVALID", bytes, count);
+      last = end;
+    }
+    phrase.tokens.assign(tokens.begin(), tokens.end());
+    return phrase;
+  }
+
+  std::unordered_set<int64_t> vocabulary_ids;
+  mutable std::mutex encode_lock;
   int max_tokens = 510;
   bool british;
   std::unordered_map<std::string, int32_t> symbols;
@@ -182,7 +216,15 @@ struct Model : Frontend {
   }
 
   std::string ContextIdentity(int64_t token_count) const {
-    if (config.provider != "qnn-htp" || context_directory.empty() || !kokoro_runtime::IsSha256(context_identity)) return {};
+    if (config.provider != "qnn-htp") return {};
+    if (context_directory.empty()) {
+      if (!context_identity.empty()) context_status = kokoro_runtime::ContextCacheStatus::DirectoryUnavailable;
+      return {};
+    }
+    if (!kokoro_runtime::IsSha256(context_identity)) {
+      context_status = kokoro_runtime::ContextCacheStatus::IdentityUnavailable;
+      return {};
+    }
     // Discover before loading a context, and bind the actual device rather than
     // trusting a phone label. Every binary affecting the compiled graph is
     // content-bound as well as the Java runtime/device/options identity.
@@ -190,6 +232,17 @@ struct Model : Frontend {
     const auto device = kokoro_runtime::LastSelectedDevice();
     try {
       if (context_seed.empty()) {
+        std::string firmware;
+#if defined(__ANDROID__)
+        // Vendor/DSP firmware can change separately from the system image.
+        // Hash detected versions; never expose these strings in diagnostics.
+        for (const auto *property : {"ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint"}) {
+          char value[PROP_VALUE_MAX]{};
+          const auto size = __system_property_get(property, value);
+          if (size <= 0) { context_status = kokoro_runtime::ContextCacheStatus::FirmwareUnavailable; return {}; }
+          firmware += "|" + std::string(value, size);
+        }
+#endif
         auto seed = context_identity + "|" + Ort::GetVersionString() + "|" +
             kokoro_runtime::DigestFile(config.kokoro.model, 512LL * 1024 * 1024);
         for (const auto *name : {"libtimed_kokoro.so", "libkokoro_qnn_adapter.so", "libonnxruntime_providers_qnn.so", "libQnnHtp.so"})
@@ -204,23 +257,14 @@ struct Model : Frontend {
         std::sort(helpers.begin(), helpers.end());
         for (const auto &name : helpers) seed += "|" + name + "=" +
             kokoro_runtime::DigestFile(library_dir + "/" + name, 512LL * 1024 * 1024);
-#if defined(__ANDROID__)
-        // Vendor/DSP firmware can change separately from the system image.
-        // Hash detected versions; never expose these strings in diagnostics.
-        for (const auto *property : {"ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint"}) {
-          char value[PROP_VALUE_MAX]{};
-          const auto size = __system_property_get(property, value);
-          if (size <= 0) { context_status = kokoro_runtime::ContextCacheStatus::Unavailable; return {}; }
-          seed += "|" + std::string(value, size);
-        }
-#endif
-        context_seed = kokoro_runtime::Digest(seed);
+
+        context_seed = kokoro_runtime::Digest(seed + firmware);
       }
       return kokoro_runtime::Digest(context_seed + "|" + kokoro_runtime::kContextExportRecipe + "|qnn-htp|" + std::to_string(config.num_threads) + "|" +
           htp_performance_mode + "|" + std::to_string(token_count) + "|" + std::to_string(device.type) + "|" +
           std::to_string(device.vendor) + "|" + std::to_string(device.id));
     } catch (const std::exception &) {
-      context_status = kokoro_runtime::ContextCacheStatus::Unavailable;
+      context_status = kokoro_runtime::ContextCacheStatus::IdentityUnavailable;
       return {};  // Cache identity I/O cannot prevent the original model run.
     }
   }
@@ -387,7 +431,8 @@ struct Model : Frontend {
     return KokoroObservedOperatorSummary(discovery, qualification.cpu, qualification.accelerator, profile_reused);
   }
 
-  jobject Generate(JNIEnv *env, const std::string &text, jint sid, jfloat speed) const {
+  jobject Generate(JNIEnv *env, const std::string &text, jint sid, jfloat speed,
+                   jlongArray ids = nullptr, jintArray ranges = nullptr, int bytes = 0) const {
     progress.Begin(kokoro_runtime::SteadyMillis());
     ModelSession *attempt_session = nullptr;
     bool completed = false;
@@ -405,7 +450,7 @@ struct Model : Frontend {
     std::unique_ptr<const Model, decltype(finish)> attempt(this, finish);
     SetStage("frontend", kokoro_runtime::SpeechPhase::Frontend);
     phrase_tokens = 0;
-    input_bytes = std::min<size_t>(text.size(), INT32_MAX);
+    input_bytes = ids ? bytes : static_cast<int>(std::min<size_t>(text.size(), INT32_MAX));
     synthesis_ms = 0;
     frontend_ms = 0;
     validation_ms = 0;
@@ -433,7 +478,7 @@ struct Model : Frontend {
     Phrase phrase;
     {
       kokoro_runtime::ElapsedMilliseconds timer(frontend_ms);
-      phrase = Encode(text);
+      phrase = ids ? FromEncoded(env, ids, ranges, bytes) : Encode(text);
     }
     phrase_tokens = phrase.tokens.size();
     if (sid < 0) throw kokoro_runtime::InputFailure("FRONTEND_INVALID_VOICE", input_bytes, phrase_tokens);
@@ -736,10 +781,10 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_TimedKokoro_open(
   return 0;
 }
 
-extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_TimedKokoro_generatePhrase(
-    JNIEnv *env, jclass, jlong handle, jstring phrase, jint speaker, jfloat speed) {
+static jobject GenerateJavaPhrase(
+    JNIEnv *env, jlong handle, jstring phrase, jlongArray ids, jintArray words, int bytes, jint speaker, jfloat speed) {
   try {
-    return reinterpret_cast<Model *>(handle)->Generate(env, FromJava(env, phrase), speaker, speed);
+    return reinterpret_cast<Model *>(handle)->Generate(env, ids ? std::string{} : FromJava(env, phrase), speaker, speed, ids, words, bytes);
   } catch (const std::bad_alloc &) {
     ReportError(env, "java/lang/OutOfMemoryError", "Kokoro allocation failed");
   } catch (const Ort::Exception &error) {
@@ -752,6 +797,16 @@ extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_TimedKokoro_generatePh
     else ReportModelFailure(env, reinterpret_cast<Model *>(handle), error, -1);
   }
   return nullptr;
+}
+
+extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_TimedKokoro_generatePhrase(
+    JNIEnv *env, jclass, jlong handle, jstring phrase, jint speaker, jfloat speed) {
+  return GenerateJavaPhrase(env, handle, phrase, nullptr, nullptr, 0, speaker, speed);
+}
+
+extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_TimedKokoro_generateEncodedPhrase(
+    JNIEnv *env, jclass, jlong handle, jlongArray ids, jintArray words, jint bytes, jint speaker, jfloat speed) {
+  return GenerateJavaPhrase(env, handle, nullptr, ids, words, bytes, speaker, speed);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_kokoro_TimedKokoro_cancelGeneration(
@@ -817,13 +872,13 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_KokoroFrontend_open(
   return 0;
 }
 
-extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_KokoroFrontend_encodePhrase(
-    JNIEnv *env, jclass, jlong handle, jstring text) {
+static jobject EncodeJavaPhrase(JNIEnv *env, const Frontend *frontend, jstring text) {
   try {
-    const auto phrase = reinterpret_cast<Frontend *>(handle)->Encode(FromJava(env, text));
+    const auto input = FromJava(env, text);
+    const auto phrase = frontend->Encode(input);
     const auto cls = env->FindClass("dev/melo/kokoro/KokoroFrontend$EncodedPhrase");
     if (!cls) return nullptr;
-    const auto constructor = env->GetMethodID(cls, "<init>", "([J[I)V");
+    const auto constructor = env->GetMethodID(cls, "<init>", "([J[II)V");
     if (!constructor) return nullptr;
     const auto tokens = env->NewLongArray(phrase.tokens.size());
     if (!tokens) return nullptr;
@@ -832,7 +887,7 @@ extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_KokoroFrontend_encodeP
     const std::vector<jlong> java_tokens(phrase.tokens.begin(), phrase.tokens.end());
     env->SetLongArrayRegion(tokens, 0, java_tokens.size(), java_tokens.data());
     env->SetIntArrayRegion(words, 0, phrase.word_tokens.size(), phrase.word_tokens.data());
-    return env->NewObject(cls, constructor, tokens, words);
+    return env->NewObject(cls, constructor, tokens, words, static_cast<jint>(input.size()));
   } catch (const kokoro_runtime::InputFailure &error) {
     ReportFailure(env, "frontend", error.code, -1, error.tokens, "frontend", error.bytes, error.token_limit, "stage=frontend");
   } catch (const std::bad_alloc &) {
@@ -841,6 +896,16 @@ extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_KokoroFrontend_encodeP
     ReportError(env, "java/lang/IllegalStateException", "Kokoro could not encode the phrase");
   }
   return nullptr;
+}
+
+extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_KokoroFrontend_encodePhrase(
+    JNIEnv *env, jclass, jlong handle, jstring text) {
+  return EncodeJavaPhrase(env, reinterpret_cast<Frontend *>(handle), text);
+}
+
+extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_TimedKokoro_encodeModelPhrase(
+    JNIEnv *env, jclass, jlong handle, jstring text) {
+  return EncodeJavaPhrase(env, reinterpret_cast<Model *>(handle), text);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_kokoro_KokoroFrontend_release(

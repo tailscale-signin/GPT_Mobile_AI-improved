@@ -209,10 +209,16 @@ def snapshot(service, principal, job_id, scenario):
         row.get('action') == 'read' and row.get('head_sha') == base and row.get('path') in required_paths
         and 200 < row.get('start_line', 0) <= row.get('end_line', 0) and row.get('content_sha256')
         for row in data.get('workspace_receipts', []))
+    repair = data.get('ci_repair_observation') or {}
+    readiness = data.get('readiness') or {}
+    repaired_ci = (repair.get('job_id') == job_id and repair.get('pr') and repair['pr'] == data.get('pr')
+                   and repair.get('failure_fingerprint') in (job.get('repairs') or {})
+                   and re.fullmatch(r'[0-9a-f]{40}', str(repair.get('failed_head'))) and repair['failed_head'] != data.get('head_sha')
+                   and readiness.get('head_sha') == data.get('head_sha') and readiness.get('checks_passed') is True)
     signals = {
         'unfamiliar_bug': completed and bool(data.get('changed_paths')) and 'unfamiliar_bug' in accepted,
         'source_paging': completed and paged,
-        'ci_repair': completed and bool(job.get('repairs')) and 'ci_repair' in accepted,
+        'ci_repair': completed and bool(repaired_ci) and 'ci_repair' in accepted,
         'existing_pr': completed and bool(job.get('continuation_pr')) and job['continuation_pr'] == data.get('pr'),
         'context_rotation': completed and bool(data.get('context_compaction')),
         'lost_mutation': completed and duplicates == 0 and lost_mutation_proven and 'lost_mutation' in accepted,
@@ -236,13 +242,17 @@ def snapshot(service, principal, job_id, scenario):
     intelligence = ({'intelligence': github_intelligence.case_observations(job, scenario, signals[scenario], completed),
                      'accepted_provider_posts': github_intelligence_targets.accepted_provider_posts(job, attempts, scan.get('attempts'))}
                     if scenario in SCENARIOS else {})
+    public_verdict = None
+    if scenario in github_intelligence.RUBRIC['evidence_accuracy'][1]:
+        public_verdict = intelligence['intelligence']['measures'].get('evidence_accuracy')
+        passed = passed and public_verdict == 1 and intelligence['intelligence']['measures'].get('response_quality') == 1
     return {**intelligence, **workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.ALL_CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),
             'head_sha': data.get('head_sha'), 'model': job['request']['model'],
             'model_revision': latest.get('model_revision'), 'quantization': latest.get('hardware', {}).get('quantization'),
             'binding_id': job['request'].get('execution_binding_id'), 'route_identity': latest.get('backend_endpoint_identity'),
             'execution_mode': job['request'].get('execution_mode', 'standard'),
-            'status': 'PASSED' if passed else 'FAILED' if false_completion else 'NOT_VERIFIED',
+            'status': 'PASSED' if passed else 'FAILED' if false_completion or public_verdict == 0 else 'NOT_VERIFIED',
             'liveGitHub': 'OBSERVED' if writes else 'NOT_EXECUTED', 'completion': completed,
             'first_attempt_success': (completed and not bool(job.get('repairs')) and
                                       all(row.get('state') == 'COMPLETED' for row in dispatched)) if attempts_measured else None,

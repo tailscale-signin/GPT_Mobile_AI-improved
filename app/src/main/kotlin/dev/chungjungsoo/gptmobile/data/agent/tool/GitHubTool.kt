@@ -31,6 +31,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -201,6 +202,26 @@ class GitHubTool(
             } ?: return bound
             return bound.copy(ref = snapshot.ref, commitSha = snapshot.commitSha, observedAtMillis = snapshot.updatedAt)
         }
+        val mapSelection = kotlinx.coroutines.sync.Mutex()
+        suspend fun scopeForRead(arguments: JsonObject): dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext {
+            val options = arguments["options"] as? JsonObject
+            val action = (arguments["action"] as? JsonPrimitive)?.content
+            val gatewayWrite = arguments["map_source"] == JsonPrimitive("gateway") && action == "index"
+            if (!bound.requestsCurrentMap(taskRequest.orEmpty()) ||
+                action == "note" ||
+                gatewayWrite ||
+                options?.keys?.any { it in setOf("commit_sha", "ref", "branch", "repository", "owner", "repo", "index_cursor", "cursor", "action", "map_source") } == true
+            ) {
+                return currentScope()
+            }
+            return mapSelection.withLock {
+                if (workspaceClient.taskSnapshot() == null) {
+                    validateSavedViewAccess()
+                    workspaceClient.refreshGraphRevision(bound)
+                }
+                currentScope()
+            }
+        }
         fun forScope(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) = RepositoryGraphTool(
             "repository_graph$suffix",
             nativeStatus = nativeStatus,
@@ -244,7 +265,7 @@ class GitHubTool(
         object : AgentTool {
             override val definition = forScope(bound).definition
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
-                forScope(currentScope()).execute(callId, arguments)
+                forScope(scopeForRead(arguments)).execute(callId, arguments)
         }
     }
 

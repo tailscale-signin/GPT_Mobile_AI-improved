@@ -63,6 +63,38 @@ class ModelWorkbenchExecutionTest(unittest.TestCase):
         self.assertFalse(manifest["physicalDeviceQualified"])
         self.assertEqual(self.model_hash, workbench.digest(self.model))
 
+    def test_nested_capture_is_ordered_on_the_copy_and_unresolved_inputs_still_fail(self):
+        def value(name, dtype):
+            return helper.make_tensor_value_info(name, dtype, [1])
+        def branch(label):
+            return helper.make_graph([helper.make_node("Identity", ["later"], [label])], label, [], [value(label, TensorProto.FLOAT)])
+        graph = helper.make_graph([
+            helper.make_node("If", ["condition"], ["result"], then_branch=branch("yes"), else_branch=branch("no")),
+            helper.make_node("Identity", ["x"], ["later"])
+        ], "outer", [helper.make_tensor_value_info("condition", TensorProto.BOOL, []), value("x", TensorProto.FLOAT)],
+            [value("result", TensorProto.FLOAT)])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 21)], ir_version=10)
+        onnx.save(model, self.model)
+        source_hash = workbench.digest(self.model)
+        repaired = workbench.load_model(self.model, source_hash)
+        self.assertEqual(["Identity", "If"], [node.op_type for node in repaired.graph.node])
+        self.assertEqual(source_hash, workbench.digest(self.model))
+        model.graph.node[1].input[0] = "missing"
+        onnx.save(model, self.model)
+        with self.assertRaises(onnx.checker.ValidationError):
+            workbench.load_model(self.model, workbench.digest(self.model))
+
+    def test_duration_trace_follows_the_prediction_branch_before_the_waveform(self):
+        model = onnx.load(self.model)
+        model.graph.node.extend([helper.make_node("Round", ["scaled"], ["rounded"]),
+                                 helper.make_node("Cast", ["rounded"], ["duration"], to=TensorProto.INT64)])
+        model.graph.output.extend([helper.make_tensor_value_info("duration", TensorProto.INT64, [1, "tokens"])])
+        onnx.save(model, self.model)
+        self.model_hash = workbench.digest(self.model)
+        traced = self.run_model("trace", self.root / "duration-checkpoints", "--duration-path")
+        self.assertEqual(["float_tokens", "rounded", "duration", "audio"], traced["traceOrder"])
+        self.assertTrue(traced["instrumentationMayChangePartitions"])
+
     def test_real_cpu_capture_compares_identical_graph_and_detects_first_divergence(self):
         trace = self.root / "trace"
         manifest = self.run_model("trace", trace, "--tensor", "scaled", "--tensor", "audio")
@@ -91,6 +123,32 @@ class ModelWorkbenchExecutionTest(unittest.TestCase):
         workbench.write_json(captures[1], candidate)
         with self.assertRaisesRegex(ValueError, "must match"):
             workbench.main(arguments)
+
+    def test_convolution_calibration_records_the_selected_operator_and_yields_a_valid_graph(self):
+        model = onnx.load(self.model)
+        with self.assertRaisesRegex(ValueError, "No top-level Conv"):
+            self.run_model("prepare", self.root / "empty-conv", "--backend", "htp", "--precision", "a16w8",
+                           "--token-count", "3", "--convolutions-only")
+        model.graph.initializer.extend([
+            numpy_helper.from_array(np.asarray([1], dtype=np.int64), "axis"),
+            numpy_helper.from_array(np.asarray([[[.5]]], dtype=np.float32), "filter")])
+        model.graph.node.extend([helper.make_node("Unsqueeze", ["audio", "axis"], ["acoustic"]),
+                                 helper.make_node("Conv", ["acoustic", "filter"], ["waveform"], kernel_shape=[1])])
+        model.graph.output.extend([helper.make_tensor_value_info("waveform", TensorProto.FLOAT, [1, 1, "tokens"])])
+        onnx.save(model, self.model)
+        self.model_hash = workbench.digest(self.model)
+        corpus = self.root / "conv-corpus.json"
+        workbench.write_json(corpus, {"schemaVersion": 1, "purpose": "calibration", "cases": [
+            {"id": "conv", "file": self.case.name, "sha256": workbench.digest(self.case)}]})
+        output = self.root / "conv-candidate"
+        manifest = self.run_model("prepare", output, "--backend", "htp", "--precision", "a16w8",
+                                  "--token-count", "3", "--calibration", str(corpus), "--convolutions-only")
+        self.assertEqual(["Conv"], manifest["calibration"]["operatorSelection"])
+        candidate = onnx.load(output / "model.onnx")
+        onnx.checker.check_model(candidate)
+        conv = next(n for n in candidate.graph.node if n.op_type == "Conv")
+        self.assertTrue(any(n.op_type == "DequantizeLinear" and conv.input[1] in n.output for n in candidate.graph.node))
+        self.assertFalse(manifest["physicalDeviceQualified"])
 
     def test_quantization_requires_real_inputs_and_executes_with_fixture_calibration(self):
         output = self.root / "quantized"

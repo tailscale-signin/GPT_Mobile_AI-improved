@@ -38,6 +38,7 @@ internal object GitHubCiObservationReport {
         val head = eligible.values.lastOrNull { it["head_observation"] == JsonPrimitive(true) }
             ?.text("source_head_sha")?.takeIf(sha::matches) ?: return null
         val observed = GitHubObservedWorkflowRuns.current(eligible.values, JsonPrimitive(head))
+        if (!checkSnapshotOnly) packagingFailure(task, head, eligible, observed, now, epoch)?.let { return it }
         val checkReceipt = eligible.entries.lastOrNull { (_, row) ->
             GitHubStatusEvidence.fresh(row, now, epoch) &&
                 (GitHubStatusEvidence.operation(row, "github_ci", "status") || GitHubStatusEvidence.operation(row, "github_context", "checks")) &&
@@ -187,6 +188,84 @@ internal object GitHubCiObservationReport {
         return text to report
     }
 
+    private fun packagingFailure(task: String, head: String, receipts: Map<String, JsonObject>, runs: List<JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? {
+        if (runs.any { it.text("status") != "completed" || it.text("conclusion") !in setOf("success", "skipped", "neutral", "failure") }) return null
+        val run = runs.singleOrNull { it.text("conclusion") == "failure" } ?: return null
+        val (receiptId, gate) = GitHubCiSizeGate.retained(receipts).entries.lastOrNull { (_, gate) ->
+            gate["head_sha"] == JsonPrimitive(head) && gate["run_id"] == run["id"] && gate["run_attempt"] == run["run_attempt"]
+        } ?: return null
+        val source = receipts.getValue(receiptId)
+        fun sameConnection(row: JsonObject) = row.text("tool") == source.text("tool") && row["repository"] == source["repository"] && row["binding"] == source["binding"]
+        val checks = GitHubStatusEvidence.checks(receipts, head, now, epoch)
+        if (checks.outcomes.getOrDefault("running", 0) > 0 || checks.outcomes.getOrDefault("failure", 0) > 1) return null
+        val runReceipt = receipts.entries.lastOrNull { (_, row) ->
+            sameConnection(row) && GitHubStatusEvidence.fresh(row, now, epoch) && GitHubObservedWorkflowRuns.current(listOf(row), JsonPrimitive(head)).any { it == run }
+        } ?: return null
+        val jobsReceipt = receipts.entries.lastOrNull { (_, row) ->
+            val data = GitHubStatusEvidence.data(row) ?: return@lastOrNull false
+            val args = row["arguments"] as? JsonObject ?: return@lastOrNull false
+            val jobs = data["jobs"] as? JsonArray ?: return@lastOrNull false
+            val job = jobs.filterIsInstance<JsonObject>().singleOrNull { it.text("conclusion") == "failure" } ?: return@lastOrNull false
+            sameConnection(row) &&
+                GitHubStatusEvidence.operation(row, "github_ci", "jobs") &&
+                args["run_id"] == run["id"] &&
+                data["head_sha"] == JsonPrimitive(head) &&
+                data["run_attempt"] == run["run_attempt"] &&
+                args["run_attempt"] in setOf(null, run["run_attempt"]) &&
+                data["page"] == JsonPrimitive(1) &&
+                data["has_more"] == JsonPrimitive(false) &&
+                data["total_count"] == JsonPrimitive(jobs.size) &&
+                data["pagination_inconsistent"] != JsonPrimitive(true) &&
+                jobs.all { it is JsonObject && it.text("status") == "completed" && it.text("conclusion") in setOf("success", "neutral", "skipped", "failure") } &&
+                job["id"] == gate["job_id"] &&
+                job["head_sha"] in setOf(null, JsonPrimitive(head)) &&
+                job["run_attempt"] in setOf(null, run["run_attempt"]) &&
+                job["run_id"] in setOf(null, run["id"])
+        } ?: return null
+        val ids = JsonArray(listOf(runReceipt.key, jobsReceipt.key, receiptId).distinct().map(::JsonPrimitive))
+        val repairRequirement = GitHubWorkflowPreset.selected("diagnose_ci").acceptance.last()
+        val requirements = JsonArray(
+            GitHubRequestCompletion.requirements(task).map { requirement ->
+                val repairPending = requirement == repairRequirement
+                buildJsonObject {
+                    put("id", GitHubRequestCompletion.id(requirement))
+                    put("requirement", requirement)
+                    put("status", if (repairPending) "PENDING" else "PASSED")
+                    put("acceptance_state", if (repairPending) "NOT_TESTED" else "PASS")
+                    if (repairPending) put("acceptance", "The retained size measurements do not identify a specific repair; a supported recommendation remains pending.")
+                    put("evidence_receipt_ids", ids)
+                }
+            }
+        )
+        val remaining = JsonArray(requirements.filterIsInstance<JsonObject>().filter { it["status"] == JsonPrimitive("PENDING") })
+        val complete = remaining.isEmpty()
+        val text = GitHubCiSizeGate.describe(gate) +
+            "\n\nThe captured log records this failed size check. These measurements alone do not establish signing or runner health. " +
+            "A specific repair recommendation remains pending; the measured overage does not identify which package contribution should change. " +
+            "Any proposed repair requires a new build. Evidence receipts: `${runReceipt.key}`, `${jobsReceipt.key}`, `$receiptId`."
+        return text to buildJsonObject {
+            put("schema", "github.ci-observation.v1")
+            put("task", task)
+            put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
+            put("observation_state", "OBSERVED_PACKAGING_FAILURE")
+            put("completion_scope", "FAILED_JOB_IN_RETURNED_WORKFLOW_SET")
+            put("head_sha", head)
+            put("apk_size_failure", gate)
+            put("completion_verified", complete)
+            put("answer_verified", true)
+            put("claims_verified", true)
+            put("partial", !complete)
+            put("resume_required", !complete)
+            put("full_history_verified", false)
+            put("build_health_verified", false)
+            put("new_test_execution_verified", false)
+            put("requirements", requirements)
+            put("remaining_requirements", remaining)
+            put("evidence_receipt_ids", ids)
+            put("verified_at_ms", now)
+        }
+    }
+
     private fun checkSnapshot(id: String, receipt: JsonObject, head: String): GitHubStatusEvidence.CheckInventory? {
         // The executor records this summary before paging a large result for the model.
         val summary = receipt["semantic_summary"] as? JsonObject ?: return null
@@ -287,12 +366,16 @@ internal object GitHubCiObservationReport {
         )
         val neutral = counts["neutral"]?.let { ", $it neutral" }.orEmpty()
         val watchName = runSources.values.lastOrNull()?.text("tool")?.let { "github_watch_checks" + it.substringAfter("github_ci") }
+        val inventoryTool = inventory.receiptIds.firstNotNullOfOrNull { fresh[it]?.text("tool") }
+        val runLookup = inventoryTool?.takeIf { it.githubOperationFamily() in setOf("github_ci", "github_context") }?.let {
+            "github_ci" + it.removePrefix(it.substringBefore("__"))
+        }
         val subscription = receipts.entries.lastOrNull { (_, row) ->
             val result = row.data()
             watchName != null &&
                 row.text("tool") == watchName &&
                 result?.get("background_subscription") == JsonPrimitive(true) &&
-                result["run_id"] == runId &&
+                result["all_checks"] == JsonPrimitive(true) &&
                 result.text("head_sha") == head &&
                 result.text("subscription_id").isNotEmpty()
         }
@@ -301,7 +384,11 @@ internal object GitHubCiObservationReport {
             (if (run != null) "Workflow run `$runId`, attempt $attempt, is still active at `${head.take(12)}`. " else "The captured checks at `${head.take(12)}` are still active. ") +
             (if (jobId != null) "Logs for job `$jobId` are pending. " else "") +
             "The workflow outcome remains open; no passing build or new test execution is established." +
-            if (subscription != null) "\n\nBackground monitoring is registered for this run. Updates will appear in its check card." else ""
+            when {
+                subscription != null -> "\n\nBackground monitoring is registered for all checks at this commit. Updates will appear in its check card."
+                runId == null -> "\n\nA workflow run and attempt at this revision have yet to be identified. Background monitoring requires that match. Refresh the checks at this commit to continue."
+                else -> "\n\nBackground monitoring has no confirmed subscription. Reopen the check at this commit to register or refresh it under the current GitHub connection."
+            }
         return text to buildJsonObject {
             put("schema", "github.ci-observation.v1")
             put("task", task)
@@ -316,6 +403,7 @@ internal object GitHubCiObservationReport {
             attempt?.let { put("run_attempt", it) }
             jobId?.let { put("pending_job_id", it) }
             watchName?.let { put("watch_tool", it) }
+            if (runId == null) runLookup?.let { put("run_lookup_tool", it) }
             put("background_monitoring_registered", subscription != null)
             subscription?.let { put("watch_receipt_id", it.key) }
             if (logs != null) put("logs_available", false)

@@ -731,6 +731,37 @@ class GitHubOperationToolTest {
         assertEquals(1, backend.calls.size)
     }
 
+    @Test fun ciLogRejectionReportsMissingJobAndOffersScopedRunOrJobDiscovery() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_ci", backend, "job-selector", modelName = "github_ci__connection")
+        val cases = listOf(
+            Triple(args("""{"action":"logs","start_offset":0,"end_line":40}"""), "missing", args("""{"action":"runs"}""")),
+            Triple(
+                args("""{"action":"logs","owner":"a","repo":"r","run_id":45517338096,"run_attempt":2,"job_id":"2"}"""),
+                "invalid",
+                args("""{"action":"jobs","owner":"a","repo":"r","run_id":45517338096,"run_attempt":2}""")
+            )
+        )
+        for ((request, fieldState, expectedDiscovery) in cases) {
+            val rejected = tool.execute(fieldState, request)
+            assertFalse(rejected.dispatched)
+            val receipt = requireNotNull(rejected.executionReceipt)
+            assertEquals(JsonPrimitive(1), receipt["${fieldState}_field_count"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("job_id"))), receipt["${fieldState}_fields"])
+            val envelope = (rejected.content as ToolResultContent.Json).value.jsonObject
+            val selector = envelope.getValue("required_selector").jsonObject
+            assertEquals(JsonPrimitive("job_id"), selector["field"])
+            assertEquals(JsonPrimitive("jobs"), selector["discovery_action"])
+            val correction = envelope.getValue("correction_call").jsonObject
+            assertEquals(JsonPrimitive(tool.definition.name), correction["tool"])
+            assertEquals(expectedDiscovery, correction["arguments"])
+            valid("github_ci", expectedDiscovery)
+        }
+        assertTrue(backend.calls.isEmpty())
+        val largeJob = args("""{"action":"logs","job_id":138880200781}""")
+        valid("github_ci", largeJob)
+    }
+
     @Test fun missingOrInvalidPullRequestSelectorReturnsTypedRoutePreservingDiscovery() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_pr", backend, "pr-selector", modelName = "github_pr__connection")

@@ -294,7 +294,8 @@ internal object GitHubEvidencePolicy {
         // Only an explicit, complete requirement map can identify an optional claim.
         // Preserve original indexes for required claims during acceptance evaluation.
         val mapping = answer["requirement_claims"] as? JsonObject
-        val required = GitHubRequestCompletion.requirements(task, issueWork).map(GitHubRequestCompletion::id)
+        val semantic = acceptedContract?.get("semantic_criteria") as? JsonObject
+        val required = GitHubRequestCompletion.requirements(task, issueWork, semantic).map(GitHubRequestCompletion::id)
         val mapped = mapping?.values?.filterIsInstance<JsonArray>().orEmpty().flatten().mapNotNull { (it as? JsonPrimitive)?.intOrNull }.toSet()
         val canOmit = required.isNotEmpty() &&
             required.all { mapping?.get(it) is JsonArray } &&
@@ -310,7 +311,7 @@ internal object GitHubEvidencePolicy {
         val retainedClaims = checked.filterIndexed { index, _ -> index !in omitted }
         val supportedClaims = retainedClaims.filterNot(::explicitlyUnmeasured)
         val unmeasuredScopes = checked.filter(::explicitlyUnmeasured)
-        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted, issueWork = issueWork)
+        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted, issueWork = issueWork, semantic = semantic)
         val reviewState = GitHubReviewComparison.plan(task, emptyList(), receipts)?.checkpoint
         val checklist = if (GitHubTaskCoverage.matches(task)) {
             GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract, executionPlan)
@@ -402,7 +403,7 @@ internal object GitHubEvidencePolicy {
                 }
             )
         }
-        val (observations, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, issueWork = issueWork)
+        val (observations, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, acceptedContract = acceptedContract, issueWork = issueWork)
         val coverage = GitHubTaskCoverage.rows(receipts)
         val operations = if (coverage.isEmpty()) {
             ""

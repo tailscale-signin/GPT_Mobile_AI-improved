@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.os.Handler
 import android.os.Looper
 import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
+import dev.melo.kokoro.KokoroFrontend
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -131,11 +132,16 @@ internal class VoiceSpeechPlaybackBenchmark(
                                     throw failure
                                 }
                             }
-                            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                            override fun preparePhrase(text: String): KokoroFrontend.EncodedPhrase? {
+                                relay.current?.attemptStarted(text)
+                                return created.preparePhrase(text)
+                            }
+                            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio =
+                                generatePrepared(text, preparePhrase(text), speaker, speed)
+                            override fun generatePrepared(text: String, encoded: KokoroFrontend.EncodedPhrase?, speaker: Int, speed: Float): VoicePhraseAudio {
                                 val attemptMeasurement = relay.current
-                                attemptMeasurement?.attemptStarted(text)
                                 return try {
-                                    created.generate(text, speaker, speed).also { audio ->
+                                    created.generatePrepared(text, encoded, speaker, speed).also { audio ->
                                         attemptMeasurement?.audioGenerated(VoiceSpeechAudioObservation.measure(text, audio))
                                     }
                                 } catch (failure: Throwable) {

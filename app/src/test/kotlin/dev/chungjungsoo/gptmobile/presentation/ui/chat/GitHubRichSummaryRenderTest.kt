@@ -85,6 +85,11 @@ class GitHubRichSummaryRenderTest {
             }
         }
         compose.waitForIdle()
+        compose.waitUntil(timeoutMillis = 10_000) {
+            runCatching {
+                compose.onNodeWithText("Reader.kt", substring = true).fetchSemanticsNode()
+            }.isSuccess
+        }
         compose.onNodeWithTag("github_activity_rich_summary").assertExists()
         compose.onNodeWithText("Reader.kt", substring = true).assertExists()
         compose.onNodeWithText("**Reader.kt**", substring = true).assertDoesNotExist()

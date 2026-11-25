@@ -47,6 +47,7 @@ internal object GitHubCiLogPage {
             put("log_complete", log.complete)
             put("truncated", !log.complete)
             put("total_lines", lines.size)
+            GitHubCiSizeGate.fromExcerpts(JsonArray(rows))?.let { put("apk_size_failure", it) }
             put("excerpts", JsonArray(rows))
             put("has_more", hasMore)
             if (hasMore) {

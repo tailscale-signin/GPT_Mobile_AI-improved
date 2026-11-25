@@ -8,6 +8,11 @@ import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentRespon
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.FunctionCallArgumentsDoneEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputItem
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputItemAddedEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseObject
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,6 +38,42 @@ class ProviderEventAssemblerTest {
         stream.accept(created)
         assertEquals("served-id", (stream.accept(delta).single() as ProviderEvent.TextDelta).lineage.reportedModelId)
         org.junit.Assert.assertNull((OpenAIResponsesEventAssembler().accept(delta).single() as ProviderEvent.TextDelta).lineage.reportedModelId)
+    }
+
+    @Test fun incompleteResponsesKeepTheirObservedCauseAfterVisibleText() {
+        val delta = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(
+            """{"type":"response.output_text.delta","item_id":"item","output_index":0,"content_index":0,"delta":"Saved answer."}"""
+        )
+        for ((reason, code) in listOf("max_output_tokens" to "OUTPUT_LIMIT", "content_filter" to "PROVIDER_CONTENT_POLICY", "private vendor reason" to "INCOMPLETE_PROVIDER_STREAM", null to "INCOMPLETE_PROVIDER_STREAM")) {
+            val stream = OpenAIResponsesEventAssembler()
+            assertEquals("Saved answer.", (stream.accept(delta).single() as ProviderEvent.TextDelta).text)
+            val details = reason?.let { buildJsonObject { put("reason", it) } }
+            val events = stream.accept(ResponseIncompleteEvent(ResponseObject("private-id", incompleteDetails = details)))
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(code, failure.errorCode)
+            assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(reason == "max_output_tokens", failure.transportComplete)
+            assertFalse(events.any { it == ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+            assertFalse(failure.toString().contains("private"))
+            if (reason == "content_filter") assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        }
+    }
+
+    @Test fun incompleteResponsesToolFramesCarryOnlyParserOwnedEvidence() {
+        val item = OutputItem("function_call", "private-item", callId = "private-call", name = "private-name")
+        val cases = listOf(
+            OutputItemAddedEvent(0, item.copy(name = null)) to "MISSING_FUNCTION_NAME",
+            OutputItemAddedEvent(0, item.copy(callId = "")) to "UNFINISHED_STREAM",
+            FunctionCallArgumentsDoneEvent("private-item", 0, """{"private":"argument"}""") to "UNFINISHED_STREAM"
+        )
+        for ((event, kind) in cases) {
+            val events = OpenAIResponsesEventAssembler().accept(event)
+            val failure = events.single() as ProviderEvent.Failed
+            assertEquals("TOOL_PROTOCOL_INVALID_FRAME", failure.errorCode)
+            assertEquals(JsonPrimitive(kind), failure.failureDetails?.get("tool_protocol_frame_kind"))
+            assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+            assertFalse(failure.toString().contains("private"))
+        }
     }
 
     @Test fun responsesPreserveObservedGatewayProvenanceButRejectProviderSuppliedProof() {

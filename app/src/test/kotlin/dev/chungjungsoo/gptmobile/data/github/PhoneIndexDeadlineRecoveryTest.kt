@@ -10,7 +10,9 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderToolInvocation
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
@@ -57,6 +59,113 @@ import org.junit.Test
 
 /** Both deadline owners execute the real native facade, admission, session and persistent store. */
 class PhoneIndexDeadlineRecoveryTest {
+    @Test fun overlappingIndexReadsShareTheBatchAndRecheckAccessForStatus() = runBlocking {
+        Fixture().use { fixture ->
+            val tool = fixture.tool()
+            val owner = async { tool.execute("owner", arguments("index")) }
+            withTimeout(8000) { fixture.secondBlobEntered.await() }
+            val joined = async { tool.execute("second-chat", arguments("index")) }
+            withTimeout(8000) {
+                while (fixture.repositoryReads.get() < 2) kotlinx.coroutines.delay(10)
+            }
+            val independent = withTimeout(8000) { tool.execute("separate-status", arguments("status")) }
+            assertFalse(independent.isError)
+            assertEquals(JsonPrimitive(1), body(independent).getValue("graph").jsonObject["processed_files"])
+            owner.cancelAndJoin()
+            val snapshot = withTimeout(8000) { joined.await() }
+            assertFalse(snapshot.isError)
+            assertEquals(1, fixture.firstBlobReads.get())
+            assertEquals(1, fixture.secondBlobReads.get())
+            assertTrue(body(snapshot).containsKey("index_cursor"))
+            assertEquals(0, fixture.mutations.get())
+        }
+    }
+
+    @Test fun runnerAutomaticallyResumesPhoneIndexFromItsIssuedStatusCursorOnlyOnce() = runBlocking {
+        Fixture().use { fixture ->
+            val tool = fixture.tool()
+            val initial = call("interrupted-auto")
+            var initialRequests = 0
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    if (exchanges.isEmpty()) {
+                        initialRequests++
+                        emit(initial)
+                    } else {
+                        emit(ProviderEvent.TextDelta("Retained the observed phone index progress."))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val limits = AgentRunLimits(
+                githubTask = true,
+                githubTaskRequest = "Index the selected repository on this phone.",
+                toolTimeoutMillis = 3000,
+                maxToolCalls = 8
+            )
+            val events = withTimeout(15_000) { AgentRunner(limits).run(session, listOf(tool)).toList() }
+            val finished = events.filterIsInstance<AgentRunEvent.ToolFinished>()
+            assertEquals(listOf("index", "status", "index"), finished.map { it.call.arguments.getValue("action").jsonPrimitive.content })
+            assertEquals(1, initialRequests)
+            assertTrue(finished.all { it.call.name == tool.definition.name })
+            assertTrue(fixture.secondBlobEntered.isCompleted)
+            assertTrue(fixture.secondBlobStopped.isCompleted)
+            val interrupted = finished[0]
+            fun captured(call: ProviderEvent.ToolCall): ProviderEvent.ToolCall {
+                val invocation = ProviderToolInvocation(call.name, call.arguments)
+                return call.copy(originalInvocation = invocation, originalInvocationFingerprint = invocation.fingerprint(call.callId))
+            }
+            assertEquals(captured(initial), interrupted.call)
+            assertTrue(interrupted.result.isError)
+            assertEquals("PHONE_INDEX_INTERRUPTED", interrupted.result.errorCode)
+            assertEquals(JsonPrimitive(true), interrupted.result.executionReceipt?.get("local_work_stopped"))
+            assertEquals(JsonPrimitive(false), interrupted.result.executionReceipt?.get("requires_reconciliation"))
+            assertEquals(JsonPrimitive(false), interrupted.result.executionReceipt?.get("request_replay_allowed"))
+            val status = finished[1]
+            assertFalse(status.result.isError)
+            assertTrue(status.call.callId.startsWith("phone-index-status-"))
+            assertEquals(arguments("status"), status.call.arguments)
+            val statusBody = body(status.result)
+            assertFalse(statusBody.containsKey("schema"))
+            assertEquals(JsonPrimitive(true), statusBody["has_more"])
+            assertFalse(statusBody.getValue("graph").jsonObject.containsKey("has_more"))
+            assertEquals(JsonPrimitive(1), statusBody.getValue("graph").jsonObject["processed_files"])
+            val cursor = statusBody.getValue("index_cursor").jsonPrimitive.content
+            val resumed = finished[2]
+            val issuedResume = initial.copy(callId = status.call.callId.replace("phone-index-status-", "phone-index-resume-"), arguments = arguments("index", cursor))
+            assertEquals(captured(issuedResume), resumed.call)
+            assertFalse(resumed.result.isError)
+            assertEquals(JsonPrimitive(true), body(resumed.result).getValue("graph").jsonObject["coverage_complete"])
+            assertEquals(1, fixture.firstBlobReads.get())
+            assertEquals(2, fixture.secondBlobReads.get())
+            assertEquals(0, fixture.mutations.get())
+            assertTrue(fixture.repositoryReads.get() >= 3)
+            assertNull(status.result.executionReceipt?.get("confirmed_index_attempt_hash"))
+            assertNull(resumed.result.executionReceipt?.get("confirmed_index_attempt_hash"))
+
+            val history = finished.map { AgentToolExchange(listOf(it.call), listOf(it.result)) }
+            val definitions = listOf(tool.definition)
+            fun afterStatus(result: AgentToolResult) = PhoneIndexContinuation.next(
+                history.take(1) + history[1].copy(results = listOf(result)),
+                definitions
+            )
+            assertEquals(issuedResume, afterStatus(status.result))
+            assertEquals(issuedResume, afterStatus(status.result.copy(content = ToolResultContent.Text(statusBody.toString()))))
+            assertNull(afterStatus(status.result.copy(isError = true)))
+            assertNull(afterStatus(status.result.copy(content = ToolResultContent.Json(JsonObject(statusBody + ("has_more" to JsonPrimitive(false)))))))
+            assertNull(afterStatus(status.result.copy(content = ToolResultContent.Json(JsonObject(statusBody + ("index_cursor" to JsonPrimitive("unissued")))))))
+            assertNull(afterStatus(status.result.copy(executionReceipt = JsonObject(requireNotNull(status.result.executionReceipt) + ("source_head_sha" to JsonPrimitive("c".repeat(40)))))))
+            assertNull(PhoneIndexContinuation.next(history, definitions))
+
+            // A later failure of this already-issued resume requires a new user decision.
+            val stoppedResume = interrupted.result.copy(
+                callId = resumed.call.callId,
+                executionReceipt = JsonObject(requireNotNull(interrupted.result.executionReceipt) + ("call_id" to JsonPrimitive(resumed.call.callId)))
+            )
+            assertNull(PhoneIndexContinuation.next(history.dropLast(1) + history.last().copy(results = listOf(stoppedResume)), definitions))
+        }
+    }
+
     @Test fun runnerDeadlineReadsBackAndResumesPersistedPhoneProgress() = runBlocking {
         Fixture().use { fixture -> verifyInterruptedProgress(fixture, budgeted = false) }
     }
@@ -85,12 +194,23 @@ class PhoneIndexDeadlineRecoveryTest {
         val reopened = fixture.tool()
         val continuation = if (budgeted) budget.bind(reopened) else reopened
         val recovery = body(result).getValue("recovery_call").jsonObject
-        val status = continuation.execute("readback", recovery.getValue("arguments").jsonObject)
+        val history = listOf(AgentToolExchange(listOf(call("interrupted")), listOf(result)))
+        val tools = listOf(native.definition)
+        val statusCall = requireNotNull(PhoneIndexContinuation.next(history, tools))
+        assertEquals(recovery.getValue("arguments").jsonObject, statusCall.arguments)
+        val status = continuation.execute(statusCall.callId, statusCall.arguments)
         assertFalse(status.isError)
         val statusBody = body(status)
         assertEquals(JsonPrimitive(1), statusBody.getValue("graph").jsonObject["processed_files"])
         val cursor = statusBody.getValue("index_cursor").jsonPrimitive.content
-        val resumed = continuation.execute("resume", arguments("index", cursor))
+        val readback = AgentToolExchange(listOf(statusCall), listOf(status))
+        val next = requireNotNull(PhoneIndexContinuation.next(history + readback, tools))
+        val wrongScope = status.copy(executionReceipt = JsonObject(requireNotNull(status.executionReceipt) + ("scope_hash" to JsonPrimitive("0".repeat(64)))))
+        assertNull(PhoneIndexContinuation.next(history + AgentToolExchange(listOf(statusCall), listOf(wrongScope)), tools))
+        val otherSource = status.copy(content = ToolResultContent.Json(JsonObject(statusBody + ("map_source" to JsonPrimitive("gateway")))))
+        assertNull(PhoneIndexContinuation.next(history + AgentToolExchange(listOf(statusCall), listOf(otherSource)), tools))
+        assertEquals(arguments("index", cursor), next.arguments)
+        val resumed = continuation.execute(next.callId, next.arguments)
         assertFalse(resumed.isError)
         assertEquals(JsonPrimitive(true), body(resumed).getValue("graph").jsonObject["coverage_complete"])
         assertEquals(1, fixture.firstBlobReads.get())

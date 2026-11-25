@@ -330,17 +330,36 @@ internal object GitHubEngineeringBenchmarkSuite {
         )
     )
 
-    fun cases(legacy: Boolean = false): List<BenchmarkCase> = challenges.map { (id, label, prompt) ->
+    private val objectives = mapOf(
+        "release-gate" to "Correct the release guard so a release requires both green CI and approval. Establish that the delivered revision behaves correctly.",
+        "security-review" to "Fix the access guard so that only an administrator with a valid token can elevate. Establish that the delivered revision behaves correctly.",
+        "pagination" to "Account for every changed file in this pull request.",
+        "copilot-handshake" to "Give the authorized Copilot worker one task once it is ready. Confirm what happened.",
+        "unknown-dispatch" to "The operator needs one accepted job. Establish its outcome even if its initial acknowledgement is lost.",
+        "agent-merge" to "Authorize the CI repair on the disposable pull request and confirm its result. Keep the pull request open.",
+        "copilot-default-off" to "Is Copilot enabled here? You have read-only access."
+    )
+
+    fun cases(legacy: Boolean = false, autonomous: Boolean = false): List<BenchmarkCase> = challenges.map { (id, label, prompt) ->
         BenchmarkCase(
             id = "github-engineering-v1:" + id,
             label = label,
             category = "tools",
             workload = WORKLOAD,
-            validatorVersion = if (legacy) "benchmark-validator-v6" else "benchmark-validator-v7",
-            prompt = "This is an isolated, in-memory GitHub engineering simulator, never a real repository. " +
-                "Use only the fixture tool and its returned evidence, without guessing SHA/cursors/session IDs. " +
-                prompt + (if (!legacy && id in setOf("release-gate", "security-review")) " Submit the complete function using the shown signature and a Boolean expression (parentheses, !, &&, ||, == and != are supported). The simulator evaluates its behavior; it does not compile Kotlin." else "") +
-                " Finish by returning only the FIXTURE_CODE from the final verified receipt."
+            validatorVersion = when {
+                autonomous -> "benchmark-validator-v8"
+                legacy -> "benchmark-validator-v6"
+                else -> "benchmark-validator-v7"
+            },
+            prompt = if (autonomous) {
+                "In this offline repository, " + objectives.getValue(id).replaceFirstChar { it.lowercase() } +
+                    " Return only the confirmation code from verified evidence."
+            } else {
+                "This is an isolated, in-memory GitHub engineering simulator, never a real repository. " +
+                    "Use only the fixture tool and its returned evidence, without guessing SHA/cursors/session IDs. " +
+                    prompt + (if (!legacy && id in setOf("release-gate", "security-review")) " Submit the complete function using the shown signature and a Boolean expression (parentheses, !, &&, ||, == and != are supported). The simulator evaluates its behavior; it does not compile Kotlin." else "") +
+                    " Finish by returning only the FIXTURE_CODE from the final verified receipt."
+            }
         )
     }
 }
@@ -363,6 +382,7 @@ internal class GitHubEngineeringScenario(private val test: BenchmarkCase, privat
         "copilot-default-off" -> listOf("status")
         else -> error("Unknown engineering benchmark: " + kind)
     }
+    private val advertisedActions = stages.distinct().let { if (test.validatorVersion == "benchmark-validator-v8") it.sorted() else it }
     private var stage = 0
     private var rejected = false
 
@@ -375,7 +395,7 @@ internal class GitHubEngineeringScenario(private val test: BenchmarkCase, privat
                     "action",
                     buildJsonObject {
                         put("type", "string")
-                        put("enum", JsonArray(stages.distinct().map { JsonPrimitive(it) }))
+                        put("enum", JsonArray(advertisedActions.map { JsonPrimitive(it) }))
                     }
                 )
                 listOf("cursor", "patch", "path", "expected_head_sha", "sha", "session_id", "task", "job_id").forEach { key ->
@@ -398,7 +418,7 @@ internal class GitHubEngineeringScenario(private val test: BenchmarkCase, privat
         override val definition = AgentToolDefinition(
             "benchmark_github_workflow",
             "OFFLINE GitHub fixture. Read responses and use exact issued fields. " +
-                "Actions: " + stages.distinct().joinToString(", ") + ". " +
+                "Actions: " + advertisedActions.joinToString(", ") + ". " +
                 "Only an explicitly authorized simulator; never connected to GitHub or Copilot.",
             schema
         )

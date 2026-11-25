@@ -119,6 +119,8 @@ private fun metricLabel(metric: String): String = when (metric) {
     "speech_end" -> "Detected speech end to final text"
     "final_to_request" -> "Final text to accepted request"
     "request_to_text" -> "Request to first AI text"
+    "request_to_lookup_audio" -> "Accepted request to spoken search update"
+    "request_to_answer_audio" -> "Accepted request to first spoken answer"
     "text_to_publishable" -> "First text to stable spoken phrase"
     "publishable_to_queue" -> "Stable phrase to speech queue"
     "text_to_queue" -> "First text to speech queue"

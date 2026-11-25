@@ -51,7 +51,7 @@ class KokoroSpeechVocabularyTest {
     }
 
     @Test fun ordinaryWordsAndEmphasisNeverBecomeHeuristicLetterSpelling() {
-        assertEquals("please read this ram arm us it nasa nato", speak("PLEASE READ THIS ram arm us it NASA NATO"))
+        assertEquals("please reed this ram arm us it nasa nato", speak("PLEASE READ THIS ram arm us it NASA NATO"))
         assertEquals(0, KokoroSpeechText.timed("PLEASE READ THIS ram arm us it NASA NATO") { true }.observation.spelledLetters)
         assertEquals("jason ram", speak("JSON RAM"))
     }
@@ -174,10 +174,14 @@ class KokoroSpeechVocabularyTest {
         }
     }
 
+    private fun withinPhraseLimits(phrase: KokoroPhrase): Boolean =
+        phrase.speech.toByteArray(Charsets.UTF_8).size <= 128 &&
+            (phrase.wordRanges.size <= 16 || phrase.groups.isNotEmpty() && phrase.groups.distinct().size == 1)
+
     @Test fun largeExpansionsRemainBoundedAndDoNotLogTheVocabulary() {
         val input = List(100) { "U.S.A. 1234567890123456789012th microvoxel" }.joinToString(" ")
         val projection = KokoroSpeechText.timed(input) { true }
-        assertTrue(projection.phrases!!.all { it.speech.length <= 128 && it.wordRanges.size <= 16 })
+        assertTrue(projection.phrases!!.all(::withinPhraseLimits))
         assertTrue(projection.phrases.flatMap { it.wordRanges }.all { it.first >= 0 && it.last < input.length })
         assertTrue(!projection.observation.toString().contains("microvoxel"))
     }
@@ -248,7 +252,7 @@ class KokoroSpeechVocabularyTest {
             val ranges = phrases.flatMap { it.wordRanges }
             assertTrue(text, ranges.all { !it.isEmpty() && it.first >= 0 && it.last < text.length })
             assertEquals(text, expected, ranges.map { text.substring(it) })
-            assertTrue(text, phrases.all { it.speech.length <= 128 && it.wordRanges.size <= 16 })
+            assertTrue(text, phrases.all(::withinPhraseLimits))
         }
 
         val text = "go ".repeat(10) + "x^2.5e3"

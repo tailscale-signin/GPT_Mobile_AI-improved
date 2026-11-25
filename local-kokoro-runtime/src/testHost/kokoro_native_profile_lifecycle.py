@@ -161,6 +161,7 @@ def main():
     test_host = Path(__file__).resolve().parent
     test_java = test_host.parent / "test/java/dev/melo/kokoro/KokoroNativeProfileLifecycleIntegration.java"
     context_java = test_host.parent / "test/java/dev/melo/kokoro/KokoroNativeContextIntegration.java"
+    prepared_java = context_java.with_name("KokoroPreparedPhraseIntegration.java")
     main_java = test_host.parent / "main/java/dev/melo/kokoro/TimedKokoro.java"
     provider_identity, provider_files, runtime_directories = checked_provider_inputs(args.qnn, args.qnn_version, main_java)
     provider_inputs = {name: digest(path) for name, path in provider_files.items()}
@@ -255,17 +256,20 @@ def main():
         shutil.copy2(library, build / library.name)
     classes = args.output / "classes"
     classes.mkdir()
-    assert run("javac", [args.jdk / "bin/javac", "-d", classes, main_java, test_java, context_java]) == 0
+    assert run("javac", [args.jdk / "bin/javac", "-d", classes, main_java, main_java.with_name("KokoroFrontend.java"), test_java, context_java, prepared_java]) == 0
     results = {}
     for case in ["unqualified_cancel", "unqualified_failure", "qualified_cancel"]:
         results[case] = run(case, [args.jdk / "bin/java", "-Xcheck:jni", "-Djava.library.path=" + str(build),
                                   "-cp", classes, "dev.melo.kokoro.KokoroNativeProfileLifecycleIntegration",
                                   args.pack, build, case, args.output / (case + ".json")])
+    results["prepared_phrase_cpu"] = run("prepared_phrase_cpu", [args.jdk / "bin/java", "-Xcheck:jni",
+        "-Djava.library.path=" + str(build), "-cp", classes, "dev.melo.kokoro.KokoroPreparedPhraseIntegration",
+        args.pack / "model.int8.onnx", args.pack])
     results["context_roundtrip"] = run("context_roundtrip", [args.jdk / "bin/java", "-Xcheck:jni",
         "-Djava.library.path=" + str(build), "-cp", classes, "dev.melo.kokoro.KokoroNativeContextIntegration",
         args.pack, build, args.output / "context_roundtrip.json"])
     source_inputs = {str(p): digest(p) for p in sorted(args.native_source.rglob("*")) if p.is_file()}
-    source_inputs.update({str(p): digest(p) for p in [Path(__file__), test_java, context_java, main_java,
+    source_inputs.update({str(p): digest(p) for p in [Path(__file__), test_java, context_java, prepared_java, main_java, main_java.with_name("KokoroFrontend.java"),
                                                     test_host / "kokoro_profile_fault.h", test_host / "kokoro_profile_fault.cpp"]})
     receipt = {
         "scope": "actual_native_model_sherpa_jni_with_explicit_host_emulator_and_fault_ports",

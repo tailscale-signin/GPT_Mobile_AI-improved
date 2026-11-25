@@ -2,6 +2,11 @@
 set -euo pipefail
 
 : "${GITHUB_ENV:?GitHub Actions environment file is required}"
+if [[ ${1:-} == --release-apks ]] && ! command -v advzip >/dev/null; then
+    apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+    sudo timeout --kill-after=15s 120s apt-get "${apt_options[@]}" update
+    sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 120s apt-get "${apt_options[@]}" install --no-install-recommends -y advancecomp
+fi
 workspace=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/android-vulkan.XXXXXXXX")
 prefix="$workspace/sdk"
 

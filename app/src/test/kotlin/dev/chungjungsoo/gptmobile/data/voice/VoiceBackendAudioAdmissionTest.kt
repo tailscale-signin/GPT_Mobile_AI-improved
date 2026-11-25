@@ -61,7 +61,8 @@ class VoiceBackendAudioAdmissionTest {
 
     @Test fun currentRuntimeProtocolVoiceRateAndComparisonIdentityMustAllMatch() {
         val invalid = listOf(
-            gpu.copy(protocol = VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL.removeSuffix("-audio-admission-v1")),
+            gpu.copy(protocol = VoiceSpeechWorkload.PROTOCOL + "-thermal-v2"),
+            gpu.copy(protocol = VoiceSpeechWorkload.PROTOCOL + "-thermal-v2-audio-admission-v1"),
             gpu.copy(comparisonId = "d".repeat(32)),
             gpu.copy(comparisonScope = "b".repeat(64)),
             gpu.copy(speakerId = 11),

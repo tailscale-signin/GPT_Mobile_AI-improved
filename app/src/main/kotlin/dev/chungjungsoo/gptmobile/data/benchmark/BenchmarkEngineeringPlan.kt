@@ -176,7 +176,7 @@ object BenchmarkEngineeringRegistry {
         require(taskPack in setOf("coding", "repository") && (taskPack == "coding" || lane in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB)))
         return when (lane) {
             BenchmarkEngineeringLane.TOOL_CONTRACT -> GitHubProfileAuditSuite.cases(allActions)
-            BenchmarkEngineeringLane.WORKFLOW_SIMULATION -> GitHubEngineeringBenchmarkSuite.cases()
+            BenchmarkEngineeringLane.WORKFLOW_SIMULATION -> GitHubEngineeringBenchmarkSuite.cases(autonomous = true)
             BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB -> benchmarkExternalEngineeringCases(lane, preset, seed, taskPack)
         }.map { test ->
             test.copy(

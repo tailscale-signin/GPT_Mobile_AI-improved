@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.melo.kokoro.KokoroFrontend
 import java.util.concurrent.CancellationException
 
 /** Retires a failed accelerator before retrying one entirely unplayed phrase. */
@@ -34,10 +35,17 @@ internal class VoiceFailoverPhraseEngine(
         return warmed
     }
 
-    override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+    override fun preparePhrase(text: String): KokoroFrontend.EncodedPhrase? {
+        checkActive()
+        return active.preparePhrase(text)
+    }
+
+    override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio = generatePrepared(text, null, speaker, speed)
+
+    override fun generatePrepared(text: String, encoded: KokoroFrontend.EncodedPhrase?, speaker: Int, speed: Float): VoicePhraseAudio {
         checkActive()
         val audio = try {
-            active.generate(text, speaker, speed)
+            active.generatePrepared(text, encoded, speaker, speed)
         } catch (error: IllegalStateException) {
             if (error is CancellationException) throw error
             checkActive()
@@ -61,7 +69,7 @@ internal class VoiceFailoverPhraseEngine(
                 throw CancellationException("Speech cancelled")
             }
             checkActive()
-            replacement.generate(text, speaker, speed)
+            replacement.generatePrepared(text, encoded, speaker, speed)
         }
         checkActive()
         return audio

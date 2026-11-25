@@ -161,12 +161,10 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         if (authorize(connectionId, runId, callId, tool, arguments, schema, nativeGitHub, executionAllowed)) return true
         val connection = connections.getConnection(connectionId)
         val current = dao.observe("$runId:$callId").first()
-        val duplicate = current?.state in setOf("EXECUTING", "COMPLETED", "OUTCOME_UNKNOWN", "INTERRUPTED") ||
-            (
-                !(connection?.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)) &&
-                    connection?.let { dao.previousMatchingAction(runId, it.name, tool, ScopedToolGrant.canonicalHash(arguments), "$runId:$callId") } != null
-                )
-        if (duplicate) throw ToolAuthorizationRejected("DUPLICATE_ACTION", "A matching action is already pending, dispatched or has an uncertain outcome. Inspect its saved receipt before repeating it; changing permission will not repeat it.")
+        val previousState = current?.state?.takeIf { it in setOf("EXECUTING", "COMPLETED", "OUTCOME_UNKNOWN", "INTERRUPTED") }
+            ?: connection?.takeUnless { it.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments) }
+                ?.let { dao.previousMatchingAction(runId, it.name, tool, ScopedToolGrant.canonicalHash(arguments), "$runId:$callId") }
+        if (previousState != null) throw DuplicateToolAction(previousState)
         if (connection == null && (tool == "github" || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null)) {
             throw ToolAuthorizationRejected("PERMISSION_REVOKED", "The selected GitHub connection is unavailable. Restore the original authorized connection before retrying; no GitHub request was sent.")
         }

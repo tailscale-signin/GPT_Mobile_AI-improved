@@ -158,11 +158,40 @@ internal object GitHubEffectiveRecovery {
         return JsonObject(report + mapOf("effective_recovery" to decision.json(), "task_recovery_checkpoint" to checkpoint))
     }
 
+    fun publicationText(text: String, report: JsonObject, receipts: Map<String, JsonObject>): String {
+        val decision = resolve(report)
+        val original = report["original_failure"] as? JsonObject ?: return text
+        if (decision.kind != Kind.INSPECT_FAILURE || decision.action != "INSPECT_EXECUTION_FAILURE") return text
+        val invocation = original.text("invocation_id").takeIf { it.matches(Regex("[A-Za-z0-9_.:-]{1,128}")) }
+        val reads = receipts.values.count {
+            it["trusted"] == JsonPrimitive(true) &&
+                it["success"] == JsonPrimitive(true) &&
+                (it["arguments"] as? JsonObject)?.let { args -> dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(it.text("tool"), args) } == true
+        }
+        // Both receipt renderers use one-line actions; retain all following evidence.
+        val beforeAction = text.lineSequence()
+            .filterNot { it.startsWith("**Next action:** ") || it.startsWith("**Next action** · ") }
+            .joinToString("\n")
+            .trimEnd()
+        val unknownAcceptance = original["remote_acceptance"] == JsonPrimitive("UNKNOWN") && original["dispatched"] != JsonPrimitive(false)
+        return buildString {
+            append(beforeAction)
+            append(if (unknownAcceptance) "\n\n**Next action** · Review the failed provider request" else "\n\n**Next action** · Inspect the recorded failure")
+            invocation?.let { append(" `$it`") }
+            append(" and $reads retained successful read receipts.")
+            if (unknownAcceptance) {
+                append(" Check remote acceptance before starting a fresh task from the saved evidence. The failed request remains paused.")
+            } else if (original.text("code") == "REPLAY_EVIDENCE_REQUIRED") {
+                append(" Follow the saved-page recovery details from this checkpoint.")
+            }
+        }
+    }
+
     private fun inspection(action: String): Decision = Decision(
         Kind.INSPECT_FAILURE,
         when (action) {
             "RESUME_VERIFICATION" -> "INSPECT_VERIFICATION_FAILURE"
-            "", "NONE", "RESUME_UNFINISHED_WORK" -> "INSPECT_EXECUTION_FAILURE"
+            "", "NONE", "RESUME_UNFINISHED_WORK", "CONTINUE_FROM_THE_FIRST_UNVERIFIED_CRITERION" -> "INSPECT_EXECUTION_FAILURE"
             else -> action
         },
         "Review recovery details"

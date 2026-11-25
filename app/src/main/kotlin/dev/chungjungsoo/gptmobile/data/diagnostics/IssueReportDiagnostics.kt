@@ -99,6 +99,13 @@ internal data class IssueReportDiagnostics(
             add(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.FEATURE)
         }
         if ((values.keys + omittedFields).any { it in incidentDetailFields }) add(INCIDENT_DETAIL_FEATURE)
+        if ((values.keys + omittedFields).any { it in precheckGroupFields }) add(PRECHECK_GROUP_FEATURE)
+        if ("missing_tool_hash" in values.keys + omittedFields) add(MISSING_TOOL_IDENTITY_FEATURE)
+        if ((values.keys + omittedFields).any { it in recoveryReportFields } ||
+            values["replay_budget_state"] in setOf(JsonPrimitive("SAVED_PAGE_BODY_UNAVAILABLE"), JsonPrimitive("SAVED_PAGE_DELIVERY_MISMATCH"))
+        ) {
+            add(RECOVERY_REPORT_FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.tlsTransportPhaseFields }) add(IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE)
         if (values["tool_reason_code"] == JsonPrimitive("EVIDENCE_REVISION_MISMATCH")) add(GITHUB_READ_REVISION_FEATURE)
         if ("claim_extraction_schema_hash" in values.keys + omittedFields + unavailableFields) add("CLAIM_EXTRACTION_SCHEMA_HASH_V1")
@@ -172,6 +179,8 @@ internal data class IssueReportDiagnostics(
         if (VoiceExecutionDiagnostics.requiresStreamingBackendSupport(values)) add(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
         if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.failedEventOutputFields }) add(IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE)
+        if (values["voice_playback_focus_attempts"] == JsonPrimitive(3)) add(VOICE_FOCUS_RETRIES_FEATURE)
         if ((values.keys + omittedFields).any { it in voiceCapturePlaybackFields || it in voicePackStateFields }) add("VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in composerEvidenceFields }) add("COMPOSER_IME_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in completionEvidenceFields } || values["provider_failure_code"] == JsonPrimitive("TOOL_PROTOCOL_INVALID_FRAME")) add("COMPLETION_EVIDENCE_V1")
@@ -181,7 +190,14 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in reconciliationFields } || (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in reconciliationCodes) {
             add("SESSION_RECOVERY_DIAGNOSTICS_V1")
         }
-        if ((values["changed_policy_fields"] as? JsonArray).orEmpty().any { (it as? JsonPrimitive)?.contentOrNull?.startsWith("githubProfileOverride.") == true }) add("ISSUE_RECOVERY_DETAILS_V1")
+        val policyNames = (values["changed_policy_fields"] as? JsonArray).orEmpty()
+        if (policyNames.any { (it as? JsonPrimitive)?.contentOrNull?.startsWith("githubProfileOverride.") == true }) add("ISSUE_RECOVERY_DETAILS_V1")
+        // An older reporter knows 81 names. A clipped sample can hide every new name,
+        // so its distinct retained-plus-omitted count also carries the newer contract.
+        val knownPolicyCount = policyNames.size.toLong() + ((values["changed_policy_omitted_count"] as? JsonPrimitive)?.longOrNull ?: 0L)
+        if (policyNames.any { (it as? JsonPrimitive)?.contentOrNull in policySelectionFields } || knownPolicyCount > LEGACY_POLICY_FIELD_LIMIT) {
+            add(POLICY_SELECTION_FEATURE)
+        }
         if ((values.keys + omittedFields).any { it in issueRecoveryFields } || values["tool_reason_code"] == JsonPrimitive("SAVED_VIEW_CONTEXT_MISMATCH")) add("ISSUE_RECOVERY_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.runEvidenceFields } ||
             values["incident_capture_site"] == JsonPrimitive("CHAT_REPOSITORY_PREFLIGHT") ||
@@ -211,6 +227,7 @@ internal data class IssueReportDiagnostics(
         if ((values["github_prerequisite_observation"] as? JsonPrimitive)?.contentOrNull in IssueReportIncidentCapsule.reviewCatalogObservations) add(REVIEW_CATALOG_FEATURE)
         if ("app_search_readiness" in values.keys + omittedFields) add(SEARCH_READINESS_FEATURE)
         if ((values.keys + omittedFields).any { it in silencedInputFields }) add(SILENCED_INPUT_FEATURE)
+        if ((values.keys + omittedFields).any { it in setOf("minimum_page_body_tokens", "source_allowance") } || values["replay_budget_state"] == JsonPrimitive("SAVED_PAGE_EXCEEDS_ALLOWANCE")) add("SAVED_PAGE_CAPACITY_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in replayBudgetFields }) add("REPLAY_BUDGET_EVIDENCE_V1")
         if ("pending_saved_page_count" in values.keys + omittedFields || values["replay_budget_state"] == JsonPrimitive("REQUIRED_SAVED_PAGE_NOT_PRESENT")) add(SAVED_PAGE_REPLAY_FEATURE)
         if ("graph_transport_kind" in values || "graph_transport_kind" in omittedFields) add("GRAPH_TRANSPORT_EVIDENCE_V1")
@@ -233,12 +250,23 @@ internal data class IssueReportDiagnostics(
 
     companion object {
         const val INCIDENT_DETAIL_FEATURE = "RUNTIME_INCIDENT_DETAILS_V1"
+        const val RECOVERY_REPORT_FEATURE = "RECOVERY_REPORT_EVIDENCE_V1"
+        const val PRECHECK_GROUP_FEATURE = "TOOL_PRECHECK_GROUP_V1"
+        private val precheckGroupFields = setOf("precheck_rejection_count", "precheck_call_hashes", "precheck_span_ms")
+        const val MISSING_TOOL_IDENTITY_FEATURE = "CATALOG_MISSING_TOOL_IDENTITY_V1"
+        const val POLICY_SELECTION_FEATURE = "GITHUB_POLICY_SELECTION_FIELDS_V1"
+        const val VOICE_FOCUS_RETRIES_FEATURE = "VOICE_FOCUS_RETRY_COUNT_V1"
+        private const val LEGACY_POLICY_FIELD_LIMIT = 81
+        private val policySelectionFields = setOf("githubProfileOverride.nextActionPolicy", "githubProfileOverride.evidenceElaboration", "githubProfileOverride.primaryPatchReviewConsent")
+        internal val researchCriteria = setOf("WRITER_INCOMPLETE", "NO_ACQUISITION_PACKET", "NO_READABLE_SOURCES", "DELIVERY_VERIFICATION", "EMPTY_REPORT", "UNKNOWN_CITATION", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "MISSING_SECTION", "OMITTED_LEADING_STUDY", "OMITTED_UNREAD_LEAD", "UNSOURCED_SCIENTIFIC_PARAGRAPH", "METADATA_PRESENTED_AS_READ", "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE", "UNREGISTERED_REFERENCE_URL", "DIRECT_REFERENCE_MISSING", "QUESTION_EVIDENCE_NOT_CITED", "QUESTION_EVIDENCE_UNCOVERED", "QUESTION_EVIDENCE_METADATA_REQUIRED", "EVIDENCE_CLAIM_NOT_COVERED", "COUNTEREVIDENCE_NOT_DISCLOSED")
+        private val researchEvidenceFields = setOf("research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash")
+        private val recoveryReportFields = researchEvidenceFields + setOf("catalog_rejected_call_hashes", "catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count", "failure_boundary", "stream_answer_state", "anr_trace_state", "anr_frame_count")
         internal val requiredSchemaDetailFields = setOf("required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens")
         private val incidentDetailsByArea = mapOf(
             "PROVIDER" to requiredSchemaDetailFields + setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
-            "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"),
-            "INCIDENT" to setOf("dispatch_gateway_selection_change"),
-            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode"),
+            "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash", "anr_trace_state", "anr_frame_count"),
+            "INCIDENT" to researchEvidenceFields + setOf("dispatch_gateway_selection_change", "failure_boundary", "stream_answer_state"),
+            "TOOL" to precheckGroupFields + setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "missing_tool_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"),
             "ACCEPTANCE" to setOf("acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash")
         )
         private val incidentDetailFields = incidentDetailsByArea.values.flatten().toSet()
@@ -288,7 +316,7 @@ internal data class IssueReportDiagnostics(
         const val REPEAT_PRIOR_CAUSE_FEATURE = "TOOL_REPEAT_PRIOR_CAUSE_V1"
         const val PROFILE_BEHAVIOR_FEATURE = "PROFILE_BEHAVIOR_CHANGE_V1"
         const val SAVED_PAGE_REPLAY_FEATURE = "SAVED_PAGE_REPLAY_EVIDENCE_V1"
-        private val replayBudgetCounts = setOf("replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count")
+        private val replayBudgetCounts = setOf("replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count", "minimum_page_body_tokens", "source_allowance")
         internal val replayBudgetFields = replayBudgetCounts + "replay_budget_state"
         private val reconciliationEvidenceFields = setOf("reconciliation_source", "reconciliation_tracked_signature_count")
         internal val graphTransportKinds = setOf("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN")
@@ -374,7 +402,7 @@ internal data class IssueReportDiagnostics(
         )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + profileSelectionHashes + setOf(
-            "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash",
+            "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash", "missing_tool_hash",
             "graph_index_attempt_hash",
             "reasoning_template_hash", "conflict_conversation_hash", "conflict_pending_tool_ids_hash",
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash", "provider_cooldown_scope_hash",
@@ -391,6 +419,7 @@ internal data class IssueReportDiagnostics(
         )
         private val attempts = completionEvidenceFields + setOf("backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit")
         private val durations = setOf(
+            "precheck_span_ms",
             "reasoning_probe_age_ms", "reasoning_metadata_age_ms",
             "github_transport_wait_ms",
             "voice_speech_end_to_transcript_ms",
@@ -403,6 +432,7 @@ internal data class IssueReportDiagnostics(
             "voice_warmup_ms"
         )
         private val counts = replayBudgetCounts + capacityEvidenceCounts + githubSchemaBudgetFields + requiredSchemaDetailFields + setOf(
+            "precheck_rejection_count", "research_unread_sources", "research_read_sources", "research_blocked_sources", "catalog_rejection_count", "catalog_selector_count",
             "search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count",
             "tool_budget_bytes_available",
             "github_cooldown_remaining_requests",
@@ -425,6 +455,10 @@ internal data class IssueReportDiagnostics(
             "dispatch_gateway_selection_change" to setOf("SELECTED", "CLEARED", "REPLACED"),
             "read_handle_kind" to setOf("SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "VERIFICATION_RECEIPT", "NONCANONICAL_HANDLE"),
             "native_trace_format" to setOf("text", "protobuf", "binary", "unknown"),
+            "anr_trace_state" to setOf("UNAVAILABLE", "NO_MATCHING_FRAMES", "MAIN_THREAD_CAPTURED"),
+            "failure_boundary" to setOf("AFTER_VISIBLE_OUTPUT", "BEFORE_VISIBLE_OUTPUT"),
+            "stream_answer_state" to setOf("NO_TEXT_EMITTED", "PARTIAL_TEXT_EMITTED", "FINAL_TEXT_EMITTED"),
+            "research_delivery_criterion" to researchCriteria,
             "native_trace_reason" to setOf("no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"),
             "native_signal" to setOf("SIGABRT", "SIGSEGV", "SIGBUS", "SIGFPE", "SIGILL", "SIGTRAP", "SIGSYS", "SIGKILL", "SIGQUIT", "SIGTERM", "SIGPIPE", "SIGSTKFLT", "SIGXCPU", "SIGXFSZ"),
             "reasoning_probe_enable_thinking" to dev.chungjungsoo.gptmobile.data.context.reasoningProbeNegatives,
@@ -438,7 +472,7 @@ internal data class IssueReportDiagnostics(
             "conflict_stream_job_relation" to setOf("MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"),
             "acceptance_capability_scope" to setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES"),
             "reconciliation_source" to setOf("SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"),
-            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT"),
+            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH", "SAVED_PAGE_EXCEEDS_ALLOWANCE"),
             "graph_transport_kind" to graphTransportKinds,
             "graph_local_phase" to graphLocalPhases,
             "graph_local_reason" to graphLocalReasons,
@@ -756,12 +790,12 @@ internal data class IssueReportDiagnostics(
 
         private fun validatedValue(key: String, value: JsonElement): JsonElement? {
             IssueReportIncidentCapsule.validValue(key, value)?.let { return it }
-            if (key in hashLists || key in enumLists) {
+            if (key in hashLists || key in enumLists || key in setOf("catalog_rejected_call_hashes", "precheck_call_hashes")) {
                 val items = value as? JsonArray ?: return null
                 if (items.size !in 1..MAX_CRITERIA) return null
                 val copied = items.map { item ->
                     val text = string(item) ?: return null
-                    if (key in hashLists && !hashPattern.matches(text) || key in enumLists && text !in enumLists.getValue(key)) return null
+                    if ((key in hashLists || key in setOf("catalog_rejected_call_hashes", "precheck_call_hashes")) && !hashPattern.matches(text) || key in enumLists && text !in enumLists.getValue(key)) return null
                     JsonPrimitive(text)
                 }
                 return JsonArray(copied)
@@ -776,12 +810,13 @@ internal data class IssueReportDiagnostics(
             val range = when (key) {
                 "reconciliation_tracked_signature_count", in searchAttemptFields -> 0L..1024L
                 "native_trace_frames" -> 0L..16L
+                "anr_frame_count" -> 0L..32L
                 "reasoning_probe_attempts" -> 0L..4L
                 "composer_generation" -> 1L..16_000_000L
                 "composer_events_dropped" -> 0L..16_000_000L
                 in composerAgeFields -> 0L..600_000L
                 "composer_focus_transitions", "composer_ime_transitions" -> 0L..255L
-                "voice_playback_focus_attempts" -> 1L..2L
+                "voice_playback_focus_attempts" -> 1L..3L
                 "voice_generation" -> 0..Long.MAX_VALUE
                 "voice_install_progress_percent" -> 0L..100L
                 "voice_install_downloaded_bytes", "voice_install_total_bytes" -> 0L..1_000_000_000L

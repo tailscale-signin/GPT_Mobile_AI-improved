@@ -41,7 +41,8 @@ internal object ToolArgumentValidator {
                     "Choose either max_lines (1..2000) or end_line, never both; omit both for a bounded default read. end_line=-1 means bounded EOF. "
             "github_ci" ->
                 "Use only the declared fields for the selected action. Runs filters use status; returned runs include conclusion. " +
-                    "For failed runs set status=failure. For logs use an observed job_id and positive ordered start_line/end_line spanning at most 2000 lines; read longer logs in successive windows. "
+                    "For failed runs set status=failure. For logs, use the job_id from action=jobs for the matching run and attempt. Find the run_id with action=runs on the requested head. " +
+                    "Use positive ordered start_line/end_line spanning at most 2000 lines; read longer logs in successive windows. "
             "github_watch_checks" ->
                 "Use github_ci action=runs with head_sha to discover a run_id, or github_pr action=list to discover a pr_number. " +
                     "Supply an observed selector for the head to monitor. "
@@ -74,9 +75,12 @@ internal object ToolArgumentValidator {
     }
 
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
-    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null): AgentToolResult {
-        val correction = discoveryCorrection(toolName, arguments, schema)
-        val selector = selectorProblem(toolName, arguments)
+    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null, catalog: ProgressiveToolCatalog? = null): AgentToolResult {
+        val selectors = catalog?.singleActionSelectors(arguments).orEmpty()
+        val operation = toolName.githubOperationFamily()
+        val selector = selectorProblem(operation, arguments, schema)
+        val receipt = rejectionReceipt(operation, arguments, schema, validationErrors, selector)
+        val correction = if (selector?.field == "job_id") ciJobDiscovery(arguments, schema) else discoveryCorrection(toolName, arguments, schema)
         val rejected = AgentToolResult(
             callId,
             ToolResultContent.Json(
@@ -84,14 +88,34 @@ internal object ToolArgumentValidator {
                     put("schema", "gptmobile.arguments.v2")
                     put("operation", toolName)
                     val message = repairMessage(toolName, validationErrors, schema, arguments)
-                    put("message", if (correction == null) message else "$message Use correction_call for the bounded read.")
+                    put(
+                        "message",
+                        when {
+                            selectors.isNotEmpty() -> "$message Use each correction_calls entry once with a fresh call ID to inspect its local action schema."
+                            correction != null -> "$message Use correction_call for the bounded read."
+                            else -> message
+                        }
+                    )
                     put("validation_errors", JsonArray(validationErrors.map(::JsonPrimitive)))
                     put("state", "PRECHECK_REJECTED")
                     put("dispatched", false)
                     put("retryable", false)
-                    put("corrected_proposal_limit", 1)
+                    put("corrected_proposal_limit", selectors.size.coerceAtLeast(1))
+                    if (selectors.isNotEmpty()) {
+                        put(
+                            "correction_calls",
+                            JsonArray(
+                                selectors.map { selectorArguments ->
+                                    buildJsonObject {
+                                        put("tool", toolName)
+                                        put("arguments", selectorArguments)
+                                    }
+                                }
+                            )
+                        )
+                    }
                     if (selector != null) {
-                        put("reason", selector.reason)
+                        put("reason", receipt.getValue("reason_code"))
                         put(
                             if (selector.missing) "missing_fields" else "invalid_fields",
                             JsonArray(listOf(JsonPrimitive(selector.field)))
@@ -102,7 +126,7 @@ internal object ToolArgumentValidator {
                                 put("field", selector.field)
                                 put("type", "positive_integer")
                                 put("source", selector.source)
-                                put("discovery_action", "list")
+                                put("discovery_action", selector.discoveryAction)
                             }
                         )
                     }
@@ -121,8 +145,7 @@ internal object ToolArgumentValidator {
             errorCode = "INVALID_ARGUMENTS",
             dispatched = false,
             executionReceipt = JsonObject(
-                rejectionReceipt(toolName.githubOperationFamily(), arguments, schema, validationErrors, selector) + buildJsonObject {
-                    val operation = toolName.githubOperationFamily()
+                receipt + buildJsonObject {
                     val nestedUnknown = if (operation == "github_read") {
                         (arguments["ranges"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                             .flatMap { it.keys - GitHubOperationArguments.readRangeFields }.toSet()
@@ -464,12 +487,40 @@ internal object ToolArgumentValidator {
 
     private fun integer(value: JsonElement?): Int? = (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
 
-    private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String, val source: String)
+    private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String?, val source: String, val discoveryAction: String = "list")
+
+    private fun ciJobDiscovery(arguments: JsonObject, schema: JsonObject): JsonObject? {
+        val repositoryFields = setOf("owner", "repo")
+        if (repositoryFields.any(arguments::containsKey)) {
+            for (field in repositoryFields) {
+                val value = arguments[field] as? JsonPrimitive ?: return null
+                if (!value.isString || value.content.isBlank()) return null
+            }
+        }
+        val run = arguments["run_id"]
+        if (run != null && (run !is JsonPrimitive || run.isString || (run.longOrNull ?: 0L) <= 0L)) return null
+        val filters = if (run == null) setOf("head_sha", "branch", "workflow_id") else setOf("run_id", "run_attempt")
+        val preserved = filters + repositoryFields
+        val supported = preserved + setOf("action", "job_id", "start_line", "end_line", "start_offset")
+        if (!supported.containsAll(arguments.keys)) return null
+        val discovery = buildJsonObject {
+            put("action", if (run == null) "runs" else "jobs")
+            arguments.filterKeys { it in preserved }.forEach { (field, value) -> put(field, value) }
+        }
+        return discovery.takeIf { errors(it, schema).isEmpty() && GitHubOperationArguments.errors("github_ci", it).isEmpty() }
+    }
 
     /** Missing and malformed read selectors need a typed discovery path, not prose parsing. */
-    private fun selectorProblem(toolName: String, arguments: JsonObject): SelectorProblem? {
-        val operation = toolName.githubOperationFamily()
-        if (operation !in setOf("github_pr", "github_issue") || "view_cursor" in arguments) return null
+    private fun selectorProblem(operation: String, arguments: JsonObject, schema: JsonObject): SelectorProblem? {
+        if ("view_cursor" in arguments) return null
+        if (operation == "github_ci" && arguments["action"] in setOf(JsonPrimitive("logs"), JsonPrimitive("job"))) {
+            val field = (schema["properties"] as? JsonObject)?.get("job_id") as? JsonObject
+            if (field?.get("type") != JsonPrimitive("integer")) return null
+            val job = arguments["job_id"]
+            if (job is JsonPrimitive && !job.isString && (job.longOrNull ?: 0L) > 0L) return null
+            return SelectorProblem("job_id", job == null, null, "OBSERVED_GITHUB_JOB", "jobs")
+        }
+        if (operation !in setOf("github_pr", "github_issue")) return null
         val issue = operation == "github_issue"
         val action = (arguments["action"] as? JsonPrimitive)?.content ?: if (issue) "list" else "context"
         val readActions = if (issue) setOf("headers", "context", "comments", "history") else setOf("headers", "context", "comments", "reviews", "threads")

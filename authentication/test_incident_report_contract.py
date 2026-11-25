@@ -12,6 +12,40 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_phone_deadline_public_alias_uses_existing_context_and_incident_vocabulary(self):
+        for action in ("index", "query"):
+            capture = self.capture("TOOL", {
+                "incident_phase": "tool_execution", "causal_failure_code": "READ_DEADLINE",
+                "tool_error_code": "READ_DEADLINE", "tool_dispatch_phase": "CANCELLED_LOCALLY",
+                **({"tool_action": "index"} if action == "index" else {}),
+            })
+            report = self.report(capture)
+            report["errorCode"] = "READ_DEADLINE"
+            report["context"].update(stage="tool_execution", operation="repository_graph",
+                                     dispatched=True, retryable=False, requiresReconciliation=False)
+            report["context"]["unavailableFields"] = [field for field in report["context"]["unavailableFields"] if field not in report["context"]]
+            approved = json.dumps(report, separators=(",", ":"))
+            restored = json.loads(approved)
+            _, issue = issue_from_report(restored)
+            for value in ("tool_execution", "READ_DEADLINE", "CANCELLED_LOCALLY"):
+                self.assertIn(value, issue["body"])
+            self.assertEqual(approved, json.dumps(restored, separators=(",", ":")))
+            for invalid in ("phone_read_deadline", "tool_execution private/path", "private-stage"):
+                with self.subTest(action=action, stage=invalid), self.assertRaises(ReportError):
+                    rejected = copy.deepcopy(report)
+                    rejected["context"]["stage"] = invalid
+                    issue_from_report(rejected)
+                with self.subTest(action=action, phase=invalid), self.assertRaises(ValueError):
+                    rejected_capture = copy.deepcopy(capture)
+                    rejected_capture["values"]["incident_phase"] = invalid
+                    validate_diagnostics(rejected_capture)
+            unknown = copy.deepcopy(report)
+            del unknown["context"]["stage"]
+            unknown["context"]["unavailableFields"].append("stage")
+            unknown["context"]["unavailableFields"].sort()
+            unknown["context"]["diagnostics"]["values"]["incident_phase"] = "unknown"
+            self.assertIn("unknown", issue_from_report(unknown)[1]["body"])
+
     def test_typed_budget_metadata_and_manual_timing_survive_the_public_report(self):
         for kind, source, reason, retry in (
             ("ACCOUNT_CREDITS", "openrouter_credits", None, "AFTER_CONFIGURATION_CHANGE"),
@@ -2570,7 +2604,7 @@ class IncidentReportContractTest(unittest.TestCase):
                     issue_from_report(self.report(rejected))
 
     def test_intelligence_policy_names_preserve_approved_bytes_and_reject_unknown_lookalikes(self):
-        names = ("intelligenceLevel", "recoveryConsultConsent", "engineeringTeamConsent", "recoveryExecutionConsent")
+        names = ("intelligenceLevel", "nextActionPolicy", "evidenceElaboration", "recoveryConsultConsent", "engineeringTeamConsent", "recoveryExecutionConsent", "primaryPatchReviewConsent")
         for name in names:
             field = "githubProfileOverride." + name
             with self.subTest(field=field):
@@ -2616,12 +2650,12 @@ class IncidentReportContractTest(unittest.TestCase):
         reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
-        self.assertEqual(16, len(override_keys))
+        self.assertEqual(19, len(override_keys))
         behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(81, len(capsule.POLICY_FIELD_NAMES))
+        self.assertEqual(84, len(capsule.POLICY_FIELD_NAMES))
 
     def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
         code = "REPLAY_EVIDENCE_REQUIRED"
@@ -2655,6 +2689,9 @@ class IncidentReportContractTest(unittest.TestCase):
         _, issue = issue_from_report(report)
         self.assertIn("| replay_budget_state | `REQUIRED_SAVED_PAGE_NOT_PRESENT` |", issue["body"])
         self.assertIn("| pending_saved_page_count | `1` |", issue["body"])
+        bounded = {**fields, "replay_budget_state": "SAVED_PAGE_EXCEEDS_ALLOWANCE",
+                   "minimum_page_body_tokens": 25001, "source_allowance": 24000}
+        validate_diagnostics(self.capture("INCIDENT", bounded))
         self.assertEqual(before, json.dumps(report, separators=(",", ":")))
         for invalid in (-1, 16_000_001, True, "1", None, {"body": "private source"}):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):

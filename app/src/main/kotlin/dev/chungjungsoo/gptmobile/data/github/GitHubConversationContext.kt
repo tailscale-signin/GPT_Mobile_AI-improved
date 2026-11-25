@@ -24,6 +24,14 @@ data class GitHubConversationContext(
         require(ref.isNotBlank() && commitSha.matches(Regex("[a-fA-F0-9]{40}")))
     }
 
+    internal fun requestsCurrentMap(request: String): Boolean {
+        if ((stagedFileCount ?: 0) > 0 || ref.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) return false
+        val text = GitHubTaskContinuity.request(request)
+        if (Regex("""(?i)\b[0-9a-f]{7,64}\b|\b(?:historical|pinned|as of)\b""").containsMatchIn(text)) return false
+        return Regex("""(?i)\b(?:current|latest|newest|up.to.date)\b""").containsMatchIn(text) &&
+            Regex("""(?i)\b(?:branch|main|head|repo(?:sitory)?|map|pr|pull request)\b""").containsMatchIn(text)
+    }
+
     /** Request-local scope only; this does not grant tools, credentials or write access. */
     fun promptContext(request: String = "", contextTokens: Int = Int.MAX_VALUE): String {
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(request)
@@ -36,12 +44,14 @@ data class GitHubConversationContext(
                 "Follow the authorized checklist and exact continuation calls. Reconcile unknown outcomes and respect budgets, approvals and cancellation. " +
                 "Report tested actions, failures and unresolved criteria from receipts. Only executed jobs at the target SHA count as tests."
         }
+        val status = GitHubStatusRequest.matches(request)
+        val review = GitHubReviewComparison.matches(request)
         return buildString {
             append("GitHub workspace: $workspace\nBranch: $branch\nCaptured head at chat binding: $commitSha (newer explicit tool receipts supersede this snapshot)\n")
-            append("Refresh before writes or claims. Reconcile uncertain writes. Respect approvals, budgets and cancellation. Use github_decide for consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.\n")
-            append("Cite source by pinned path, lines and digest; cite tests by job and tested SHA. Retain receipts and findings. Resume the first unfinished authorized item or name its blocker.\n")
-            if (GitHubStatusRequest.matches(request)) appendLine(GitHubStatusRequest.INSTRUCTION)
-            if (GitHubReviewComparison.matches(request)) appendLine(GitHubReviewComparison.INSTRUCTION)
+            append("Refresh before writes/claims. Reconcile uncertain writes. Respect approvals, budgets and cancellation. Use github_decide for consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.\n")
+            append("Cite pinned source path/lines/digest and test job/tested SHA. Retain receipts/findings; resume the first unfinished authorized item or name its blocker.\n")
+            if (status) appendLine(GitHubStatusRequest.INSTRUCTION)
+            if (review) appendLine(GitHubReviewComparison.CORE_INSTRUCTION)
             if (GitHubTaskCoverage.matches(request)) {
                 append("Testing acceptance: track operations, receipts, branch/PR/SHA and pending pages. Report passes, failures, blockers, untested actions, measured coverage and fixes. Verify isolated writes and cleanup separately. Reading tests is only inspection.\n")
             }
@@ -52,6 +62,8 @@ data class GitHubConversationContext(
             fun includeIfFits(section: String) {
                 if (length + section.length + 1 < 2000) appendLine(section)
             }
+            if (review) includeIfFits(GitHubReviewComparison.DETAIL_INSTRUCTION)
+            if (status) includeIfFits(GitHubStatusRequest.DETAIL_INSTRUCTION)
             includeIfFits("Local workspace edits: ${stagedFileCount?.let { if (it == 0) "clean at observation" else "$it changed file(s) or staged patch(es)" } ?: "not observed"}")
             includeIfFits("Use github_watch_checks for requested CI. Discover paths with github_search mode=paths query=*name*, file_extension=kt and path_prefix. Follow continuation_call with view_cursor on its original tool.")
             includeIfFits("Presentation: one descriptive Markdown # title, then the outcome. Use concise sections, lists or small tables; separate unknowns and next steps.")

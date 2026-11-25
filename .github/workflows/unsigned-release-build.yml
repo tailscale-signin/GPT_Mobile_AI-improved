@@ -13,8 +13,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  candidate:
+    name: Identify release packaging candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.select.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          RELEASE_BRANCH: ${{ startsWith(github.head_ref, 'release/') }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch || "$RELEASE_BRANCH" == true ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            python3 scripts/check_release_trigger.py --unsigned-pr "$BASE_SHA"
+          fi
   build:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release/')
+    needs: candidate
+    if: needs.candidate.outputs.build == 'true'
     name: Build Release APKs and AAB (unsigned)
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -70,11 +91,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh --release-apks
 
       - name: Accept Android licenses
         run: |
@@ -96,8 +113,10 @@ jobs:
       - name: Build optimized release APKs
         run: |
           python3 scripts/android_pipeline.py --variant release --phase package --output build/reports/pipeline/package.json
+          python3 scripts/optimize_release_apks.py --zipalign "$ANDROID_HOME/build-tools/37.0.0/zipalign" app/build/outputs/apk/release/*-unsigned.apk
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/release/*-unsigned.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/release/*-unsigned.apk
+          python3 scripts/inventory_optional_payloads.py app/build/outputs/apk/release/*-unsigned.apk --output optional-payload-inventory.json
           python3 scripts/check_apk_size.py app/build/outputs/apk/release --build-type release --report release-apk-size-report.json
           mkdir -p release-assets
           cp app/build/outputs/apk/release/*-unsigned.apk release-assets/
@@ -139,7 +158,9 @@ jobs:
         with:
           retention-days: 14
           name: unsigned-apk-size-${{ github.sha }}
-          path: release-apk-size-report.json
+          path: |
+            release-apk-size-report.json
+            optional-payload-inventory.json
           if-no-files-found: ignore
 
       - name: Retain release performance and shrinker reports

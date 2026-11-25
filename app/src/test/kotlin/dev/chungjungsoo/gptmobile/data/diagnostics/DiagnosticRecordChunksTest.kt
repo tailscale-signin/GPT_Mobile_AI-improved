@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -11,6 +13,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticRecordChunksTest {
+    @Test fun streamedRowsMatchTheExistingFormatAndCleanUpAfterAnInterruptedWrite() = runBlocking {
+        val directory = Files.createTempDirectory("chunked-workspace-test").toFile()
+        try {
+            val value = buildJsonObject {
+                put("payload", "a".repeat(243) + "🙂" + "escaped\n\"λ🙂".repeat(3500))
+                put("safe", "[redacted]")
+            }
+            val expected = DiagnosticRecordChunks.encode(value.toString(), 256).map { it.toString() }.toList()
+            val actual = mutableListOf<String>()
+            DiagnosticRecordChunks.streamRedacted(value, directory, 2048) { actual += it }
+            assertEquals(expected, actual)
+            assertTrue(directory.listFiles().orEmpty().isEmpty())
+            assertEquals(DiagnosticRecordChunks.sha256(value.toString()), DiagnosticRecordChunks.largePayloadDigest(value, 2048))
+            assertEquals(null, DiagnosticRecordChunks.largePayloadDigest(JsonPrimitive("界".repeat(1000)), 2048))
+            val failure = runCatching {
+                DiagnosticRecordChunks.streamRedacted(value, directory, 2048) { throw java.io.IOException("cancelled row") }
+            }.exceptionOrNull()
+            assertTrue(failure is java.io.IOException)
+            assertTrue(directory.listFiles().orEmpty().isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+        Unit
+    }
+
+    @Test fun boundedHashingPreservesUnicodePairsAtEncoderBoundaries() {
+        for (value in listOf("x".repeat(2048), "x".repeat(4095) + "🎤" + "é".repeat(9000), "x".repeat(8192) + "\uD800")) {
+            val expected = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+            assertEquals(DiagnosticRecordChunks.hex(expected), DiagnosticRecordChunks.sha256(value))
+        }
+    }
+
     @Test fun digestEncodingRetainsStandardSha256AndUnsignedByteValues() {
         assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", DiagnosticRecordChunks.sha256(""))
         assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", DiagnosticRecordChunks.sha256("abc"))

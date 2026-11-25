@@ -40,6 +40,17 @@ internal object GitHubProgressPresentation {
         if (Regex("""(?i)^\s*(?:what|which)\b.*\b(?:this session|this conversation|so far)\b""").containsMatchIn(task)) {
             return "I’ll review the findings and blockers recorded in this conversation and explain what they prevented."
         }
+        val summaryRequest = Regex("""(?i)^(?:(?:please|can you|could you|would you)\s+)*(?:summari[sz]e|give me a summary of|provide a summary of)\s+(.+)""")
+            .find(taskLabel(task))?.groupValues?.get(1)?.trimEnd('.', '?', '!')
+        if (!summaryRequest.isNullOrBlank()) {
+            return when {
+                Regex("""(?i)^(?:how|where|why)\b""").containsMatchIn(summaryRequest) ->
+                    "I’ll trace $summaryRequest in the current source and summarize what I find."
+                Regex("""(?i)\b(?:pull request|PR)\b""").containsMatchIn(summaryRequest) ->
+                    "I’ll read the pull request and its changed files to summarize $summaryRequest."
+                else -> "I’ll check the current repository records and summarize $summaryRequest."
+            }
+        }
         when (GitHubWorkflowPreset.fromRequest(task)?.id) {
             "diagnose_ci" -> return "I’ll find the failed jobs on this revision and read their logs to see which step broke."
             "review_branch" -> return "I’ll compare the branch with its base, then follow the changed lines into the relevant tests."
@@ -51,7 +62,7 @@ internal object GitHubProgressPresentation {
         return when {
             GitHubStatusRequest.matches(task) ->
                 "I’ll check the repository status, open pull requests and checks on the selected branch."
-            Regex("""(?i)\bsummar""").containsMatchIn(task) ->
+            Regex("""(?i)\b(?:summaries|summary (?:preview|text|format|style))\b""").containsMatchIn(focus) ->
                 "I’ll refine $focus around your request and concrete results, replacing repeated labels with short, distinct updates. I’ll check the opening message too."
             GitHubTaskCoverage.matches(task) ->
                 "I’ll map $focus to available GitHub operations and their test evidence without treating unexecuted checks as successes."

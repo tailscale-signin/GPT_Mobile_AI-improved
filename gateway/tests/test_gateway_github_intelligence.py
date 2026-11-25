@@ -10,7 +10,7 @@ from v14.engineering_report import build_report
 
 
 def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET'), initial_base='a' * 40,
-           conversation_context=..., conversation_id=None, memory_mode='SESSION_ONLY', user_instructions=...):
+           conversation_context=..., conversation_id=None, memory_mode='SESSION_ONLY', user_instructions=..., mutate_job=None):
     base, head = 'a' * 40, 'b' * 40
     route = dict(model=model, profile_uid=model, profile_revision='1', binding_id=model, endpoint_identity='endpoint',
                  base_sha=base, settings_digest='c' * 64)
@@ -28,7 +28,7 @@ def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 
                 'ci': {'ci_verdict': 'BLOCKED', 'pr': 3, 'head_sha': head, 'checks_blocked': True,
                        'checks': [{'name': 'Unit', 'status': 'ACTION_REQUIRED'}]}, 'pr': 3}
         if case == 'post_merge_failure':
-            data.update(merge_sha='1' * 40, post_merge={'status': 'FAILED'})
+            data.update(merge_sha='1' * 40, post_merge={'status': 'FAILED', 'merge_sha': '1' * 40})
         job = dict(id=ident, state='NEEDS_INPUT' if failing else 'COMPLETED', data=data, revision=3,
                    execution_binding=dict(tool_owner='GATEWAY', privacy_scope='LOCAL', required_capability_policy=list(tool_policy)),
                    request=dict(request_id=ident, model=model, base='benchmark/' + model + '/' + case + '/base',
@@ -45,6 +45,8 @@ def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 
             data['user_instructions'] = deepcopy(user_instructions)
         data['final_report'] = build_report(job, job['state'], dict(passed=not failing, requirements=[],
                                            failures=['The required check did not pass'] if failing else []))
+        if mutate_job and failing:
+            mutate_job(job)
         cases.append(dict(job_id=ident, repository='org/repo', source_sha=base, scenario=case,
                           comparison_route=route, selected_route_verified=True, measurement_complete=True,
                           intelligence=case_observations(job, case, True, not failing)))
@@ -165,6 +167,25 @@ class GitHubIntelligenceTest(TestCase):
         self.assertEqual(2.5, result['dimensions']['tool_efficiency']['points'])
         self.assertEqual(97.5, result['pointsOutOf100'])
 
+    def test_displayed_success_stale_revision_extra_claim_and_stale_merge_lose_both_scores(self):
+        for mutate in (
+            lambda job: job['data']['final_report'].update(summary='All checks passed.'),
+            lambda job: job['data']['final_report'].update(device_performance='VERIFIED_FAST'),
+            lambda job: job['data']['final_report'].update(summary='Work is retained with incomplete verification.'),
+            lambda job: job['data']['final_report'].update(summary=job['data']['final_report']['summary'].replace('b' * 12, '9' * 12).replace('1' * 12, '8' * 12)),
+            lambda job: job['data']['final_report'].update(summary=job['data']['final_report']['summary'] + ' The release is published.'),
+        ):
+            result = score(report(mutate_job=mutate))
+            for key in ('response_quality', 'evidence_accuracy'):
+                self.assertEqual(0, result['dimensions'][key]['points'])
+        def supersede(job):
+            if job['data'].get('merge_sha'):
+                job['data']['post_merge']['merge_sha'] = 'c' * 40
+            else:
+                job['data']['ci']['head_sha'] = 'e' * 40
+        result = score(report(mutate_job=supersede))
+        self.assertEqual(0, result['dimensions']['response_quality']['points'])
+
     def test_identical_frozen_work_is_comparable_only_with_complete_distinct_runs(self):
         a, b = report(), report('model-b')
         self.assertEqual(0, compare(a, b)['rightMinusLeftPoints'])
@@ -218,6 +239,32 @@ class GitHubIntelligenceTest(TestCase):
         measures = case_observations(job, case, True, True)['measures']
         self.assertEqual(1, measures['repository_understanding'])
         self.assertEqual(0.5, measures['tool_efficiency'])
+
+    def test_same_initial_and_workspace_source_range_counts_only_once(self):
+        case, base, path = 'source_paging', 'a' * 40, 'src/target.kt'
+        path_id = digest([base, path])
+        observation = digest([path_id, 'b' * 40, 1, 37])
+        data = dict(initial_source_acquisitions=1, initial_source_paths=[path_id], initial_source_ranges=[observation],
+                    workspace_source_reads=dict(complete=True, paths=[path_id], ranges=[observation], total=1))
+        job = dict(state='COMPLETED', data=data, request=dict(source_sha=base, acceptance=[dict(id=case, paths=[path])]))
+        self.assertEqual(0.5, case_observations(job, case, True, True)['measures']['tool_efficiency'])
+        del data['initial_source_ranges']
+        self.assertNotIn('tool_efficiency', case_observations(job, case, True, True)['measures'])
+
+    def test_code_review_retries_cannot_satisfy_the_ci_repair_scenario(self):
+        head, failed = 'b' * 40, 'a' * 40
+        job = dict(id='eng-ci', state='COMPLETED', created_at=1, repairs={'review': 1}, request=dict(repository='org/repo', model='m', acceptance=[{'id': 'ci_repair'}]),
+                   data=dict(head_sha=head, pr=7, completion_verification={'passed': True, 'requirements': [{'id': 'ci_repair', 'status': 'BEHAVIOR_VERIFIED'}]},
+                             readiness={'head_sha': head, 'checks_passed': True}))
+        service = SimpleNamespace(evidence_access=lambda owner, key: job, store=SimpleNamespace(now=lambda: 2, tx=lambda read: ([{'dispatched': True}], [])))
+        def measured():
+            return snapshot(service, 'owner', job['id'], 'ci_repair')['required_scenario_signal_observed']
+        self.assertFalse(measured())
+        job['repairs']['ci-fingerprint'] = 1
+        job['data']['ci_repair_observation'] = dict(job_id=job['id'], pr=7, failed_head=failed, failure_fingerprint='ci-fingerprint')
+        self.assertTrue(measured())
+        job['data']['readiness']['head_sha'] = failed
+        self.assertFalse(measured())
 
     def test_empty_production_readback_returns_coverage_without_submitting_or_awarding_zero(self):
         result = run_manifest(object(), dict(schema=PRODUCTION_SCHEMA, test_repository='org/repo',

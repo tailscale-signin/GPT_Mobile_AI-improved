@@ -4,6 +4,14 @@ from authentication.issue_report_diagnostics import CORE_FIELDS, validate_diagno
 
 
 class FailureDetailsTest(unittest.TestCase):
+    def test_catalog_rejections_carry_only_a_bounded_missing_tool_fingerprint(self):
+        values = {"catalog_revision_hash": "a" * 64, "missing_tool_hash": "b" * 64,
+                  "catalog_rejection_count": 2}
+        sample = self.snapshot("TOOL", values)
+        self.assertEqual(sample, validate_diagnostics(sample))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.snapshot("TOOL", {**values, "missing_tool_hash": "private_tool_name"}))
+
     def test_repository_interruptions_keep_their_closed_cause_without_private_source_data(self):
         from authentication import repository_operation_report_contract as contract
         from authentication.issue_reports import ERROR_CODES
@@ -138,12 +146,17 @@ class FailureDetailsTest(unittest.TestCase):
         self.assertFalse(valid_value("changed_policy_fields", ["githubProfileOverride.private-token"]))
 
     def test_unknown_values_and_wrong_area_are_rejected(self):
+        sample = self.snapshot("APP", {"anr_trace_state": "MAIN_THREAD_CAPTURED", "anr_frame_count": 3})
+        self.assertEqual(sample, validate_diagnostics(sample))
         for area, values in [
             ("TOOL", {"tool_action": "private/path"}),
             ("TOOL", {"tool_error_code": "PRIVATE_ERROR"}),
             ("TOOL", {"unknown_field_count": -1}),
             ("TOOL", {"unknown_field_count": True}),
             ("APP", {"chat_failure_code_state": "raw exception"}),
+            ("APP", {"anr_frame_count": 33}),
+            ("APP", {"anr_trace_state": "android.os.Looper.loop"}),
+            ("TOOL", {"anr_frame_count": 1}),
             ("TOOL", {"provider_wait_eligible": True}),
             ("PROVIDER", {"provider_failure_code": "private error text"}),
             ("VOICE", {"voice_reply_state": "private answer text"}),

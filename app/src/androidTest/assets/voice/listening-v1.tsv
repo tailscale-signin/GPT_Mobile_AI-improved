@@ -1,0 +1,25 @@
+id	text	target	expected
+01	Dr. Chen will read the report tomorrow.	Dr. Chen	Doctor Chen
+02	I read the report yesterday.	read	red
+03	I read it every day.	read	reed
+04	Please read the instructions aloud.	read	reed
+05	The pipe is made of lead.	lead	led
+06	The engineer will lead the team.	lead	leed
+07	The GPU finishes in 3.5 ms.	3.5 ms	three point five milliseconds
+08	Use FP32 for the voice model.	FP32	eff pee thirty two
+09	The GPU renders the next answer.	GPU	gee pee you
+10	The NPU handles the next phrase.	NPU	en pee you
+11	CPU Kokoro starts reading now.	CPU	see pee you
+12	The download runs at 12 MB/s.	12 MB/s	twelve megabytes per second
+13	We evaluated version 1.2.3 today.	1.2.3	one point two point three
+14	Wait 25 ms before checking again.	25 ms	twenty five milliseconds
+15	Turn left after 3.5 km.	3.5 km	three point five kilometers
+16	Ms. Green will present the results.	Ms. Green	Miz Green
+17	Send the file to Dr. Chen after lunch.	Dr. Chen	Doctor Chen
+18	The fix is ready. Try it now.	two short sentences	complete each sentence
+19	Melo will present the next example.	Melo	mellow
+20	Toronto is hosting the afternoon session.	Toronto	Toronto
+21	The first GPU result was faster, and the second result was clear.	GPU result	gee pee you result
+22	We read the minutes last night before the meeting.	read	red
+23	Please set the timeout to 3.5 ms before the next voice reply begins.	3.5 ms	three point five milliseconds
+24	We can finish the model review after lunch and then check every spoken phrase together before the new release is ready for everyone to try on their own phone.	long answer	continuous ordered words and natural pauses

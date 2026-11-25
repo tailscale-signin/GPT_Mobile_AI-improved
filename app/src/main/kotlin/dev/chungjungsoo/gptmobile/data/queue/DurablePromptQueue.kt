@@ -58,7 +58,8 @@ class DurablePromptQueue @Inject constructor(
     private val gatewayStore: GatewayQueueStore,
     private val gatewayAvailability: GatewayAvailabilityRepository,
     private val gatewayScopes: dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore,
-    modelPreparation: GatewayModelPreparationRepository
+    modelPreparation: GatewayModelPreparationRepository,
+    private val githubWatches: dagger.Lazy<dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository>
 ) {
     private val dao get() = database.pendingPromptDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -179,6 +180,8 @@ class DurablePromptQueue @Inject constructor(
         externalBlocker: String?
     ) {
         val chatId = prompt.chatId
+        // A wake-up can retain this snapshot while the previous attempt pauses, edits, or consumes the row.
+        if (dao.firstPending(chatId) != prompt) return
         val profiles = snapshot.profiles
         val payload = prompt.details()
         val selected = payload.gateway
@@ -240,6 +243,10 @@ class DurablePromptQueue @Inject constructor(
         val save = features.combinedSettingsJournal[chatId]
         if (save != null && !save.roomSettled && save.phase != dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) return
         if ((payload.localOnly && remote) || (payload.requiresSpendAllowance && remote && (!features.spendBudget.enforced || features.tokenBudget.outputTokens <= 0))) {
+            dao.pause(prompt.id, true)
+            return
+        }
+        if (payload.githubCiWatch != null && !githubWatches.get().validateQueuedContinuation(prompt)) {
             dao.pause(prompt.id, true)
             return
         }

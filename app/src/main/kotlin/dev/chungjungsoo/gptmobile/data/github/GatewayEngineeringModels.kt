@@ -43,7 +43,8 @@ data class GatewayEngineeringCapabilities(
     @SerialName("repository_operations") val repositoryOperations: GatewayRepositoryCapability? = null,
     @SerialName("duration_hours") val durationHours: List<Int> = listOf(3, 6, 12, 0),
     @SerialName("execution_budget_limits") val executionBudgetLimits: GatewayEngineeringBudget? = null,
-    @SerialName("execution_batch") val executionBatch: GatewayIntegrationBatchCapability? = null
+    @SerialName("execution_batch") val executionBatch: GatewayIntegrationBatchCapability? = null,
+    @SerialName("next_action_policy_protocol") val nextActionPolicyProtocol: Int = 0
 ) {
     val supportsFullBatch: Boolean get() = executionBatch?.let {
         it.protocolVersion == 1 && it.fullEnabled && "full" in it.modes
@@ -213,7 +214,8 @@ data class GatewayEngineeringRequest(
     @SerialName("execution_mode") val executionMode: String? = null,
     @SerialName("batch_policy_version") val batchPolicyVersion: Int? = null,
     // Retained pre-feature requests keep their exact omitted wire field on replay.
-    @SerialName("context_variant") val contextVariant: GitHubContextVariant? = null
+    @SerialName("context_variant") val contextVariant: GitHubContextVariant? = null,
+    @SerialName("next_action_policy") val nextActionPolicy: GitHubNextActionMode? = null
 )
 
 @Serializable

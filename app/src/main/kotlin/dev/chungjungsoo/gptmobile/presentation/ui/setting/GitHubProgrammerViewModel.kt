@@ -46,6 +46,8 @@ data class GitHubProgrammerState(
     val selectedProfileUid: String? = null,
     val profileOverrideUid: String? = null,
     val profileSettings: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(),
+    val patchReviewerKey: String? = null,
+    val patchReviewerName: String? = null,
     val engineeringTeamKey: String? = null,
     val engineeringTeamDescription: String? = null,
     val recoveryAdvisors: Map<String, PlatformV2> = emptyMap(),
@@ -264,6 +266,10 @@ class GitHubProgrammerViewModel @Inject constructor(
                 } else {
                     emptyMap()
                 }
+                val patchReviewer = context?.takeIf { !session.privacyModeLocked }?.let {
+                    val policy = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.policy(features, it, session.chatId ?: mutable.value.chatId)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubPrimaryPatchReview.configured(it, features, enabled, policy)
+                }
                 val team = context?.takeIf { !session.privacyModeLocked }?.let {
                     val policy = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.policy(features, it, session.chatId ?: mutable.value.chatId)
                     dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.configured(it, enabled, features, policy)
@@ -273,7 +279,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                     val review = it.reviewer?.let { reviewer -> " Reviewer: ${reviewer.name} (${reviewer.model})." }.orEmpty()
                     "$helper$review"
                 }
-                mutable.update { it.copy(recoveryAdvisors = recoveryProfiles(false), recoveryExecutionProfiles = recoveryProfiles(true), engineeringTeamKey = team?.consent, engineeringTeamDescription = teamDescription, profiles = enabled, profileUid = uid, selectedProfileUid = requestedUid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                mutable.update { it.copy(patchReviewerKey = patchReviewer?.consent, patchReviewerName = patchReviewer?.profile?.let { profile -> "${profile.name} (${profile.model})" }, recoveryAdvisors = recoveryProfiles(false), recoveryExecutionProfiles = recoveryProfiles(true), engineeringTeamKey = team?.consent, engineeringTeamDescription = teamDescription, profiles = enabled, profileUid = uid, selectedProfileUid = requestedUid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()
@@ -299,26 +305,30 @@ class GitHubProgrammerViewModel @Inject constructor(
                 }
                 if (room != null && context != null) migrateComposerDraft(room, context)
                 if (context != null) bootstrapper?.rememberConversation(context, room?.id, mutable.value.draft.isNotBlank() || !room?.draftText.isNullOrBlank())
-                observeConversation(room?.id)
-                mutable.update {
-                    it.copy(
-                        privacyModeLocked = if (!session.configured) {
-                            null
-                        } else if (it.privacyModeLocked == true || session.privacyModeLocked) {
-                            true
-                        } else if (context == null || session.chatId?.let { id -> id > 0 } == true && room == null) {
-                            if (session.chatId == 0) {
-                                false
+                withContextMain {
+                    // Draft migration and workspace persistence can outlive the route that started them.
+                    if (session != selection.value || workspace != destination.value) return@withContextMain
+                    observeConversation(room?.id)
+                    mutable.update {
+                        it.copy(
+                            privacyModeLocked = if (!session.configured) {
+                                it.privacyModeLocked
+                            } else if (it.privacyModeLocked == true || session.privacyModeLocked) {
+                                true
+                            } else if (context == null || session.chatId?.let { id -> id > 0 } == true && room == null) {
+                                if (session.chatId == 0) {
+                                    false
+                                } else {
+                                    null
+                                }
                             } else {
-                                null
-                            }
-                        } else {
-                            room?.privacyModeLocked ?: session.privacyModeLocked
-                        },
-                        decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK,
-                        copilotPluginEnabled = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
-                        copilotEnabled = GitHubCopilotAgentMergePolicy.enabled(features, room?.id, context)
-                    )
+                                room?.privacyModeLocked ?: session.privacyModeLocked
+                            },
+                            decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK,
+                            copilotPluginEnabled = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
+                            copilotEnabled = GitHubCopilotAgentMergePolicy.enabled(features, room?.id, context)
+                        )
+                    }
                 }
             }
         }

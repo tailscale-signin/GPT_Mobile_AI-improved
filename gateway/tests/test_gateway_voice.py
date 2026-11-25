@@ -1032,7 +1032,9 @@ class VoiceSetupTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     install(root, root, sys.executable)
             process.assert_called_once()
-            self.assertEqual(process.call_args.args[0][:3], [str(python), '-I', '-c'])
+            command = process.call_args.args[0]
+            self.assertTrue(python.samefile(command[0]))
+            self.assertEqual(command[1:3], ['-I', '-c'])
             self.assertFalse((root / 'data/voice-cuda.json').exists())
 
     def test_invalid_candidate_preserves_last_verified_manifest(self):

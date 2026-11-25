@@ -2453,12 +2453,14 @@ class AgentRunner(
                 is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent, event.researchDelivery))
 
                 is ProviderEvent.Usage -> {
+                    // Private invocations have their own ledger entries. This event describes the public provider round.
+                    if (event.advisoryRole != null) return@collect
                     if (event.invocationId == null) unboundUsageObserved = true else usageInvocationIds += event.invocationId
                     event.reasoningTokens?.let { tokens ->
                         roundReasoningTokens = if (event.cumulative) maxOf(roundReasoningTokens ?: 0L, tokens.toLong()) else (roundReasoningTokens ?: 0L) + tokens
                     }
                     event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
-                    if (event.advisoryRole == null) event.finishReason?.let { roundFinishReason = it }
+                    event.finishReason?.let { roundFinishReason = it }
                     roundSettingsConfirmed = roundSettingsConfirmed || event.effectiveSettingsConfirmed
                     roundRuntime = event.actualRuntime ?: roundRuntime
                     roundInput.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)

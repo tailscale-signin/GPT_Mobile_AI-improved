@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
@@ -54,6 +57,36 @@ class GitHubAdaptiveSessionTest {
         assertEquals(360, usage.reasoningTokens)
         assertEquals(JsonPrimitive(1), saved?.get("no_output_repairs"))
         assertFalse((saved?.get("no_output_observation") as? JsonObject).toString().contains("private-plan"))
+    }
+
+    @Test fun publicUsageKeepsItsPhysicalInvocationAfterAPrivatePlan() = runBlocking {
+        val privatePass = session(
+            ProviderEvent.Usage(inputTokens = 400, outputTokens = 1024, totalTokens = 1424, reasoningTokens = 360, finishReason = "length", invocationId = "private-plan"),
+            ProviderEvent.Completed
+        )
+        val publicPass = session(
+            ProviderEvent.TextDelta("The check passed."),
+            ProviderEvent.Usage(inputTokens = 80, outputTokens = 9, totalTokens = 89, reasoningTokens = 2, finishReason = "stop", invocationId = "public-answer"),
+            ProviderEvent.Completed
+        )
+        val adaptive = GitHubAdaptiveSession(
+            publicPass,
+            GitHubAdaptiveSession.INTENT_ROLE,
+            "binding",
+            open = { _, _ -> privatePass },
+            continueWith = { error("Capped plan cannot direct execution") },
+            load = { null },
+            save = { error("Capped plan cannot be saved") }
+        )
+        val continued = GitHubOutputContinuationSession(adaptive, saveCheckpoint = {}) { _, _, _ -> error("The public answer completed") }
+        val usage = AgentRunner().run(continued, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().mapNotNull { it.event as? ProviderEvent.Usage }.single()
+        assertEquals("public-answer", usage.invocationId)
+        assertEquals(80, usage.inputTokens)
+        assertEquals(9, usage.outputTokens)
+        assertEquals(89, usage.totalTokens)
+        assertEquals(2, usage.reasoningTokens)
+        assertEquals("stop", usage.finishReason)
     }
 
     @Test fun optionsSurviveFailedSelectionAndResumeRunsOnlyUnfinishedStage() = runBlocking {

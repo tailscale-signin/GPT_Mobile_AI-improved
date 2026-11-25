@@ -168,6 +168,7 @@ class ToolEventRecorder @Inject constructor(
             error = if (normalizedResult.isError) safeError else null
         )
         if (affectedRows != 1) return null
+        val archivedSourceFailure = ToolReportDiagnostics.archivedSourceFailure(startedEvent, normalizedResult)
         val withheldRead = ((normalizedResult.content as? ToolResultContent.Json)?.value as? JsonObject)
             ?.get("result_delivery") == JsonPrimitive("WITHHELD_BY_RESULT_BUDGET") &&
             !normalizedResult.isError &&
@@ -181,15 +182,15 @@ class ToolEventRecorder @Inject constructor(
                 " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(normalizedResult)}" +
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
-            if (normalizedResult.isError || withheldRead) "E" else "I",
+            if (normalizedResult.isError && !archivedSourceFailure || withheldRead) "E" else "I",
             reportCode = (
                 if (withheldRead) {
                     "BUDGET_RESTRICTED"
                 } else {
                     captureIssueReport { ToolReportDiagnostics.reportCode(startedEvent, normalizedResult) }
                 }
-                ).takeUnless { healthEvent },
-            reportFields = if (healthEvent || !normalizedResult.isError && !withheldRead) {
+                ).takeUnless { healthEvent || archivedSourceFailure },
+            reportFields = if (healthEvent || archivedSourceFailure || !normalizedResult.isError && !withheldRead) {
                 emptyMap()
             } else {
                 buildMap<String, Any?> {

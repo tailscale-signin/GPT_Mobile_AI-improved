@@ -15,6 +15,7 @@ import java.nio.file.Files
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -348,6 +349,27 @@ class GitHubProgressContinuationTest {
         assertEquals(2, GitHubExecutionContinuation.progressKeys(mapOf("one" to original, "two" to receipt("other.kt"))).size)
         assertTrue(GitHubExecutionContinuation.progressKeys(mapOf("failed" to receipt(success = false))).isEmpty())
         assertTrue(GitHubExecutionContinuation.progressKeys(mapOf("cache" to JsonObject(original + ("shared_result" to JsonPrimitive(true))))).isEmpty())
+    }
+
+    @Test fun unissuedCiLogLookupCanResumeDiscoveryWithinTheOriginalAllowance() {
+        val args = Json.parseToJsonElement("""{"action":"logs","run_id":42,"start_line":1}""") as JsonObject
+        val failure = buildJsonObject {
+            put("trusted", true)
+            put("tool", "github_ci__bound")
+            put("dispatched", false)
+            put("success", false)
+            put("error_code", "INVALID_ARGUMENTS")
+            put("arguments", args)
+        }
+        val observations = mapOf("logs" to failure)
+        assertTrue(GitHubExecutionContinuation.canResume(report(), observations, 30, 1000))
+        val prompt = GitHubExecutionContinuation.prompt("Inspect CI", "Continue", observations, report())
+        assertTrue(prompt.contains("next_ci_selector_read") && prompt.contains("jobs"))
+        assertFalse(GitHubExecutionContinuation.canResume(report(), observations, 1, 1000))
+        val wrongAction = JsonObject(args + ("action" to JsonPrimitive("rerun")))
+        for (change in listOf(mapOf("arguments" to wrongAction), mapOf("dispatched" to JsonPrimitive(true)), mapOf("trusted" to JsonPrimitive(false)))) {
+            assertFalse(GitHubExecutionContinuation.canResume(report(), mapOf("logs" to JsonObject(failure + change)), 30, 1000))
+        }
     }
 
     @Test fun budgetApprovalAndUncertainOutcomesCannotAutomaticallyContinue() {

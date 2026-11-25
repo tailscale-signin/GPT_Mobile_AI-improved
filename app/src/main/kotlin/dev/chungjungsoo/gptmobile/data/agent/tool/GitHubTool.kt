@@ -171,7 +171,11 @@ class GitHubTool(
     private val savedViewScope by lazy {
         GitHubResultViews.scope(durableIdentity, connectionUid, conversationId, taskId, (repositoryScope?.repository ?: repositoryContext)?.fullName.orEmpty())
     }
-    private val savedViews by lazy { dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore(operationBlocks, "$operationBlockScope:saved:$savedViewScope") }
+    private val savedViews by lazy {
+        val store = stateStore?.takeIf { persistentState }
+            ?: dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.stateForCredential(requestCredential().token, apiOrigins.hostIdentity)
+        dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore(store, "$operationBlockScope:saved:$savedViewScope")
+    }
 
     private suspend fun validateSavedViewAccess() {
         check(!credentialAdmissionFailed) { "GitHub authorization could not be verified." }

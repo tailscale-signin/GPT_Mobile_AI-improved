@@ -33,9 +33,16 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
                 (item as? JsonPrimitive)?.takeIf { it.isString }?.content?.startsWith("$id:") == true
             }
         ) { "GITHUB_SAVED_RESULT_CURSOR_IDENTITY_MISMATCH: saved handle identity differs." }
+        val failedProofs = (snapshot["failed_persistence_cursors"] as? JsonArray).orEmpty()
+        // The immutable body already proves its initial cursors. Only additional grants and failure proofs need an index.
+        val initial = bootstrap.toSet()
+        if (issued.all { it in initial } && failedProofs.isEmpty()) {
+            check(state.containsRetainedBody(scope, bodyKey)) { "Saved result body was not retained." }
+            return
+        }
         state.update(scope, "saved-view-access:$id") { previous ->
             val cursors = (bootstrap + (previous?.get("issued_cursors") as? JsonArray).orEmpty() + issued).distinct()
-            val failed = ((previous?.get("failed_persistence_cursors") as? JsonArray).orEmpty() + (snapshot["failed_persistence_cursors"] as? JsonArray).orEmpty()).distinct()
+            val failed = ((previous?.get("failed_persistence_cursors") as? JsonArray).orEmpty() + failedProofs).distinct()
             require(cursors.size <= 16_384) { "Saved view handle allowance reached" }
             val authorized = cursors.toSet()
             require(failed.all { it in authorized }) { "Unissued saved handle cannot become recovery proof" }

@@ -279,6 +279,55 @@ class GitHubSavedPageRepairTest {
         }
     }
 
+    @Test fun temporaryConversationReopensCapturedPagesAcrossToolInstances() = runBlocking {
+        val token = UUID.randomUUID().toString()
+        val chat = UUID.randomUUID().toString()
+        val name = "github_context"
+        val scope = GitHubResultViews.scope(GitHubRepositoryStateStore.digest(token), "connection", chat, "task")
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { error("Reopening a saved page must stay local") })
+        try {
+            fun operation(conversation: String) = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool(
+                apiToken = token,
+                httpClient = http,
+                connectionUid = "connection",
+                conversationId = conversation,
+                taskId = "task",
+                persistentState = false
+            ).operations().single { it.definition.name == name }
+            val views = GitHubResultViews.shared
+            val source = AgentToolResult("source", ToolResultContent.Json(JsonPrimitive("captured repository evidence ".repeat(2200))), false)
+            val first = views.present(scope, name, name, source)
+            val arguments = (result(first).getValue("continuation_call") as JsonObject).getValue("arguments") as JsonObject
+            val cursor = (arguments.getValue("view_cursor") as JsonPrimitive).content
+            val continued = operation(chat).execute("first-read", arguments)
+            assertFalse(continued.isError)
+            val checkpoint = requireNotNull(views.checkpoint(scope, continued))
+            val continuationOnly = continued.copy(
+                content = ToolResultContent.Json(
+                    buildJsonObject {
+                        put(
+                            "continuation_call",
+                            buildJsonObject {
+                                put("tool", name)
+                                put("arguments", arguments)
+                            }
+                        )
+                    }
+                )
+            )
+            assertEquals(checkpoint.first, views.checkpoint(scope, continuationOnly)?.first)
+            assertEquals(null, views.checkpoint("another-scope", continuationOnly))
+            repeat(34) { index -> views.present("pressure-$index", name, name, source) }
+            assertEquals("SAVED_VIEW_UNAVAILABLE", views.read(scope, name, name, cursor, "evicted").errorCode)
+            assertTrue(operation("other-$chat").execute("other-chat", arguments).isError)
+            val reopened = operation(chat).execute("second-read", arguments)
+            assertFalse(reopened.isError)
+            assertEquals(result(continued)["fragments"], result(reopened)["fragments"])
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun savedBodyAndIndexSurviveOrdinaryCachePruningAndRestart() = runBlocking {
         val directory = java.nio.file.Files.createTempDirectory("github-saved-result-retention-").toFile()
         try {
@@ -303,10 +352,12 @@ class GitHubSavedPageRepairTest {
             val retained = reopened.loadWithDiagnostics(id)
             assertEquals(JsonArray(listOf(JsonPrimitive(cursor))), retained["issued_cursors"])
             assertEquals(JsonPrimitive("github.saved-view.v1"), retained["schema"])
-            assertEquals(
-                2,
-                java.io.File(directory, "saved-results").listFiles { file -> file.extension == "record" }?.size
-            )
+            val records = java.io.File(directory, "saved-results")
+            assertEquals(1, records.listFiles { file -> file.extension == "record" }?.size)
+            val continuation = JsonPrimitive("$id:1:2048")
+            reopened.save(id, buildJsonObject { put("issued_cursors", JsonArray(listOf(continuation))) })
+            assertEquals(2, records.listFiles { file -> file.extension == "record" }?.size)
+            assertEquals(JsonArray(listOf(JsonPrimitive(cursor), continuation)), reopened.loadWithDiagnostics(id)["issued_cursors"])
         } finally {
             directory.deleteRecursively()
         }

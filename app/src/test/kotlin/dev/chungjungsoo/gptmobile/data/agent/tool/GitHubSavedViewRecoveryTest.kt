@@ -57,6 +57,26 @@ class GitHubSavedViewRecoveryTest {
         }
     }
 
+    @Test fun reopenedFailureKeepsItsFailedReceiptWithoutFilingTheOriginalIncidentAgain() {
+        val views = GitHubResultViews(pageBytes = 4096)
+        val operation = "github_search"
+        val model = "github_search__native"
+        val result = AgentToolResult("archive-source", ToolResultContent.Text("earlier failure ".repeat(2600)), true, errorCode = "GITHUB_TRANSIENT_SERVER")
+        val first = views.present("conversation", operation, model, result)
+        val arguments = body(first).getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
+        val cursor = arguments.getValue("view_cursor").jsonPrimitive.content
+        val page = views.read("conversation", operation, model, cursor, "local-read")
+        val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 1, page.callId, null, null, operation, model, arguments.toString(), null, null, "FAILED")
+        val diagnostics = dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
+        assertTrue(page.isError)
+        assertEquals(result.errorCode, page.errorCode)
+        assertTrue(diagnostics.archivedSourceFailure(event, page))
+        assertFalse(diagnostics.archivedSourceFailure(event, page.copy(dispatched = true)))
+        assertFalse(diagnostics.archivedSourceFailure(event.copy(arguments = "{}"), page))
+        assertFalse(diagnostics.archivedSourceFailure(event, page.copy(outputBudgetExhausted = true)))
+        assertFalse(diagnostics.archivedSourceFailure(event, result))
+    }
+
     @Test fun processRestartRestoresMutationResultAndLaterIssuedPagesWithoutMutationReplay() = runBlocking {
         val directory = Files.createTempDirectory("github-saved-result").toFile()
         try {

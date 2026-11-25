@@ -404,6 +404,7 @@ internal class GitHubResultViews(
             executionReceipt = JsonObject(
                 sourceIdentity(entry) + savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256) + buildJsonObject {
                     put("saved_view_body_bytes", page.toString().encodeToByteArray().size)
+                    if (entry.originalError) entry.originalErrorCode?.let { put("saved_view_original_error_code", it) }
                     if (context.isNotEmpty()) put("saved_view_selectors_hash", selectorsHash(cursor, context))
                 }
             )
@@ -420,11 +421,11 @@ internal class GitHubResultViews(
     @Synchronized
     fun checkpoint(scope: String, result: AgentToolResult): Pair<String, JsonObject>? {
         val content = (result.content as? ToolResultContent.Json)?.value as? JsonObject ?: return null
-        val recipe = content["recovery_call"] as? JsonObject ?: return null
-        val args = recipe["arguments"] as? JsonObject ?: return null
-        val cursor = (args["view_cursor"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val cursor = savedCursors(content).firstOrNull { handle ->
+            entries[handle.substringBefore(':')]?.let { it.scope == scope && handle in it.issuedCursors } == true
+        } ?: return null
         val id = cursor.substringBefore(':')
-        val entry = entries[id]?.takeIf { it.scope == scope && cursor in it.issuedCursors } ?: return null
+        val entry = entries.getValue(id)
         return id to buildJsonObject {
             put("schema", "github.saved-view.v1")
             put("scope", entry.scope)
@@ -501,12 +502,16 @@ internal class GitHubResultViews(
     private fun authorize(entry: Entry, page: JsonObject) {
         // Only cursors actually emitted by this view may advance it. Source evidence
         // and a guessed fragment offset never grant pagination access.
+        entry.issuedCursors.addAll(savedCursors(page))
+    }
+
+    private fun savedCursors(page: JsonObject): List<String> {
         val recipes = listOfNotNull(page["recovery_call"] as? JsonObject, page["continuation_call"] as? JsonObject, page["original_call"] as? JsonObject) +
             listOf("recovery_options", "continuation_options").flatMap { key -> (page[key] as? JsonArray).orEmpty().filterIsInstance<JsonObject>() }
         val rangeCalls = (page["range_calls"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { it["call"] as? JsonObject }
-        (recipes + rangeCalls).forEach { recipe ->
+        return (recipes + rangeCalls).mapNotNull { recipe ->
             val arguments = recipe["arguments"] as? JsonObject
-            (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(entry.issuedCursors::add)
+            (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content
         }
     }
 

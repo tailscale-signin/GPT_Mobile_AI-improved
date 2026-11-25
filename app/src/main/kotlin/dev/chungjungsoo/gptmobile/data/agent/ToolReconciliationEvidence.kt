@@ -61,6 +61,11 @@ internal object ToolReconciliationEvidence {
         }
     }
 
+    fun matchesOriginal(observation: JsonObject, callId: String, name: String, arguments: JsonObject): Boolean =
+        observation["reconciliation_original_call_hash"] == IssueReportContext.identifierHash("call", callId)?.let(::JsonPrimitive) &&
+            observation["reconciliation_original_tool_hash"] == IssueReportContext.identifierHash("tool-name", name)?.let(::JsonPrimitive) &&
+            observation["reconciliation_original_arguments_hash"] == IssueReportContext.identifierHash("tool-arguments", ScopedToolGrant.canonicalHash(arguments))?.let(::JsonPrimitive)
+
     fun summary(observations: Collection<JsonObject>): JsonObject {
         if (observations.size == 1) retained("RECONCILIATION_REQUIRED", observations.single())?.let { return it }
         return buildJsonObject {

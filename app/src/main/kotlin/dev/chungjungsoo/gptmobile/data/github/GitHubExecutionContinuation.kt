@@ -20,6 +20,7 @@ internal object GitHubExecutionContinuation {
             put("included_receipt_count", minOf(receipts.size, 64))
             put("implementation_progress", implementationProgress(receipts))
             verdict?.get("execution_resources")?.let { put("execution_resources", it) }
+            receipts.values.lastOrNull()?.let(::ciSelectorRecovery)?.let { put("next_ci_selector_read", it) }
             put("search_frontiers", searchFrontiers(receipts))
             put("source_hydration_candidates", sourceHydrationCandidates(receipts))
             put(
@@ -388,6 +389,25 @@ internal object GitHubExecutionContinuation {
         return null
     }
 
+    private fun ciSelectorRecovery(receipt: JsonObject): JsonObject? {
+        val tool = (receipt["tool"] as? JsonPrimitive)?.content ?: return null
+        if (tool.githubOperationFamily() != "github_ci" ||
+            receipt["trusted"] != JsonPrimitive(true) ||
+            receipt["verification_eligible"] == JsonPrimitive(false) ||
+            receipt["dispatched"] != JsonPrimitive(false) ||
+            receipt["success"] != JsonPrimitive(false) ||
+            receipt["error_code"] != JsonPrimitive("INVALID_ARGUMENTS")
+        ) {
+            return null
+        }
+        val original = receipt["arguments"] as? JsonObject ?: return null
+        val read = ToolArgumentValidator.ciJobDiscovery(original) ?: return null
+        return buildJsonObject {
+            put("tool", tool)
+            put("arguments", read)
+        }
+    }
+
     /** Continue useful work within its original finite allowance, without an arbitrary round cap. */
     fun hasAcquisitionBudget(remainingCalls: Int?, remainingMillis: Long?): Boolean =
         remainingCalls != null && remainingCalls > 1 && (remainingMillis == null || remainingMillis > 0)
@@ -419,7 +439,7 @@ internal object GitHubExecutionContinuation {
         val latest = receipts.values.lastOrNull() ?: return false
         val lastState = GitHubExecutionLedger.receiptState(latest)
         val rejectedDiscovery = lastState == GitHubExecutionLedger.ReceiptState.PRECHECK_REJECTED &&
-            latest["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) &&
+            (latest["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) || ciSelectorRecovery(latest) != null) &&
             latest["dispatched"] == JsonPrimitive(false) &&
             latest["error_code"] == JsonPrimitive("INVALID_ARGUMENTS")
         if (lastState != GitHubExecutionLedger.ReceiptState.COMPLETED && !rejectedDiscovery) return false

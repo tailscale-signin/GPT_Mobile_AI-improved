@@ -499,7 +499,10 @@ internal object ToolArgumentValidator {
 
     private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String?, val source: String, val discoveryAction: String = "list")
 
-    private fun ciJobDiscovery(arguments: JsonObject): JsonObject? {
+    internal fun ciJobDiscovery(arguments: JsonObject): JsonObject? {
+        if (arguments["action"] !in setOf(JsonPrimitive("logs"), JsonPrimitive("job"))) return null
+        val suppliedJob = arguments["job_id"] as? JsonPrimitive
+        if (suppliedJob != null && !suppliedJob.isString && (suppliedJob.longOrNull ?: 0L) > 0) return null
         val repositoryFields = setOf("owner", "repo")
         if (repositoryFields.any(arguments::containsKey)) {
             for (field in repositoryFields) {

@@ -42,6 +42,7 @@ PUBLIC_WRAPPER_DECLARATIONS = (
      "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074"),
 )
 WAVEFORM_EVIDENCE_PATH = "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json"
+ROUTING_FIXTURE_PATH = "scripts/tests/fixtures/github-routing-pr-2568.json"
 MODEL_PACK_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt"
 HISTORY_OPTIONS = "--all --full-history --diff-merges=first-parent --root"
 
@@ -290,6 +291,13 @@ def main():
                 name, path, "scripts/scan_secret_history.sh", digest, alternate_digest))
         cases.extend(exact_declaration_cases(
             "pronunciation_tokens", PRONUNCIATION_EVIDENCE_PATH, "tokens_txt", known_digest, alternate_digest))
+        trace = json.loads((ROOT / ROUTING_FIXTURE_PATH).read_text(encoding="utf-8"))
+        routing_digests = sorted({row["key"] for run in trace["runs"] for row in run["requirements"]})
+        if len(routing_digests) != 2 or not all(re.fullmatch(r"[a-f0-9]{64}", digest) for digest in routing_digests):
+            raise ValueError("routing_requirement_identifiers")
+        for index, digest in enumerate(routing_digests, 1):
+            cases.extend(exact_declaration_cases(
+                f"routing_requirement_{index}", ROUTING_FIXTURE_PATH, "key", digest, alternate_digest))
         cases.extend(outer_evidence_cases(alternate_digest))
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)

@@ -19,6 +19,7 @@
     "Use the measured size when restoring a saved page, distinguish a cancelled queue from an uncertain dispatch, and allow an ongoing lower-effort GitHub turn to finish when its intelligence setting is raised.",
     "Retain issued GitHub saved pages across temporary tool instances, preserve original readback evidence during reconciliation, avoid duplicate reports for archived failures, and guide CI job discovery during continuation.",
     "Honor an OpenAI Responses terminal receipt even when the stream subsequently raises a cleanup error.",
+    "Verify the two public routing requirement digests in the credential history scan across PR merge revisions, with controls for different values, paths, fields and adjacent content.",
     "Rebuild GitHub chat setup, task routing, context selection and progress around the selected repository. Fresh profiles use adaptive effort. Direct lookups start with the relevant read, and the chat header keeps branch and activity visible."
   ],
   "limitations": [
@@ -80,6 +81,7 @@
   "allowedPaths": [
     ".github/workflows/post-merge-validation.yml",
     ".github/workflows/pr-validation.yml",
+    ".gitleaks.toml",
     "AGENTS.md",
     "AI-Memory.md",
     "CHANGELOG.md",
@@ -406,6 +408,8 @@
     "scripts/native/kokoro_vocoder_partition.c",
     "scripts/qualify_github_routing_replay.py",
     "scripts/replay_conversation_debug.py",
+    "scripts/test_gitleaks_model_pin.py",
+    "scripts/test_secret_history_integrity.py",
     "scripts/tests/fixtures/github-routing-pr-2568.json",
     "scripts/tests/test_app_audit_inventory.py",
     "scripts/tests/test_changed_behavior_coverage.py",

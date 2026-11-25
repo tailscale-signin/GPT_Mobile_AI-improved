@@ -793,6 +793,21 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test fun completedResponsesStreamKeepsItsTerminalReceiptWhenCleanupThrows() = runBlocking {
+        val stream = flow<ResponsesStreamEvent> {
+            emit(OutputTextDeltaEvent("item", 0, 0, "Complete answer"))
+            emit(ResponseCompletedEvent(ResponseObject("response", "completed")))
+            throw IllegalStateException("Connection closed during cleanup")
+        }
+        val api = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(stream)))
+        val events = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Complete answer", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+        assertEquals(1, api.responseRequests.size)
+    }
+
     @Test fun responsesStreamThrowAfterVisibleOutputRetainsTextAndDisablesReplay() = runBlocking {
         val stream = flow<ResponsesStreamEvent> {
             emit(OutputTextDeltaEvent("item", 0, 0, "Partial answer"))

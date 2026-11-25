@@ -2902,9 +2902,9 @@
       "sha256": "35cc5af39012513fbbe40e6cbb6aab08e32bd06e359f3f109ac4eb10ff347e1f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt": {
-      "blob_sha": "333261f86835fbcb4d453eb497175d566f20cb7b",
-      "bytes": 139570,
-      "sha256": "416490ad3af7e36e519b2944cc933da32caf17a7a53931ea9e971bb45db11c83"
+      "blob_sha": "589b3dc6d6e0ca12357d66b20f91a3f560025bfe",
+      "bytes": 139690,
+      "sha256": "1e9b728b66f90b58ab2770916b7a61bb18064e6dbf3679ea59285656a191dd1d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeTool.kt": {
       "blob_sha": "00cfe99935318056787a2700f39f9c8d0afda222",
@@ -4372,9 +4372,9 @@
       "sha256": "67774aa43fadea83fc8eb811d301e471556f987910dd18533dded61f09cf07c2"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt": {
-      "blob_sha": "db0f4e7d6cede9fd13d661d0286401f828387166",
-      "bytes": 202762,
-      "sha256": "b046f011fc8a7530b8483311f432089f2fc52e8e83c254716a8a626f9a1e05c1"
+      "blob_sha": "102bf1c9425cc036cebb95f53e66d5c7cd7c22ae",
+      "bytes": 203720,
+      "sha256": "4a67c2ade9acbbac0d24610a5a4cae61cbdf9c6950dfdc0ec6158826d11384d6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ToolRoundInstructionsTest.kt": {
       "blob_sha": "f89ce6c4ea4a234b93f469a62767c73076739ec3",

@@ -305,8 +305,9 @@ class OpenAIResponsesAdapter @Inject constructor(
                         }
                         .catch { error ->
                             if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
+                            // Stream cleanup may fail after the provider already issued its terminal result.
+                            if (terminalReceived) return@catch
                             roundFailed = true
-                            terminalReceived = false
                             failedTransportComplete = false
                             localCircuitRejection = providerCircuitRejection(error, responseObserved)
                             lastFailedMessage = providerFailureMessage(error, "OpenAI stream request failed")

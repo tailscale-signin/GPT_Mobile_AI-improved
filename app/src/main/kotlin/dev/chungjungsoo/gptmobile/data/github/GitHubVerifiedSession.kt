@@ -768,24 +768,11 @@ internal class GitHubVerifiedSession(
             if (!round.calls && round.completed && !round.failed) {
                 // If neither attempt started work, establish the selected repository through its
                 // ordinary read tool. The next provider round receives the real tool result.
-                val contexts = tools.filter { it.modelVisible && evidence.trustsTool(it.name) && GitHubOperationTool.operationName(it.name) == "github_context" }
-                if (contexts.isNotEmpty() &&
-                    contexts.all { it.name.githubReadFacadeMatches(contexts.first().name) } &&
-                    exchanges.isEmpty() &&
-                    evidence.snapshot().first.isEmpty() &&
-                    remainingToolCalls()?.let { it > reserve } == true &&
-                    evidence.remainingTaskMillis() != 0L &&
-                    GitHubRepositoryLifecycle.intent(task) == null
-                ) {
-                    val repository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
-                    if (!repository.isNullOrBlank()) {
-                        GitHubStatusRequest.nextCall(contexts, emptyMap(), now(), acceptedRepository = repository)?.let { next ->
-                            lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
-                            emit(next)
-                            emit(ProviderEvent.Completed)
-                            return@flow
-                        }
-                    }
+                firstRepositoryObservation(tools, exchanges)?.let { next ->
+                    lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                    emit(next)
+                    emit(ProviderEvent.Completed)
+                    return@flow
                 }
                 // A correction can resume operations, but its raw prose has not passed
                 // the selected review pipeline. Publish only the application ledger.
@@ -796,6 +783,23 @@ internal class GitHubVerifiedSession(
         deliverDraftRound(round, tools, exchanges)
     }.catch { error ->
         handleCheckpointFailure(error)
+    }
+
+    private suspend fun firstRepositoryObservation(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): ProviderEvent.ToolCall? {
+        if (exchanges.any { exchange -> exchange.calls.any { it.name != GitHubAuthorizedCatalog.TOOL } } ||
+            evidence.snapshot().first.isNotEmpty() ||
+            remainingToolCalls()?.let { it > GitHubChecklistBudget.ordinaryVerificationReserve(executionCallLimit) } != true ||
+            evidence.remainingTaskMillis() == 0L ||
+            GitHubRepositoryLifecycle.intent(task) != null ||
+            evidence.taskAdmissionFailure() != null
+        ) {
+            return null
+        }
+        val contexts = tools.filter { it.modelVisible && evidence.trustsTool(it.name) && GitHubOperationTool.operationName(it.name) == "github_context" }
+        if (contexts.isEmpty() || contexts.any { !it.name.githubReadFacadeMatches(contexts.first().name) }) return null
+        val contract = evidence.acceptedPromptContract() ?: return null
+        val repository = (contract["repository"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+        return GitHubStatusRequest.nextCall(contexts, emptyMap(), now(), acceptedRepository = repository)
     }
 
     private suspend fun FlowCollector<ProviderEvent>.refreshStaleClaim(draft: String, report: JsonObject, receipts: Map<String, JsonObject>, staleIds: List<String>, tools: List<AgentToolDefinition>): Boolean {
@@ -1568,6 +1572,28 @@ internal class GitHubVerifiedSession(
             refreshStaleClaim(draft, report, retained, staleReceiptIds, continuationTools)
         ) {
             return@flow
+        }
+        // The verifier can discover a missing proof after the model has already finished its first draft.
+        if (partial &&
+            entry == GitHubAcceptancePublicationEvidence.Entry.COMPLETED_DRAFT &&
+            draft != null &&
+            originalFailure == null &&
+            publication.extractionFailure == null &&
+            !delegate.handlesToolsInternally &&
+            !executionCorrectionAttempted &&
+            progressCorrections == 0 &&
+            retained.isEmpty() &&
+            GitHubExecutionContinuation.canResume(report, retained, remainingToolCalls(), evidence.remainingTaskMillis(), initialRead = true)
+        ) {
+            firstRepositoryObservation(continuationTools, continuationExchanges)?.let { next ->
+                validatePublication()
+                evidence.retainVerdict(JsonObject(report + ("response_delivered" to JsonPrimitive(false))))
+                executionCorrectionAttempted = true
+                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                emit(next)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
         }
         val newEvidenceProgress = (currentProgress - correctionProgress).isNotEmpty()
         // A new explicit continuation starts with the saved receipts already in correctionProgress.

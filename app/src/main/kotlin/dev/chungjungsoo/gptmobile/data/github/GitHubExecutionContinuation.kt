@@ -417,7 +417,8 @@ internal object GitHubExecutionContinuation {
         receipts: Map<String, JsonObject>,
         remainingCalls: Int?,
         remainingMillis: Long?,
-        allowVerificationResume: Boolean = false
+        allowVerificationResume: Boolean = false,
+        initialRead: Boolean = false
     ): Boolean {
         val ledger = report["execution_ledger"] as? JsonObject ?: return false
         val decision = GitHubNextActionPolicy.activeDecision(report)
@@ -436,14 +437,23 @@ internal object GitHubExecutionContinuation {
         val failureCode = (report["failure_code"] as? JsonPrimitive)?.content.orEmpty()
         val retryableVerificationCodes = setOf("", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_MISSING", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
         if (failureCode !in retryableVerificationCodes) return false
-        val latest = receipts.values.lastOrNull() ?: return false
+        val missingCriteria = (ledger["remaining_criteria"] as? JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
+        if (!missingCriteria) return false
+        val latest = receipts.values.lastOrNull()
+        if (latest == null) {
+            val budget = report["stage_budget"] as? JsonObject ?: return false
+            return initialRead &&
+                ledger["recovery"] == JsonPrimitive("RESUME_UNFINISHED_WORK") &&
+                ledger["unresolved_remote_outcomes"] == JsonPrimitive(0) &&
+                budget["used_calls"] == JsonPrimitive(0) &&
+                budget["acquisition_allowed"] == JsonPrimitive(true)
+        }
         val lastState = GitHubExecutionLedger.receiptState(latest)
         val rejectedDiscovery = lastState == GitHubExecutionLedger.ReceiptState.PRECHECK_REJECTED &&
             (latest["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) || ciSelectorRecovery(latest) != null) &&
             latest["dispatched"] == JsonPrimitive(false) &&
             latest["error_code"] == JsonPrimitive("INVALID_ARGUMENTS")
-        if (lastState != GitHubExecutionLedger.ReceiptState.COMPLETED && !rejectedDiscovery) return false
-        return (ledger["remaining_criteria"] as? JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
+        return lastState == GitHubExecutionLedger.ReceiptState.COMPLETED || rejectedDiscovery
     }
 
     fun incompleteMessage(report: JsonObject, receipts: Map<String, JsonObject>): String {

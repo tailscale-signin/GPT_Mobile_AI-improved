@@ -39,6 +39,25 @@ class VoiceSpeechPlaybackProtocolTest {
         assertNull(settled.recommendation())
     }
 
+    @Test fun oldFullRunWithoutSchedulerOrWindowFieldsKeepsItsOriginalOrdering() {
+        val config = configuration(full = true).copy(backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS, playbackScenarios = VoiceSpeechPlaybackScenario.entries)
+        val observed = VoiceSpeechBenchmarkEnergyObservation(VoiceSpeechBackend.CPU, VoiceSpeechEnergyEndpoint(), end = VoiceSpeechEnergyEndpoint())
+        val report = VoiceSpeechBenchmarkReport(1L, config, state = VoiceSpeechBenchmarkRunState.CANCELLED, energyObservations = listOf(observed))
+        val json = speechBenchmarkJson(report, local = true)
+        val legacy = JsonObject(
+            json + mapOf(
+                "configuration" to JsonObject(json.getValue("configuration").jsonObject - "playbackScheduleVersion"),
+                "batteryCounterObservations" to JsonArray(listOf(JsonObject(json.getValue("batteryCounterObservations").jsonArray.single().jsonObject - "window")))
+            )
+        )
+        val restored = requireNotNull(speechBenchmarkReportFromJson(legacy))
+        assertFalse(restored.configuration.comparesColdStartsFirst)
+        assertEquals(listOf(observed), restored.energyObservations)
+        assertEquals(3, VoiceSpeechPlaybackProtocol.passes(restored.configuration).size)
+        assertEquals(6, VoiceSpeechPlaybackProtocol.passes(config).size)
+        assertNull(restored.recommendation())
+    }
+
     @Test fun stabilitySeparatesThreeWarmCohortsFromColdSamplesAndFitsTheBoundedReport() {
         val config = configuration().copy(mode = VoiceSpeechBenchmarkMode.STABILITY, playbackScenarios = VoiceSpeechPlaybackScenario.entries)
         val plans = VoiceSpeechPlaybackProtocol.expandedPlans(config, VoiceSpeechSustainedSeries.MAX_REPLIES)

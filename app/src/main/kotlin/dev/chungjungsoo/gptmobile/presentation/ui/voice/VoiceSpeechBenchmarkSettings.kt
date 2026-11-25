@@ -54,6 +54,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnergyStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechRejectedOutput
 import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
 import dev.melo.kokoro.TimedKokoro
@@ -343,12 +344,17 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
     }
     notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     report.recommendation()?.let { Text("Recommendation for this test: ${it.label}. An accelerator needs at least a ten percent gain across the same qualified workload, including startup cost.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
-    Text("Run order: ${report.configuration.plannedBackendOrder.joinToString(" → ") { it.label }}. Repeat runs rotate the starting processor.", style = MaterialTheme.typography.bodySmall)
+    val order = report.configuration.plannedBackendOrder.joinToString(" → ") { it.label }
+    val schedule = if (report.configuration.comparesColdStartsFirst) "Each processor runs one fresh trial in this order, then the remaining trials follow the same order." else "Repeat runs rotate the starting processor."
+    Text("$order. $schedule", style = MaterialTheme.typography.bodySmall)
     if (report.configuration.playback) {
-        Text("${report.completedSamples} samples completed · at most ${report.totalSamples} planned · ${report.configuration.calibrationPolicy.label} · configured offset ${report.configuration.captionOffsetMs} ms", style = MaterialTheme.typography.bodySmall)
+        val completed = report.playbackResults.count { it.state == VoiceSpeechPlaybackState.COMPLETE }
+        Text("${report.playbackResults.size} trials recorded · $completed played to completion · up to ${report.totalSamples} planned · ${report.configuration.calibrationPolicy.label} · configured offset ${report.configuration.captionOffsetMs} ms", style = MaterialTheme.typography.bodySmall)
         if (VoiceSpeechPlaybackScenario.SUSTAINED in report.configuration.playbackScenarios) Text("Sustained target: ${report.configuration.sustainedTargetAudioMs / 60_000} minutes of completed, validated and presented audio per processor.", style = MaterialTheme.typography.bodySmall)
         for (backend in report.configuration.plannedBackendOrder) {
-            Text(if (nativeEngine) "${backend.label} audio consistency: ${report.playbackAudioReference(backend).name.lowercase().replace('_', ' ')}" else "${backend.label}: delegate requested; processor execution and listening quality are not measured", style = MaterialTheme.typography.bodySmall)
+            val state = if (nativeEngine) report.results.find { it.requestedBackend == backend }?.state else report.engineResults.find { it.requestedBackend == backend }?.state
+            val evidence = if (nativeEngine) "audio consistency ${report.playbackAudioReference(backend).name.lowercase().replace('_', ' ')}" else "SDK processor placement unobserved"
+            Text("${backend.label} · ${state?.name?.lowercase()?.replace('_', ' ') ?: "unobserved"} · $evidence", style = MaterialTheme.typography.bodySmall)
             val rows = report.playbackResults.filter { it.requestedBackend == backend }
             var expanded by remember(report.startedAtMillis, backend) { mutableStateOf(false) }
             if (rows.isNotEmpty()) {

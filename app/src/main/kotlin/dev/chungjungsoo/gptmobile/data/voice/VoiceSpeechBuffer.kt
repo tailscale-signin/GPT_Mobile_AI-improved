@@ -10,6 +10,7 @@ internal class VoiceSpeechBuffer(
     constructor(clock: () -> Long) : this(clock, false)
     private var previous = ""
     private var previousSpeech = ""
+    private var boundaryBase = 0
     private var boundaries = VoicePhraseBoundaries("")
     private var consumed = 0
     private var startedSpeech = false
@@ -34,7 +35,11 @@ internal class VoiceSpeechBuffer(
         if (!previousSpeech.regionMatches(0, visible, 0, shared)) return null
         if (shared < consumed && (!final || previousSpeech.substring(shared, consumed).isNotBlank())) return null
         consumed = shared
-        if (visible != previousSpeech || final) boundaries = VoicePhraseBoundaries(visible, streaming = !final)
+        if (visible != previousSpeech || final) {
+            // Committed groups cannot be revised. Parse only the remaining suffix on each token arrival.
+            boundaryBase = consumed
+            boundaries = VoicePhraseBoundaries(visible.substring(boundaryBase), streaming = !final)
+        }
         previous = boundedText
         previousSpeech = visible
         val speechEnd = visible.length
@@ -52,12 +57,12 @@ internal class VoiceSpeechBuffer(
                 }
                 val characterLimit = if (adaptive) 128 else 240
                 val words = completeWord.findAll(tail).take(wordLimit + 3).toList()
-                val legalEnds = words.map { it.range.last + 1 }.filter { boundaries.permits(consumed + it) }
+                val legalEnds = words.map { it.range.last + 1 }.filter { permitsBoundary(consumed + it) }
                 val targetEnd = words.getOrNull(wordLimit - 1)?.range?.last?.plus(1)
                 val wordEnd = targetEnd?.let { target -> legalEnds.lastOrNull { it <= target } ?: legalEnds.firstOrNull() }
                 val clause = (if (startedSpeech && followUpWords > 12) phraseEnd else clauseEnd).findAll(tail)
                     .firstOrNull { boundary ->
-                        boundaries.permits(consumed + boundary.range.last + 1) &&
+                        permitsBoundary(consumed + boundary.range.last + 1) &&
                             (
                                 startedSpeech ||
                                     boundary.value.any { it in ".!?" } ||
@@ -88,7 +93,7 @@ internal class VoiceSpeechBuffer(
         } else {
             maxOf(
                 consumed,
-                sentenceEnd.findAll(visible).lastOrNull { boundaries.permits(it.range.last + 1) }?.range?.last?.plus(1) ?: 0
+                sentenceEnd.findAll(visible, consumed).lastOrNull { permitsBoundary(it.range.last + 1) }?.range?.last?.plus(1) ?: 0
             )
         }
         val chunks = speechChunks(visible.substring(consumed, stableEnd)).filter(String::isNotBlank)
@@ -100,9 +105,11 @@ internal class VoiceSpeechBuffer(
         val since = firstPendingAt ?: return null
         if (completeWord.findAll(previousSpeech, consumed).take(2).count() < 2) return null
         val delay = (arrivalBudgetMs(feedback) - (now() - since)).coerceAtLeast(0)
-        if (delay == 0L && completeWord.findAll(previousSpeech, consumed).take(27).none { boundaries.permits(it.range.last + 1) }) return null
+        if (delay == 0L && completeWord.findAll(previousSpeech, consumed).take(27).none { permitsBoundary(it.range.last + 1) }) return null
         return delay
     }
+
+    private fun permitsBoundary(end: Int) = end >= boundaryBase && boundaries.permits(end - boundaryBase)
 
     private fun arrivalBudgetMs(feedback: VoiceSynthesisFeedback?): Long = when {
         !startedSpeech -> 120L

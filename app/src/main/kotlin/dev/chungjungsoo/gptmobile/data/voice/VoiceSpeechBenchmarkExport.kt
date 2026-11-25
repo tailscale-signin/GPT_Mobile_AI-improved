@@ -730,6 +730,10 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
                                     put("boundary", join.boundary.name)
                                     put("punctuation", join.punctuation.name)
                                     put("rawQuietMs", join.rawQuietMs)
+                                    put("rawTailFrames", join.rawTailFrames)
+                                    put("rawHeadFrames", join.rawHeadFrames)
+                                    put("retainedTailFrames", join.retainedTailFrames)
+                                    put("retainedHeadFrames", join.retainedHeadFrames)
                                     put("retainedQuietMs", join.retainedQuietMs)
                                     put("headroomMs", join.headroomMs)
                                     put("textWaitMs", join.textWaitMs)
@@ -1044,6 +1048,10 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
                     join.boundedLong("retainedQuietMs", 60_000),
                     join.boundedLong("headroomMs"),
                     join.boundedLong("textWaitMs"),
+                    join.boundedLong("rawTailFrames", 720_000).toInt(),
+                    join.boundedLong("rawHeadFrames", 720_000).toInt(),
+                    join.boundedLong("retainedTailFrames", 720_000).toInt(),
+                    join.boundedLong("retainedHeadFrames", 720_000).toInt(),
                     join.boundedLong("refillMs")
                 )
             }

@@ -250,6 +250,8 @@ class KokoroSpeechTextTest {
         assertEquals("i red it yesterday.", spoken("I read it yesterday."))
         assertEquals("i reed it every day.", spoken("I read it every day."))
         assertEquals("a led pipe.", spoken("A lead pipe."))
+        assertEquals("the pipe is made of led.", spoken("The pipe is made of lead."))
+        assertEquals("we red the minutes last night.", spoken("We read the minutes last night."))
         assertEquals("they lead us.", spoken("They lead us."))
         assertEquals("i reed it yesterday.", spoken("I read it yesterday.", mapOf("read" to "reed")))
         assertEquals("i read it yesterday.", spoken("I read it yesterday.", mapOf("read" to "read")))

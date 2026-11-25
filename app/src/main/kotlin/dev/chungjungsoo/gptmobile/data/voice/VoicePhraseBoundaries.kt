@@ -31,7 +31,11 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
             }
             if (value.equals("read", true)) {
                 val tail = words.subList(i + 1, minOf(words.size, i + 5))
-                val cue = tail.indexOfFirst { token -> readingCue.containsMatchIn(token.value) }
+                val simpleCue = tail.indexOfFirst { token -> readingCue.containsMatchIn(token.value) }
+                val lastTime = (1 until tail.size).firstOrNull { position ->
+                    tail[position - 1].value.equals("last", ignoreCase = true) && period.matches(tail[position].value.trimEnd('.', ',', '!', '?'))
+                }
+                val cue = listOfNotNull(simpleCue.takeIf { it >= 0 }, lastTime).minOrNull() ?: -1
                 val stop = tail.indexOfFirst { token -> token.value.last() in ".!?;:" }
                 if (cue >= 0 && (stop < 0 || cue <= stop)) {
                     last = i + cue + 1
@@ -69,6 +73,7 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
             "mb/s", "kb/s", "gb/s", "b/s", "m/s", "km/h", "frames/s", "tokens/s", "meters", "metres", "kilometers", "kilometres", "degrees", "bytes", "frames", "tokens"
         )
         private val metal = Regex("""(?i)^(?:pipe|paint|poisoning|metal|battery|shielding)\b""")
+        private val period = Regex("""(?i)(night|week|month|year)""")
         private val readingCue = Regex("""(?i)^(?:yesterday|earlier|previously|ago|every|daily|often|usually|tomorrow)\b""")
         private fun nameStart(value: String) = value.trimStart('“', '"', '(').firstOrNull()?.isLetter() == true
         private fun unitKey(value: String) = value.trimEnd('.', ',', ';', ':', '!', '?', ')').lowercase()

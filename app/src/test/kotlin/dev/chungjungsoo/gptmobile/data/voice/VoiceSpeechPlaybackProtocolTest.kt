@@ -29,14 +29,15 @@ class VoiceSpeechPlaybackProtocolTest {
         val tracker = VoiceSpeechJoinTracker()
         val head = floatArrayOf(0f, 0f, 1f)
         val tail = floatArrayOf(1f, 0f, 0f, 0f)
-        assertNull(tracker.observe('t', true, tail, tail.copyOf(2), 0, 0, 0, 1000))
-        val join = requireNotNull(tracker.observe('.', false, head, head.copyOfRange(1, 3), 2, 10, 0, 1000))
+        assertNull(tracker.observe('t', VoiceSpeechJoinBoundary.TOKEN_LIMIT, tail, tail.copyOf(2), 0, 0, 0, 1000))
+        val join = requireNotNull(tracker.observe('.', VoiceSpeechJoinBoundary.SOURCE_END, head, head.copyOfRange(1, 3), 2, 10, 0, 1000))
         assertEquals(VoiceSpeechJoinBoundary.TOKEN_LIMIT, join.boundary)
+        assertEquals(listOf(3, 2, 1, 1), listOf(join.rawTailFrames, join.rawHeadFrames, join.retainedTailFrames, join.retainedHeadFrames))
         assertEquals(5L, join.rawQuietMs)
         assertEquals(2L, join.retainedQuietMs)
         assertEquals(13L, join.copy(refillMs = 11).readyUnpunctuatedGapMs)
         assertNull(join.copy(textWaitMs = 1).readyUnpunctuatedGapMs)
-        assertNull(tracker.observe('s', false, tail, tail, 4, 0, 0, 1000)?.readyUnpunctuatedGapMs)
+        assertNull(tracker.observe('s', VoiceSpeechJoinBoundary.WORD_TARGET, tail, tail, 4, 0, 0, 1000)?.readyUnpunctuatedGapMs)
     }
 
     private fun configuration(full: Boolean = false) = VoiceSpeechBenchmarkConfiguration(

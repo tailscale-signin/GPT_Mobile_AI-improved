@@ -31,7 +31,13 @@ internal class KokoroPhrasePlan(private val phrases: List<KokoroPhrase>) {
         val result = KokoroPhrase(
             phrase.speech.substring(first, words[end - 1].range.last + 1),
             if (phrase.wordRanges.isEmpty()) emptyList() else phrase.wordRanges.subList(start, end),
-            if (phrase.groups.isEmpty()) emptyList() else phrase.groups.subList(start, end)
+            if (phrase.groups.isEmpty()) emptyList() else phrase.groups.subList(start, end),
+            when {
+                end == words.size -> phrase.endBoundary
+                words[end - 1].value.last() in ",;:" -> VoiceSpeechJoinBoundary.CLAUSE
+                maximum < target -> VoiceSpeechJoinBoundary.BYTE_LIMIT
+                else -> VoiceSpeechJoinBoundary.WORD_TARGET
+            }
         )
         start = end
         if (end == words.size) {
@@ -55,7 +61,8 @@ internal fun KokoroPhrase.splitAtGroup(): Pair<KokoroPhrase, KokoroPhrase>? {
     fun slice(from: Int, to: Int) = KokoroPhrase(
         speech.substring(words[from].range.first, words[to - 1].range.last + 1),
         if (wordRanges.isEmpty()) emptyList() else wordRanges.subList(from, to),
-        if (groups.isEmpty()) emptyList() else groups.subList(from, to)
+        if (groups.isEmpty()) emptyList() else groups.subList(from, to),
+        if (to == words.size) endBoundary else VoiceSpeechJoinBoundary.TOKEN_LIMIT
     )
     return slice(0, cut) to slice(cut, words.size)
 }

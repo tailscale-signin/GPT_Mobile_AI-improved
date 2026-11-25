@@ -976,7 +976,6 @@ internal class KokoroVoiceOutput(
                 val tokenRetries = ArrayDeque<KokoroPhrase>()
                 while (true) {
                     if (active !== playback) return
-                    val tokenRetry = tokenRetries.isNotEmpty()
                     val phrase = tokenRetries.removeFirstOrNull() ?: plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
                     if (model.engine.supportsStreaming) {
                         val ranges = phrase.wordRanges.takeIf { playback.onRange != null || playback.onTimedRange != null }
@@ -1012,7 +1011,7 @@ internal class KokoroVoiceOutput(
                     val audioMs = samples.size.toLong() * 1_000 / sampleRate
                     val join = joins.observe(
                         phrase.speech.last(),
-                        tokenRetry && tokenRetries.isNotEmpty(),
+                        phrase.endBoundary,
                         generated.samples,
                         samples,
                         playback.enqueuedFrames.get(),
@@ -1023,7 +1022,7 @@ internal class KokoroVoiceOutput(
                     waitingForTextMs = 0
                     if (join != null) {
                         playback.measurements?.phraseJoin(join)
-                        timing("phrase_join", playback, "boundary=${join.boundary} · punctuation=${join.punctuation} · rawQuietMs=${join.rawQuietMs} · retainedQuietMs=${join.retainedQuietMs} · headroomMs=${join.headroomMs} · textWaitMs=${join.textWaitMs}")
+                        timing("phrase_join", playback, "boundary=${join.boundary} · punctuation=${join.punctuation} · rawQuietMs=${join.rawQuietMs} · retainedQuietMs=${join.retainedQuietMs} · rawTailFrames=${join.rawTailFrames} · rawHeadFrames=${join.rawHeadFrames} · retainedTailFrames=${join.retainedTailFrames} · retainedHeadFrames=${join.retainedHeadFrames} · headroomMs=${join.headroomMs} · textWaitMs=${join.textWaitMs}")
                     }
                     runCatching { playback.measurements?.pcmReady(synthesisMs, samples.size, sampleRate, model.engine.executionEvidence) }
                     // Reserve against the retained PCM duration, since trimming silence also

@@ -22,7 +22,8 @@ internal data class KokoroPronunciationObservation(
 internal data class KokoroPhrase(
     val speech: String,
     val wordRanges: List<IntRange>,
-    val groups: List<Int> = wordRanges.map { it.first }
+    val groups: List<Int> = wordRanges.map { it.first },
+    val endBoundary: VoiceSpeechJoinBoundary = VoiceSpeechJoinBoundary.SOURCE_END
 )
 
 internal data class KokoroSpeechProjection(val phrases: List<KokoroPhrase>?, val observation: KokoroPronunciationObservation) {
@@ -300,13 +301,14 @@ internal object KokoroSpeechText {
 
     private val pastBefore = Regex("""(?i)\b(?:have|has|had|already|just|recently|yesterday)\s+$""")
     private val futureBefore = Regex("""(?i)\b(?:to|will|can|shall|please|must|should)\s+$""")
-    private val pastAfter = Regex("""(?i)^([^.,!?;:\n]*?\s)?(?:yesterday|earlier|previously|ago)\b""")
+    private val pastAfter = Regex("""(?i)^([^.,!?;:\n]*?\s)?(?:yesterday|earlier|previously|ago|last\s+(?:night|week|month|year))\b""")
     private val habitualAfter = Regex("""(?i)^([^.,!?;:\n]*?\s)?(?:every|daily|often|usually|tomorrow)\b""")
+    private val metalBefore = Regex("""(?i)\b(?:made of|composed of|exposure to)\s+$""")
     private val metalAfter = Regex("""(?i)^\s+(?:pipe|paint|poisoning|metal|battery|shielding)\b""")
 
     private fun contextualReading(key: String, before: String, after: String, isKnown: (String) -> Boolean): String {
         val reading = when {
-            key == "lead" && metalAfter.containsMatchIn(after) -> "led"
+            key == "lead" && (metalBefore.containsMatchIn(before) || metalAfter.containsMatchIn(after)) -> "led"
             key == "read" && (pastBefore.containsMatchIn(before) || pastAfter.containsMatchIn(after)) -> "red"
             key == "read" && (futureBefore.containsMatchIn(before) || habitualAfter.containsMatchIn(after)) -> "reed"
             else -> return key

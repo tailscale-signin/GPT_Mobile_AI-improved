@@ -2733,9 +2733,9 @@
       "sha256": "8124da2a1d1ad0f182ba4b3ca6f103019f60895a66fa07d605006bb2e3af28ef"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt": {
-      "blob_sha": "caba8653ddde01e7dcb5ba672ddf7d7904f703fd",
-      "bytes": 16926,
-      "sha256": "808be2301a20fbb1de5b393cb11abc1c1f623e3eda5b1de5648f5771f29d7e68"
+      "blob_sha": "4d4d9eee4481e11736101c935ba4a06bc8a94de8",
+      "bytes": 18542,
+      "sha256": "f4b0498baac3956c50f5ac149344128973e4a28a15070367c516031693a98c08"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryInstrumentedTest.kt": {
       "blob_sha": "28bd7baffc51943406b510551df66b73ad61380d",

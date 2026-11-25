@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -27,11 +28,37 @@ import org.junit.runner.RunWith
  * Opt-in real JNI/checkpoint smoke. Push the exact catalog model to
  * /data/local/tmp/mediapipe-speech/<fileName> and pass mediapipeSmokeEngine=phonon,
  * kokoro or pocket. A supplied argument makes missing/bad weights a failure.
- * On a compatible phone, set mediapipeSmokeDelegate to GPU or NPU for Kokoro.
+ * On a compatible phone, select the optimized GPU or compiled SM8750 pack by catalog id.
+ * Each defaults to its supported delegate. Standard Kokoro also accepts an explicit GPU or NPU.
  * The receipt identifies the request. Kernel placement needs separate device evidence.
  */
 @RunWith(AndroidJUnit4::class)
 class MediaPipeSpeechNativeSmokeTest {
+    @Test
+    fun checkpointSelectionUsesThePackDelegateAndRejectsMismatches() {
+        val defaults = mapOf(
+            MediaPipeSpeechEngine.KOKORO to VoiceSpeechBackend.LITERT_KOKORO_CPU,
+            MediaPipeSpeechEngine.KOKORO_GPU to VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED,
+            MediaPipeSpeechEngine.KOKORO_SM8750 to VoiceSpeechBackend.LITERT_KOKORO_SM8750,
+            MediaPipeSpeechEngine.PHONON to VoiceSpeechBackend.PHONON_CPU,
+            MediaPipeSpeechEngine.POCKET to VoiceSpeechBackend.POCKET_CPU
+        )
+        assertEquals(MediaPipeSpeechEngine.entries.toSet(), defaults.keys)
+        for ((engine, backend) in defaults) assertEquals(backend, smokeBackend(engine, null))
+        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, smokeBackend(MediaPipeSpeechEngine.KOKORO, "GPU"))
+        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_NPU, smokeBackend(MediaPipeSpeechEngine.KOKORO, "NPU"))
+        assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.KOKORO_GPU, "CPU") }
+        assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.KOKORO_SM8750, "GPU") }
+    }
+
+    private fun smokeBackend(kind: MediaPipeSpeechEngine, selectedDelegate: String?): VoiceSpeechBackend {
+        val supported = VoiceSpeechBenchmarkEngine.entries.single { it.mediaPipeEngine() == kind }.supportedBackends
+        if (selectedDelegate == null) return supported.first()
+        return requireNotNull(supported.singleOrNull { requestedSpeechDelegate(it) == selectedDelegate }) {
+            "Unsupported delegate $selectedDelegate for ${kind.name}."
+        }
+    }
+
     @Test(timeout = 300_000)
     fun pinnedCheckpointStreamsAndCancelsThroughThePackagedAndroidJni() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -40,22 +67,16 @@ class MediaPipeSpeechNativeSmokeTest {
         val runId = InstrumentationRegistry.getArguments().getString("mediapipeSmokeRunId")?.also {
             require(it.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")))
         }
-        val kind = MediaPipeSpeechEngine.entries.single { it.name.equals(argument, ignoreCase = true) }
-        val delegate = InstrumentationRegistry.getArguments().getString("mediapipeSmokeDelegate")?.let(Delegate::valueOf) ?: Delegate.CPU
-        require(delegate == Delegate.CPU || kind == MediaPipeSpeechEngine.KOKORO) { "Accelerator requests apply to Kokoro only." }
-        val backend = when (kind) {
-            MediaPipeSpeechEngine.KOKORO -> when (delegate) {
-                Delegate.CPU -> VoiceSpeechBackend.LITERT_KOKORO_CPU
-                Delegate.GPU -> VoiceSpeechBackend.LITERT_KOKORO_GPU
-                Delegate.NPU -> VoiceSpeechBackend.LITERT_KOKORO_NPU
-                else -> error("Unsupported speech delegate")
-            }
-            MediaPipeSpeechEngine.PHONON -> VoiceSpeechBackend.PHONON_CPU
-            MediaPipeSpeechEngine.POCKET -> VoiceSpeechBackend.POCKET_CPU
+        val descriptor = MediaPipeSpeechCatalog.models.single { it.engine.name.equals(argument, ignoreCase = true) || it.id.equals(argument, ignoreCase = true) }
+        val kind = descriptor.engine
+        val backend = smokeBackend(kind, InstrumentationRegistry.getArguments().getString("mediapipeSmokeDelegate"))
+        val delegate = Delegate.valueOf(requestedSpeechDelegate(backend))
+        if (kind == MediaPipeSpeechEngine.KOKORO_SM8750) {
+            require(isSm8750SpeechDevice()) { "This vocoder is compiled for Snapdragon 8 Elite (SM8750)." }
         }
-        val descriptor = MediaPipeSpeechCatalog.model(kind)
         val context = instrumentation.targetContext
-        val evidenceFile = File(context.filesDir, "mediapipe-smoke-${kind.name.lowercase()}.json")
+        val delegateSuffix = if (delegate == Delegate.CPU) "" else "-${delegate.name.lowercase()}"
+        val evidenceFile = File(context.filesDir, "mediapipe-smoke-${kind.name.lowercase()}$delegateSuffix.json")
         evidenceFile.delete()
         val directory = File(context.cacheDir, "mediapipe-native-smoke/${descriptor.id}").also { check(it.mkdirs() || it.isDirectory) }
         val model = File(directory, descriptor.fileName)
@@ -129,6 +150,8 @@ class MediaPipeSpeechNativeSmokeTest {
                 .put("status", "passed")
                 .put("run_id", runId ?: JSONObject.NULL)
                 .put("engine", kind.name)
+                .put("model_id", descriptor.id)
+                .put("configured_backend", backend.name)
                 .put("runtime", MediaPipeSpeechCatalog.RUNTIME_ID)
                 .put("model_sha256", descriptor.sha256)
                 .put("model_bytes", copied)

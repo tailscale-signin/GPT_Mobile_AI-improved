@@ -38,7 +38,8 @@ data class PrivacyModeState(
     val enabled: Boolean = false,
     val categories: Set<PrivacyCategory> = PrivacyCategory.entries.toSet(),
     val revision: Long = 0,
-    val protectionRevision: Long = revision
+    val protectionRevision: Long = revision,
+    val requireVerifiedRetention: Boolean = false
 ) {
     fun protects(category: PrivacyCategory): Boolean = enabled && category in categories
 }
@@ -103,9 +104,11 @@ class PrivacyModeStore @Inject constructor(
                 val categories = PrivacyCategory.entries.filterTo(mutableSetOf()) {
                     preferences.getBoolean("privacy_category_${it.name}", true)
                 }
+                val protectionRevision = preferences.getLong("privacy_protection_revision", revision)
+                val verifiedRetention = preferences.getBoolean("privacy_require_verified_retention", false)
                 if (preferences.getLong("privacy_revision", 0) == revision) {
                     // A newly queued choice also supersedes a consistent older disk observation.
-                    return requestedPolicy ?: PrivacyModeState(enabled, categories, revision, preferences.getLong("privacy_protection_revision", revision))
+                    return requestedPolicy ?: PrivacyModeState(enabled, categories, revision, protectionRevision, verifiedRetention)
                 }
             }
             return null
@@ -159,6 +162,13 @@ class PrivacyModeStore @Inject constructor(
         }
     }
 
+    fun requestVerifiedRetention(required: Boolean) {
+        synchronized(stateLock) {
+            publish { it.copy(requireVerifiedRetention = required) }
+            writer.submit(PrivacySettingChange.VerifiedRetention(required))
+        }
+    }
+
     fun requestCategory(category: PrivacyCategory, protected: Boolean) {
         synchronized(stateLock) {
             publish { it.copy(categories = if (protected) it.categories + category else it.categories - category) }
@@ -209,6 +219,7 @@ class PrivacyModeStore @Inject constructor(
             .putLong("privacy_revision", target.revision)
             .putLong("privacy_protection_revision", target.protectionRevision)
             .putBoolean("privacy_mode_enabled", target.enabled)
+            .putBoolean("privacy_require_verified_retention", target.requireVerifiedRetention)
         PrivacyCategory.entries.forEach { editor.putBoolean("privacy_category_${it.name}", it in target.categories) }
         check(editor.commit()) { "Privacy settings could not be saved." }
         synchronized(stateLock) {
@@ -227,6 +238,7 @@ class PrivacyModeStore @Inject constructor(
             preferences.getBoolean("privacy_category_${it.name}", true)
         },
         revision = preferences.getLong("privacy_revision", 0),
-        protectionRevision = preferences.getLong("privacy_protection_revision", preferences.getLong("privacy_revision", 0))
+        protectionRevision = preferences.getLong("privacy_protection_revision", preferences.getLong("privacy_revision", 0)),
+        requireVerifiedRetention = preferences.getBoolean("privacy_require_verified_retention", false)
     )
 }

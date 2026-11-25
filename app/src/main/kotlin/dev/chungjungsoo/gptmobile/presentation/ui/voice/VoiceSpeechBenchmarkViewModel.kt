@@ -130,7 +130,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         incrementalInput: Boolean = true,
         htpPerformanceMode: String = "balanced",
         nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
-        sustainedTargetAudioMs: Long = 300_000L
+        sustainedTargetAudioMs: Long = 300_000L,
+        streamingKokoroVoice: String? = null
     ) {
         benchmarkLease.quarantineReason.value?.let { reason ->
             mutable.update { it.withQuarantine(reason) }
@@ -149,7 +150,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null, nativeCleanupPending = false) }
         job = viewModelScope.launch(ConversationPrivacyContext.capture() ?: EmptyCoroutineContext) {
             try {
-                withContext(Dispatchers.IO) { execute(mode, backends, voice, threads, rate, workload, playback, playbackScenarios, calibrationPolicy, captionOffsetMs, engine, deepDiagnostics, kokoroBucket, incrementalInput, htpPerformanceMode, nativeModelVariant, sustainedTargetAudioMs, lease) }
+                withContext(Dispatchers.IO) { execute(mode, backends, voice, threads, rate, workload, playback, playbackScenarios, calibrationPolicy, captionOffsetMs, engine, deepDiagnostics, kokoroBucket, incrementalInput, htpPerformanceMode, nativeModelVariant, sustainedTargetAudioMs, streamingKokoroVoice, lease) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -188,12 +189,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         }
     }
 
-    private suspend fun execute(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float, workload: VoiceSpeechBenchmarkWorkload, playback: Boolean, playbackScenarios: List<VoiceSpeechPlaybackScenario>, calibrationPolicy: VoiceSpeechCalibrationPolicy, captionOffsetMs: Int, engine: VoiceSpeechBenchmarkEngine, deepDiagnostics: Boolean, kokoroBucket: MediaPipeKokoroBucket, incrementalInput: Boolean, htpPerformanceMode: String, nativeModelVariant: KokoroModelVariant, sustainedTargetAudioMs: Long, ownerLease: VoiceSpeechBenchmarkOwnership.Lease) {
+    private suspend fun execute(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float, workload: VoiceSpeechBenchmarkWorkload, playback: Boolean, playbackScenarios: List<VoiceSpeechPlaybackScenario>, calibrationPolicy: VoiceSpeechCalibrationPolicy, captionOffsetMs: Int, engine: VoiceSpeechBenchmarkEngine, deepDiagnostics: Boolean, kokoroBucket: MediaPipeKokoroBucket, incrementalInput: Boolean, htpPerformanceMode: String, nativeModelVariant: KokoroModelVariant, sustainedTargetAudioMs: Long, streamingKokoroVoice: String?, ownerLease: VoiceSpeechBenchmarkOwnership.Lease) {
         val models = KokoroModelPack.store(File(context.noBackupFilesDir, "voice-models"), variant = nativeModelVariant)
         val sdkEngine = engine.mediaPipeEngine()
         val sdkModel = sdkEngine?.let(MediaPipeSpeechCatalog::model)
         val nativeEngine = sdkEngine == null
-        val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) voice.streamingVoiceId() else sdkModel?.defaultVoice
+        val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) streamingKokoroVoice ?: voice.streamingVoiceId() else sdkModel?.defaultVoice
         val started = System.currentTimeMillis()
         val previousOrder = mutable.value.history.firstOrNull()?.configuration?.backendOrderSeed
         val orderSeed = previousOrder?.takeIf { it < Long.MAX_VALUE }?.plus(1) ?: 0L

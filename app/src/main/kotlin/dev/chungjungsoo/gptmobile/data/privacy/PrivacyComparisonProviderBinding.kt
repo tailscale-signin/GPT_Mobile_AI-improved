@@ -132,7 +132,7 @@ internal class PrivacyComparisonProviderBinding(
                             PrivateLocalToolSession(store, input.profile, input.turns, emptyList()) { turns, target ->
                                 input.validate(target, turns)
                                 validate()
-                                if (store.verifier.verify(target).route != null) {
+                                if (policy.requireVerifiedRetention || store.verifier.verify(target).route != null) {
                                     input.route("STRICT_PRIVATE_TEXT")
                                     PrivateInferenceSession.synthetic(store.verifier, store, target, turns, constraints, input) { "" }
                                 } else {

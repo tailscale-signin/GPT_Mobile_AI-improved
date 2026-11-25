@@ -16,6 +16,7 @@ from . import EXTRACTOR_VERSION, SCHEMA_VERSION
 from .engine import Graph, GraphStore, bounded, encoded, scope, import_matches, snapshot_metadata, snapshot_fingerprint
 from .extract import extract, identity, permitted, MAX_SOURCE_BYTES, metadata_fragment
 from .paging import graph_page
+from .jvm_impact import CompilerEvidence
 from v14.engineering_backend import blob_sha
 from v14.github_api_governor import GitHubApiGovernor
 from v14.memory import local_model_destination
@@ -67,6 +68,7 @@ class GraphService:
         self.lock = threading.RLock()
         self.admission = threading.BoundedSemaphore(2)
         self.graph_cache = collections.OrderedDict()
+        self.compiler_evidence = CompilerEvidence(backend)
         self.public_service = None
         self.cancelled = lambda job: False
         self.authorized = lambda principal: True
@@ -351,12 +353,19 @@ class GraphService:
                 result = graph.path(request.get('source', ''), request.get('target', ''), request.get('depth', 6))
             elif action == 'impact':
                 paths = request.get('paths', [])
-                if symbol:
-                    selected, error = graph.select(symbol)
-                    if error:
-                        return dict(error, graph=graph.metadata())
-                    paths = list(set(paths) | {selected['path']})
-                result = graph.impact(paths, request.get('depth', 2))
+                descriptor = symbol if '(' in symbol and ')' in symbol and '.' in symbol else None
+                selected, error = graph.select(symbol) if symbol and not descriptor else (None, None)
+                if error:
+                    result = error
+                else:
+                    all_paths = set(paths)
+                    if selected:
+                        all_paths.add(selected['path'])
+                    depth = request.get('depth', 2)
+                    result = graph.impact(all_paths, depth)
+                    if descriptor or any(path.endswith(('.kt', '.java')) for path in all_paths):
+                        result['compiler_impact'] = self.compiler_evidence.impact(
+                            namespace, snapshot, paths, selected, depth, request.get('limit', 30), descriptor=descriptor)
             elif action == 'architecture':
                 result = graph_page(graph, namespace, request, {'graph': graph.metadata(), 'stale': head != snapshot['sha'], 'observed_branch_head': head})
             elif action == 'diff':
@@ -367,6 +376,11 @@ class GraphService:
                 if not previous:
                     raise ValueError('Index the requested comparison commit first')
                 result = graph.compare(self.resolved(namespace, previous)[0])
+                changed_jvm = any(path.endswith(('.kt', '.java')) and previous['manifest'].get(path) != snapshot['manifest'].get(path)
+                                  for path in previous['manifest'].keys() | snapshot['manifest'].keys())
+                if changed_jvm:
+                    result['compiler_impact'] = self.compiler_evidence.impact(
+                        namespace, snapshot, (), None, request.get('depth', 2), request.get('limit', 30), previous=previous)
             elif action == 'diagnose':
                 log = request.get('log', '')
                 if not isinstance(log, str) or len(log) > 24000:

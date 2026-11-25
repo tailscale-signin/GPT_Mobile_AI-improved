@@ -18,10 +18,12 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.SpeechVoiceEvidence
 import dev.chungjungsoo.gptmobile.data.voice.UnavailableVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -61,6 +63,16 @@ internal fun KokoroVoice.streamingVoiceId(): String = when (this) {
     KokoroVoice.EMMA -> "bf_emma"
 }
 
+internal fun VoiceSynthesisPreferences.nativeVoice(previous: KokoroVoice?): KokoroVoice =
+    KokoroVoice.entries.firstOrNull { it.streamingVoiceId() == voiceId } ?: when (language) {
+        "en-GB" -> KokoroVoice.EMMA
+        "en-US" -> KokoroVoice.HEART
+        else -> previous ?: KokoroVoice.HEART
+    }
+
+internal fun VoiceSpeechBackend.forSynthesis(synthesis: VoiceSynthesisPreferences): VoiceSpeechBackend =
+    if (!synthesis.language.startsWith("en-") && streamingEngine()?.isKokoro != true) VoiceSpeechBackend.LITERT_KOKORO_CPU else this
+
 /** Main-thread orchestration; only credential and preference I/O leaves the owning dispatcher. */
 @HiltViewModel
 internal class VoiceBackendViewModel internal constructor(
@@ -84,9 +96,10 @@ internal class VoiceBackendViewModel internal constructor(
     private var catalogLoaded = false
     private var catalogError: String? = null
     private var backendStatus = "Loading speech settings…"
-    private data class Configuration(val preference: VoiceBackendPreference, val connection: ProviderConnection?, val voice: KokoroVoice, val rate: Float, val bucket: MediaPipeKokoroBucket, val incremental: Boolean, val nativeModelVariant: KokoroModelVariant)
+    private data class Configuration(val preference: VoiceBackendPreference, val connection: ProviderConnection?, val voice: KokoroVoice, val rate: Float, val bucket: MediaPipeKokoroBucket, val incremental: Boolean, val nativeModelVariant: KokoroModelVariant, val synthesis: VoiceSynthesisPreferences)
     private var configuration: Configuration? = null
     private var voice = KokoroVoice.HEART
+    private var synthesis = VoiceSynthesisPreferences()
     private var speechRate = STANDARD_SPEECH_RATE
     private var kokoroBucket = MediaPipeKokoroBucket.AUTO
     private var incrementalSpeech = true
@@ -137,10 +150,17 @@ internal class VoiceBackendViewModel internal constructor(
         reconcile(force = true)
     }
 
-    fun configureSpeech(voice: KokoroVoice?, rate: Float, bucket: MediaPipeKokoroBucket = kokoroBucket, incremental: Boolean = incrementalSpeech, modelVariant: KokoroModelVariant = nativeModelVariant) {
+    fun configureSpeech(voice: KokoroVoice?, rate: Float, bucket: MediaPipeKokoroBucket = kokoroBucket, incremental: Boolean = incrementalSpeech, modelVariant: KokoroModelVariant = nativeModelVariant, synthesis: VoiceSynthesisPreferences? = null) {
         voice ?: return
+        val selected = synthesis ?: if (this.voice != voice) {
+            val legacy = VoiceSynthesisPreferences.restore(null, null, voice.streamingVoiceId())
+            this.synthesis.selectLanguage(legacy.language).selectVoice(legacy.voiceId)
+        } else {
+            this.synthesis
+        }
         val bounded = rate.takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: STANDARD_SPEECH_RATE
-        if (this.voice == voice && speechRate == bounded && kokoroBucket == bucket && incrementalSpeech == incremental && nativeModelVariant == modelVariant) return
+        if (this.voice == voice && speechRate == bounded && kokoroBucket == bucket && incrementalSpeech == incremental && nativeModelVariant == modelVariant && this.synthesis == selected) return
+        this.synthesis = selected
         this.voice = voice
         speechRate = bounded
         kokoroBucket = bucket
@@ -205,7 +225,9 @@ internal class VoiceBackendViewModel internal constructor(
     }
 
     private fun reconcile(force: Boolean = false) {
-        val preference = saved?.value ?: return
+        val requested = saved?.value ?: return
+        val effective = requested.backend.forSynthesis(synthesis)
+        val preference = requested.copy(backend = effective)
         mutable.value = mutable.value.copy(backend = preference.backend, gatewayUid = preference.gatewayUid)
         if (preference.backend == VoiceSpeechBackend.GATEWAY_CUDA && !catalogLoaded) {
             backendStatus = "Loading Gateway connections…"
@@ -214,7 +236,7 @@ internal class VoiceBackendViewModel internal constructor(
         }
         val connection = mutable.value.gateways.firstOrNull { it.uid == preference.gatewayUid }
             .takeIf { preference.backend == VoiceSpeechBackend.GATEWAY_CUDA }
-        val next = Configuration(preference, connection, voice, speechRate, kokoroBucket, incrementalSpeech, nativeModelVariant)
+        val next = Configuration(preference, connection, voice, speechRate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
         if (!force && configuration == next) {
             publishStatus()
             return
@@ -230,6 +252,7 @@ internal class VoiceBackendViewModel internal constructor(
         val capturedBucket = kokoroBucket
         val capturedIncremental = incrementalSpeech
         val capturedVariant = nativeModelVariant
+        val capturedSynthesis = synthesis
         update?.cancel()
         backendStatus = "Preparing speech settings…"
         mutable.value = mutable.value.copy(loaded = false)
@@ -246,7 +269,7 @@ internal class VoiceBackendViewModel internal constructor(
             try {
                 val prepared = withContext(io) {
                     if (retest) QualcommVoicePhraseEngineFactory.requestRetest(context, preference.backend)
-                    prepare(preference, report, retest, capturedVoice, capturedRate, capturedBucket, capturedIncremental, capturedVariant)
+                    prepare(preference, report, retest, capturedVoice, capturedRate, capturedBucket, capturedIncremental, capturedVariant, capturedSynthesis.voiceId)
                 }
                 if (generation == epoch) {
                     backendStatus = prepared.status
@@ -267,7 +290,7 @@ internal class VoiceBackendViewModel internal constructor(
 
     private data class Prepared(val factory: VoicePhraseEngineFactory, val status: String)
 
-    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit, retest: Boolean, voice: KokoroVoice, rate: Float, bucket: MediaPipeKokoroBucket, incremental: Boolean, modelVariant: KokoroModelVariant): Prepared = when (value.backend) {
+    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit, retest: Boolean, voice: KokoroVoice, rate: Float, bucket: MediaPipeKokoroBucket, incremental: Boolean, modelVariant: KokoroModelVariant, streamingVoiceId: String): Prepared = when (value.backend) {
         VoiceSpeechBackend.CPU -> Prepared(QualcommVoicePhraseEngineFactory(context, value.backend, report, voice = voice, speechRate = rate, modelVariant = modelVariant), "Speech runs on this phone's CPU.")
         VoiceSpeechBackend.AUTO -> Prepared(
             QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest, voice = voice, speechRate = rate, modelVariant = modelVariant),
@@ -311,26 +334,53 @@ internal class VoiceBackendViewModel internal constructor(
             } else {
                 "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
             }
+            val selectedId = if (engine.isKokoro) streamingVoiceId else descriptor.defaultVoice
+            val evidence = runCatching { SpeechVoiceEvidence(context) }.getOrNull()
+            fun modelUsed(configured: VoiceSpeechBackend) = MediaPipeSpeechCatalog.model(requireNotNull(configured.streamingEngine()))
+            fun evidenceStatus(configured: VoiceSpeechBackend, usedId: String = selectedId): String {
+                val message = if (configured == value.backend) status else "${value.backend.label} could not initialize. Using standard Kokoro CPU."
+                val voiceNotice = if (usedId != selectedId) "$selectedId is unavailable in this pack. Using $usedId for the same language. " else ""
+                return if (evidence?.has(modelUsed(configured), configured, usedId) == true) {
+                    "$message $voiceNotice$usedId produced valid, non-silent audio samples on this phone with ${configured.label} configured."
+                } else {
+                    "$message $selectedId has no successful synthesis recorded here for this configuration."
+                }
+            }
+            val recorded = java.util.concurrent.atomic.AtomicReference<Pair<String, VoiceSpeechBackend>?>()
             Prepared(
                 MediaPipeVoicePhraseEngineFactory(
                     models,
                     engine,
                     value.backend,
                     rate,
-                    if (engine.isKokoro) voice.streamingVoiceId() else descriptor.defaultVoice,
+                    selectedId,
                     kokoroBucket = bucket,
                     incrementalInput = incremental,
                     onPlaybackDelegate = { configured ->
-                        val message = if (configured == value.backend) status else "${value.backend.label} could not initialize. Kokoro LiteRT is using CPU with the same voice and rate."
-                        report(message)
+                        report(evidenceStatus(configured))
+                    },
+                    onValidatedSynthesis = { id, configured ->
+                        val actual = id to configured
+                        if (recorded.getAndSet(actual) != actual && evidence != null) {
+                            evidence.record(modelUsed(configured), configured, id)
+                            report(evidenceStatus(configured, id))
+                        }
                     }
                 ),
-                status
+                evidenceStatus(value.backend)
             )
         }
     }
 
     private fun publishStatus() {
-        mutable.value = mutable.value.copy(status = listOfNotNull(saved?.error, catalogError, backendStatus).joinToString(" "))
+        val fallback = saved?.value?.backend?.takeIf { it != mutable.value.backend }?.let {
+            "Using standard Kokoro CPU for ${synthesis.profile.label}. ${it.label} supports English."
+        }
+        val nativeFallback = if (!mutable.value.backend.isStreamingLocal && voice.streamingVoiceId() != synthesis.voiceId) {
+            "Using ${voice.label} for this engine. ${synthesis.voiceId} is available with streaming Kokoro."
+        } else {
+            null
+        }
+        mutable.value = mutable.value.copy(status = listOfNotNull(saved?.error, catalogError, fallback, nativeFallback, backendStatus).joinToString(" "))
     }
 }

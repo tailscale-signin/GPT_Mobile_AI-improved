@@ -37,7 +37,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val privacyReceipt = validatePrivateWire(wire, revision, context)
         val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         retainPrivateWireReceipt(privacyReceipt, attempt, context)
-        context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt), config)
+        context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt), config, inspectGitHubSource = context.inspectGitHubSource())
         context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
     }
@@ -209,11 +209,14 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val privacyReceipt = validatePrivateWire(wire, permissionRevision, wireContext)
         val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         retainPrivateWireReceipt(privacyReceipt, attemptId, wireContext)
-        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId), config)
+        wireContext[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId), config, inspectGitHubSource = wireContext.inspectGitHubSource())
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
     }
 }
+
+private fun kotlin.coroutines.CoroutineContext.inspectGitHubSource(): Boolean =
+    this[dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext] == null && this[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.Key] == null
 
 /** Validate after every provider transform, but before the physical attempt consumes any authority. */
 private fun validatePrivateWire(payload: String, revision: String, context: kotlin.coroutines.CoroutineContext): JsonObject? {

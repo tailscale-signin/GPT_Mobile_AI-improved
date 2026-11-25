@@ -1123,7 +1123,7 @@ class GitHubToolTest {
                 requests++
                 assertEquals("/search/repositories", request.url.encodedPath)
                 assertEquals("language:Kotlin", request.url.parameters["q"])
-                respond("""{"total_count":0,"items":[]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                respond("""{"total_count":0,"incomplete_results":false,"items":[]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
             }
         )
         try {

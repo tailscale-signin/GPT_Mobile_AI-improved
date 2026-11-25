@@ -68,6 +68,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -271,27 +272,178 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.start(any()) }
     }
 
-    private suspend fun verifyGatewayCoordinatorHandoff(scope: CoroutineScope, disabledTools: Boolean = false, pendingSubmission: Boolean = false, imported: Boolean = false) {
+    private fun longConversation(turns: Int = 45): List<MessageV2> = (1..turns).flatMap { turn ->
+        val id = 2 * turn - 1
+        val prompt = if (turn == 1) "Investigate the GitHub branch and preserve the existing API." else "continue"
+        listOf(
+            MessageV2(id = id, chatId = 7, createdAt = id.toLong(), platformType = null, content = prompt),
+            MessageV2(id = id + 1, chatId = 7, createdAt = id.toLong(), platformType = profiles.first().uid, content = "Evidence $turn", linkedMessageId = id)
+        )
+    }
+
+    @Test fun normalNavigationLoadsFortyTurnsAndADispatchKeepsOlderEvidence() = runTest(dispatcher) {
+        verifyGatewayCoordinatorHandoff(backgroundScope, paged = true)
+    }
+
+    @Test fun loadingAnOlderPageKeepsTheSameAcceptedGitHubEvidence() = runTest(dispatcher) {
+        verifyGatewayCoordinatorHandoff(backgroundScope, paged = true, scroll = true)
+    }
+
+    @Test fun centeredRoomQueryScopesLegacyAndLateRepliesToFortyParentTurns() = runTest(dispatcher) {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), ChatDatabaseV2::class.java).build()
+        try {
+            db.chatRoomDao().addChatRoom(ChatRoomV2(id = 7, title = "Transcript"))
+            db.chatRoomDao().addChatRoom(ChatRoomV2(id = 8, title = "Other"))
+            val dao = db.messageDao()
+            val transcript = longConversation(1200)
+            dao.insertMessageList(transcript)
+            dao.editMessages(transcript[1199].copy(linkedMessageId = 0))
+            dao.addMessages(
+                MessageV2(id = 2401, chatId = 7, createdAt = 2500, platformType = profiles.first().uid, content = "Late linked answer", linkedMessageId = 1199),
+                MessageV2(id = 2402, chatId = 8, platformType = null, content = "Other conversation")
+            )
+            for (target in listOf(1199, 1200, 2401)) assertEquals(1239, dao.centeredWindowEnd(7, target, 40))
+            assertEquals(79, dao.centeredWindowEnd(7, 1, 40))
+            for (target in listOf(2400, 2402, 9999)) assertNull(dao.centeredWindowEnd(7, target, 40))
+            val page = dao.observeWindowThrough(7, 1239, 40).first()
+            assertEquals((1161..1239 step 2).toList(), page.filter { it.platformType == null }.map(MessageV2::id))
+            assertEquals(81, page.size)
+            assertTrue(page.any { it.id == 1200 })
+            assertTrue(page.any { it.id == 2401 })
+            assertFalse(page.any { it.chatId != 7 })
+            assertEquals(620, dao.observeTurnCountThrough(7, 1239).first())
+            assertEquals(1319, dao.newerWindowEnd(7, 1239, 40))
+            assertNull(dao.newerWindowEnd(7, 2319, 40))
+            val before = requireNotNull(dao.rawMessage(2401))
+            val edited = before.copy(content = "Edited old answer")
+            val persistence = db.agentPersistenceDao()
+            assertTrue(persistence.saveTranscriptReply(1199, before, edited))
+            assertFalse(persistence.saveTranscriptReply(1199, before, before.copy(content = "Stale edit")))
+            assertFalse(persistence.saveTranscriptReply(2402, edited, edited.copy(content = "Wrong room")))
+            assertEquals("Edited old answer", dao.rawMessage(2401)?.content)
+            assertEquals(1200, dao.observeTurnCount(7).first())
+            assertEquals("Evidence 1200", dao.rawMessage(2400)?.content)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun oldTargetLoadsFortyTurnsAndSupportsLiveRepliesPagingAndReturningToLatest() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        messages.value = longConversation(1200)
+        val live = MutableStateFlow(emptyMap<Int, MessageV2>())
+        every { coordinator.streamMessages } returns live
+        coEvery { repository.centeredWindowEnd(7, 1200, 40) } returns 1239
+        coEvery { repository.newerWindowEnd(7, 1239, 40) } returns 1319
+        val model = createViewModel(combined = false, windowed = true, targetMessageId = 1200)
+        withTimeout(5_000) { model.isLoaded.first { it } }
+        assertEquals((1161..1239 step 2).toList(), model.groupedMessages.value.userMessages.map(MessageV2::id))
+        assertTrue(model.olderHistoryAvailable.value)
+        assertTrue(model.newerHistoryAvailable.value)
+        live.value = mapOf(1200 to messages.value[1199].copy(content = "Live answer"))
+        withTimeout(5_000) { model.groupedMessages.first { it.assistantMessages[19].first().content == "Live answer" } }
+        messages.value = longConversation(1201)
+        model.loadOlderMessages()
+        withTimeout(5_000) { model.groupedMessages.first { it.userMessages.size == 80 } }
+        assertEquals(1081, model.groupedMessages.value.userMessages.first().id)
+        assertEquals(1239, model.groupedMessages.value.userMessages.last().id)
+        model.loadNewerMessages()
+        withTimeout(5_000) { model.groupedMessages.first { it.userMessages.size == 120 } }
+        assertEquals(1081, model.groupedMessages.value.userMessages.first().id)
+        assertEquals(1319, model.groupedMessages.value.userMessages.last().id)
+        model.returnToLatest()
+        withTimeout(5_000) { model.latestHistoryJump.first { it > 0 } }
+        assertFalse(model.newerHistoryAvailable.value)
+        assertEquals((2323..2401 step 2).toList(), model.groupedMessages.value.userMessages.map(MessageV2::id))
+        coVerify(exactly = 0) { repository.fetchMessageReferencesV2(7) }
+    }
+
+    @Test fun ordinaryNavigationStartsOnTheLatestFortyOfTwelveHundredTurns() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        messages.value = longConversation(1200)
+        val model = createViewModel(combined = false, windowed = true)
+        withTimeout(5_000) { model.isLoaded.first { it } }
+        assertFalse(model.newerHistoryAvailable.value)
+        assertEquals((2321..2399 step 2).toList(), model.groupedMessages.value.userMessages.map(MessageV2::id))
+        coVerify(exactly = 0) { repository.centeredWindowEnd(any(), any(), any()) }
+        coVerify(exactly = 0) { repository.fetchMessageReferencesV2(7) }
+    }
+
+    @Test fun sendingFromAnOldDeepLinkRetainsAllAcceptedEvidenceAndFollowsTheNewReply() = runTest(dispatcher) {
+        verifyGatewayCoordinatorHandoff(backgroundScope, paged = true, deepLink = true)
+    }
+
+    @Test fun combinedPreflightResolvesAnOriginalObjectiveOutsideTheDisplayWindow() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        messages.value = longConversation()
+        val history = CompletableDeferred<List<Int>>()
+        val objective = CompletableDeferred<String>()
+        coEvery { repository.prepareCombinedTurn(any(), any(), any(), any(), any()) } answers {
+            history.complete(secondArg<List<MessageV2>>().map(MessageV2::id))
+            objective.complete(firstArg<dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext>().requested.userPrompt)
+            error("Stop after observing the accepted policy")
+        }
+        val model = createViewModel(windowed = true)
+        model.question.edit { replace(0, length, "continue") }
+        model.askQuestion()
+        assertEquals(1, withTimeout(5_000) { history.await() }.first())
+        assertEquals(messages.value.first().content, objective.await())
+    }
+
+    @Test fun retryOfAnOlderVisibleTurnKeepsItsRootAndExcludesLaterPrompts() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        messages.value = longConversation()
+        val recovery = CompletableDeferred<dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor?>()
+        val dispatched = CompletableDeferred<AgentRunRequest>()
+        coEvery { coordinator.withChatGate<Unit>(7, any()) } coAnswers { secondArg<suspend () -> Unit>().invoke() }
+        coEvery { repository.persistAgentRetry(any()) } answers {
+            val request = firstArg<dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest>()
+            recovery.complete(request.recovery)
+            val assistant = request.assistantMessage.copy(currentRunId = request.run.runId)
+            val profile = profiles.first()
+            val run = AgentRun(request.run.runId, 7, request.userMessage.id, assistant.id, profile.uid, profile.compatibleType.name, profile.model, AgentRunStatus.QUEUED)
+            dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult(assistant, run)
+        }
+        every { coordinator.start(any()) } answers {
+            dispatched.complete(firstArg<List<AgentRunRequest>>().single())
+            Unit
+        }
+        val model = createViewModel(combined = false, windowed = true)
+        withTimeout(5_000) { model.isLoaded.first { it } }
+        val target = model.groupedMessages.value.userMessages.first()
+        assertEquals(11, target.id)
+        model.retryChat(0, 0)
+        val handoff = withTimeout(5_000) { dispatched.await() }
+        assertEquals(listOf(1, 3, 5, 7, 9, 11), handoff.userMessages.map(MessageV2::id))
+        assertEquals(1, recovery.await()?.sourceMessageId)
+        assertEquals("Evidence 1", handoff.assistantMessages.first().first().content)
+    }
+
+    private suspend fun verifyGatewayCoordinatorHandoff(scope: CoroutineScope, disabledTools: Boolean = false, pendingSubmission: Boolean = false, imported: Boolean = false, paged: Boolean = false, scroll: Boolean = false, deepLink: Boolean = false) {
         StartupRecoveryGate.start(scope) {}
         profiles = listOf(profiles.first().copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, apiUrl = "http://127.0.0.1:8090"))
         val profile = profiles.single()
+        if (paged) messages.value = longConversation()
+        if (deepLink) coEvery { repository.centeredWindowEnd(7, 4, 40) } returns 79
         val workspace = GitHubConversationContext("github", "owner", "repository", "feature/original", "a".repeat(40), profile.uid)
         coEvery { coordinator.hasUnconfirmedGatewayAdmission(7, profile.uid) } returns pendingSubmission
         val persisted = CompletableDeferred<PersistAgentTurnResult>()
         coEvery { repository.persistAgentTurn(any()) } answers {
             val request = firstArg<PersistAgentTurnRequest>()
             val draft = request.runs.single()
-            val user = request.userMessage.copy(id = 71)
-            val assistant = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = user.id, currentRunId = draft.runId)
+            val user = request.userMessage.copy(id = if (paged) 91 else 71)
+            val assistant = MessageV2(id = user.id + 1, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = user.id, currentRunId = draft.runId)
             val run = AgentRun(draft.runId, 7, user.id, assistant.id, profile.uid, profile.compatibleType.name, profile.model, AgentRunStatus.QUEUED)
             PersistAgentTurnResult(request.chatRoom, user, listOf(assistant), listOf(run)).also {
                 persisted.complete(it)
-                messages.value = listOf(user, assistant)
+                messages.value = messages.value + listOf(user, assistant)
                 runs.value = listOf(run)
             }
         }
         val model = createViewModel(
             combined = false,
+            windowed = paged,
+            targetMessageId = if (deepLink) 4 else -1,
             testFeatures = features.copy(
                 conversationGitHub = if (imported) emptyMap() else mapOf(7 to workspace),
                 githubProfileOverrides = if (imported) emptyMap() else mapOf(profile.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = "gateway"))
@@ -302,6 +454,15 @@ class ChatViewModelStartupTest {
             assertTrue(persisted.isCompleted)
             dispatched.complete(firstArg<List<AgentRunRequest>>().single())
             Unit
+        }
+        if (paged) {
+            withTimeout(5_000) { model.isLoaded.first { it } }
+            assertEquals(40, model.groupedMessages.value.userMessages.size)
+            assertEquals(if (deepLink) 1 else 11, model.groupedMessages.value.userMessages.first().id)
+            if (scroll) {
+                model.loadOlderMessages()
+                withTimeout(5_000) { model.groupedMessages.first { it.userMessages.size == 45 } }
+            }
         }
         if (disabledTools) model.disableAllChatTools()
         model.question.edit { replace(0, length, "What is the repository status?") }
@@ -318,6 +479,17 @@ class ChatViewModelStartupTest {
         assertEquals(accepted.runs.single().runId, handoff.runId)
         assertEquals(accepted.userMessage.id, handoff.userMessages.last().id)
         assertEquals(accepted.assistantMessages.single().id, handoff.assistantMessage.id)
+        if (paged) {
+            assertEquals((1..91 step 2).toList(), handoff.userMessages.map(MessageV2::id))
+            assertEquals("Evidence 1", handoff.assistantMessages.first().first().content)
+            if (deepLink) {
+                withTimeout(5_000) { model.latestHistoryJump.first { it > 0 } }
+                assertFalse(model.newerHistoryAvailable.value)
+                assertEquals(91, model.groupedMessages.value.userMessages.last().id)
+            } else {
+                coVerify(exactly = 0) { repository.centeredWindowEnd(any(), any(), any()) }
+            }
+        }
         assertEquals(workspace, handoff.chatToolConfig?.github)
         assertEquals(profile.model, handoff.platform.model)
         assertEquals(disabledTools, handoff.chatToolConfig?.allToolsDisabled)
@@ -635,13 +807,13 @@ class ChatViewModelStartupTest {
                 savedAcceptance = accepted
                 dao.regenerateCombinedTurn(arg(0), arg(1), arg<List<AgentRunDraft>>(2), accepted).also { committed = it }
             }
-            coEvery { repository.fetchMessageReferencesV2(7) } coAnswers { dao.getMessages(7) }
             every { coordinator.start(any()) } answers {
                 assertTrue("No provider starts before the Room transaction completes", committed != null)
                 started.complete(firstArg())
                 Unit
             }
             val model = createViewModel(combinedSettings = combinedSettings)
+            coEvery { repository.fetchMessageReferencesV2(7) } coAnswers { dao.getMessages(7) }
             // Messages and run receipts are restored independently. The revision
             // action is available only when its selected answer and run agree.
             withContext(Dispatchers.Default) {
@@ -1157,14 +1329,39 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null, settings: SettingRepository = mockk(relaxed = true), history: kotlinx.coroutines.flow.Flow<List<MessageV2>> = messages): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null, settings: SettingRepository = mockk(relaxed = true), history: kotlinx.coroutines.flow.Flow<List<MessageV2>> = messages, windowed: Boolean = false, targetMessageId: Int = -1): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
-        every { repository.observeMessageWindow(chatId, any()) } returns history
-        every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
+        every { repository.observeMessageWindow(chatId, any()) } answers {
+            val turns = secondArg<Int>()
+            if (windowed) {
+                history.map { rows ->
+                    val first = rows.filter { it.platformType == null }.takeLast(turns).firstOrNull()?.id ?: 0
+                    rows.filter { it.id >= first }
+                }
+            } else {
+                history
+            }
+        }
+        every { repository.observeMessageWindowThrough(chatId, any(), any()) } answers {
+            val end = secondArg<Int>()
+            val turns = thirdArg<Int>()
+            history.map { rows ->
+                val users = rows.filter { it.platformType == null && it.id <= end }.takeLast(turns).mapTo(mutableSetOf(), MessageV2::id)
+                rows.filter { it.id in users || it.linkedMessageId in users }
+            }
+        }
+        every { repository.observeTurnCountThrough(chatId, any()) } answers {
+            val end = secondArg<Int>()
+            messages.map { rows -> rows.count { it.platformType == null && it.id <= end } }
+        }
+        every { repository.observeTurnCount(chatId) } returns messages.map { rows -> rows.count { it.platformType == null } }
         every { repository.observeAgentRuns(chatId) } returns runs
         every { repository.observeProviderWaitDeadlines(chatId) } returns waitDeadlines
         every { repository.observeToolEvents(chatId) } returns flowOf(emptyList())
+        coEvery { repository.saveTranscriptReply(any(), any(), any()) } returns true
+        coEvery { repository.resolveCombinedMessage(any()) } answers { firstArg() }
         coEvery { repository.fetchChatRoom(chatId) } returns room.takeIf { roomAvailable }
+        coEvery { repository.fetchMessageReferencesV2(chatId) } answers { messages.value }
         coEvery { repository.fetchMessagesV2(chatId) } answers { messages.value }
         coEvery { repository.fetchChatPlatformModels(chatId) } returns profiles.associate { it.uid to it.model }
         every { exitWork.enqueue(any(), any()) } answers {
@@ -1184,7 +1381,7 @@ class ChatViewModelStartupTest {
         val completions = mockk<GenerationCompletionStore>(relaxed = true)
         every { completions.items } returns MutableStateFlow(emptyList())
         return ChatViewModel(
-            savedStateHandle = SavedStateHandle(mapOf("chatRoomId" to chatId, "enabledPlatforms" to profiles.joinToString(",") { it.uid }, "conversationMode" to room.conversationMode)),
+            savedStateHandle = SavedStateHandle(mapOf("chatRoomId" to chatId, "enabledPlatforms" to profiles.joinToString(",") { it.uid }, "conversationMode" to room.conversationMode, "targetMessageId" to targetMessageId)),
             context = ApplicationProvider.getApplicationContext(),
             chatRepository = repository,
             settingRepository = settings,

@@ -43,6 +43,16 @@ import org.junit.Test
 
 class MaskedProviderCallTest {
     @Test
+    fun verifiedRetentionBlocksUnverifiedSessionBeforeOpeningAProvider() = runBlocking {
+        val fixture = Fixture()
+        fixture.state = fixture.state.copy(requireVerifiedRetention = true)
+        val error = runCatching { fixture.prepare(sampleTurns()) }.exceptionOrNull()
+        assertTrue(error is UnverifiedServiceTransport)
+        assertEquals(0, fixture.opens)
+        assertEquals(0, fixture.dispatches)
+    }
+
+    @Test
     fun shortNameSurvivesActualMaskingFinalSystemTransformAndLocalRestoration() = runBlocking {
         val fixture = Fixture()
         fixture.response = { "Hello " + fixture.outgoingTurns.single().userMessage.content.removePrefix("My name is ") }

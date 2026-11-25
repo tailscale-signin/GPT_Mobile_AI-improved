@@ -237,13 +237,18 @@ internal object GitHubEvidencePolicy {
                     }
                 }
                 "excerpt" -> {
-                    val result = JsonObject(verifySelected(claim) + ("kind" to JsonPrimitive("excerpt"))).also { checked += it }
-                    val entry = receipts[claim.string("receipt_id")]?.let { GitHubEvidenceExcerpts.collect(it)[claim.string("pointer")] }
+                    val result = JsonObject(verifySelected(claim) + ("kind" to JsonPrimitive("excerpt")))
+                    val sourceReceipt = receipts[claim.string("receipt_id")]
+                    val pointer = claim.string("pointer")
+                    val entry = sourceReceipt?.let { GitHubEvidenceExcerpts.collect(it)[pointer] }
+                    val binding = if (sourceReceipt != null && entry != null) GitHubEvidenceExcerpts.sourceClaimBinding(sourceReceipt, pointer, result, entry) else null
+                    checked += if (binding == null) result else JsonObject(result + ("source_binding" to binding))
                     if (result.string("status") == "VERIFIED" && entry != null) {
                         val source = safe(entry.string("resource"))
                         val text = entry.string("value")
                         val fence = "`".repeat(maxOf(3, (Regex("`+").findAll(text).maxOfOrNull { it.value.length } ?: 0) + 1))
-                        excerpts += "**$source** · ${safe(entry.string("revision"))} · lines ${entry.string("start_line")}–${entry.string("end_line")}\n\n${fence}text\n$text\n$fence"
+                        val sourceRef = binding?.string("call_id_sha256")?.take(16)?.let { " · source receipt `$it`" }.orEmpty()
+                        excerpts += "**$source** · ${safe(entry.string("revision"))} · lines ${entry.string("start_line")}–${binding?.string("end_line") ?: entry.string("end_line")}$sourceRef\n\n${fence}text\n$text\n$fence"
                         ""
                     } else {
                         "- **Source unavailable:** refresh the requested revision before quoting it."

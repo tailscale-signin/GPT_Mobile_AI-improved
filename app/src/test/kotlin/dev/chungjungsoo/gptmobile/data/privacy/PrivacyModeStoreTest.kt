@@ -46,6 +46,24 @@ class PrivacyModeStoreTest {
     }
 
     @Test
+    fun verifiedRetentionSurvivesRestartAndInvalidatesPreparedPrivateDispatch() {
+        val fixture = Fixture()
+        val initial = fixture.store.effectiveSnapshot(true)
+        assertFalse(initial.requireVerifiedRetention)
+        fixture.store.requestVerifiedRetention(true)
+        val strict = fixture.store.effectiveSnapshot(true)
+        assertTrue(strict.requireVerifiedRetention)
+        assertTrue(strict.revision > initial.revision)
+        fixture.awaitUpdates()
+        assertEquals(strict, fixture.recreate().effectiveSnapshot(true))
+        fixture.store.requestVerifiedRetention(false)
+        fixture.awaitUpdates()
+        val restored = fixture.recreate().effectiveSnapshot(true)
+        assertFalse(restored.requireVerifiedRetention)
+        assertTrue(restored.revision > strict.revision)
+    }
+
+    @Test
     fun restoringTheSamePrivacyChoicesDoesNotRestoreAnEarlierAuthorization() {
         val fixture = Fixture()
         val original = fixture.store.snapshot()

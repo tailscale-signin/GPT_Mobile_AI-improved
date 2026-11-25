@@ -13,6 +13,26 @@ class RequestDispatchContextTest {
     private val runtime = RuntimeFingerprint("connection", "route", "credential", "model", "model", "epoch", "template", "allocation")
     private val receipt = RequestAdmission.prepare("payload", "primary", CapacitySnapshot(runtime, 10000), RequestMeasurement(1, 1, TokenMeasurementKind.UTF8_ESTIMATE), 1, "permissions").receipt
 
+    @Test fun sourceInclusionRequiresTheAllowedFinalSerializerAndTheSamePhysicalHttpAttempt() {
+        val sha = "a".repeat(40)
+        val page = Json.parseToJsonElement("""{"schema":"github.operation.v1","operation":"github_read","source_page":true,"commit_sha":"$sha","items":[{"path":"private/file","sha":"$sha","start_line":1,"content":"sample"}]}""").jsonObject
+        val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("call", "github_read", kotlinx.serialization.json.JsonObject(emptyMap()))
+        val result = dev.chungjungsoo.gptmobile.data.agent.AgentToolResult("call", dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json(page), false)
+        val exchange = dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange(listOf(call), listOf(result))
+        val context = RequestDispatchContext(emptySet(), sourceTrace = dev.chungjungsoo.gptmobile.data.network.GitHubSourceDispatchTrace.capture(listOf(exchange)))
+        val payload = """{"messages":[{"role":"tool","tool_call_id":"call","content":${JsonPrimitive(page.toString())}}]}"""
+        context.serialized(payload, receipt.copy(physicalAttemptId = "private"), inspectGitHubSource = false)
+        assertEquals(null, context.sourceDeliveryEvidence())
+        context.serialized(payload, receipt.copy(physicalAttemptId = "generation"), inspectGitHubSource = true)
+        context.armHttp()
+        fun attempt() = (requireNotNull(context.sourceDeliveryEvidence())["attempts"] as kotlinx.serialization.json.JsonArray).single().jsonObject
+        assertEquals(JsonPrimitive("generation"), attempt()["physical_attempt_id"])
+        assertEquals(JsonPrimitive("TRANSMISSION_UNVERIFIED"), attempt()["transport"])
+        requireNotNull(context.takeHttpTrace()).mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END)
+        assertEquals(JsonPrimitive("REQUEST_BODY_SENT"), attempt()["transport"])
+        assertFalse(attempt().toString().contains("private"))
+    }
+
     @Test fun queuePollOwnsItsTransportEvidenceWithoutChangingSubmittedInferenceReceipts() {
         val research = dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace("root", "stage", "attempt")
         for (observer in listOf(null, research)) {

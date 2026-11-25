@@ -236,10 +236,12 @@ internal fun RequestDiagnostic(request: ModelInvocation, now: Long, settings: Ap
         if (settings.debugShowTotalTokens) MetricLine(if (request.estimated) "Input / output estimate" else "Reported input / output", "${request.inputTokens} / ${request.outputTokens}")
         if (settings.debugShowTotalTokens) MetricLine("Usage source", "Input: ${request.inputTokenSource}; output: ${request.outputTokenSource}")
         if (settings.debugShowRuntime) {
-            val settingsReceipt = remember(request.usageEvidenceJson) {
+            val usageEvidence = remember(request.usageEvidenceJson) {
                 runCatching { kotlinx.serialization.json.Json.parseToJsonElement(request.usageEvidenceJson.orEmpty()) as? kotlinx.serialization.json.JsonObject }
-                    .getOrNull()?.get("request_settings") as? kotlinx.serialization.json.JsonObject
+                    .getOrNull()
             }
+            val settingsReceipt = usageEvidence?.get("request_settings") as? kotlinx.serialization.json.JsonObject
+            GitHubSourceDeliveryDetails(usageEvidence?.get("github_source_delivery") as? kotlinx.serialization.json.JsonObject)
             fun setting(key: String) = (settingsReceipt?.get(key) as? kotlinx.serialization.json.JsonPrimitive)?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.content
             val requested = setting("requested_mode") ?: setting("requested_allow_reasoning") ?: "Unknown"
             MetricLine("Reasoning requested", requested)

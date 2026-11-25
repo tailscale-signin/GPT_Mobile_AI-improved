@@ -197,8 +197,8 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 150
-        versionName = "0.9.66.16"
+        versionCode = 151
+        versionName = "0.9.66.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -567,6 +567,20 @@ tasks.register<JacocoReport>("jacocoTestReport") {
             )
         }
     )
+}
+
+// Use the same compiler outputs as the build, including Android's built-in Kotlin compiler.
+tasks.register<Exec>("writeJvmCallIndex") {
+    val kotlinTasks = listOf("compileDebugKotlin", "compileDebugUnitTestKotlin").map { tasks.named<KotlinCompile>(it) }
+    val javaTasks = listOf("compileDebugJavaWithJavac", "compileDebugUnitTestJavaWithJavac").map { tasks.named<JavaCompile>(it) }
+    dependsOn(kotlinTasks, javaTasks)
+    val outputFile = layout.buildDirectory.file("reports/jvm-call-index.json")
+    workingDir(rootProject.projectDir)
+    doFirst {
+        val asm = requireNotNull(gradle.gradleHomeDir).resolve("lib").listFiles().orEmpty().single { it.name.matches(Regex("""asm-[0-9][0-9.]*\.jar""")) }
+        val dirs = kotlinTasks.map { it.get().destinationDirectory.get().asFile } + javaTasks.map { it.get().destinationDirectory.get().asFile }
+        commandLine(listOf("python3", "scripts/build_jvm_call_index.py", "--asm", asm.absolutePath, "--head", System.getenv("JVM_CALL_INDEX_HEAD").orEmpty(), "--output", outputFile.get().asFile.absolutePath, "--classes") + dirs.map { it.absolutePath })
+    }
 }
 
 dependencies {

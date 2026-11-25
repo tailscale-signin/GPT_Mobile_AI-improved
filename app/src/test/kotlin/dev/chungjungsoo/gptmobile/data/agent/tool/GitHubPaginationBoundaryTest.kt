@@ -31,6 +31,9 @@ class GitHubPaginationBoundaryTest {
             assertEquals(JsonPrimitive(false), end.data["complete"])
             val empty = json("""{"total_count":0,"incomplete_results":true,"has_more":false}""")
             assertEquals("GITHUB_PAGINATION_INCOMPLETE", GitHubPaginationBoundary().assessPage(tool, args(1), empty).errorCode)
+            for (unknown in listOf("""{"total_count":0,"has_more":false,"items":[]}""", """{"total_count":0,"has_more":false,"items":[],"incomplete_results":null}""")) {
+                assertEquals("GITHUB_PAGINATION_INCOMPLETE", GitHubPaginationBoundary().assessPage(tool, args(1), json(unknown)).errorCode)
+            }
             val full = json("""{"items":[{"id":1}],"incomplete_results":false,"total_count":1,"has_more":false}""")
             assertEquals(JsonPrimitive(true), GitHubPaginationBoundary().assessPage(tool, args(1), full).data["complete"])
         }

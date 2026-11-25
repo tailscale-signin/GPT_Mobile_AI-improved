@@ -315,7 +315,14 @@ internal fun NewChatProfileScreen(
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.testTag("privacy_profile_counts")
                         )
-                        Text("Every enabled profile is selectable. For unverified providers, text is masked locally and the provider’s retention policy applies.", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (privacy.requireVerifiedRetention) {
+                                "Every enabled profile is selectable. Sending requires on-device inference or a verified destination."
+                            } else {
+                                "Every enabled profile is selectable. For unverified providers, text is masked locally and the provider’s retention policy applies."
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { privacyRefresh++ }, enabled = !privacyChecking, modifier = Modifier.testTag("privacy_profiles_recheck")) {
                                 Text(if (privacyChecking) "Checking profiles…" else "Recheck profiles")

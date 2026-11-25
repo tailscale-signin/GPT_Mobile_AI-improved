@@ -135,12 +135,45 @@ class ChatViewModel @Inject constructor(
     private val modelPreparationRepository: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
-    private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
-    private var windowStartId = 0
-    val olderHistoryAvailable = MutableStateFlow(false)
-    fun loadOlderMessages() {
-        visibleHistoryTurns.update { (it.toLong() + 40).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() }
+    private data class TranscriptWindow(val turns: Int = PAGE_TURNS, val end: Int? = null, val latestJump: Int = 0) {
+        fun expanded() = (turns.toLong() + PAGE_TURNS).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
+
+    private val transcriptWindow = MutableStateFlow(TranscriptWindow())
+    val olderHistoryAvailable = MutableStateFlow(false)
+    val newerHistoryAvailable = MutableStateFlow(false)
+    val latestHistoryJump = MutableStateFlow(0)
+
+    fun loadOlderMessages() {
+        transcriptWindow.update { it.copy(turns = it.expanded()) }
+    }
+
+    fun loadNewerMessages() {
+        val page = transcriptWindow.value
+        val end = page.end ?: return
+        viewModelScope.launch {
+            try {
+                val next = chatRepository.newerWindowEnd(_chatRoom.value.id, end, PAGE_TURNS)
+                transcriptWindow.compareAndSet(page, page.copy(turns = page.expanded(), end = next))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Newer messages could not be loaded. Try again."
+            }
+        }
+    }
+
+    fun returnToLatest() {
+        transcriptWindow.update { TranscriptWindow(latestJump = it.latestJump + 1) }
+    }
+
+    private fun followAcceptedTurn() {
+        if (transcriptWindow.value.end != null) returnToLatest()
+    }
+
+    private fun visibleRows(chatId: Int, page: TranscriptWindow) = page.end?.let { chatRepository.observeMessageWindowThrough(chatId, it, page.turns) }
+        ?: chatRepository.observeMessageWindow(chatId, page.turns)
+
     suspend fun resolveCombinedMessage(message: MessageV2): MessageV2 = chatRepository.resolveCombinedMessage(message)
 
     suspend fun combinedDocumentBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> =
@@ -148,11 +181,6 @@ class ChatViewModel @Inject constructor(
 
     suspend fun combinedSourceBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, source: dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> =
         chatRepository.combinedSourceBlocks(reference, source, first, count)
-
-    private suspend fun completeWindowMessages(grouped: GroupedMessages): List<MessageV2> {
-        val older = if (windowStartId > 0) chatRepository.fetchMessagesV2(_chatRoom.value.id).filter { it.id < windowStartId } else emptyList()
-        return (older + persistableMessages(grouped)).map { chatRepository.resolveCombinedMessage(it) }
-    }
 
     val pendingDelegationRecovery get() = delegationRecoveryInteractions.pending
     fun respondDelegationRecovery(id: String, profileUid: String?) {
@@ -285,7 +313,8 @@ class ChatViewModel @Inject constructor(
         val role: MessageEditRole,
         val turnIndex: Int? = null,
         val platformIndex: Int? = null,
-        val attachments: List<ChatAttachmentDraft> = emptyList()
+        val attachments: List<ChatAttachmentDraft> = emptyList(),
+        val userId: Int? = null
     )
 
     private val chatRoomId: Int = checkNotNull(savedStateHandle["chatRoomId"])
@@ -372,7 +401,7 @@ class ChatViewModel @Inject constructor(
 
     private val _chatToolConfig = MutableStateFlow(ChatMcpToolConfig())
     val chatToolConfig = _chatToolConfig.asStateFlow()
-    enum class SendPreparation { ROOM_LOAD, MODEL_CHECK, GATEWAY_CHECK, QUEUE_SAVE, TURN_SAVE }
+    enum class SendPreparation { ROOM_LOAD, HISTORY_LOAD, MODEL_CHECK, GATEWAY_CHECK, QUEUE_SAVE, TURN_SAVE }
 
     private val _sendPreparation = MutableStateFlow<Set<SendPreparation>>(emptySet())
     val sendPreparation = _sendPreparation.asStateFlow()
@@ -943,7 +972,7 @@ class ChatViewModel @Inject constructor(
         return true
     }
 
-    private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>, attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(), gatewayAdmissionChecked: Boolean = false, reasoningAdmissionChecked: Boolean = false) {
+    private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>, attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(), gatewayAdmissionChecked: Boolean = false, reasoningAdmissionChecked: Boolean = false, combinedPrior: GroupedMessages? = null) {
         if (attachments.isEmpty() && _voiceAdmission.value?.requestId != attempt.requestId && handleActiveTaskControl(questionText)) {
             attempt.finish("TASK_CONTROL_HANDLED")
             return
@@ -959,8 +988,33 @@ class ChatViewModel @Inject constructor(
             attempt.finish("VALIDATION_REJECTED")
             return
         }
+        val room = _chatRoom.value
+        if (room.conversationMode == ConversationMode.COMBINED && room.id > 0 && combinedPrior == null) {
+            if (SendPreparation.HISTORY_LOAD in _sendPreparation.value) return
+            val composerAtCheck = question.text.toString()
+            val attachmentsAtCheck = _selectedAttachments.value
+            updateSendPreparation(SendPreparation.HISTORY_LOAD, true)
+            viewModelScope.launch {
+                try {
+                    val history = acceptedHistory(room.id)
+                    if (leavingConversation || room.id != _chatRoom.value.id || composerAtCheck != question.text.toString() || attachmentsAtCheck != _selectedAttachments.value) {
+                        attempt.finish("DRAFT_CHANGED_DURING_HISTORY_LOAD")
+                        return@launch
+                    }
+                    submitOrQueueQuestion(questionText, attachments, attempt, gatewayAdmissionChecked, reasoningAdmissionChecked, history)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _attachmentNotice.value = error.message ?: "Could not load the accepted conversation history. Your draft is kept."
+                    attempt.finish("HISTORY_UNAVAILABLE")
+                } finally {
+                    updateSendPreparation(SendPreparation.HISTORY_LOAD, false)
+                }
+            }
+            return
+        }
         val acceptedTools = try {
-            captureCombinedTools(questionText).copy(voiceResponsePolicy = attempt.voiceResponsePolicy)
+            captureCombinedTools(questionText, combinedPrior?.userMessages.orEmpty()).copy(voiceResponsePolicy = attempt.voiceResponsePolicy)
         } catch (error: IllegalArgumentException) {
             _attachmentNotice.value = error.message ?: "Could not accept the Combined setup. Your draft is kept."
             attempt.finish("VALIDATION_REJECTED")
@@ -1063,7 +1117,7 @@ class ChatViewModel @Inject constructor(
                         } else {
                             _reasoningAdmissionNotice.value = null
                             _attachmentNotice.value = null
-                            submitOrQueueQuestion(questionText, attachments, attempt, gatewayAdmissionChecked, reasoningAdmissionChecked = true)
+                            submitOrQueueQuestion(questionText, attachments, attempt, gatewayAdmissionChecked, reasoningAdmissionChecked = true, combinedPrior = combinedPrior)
                         }
                     } catch (cancelled: CancellationException) {
                         attempt.finish("REASONING_CAPABILITY_CHECK_CANCELLED")
@@ -1125,7 +1179,7 @@ class ChatViewModel @Inject constructor(
                         _chatPlatformModels.value == modelsAtCheck &&
                         _chatToolConfig.value == toolsAtCheck
                     ) {
-                        submitOrQueueQuestion(questionText, attachments, attempt, gatewayAdmissionChecked = true, reasoningAdmissionChecked = reasoningAdmissionChecked)
+                        submitOrQueueQuestion(questionText, attachments, attempt, gatewayAdmissionChecked = true, reasoningAdmissionChecked = reasoningAdmissionChecked, combinedPrior = combinedPrior)
                     } else {
                         _attachmentNotice.value = "The draft or connection changed during the check. Your current draft is kept; press Send when ready."
                         attempt.finish("COMPOSER_CHANGED_DURING_GATEWAY_CHECK")
@@ -1170,6 +1224,7 @@ class ChatViewModel @Inject constructor(
                                 gateway = gatewaySelection
                             )
                         )
+                        followAcceptedTurn()
                         attempt.finish("DURABLY_QUEUED")
                         if (nextMessageProfileUid.value == oneMessageUid) savedStateHandle["nextMessageProfileUid"] = null
                         if (question.text.toString() == questionText) question.clearText()
@@ -1192,20 +1247,21 @@ class ChatViewModel @Inject constructor(
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
             _selectedAttachments.value = emptyList()
+            followAcceptedTurn()
             attempt.finish("SESSION_QUEUED")
             return
         }
         savedStateHandle["nextMessageProfileUid"] = null
-        sendQuestion(questionText, attachments, profileUid = oneMessageUid, acceptedTools = acceptedTools, attempt = attempt)
+        sendQuestion(questionText, attachments, profileUid = oneMessageUid, acceptedTools = acceptedTools, attempt = attempt, combinedPrior = combinedPrior)
     }
 
-    private fun captureCombinedTools(text: String): ChatMcpToolConfig {
+    private fun captureCombinedTools(text: String, priorUsers: List<MessageV2>): ChatMcpToolConfig {
         val tools = _chatToolConfig.value.let { current ->
             if (dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(text)) current.copy(research = current.research?.copy(researchToggle = false)) else current
         }
         val room = _chatRoom.value
         if (room.conversationMode != ConversationMode.COMBINED) return tools.copy(combined = null)
-        val recovery = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages + MessageV2(chatId = room.id, content = text, platformType = null))
+        val recovery = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(priorUsers + MessageV2(chatId = room.id, content = text, platformType = null))
         val available = _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }
         val selected = if (recovery?.primaryOnly == true) {
             val primary = room.combinedPrimaryUid ?: room.activePlatform.firstOrNull()
@@ -1995,6 +2051,7 @@ class ChatViewModel @Inject constructor(
             .getOrNull(turnIndex)
             ?.getOrNull(platformIndex)
             ?: return
+        val userId = _groupedMessages.value.userMessages.getOrNull(turnIndex)?.id ?: return
         viewModelScope.launch {
             val assistantMessage = chatRepository.resolveCombinedMessage(selected)
             _messageEditSession.update {
@@ -2003,7 +2060,8 @@ class ChatViewModel @Inject constructor(
                     role = MessageEditRole.ASSISTANT,
                     turnIndex = turnIndex,
                     platformIndex = platformIndex,
-                    attachments = assistantMessage.attachments.map(ChatAttachmentDraft::fromAttachment)
+                    attachments = assistantMessage.attachments.map(ChatAttachmentDraft::fromAttachment),
+                    userId = userId
                 )
             }
         }
@@ -2052,8 +2110,8 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun resumeResearchForUserTurn(userMessageId: Int, action: String) {
-        val index = _groupedMessages.value.userMessages.indexOfFirst { it.id == userMessageId }
-        val source = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(index + 1))?.sourceMessageId ?: userMessageId
+        val accepted = acceptedHistory(_chatRoom.value.id, userMessageId)
+        val source = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(accepted.userMessages)?.sourceMessageId ?: userMessageId
         val root = "${_chatRoom.value.id}:$source"
         val execution = researchSessionStore?.execution(root, !_chatRoom.value.isTemporary) ?: return
         if (execution.accepted.targetSources > 0 && (execution.attempt.state.terminal || execution.attempt.state == dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.BLOCKED_CONFIGURATION)) {
@@ -2158,14 +2216,14 @@ class ChatViewModel @Inject constructor(
         if (branching || _loadingStates.value.any { it == LoadingState.Loading }) return
         val uid = enabledPlatformsInChat.getOrNull(platformIndex) ?: return
         val profile = _platformsInApp.value.firstOrNull { it.uid == uid && it.enabled } ?: return
-        if (turnIndex !in _groupedMessages.value.userMessages.indices) return
-        val users = _groupedMessages.value.userMessages.take(turnIndex + 1)
-        val original = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(users)?.originalRequest ?: users.lastOrNull()?.content ?: return
-        if (original.isBlank()) return
+        val selected = _groupedMessages.value.userMessages.getOrNull(turnIndex)?.takeIf { it.id > 0 } ?: return
         branching = true
         viewModelScope.launch {
             try {
-                val saved = chatRepository.createEvidenceFreeRetry(_chatRoom.value.id, original, resolvePlatformModel(profile))
+                val users = acceptedHistory(selected.chatId, selected.id).userMessages
+                val original = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(users)?.originalRequest ?: selected.content
+                if (original.isBlank()) return@launch
+                val saved = chatRepository.createEvidenceFreeRetry(selected.chatId, original, resolvePlatformModel(profile))
                 _branchNavigation.value = saved.id
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
@@ -2570,7 +2628,7 @@ class ChatViewModel @Inject constructor(
             val selectedRun = requireNotNull(_agentRunsById.value[target.runId]) { "The selected answer run is unavailable." }
             require(user.id == target.userMessageId && user.chatId == target.chatId && _chatRoom.value.conversationMode == ConversationMode.COMBINED) { "The selected answer belongs to a different turn." }
             target.validate(owner, selectedRun)
-            regenerateCombinedTurn(turnIndex, owner, user, selectedRun, target)
+            regenerateCombinedTurn(owner, user, selectedRun, target)
         } catch (failure: IllegalArgumentException) {
             _attachmentNotice.value = failure.message ?: "The selected answer changed. Review it before creating a revision."
         }
@@ -2580,7 +2638,7 @@ class ChatViewModel @Inject constructor(
         val user = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val owner = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().firstOrNull { it.currentRunId != null } ?: return
         val previous = owner.currentRunId?.let { _agentRunsById.value[it] } ?: return
-        regenerateCombinedTurn(turnIndex, owner, user, previous)
+        regenerateCombinedTurn(owner, user, previous)
     }
 
     fun dismissQueuedJobInspection() {
@@ -2628,7 +2686,10 @@ class ChatViewModel @Inject constructor(
                 if (published == null) {
                     _attachmentNotice.value = "The saved reply changed or is no longer available. Refresh the response before selecting it."
                 } else {
-                    _groupedMessages.value = fetchGroupedMessages(owner.chatId)
+                    val page = transcriptWindow.value
+                    val rows = visibleRows(owner.chatId, page).first()
+                    val refreshed = withContext(messageGroupingDispatcher) { groupPersistedMessages(rows, enabledPlatformsInChat, owner.chatId) }
+                    if (page == transcriptWindow.value && owner.chatId == _chatRoom.value.id) _groupedMessages.value = refreshed
                 }
             }
         }
@@ -2686,7 +2747,7 @@ class ChatViewModel @Inject constructor(
         } == true
         val needsFreshCombinedTurn = previousRun?.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.CANCELED, "CANCELLED") || currentAssistantMessage.timeline.any { it.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" }
         if (_chatRoom.value.conversationMode == ConversationMode.COMBINED && previousRun != null && !singlePassAttempt && needsFreshCombinedTurn && requestedRecovery != dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING) {
-            regenerateCombinedTurn(turnIndex, currentAssistantMessage, userMessage, previousRun)
+            regenerateCombinedTurn(currentAssistantMessage, userMessage, previousRun)
             return
         }
         val writerUid = previousRun?.profileUid?.takeIf { previousRun.synthesisKey != null } ?: ownerProfileUid
@@ -2701,28 +2762,11 @@ class ChatViewModel @Inject constructor(
         }
         if (_chatRoom.value.conversationMode != ConversationMode.COMBINED && rejectUnavailableFreeProfile(platformWithChatModel)) return
         var reconciledAnswer: String? = null
-        val retryTools = (accepted?.tools?.copy(combined = accepted.context.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR, platform.uid)) ?: _chatToolConfig.value).let { tools ->
-            tools.copy(voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(_groupedMessages.value.userMessages.take(turnIndex + 1), tools.voiceResponsePolicy))
-        }
         if (currentAssistantMessage.currentRunId?.startsWith(COMBINED_RUN_PREFIX) == true) {
             retryFrozenCombined(turnIndex, platformIndex, currentAssistantMessage, platformWithChatModel)
             return
         }
         val runId = UUID.randomUUID().toString()
-        val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
-        val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
-        val recoveryAction = requestedRecovery ?: if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
-        val recovery = if (recordedFailure?.isUnsentSetup == true && accepted == null && requestedRecovery == null) {
-            null
-        } else {
-            dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor(
-                "${userMessage.chatId}:$sourceMessageId",
-                sourceMessageId,
-                runId,
-                recoveryAction,
-                allowUndispatchedBudgetRetry = recoveryAction == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
-            )
-        }
         _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Loading else state } }
 
         viewModelScope.launch {
@@ -2731,6 +2775,32 @@ class ChatViewModel @Inject constructor(
                     _attachmentNotice.value = "Saved work is waiting for the provider or already resuming. Its existing continuation and completed tool results are retained."
                     _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Idle else state } }
                     return@withChatGate
+                }
+                val contextMessages = try {
+                    acceptedHistory(userMessage.chatId, userMessage.id)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    _attachmentNotice.value = failure.message ?: "The saved turn could not be restored."
+                    _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Idle else state } }
+                    return@withChatGate
+                }
+                val retryTools = (accepted?.tools?.copy(combined = accepted.context.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR, platform.uid)) ?: _chatToolConfig.value).let { tools ->
+                    tools.copy(voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(contextMessages.userMessages, tools.voiceResponsePolicy))
+                }
+                val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(contextMessages.userMessages)
+                val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
+                val recoveryAction = requestedRecovery ?: if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+                val recovery = if (recordedFailure?.isUnsentSetup == true && accepted == null && requestedRecovery == null) {
+                    null
+                } else {
+                    dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor(
+                        "${userMessage.chatId}:$sourceMessageId",
+                        sourceMessageId,
+                        runId,
+                        recoveryAction,
+                        allowUndispatchedBudgetRetry = recoveryAction == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+                    )
                 }
                 combinedSynthesisAttempts.reset(userMessage.id)
                 persistBeforeProvider(
@@ -2773,11 +2843,10 @@ class ChatViewModel @Inject constructor(
                         _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
                         pendingCombinedRetries.remove("${userMessage.id}:$ownerProfileUid:${previousRun?.runId}")
                         _groupedMessages.update { groupedMessages ->
-                            updateAssistantSlot(groupedMessages, turnIndex, platformIndex) { current ->
-                                if (current.id == currentAssistantMessage.id && current.platformType == ownerProfileUid) persisted.assistantMessage else current
-                            }
+                            val index = groupedMessages.userMessages.indexOfFirst { it.id == userMessage.id }
+                            val slot = groupedMessages.assistantMessages.getOrNull(index).orEmpty().indexOfFirst { it.id == currentAssistantMessage.id && it.platformType == ownerProfileUid }
+                            if (slot < 0) groupedMessages else updateAssistantSlot(groupedMessages, index, slot) { persisted.assistantMessage }
                         }
-                        val contextMessages = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
                         agentRunCoordinator.start(
                             listOf(
                                 AgentRunRequest(
@@ -2805,32 +2874,27 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Explicit regeneration accepts a new turn policy and all participants before any provider dispatch. */
-    private fun regenerateCombinedTurn(turnIndex: Int, owner: MessageV2, user: MessageV2, previousRun: AgentRun, revisionOf: dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget? = null) {
+    private fun regenerateCombinedTurn(owner: MessageV2, user: MessageV2, previousRun: AgentRun, revisionOf: dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget? = null) {
         if (isGenerationBusy() || _combinedSettingsSaveState.value.isCommitting) {
             _attachmentNotice.value = "Wait for current work and settings changes to finish before regenerating."
             return
         }
-        val captured = try {
-            captureCombinedTools(user.content).copy(
-                voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(_groupedMessages.value.userMessages.take(turnIndex + 1))
-            )
-        } catch (failure: IllegalArgumentException) {
-            _attachmentNotice.value = failure.message ?: "The current Combined setup could not be accepted."
-            return
-        }
-        val requested = captured.combined ?: return
-        val profiles = requested.requested.participantUids.map { uid ->
-            val profile = _platformsInApp.value.firstOrNull { it.uid == uid && it.enabled } ?: return
-            resolvePlatformModel(profile).copy(model = requested.requested.requestedModels.getValue(uid), temperature = requested.requested.temperatureFor(uid, profile.temperature))
-        }
-        val originalContext = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
-        val context = originalContext.copy(assistantMessages = originalContext.assistantMessages.dropLast(1) + listOf(emptyList()))
         val parentRoot = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(previousRun.synthesisSnapshot)?.rootBudgetId
         combinedSynthesisMessages += user.id
         pendingRunDispatches += 1
-        _loadingStates.value = enabledPlatformsInChat.map { if (it in requested.requested.participantUids) LoadingState.Loading else LoadingState.Idle }
         viewModelScope.launch {
             try {
+                val original = acceptedHistory(user.chatId, user.id)
+                val captured = captureCombinedTools(user.content, original.userMessages.dropLast(1)).copy(
+                    voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(original.userMessages)
+                )
+                val requested = checkNotNull(captured.combined) { "The conversation is no longer in Combined mode." }
+                val profiles = requested.requested.participantUids.map { uid ->
+                    val profile = requireNotNull(_platformsInApp.value.firstOrNull { it.uid == uid && it.enabled }) { "An accepted Combined profile is unavailable." }
+                    resolvePlatformModel(profile).copy(model = requested.requested.requestedModels.getValue(uid), temperature = requested.requested.temperatureFor(uid, profile.temperature))
+                }
+                val context = original.copy(assistantMessages = original.assistantMessages.dropLast(1) + listOf(emptyList()))
+                _loadingStates.value = enabledPlatformsInChat.map { if (it in requested.requested.participantUids) LoadingState.Loading else LoadingState.Idle }
                 val planned = chatRepository.prepareCombinedTurn(requested, context.userMessages, context.assistantMessages, profiles, captured)
                 val dispatchTools = captured.copy(combined = planned)
                 val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = planned, tools = dispatchTools, parentRootBudgetId = parentRoot, revisionOf = revisionOf)
@@ -3189,49 +3253,50 @@ class ChatViewModel @Inject constructor(
             ?.getOrNull(platformIndex)
             ?: return false
 
+        if (_groupedMessages.value.userMessages.getOrNull(turnIndex)?.id != session.userId ||
+            currentMessage.id != session.message.id ||
+            currentMessage.platformType != session.message.platformType ||
+            currentMessage.currentRunId != session.message.currentRunId ||
+            currentMessage.ownershipFence != session.message.ownershipFence
+        ) {
+            _attachmentNotice.value = "This reply changed. Open the reply again to edit it."
+            return false
+        }
+
         val updatedContent = editedMessage.content
         val updatedThoughts = thoughts
         val updatedAttachments = attachments.mapNotNull { it.attachment }
 
-        val textChanged = currentMessage.content != updatedContent || currentMessage.thoughts != updatedThoughts
+        val textChanged = session.message.content != updatedContent || session.message.thoughts != updatedThoughts
         val updatedTimeline = if (textChanged) {
             rebuildAssistantTimelineForEdit(
-                currentTimeline = currentMessage.timeline,
+                currentTimeline = session.message.timeline,
                 updatedContent = updatedContent,
                 updatedThoughts = updatedThoughts,
-                hasToolTrace = currentMessage.currentRunId
+                hasToolTrace = session.message.currentRunId
                     ?.let(_toolEventsByRun.value::get)
                     .orEmpty()
                     .isNotEmpty()
             )
         } else {
-            currentMessage.timeline
+            session.message.timeline
         }
         val updatedRevisions = if (textChanged) {
-            currentMessage.snapshotLatestAssistantRevision(currentTimeStamp)
-                ?.let { listOf(it) + currentMessage.revisions }
-                ?: currentMessage.revisions
+            session.message.snapshotLatestAssistantRevision(currentTimeStamp)
+                ?.let { listOf(it) + session.message.revisions }
+                ?: session.message.revisions
         } else {
-            currentMessage.revisions
+            session.message.revisions
         }
 
-        _groupedMessages.update {
-            updateAssistantSlot(
-                groupedMessages = it,
-                turnIndex = turnIndex,
-                platformIndex = platformIndex
-            ) { assistantMessage ->
-                assistantMessage.copy(
-                    content = updatedContent,
-                    thoughts = updatedThoughts,
-                    timeline = updatedTimeline,
-                    attachments = updatedAttachments,
-                    revisions = updatedRevisions,
-                    createdAt = assistantMessage.createdAt
-                ).resetActiveRevision()
-            }
-        }
-        persistCurrentChatSnapshot()
+        val updated = session.message.copy(
+            content = updatedContent,
+            thoughts = updatedThoughts,
+            timeline = updatedTimeline,
+            attachments = updatedAttachments,
+            revisions = updatedRevisions
+        ).resetActiveRevision()
+        applyTranscriptEdit(turnIndex, platformIndex, session.message, updated)
         return true
     }
 
@@ -3328,7 +3393,7 @@ class ChatViewModel @Inject constructor(
         val includeDebug = debugMode.value
         return withContext(Dispatchers.Default) {
             val runStates = runSnapshot.values.filter { it.chatId == roomId }.map { it.status }
-            val visible = completeWindowMessages(visibleSnapshot)
+            val visible = persistableMessages(visibleSnapshot).map { chatRepository.resolveCombinedMessage(it) }
             val live = liveSnapshot.values.filter { it.chatId == roomId }.toList()
             val snapshot = chatRepository.fetchMessagesV2(roomId).associateBy { it.id }.toMutableMap().apply {
                 visible.filter { it.id > 0 && it.chatId == roomId }.forEach { put(it.id, it) }
@@ -3368,9 +3433,9 @@ class ChatViewModel @Inject constructor(
 
     private fun completeChat(
         onSaved: () -> Unit,
-        persistSnapshotFirst: Boolean = false,
         oneMessageUid: String? = null,
         acceptedTools: ChatMcpToolConfig = _chatToolConfig.value,
+        combinedPrior: GroupedMessages? = null,
         attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
     ) {
         // Room can emit an older window while admission suspends. The submitted turn owns this snapshot.
@@ -3432,13 +3497,17 @@ class ChatViewModel @Inject constructor(
                     attempt.finish("SUBMITTED_TURN_UNAVAILABLE")
                     return@launch
                 }
+                val priorToCombined = acceptedTools.combined?.let {
+                    combinedPrior ?: _chatRoom.value.id.takeIf { it > 0 }?.let { id -> acceptedHistory(id) } ?: GroupedMessages()
+                }
                 var dispatchTools = acceptedTools
                 acceptedTools.combined?.let { accepted ->
+                    val prior = checkNotNull(priorToCombined)
                     dispatchTools = acceptedTools.copy(
                         combined = chatRepository.prepareCombinedTurn(
                             accepted,
-                            submittedHistory.userMessages,
-                            submittedHistory.assistantMessages,
+                            prior.userMessages + userMessage,
+                            prior.assistantMessages + listOf(submittedHistory.assistantMessages[turnIndex]),
                             platforms.map { it.value },
                             acceptedTools
                         )
@@ -3468,13 +3537,6 @@ class ChatViewModel @Inject constructor(
                 persistBeforeProvider(
                     persist = {
                         refreshGatewayWriteBlocker(chatRoom.id)?.let { error(it) }
-                        if (persistSnapshotFirst && _chatRoom.value.id > 0) {
-                            chatRepository.saveChat(
-                                chatRoom = _chatRoom.value,
-                                messages = completeWindowMessages(_groupedMessages.value),
-                                chatPlatformModels = _chatPlatformModels.value
-                            )
-                        }
                         chatRepository.persistAgentTurn(
                             PersistAgentTurnRequest(
                                 chatRoom = chatRoom,
@@ -3487,6 +3549,7 @@ class ChatViewModel @Inject constructor(
                     startProvider = { persisted ->
                         acceptedRunIds = persisted.runs.map { it.runId }
                         onSaved()
+                        followAcceptedTurn()
                         attempt.accepted(acceptedRunIds, persisted.chatRoom.id, persisted.userMessage.id)
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
                         val wasNewConversation = _chatRoom.value.id <= 0
@@ -3498,11 +3561,17 @@ class ChatViewModel @Inject constructor(
                             )
                         }
                         dispatchTools = dispatchTools.copy(combined = dispatchTools.combined?.copy(chatId = persisted.chatRoom.id))
+                        val contextMessages = priorToCombined?.let { prior ->
+                            GroupedMessages(
+                                prior.userMessages + persisted.userMessage,
+                                prior.assistantMessages + listOf(normalizeAssistantRow(persisted.assistantMessages, enabledPlatformsInChat, persisted.chatRoom.id))
+                            )
+                        } ?: acceptedHistory(persisted.chatRoom.id, persisted.userMessage.id)
                         dispatchTools.combined?.let {
                             chatRepository.prepareCombinedTurn(
                                 it,
-                                _groupedMessages.value.userMessages,
-                                _groupedMessages.value.assistantMessages,
+                                contextMessages.userMessages,
+                                contextMessages.assistantMessages,
                                 platforms.map { entry -> entry.value },
                                 dispatchTools
                             )
@@ -3530,9 +3599,6 @@ class ChatViewModel @Inject constructor(
                                     )
                                 }
                             )
-                        }
-                        val contextMessages = withContext(messageGroupingDispatcher) {
-                            groupPersistedMessages(chatRepository.observeMessageWindow(persisted.chatRoom.id, visibleHistoryTurns.value).first(), enabledPlatformsInChat, persisted.chatRoom.id)
                         }
                         val recoveryTask = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(contextMessages.userMessages)
                         val originalMessageId = recoveryTask?.sourceMessageId ?: persisted.userMessage.id
@@ -3769,7 +3835,8 @@ class ChatViewModel @Inject constructor(
         attachments: List<ChatAttachmentDraft>,
         clearComposer: Boolean = true,
         profileUid: String? = null,
-        acceptedTools: ChatMcpToolConfig = captureCombinedTools(questionText),
+        acceptedTools: ChatMcpToolConfig,
+        combinedPrior: GroupedMessages? = null,
         attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
     ) {
         MessageV2(
@@ -3793,6 +3860,7 @@ class ChatViewModel @Inject constructor(
                 }
             },
             oneMessageUid = profileUid,
+            combinedPrior = combinedPrior,
             acceptedTools = acceptedTools,
             attempt = attempt
         )
@@ -3830,16 +3898,34 @@ class ChatViewModel @Inject constructor(
         platformIndex: Int,
         nextIndex: (MessageV2) -> Int
     ) {
-        _groupedMessages.update {
-            updateAssistantSlot(
-                groupedMessages = it,
-                turnIndex = turnIndex,
-                platformIndex = platformIndex
-            ) { message ->
-                message.selectRevision(nextIndex(message))
+        val previous = _groupedMessages.value.assistantMessages.getOrNull(turnIndex)?.getOrNull(platformIndex) ?: return
+        val updated = previous.selectRevision(nextIndex(previous))
+        if (updated != previous) applyTranscriptEdit(turnIndex, platformIndex, previous, updated)
+    }
+
+    private val transcriptEditMutex = Mutex()
+
+    private fun applyTranscriptEdit(turnIndex: Int, platformIndex: Int, before: MessageV2, after: MessageV2) {
+        val userId = _groupedMessages.value.userMessages.getOrNull(turnIndex)?.id ?: return
+        _groupedMessages.update { updateAssistantSlot(it, turnIndex, platformIndex) { after } }
+        if (userId <= 0 || before.chatId <= 0) return
+        viewModelScope.launch {
+            transcriptEditMutex.withLock {
+                try {
+                    if (chatRepository.saveTranscriptReply(userId, before, after)) return@withLock
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Restore this optimistic edit only if it is still displayed.
+                }
+                _attachmentNotice.value = "The reply could not be saved. Reopen the reply to review the latest version."
+                _groupedMessages.update { current ->
+                    val index = current.userMessages.indexOfFirst { it.id == userId }
+                    val slot = current.assistantMessages.getOrNull(index).orEmpty().indexOfFirst { it == after }
+                    updateAssistantSlot(current, index, slot) { before }
+                }
             }
         }
-        persistCurrentChatSnapshot()
     }
 
     private fun formatCurrentDateTime(): String {
@@ -3848,9 +3934,16 @@ class ChatViewModel @Inject constructor(
         return format.format(currentDate)
     }
 
-    private suspend fun fetchGroupedMessages(chatId: Int): GroupedMessages {
-        val messages = chatRepository.fetchMessageReferencesV2(chatId).sortedBy { it.createdAt }
-        return groupPersistedMessages(messages, enabledPlatformsInChat, chatId)
+    /** Provider and recovery input is scoped to a durable conversation and user turn, independent of UI pagination. */
+    private suspend fun acceptedHistory(chatId: Int, throughUserId: Int? = null): GroupedMessages {
+        val slots = enabledPlatformsInChat.toList()
+        return withContext(messageGroupingDispatcher) {
+            val rows = chatRepository.fetchMessageReferencesV2(chatId)
+                .filter { it.chatId == chatId }
+                .sortedWith(compareBy(MessageV2::createdAt, MessageV2::id))
+            val grouped = groupPersistedMessages(rows, slots, chatId)
+            if (throughUserId == null) grouped else historyThroughUser(grouped, throughUserId)
+        }
     }
 
     private data class ReadinessDraftInput(
@@ -3948,6 +4041,9 @@ class ChatViewModel @Inject constructor(
                     allowAllByDefault = if (workspace != null) false else it.allowAllByDefault,
                     enabledToolIds = workspace?.let { scope -> setOf(scope.connectionUid) } ?: it.enabledToolIds
                 )
+            }
+            if (room.id > 0 && targetMessageId > 0) {
+                transcriptWindow.value = TranscriptWindow(end = chatRepository.centeredWindowEnd(room.id, targetMessageId, PAGE_TURNS))
             }
             _chatRoom.value = room
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
@@ -4066,23 +4162,24 @@ class ChatViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .flatMapLatest { chatId ->
                     if (chatId > 0) {
-                        visibleHistoryTurns.flatMapLatest { turns ->
-                            combine(chatRepository.observeMessageWindow(chatId, if (targetMessageId > 0) Int.MAX_VALUE else turns), agentRunCoordinator.streamMessages, chatRepository.observeTurnCount(chatId)) { messages, live, total ->
-                                windowStartId = messages.minOfOrNull { it.id } ?: 0
-                                olderHistoryAvailable.value = total > messages.count { it.platformType == null }
-                                chatId to messages.map { message -> live[message.id]?.takeIf { it.currentRunId == message.currentRunId && it.ownershipFence == message.ownershipFence } ?: message }
+                        transcriptWindow.flatMapLatest { page ->
+                            val prefixCount = page.end?.let { chatRepository.observeTurnCountThrough(chatId, it) } ?: chatRepository.observeTurnCount(chatId)
+                            combine(visibleRows(chatId, page), agentRunCoordinator.streamMessages, prefixCount) { messages, live, count ->
+                                val rows = messages.map { message -> live[message.id]?.takeIf { it.currentRunId == message.currentRunId && it.ownershipFence == message.ownershipFence } ?: message }
+                                chatId to Triple(page, rows, count)
                             }
                         }
                     } else {
-                        flowOf(chatId to emptyList())
+                        flowOf(chatId to Triple(TranscriptWindow(), emptyList(), 0))
                     }
                 }
                 .catch { failure ->
                     if (failure !is Exception || failure is CancellationException) throw failure
                     _roomLoadError.value = "Conversation history could not be loaded. Return to chat selection and try again."
                 }
-                .collect { (chatId, messages) ->
-                    if (chatId <= 0) return@collect
+                .collect { (chatId, result) ->
+                    val (page, messages, count) = result
+                    if (chatId <= 0 || chatId != _chatRoom.value.id || page != transcriptWindow.value) return@collect
                     val slots = enabledPlatformsInChat.toList()
                     pendingMessageGrouping += 1
                     val groupedMessages = try {
@@ -4090,7 +4187,11 @@ class ChatViewModel @Inject constructor(
                     } finally {
                         pendingMessageGrouping -= 1
                     }
+                    if (page != transcriptWindow.value || _chatRoom.value.id != chatId) return@collect
+                    olderHistoryAvailable.value = count > groupedMessages.userMessages.size
+                    newerHistoryAvailable.value = page.end != null
                     _groupedMessages.update { groupedMessages }
+                    latestHistoryJump.value = page.latestJump
                     _indexStates.update { current ->
                         List(groupedMessages.assistantMessages.size) { index -> current.getOrElse(index) { 0 } }
                     }
@@ -4191,7 +4292,7 @@ class ChatViewModel @Inject constructor(
                 var committed = false
                 var scheduleRetry = false
                 try {
-                    val dispatched = startCombinedSynthesis(turnIndex, sources, onPersisted = { committed = true })
+                    val dispatched = startCombinedSynthesis(grouped, turnIndex, sources, onPersisted = { committed = true })
                     if (!dispatched && !committed) scheduleRetry = combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                 } catch (error: CancellationException) {
                     // Parent/user cancellation is not an invitation to automatically
@@ -4228,10 +4329,11 @@ class ChatViewModel @Inject constructor(
 
     private fun acceptedCombinedTurn(
         userId: Int,
-        runs: Map<String, AgentRun> = _agentRunsById.value
+        runs: Map<String, AgentRun> = _agentRunsById.value,
+        grouped: GroupedMessages = _groupedMessages.value
     ): dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn? {
-        val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == userId }
-        val currentRunIds = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.currentRunId }.toSet()
+        val turnIndex = grouped.userMessages.indexOfFirst { it.id == userId }
+        val currentRunIds = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.currentRunId }.toSet()
         val records = runs.values.filter { it.userMessageId == userId && it.runId in currentRunIds && it.synthesisKey == null }
             .mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(it.synthesisSnapshot) }
         if (records.map { it.context.requested.requestedPolicyDigest }.distinct().size > 1) return null
@@ -4239,13 +4341,13 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun startCombinedSynthesis(
+        grouped: GroupedMessages,
         turnIndex: Int,
         sources: List<CombinedModelResponse>,
         onPersisted: () -> Unit
     ): Boolean {
-        val grouped = _groupedMessages.value
         val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return false
-        val accepted = acceptedCombinedTurn(userMessage.id)
+        val accepted = acceptedCombinedTurn(userMessage.id, grouped = grouped)
         if (accepted != null && chatRepository.isCombinedTurnCancelled(accepted.context.rootBudgetId)) return false
         val combined = accepted?.context?.copy(chatId = userMessage.chatId)
         val pinnedPrimary = combined?.requested?.preferredOwnerUid ?: _chatRoom.value.combinedPrimaryUid ?: _chatRoom.value.activePlatform.firstOrNull()
@@ -4429,7 +4531,7 @@ class ChatViewModel @Inject constructor(
         val room = _chatRoom.value
         // Gateway queue acceptance already saves a local first-prompt title, including
         // offline sends. An auxiliary title model must not bypass the serial job fence.
-        if (room.conversationMode == ConversationMode.GATEWAY) return
+        if (room.conversationMode == ConversationMode.GATEWAY || olderHistoryAvailable.value) return
         val github = _chatToolConfig.value.github
         if (github != null && room.id > 0 && !room.isTitleCustomized && !autoTitleGenerationInFlight) {
             val firstPrompt = _groupedMessages.value.userMessages.firstOrNull()?.content
@@ -4618,24 +4720,8 @@ class ChatViewModel @Inject constructor(
 
     private fun resolvePlatformModel(platform: PlatformV2): PlatformV2 = resolvePlatformModel(platform, _chatPlatformModels.value).let { it.copy(reasoning = _chatToolConfig.value.reasoning ?: it.reasoning) }
 
-    private fun persistCurrentChatSnapshot() {
-        viewModelScope.launch {
-            val chatRoom = _chatRoom.value
-            val groupedMessages = _groupedMessages.value
-            if (chatRoom.id <= 0) return@launch
-            if (groupedMessages.userMessages.isEmpty()) return@launch
-            if (groupedMessages.userMessages.size != groupedMessages.assistantMessages.size) return@launch
-
-            withContext(Dispatchers.IO) {
-                chatRepository.saveChat(
-                    chatRoom = chatRoom,
-                    messages = completeWindowMessages(groupedMessages),
-                    chatPlatformModels = _chatPlatformModels.value
-                )
-            }
-        }
-    }
     companion object {
+        private const val PAGE_TURNS = 40
         internal const val COMBINED_RUN_PREFIX = "combined-synthesis:"
     }
 }
@@ -4738,6 +4824,12 @@ internal fun groupPersistedMessages(
             normalizeAssistantRow(byTurn[user.id].orEmpty(), enabledPlatformsInChat, chatId)
         }
     )
+}
+
+internal fun historyThroughUser(grouped: ChatViewModel.GroupedMessages, userId: Int): ChatViewModel.GroupedMessages {
+    val index = grouped.userMessages.indexOfFirst { it.id == userId && it.platformType == null }
+    require(userId > 0 && index >= 0) { "The original saved user message is unavailable. Reopen the conversation before retrying." }
+    return groupedMessagesThroughTurn(grouped, index)
 }
 
 internal fun groupedMessagesThroughTurn(

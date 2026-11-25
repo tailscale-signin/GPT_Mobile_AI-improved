@@ -1,3 +1,11 @@
+# 0.9.66.17 — 2026-11-25
+
+- Page the visible transcript independently of accepted model history. Open older message links within a bounded window.
+- Trace GitHub evidence through provider dispatch, rank authorized reads by measured yield, replay real tasks on a pinned revision, and use compiled caller/test paths when the matching artifact is available.
+- Measure cross-chat map reuse, flag changed Android behavior without linked regression evidence, and require verified destinations for private chats when selected.
+- Keep recognition and synthesis language preferences independent, retain per-device speech receipts, and support the latest Kokoro accelerator packs.
+- Coordinate Android build 151 with Windows Gateway 18.1.4.
+
 # 0.9.66.15 — 2026-11-23 (integration candidate)
 
 - Learn streaming speech refill reserves from audio delivery while a phrase is still being generated, retaining slow delivery history and excluding time blocked by the existing bounded queue; preserve captions, pause settings and prompt cancellation.

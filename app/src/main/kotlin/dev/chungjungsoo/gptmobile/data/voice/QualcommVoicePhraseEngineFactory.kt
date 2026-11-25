@@ -174,7 +174,7 @@ internal class QualcommVoicePhraseEngineFactory(
             checkTicket(ticket)
             // Accelerator admission was checked before any production audio/model was opened.
             // The fixed-workload comparison is representative, not per-utterance equivalence.
-            if (selected != VoiceSpeechBackend.CPU) notify("${selected.label} matched the CPU reference workload. Individual phrases still receive native structural validation.")
+            if (selected != VoiceSpeechBackend.CPU) notify("${selected.label} matched the CPU reference for ${voice.label} at $speechRate× on this phone with the selected model and runtime. Individual phrases still receive native structural validation.")
         } catch (cancelled: CancellationException) {
             runCatching { engine?.close() }
             throw cancelled

@@ -22,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -331,6 +332,9 @@ class VoicePreferenceStoreTest {
             views.put("voice", model)
             model.save(VoicePreferences(spokenReplies = true, kokoroThreads = 2))
             val expected = VoicePreferences(
+                language = "fr-CA",
+                recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE,
+                synthesis = VoiceSynthesisPreferences("ja", mapOf("ja" to "jf_nezumi", "es" to "em_alex")),
                 spokenReplies = false,
                 online = false,
                 kokoroVoice = KokoroVoice.HEART,

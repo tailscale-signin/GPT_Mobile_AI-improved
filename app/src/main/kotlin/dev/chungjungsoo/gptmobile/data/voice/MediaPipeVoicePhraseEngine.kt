@@ -14,6 +14,7 @@ internal class MediaPipeVoicePhraseEngine(
     private var voiceId: String,
     override val supportsIncrementalInput: Boolean = true
 ) : VoicePhraseEngine {
+    @Volatile var onValidatedSynthesis: ((String, VoiceSpeechBackend) -> Unit)? = null
     private val operationLock = Any()
     private val stateLock = Any()
     private var activeStream: MediaPipeSpeechStream? = null
@@ -39,13 +40,16 @@ internal class MediaPipeVoicePhraseEngine(
         else -> error("Unsupported MediaPipe speech backend")
     }
 
-    override fun selectVoice(voiceId: String) {
+    override fun selectVoice(voiceId: String) = selectVoice(voiceId, sameLanguageFallback = false)
+
+    fun selectVoice(voiceId: String, sameLanguageFallback: Boolean) {
         synchronized(operationLock) {
             synchronized(stateLock) {
                 check(!closing && !closed && !retirementFailed && owner == null) { "Speech engine is not idle." }
             }
-            require(voiceId in task.voiceIds()) { "The selected voice is unavailable in this model." }
-            this.voiceId = voiceId
+            this.voiceId = requireNotNull(SpeechLanguages.availableVoice(voiceId, task.voiceIds(), sameLanguageFallback)) {
+                "The selected voice is unavailable in this model."
+            }
         }
     }
 
@@ -202,6 +206,7 @@ internal class MediaPipeVoicePhraseEngine(
                     synchronized(stateLock) { owner = null }
                 }
             }
+            runCatching { onValidatedSynthesis?.invoke(voiceId, configuredBackend) }
         }
     }
 

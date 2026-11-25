@@ -44,6 +44,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun activeEvidenceRouteEmitsOnlyTheSelectedRequirementsAuthorizedLiveRead() = runBlocking {
+        val binding = "binding"
+        val criterion = "diff-criterion"
+        val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_context")
+        var checkpoint: JsonObject? = null
+        val book = GitHubEvidenceBook(
+            binding,
+            "o/r",
+            "main",
+            setOf(definition.name),
+            latestVerdict = { checkpoint },
+            chooseNextAction = { report -> dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.decide(report) { name, _ -> name == definition.name } }
+        )
+        val args = buildJsonObject {
+            put("action", "changes")
+            put("base_sha", "a".repeat(40))
+        }
+        val source = ProviderEvent.ToolCall("previous-read", definition.name, args)
+        book.observe(source, AgentToolResult(source.callId, ToolResultContent.Json(buildJsonObject { put("branch", "main") }), false))
+        val receipt = book.snapshot().first.keys.single()
+        checkpoint = Json.parseToJsonElement(
+            """{"binding":"$binding","next_action_decision":{},"acceptance_ledger":{"requirements":[{"id":"$criterion","required":true,"state":"BLOCKED","criterion_contract":{"evidence_producer":"DIFF_REVIEW"},"receipt_ids":["$receipt"]}]},"unresolved_claims":[{"receipt_id":"$receipt","status":"STALE"}]}"""
+        ).jsonObject
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The application has the exact scoped read")
+        }
+        val session = GitHubVerifiedSession(delegate, book, "Inspect the changes in the repository", { 8192 }, { error("No draft") }, {}, {}, authorizedTools = listOf(definition), remainingToolCalls = { 20 })
+        val calls = session.streamRound(listOf(definition), emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>()
+        assertEquals(definition.name, calls.single().name)
+        assertEquals(JsonObject(args + ("verify_live" to JsonPrimitive(true))), calls.single().arguments)
+    }
+
     @Test fun immutableCheckpointConflictKeepsItsApplicationFailureClassification() = runBlocking {
         val conflict = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED")
         val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { _, _ -> throw conflict })

@@ -95,7 +95,7 @@ internal class InvocationRoundAccounting(
     fun retainedInputSource(): String = if (inputSource == "not_dispatched" || input != null && retainedInput() == input) inputSource else "estimated"
     fun retainedOutputSource(): String = if (outputSource == "not_dispatched" || output != null && retainedOutput() == output) outputSource else "estimated"
     fun estimatedUsage(): Boolean = input == null || output == null || !measuredUsageSource(inputSource) || !measuredUsageSource(outputSource) || recoveryUsage()?.let { !it.inputComplete || !it.outputComplete } == true
-    fun usageEvidence(costConfirmed: Boolean): String = kotlinx.serialization.json.buildJsonObject {
+    fun usageEvidence(costConfirmed: Boolean, includeSourceDelivery: Boolean = true): String = kotlinx.serialization.json.buildJsonObject {
         put("invocation_id", kotlinx.serialization.json.JsonPrimitive(record.id))
         put("input_reservation", kotlinx.serialization.json.JsonPrimitive(record.inputTokens))
         put("output_reservation", kotlinx.serialization.json.JsonPrimitive(record.outputTokens))
@@ -113,6 +113,7 @@ internal class InvocationRoundAccounting(
                 }
             )
         }
+        if (includeSourceDelivery) dispatch.sourceDeliveryEvidence()?.let { put("github_source_delivery", it) }
         val serializedSettings = dispatch.serializedRequestSettings
         (dispatch.latestSerializedRequestSettings?.get("settings") ?: requestSettings)?.let { put("request_settings", it) }
         if (serializedSettings.isNotEmpty()) put("serialized_requests", kotlinx.serialization.json.JsonArray(serializedSettings))
@@ -156,7 +157,7 @@ internal class InvocationRoundAccounting(
     private var diagnosticFailure: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord? = null
     var lastPublished = started
     init {
-        liveRequests.update { it + (record.id to record.copy(outputTokens = 0, usageEvidenceJson = usageEvidence(false))) }
+        liveRequests.update { it + (record.id to record.copy(outputTokens = 0, usageEvidenceJson = usageEvidence(false, includeSourceDelivery = false))) }
     }
 
     fun preservePreflightFailure(event: ProviderEvent): ProviderEvent {
@@ -352,7 +353,7 @@ internal class InvocationRoundAccounting(
                         status = if (status == "INTERRUPTED") "RUNNING" else status,
                         observedInputTokens = input?.toLong(),
                         observedOutputTokens = output?.toLong(),
-                        usageEvidenceJson = usageEvidence(!estimatedUsage() && price != null),
+                        usageEvidenceJson = usageEvidence(!estimatedUsage() && price != null, includeSourceDelivery = event is ProviderEvent.Completed || event is ProviderEvent.Failed),
                         costMicros = if (!estimatedUsage()) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
                         durationMs = (now - started) / 1_000_000,
                         firstTokenMs = first

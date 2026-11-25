@@ -11,13 +11,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceInstallState
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTransferStage
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -34,6 +36,35 @@ import org.robolectric.annotation.Config
 class VoicePluginSetupTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun recognitionEngineAndPerLanguageReplyVoiceCanChangeIndependently() {
+        var engine by mutableStateOf(VoiceRecognitionBackend.LOCAL_MOONSHINE)
+        var synthesis by mutableStateOf(VoiceSynthesisPreferences("es"))
+        compose.setContent {
+            MaterialTheme {
+                Column {
+                    RecognitionLanguageChoice("en-US", engine) { _, selected -> engine = selected }
+                    SynthesisLanguageChoices(synthesis, true) { synthesis = it }
+                }
+            }
+        }
+        compose.onNodeWithText("Moonshine").performClick()
+        compose.onNodeWithText("Android offline recognizer").performClick()
+        compose.onNodeWithText("Dora").performClick()
+        compose.onNodeWithText("Alex").performClick()
+        val spanish = SpeechLanguages.synthesis.first { it.tag == "es" }.label
+        val japanese = SpeechLanguages.synthesis.first { it.tag == "ja" }.label
+        compose.onNodeWithText(spanish).performClick()
+        compose.onNodeWithText(japanese).performScrollTo().performClick()
+        compose.onNodeWithText("Alpha").assertIsDisplayed()
+        compose.onNodeWithText(japanese).performClick()
+        compose.onNodeWithText(spanish).performScrollTo().performClick()
+        compose.onNodeWithText("Alex").assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, engine)
+            assertEquals("em_alex", synthesis.voiceId)
+        }
+    }
+
     @Test fun entrySetupCanChooseAndDownloadAStreamingPackBeforeNativeKokoroIsInstalled() {
         var selected by mutableStateOf(VoiceSpeechBackend.CPU)
         var downloads = 0
@@ -46,9 +77,7 @@ class VoicePluginSetupTest {
                         StreamingVoiceModelCard(
                             engine = engine,
                             state = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED),
-                            voice = KokoroVoice.HEART,
                             enabled = true,
-                            selectVoice = {},
                             install = { downloads++ },
                             cancel = {},
                             remove = {},

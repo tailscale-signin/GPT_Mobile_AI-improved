@@ -462,6 +462,7 @@ class ChatPromptQueueTest {
         every { repository.observeProviderWaitDeadlines(7) } returns flowOf(emptyList())
         every { repository.observeToolEvents(7) } returns flowOf(emptyList())
         coEvery { repository.fetchChatRoom(7) } returns room
+        coEvery { repository.fetchMessageReferencesV2(7) } answers { messages.value }
         coEvery { repository.fetchMessagesV2(7) } answers { messages.value }
         coEvery { repository.fetchChatPlatformModels(7) } returns profiles.associate { it.uid to it.model }
         // This queue fixture uses a pass-through planner; relaxed context mocks cannot be serialized.

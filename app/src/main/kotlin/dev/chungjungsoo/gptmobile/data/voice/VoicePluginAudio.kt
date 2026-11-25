@@ -144,6 +144,7 @@ internal class VoicePluginAudio(
     // offlineSpeech belongs to the same Android output and shares its start observer.
     override val reportsPlaybackStart: Boolean
         get() = system.reportsPlaybackStart && (kokoroVoice == null || kokoro == null || kokoro.reportsPlaybackStart)
+    var synthesisSupported: Boolean = true
     var kokoroVoice: KokoroVoice? = null
         set(value) {
             if (closed || field == value) return
@@ -161,7 +162,7 @@ internal class VoicePluginAudio(
 
     override fun retryAfterMillis(): Long = if (recognitionBackend == VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE) system.retryAfterMillis() else 0
 
-    override val streamsReplies: Boolean get() = !closed && kokoro != null && kokoroVoice != null && LocalVoiceModelStore.supportsLanguage(local.languageTag)
+    override val streamsReplies: Boolean get() = !closed && kokoro != null && kokoroVoice != null && synthesisSupported
 
     override fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? =
         openReplyWithFailure(complete) { error(it.message) }
@@ -276,7 +277,7 @@ internal class VoicePluginAudio(
             system.speakWithFailure(text, { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(it) } })
             return
         }
-        if (kokoro == null || !LocalVoiceModelStore.supportsLanguage(local.languageTag)) {
+        if (kokoro == null || !synthesisSupported) {
             if (requireLocalOutput) {
                 error(VoicePlaybackFailure("Local voice playback is unavailable. Check Kokoro in Voice settings; your response is kept in chat."))
                 return

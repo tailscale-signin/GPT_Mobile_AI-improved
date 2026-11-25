@@ -69,7 +69,8 @@ internal fun VoiceSpeechBenchmarkSettings(
     enabled: Boolean,
     beforeStart: () -> Unit = {},
     captionOffsetMs: Int = 0,
-    viewModel: VoiceSpeechBenchmarkViewModel = hiltViewModel()
+    viewModel: VoiceSpeechBenchmarkViewModel = hiltViewModel(),
+    streamingKokoroVoice: String? = null
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var mode by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkMode.QUICK.name) }
@@ -90,7 +91,7 @@ internal fun VoiceSpeechBenchmarkSettings(
     val selectedEngine = VoiceSpeechBenchmarkEngine.valueOf(engine)
     val nativeEngine = selectedEngine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
     val sdkModel = selectedEngine.mediaPipeEngine()?.let(MediaPipeSpeechCatalog::model)
-    val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) (voice ?: KokoroVoice.HEART).streamingVoiceId() else sdkModel?.defaultVoice
+    val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) streamingKokoroVoice ?: (voice ?: KokoroVoice.HEART).streamingVoiceId() else sdkModel?.defaultVoice
     val installed = if (nativeEngine) KokoroModelVariant.valueOf(nativeModelVariant) in state.availableNativeVariants else selectedEngine in state.availableEngines
     val availableBackends = selectedEngine.supportedBackends
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -193,7 +194,7 @@ internal fun VoiceSpeechBenchmarkSettings(
     }
     Text(
         if (!nativeEngine) {
-            "Voice ${sdkVoiceId ?: "unknown"} · ${format(benchmarkRate.toDouble())}× speech rate. SDK thread control and observed processor placement are unavailable."
+            "Voice ${sdkVoiceId ?: "unknown"} · ${format(benchmarkRate.toDouble())}× speech rate. Uses the standard English benchmark text. SDK thread control and observed processor placement are unavailable."
         } else if (voice == null) {
             "Select a Kokoro voice to run the benchmark."
         } else {
@@ -224,7 +225,8 @@ internal fun VoiceSpeechBenchmarkSettings(
                     incrementalInput = incrementalInput,
                     htpPerformanceMode = htpPerformanceMode,
                     nativeModelVariant = KokoroModelVariant.valueOf(nativeModelVariant),
-                    sustainedTargetAudioMs = sustainedTargetAudioMs.toLong()
+                    sustainedTargetAudioMs = sustainedTargetAudioMs.toLong(),
+                    streamingKokoroVoice = streamingKokoroVoice
                 )
             }
         },

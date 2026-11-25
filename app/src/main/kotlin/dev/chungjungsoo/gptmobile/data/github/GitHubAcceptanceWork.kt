@@ -56,7 +56,7 @@ internal object GitHubAcceptanceWork {
         }
         val producer = (row["criterion_contract"] as? JsonObject)?.text("evidence_producer")
         return when (producer) {
-            "COMPARISON_OBSERVATION", "DIFF_REVIEW" -> Step("Inspect the comparison between the accepted base and head.", listOf("github_pr", "github_read"))
+            "COMPARISON_OBSERVATION", "DIFF_REVIEW" -> Step("Inspect the comparison between the accepted base and head.", listOf("github_pr", "github_context", "github_read"))
             "SOURCE_OBSERVATION", "DEFECT_ANALYSIS" -> Step("Locate and inspect the source range and relevant tests at the selected revision.", listOf("github_search", "github_read"))
             "REVISION_AND_TESTS", "REGRESSION_AND_TESTS" -> Step("Identify the published change or missing implementation. Reconcile existing changes before an authorized edit, then verify tests at the resulting revision.", listOf("github_context", "github_read", "github_ci"))
             "VALIDATION_JOBS" -> Step("Read executed test jobs at the implementation revision and latest workflow attempt.", listOf("github_ci"))

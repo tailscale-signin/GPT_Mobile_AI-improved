@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -102,11 +103,28 @@ class VoiceBackendViewModelTest {
             assertTrue(model.state.value.factory.identity.contains(MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.PHONON).sha256))
             assertFalse(model.state.value.factory.requiresKokoroAssets)
             assertFalse(model.state.value.backend.supportsCpuThreadCalibration)
+            val japanese = VoiceSynthesisPreferences("ja").selectVoice("jf_nezumi")
+            model.configureSpeech(KokoroVoice.HEART, 1f, synthesis = japanese)
+            runCurrent()
+            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, model.state.value.backend)
+            assertTrue(model.state.value.factory.identity.endsWith("voice=jf_nezumi"))
+            assertEquals(VoiceSpeechBackend.PHONON_CPU, preferences.state.value?.value?.backend)
+            model.configureSpeech(KokoroVoice.HEART, 1f, synthesis = japanese.selectLanguage("en-US"))
+            runCurrent()
+            assertEquals(VoiceSpeechBackend.PHONON_CPU, model.state.value.backend)
         } finally {
             owners.clear()
             applicationScope.cancel()
             Dispatchers.resetMain()
         }
+    }
+
+    @Test fun nonEnglishSpeechUsesMultilingualKokoroAndRetainsConfiguredKokoroDelegates() {
+        val japanese = VoiceSynthesisPreferences("ja").selectVoice("jf_nezumi")
+        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.PHONON_CPU.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.GATEWAY_CUDA.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.AUTO, VoiceSpeechBackend.AUTO.forSynthesis(japanese.selectLanguage("en-US")))
     }
 
     @Test fun streamingEnginesHaveExplicitBackendAndVoiceMappings() {

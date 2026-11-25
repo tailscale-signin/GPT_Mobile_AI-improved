@@ -140,7 +140,7 @@ class AndroidVoiceAudio internal constructor(
     private val mutableVoiceCatalog = kotlinx.coroutines.flow.MutableStateFlow(SpeechVoiceCatalogState.UNINITIALIZED)
     internal val voiceCatalogState: kotlinx.coroutines.flow.StateFlow<SpeechVoiceCatalogState> = mutableVoiceCatalog
     private var voiceQueryInFlight: Long? = null
-    private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = languageTag, online: Boolean = allowOnlineSpeech && conversationPrivacy()?.enabled != true) = voices
+    private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = synthesisLanguageTag ?: languageTag, online: Boolean = allowOnlineSpeech && conversationPrivacy()?.enabled != true) = voices
         .filter { (online || !it.isNetworkConnectionRequired) && it.locale.language == Locale.forLanguageTag(language).language && "notInstalled" !in it.features.orEmpty() }
         .sortedWith(compareByDescending<android.speech.tts.Voice> { it.quality }.thenByDescending { it.locale.toLanguageTag() == language }.thenBy { it.latency }.thenBy { it.name })
     fun voices(): List<Pair<String, String>> = eligibleVoices(installedVoices).take(12).mapIndexed { index, voice ->
@@ -199,6 +199,7 @@ class AndroidVoiceAudio internal constructor(
     }
     private var watchdog: Runnable? = null
     private var requestRecognitionFinish: (() -> Unit)? = null
+    var synthesisLanguageTag: String? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
     var allowOnlineSpeech: Boolean = false
     var speechRate: Float = 1f
@@ -591,7 +592,7 @@ class AndroidVoiceAudio internal constructor(
                 }
             }
         }
-        val config = SpeechConfiguration(languageTag, selectedVoice, online && privacy?.enabled != true, speechRate.coerceIn(.5f, 2f), routeMode != null)
+        val config = SpeechConfiguration(synthesisLanguageTag ?: languageTag, selectedVoice, online && privacy?.enabled != true, speechRate.coerceIn(.5f, 2f), routeMode != null)
         val play: () -> Unit = play@{
             val engine = tts?.takeIf { speechReady } ?: return@play
             if (!closed && ticket == generation) observations?.engineReady(wasWarm)

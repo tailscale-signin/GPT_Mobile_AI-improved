@@ -18,6 +18,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
     val kokoroBucket: MediaPipeKokoroBucket = MediaPipeKokoroBucket.AUTO,
     val incrementalInput: Boolean = true,
     private val onPlaybackDelegate: ((VoiceSpeechBackend) -> Unit)? = null,
+    private val onValidatedSynthesis: ((String, VoiceSpeechBackend) -> Unit)? = null,
     private val taskFactory: (MediaPipeSpeechTaskConfiguration) -> MediaPipeSpeechTask = ::AndroidMediaPipeSpeechTask
 ) : VoicePhraseEngineFactory {
     private val model = MediaPipeSpeechCatalog.model(engine)
@@ -51,11 +52,16 @@ internal class MediaPipeVoicePhraseEngineFactory(
     override val identity = "$residentIdentity:voice=$voiceId"
 
     override fun prepareForPlayback(engine: VoicePhraseEngine) {
-        engine.selectVoice(voiceId)
-        if (engine is MediaPipeVoicePhraseEngine) reportBackend(engine)
+        if (engine is MediaPipeVoicePhraseEngine) {
+            engine.selectVoice(voiceId, onPlaybackDelegate != null)
+            reportBackend(engine)
+        } else {
+            engine.selectVoice(voiceId)
+        }
     }
 
     private fun reportBackend(engine: MediaPipeVoicePhraseEngine) {
+        engine.onValidatedSynthesis = onValidatedSynthesis
         val report = onPlaybackDelegate ?: return
         if (reportedBackend.getAndSet(engine.configuredBackend) != engine.configuredBackend) {
             runCatching { report(engine.configuredBackend) }
@@ -101,12 +107,13 @@ internal class MediaPipeVoicePhraseEngineFactory(
                 pending = task
                 checkTicket(ticket)
             }
-            if (voiceId !in task.voiceIds()) throw IOException("The selected voice is unavailable in ${model.title}.")
+            val selectedVoice = SpeechLanguages.availableVoice(voiceId, task.voiceIds(), onPlaybackDelegate != null)
+                ?: throw IOException("No installed voice matches the selected language in ${model.title}.")
             synchronized(pendingLock) {
                 checkTicket(ticket)
                 pending = null
             }
-            return MediaPipeVoicePhraseEngine(task, lease, request, speakingRate, voiceId, incrementalInput)
+            return MediaPipeVoicePhraseEngine(task, lease, request, speakingRate, selectedVoice, incrementalInput)
         } catch (failure: Throwable) {
             synchronized(pendingLock) { if (pending === task) pending = null }
             val closeFailure = runCatching { task?.close() }.exceptionOrNull()

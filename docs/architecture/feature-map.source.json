@@ -11,7 +11,9 @@
         "source index",
         "find callers",
         "related tests",
-        "reference document"
+        "reference document",
+        "compiler-backed callers",
+        "JVM call sites"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
@@ -40,7 +42,10 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextReadProgress.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCompactTaskContext.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCache.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCache.kt",
+        "gateway/v14/code_graph/jvm_impact.py",
+        "scripts/jvm/CompilerCalls.java",
+        "scripts/build_jvm_call_index.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt",
@@ -66,7 +71,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneTaskContextFailureTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphLocalFailureTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCacheTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCacheTest.kt",
+        "gateway/tests/test_gateway_jvm_impact.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -114,7 +120,9 @@
         "privacy comparison",
         "fictional provider benchmark",
         "privacy off on",
-        "paired latency"
+        "paired latency",
+        "verified retention",
+        "private dispatch"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt",
@@ -177,7 +185,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestRefusalTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestRefusalTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyModeStoreTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -347,7 +356,10 @@
         "read elements correctly",
         "technical terms",
         "accented names",
-        "speech spelling"
+        "speech spelling",
+        "synthesis language",
+        "recognition language",
+        "device voice evidence"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
@@ -362,7 +374,10 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
@@ -374,7 +389,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguagesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidenceTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -703,7 +720,9 @@
         "context experiment",
         "benchmark cost",
         "task success",
-        "false completion"
+        "false completion",
+        "cross-chat cache reuse",
+        "redacted routing replay"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlan.kt",
@@ -724,7 +743,11 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkContextEvidence.kt",
         "gateway/benchmarks/preview_study.py",
-        "gateway/benchmarks/product_trials.py"
+        "gateway/benchmarks/product_trials.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapReuseBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PhoneMapBenchmarkPanel.kt",
+        "scripts/github_routing_replay.py",
+        "scripts/qualify_github_routing_replay.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlanTest.kt",
@@ -743,7 +766,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkContextEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkEngineeringContextWorkspaceTest.kt",
         "gateway/tests/test_gateway_preview_study.py",
-        "gateway/tests/test_gateway_native_product_trials.py"
+        "gateway/tests/test_gateway_native_product_trials.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapReuseBenchmarkTest.kt",
+        "scripts/tests/test_github_routing_replay.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -752,7 +777,8 @@
         "docs/architecture/repository-guide.md",
         "gateway/benchmarks/PHONE_ACTIONS.md",
         "docs/repairs/github-context-benchmark-2026-11-23.md",
-        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
+        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
+        "docs/engineering/github-routing-replay.md"
       ],
       "invariants": [
         "Freeze source, profile, task, budget and environment before comparison.",
@@ -880,7 +906,9 @@
         "parsed document cache",
         "font changes",
         "theme changes",
-        "chat rendering"
+        "chat rendering",
+        "message anchor",
+        "accepted turn history"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
@@ -888,14 +916,17 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRenderer.kt",
         "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/SettledMarkdownBenchmarkFixture.kt",
         "macrobenchmark/src/main/kotlin/dev/chungjungsoo/gptmobile/benchmark/AppPerformanceBenchmark.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/MessageV2Dao.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParserTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatRenderingCacheBoundaryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRendererTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocumentTransitionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedDocumentPageCacheTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedDocumentPageCacheTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -1042,19 +1073,23 @@
         "API 36",
         "Android 16",
         "emulator launcher ANR",
-        "premature unlock"
+        "premature unlock",
+        "changed behavior coverage",
+        "JaCoCo risk lines"
       ],
       "paths": [
         ".github/workflows/release-0950-acceptance.yml",
         "scripts/prepare_emulator_action.py",
         "scripts/prepare_emulator_ui.py",
-        "scripts/run_release0950_acceptance.sh"
+        "scripts/run_release0950_acceptance.sh",
+        "scripts/changed_behavior_coverage.py"
       ],
       "tests": [
         "scripts/tests/test_prepare_emulator_action.py",
         "scripts/tests/test_prepare_emulator_ui.py",
         "scripts/tests/test_ci_modernization.py",
-        "scripts/tests/test_delivery_pipeline.py"
+        "scripts/tests/test_delivery_pipeline.py",
+        "scripts/tests/test_changed_behavior_coverage.py"
       ],
       "documents": [
         "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json",
@@ -1090,7 +1125,10 @@
         "missing saved pages",
         "fixture prerequisites",
         "exact SHA test receipts",
-        "legacy unheaded PR context recovery"
+        "legacy unheaded PR context recovery",
+        "source delivery",
+        "omitted source ranges",
+        "routing yield"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt",
@@ -1099,7 +1137,11 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptance.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnostics.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GitHubSourceDispatchTrace.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSourceDeliveryDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRoutePolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimSourceDelivery.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
@@ -1108,7 +1150,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnosticsTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLegacySearchReadTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLegacySearchReadTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/GitHubSourceDispatchTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRoutePolicyTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",

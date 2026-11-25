@@ -143,6 +143,19 @@ class MediaPipeVoicePhraseEngineTest {
         }
     }
 
+    @Test fun evidenceNamesTheVoiceAndConfiguredDelegateOnlyAfterSuccessfulSynthesis() {
+        val ids = mutableListOf<Pair<String, VoiceSpeechBackend>>()
+        var delivered = false
+        val stream = TestStream { if (delivered) null else AudioChunk(floatArrayOf(.1f)).also { delivered = true } }
+        val engine = engine(TestTask { stream })
+        engine.onValidatedSynthesis = { id, configured -> ids += id to configured }
+        assertTrue(ids.isEmpty())
+        engine.stream("test", 0, 1f) { true }
+        assertEquals(listOf("freya" to VoiceSpeechBackend.PHONON_CPU), ids)
+        assertNull(engine.executionEvidence)
+        engine.close()
+    }
+
     @Test fun invalidAudioAndEmptyStreamsFailWithoutLeakingNativeStreams() {
         val cases = listOf(
             AudioChunk(floatArrayOf(Float.NaN)),
@@ -155,8 +168,11 @@ class MediaPipeVoicePhraseEngineTest {
             var delivered = false
             val stream = TestStream { if (delivered) null else invalid.also { delivered = true } }
             val engine = engine(TestTask { stream })
+            var reported = false
+            engine.onValidatedSynthesis = { _, _ -> reported = true }
             assertThrows(IllegalArgumentException::class.java) { engine.stream("test", 0, 1f) { true } }
             assertEquals(1, stream.closes.get())
+            assertFalse(reported)
             engine.close()
         }
     }

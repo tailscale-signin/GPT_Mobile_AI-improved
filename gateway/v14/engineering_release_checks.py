@@ -34,17 +34,20 @@ def contract(value, command_count):
 
 
 def download(backend, job, artifact_id, maximum):
+    return download_github_artifact(backend.token(), backend.github_governor, backend.root(job),
+                                    artifact_id, maximum, backend.cancellation(job))
+
+
+def download_github_artifact(token, governor, root, artifact_id, maximum, cancel):
     if type(artifact_id) is not int or artifact_id <= 0:
         raise ValueError('Artifact identity is invalid')
-    token = backend.token()
-    cancel = backend.cancellation(job)
     if cancel.is_set():
         raise InterruptedError('Artifact verification cancelled')
     headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
-    url = 'https://api.github.com' + backend.root(job) + '/actions/artifacts/' + str(artifact_id) + '/zip'
-    with backend.github_governor.lease(token, cancelled=cancel.is_set):
+    url = 'https://api.github.com' + root + '/actions/artifacts/' + str(artifact_id) + '/zip'
+    with governor.lease(token, cancelled=cancel.is_set):
         with requests.get(url, headers=headers, timeout=(10, 30), allow_redirects=False, stream=True) as response:
-            backend.github_governor.observe(token, response.status_code, response.headers)
+            governor.observe(token, response.status_code, response.headers)
             response.raise_for_status()
             if response.status_code != 302:
                 raise ValueError('GitHub did not provide an artifact download')

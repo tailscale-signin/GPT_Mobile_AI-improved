@@ -145,6 +145,11 @@ class ReadOnlyGraphGitHub:
         return self.backend.api(path, method=method, text=text, read_only=True,
                                 capacity_reserve=self.SOURCE_REQUEST_RESERVE if source_read else 0)
 
+    def download_graph_artifact(self, repository, artifact_id, maximum):
+        from v14.engineering_release_checks import download_github_artifact
+        return download_github_artifact(self.backend.token(read_only=True), self.backend.github_governor,
+                                        '/repos/' + repository, artifact_id, maximum, self.backend.stopping)
+
     def paged(self, path, key=None, job=None, maximum=1000):
         # The common paginator calls this adapter's guarded GET path on every page.
         return GitHubEngineeringBackend.paged(self, path, key=key, job=job, maximum=maximum)

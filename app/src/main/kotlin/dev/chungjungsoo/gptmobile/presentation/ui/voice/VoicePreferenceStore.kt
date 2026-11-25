@@ -6,10 +6,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -36,6 +38,8 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
         try {
             check(
                 open().edit()
+                    .putString("synthesis_language", value.synthesis.profile.tag)
+                    .putStringSet("synthesis_voices", value.synthesis.voices.map { (tag, voice) -> "$tag=$voice" }.toSet())
                     .putString("language", value.language).putBoolean("online", value.online)
                     .putBoolean("captions", value.captions).putBoolean("review", value.review)
                     .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
@@ -84,16 +88,19 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
 /** Recover each malformed field independently; never infer permission from an invalid value. */
 internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
     val defaults = VoicePreferences()
+    val legacyVoice = KokoroVoice.fromSaved(saved["kokoro_voice"] as? String)
+    val language = (saved["language"] as? String)?.takeIf { it.length <= 64 && java.util.Locale.forLanguageTag(it).language.isNotBlank() } ?: defaults.language
     return VoicePreferences(
-        language = (saved["language"] as? String)?.takeIf { it.isNotBlank() && it.length <= 64 && java.util.Locale.forLanguageTag(it).language.isNotBlank() } ?: defaults.language,
+        language = language,
+        synthesis = VoiceSynthesisPreferences.restore(saved["synthesis_language"] as? String, saved["synthesis_voices"] as? Set<*>, legacyVoice?.streamingVoiceId()),
         online = saved["online"] as? Boolean ?: defaults.online,
         captions = saved["captions"] as? Boolean ?: defaults.captions,
         review = saved["review"] as? Boolean ?: defaults.review,
         automatic = saved["automatic"] as? Boolean ?: defaults.automatic,
         rate = (saved["rate"] as? Float)?.takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: defaults.rate,
         voice = (saved["voice"] as? String).orEmpty(),
-        recognitionBackend = VoiceRecognitionBackend.fromSaved(saved["recognition_backend"] as? String),
-        kokoroVoice = KokoroVoice.fromSaved(saved["kokoro_voice"] as? String),
+        recognitionBackend = SpeechLanguages.recognitionBackend(language, VoiceRecognitionBackend.fromSaved(saved["recognition_backend"] as? String)),
+        kokoroVoice = legacyVoice,
         spokenReplies = saved["spoken_replies"] as? Boolean ?: defaults.spokenReplies,
         kokoroThreads = (saved["kokoro_threads"] as? Int)?.coerceIn(1, 4) ?: defaults.kokoroThreads,
         buttonSounds = saved["button_sounds"] as? Boolean ?: defaults.buttonSounds,

@@ -1,6 +1,23 @@
-# Android 0.9.66.16 — smoother voice chat and reliable execution
+# Android 0.9.66.17 — repository intelligence, private dispatch and voice
 
-Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
+Android build **151** and Windows Gateway **18.1.4** use the Gateway 18 contract.
+
+## Repository intelligence, privacy and independent speech languages
+
+- Separate the visible transcript from the history used for sends, retries and Combined recovery. Ordinary chat opens page the latest 40 turns and message links retain their anchor.
+- Use compiler-produced JVM method descriptors, source lines and call sites for repository impact and test discovery. Keep language-level lexical matches identifiable when a matching build artifact is unavailable.
+- Replay redacted GitHub reads on an exact revision and compare routing policies by verified requirements, repeat reads, elapsed time and available token receipts.
+- Choose GitHub evidence sources using unmet criteria, measured yields, permissions and the validity of cached source ranges.
+- Carry source revision, blob and line ranges to the final provider request, record omission or partial delivery, and link source-backed conclusions to independently observed evidence where available.
+- Join changed Android line and branch coverage with fresh named JUnit outcomes. The PR gate checks reviewed behavior contracts and retains a change-by-change report.
+- Benchmark repository-map reuse across chats, branch movement, account switches and eviction using the production cache and repeatable fixtures.
+- Offer verified retention as a dispatch requirement for private chats while preserving profile selection, on-device inference and local masking.
+- Set recognition and synthesis languages independently and retain observed local voice and backend evidence separately from requested accelerator placement.
+- Preserve the PR’s LiteRT speech and Adreno FP32 changes, improve GitHub search and saved-page continuation, and reduce Gateway job and saved-chat lookup costs.
+
+The repository-map benchmark uses simulated GitHub transport. A host measurement or requested speech delegate does not establish live handset latency or physical accelerator placement.
+
+## Voice updates and earlier release context
 
 GitHub integration reports show the saved page after a time limit and the minimum remaining inventory calls. Phone maps identify the pinned revision and source coverage. Source reads preserve captured lines across files, and saved-page recovery distinguishes missing data, delivery mismatches and measured capacity. Private planning uses a separate token record. Failed provider requests show the retained reads available for inspection.
 

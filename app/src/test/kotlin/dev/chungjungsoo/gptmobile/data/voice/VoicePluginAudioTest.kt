@@ -457,11 +457,19 @@ class VoicePluginAudioTest {
         assertEquals(1, output.closed)
     }
 
-    @Test fun unsupportedLocaleUsesOnlyTheOfflineFallback() {
+    @Test fun recognitionLanguageDoesNotDisableReplyPlayback() {
+        local.languageTag = "fr-CA"
+        val output = LocalOutput()
+        val plugin = kokoroPlugin(output, mutableListOf())
+        plugin.speak("Hello", {}, {})
+        assertEquals(KokoroVoice.EMMA, output.voice)
+    }
+
+    @Test fun unsupportedSynthesisUsesOnlyTheOfflineFallback() {
         local.languageTag = "fr-CA"
         val output = LocalOutput()
         val fallback = mutableListOf<String>()
-        kokoroPlugin(output, fallback).speak("Bonjour", {}, {})
+        kokoroPlugin(output, fallback).apply { synthesisSupported = false }.speak("Bonjour", {}, {})
         assertEquals(null, output.voice)
         assertEquals(listOf("Bonjour"), fallback)
         assertTrue(system.spoken.isEmpty())

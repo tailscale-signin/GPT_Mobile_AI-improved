@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -16,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
@@ -26,9 +24,7 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 internal fun StreamingVoiceModelCard(
     engine: MediaPipeSpeechEngine,
     state: LocalVoiceModelState?,
-    voice: KokoroVoice?,
     enabled: Boolean,
-    selectVoice: (KokoroVoice) -> Unit,
     install: () -> Unit,
     importCompiled: (android.net.Uri) -> Unit = {},
     cancel: () -> Unit,
@@ -49,7 +45,7 @@ internal fun StreamingVoiceModelCard(
         color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("${model.title} · Offline English speech", style = MaterialTheme.typography.titleMedium)
+            Text("${model.title} · Offline speech", style = MaterialTheme.typography.titleMedium)
             Text("Starts playing audio as the engine produces it. Word highlighting uses estimated timing.", style = MaterialTheme.typography.bodySmall)
             when (current.status) {
                 LocalVoiceModelStatus.CHECKING -> Text("Checking the voice pack…")
@@ -67,11 +63,7 @@ internal fun StreamingVoiceModelCard(
             }
             current.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (current.status == LocalVoiceModelStatus.READY && !setup) {
-                if (engine.isKokoro) {
-                    KokoroVoice.entries.forEach { option ->
-                        FilterChip(selected = voice == option, onClick = { selectVoice(option) }, label = { Text(option.label) }, enabled = enabled)
-                    }
-                } else {
+                if (!engine.isKokoro) {
                     Text("Voice · ${model.defaultVoice.replaceFirstChar { it.uppercase() }}", style = MaterialTheme.typography.bodySmall)
                 }
                 Row {

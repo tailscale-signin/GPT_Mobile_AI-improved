@@ -12,10 +12,12 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import dev.chungjungsoo.gptmobile.data.voice.localStore
 import java.io.File
 import javax.inject.Inject
@@ -33,7 +35,7 @@ import kotlinx.coroutines.withContext
 internal const val STANDARD_SPEECH_RATE = 1f
 
 internal data class VoicePreferences(
-    val language: String = java.util.Locale.getDefault().toLanguageTag(),
+    val language: String = SpeechLanguages.recognitionDefault(),
     val online: Boolean = false,
     val captions: Boolean = true,
     val review: Boolean = false,
@@ -51,7 +53,8 @@ internal data class VoicePreferences(
     val kokoroBucket: MediaPipeKokoroBucket = MediaPipeKokoroBucket.AUTO,
     val incrementalSpeech: Boolean = true,
     val nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
-    val tuning: VoiceTuningPreferences = VoiceTuningPreferences()
+    val tuning: VoiceTuningPreferences = VoiceTuningPreferences(),
+    val synthesis: VoiceSynthesisPreferences = VoiceSynthesisPreferences()
 )
 
 internal data class VoiceModelStores(

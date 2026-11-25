@@ -5754,7 +5754,7 @@ class ChatRepositoryImpl(
                     turns,
                     if (textOnly) emptyList() else effectiveTools.map { it.tool }
                 ) { privateTurns, privateProfile ->
-                    if (store.verifier.verify(privateProfile).route != null) {
+                    if (store.effectiveSnapshot(true).requireVerifiedRetention || store.verifier.verify(privateProfile).route != null) {
                         dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, privateProfile, privateTurns, constraints.withoutTools()) { privacyAlternatives(platform) }
                     } else {
                         dev.chungjungsoo.gptmobile.data.privacy.maskedProviderSession(store, privateProfile, privateTurns, ::providerSession)
@@ -6688,6 +6688,7 @@ class ChatRepositoryImpl(
             val verifiedSession = if (verifiedEvidence != null) {
                 val user = requireNotNull(latestUser)
                 dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSession(
+                    sourceDeliveryRecords = { invocationLedger?.sourceDeliveryForRun(turnKey, runId).orEmpty() },
                     delegate = reviewedSession,
                     evidence = verifiedEvidence,
                     task = githubEffectiveTask,
@@ -6747,6 +6748,8 @@ class ChatRepositoryImpl(
                     privateReviewCandidate = { reviewEvidence?.privateCandidate() },
                     lifecycle = { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, it) },
                     resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
+                    workspaceHead = chatToolConfig?.github?.commitSha,
+                    measuredRoutingTokens = { invocationLedger?.measuredRunUsage(turnKey, runId)?.totalTokens },
                     resumeRequestKey = "${user.chatId}:${user.id}",
                     resumeClaimExtraction = restoreGatewayHandoffRequested,
                     verificationOnlyRequested = verificationOnlyRequested,
@@ -7829,6 +7832,10 @@ class ChatRepositoryImpl(
         dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.sourceBlocks(messageV2Dao, reference, source, first, count)
 
     override fun observeMessageWindow(chatId: Int, turns: Int): Flow<List<MessageV2>> = messageV2Dao.observeWindow(chatId, (turns - 1).coerceAtLeast(0))
+    override suspend fun centeredWindowEnd(chatId: Int, messageId: Int, turns: Int): Int? = messageV2Dao.centeredWindowEnd(chatId, messageId, turns)
+    override suspend fun newerWindowEnd(chatId: Int, end: Int, turns: Int): Int? = messageV2Dao.newerWindowEnd(chatId, end, turns)
+    override fun observeMessageWindowThrough(chatId: Int, end: Int, turns: Int): Flow<List<MessageV2>> = messageV2Dao.observeWindowThrough(chatId, end, turns)
+    override fun observeTurnCountThrough(chatId: Int, end: Int): Flow<Int> = messageV2Dao.observeTurnCountThrough(chatId, end)
     override fun observeReplyCount(chatId: Int): Flow<Int> = messageV2Dao.observeReplyCount(chatId)
     override fun observeTurnCount(chatId: Int): Flow<Int> = messageV2Dao.observeTurnCount(chatId)
 
@@ -8340,6 +8347,8 @@ class ChatRepositoryImpl(
         )
         return room.copy(id = chatRoomV2Dao.addChatRoom(room).toInt())
     }
+
+    override suspend fun saveTranscriptReply(userId: Int, before: MessageV2, after: MessageV2): Boolean = agentPersistenceDao.saveTranscriptReply(userId, before, after)
 
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {
         if (chatRoom.id == 0) {

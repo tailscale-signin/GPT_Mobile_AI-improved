@@ -114,7 +114,7 @@ class GatewayV14CapabilitiesTest {
         assertTrue(caps.supportsKeyFreeConnection)
         assertTrue(caps.desktop?.managed == true)
         assertTrue(caps.desktop?.idleUpdates == true)
-        for (version in listOf("14.0.0", "15.0.0", "16.0.0", "16.1.2", "17.0.0", "17.1.2", "18.0.0", "18.1.2", "18.1.3")) {
+        for (version in listOf("14.0.0", "15.0.0", "16.0.0", "16.1.2", "17.0.0", "17.1.2", "18.0.0", "18.1.2", "18.1.3", "18.1.4")) {
             assertTrue(version, json.decodeFromString<GatewayCapabilities>(valid.replace("17.0.0", version)).supportsKeyFreeConnection)
         }
         for (version in listOf(

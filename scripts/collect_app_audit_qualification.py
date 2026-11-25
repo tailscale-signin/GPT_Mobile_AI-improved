@@ -260,6 +260,18 @@ def harness_observation(root, relative, classes, report_errors):
     return item
 
 
+def current_coverage_sessions(report, since, now, junit_current):
+    sessions = report.findall('sessioninfo')
+    if since is None or not junit_current or not sessions:
+        raise ValueError('CURRENT_EXECUTION_NOT_ESTABLISHED')
+    for session in sessions:
+        started = datetime.fromtimestamp(int(session.attrib['start']) / 1000, timezone.utc)
+        dumped = datetime.fromtimestamp(int(session.attrib['dump']) / 1000, timezone.utc)
+        if not since <= started <= dumped <= now:
+            raise ValueError('COVERAGE_SESSION_OUTSIDE_EXECUTION_WINDOW')
+    return sessions
+
+
 def instrumented_coverage(path, since, now, junit_current):
     if path is None or not path.is_file():
         return {'available': False, 'reason': 'INSTRUMENTED_REPORT_NOT_AVAILABLE'}
@@ -267,14 +279,7 @@ def instrumented_coverage(path, since, now, junit_current):
         report, report_hash = read_xml(path, allow_doctype=True, max_bytes=MAX_COVERAGE_REPORT_BYTES)
         if report.tag != 'report':
             raise ValueError('NOT_A_JACOCO_REPORT')
-        sessions = report.findall('sessioninfo')
-        if since is None or not junit_current or not sessions:
-            raise ValueError('CURRENT_EXECUTION_NOT_ESTABLISHED')
-        for session in sessions:
-            started = datetime.fromtimestamp(int(session.attrib['start']) / 1000, timezone.utc)
-            dumped = datetime.fromtimestamp(int(session.attrib['dump']) / 1000, timezone.utc)
-            if not since <= started <= dumped <= now:
-                raise ValueError('COVERAGE_SESSION_OUTSIDE_EXECUTION_WINDOW')
+        sessions = current_coverage_sessions(report, since, now, junit_current)
         totals = {kind: {'covered': 0, 'missed': 0} for kind in ('LINE', 'BRANCH')}
         source_files = set()
         for package in report.findall('package'):

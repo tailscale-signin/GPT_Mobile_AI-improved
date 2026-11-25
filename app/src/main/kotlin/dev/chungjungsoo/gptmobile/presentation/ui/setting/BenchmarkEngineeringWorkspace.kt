@@ -197,6 +197,7 @@ internal fun BenchmarkEngineeringWorkspace(
         }
         when (destination) {
             0 -> {
+                PhoneMapBenchmarkPanel(enabled = !busy)
                 EngineeringCard("Matched run setup") {
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         if (maxWidth >= 600.dp) {

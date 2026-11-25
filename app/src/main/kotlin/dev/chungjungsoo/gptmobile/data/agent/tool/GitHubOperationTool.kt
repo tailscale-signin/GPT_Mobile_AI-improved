@@ -1634,7 +1634,7 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Search pinned source (mode=paths for filenames) or live issues and PRs (is:issue, is:pr). Follow source_read_call for source and continuation_call for more results."
+                "github_search" -> "Search pinned source (mode=paths for filenames) or live is:issue/is:pr. Follow source_read_call for source."
                 "github_read" -> "Read bounded ranges: end_line or max_lines. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select its saved version. If the branch advanced, use restore_stage_id, branch and the new expected_head_sha to revalidate unchanged files without publishing. Review the returned stage ID before committing."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
@@ -1646,12 +1646,12 @@ internal class GitHubOperationTool(
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
                 "github_read", "github_search" ->
-                    " New read: owner+repo together or both omitted."
+                    " Supply both owner/repo or neither."
                 "github_context", "github_ci", "github_pr", "github_issue" ->
                     " Saved-view continuation: copy the returned continuation_call with only view_cursor; do not carry over action, owner, repo, branch, ref, page, per_page, search_id or other fields. For a new remote read, owner and repo must be supplied together or both omitted."
                 else -> " Follow the exact continuation_call. For new calls, supply owner and repo together."
             } + if (operation in setOf("github_read", "github_search", "github_context", "github_ci", "github_pr", "github_issue")) {
-                " continuation_call advances unread content; recovery_call/recovery_options reread the retained offset only for undelivered pages or explicit rereads."
+                " Advance with continuation_call. Use recovery_call/recovery_options only for undelivered pages or explicit rereads."
             } else {
                 ""
             }

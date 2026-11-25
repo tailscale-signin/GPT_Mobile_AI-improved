@@ -217,15 +217,7 @@ class GitHubTool(
             return mapSelection.withLock {
                 if (workspaceClient.taskSnapshot() == null) {
                     validateSavedViewAccess()
-                    workspaceClient.execute(
-                        "resolve_context",
-                        buildJsonObject {
-                            put("owner", bound.owner)
-                            put("repo", bound.repo)
-                            put("ref", bound.ref)
-                            put("refresh", true)
-                        }
-                    )
+                    workspaceClient.refreshGraphRevision(bound)
                 }
                 currentScope()
             }

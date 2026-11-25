@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "4a2a5b89dd047a1e727a596e04de884dd4eb9836cfe17f4009ff921e37c07e5c",
+  "source_digest": "bf3c1ada21fee509b3664bb35ffb96d9d42bc2cb2413bef55a765cc1da23cbce",
   "file_count": 3132,
-  "indexed_line_count": 534072,
+  "indexed_line_count": 534082,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -59,7 +59,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24528
+      "indexed_line_count": 24520
     },
     {
       "id": "mcp_plugins",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 300,
-      "indexed_line_count": 55506
+      "indexed_line_count": 55524
     },
     {
       "id": "research",
@@ -2909,8 +2909,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "5159aeb7d107d7d6c988b06e8c9932f89e3efaca1d8fb2f00ed1aca3c27720a2",
-      "indexed_lines": 2621
+      "sha256": "6f32347320136b432be69bcada6fc4769835bc0aa472106b4b12813322f1942b",
+      "indexed_lines": 2613
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolErrorDiagnostics.kt",
@@ -8670,8 +8670,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "1618adf96c6e848064dd1a1b9e45790f7ab9b6efdc48bca0385c861670db1de7",
-      "indexed_lines": 3023
+      "sha256": "c99a6052910a00132605c8b1e249a621c6056b79f753e0b9130517042b70e483",
+      "indexed_lines": 3041
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStore.kt",

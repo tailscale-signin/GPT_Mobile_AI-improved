@@ -10,9 +10,8 @@ import zipfile
 import requests
 
 from .engine import is_test
+from .jvm_index_limits import ARCHIVE_LIMIT, JSON_LIMIT
 
-ARCHIVE_LIMIT = 32 * 1024 * 1024
-JSON_LIMIT = 64 * 1024 * 1024
 SHA = re.compile(r'[0-9a-f]{40}')
 DIGEST = re.compile(r'[0-9a-f]{64}')
 QUALIFICATION = 'Debug main and unit-test bytecode. Virtual calls target the declared method. Reflection, invokedynamic, inlining and uncompiled variants can omit paths.'

@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.1.4",
   "schemaVersion": 1,
-  "sourceCommit": "461c0ac333f2687df169421c8a012a07c50b1f85",
+  "sourceCommit": "a21a6f9744a03696d12ba3782fefffd97d4500b8",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -420,7 +420,8 @@
     "v14/code_graph/engine.py": "db226334beaba8837d305f6f771a2be4ec552d299ed89e780976295030036c0a",
     "v14/code_graph/extract.py": "65d52ace1616a3ff8ed028efc4454bb76c2a6477836076a60bcb72d1cef0843b",
     "v14/code_graph/index_jobs.py": "12e479b0b5c6cc3a86a527bf204edf6e68c3465ded3b49e9f4b1f4085650d004",
-    "v14/code_graph/jvm_impact.py": "ab8a7937c49bc416d1f570c9595f913632b5b406876504a82cd71de1b28c4335",
+    "v14/code_graph/jvm_impact.py": "71673521cf9b95946bd2e6f998d64ccd4b953f1770e722d25ba4a988a220b3e6",
+    "v14/code_graph/jvm_index_limits.py": "cb55ade5b5149e91a95d5a42bc61aacb56f58144e1870783342f83c8148a5a7b",
     "v14/code_graph/paging.py": "ad2b8e7a4164af85bf74a2b3e8797d8f2533fabf92870db3aea2ae7e93ad0dcb",
     "v14/code_graph/public_github.py": "69e7a04bcf26a97306dd02deef953645ab8a54828197c65f5601228b0848020d",
     "v14/code_graph/service.py": "a3b8ddeb6de29d4ea020580edd0eb7e877b88f98486f1c47a8e7cd306fc07bb0",

@@ -1,26 +1,25 @@
 # Voice streaming and preparation
 
-The phone retains native Kokoro CPU, qualified QNN GPU/HTP, and the optional
-Gateway CUDA route. Voice settings also offer MediaPipe Tasks Audio 1.2.3 engines:
-Kokoro on CPU, Kokoro with the GPU delegate requested, Phonon English, and Pocket
-English. The default remains native CPU. Selecting an engine does not download a
-model or enable a remote service.
+New Voice Mode profiles use LiteRT Kokoro streaming on CPU at 1×. Saved engine
+and rate choices take precedence. The Kokoro GPU and NPU options request their
+respective delegates through MediaPipe Tasks Audio 1.2.3. They use the same
+model, voices, pronunciation overrides and incremental text path as CPU.
+Phonon, Pocket, native Kokoro and Gateway CUDA remain selectable.
 
 ## Model installation and ownership
 
-`MediaPipeSpeechCatalog` pins each publisher repository revision, filename,
-expected byte count and SHA-256. The Kokoro bundle contains explicit dequantize
-operators and supports CPU as well as a requested GPU delegate. It is separate
-from the native ONNX Kokoro pack. Phonon and Pocket have independent packs and
-their own default voices.
+The first visit to Voice Mode schedules Moonshine recognition, LiteRT Kokoro,
+and the selected native Kokoro pack through the Android background installer.
+Existing verified packs are reused. Setup reports the combined progress and
+offers cancellation and retry. After cancellation or manual removal, a user
+can resume the download from setup. Phonon and Pocket are separate downloads.
 
-`MediaPipeSpeechModelStore` reuses the existing voice asset installer. Downloads
-begin only after an explicit install action. Transfers retain the installer's
-HTTPS, byte limit, resume validation, digest verification and atomic promotion
-rules. A native-use lease prevents removal while an engine maps model files.
-Changing voices or rates does not download a model. The screen checks only the
-selected pack instead of hashing every installed engine during a settings
-change. Model attribution is included in the app's license assets.
+`MediaPipeSpeechCatalog` pins each pack's publisher revision, filename, byte
+count and SHA-256. The shared Kokoro pack is 294,783,298 bytes. The installer
+checks the size and digest before making the download available to the engine.
+A native-use lease protects files mapped by a running engine. Switching
+between the Kokoro streaming delegates reuses the installed model and gives
+each delegate its own runtime cache.
 
 The resident engine identity includes the model digest, runtime, selected
 delegate, voice and exact speaking rate. MediaPipe exposes speaking rate at
@@ -126,12 +125,19 @@ neural generation.
 
 ## Evidence and qualification
 
-Selecting the MediaPipe GPU delegate is a request. The SDK exposes no executed
-provider or kernel receipt, so the application leaves effective processor
-evidence absent. Diagnostic stage series identify the invoked model family as
-MediaPipe Kokoro, Phonon or Pocket. They do not inherit a previous native CPU/GPU
-receipt. These choices are excluded from the native ONNX CPU/GPU/NPU paired
-ranking, which has a different model and workload identity.
+Kokoro's acoustic model normally runs on CPU and its vocoder can request
+GPU or NPU. If the accelerator task fails to open during playback, the app
+tries the same pack on CPU and reports the fallback in Voice settings.
+Benchmarks measure the requested configuration without this app-level retry.
+MediaPipe does not expose executed-kernel placement, so results identify
+the delegate requested and leave the effective processor unknown. Native QNN
+has its own CPU-reference comparison and performance ranking.
+
+The standard Kokoro vocoder failed a host compilation for Snapdragon 8 Elite
+(SM8750) with LiteRT 2.4.0 and QAIRT 2.52.0. The Qualcomm compiler rejected
+the per-channel weight dequantization in the graph. On that phone, selecting
+LiteRT NPU can therefore produce CPU-only speech. The separate native Hexagon
+engine qualifies accelerator execution against CPU audio on the device.
 
 Native QNN playback, including manual GPU/NPU selection, requires complete paired
 CPU and accelerator observations from the same current comparison workload,
@@ -155,7 +161,7 @@ policy, Gateway framing/backpressure/privacy, and stale provider removal.
 Publisher model smoke checks exercise real checkpoint compatibility on their
 declared host. Android project compilation, instrumentation and final release
 verification remain separate gates. Target-phone speed, audible quality,
-acoustic latency, battery use and GPU execution require actual device evidence.
+acoustic latency, battery use and accelerator execution require actual device evidence.
 
 `Speech engine model smoke` runs all three immutable checkpoints with the real
 published SDK on Linux. `Minified native memory smoke` builds one R8-processed

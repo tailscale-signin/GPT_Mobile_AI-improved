@@ -16,7 +16,7 @@ from pathlib import Path
 
 CORPUS = Path(__file__).resolve().parents[1] / "app/src/androidTest/assets/voice/listening-v1.tsv"
 ARMS = ("previous", "candidate", "streaming")
-ROUTES = ("CPU", "QNN_GPU", "QNN_HTP", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU")
+ROUTES = ("CPU", "QNN_GPU", "QNN_HTP", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU")
 TEST = "dev.chungjungsoo.gptmobile.presentation.ui.voice.KokoroListeningInstrumentedTest#playPublicFixture"
 SCHEMA_VERSION = 2
 MAX_COORDINATOR_BYTES = 128 * 1024

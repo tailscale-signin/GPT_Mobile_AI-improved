@@ -644,7 +644,7 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
     put("effectiveProvider", provider(r.effectiveProvider))
     put("acceleratorExecutionObserved", r.acceleratorExecutionObserved)
     nullable("streamedAudioValidated", r.streamedAudioValidated)
-    nullable("requestedDelegate", r.requestedDelegate?.takeIf { it in setOf("CPU", "GPU") })
+    nullable("requestedDelegate", r.requestedDelegate?.takeIf { it in setOf("CPU", "GPU", "NPU") })
     nullable("observedProviderStatus", r.observedProviderStatus?.takeIf { it == "NOT_EXPOSED_BY_SDK" })
     nullable("engineStreamCalls", r.engineStreamCalls)
     nullable("engineStreamWallMs", r.engineStreamWallMs)
@@ -998,7 +998,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     effectiveProvider = r.optionalProvider("effectiveProvider"), acceleratorExecutionObserved = r.getValue("acceleratorExecutionObserved").jsonPrimitive.boolean,
     thermalBefore = r.thermal("thermalBefore"), thermalAfter = r.thermal("thermalAfter"),
     streamedAudioValidated = r.optionalBoolean("streamedAudioValidated"),
-    requestedDelegate = r.optionalString("requestedDelegate")?.also { require(it in setOf("CPU", "GPU")) },
+    requestedDelegate = r.optionalString("requestedDelegate")?.also { require(it in setOf("CPU", "GPU", "NPU")) },
     observedProviderStatus = r.optionalString("observedProviderStatus")?.also { require(it == "NOT_EXPOSED_BY_SDK") },
     engineStreamCalls = r.optionalBoundedLong("engineStreamCalls", 1000)?.toInt(),
     engineStreamWallMs = r.optionalBoundedLong("engineStreamWallMs", 86_400_000),

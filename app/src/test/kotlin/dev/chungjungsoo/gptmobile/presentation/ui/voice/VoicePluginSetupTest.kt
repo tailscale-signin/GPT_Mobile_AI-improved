@@ -92,7 +92,7 @@ class VoicePluginSetupTest {
         val missing = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED)
         var starts = 0
         var reports = 0
-        compose.setContent { MaterialTheme { Column { VoicePluginSetup(missing, missing, installation, { starts++ }, {}, { reports++ }) } } }
+        compose.setContent { MaterialTheme { Column { VoicePluginSetup(missing, missing, missing, installation, { starts++ }, {}, { reports++ }) } } }
         compose.onNodeWithText("Waiting for an internet connection…").assertIsDisplayed()
         compose.onNodeWithText("Report download problem").assertIsDisplayed().performClick()
         assertEquals(1, reports)
@@ -103,6 +103,23 @@ class VoicePluginSetupTest {
         assertEquals(0, starts)
         compose.onNodeWithText("Resume download").performClick()
         assertEquals(1, starts)
+    }
+
+    @Test fun missingStreamingPackRemainsVisibleAfterBothOriginalPacksAreReady() {
+        val installed = LocalVoiceModelState(LocalVoiceModelStatus.READY, 10, 10)
+        val missing = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED, 0, 100)
+        var streaming by mutableStateOf(missing)
+        var starts = 0
+        compose.setContent {
+            MaterialTheme { Column { VoicePluginSetup(installed, installed, streaming, VoiceInstallState(), { starts++ }, {}) } }
+        }
+        compose.onNodeWithText("Voice Chat plugin ready").assertDoesNotExist()
+        compose.onNodeWithText("Download Voice Chat plugin").performClick()
+        compose.runOnIdle {
+            assertEquals(1, starts)
+            streaming = installed
+        }
+        compose.onNodeWithText("Voice Chat plugin ready").assertIsDisplayed()
     }
 
     @Test fun connectionAndArchivePreparationAreVisibleBeforeReady() {

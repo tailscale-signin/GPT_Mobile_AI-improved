@@ -21,12 +21,14 @@ internal class MediaPipeSpeechModelStore internal constructor(
     private val cacheRoot: File,
     scope: CoroutineScope,
     private val manifests: List<MediaPipeSpeechModel> = MediaPipeSpeechCatalog.models,
+    internal val prepareNpu: () -> Unit = {},
     sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }
 ) {
     constructor(context: Context, scope: CoroutineScope) : this(
         File(context.applicationContext.noBackupFilesDir, "voice-models"),
         File(context.applicationContext.cacheDir, "mediapipe-speech"),
-        scope
+        scope,
+        prepareNpu = { prepareMediaPipeSpeechNpu(context.applicationContext) }
     )
 
     init {
@@ -34,12 +36,7 @@ internal class MediaPipeSpeechModelStore internal constructor(
     }
 
     private val stores = manifests.associate { model ->
-        model.engine to LocalVoiceModelStore(
-            File(voiceModelsDirectory, "mediapipe-${model.id}-${model.sha256.take(16)}"),
-            listOf(model.asset),
-            revision = "${model.revision}:${model.sha256}",
-            sourceFactory = sourceFactory
-        )
+        model.engine to model.localStore(voiceModelsDirectory, sourceFactory)
     }
 
     val state: StateFlow<Map<MediaPipeSpeechEngine, LocalVoiceModelState>> = combine(stores.values.map { it.state }) { values ->
@@ -48,8 +45,8 @@ internal class MediaPipeSpeechModelStore internal constructor(
 
     fun localStore(engine: MediaPipeSpeechEngine): LocalVoiceModelStore = stores.getValue(engine)
 
-    suspend fun refresh(engine: MediaPipeSpeechEngine? = null) {
-        if (engine == null) stores.values.forEach { it.refresh() } else localStore(engine).refresh()
+    suspend fun refresh(engine: MediaPipeSpeechEngine? = null, forceVerification: Boolean = true) {
+        if (engine == null) stores.values.forEach { it.refresh(forceVerification) } else localStore(engine).refresh(forceVerification)
     }
 
     suspend fun install(engine: MediaPipeSpeechEngine) = localStore(engine).install()
@@ -128,3 +125,13 @@ internal class MediaPipeSpeechModelStore internal constructor(
         val cacheUsers = mutableMapOf<String, Int>()
     }
 }
+
+internal fun MediaPipeSpeechModel.localStore(
+    voiceModelsDirectory: File,
+    sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }
+): LocalVoiceModelStore = LocalVoiceModelStore(
+    File(voiceModelsDirectory, "mediapipe-$id-${sha256.take(16)}"),
+    listOf(asset),
+    revision = "$revision:$sha256",
+    sourceFactory = sourceFactory
+)

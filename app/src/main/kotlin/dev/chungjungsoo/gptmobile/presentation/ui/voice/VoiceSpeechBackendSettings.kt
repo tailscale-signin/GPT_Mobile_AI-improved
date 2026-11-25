@@ -31,7 +31,9 @@ internal fun VoiceSpeechBackendSettings(
     } else if (value.backend.isStreamingLocal) {
         Text("These engines stream audio locally. Each model has its own voice quality and speed; try a preview on this phone.", style = MaterialTheme.typography.bodySmall)
         if (value.backend == VoiceSpeechBackend.LITERT_KOKORO_GPU) {
-            Text("GPU execution is unverified. This option is excluded from the verified native CPU/GPU/NPU ranking.", style = MaterialTheme.typography.bodySmall)
+            Text("Kokoro requests the GPU for its vocoder. The runtime can also use CPU and does not report processor placement.", style = MaterialTheme.typography.bodySmall)
+        } else if (value.backend == VoiceSpeechBackend.LITERT_KOKORO_NPU) {
+            Text("The LiteRT pack failed a Snapdragon 8 Elite compiler check. This route may use CPU. For verified NPU playback, select Hexagon NPU and run Recheck.", style = MaterialTheme.typography.bodySmall)
         }
     } else {
         if (value.backend == VoiceSpeechBackend.AUTO) {

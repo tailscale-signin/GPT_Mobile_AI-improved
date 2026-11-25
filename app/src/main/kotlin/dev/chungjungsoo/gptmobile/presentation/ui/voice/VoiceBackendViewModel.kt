@@ -18,9 +18,9 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
-import dev.chungjungsoo.gptmobile.data.voice.TimedKokoroPhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.UnavailableVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -37,17 +37,17 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal data class VoiceBackendSettings(
-    val backend: VoiceSpeechBackend = VoiceSpeechBackend.CPU,
+    val backend: VoiceSpeechBackend = VoiceSpeechBackend.DEFAULT,
     val gatewayUid: String = "",
     val gateways: List<ProviderConnection> = emptyList(),
     val status: String = "Loading speech settings…",
-    val factory: VoicePhraseEngineFactory = TimedKokoroPhraseEngineFactory,
+    val factory: VoicePhraseEngineFactory = UnavailableVoicePhraseEngineFactory("Loading speech settings…"),
     val loaded: Boolean = false,
     val streamingModels: Map<MediaPipeSpeechEngine, LocalVoiceModelState> = emptyMap()
 )
 
 internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when (this) {
-    VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU -> MediaPipeSpeechEngine.KOKORO
+    VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU -> MediaPipeSpeechEngine.KOKORO
     VoiceSpeechBackend.PHONON_CPU -> MediaPipeSpeechEngine.PHONON
     VoiceSpeechBackend.POCKET_CPU -> MediaPipeSpeechEngine.POCKET
     else -> null
@@ -85,7 +85,7 @@ internal class VoiceBackendViewModel internal constructor(
     private data class Configuration(val preference: VoiceBackendPreference, val connection: ProviderConnection?, val voice: KokoroVoice, val rate: Float, val bucket: MediaPipeKokoroBucket, val incremental: Boolean, val nativeModelVariant: KokoroModelVariant)
     private var configuration: Configuration? = null
     private var voice = KokoroVoice.HEART
-    private var speechRate = 1f
+    private var speechRate = STANDARD_SPEECH_RATE
     private var kokoroBucket = MediaPipeKokoroBucket.AUTO
     private var incrementalSpeech = true
     private var nativeModelVariant = KokoroModelVariant.INT8
@@ -137,7 +137,7 @@ internal class VoiceBackendViewModel internal constructor(
 
     fun configureSpeech(voice: KokoroVoice?, rate: Float, bucket: MediaPipeKokoroBucket = kokoroBucket, incremental: Boolean = incrementalSpeech, modelVariant: KokoroModelVariant = nativeModelVariant) {
         voice ?: return
-        val bounded = rate.takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: 1f
+        val bounded = rate.takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: STANDARD_SPEECH_RATE
         if (this.voice == voice && speechRate == bounded && kokoroBucket == bucket && incrementalSpeech == incremental && nativeModelVariant == modelVariant) return
         this.voice = voice
         speechRate = bounded
@@ -173,6 +173,7 @@ internal class VoiceBackendViewModel internal constructor(
 
     fun cancelStreamingInstall() {
         val engine = mutable.value.backend.streamingEngine() ?: return
+        if (engine == MediaPipeSpeechEngine.KOKORO) VoicePluginInstall.cancel(context)
         streamingStore?.cancelInstall(engine)
         streamingInstalls[engine]?.cancel()
     }
@@ -180,6 +181,7 @@ internal class VoiceBackendViewModel internal constructor(
     /** The caller retires playback first; the model store also holds a native-use lease. */
     fun removeStreamingModel() {
         val engine = mutable.value.backend.streamingEngine() ?: return
+        if (engine == MediaPipeSpeechEngine.KOKORO) VoicePluginInstall.cancel(context)
         viewModelScope.launch { streamingModels().remove(engine) }
     }
 
@@ -282,14 +284,14 @@ internal class VoiceBackendViewModel internal constructor(
                 )
             }
         }
-        VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU,
+        VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU,
         VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.POCKET_CPU -> {
             val engine = requireNotNull(value.backend.streamingEngine())
             val descriptor = MediaPipeSpeechCatalog.model(engine)
             val models = streamingModels()
             // Only inspect the selected pack. Voice/rate changes reuse the verified generation
             // instead of hashing every installed model or starting unrelated downloads.
-            if (refreshedStreamingModels.add(engine)) viewModelScope.launch { models.refresh(engine) }
+            if (refreshedStreamingModels.add(engine)) viewModelScope.launch { models.refresh(engine, forceVerification = false) }
             Prepared(
                 MediaPipeVoicePhraseEngineFactory(
                     models,
@@ -298,10 +300,13 @@ internal class VoiceBackendViewModel internal constructor(
                     rate,
                     if (engine == MediaPipeSpeechEngine.KOKORO) voice.streamingVoiceId() else descriptor.defaultVoice,
                     kokoroBucket = bucket,
-                    incrementalInput = incremental
+                    incrementalInput = incremental,
+                    onCpuFallback = { requested ->
+                        report("${requested.label} could not initialize. Kokoro LiteRT is using CPU with the same voice and rate.")
+                    }
                 ),
-                if (value.backend == VoiceSpeechBackend.LITERT_KOKORO_GPU) {
-                    "Audio streams on this phone. GPU is requested, but this runtime does not report which processor executed it."
+                if (value.backend in setOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU)) {
+                    "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If initialization fails, playback opens the same model on CPU."
                 } else {
                     "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
                 }

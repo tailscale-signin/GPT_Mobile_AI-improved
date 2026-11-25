@@ -584,6 +584,8 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.insert(additions.index("ACCEPTANCE_OBSERVATION_CAUSES_V1") + 1, "ACCEPTANCE_EMPTY_EXPLANATION_V1")
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
         additions.insert(2, "VOICE_STREAMING_BACKEND_EVIDENCE_V1")
+        additions.insert(3, "VOICE_STREAMING_NPU_EVIDENCE_V1")
+        additions.insert(4, "VOICE_STREAMING_INSTALL_EVIDENCE_V1")
         additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "SAVED_PAGE_CAPACITY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
@@ -691,7 +693,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertIn(feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
         additions = {
             "voice_engine": ("MEDIAPIPE",),
-            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "PHONON_CPU", "POCKET_CPU"),
             "voice_fallback_source": ("LITERT_KOKORO", "PHONON", "POCKET"),
         }
         for field, choices in additions.items():
@@ -707,7 +709,7 @@ class IssueReportHttpTest(unittest.TestCase):
                     self.assertEqual(200, response.status_code, response.text)
                     self.assertIn(f"| {field} | `{value}` |", self.issued[-1]["body"])
                     self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
-        self.assertEqual(8, len(self.issued))
+        self.assertEqual(sum(map(len, additions.values())), len(self.issued))
 
     def test_failed_event_output_flags_and_omissions_survive_submission_and_idempotent_replay(self):
         from authentication.test_incident_report_contract import IncidentReportContractTest

@@ -1,11 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 import com.google.mediapipe.tasks.audio.texttospeech.AudioChunk
+import com.google.mediapipe.tasks.core.Delegate
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +56,33 @@ class MediaPipeSpeechModelStoreTest {
         acquire(store).use { assertEquals(model.sha256, hash(it.file.readBytes())) }
         assertEquals(1, downloads.get())
         assertTrue(store.state.value.containsKey(model.engine))
+    }
+
+    @Test fun firstLaunchAndPlaybackShareTheSameVerifiedKokoroFile() = runBlocking {
+        val directory = files.newFolder()
+        val kokoro = MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO)
+            .copy(downloadBytes = bytes.size.toLong(), sha256 = hash(bytes))
+        val requests = AtomicInteger()
+        val playback = MediaPipeSpeechModelStore(directory, files.newFolder(), scope, listOf(kokoro)) {
+            error("Playback must use the first-launch installation")
+        }
+        val installer = kokoro.localStore(directory) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String): LocalVoiceAssetStream {
+                    assertEquals(kokoro.downloadUrl, url)
+                    requests.incrementAndGet()
+                    return LocalVoiceAssetStream(ByteArrayInputStream(bytes), bytes.size.toLong())
+                }
+                override fun cancel() = Unit
+            }
+        }
+        installer.install(waitForOwner = true)
+        assertTrue(playback.isReady(kokoro.engine))
+        playback.acquire(kokoro.engine, VoiceSpeechBackend.LITERT_KOKORO_CPU, 1f, kokoro.defaultVoice).use {
+            assertEquals(File(installer.modelDirectory(), kokoro.fileName), it.file)
+        }
+        installer.install(waitForOwner = true)
+        assertEquals(1, requests.get())
     }
 
     @Test fun incorrectHashOrLengthCannotPublishANativeLoadableModel() = runBlocking {
@@ -128,7 +159,7 @@ class MediaPipeSpeechModelStoreTest {
             assertTrue(actual.cacheDirectory.isDirectory)
             assertEquals(1.2f, actual.speakingRate, 0f)
             assertEquals("freya", actual.voiceId)
-            assertFalse(actual.requestGpu)
+            assertEquals(Delegate.CPU, actual.delegate)
         }
         withTimeout(2_000) { store.remove(model.engine) }
         assertFalse(store.isReady(model.engine))
@@ -197,6 +228,130 @@ class MediaPipeSpeechModelStoreTest {
     }
 
     @Test fun kokoroBucketAndDelegateArePassedToThePinnedSdkAndChangeCacheIdentity(): Unit = runBlocking {
+        val kokoro = MediaPipeSpeechEngine.KOKORO
+        val store = installedKokoro()
+        val configurations = mutableListOf<MediaPipeSpeechTaskConfiguration>()
+        val inputs = mutableListOf<String>()
+        val completeText = "The selected bucket must not truncate this input. ".repeat(40)
+        val identities = mutableSetOf<String>()
+        for ((backend, delegate) in listOf(VoiceSpeechBackend.LITERT_KOKORO_GPU to Delegate.GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU to Delegate.NPU)) {
+            for (bucket in MediaPipeKokoroBucket.entries) {
+                val factory = MediaPipeVoicePhraseEngineFactory(store, kokoro, backend, 1f, "af_heart", bucket) { configuration ->
+                    configurations += configuration
+                    object : MediaPipeSpeechTask {
+                        override fun voiceIds() = setOf("af_heart")
+                        override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream {
+                            inputs += text
+                            var read = false
+                            return object : MediaPipeSpeechStream {
+                                override fun readNext(): AudioChunk? = if (read) null else AudioChunk(floatArrayOf(.1f)).also { read = true }
+                                override fun cancel() = Unit
+                                override fun close() = Unit
+                            }
+                        }
+                        override fun cancel() = Unit
+                        override fun close() = Unit
+                    }
+                }
+                assertTrue(identities.add(factory.identity))
+                factory.create(files.root, "unused", 2).use { engine ->
+                    assertEquals("mediapipe-kokoro-${delegate.name.lowercase()}-requested", engine.executionProvider)
+                    assertTrue(engine.supportsIncrementalInput)
+                    assertEquals(null, engine.executionEvidence)
+                    engine.stream(completeText, 0, 1f) { true }
+                }
+                assertEquals(delegate, configurations.last().delegate)
+            }
+        }
+        assertEquals(listOf(0, 64, 128, 256, 0, 64, 128, 256), configurations.map { it.targetBucket })
+        assertEquals(8, configurations.map { it.cacheDirectory }.toSet().size)
+        assertEquals(List(8) { completeText }, inputs)
+        assertThrows(IllegalArgumentException::class.java) { configurations.first().copy(targetBucket = 63) }
+    }
+
+    @Test fun acceleratorStartupFallbackKeepsTheModelVoiceRateAndIncrementalMode(): Unit = runBlocking {
+        val store = installedKokoro()
+        for ((backend, delegate) in listOf(VoiceSpeechBackend.LITERT_KOKORO_NPU to Delegate.NPU, VoiceSpeechBackend.LITERT_KOKORO_GPU to Delegate.GPU)) {
+            val configurations = mutableListOf<MediaPipeSpeechTaskConfiguration>()
+            val fallbacks = mutableListOf<VoiceSpeechBackend>()
+            val factory = MediaPipeVoicePhraseEngineFactory(
+                store,
+                MediaPipeSpeechEngine.KOKORO,
+                backend,
+                1.25f,
+                "am_adam",
+                MediaPipeKokoroBucket.TOKENS_64,
+                onCpuFallback = { fallbacks += it }
+            ) { config ->
+                configurations += config
+                if (config.delegate != Delegate.CPU) throw IllegalStateException("Accelerator initialization failed")
+                object : MediaPipeSpeechTask {
+                    override fun voiceIds() = setOf("af_heart", "am_adam")
+                    override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream = error("Incremental input expected")
+                    override fun openIncrementalStream(voiceId: String): MediaPipeSpeechStream {
+                        assertEquals("am_adam", voiceId)
+                        val done = CountDownLatch(1)
+                        return object : MediaPipeSpeechStream {
+                            private var read = false
+                            override fun pushText(text: String) = assertEquals("Kokoro", text)
+                            override fun finishInput() = done.countDown()
+                            override fun readNext(): AudioChunk? {
+                                assertTrue(done.await(2, TimeUnit.SECONDS))
+                                return if (read) null else AudioChunk(floatArrayOf(.25f)).also { read = true }
+                            }
+                            override fun cancel() = done.countDown()
+                            override fun close() = Unit
+                        }
+                    }
+
+                    override fun cancel() = Unit
+                    override fun close() = Unit
+                }
+            }
+            factory.create(files.root, "", 2).use { engine ->
+                assertTrue(engine.supportsIncrementalInput)
+                assertEquals("mediapipe-kokoro-cpu-requested", engine.executionProvider)
+                val input = listOf("Kokoro").iterator()
+                val output = mutableListOf<Float>()
+                engine.streamInput({ if (input.hasNext()) input.next() else null }, 0, 1.25f) {
+                    output += it.samples.toList()
+                    true
+                }
+                assertEquals(listOf(.25f), output)
+            }
+            assertEquals(listOf(backend), fallbacks)
+            assertEquals(listOf(delegate, Delegate.CPU), configurations.map { it.delegate })
+            assertEquals(1, configurations.map { it.modelFile }.distinct().size)
+            assertEquals(2, configurations.map { it.cacheDirectory }.distinct().size)
+            assertTrue(configurations.all { it.speakingRate == 1.25f && it.targetBucket == 64 })
+        }
+        store.remove(MediaPipeSpeechEngine.KOKORO)
+    }
+
+    @Test fun npuRequestsStayStrictForBenchmarksAndNeverRecoverCancelledPreparation(): Unit = runBlocking {
+        val store = installedKokoro()
+        for (cancel in listOf(false, true)) {
+            val delegates = mutableListOf<Delegate>()
+            val factory = MediaPipeVoicePhraseEngineFactory(
+                store,
+                MediaPipeSpeechEngine.KOKORO,
+                VoiceSpeechBackend.LITERT_KOKORO_NPU,
+                1f,
+                onCpuFallback = if (cancel) ({ _ -> error("Cancelled preparations must never recover") }) else null
+            ) { config ->
+                delegates += config.delegate
+                if (cancel) throw CancellationException("Cancelled")
+                throw IllegalStateException("Cannot initialize NPU")
+            }
+            assertThrows(if (cancel) CancellationException::class.java else IllegalStateException::class.java) {
+                factory.create(files.root, "", 2)
+            }
+            assertEquals(listOf(Delegate.NPU), delegates)
+        }
+        store.remove(MediaPipeSpeechEngine.KOKORO)
+    }
+
+    private suspend fun installedKokoro(): MediaPipeSpeechModelStore {
         val kokoro = model.copy(engine = MediaPipeSpeechEngine.KOKORO, defaultVoice = "af_heart")
         val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, listOf(kokoro)) {
             object : LocalVoiceAssetSource {
@@ -205,36 +360,7 @@ class MediaPipeSpeechModelStoreTest {
             }
         }
         store.install(kokoro.engine)
-        val configurations = mutableListOf<MediaPipeSpeechTaskConfiguration>()
-        val inputs = mutableListOf<String>()
-        val completeText = "The selected bucket must not truncate this input. ".repeat(40)
-        val identities = mutableSetOf<String>()
-        for (bucket in MediaPipeKokoroBucket.entries) {
-            val factory = MediaPipeVoicePhraseEngineFactory(store, kokoro.engine, VoiceSpeechBackend.LITERT_KOKORO_GPU, 1f, "af_heart", bucket) { configuration ->
-                configurations += configuration
-                object : MediaPipeSpeechTask {
-                    override fun voiceIds() = setOf("af_heart")
-                    override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream {
-                        inputs += text
-                        var read = false
-                        return object : MediaPipeSpeechStream {
-                            override fun readNext(): AudioChunk? = if (read) null else AudioChunk(floatArrayOf(.1f)).also { read = true }
-                            override fun cancel() = Unit
-                            override fun close() = Unit
-                        }
-                    }
-                    override fun cancel() = Unit
-                    override fun close() = Unit
-                }
-            }
-            assertTrue(identities.add(factory.identity))
-            factory.create(files.root, "unused", 2).use { it.stream(completeText, 0, 1f) { true } }
-        }
-        assertEquals(listOf(0, 64, 128, 256), configurations.map { it.targetBucket })
-        assertTrue(configurations.all { it.requestGpu })
-        assertEquals(4, configurations.map { it.cacheDirectory }.toSet().size)
-        assertEquals(List(4) { completeText }, inputs)
-        assertThrows(IllegalArgumentException::class.java) { configurations.first().copy(targetBucket = 63) }
+        return store
     }
 
     private fun acquire(store: MediaPipeSpeechModelStore, backend: VoiceSpeechBackend = VoiceSpeechBackend.PHONON_CPU, rate: Float = 1f) =

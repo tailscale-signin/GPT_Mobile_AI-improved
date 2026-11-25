@@ -59,7 +59,15 @@ class VoiceBackendViewModelTest {
             every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
             val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher)
             owners.put("voice", model)
+            assertFalse(model.state.value.factory.isReady())
             runCurrent()
+            val defaultFactory = model.state.value.factory
+            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, model.state.value.backend)
+            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, defaultFactory.selectedBackend)
+            assertFalse(defaultFactory.requiresKokoroAssets)
+            model.configureSpeech(KokoroVoice.HEART, 1f)
+            runCurrent()
+            assertSame(defaultFactory, model.state.value.factory)
             model.selectBackend(VoiceSpeechBackend.LITERT_KOKORO_GPU)
             runCurrent()
             val original = model.state.value.factory
@@ -83,6 +91,12 @@ class VoiceBackendViewModelTest {
             assertEquals(64, experiment.effectiveTargetBucket)
             assertFalse(experiment.incrementalInput)
             assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, preferences.state.value?.value?.backend)
+            model.selectBackend(VoiceSpeechBackend.LITERT_KOKORO_NPU)
+            runCurrent()
+            val npuFactory = model.state.value.factory
+            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_NPU, npuFactory.selectedBackend)
+            assertTrue(npuFactory.identity.contains(MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).sha256))
+            assertFalse(npuFactory.requiresKokoroAssets)
             model.selectBackend(VoiceSpeechBackend.PHONON_CPU)
             runCurrent()
             assertTrue(model.state.value.factory.identity.contains(MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.PHONON).sha256))
@@ -113,12 +127,14 @@ class VoiceBackendViewModelTest {
         val owners = ViewModelStore()
         try {
             val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            saved.edit().putString("backend", VoiceSpeechBackend.CPU.name).commit()
             val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
             val settings = mockk<SettingRepository>()
             every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
             val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher)
             owners.put("voice", model)
             runCurrent()
+            assertEquals(VoiceSpeechBackend.CPU, model.state.value.backend)
             val original = model.state.value.factory
             model.configureSpeech(KokoroVoice.HEART, 1.25f)
             runCurrent()
@@ -143,7 +159,7 @@ class VoiceBackendViewModelTest {
         }
     }
 
-    @Test fun initialPreferenceAndCatalogFailuresShowErrorsWithoutPermanentlyGatingCpuSpeech() = runTest {
+    @Test fun initialPreferenceAndCatalogFailuresShowErrorsWithoutPermanentlyGatingStreamingSpeech() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
         val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -156,7 +172,7 @@ class VoiceBackendViewModelTest {
             owners.put("voice", model)
             runCurrent()
             assertTrue(model.state.value.loaded)
-            assertEquals(VoiceSpeechBackend.CPU, model.state.value.backend)
+            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, model.state.value.backend)
             assertTrue(model.state.value.status.contains("could not be read"))
             assertTrue(model.state.value.status.contains("connections could not be loaded"))
         } finally {

@@ -42,7 +42,7 @@ data class LocalVoiceModelState(
     val httpStatus: Int? = null
 )
 
-/** Downloads happen only after an explicit install action; recognition never calls install. */
+/** Model inspection and speech inference never initiate a download. */
 class LocalVoiceModelStore internal constructor(
     private val root: File,
     private val assets: List<LocalVoiceAsset>,
@@ -161,12 +161,19 @@ class LocalVoiceModelStore internal constructor(
     private fun verifyAsset(file: File, asset: LocalVoiceAsset): Boolean =
         file.isFile && file.length() == asset.bytes && assetDigest(file) == asset.sha256
 
-    suspend fun install() = withContext(Dispatchers.IO) {
-        // Multiple screens share one installer and its progress. A second tap never queues a download.
-        if (!shared.mutex.tryLock()) return@withContext
+    suspend fun install() = install(waitForOwner = false)
+
+    internal suspend fun install(waitForOwner: Boolean) = withContext(Dispatchers.IO) {
+        // The bundle waits for any screen-owned verification/transfer and reuses its result.
+        // Individual screen taps still return immediately when the model is busy.
+        if (waitForOwner) {
+            shared.mutex.lock()
+        } else if (!shared.mutex.tryLock()) {
+            return@withContext
+        }
         try {
-            shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
-            if (verifyInstalledFiles()) {
+            if (!waitForOwner || !isInstalled()) shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
+            if (verifyInstalledFiles(force = !waitForOwner, requireChangeTime = waitForOwner)) {
                 shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes, transferStage = VoiceTransferStage.READY)
                 return@withContext
             }

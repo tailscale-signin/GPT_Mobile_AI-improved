@@ -92,7 +92,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_streaming_voice_values_roundtrip_only_in_voice_without_claiming_an_observed_delegate(self):
         additions = {
             "voice_engine": {"MEDIAPIPE"},
-            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"},
+            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "PHONON_CPU", "POCKET_CPU"},
             "voice_fallback_source": {"LITERT_KOKORO", "PHONON", "POCKET"},
         }
         for field, choices in additions.items():
@@ -240,7 +240,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 issue_from_report(self.report(self.capture("VOICE", {**values, field: "private-canary"})))
 
     def test_active_mediapipe_voice_report_preserves_engine_without_unverified_provider(self):
-        for backend in ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"):
+        for backend in ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "PHONON_CPU", "POCKET_CPU"):
             with self.subTest(backend=backend):
                 capture = self.capture("VOICE", {
                     "voice_engine": "MEDIAPIPE", "voice_phase": "SPEAKING", "voice_selected_backend": backend,
@@ -267,6 +267,7 @@ class IncidentReportContractTest(unittest.TestCase):
         for backend, engine in (
             ("LITERT_KOKORO_CPU", "LITERT_KOKORO"),
             ("LITERT_KOKORO_GPU", "LITERT_KOKORO"),
+            ("LITERT_KOKORO_NPU", "LITERT_KOKORO"),
             ("PHONON_CPU", "PHONON"),
             ("POCKET_CPU", "POCKET"),
         ):
@@ -296,7 +297,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_streaming_voice_execution_still_rejects_unknown_or_wrong_area_values(self):
         for field, invalid in (
-            ("voice_selected_backend", "LITERT_KOKORO_NPU"),
+            ("voice_effective_provider", "LITERT_KOKORO_NPU"),
             ("voice_selected_backend", "PHONON_GPU"),
             ("voice_selected_backend", "POCKET_GPU"),
             ("voice_selected_backend", "private speech or model path"),
@@ -1984,7 +1985,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_voice_capture_and_playback_evidence_is_bounded_and_area_specific(self):
         values = {"voice_playback_failure": "AUDIO_FOCUS_DENIED", "voice_playback_focus_attempts": 2,
                   "voice_capture_silenced_stage": "CAPTURE_READ", "voice_caption_alignment": "NO_TIMING",
-                  "voice_install_recognition_status": "CHECKING", "voice_install_playback_status": "READY"}
+                  "voice_install_recognition_status": "CHECKING", "voice_install_playback_status": "READY", "voice_install_streaming_status": "DOWNLOADING"}
         validate_diagnostics(self.capture("VOICE", values))
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("PROVIDER", values))
@@ -2347,7 +2348,7 @@ class IncidentReportContractTest(unittest.TestCase):
         values = {
             "voice_install_state": "RUNNING", "voice_install_scheduler": "JOB_SCHEDULER",
             "voice_install_pending_reason": "EXECUTING", "voice_install_elapsed_ms": 120_000,
-            "voice_install_pack": "MOONSHINE", "voice_install_transfer_stage": "FAILED",
+            "voice_install_pack": "LITERT_KOKORO", "voice_install_transfer_stage": "FAILED",
             "voice_install_failure_kind": "HTTP", "voice_install_http_status": 503,
             "voice_install_downloaded_bytes": 2_000_000, "voice_install_total_bytes": 177_000_000,
         }

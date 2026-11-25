@@ -81,6 +81,7 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
@@ -128,6 +129,7 @@ internal fun VoiceEntryScreen(
     modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState? = null,
     recheckModel: () -> Unit = {},
     modelsReady: Boolean = true,
+    showInstallation: Boolean = false,
     setup: @Composable () -> Unit = {}
 ) {
     NewChatRevealPanel(origin) {
@@ -163,6 +165,7 @@ internal fun VoiceEntryScreen(
                     } else {
                         Button(onClick = start, enabled = state.selected.isNotBlank(), modifier = Modifier.padding(top = 16.dp).testTag("voice_enable_start")) { Text("Start voice chat") }
                     }
+                    if (showInstallation) setup()
                 }
                 state.error?.let { Text(it, Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
             }
@@ -329,7 +332,7 @@ private fun VoiceChatSessionScreen(
     val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
     DisposableEffect(feedback) { onDispose { feedback.close() } }
     SideEffect { localRecognition.onManualCaptureReady = if (buttonSounds) feedback::start else null }
-    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1.1f) }
+    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(STANDARD_SPEECH_RATE) }
     var pause by rememberSaveable { mutableStateOf(VoicePauseDuration.NATURAL) }
     var performance by rememberSaveable { mutableStateOf(VoicePerformanceMode.AUTO) }
     var speakWhileGenerating by rememberSaveable { mutableStateOf(true) }
@@ -453,6 +456,10 @@ private fun VoiceChatSessionScreen(
     }
     LaunchedEffect(state.transcript) { draft = state.transcript }
     val foregroundVoice = enabled && roomReady && lifecycleState == Lifecycle.State.RESUMED && !settingsOpen && !routeOpen && !benchmarkRunning
+    val installOnVoiceLaunch = foregroundVoice && loaded && room.id > 0 && !chatView
+    LaunchedEffect(voiceSettings, installOnVoiceLaunch) {
+        if (installOnVoiceLaunch) voiceSettings.onVoiceLaunch()
+    }
     val prepareProfile = foregroundVoice && room.id > 0 && !chatView && profilePreflightReady && features.readiness.enabled && !state.awaitingReply
     val networkEpoch by ReadinessHints.networkEpoch.collectAsStateWithLifecycle()
     LaunchedEffect(prepareProfile, selectedProfile, features.readiness, room.id, room.privacyModeLocked, networkEpoch) {
@@ -957,7 +964,7 @@ private fun VoiceChatSessionScreen(
                     },
                     useNaturalSpeech = {
                         audio.stop()
-                        rate = 1.1f
+                        rate = STANDARD_SPEECH_RATE
                         backendOwner.configureSpeech(kokoroVoice, rate)
                         pause = VoicePauseDuration.NATURAL
                         performance = VoicePerformanceMode.AUTO
@@ -1241,7 +1248,7 @@ private data class VoiceSettingsUiState(
     val modelChangeRunning: Boolean,
     val modelChangeError: String?,
     val benchmarkRunning: Boolean = false,
-    val speechBackend: VoiceSpeechBackend = VoiceSpeechBackend.CPU
+    val speechBackend: VoiceSpeechBackend = VoiceSpeechBackend.DEFAULT
 )
 
 private class VoiceSettingsActions(
@@ -1343,7 +1350,7 @@ private fun VoiceSettingsScreen(
             if (state.speechBackend.isStreamingLocal) {
                 VoiceSettingSwitch("Keep one speech stream for each reply", state.incrementalSpeech, actions.changeIncrementalSpeech)
                 Text("New text joins the current stream as it arrives. Turn this off to compare separate phrases in the speech benchmark.", style = MaterialTheme.typography.bodySmall)
-                if (state.speechBackend in setOf(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU)) {
+                if (state.speechBackend.streamingEngine() == MediaPipeSpeechEngine.KOKORO) {
                     VoiceChoice("Kokoro phrase capacity · experiment", state.kokoroBucket.name, MediaPipeKokoroBucket.entries.map { it.name to it.label }, { actions.changeKokoroBucket(MediaPipeKokoroBucket.valueOf(it)) })
                     Text("Compare capacities with the same voice and text. Model default lets the runtime choose; a smaller capacity may help short phrases. The complete reply remains queued.", style = MaterialTheme.typography.bodySmall)
                 }

@@ -454,5 +454,6 @@ internal class QualcommVoicePhraseEngineFactory(
 
 internal class UnavailableVoicePhraseEngineFactory(private val reason: String) : VoicePhraseEngineFactory {
     override val identity = "voice-unavailable-$reason"
+    override fun isReady(): Boolean = false
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine = error(reason)
 }

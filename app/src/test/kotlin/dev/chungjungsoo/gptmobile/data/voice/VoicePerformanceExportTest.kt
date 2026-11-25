@@ -20,6 +20,7 @@ class VoicePerformanceExportTest {
         for ((family, provider, delegate) in listOf(
             Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-cpu-requested", "CPU"),
             Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-gpu-requested", "GPU"),
+            Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-npu-requested", "NPU"),
             Triple("MEDIAPIPE_PHONON", "mediapipe-phonon-cpu-requested", "CPU"),
             Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-cpu-requested", "CPU")
         )) {

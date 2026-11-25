@@ -33,6 +33,7 @@ internal class MediaPipeVoicePhraseEngine(
     override val executionProvider: String = when (backend) {
         VoiceSpeechBackend.LITERT_KOKORO_CPU -> "mediapipe-kokoro-cpu-requested"
         VoiceSpeechBackend.LITERT_KOKORO_GPU -> "mediapipe-kokoro-gpu-requested"
+        VoiceSpeechBackend.LITERT_KOKORO_NPU -> "mediapipe-kokoro-npu-requested"
         VoiceSpeechBackend.PHONON_CPU -> "mediapipe-phonon-cpu-requested"
         VoiceSpeechBackend.POCKET_CPU -> "mediapipe-pocket-cpu-requested"
         else -> error("Unsupported MediaPipe speech backend")

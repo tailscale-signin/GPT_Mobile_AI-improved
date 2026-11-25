@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.mediapipe.tasks.audio.texttospeech.AudioChunk
+import com.google.mediapipe.tasks.core.Delegate
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
@@ -26,7 +27,8 @@ import org.junit.runner.RunWith
  * Opt-in real JNI/checkpoint smoke. Push the exact catalog model to
  * /data/local/tmp/mediapipe-speech/<fileName> and pass mediapipeSmokeEngine=phonon,
  * kokoro or pocket. A supplied argument makes missing/bad weights a failure.
- * This does not certify a GPU delegate or establish phone performance rankings.
+ * On a compatible phone, set mediapipeSmokeDelegate to GPU or NPU for Kokoro.
+ * The receipt identifies the request. Kernel placement needs separate device evidence.
  */
 @RunWith(AndroidJUnit4::class)
 class MediaPipeSpeechNativeSmokeTest {
@@ -39,6 +41,18 @@ class MediaPipeSpeechNativeSmokeTest {
             require(it.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")))
         }
         val kind = MediaPipeSpeechEngine.entries.single { it.name.equals(argument, ignoreCase = true) }
+        val delegate = InstrumentationRegistry.getArguments().getString("mediapipeSmokeDelegate")?.let(Delegate::valueOf) ?: Delegate.CPU
+        require(delegate == Delegate.CPU || kind == MediaPipeSpeechEngine.KOKORO) { "Accelerator requests apply to Kokoro only." }
+        val backend = when (kind) {
+            MediaPipeSpeechEngine.KOKORO -> when (delegate) {
+                Delegate.CPU -> VoiceSpeechBackend.LITERT_KOKORO_CPU
+                Delegate.GPU -> VoiceSpeechBackend.LITERT_KOKORO_GPU
+                Delegate.NPU -> VoiceSpeechBackend.LITERT_KOKORO_NPU
+                else -> error("Unsupported speech delegate")
+            }
+            MediaPipeSpeechEngine.PHONON -> VoiceSpeechBackend.PHONON_CPU
+            MediaPipeSpeechEngine.POCKET -> VoiceSpeechBackend.POCKET_CPU
+        }
         val descriptor = MediaPipeSpeechCatalog.model(kind)
         val context = instrumentation.targetContext
         val evidenceFile = File(context.filesDir, "mediapipe-smoke-${kind.name.lowercase()}.json")
@@ -68,14 +82,10 @@ class MediaPipeSpeechNativeSmokeTest {
         assertEquals(expectedBytes, copied)
         assertEquals(descriptor.sha256, digest.digest().joinToString("") { "%02x".format(it) })
         check(staged.renameTo(model))
-        val backend = when (kind) {
-            MediaPipeSpeechEngine.KOKORO -> VoiceSpeechBackend.LITERT_KOKORO_CPU
-            MediaPipeSpeechEngine.PHONON -> VoiceSpeechBackend.PHONON_CPU
-            MediaPipeSpeechEngine.POCKET -> VoiceSpeechBackend.POCKET_CPU
-        }
         val openedAt = SystemClock.elapsedRealtime()
         val cache = File(directory, "runtime-cache").also { check(it.mkdirs() || it.isDirectory) }
-        val task = ObservedNativeTask(AndroidMediaPipeSpeechTask(MediaPipeSpeechTaskConfiguration(model, cache, false, 1f, descriptor.defaultVoice)))
+        if (delegate == Delegate.NPU) prepareMediaPipeSpeechNpu(context)
+        val task = ObservedNativeTask(AndroidMediaPipeSpeechTask(MediaPipeSpeechTaskConfiguration(model, cache, delegate, 1f, descriptor.defaultVoice)))
         val prepareMs = SystemClock.elapsedRealtime() - openedAt
         val engine = MediaPipeVoicePhraseEngine(task, AutoCloseable {}, backend, 1f, descriptor.defaultVoice)
         var evidence: JSONObject? = null
@@ -122,7 +132,7 @@ class MediaPipeSpeechNativeSmokeTest {
                 .put("runtime", MediaPipeSpeechCatalog.RUNTIME_ID)
                 .put("model_sha256", descriptor.sha256)
                 .put("model_bytes", copied)
-                .put("requested_delegate", "CPU")
+                .put("requested_delegate", delegate.name)
                 .put("abis", Build.SUPPORTED_ABIS.joinToString(","))
                 .put("sample_rate_hz", VOICE_PCM_SAMPLE_RATE)
                 .put("frames", frames.frames)

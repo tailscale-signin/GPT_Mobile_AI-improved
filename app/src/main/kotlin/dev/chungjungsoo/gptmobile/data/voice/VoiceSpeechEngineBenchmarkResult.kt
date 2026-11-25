@@ -75,6 +75,7 @@ internal data class VoiceSpeechEngineBenchmarkResult(
 
 internal fun requestedSpeechDelegate(backend: VoiceSpeechBackend): String = when (backend) {
     VoiceSpeechBackend.LITERT_KOKORO_GPU -> "GPU"
+    VoiceSpeechBackend.LITERT_KOKORO_NPU -> "NPU"
     VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.POCKET_CPU -> "CPU"
     else -> "UNSUPPORTED"
 }

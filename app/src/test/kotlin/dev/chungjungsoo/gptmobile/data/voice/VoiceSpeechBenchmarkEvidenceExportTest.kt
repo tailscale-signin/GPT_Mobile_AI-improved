@@ -238,6 +238,17 @@ class VoiceSpeechBenchmarkEvidenceExportTest {
         )
         val json = speechBenchmarkJson(report, local = true)
         assertEquals(report, speechBenchmarkReportFromJson(json))
+        val npu = VoiceSpeechBackend.LITERT_KOKORO_NPU
+        val npuReport = report.copy(
+            configuration = report.configuration.copy(engine = VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO, backends = listOf(npu), engineVoiceId = "af_heart"),
+            engineResults = listOf(VoiceSpeechEngineBenchmarkResult(npu, VoiceSpeechBenchmarkBackendState.COMPLETE, cleanupState = "RETIRED")),
+            playbackResults = listOf(row.copy(requestedBackend = npu, requestedDelegate = "NPU"))
+        )
+        val npuJson = speechBenchmarkJson(npuReport, local = true)
+        assertEquals(npuReport, speechBenchmarkReportFromJson(npuJson))
+        assertEquals(JsonPrimitive("NPU"), npuJson.getValue("playbackResults").jsonArray.single().jsonObject["requestedDelegate"])
+        assertFalse(npuReport.playbackResults.single().executionVerified)
+
         val exported = json.getValue("playbackResults").jsonArray.single().jsonObject
         assertEquals(JsonNull, exported["completedGenerationWallMs"])
         assertEquals(JsonPrimitive(130L), exported["deliveredPcmProductionMs"])

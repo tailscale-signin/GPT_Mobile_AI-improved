@@ -319,11 +319,11 @@ class IssueReportSubmissionTest {
     }
 
     @Test fun streamingVoiceValuesRequireTheirOwnCapabilityBeforePostingRestoredApprovedBytes() {
-        val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
         val cases = listOf(
             "voice_engine" to "MEDIAPIPE",
             "voice_selected_backend" to "LITERT_KOKORO_CPU",
             "voice_selected_backend" to "LITERT_KOKORO_GPU",
+            "voice_selected_backend" to "LITERT_KOKORO_NPU",
             "voice_selected_backend" to "PHONON_CPU",
             "voice_selected_backend" to "POCKET_CPU",
             "voice_fallback_source" to "LITERT_KOKORO",
@@ -331,6 +331,7 @@ class IssueReportSubmissionTest {
             "voice_fallback_source" to "POCKET"
         )
         for ((field, value) in cases) {
+            val feature = if (value == "LITERT_KOKORO_NPU") VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE else VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
             val captured = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
             val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), captured)))
             val context = IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = 1_000L).withDiagnostics(restored)

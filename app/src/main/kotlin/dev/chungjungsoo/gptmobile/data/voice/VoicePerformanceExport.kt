@@ -133,6 +133,7 @@ private val MEDIAPIPE_FAMILIES = setOf("MEDIAPIPE", "MEDIAPIPE_KOKORO", "MEDIAPI
 private fun mediaPipeExecution(provider: String): Pair<String, String>? = when (provider) {
     "mediapipe-kokoro-cpu-requested" -> "MEDIAPIPE_KOKORO" to "CPU"
     "mediapipe-kokoro-gpu-requested" -> "MEDIAPIPE_KOKORO" to "GPU"
+    "mediapipe-kokoro-npu-requested" -> "MEDIAPIPE_KOKORO" to "NPU"
     "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON" to "CPU"
     "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET" to "CPU"
     else -> null

@@ -12,7 +12,7 @@ import java.io.File
 internal data class MediaPipeSpeechTaskConfiguration(
     val modelFile: File,
     val cacheDirectory: File,
-    val requestGpu: Boolean,
+    val delegate: Delegate,
     val speakingRate: Float,
     val voiceId: String,
     val targetBucket: Int = 0
@@ -42,7 +42,7 @@ internal class AndroidMediaPipeSpeechTask(configuration: MediaPipeSpeechTaskConf
         TextToSpeechOptions(
             baseOptions = BaseOptions.builder()
                 .setModelAssetPath(configuration.modelFile.absolutePath)
-                .setDelegate(if (configuration.requestGpu) Delegate.GPU else Delegate.CPU)
+                .setDelegate(configuration.delegate)
                 .build(),
             defaultVoiceId = configuration.voiceId,
             speakingRate = configuration.speakingRate,

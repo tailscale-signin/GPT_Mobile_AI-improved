@@ -276,7 +276,7 @@ VOICE_INSTALL_EVIDENCE_FIELDS = {
 }
 ENUMS["voice_install_failure"].add("WORK_NOT_FOUND")
 ENUMS["voice_install_pending_reason"] = {"UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"}
-ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO"}
+ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO", "LITERT_KOKORO"}
 ENUMS["voice_install_transfer_stage"] = {"CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"}
 ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"}
 COUNTS.add("voice_install_elapsed_ms")
@@ -329,7 +329,7 @@ COMPLETION_EVIDENCE_FIELDS = {"empty_completion_observed_attempts", "empty_compl
 ATTEMPTS.update(COMPLETION_EVIDENCE_FIELDS)
 FIELDS_BY_AREA["PROVIDER"].update(COMPLETION_EVIDENCE_FIELDS)
 ENUMS["provider_failure_code"].add("TOOL_PROTOCOL_INVALID_FRAME")
-VOICE_PACK_STATUS_FIELDS = {"voice_install_recognition_status", "voice_install_playback_status"}
+VOICE_PACK_STATUS_FIELDS = {"voice_install_recognition_status", "voice_install_playback_status", "voice_install_streaming_status"}
 for field in VOICE_PACK_STATUS_FIELDS:
     ENUMS[field] = {"CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"}
 FIELDS_BY_AREA["VOICE"].update(VOICE_CAPTURE_PLAYBACK_FIELDS | VOICE_PACK_STATUS_FIELDS)

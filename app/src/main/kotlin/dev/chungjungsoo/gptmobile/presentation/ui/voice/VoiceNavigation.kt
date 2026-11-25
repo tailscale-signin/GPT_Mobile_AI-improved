@@ -21,6 +21,7 @@ import androidx.navigation.navArgument
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.presentation.common.Route
@@ -45,10 +46,16 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         val stores by voiceSettings.modelStores.collectAsStateWithLifecycle()
         val moonshine = stores?.moonshine?.state?.collectAsStateWithLifecycle()?.value
         val kokoro = stores?.kokoro?.state?.collectAsStateWithLifecycle()?.value
+        val streamingKokoro = stores?.streamingKokoro?.state?.collectAsStateWithLifecycle()?.value
         val modelsReady = preferences != null && voiceEntryModelsReady(moonshine, kokoro, backend, preferences?.spokenReplies != false)
         val context = LocalContext.current
         val installation by VoicePluginInstall.state.collectAsStateWithLifecycle()
         val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(voiceSettings, lifecycle, state.loaded, state.route) {
+            if (state.loaded && state.route == null) {
+                lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { voiceSettings.onVoiceLaunch() }
+            }
+        }
         LaunchedEffect(context, lifecycle) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (isActive) {
@@ -67,11 +74,26 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             modelPreparation = modelPreparation[state.selected],
             recheckModel = { model.recheckGatewayModel(state.selected) },
             modelsReady = modelsReady,
+            showInstallation = installation.pending || installation.phase in setOf("FAILED", "CANCELLED"),
             setup = {
                 VoiceEntrySpeechSettings(backend, backendOwner::selectBackend, backendOwner::selectGateway)
-                if (moonshine != null && kokoro != null) {
+                if (moonshine != null && kokoro != null && streamingKokoro != null) {
                     val engine = backend.backend.streamingEngine()
-                    if (engine != null || preferences?.spokenReplies == false) {
+                    val bundleSelected = preferences?.spokenReplies != false && (engine == null || engine == MediaPipeSpeechEngine.KOKORO)
+                    if (installation.pending || bundleSelected) {
+                        VoicePluginSetup(
+                            moonshine,
+                            kokoro,
+                            streamingKokoro,
+                            installation,
+                            { stores?.let { VoicePluginInstall.start(context, it.kokoroVariant) } },
+                            { VoicePluginInstall.cancel(context) }
+                        ) {
+                            VoicePluginInstall.refresh(context)
+                            VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status, streamingKokoro.status)
+                            onReportDownload()
+                        }
+                    } else {
                         LocalVoiceSetupCard(
                             moonshine,
                             voiceSettings::installLocalModel,
@@ -79,27 +101,21 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                             voiceSettings::removeLocalModel,
                             compact = true
                         )
-                        if (engine != null && preferences?.spokenReplies != false) {
-                            StreamingVoiceModelCard(
-                                engine = engine,
-                                state = backend.streamingModels[engine],
-                                voice = preferences?.kokoroVoice ?: KokoroVoice.HEART,
-                                enabled = backend.loaded,
-                                selectVoice = {},
-                                install = backendOwner::installStreamingModel,
-                                cancel = backendOwner::cancelStreamingInstall,
-                                remove = backendOwner::removeStreamingModel,
-                                preview = {},
-                                previewError = null,
-                                setup = true
-                            )
-                        }
-                    } else {
-                        VoicePluginSetup(moonshine, kokoro, installation, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) }) {
-                            VoicePluginInstall.refresh(context)
-                            VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status)
-                            onReportDownload()
-                        }
+                    }
+                    if (engine != null && !bundleSelected && preferences?.spokenReplies != false) {
+                        StreamingVoiceModelCard(
+                            engine = engine,
+                            state = backend.streamingModels[engine],
+                            voice = preferences?.kokoroVoice ?: KokoroVoice.HEART,
+                            enabled = backend.loaded,
+                            selectVoice = {},
+                            install = backendOwner::installStreamingModel,
+                            cancel = backendOwner::cancelStreamingInstall,
+                            remove = backendOwner::removeStreamingModel,
+                            preview = {},
+                            previewError = null,
+                            setup = true
+                        )
                     }
                 }
             }
@@ -169,22 +185,25 @@ internal fun VoiceEntrySpeechSettings(value: VoiceBackendSettings, selectBackend
 internal fun VoicePluginSetup(
     recognition: dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState,
     playback: dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState,
+    streaming: dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState,
     installation: dev.chungjungsoo.gptmobile.data.voice.VoiceInstallState,
     onStart: () -> Unit,
     onCancel: () -> Unit,
     onReportDownload: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val total = recognition.totalBytes + playback.totalBytes
-    val received = recognition.downloadedBytes + playback.downloadedBytes
-    val checking = recognition.status == LocalVoiceModelStatus.CHECKING || playback.status == LocalVoiceModelStatus.CHECKING
-    val downloading = recognition.status == LocalVoiceModelStatus.DOWNLOADING || playback.status == LocalVoiceModelStatus.DOWNLOADING
-    val message = recognition.message ?: playback.message
+    val models = listOf(recognition, streaming, playback)
+    val total = models.sumOf { it.totalBytes }
+    val received = models.sumOf { it.downloadedBytes }
+    val active = models.firstOrNull { it.status == LocalVoiceModelStatus.DOWNLOADING }
+    val checking = models.any { it.status == LocalVoiceModelStatus.CHECKING }
+    val message = models.firstNotNullOfOrNull { it.message }
     val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
-    val ready = recognition.status == LocalVoiceModelStatus.READY && playback.status == LocalVoiceModelStatus.READY
+    val ready = models.all { it.status == LocalVoiceModelStatus.READY }
+    androidx.compose.material3.Text("Moonshine recognition · Kokoro streaming · Native Kokoro")
     if (ready) {
         androidx.compose.material3.Text("Voice Chat plugin ready", color = accent)
-    } else if (installation.pending && !downloading || checking) {
+    } else if (active == null && (installation.pending || checking)) {
         androidx.compose.material3.LinearProgressIndicator(color = accent)
         androidx.compose.material3.Text(
             if (checking) "Checking voice files…" else installation.waitingMessage(),
@@ -194,13 +213,12 @@ internal fun VoicePluginSetup(
             androidx.compose.material3.Text("${it / 1_000} seconds since this download was requested. Include Voice diagnostics if you report the delay.")
         }
         if (installation.pending) androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancel download") }
-    } else if (downloading) {
-        val active = if (playback.status == LocalVoiceModelStatus.DOWNLOADING) playback else recognition
+    } else if (active != null) {
         VoiceTransferProgress(active.transferStage, received, total)
         androidx.compose.material3.Text("${android.text.format.Formatter.formatShortFileSize(context, received)} of ${android.text.format.Formatter.formatShortFileSize(context, total)}")
         androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancel download") }
     } else {
-        val remaining = listOf(recognition, playback).filter { it.status != LocalVoiceModelStatus.READY }.sumOf { it.totalBytes }
+        val remaining = models.filter { it.status != LocalVoiceModelStatus.READY }.sumOf { it.totalBytes }
         androidx.compose.material3.Text("English · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}", color = accent)
         if (installation.failure != null && message == null) {
             androidx.compose.material3.Text(
@@ -213,7 +231,7 @@ internal fun VoicePluginSetup(
             androidx.compose.material3.Text(if (message == null && installation.failure == null) "Download Voice Chat plugin" else "Resume download")
         }
     }
-    if (!ready && (installation.pending || installation.failure != null || downloading || installation.phase == "COMPLETED")) {
+    if (!ready && (installation.pending || installation.failure != null || active != null || installation.phase == "COMPLETED")) {
         androidx.compose.material3.TextButton(onClick = onReportDownload) { androidx.compose.material3.Text("Report download problem") }
     }
 }

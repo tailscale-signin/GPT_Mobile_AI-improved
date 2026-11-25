@@ -15,7 +15,10 @@ import androidx.work.WorkManager
 import com.google.common.util.concurrent.ListenableFuture
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -75,6 +78,45 @@ class VoicePreferenceStoreTest {
         }
         assertEquals("CANCELLED", dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.state.value.phase)
         assertFalse(dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.state.value.pending)
+    }
+
+    @Test fun firstVoiceLaunchInstallsAllThreeModelsAndRespectsSubsequentCancellationOrRemoval() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val install = dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
+        val firstUse = context.getSharedPreferences(install.WORK, Context.MODE_PRIVATE)
+        val scheduler = context.getSystemService(JobScheduler::class.java)
+        if (runCatching { WorkManager.getInstance(context) }.isFailure) {
+            WorkManager.initialize(context, androidx.work.Configuration.Builder().build())
+        }
+        install.cancel(context)
+        firstUse.edit().clear().commit()
+        try {
+            val variant = KokoroModelVariant.ORIGINAL_FP32
+            // A manual start/cancel can happen before the initial file checks finish.
+            install.start(context, variant)
+            install.cancel(context)
+            install.onFirstVoiceLaunch(context, variant, installed = false)
+            assertNull(scheduler.getPendingJob(install.JOB_ID))
+
+            firstUse.edit().clear().commit()
+            install.onFirstVoiceLaunch(context, variant, installed = false)
+            val job = requireNotNull(scheduler.getPendingJob(install.JOB_ID))
+            assertEquals(variant.name, job.extras.getString(install.NATIVE_VARIANT))
+            assertEquals(LocalVoiceModelStore.TOTAL_BYTES + variant.downloadBytes + MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).downloadBytes, job.estimatedNetworkDownloadBytes)
+            install.cancel(context)
+            install.onFirstVoiceLaunch(context, variant, installed = false)
+            assertNull(scheduler.getPendingJob(install.JOB_ID))
+
+            firstUse.edit().clear().commit()
+            install.onFirstVoiceLaunch(context, variant, installed = true)
+            install.onFirstVoiceLaunch(context, variant, installed = false)
+            assertNull(scheduler.getPendingJob(install.JOB_ID))
+            install.start(context, variant)
+            assertTrue(scheduler.getPendingJob(install.JOB_ID) != null)
+        } finally {
+            install.cancel(context)
+            firstUse.edit().clear().commit()
+        }
     }
 
     @Test fun missingQueuedJobIsReconciledWithoutAutomaticallySchedulingAnotherTransfer() {
@@ -232,6 +274,13 @@ class VoicePreferenceStoreTest {
         }
     }
 
+    @Test fun speechRateStartsAtNormalSpeedAndKeepsExplicitChoicesAcrossUpgrades() {
+        assertEquals(1f, readVoicePreferences(emptyMap<String, Any>()).rate)
+        for (saved in listOf(0.9f, 1.1f, 1.25f)) {
+            assertEquals(saved, readVoicePreferences(mapOf("rate" to saved)).rate)
+        }
+    }
+
     @Test fun singleThreadCalibrationChoiceSurvivesPreferenceRestore() {
         assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 1)).kokoroThreads)
         assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 0)).kokoroThreads)
@@ -250,7 +299,7 @@ class VoicePreferenceStoreTest {
         assertFalse(value.online)
         assertFalse(value.captions)
         assertFalse(value.spokenReplies)
-        assertEquals(1.1f, value.rate)
+        assertEquals(1f, value.rate)
         assertEquals(VoicePauseDuration.NATURAL, value.pause)
         assertEquals(VoicePerformanceMode.AUTO, value.performance)
         assertTrue(value.speakWhileGenerating)

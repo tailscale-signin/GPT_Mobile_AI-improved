@@ -70,7 +70,7 @@ class KokoroListeningInstrumentedTest {
         val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build() }, { 1f }, measurements = observer)
         try {
             val factory = if (backend.isStreamingLocal) {
-                require(backend in setOf(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU))
+                require(backend in setOf(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU))
                 val sdk = MediaPipeSpeechModelStore(context, scope)
                 runBlocking { sdk.refresh(MediaPipeSpeechEngine.KOKORO) }
                 MediaPipeVoicePhraseEngineFactory(sdk, MediaPipeSpeechEngine.KOKORO, backend, 1f, KokoroVoice.HEART.streamingVoiceId())

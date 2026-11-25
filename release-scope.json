@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
   "changes": [
+    "Keep pending saved-page bodies and private reading notes bound to the verified page across concurrent checkpoints. Recover missing CI job selectors and read-only evidence, classify interrupted provider streams, validate repository-map revisions and expose the earlier approval state for duplicate actions.",
     "Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.",
     "Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.",
     "Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.",
@@ -451,6 +452,11 @@
     "Minified native memory smoke"
   ],
   "allowedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolApprovalManager.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolAuthorizationRejected.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolAuthorizationOutcomeTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryMapToolTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/GitHubAuthorizationBoundaryTest.kt",
     ".github/workflows/gateway-windows-installer.yml",
     ".github/workflows/geniex-preview.yml",
     ".github/workflows/native-memory-smoke.yml",

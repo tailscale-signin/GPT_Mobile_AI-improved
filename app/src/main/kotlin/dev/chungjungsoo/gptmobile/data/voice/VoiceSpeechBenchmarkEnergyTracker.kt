@@ -4,6 +4,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 internal class VoiceSpeechBenchmarkEnergyTracker(private val begin: (VoiceSpeechBackend) -> VoiceSpeechBenchmarkEnergyWindow) {
     private val windows = linkedMapOf<VoiceSpeechBackend, VoiceSpeechBenchmarkEnergyWindow>()
     private val observations = linkedMapOf<VoiceSpeechBackend, VoiceSpeechBenchmarkEnergyObservation>()
+    private val coldWindows = linkedMapOf<VoiceSpeechBackend, VoiceSpeechBenchmarkEnergyObservation>()
 
     @Synchronized fun attach(report: VoiceSpeechBenchmarkReport): VoiceSpeechBenchmarkReport {
         val states = if (report.configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO) {
@@ -13,7 +14,8 @@ internal class VoiceSpeechBenchmarkEnergyTracker(private val begin: (VoiceSpeech
         }
         for (backend in report.configuration.backends) {
             val active = report.isRunning && states[backend] in ACTIVE_STATES
-            if (active && backend !in observations) {
+            if (active && backend !in windows && (backend !in observations || report.configuration.comparesColdStartsFirst && backend !in coldWindows)) {
+                observations[backend]?.let { coldWindows[backend] = it }
                 val window = runCatching { begin(backend) }.getOrElse { unavailableWindow(backend) }
                 windows[backend] = window
                 observations[backend] = runCatching { window.current() }.getOrElse { VoiceSpeechBenchmarkEnergyObservation(backend, VoiceSpeechEnergyEndpoint()) }
@@ -29,7 +31,11 @@ internal class VoiceSpeechBenchmarkEnergyTracker(private val begin: (VoiceSpeech
                 }
             }
         }
-        return report.copy(energyObservations = report.configuration.backends.mapNotNull(observations::get))
+        val retained = report.configuration.backends.flatMap { backend ->
+            val first = coldWindows[backend]
+            listOfNotNull(first, observations[backend]?.let { if (first == null) it else it.copy(window = 2) })
+        }
+        return report.copy(energyObservations = retained)
     }
 
     /** Also retires observers if publication or persistence throws. */

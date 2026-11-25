@@ -9,7 +9,7 @@ internal data class VoicePcmSlice(val samples: FloatArray, val offset: Int, val 
     }
 }
 
-internal enum class VoicePcmReserveExit { TARGET, QUEUE_FULL, NEXT_CHUNK_LATE, DEADLINE, PRODUCER_IDLE, STOPPED }
+internal enum class VoicePcmReserveExit { TARGET, QUEUE_FULL, NEXT_CHUNK_COVERED, NEXT_CHUNK_LATE, DEADLINE, PRODUCER_IDLE, STOPPED }
 
 /** Bounds queued audio by time as well as count; one native callback may contain seconds of PCM. */
 internal object KokoroPcmBatches {
@@ -25,7 +25,7 @@ internal object KokoroPcmBatches {
         canWait: () -> Boolean,
         producerPending: () -> Boolean,
         deadlineReached: () -> Boolean,
-        nextChunkTooLate: () -> Boolean = { false },
+        nativeReserveExit: () -> VoicePcmReserveExit? = { null },
         poll: () -> Unit
     ): VoicePcmReserveExit {
         while (canWait()) {
@@ -33,8 +33,8 @@ internal object KokoroPcmBatches {
             // Playback must consume a slot before the producer can make progress.
             if (acceptedFrames() >= targetFrames) return VoicePcmReserveExit.TARGET
             if (queue.remainingCapacity() == 0) return VoicePcmReserveExit.QUEUE_FULL
-            if (nextChunkTooLate()) return VoicePcmReserveExit.NEXT_CHUNK_LATE
             if (deadlineReached()) return VoicePcmReserveExit.DEADLINE
+            nativeReserveExit()?.let { return it }
             if (!producerPending()) return VoicePcmReserveExit.PRODUCER_IDLE
             poll()
         }

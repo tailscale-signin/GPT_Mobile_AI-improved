@@ -74,11 +74,19 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     @Synchronized fun predictedSynthesisMs(startup: Boolean = false): Long? =
         (if (startup) recentRecurringMs else recentSynthesisMs).maxOrNull()
 
-    /** A native producer cannot add another complete phrase before the remaining priming deadline. */
-    @Synchronized fun nextChunkTooLate(readyMs: Long, remainingWaitMs: Long, producingMs: Long): Boolean {
-        if (streamCadence.started || observations == 0 || productionRatio < 1.0 || readyMs < 1_000) return false
-        val expectedMs = recentSynthesisMs.lastOrNull() ?: return false
-        return expectedMs - producingMs.coerceAtLeast(0) > remainingWaitMs
+    /** Playing the accepted PCM gives the native producer that much additional time to finish. */
+    @Synchronized fun nativeReserveExit(readyMs: Long, remainingWaitMs: Long, producingMs: Long, words: Int): VoicePcmReserveExit? {
+        if (streamCadence.started || observations == 0 || readyMs < 1_000) return null
+        val wordCost = recentWordCostMs.maxOrNull()
+        if (wordCost != null && words > 0) {
+            val remaining = (wordCost * words * 1.2).toLong() - producingMs.coerceAtLeast(0)
+            // An overdue estimate no longer predicts the next delivery.
+            if (remaining in 1..readyMs) return VoicePcmReserveExit.NEXT_CHUNK_COVERED
+            if (productionRatio >= 1.0 && remaining - readyMs > remainingWaitMs.coerceAtLeast(0)) return VoicePcmReserveExit.NEXT_CHUNK_LATE
+            return null
+        }
+        val expected = recentSynthesisMs.lastOrNull() ?: return null
+        return VoicePcmReserveExit.NEXT_CHUNK_LATE.takeIf { productionRatio >= 1.0 && expected - producingMs.coerceAtLeast(0) > remainingWaitMs }
     }
 
     @Synchronized fun ratio(): Double? = productionRatio.takeIf { observations > 0 }
@@ -109,6 +117,10 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
 
     companion object {
         const val OPENING_WORDS = 6
+        const val FIRST_AUDIO_TARGET_MS = 5_000L
+
+        fun startupWaitMs(requestAgeMs: Long, proposedWaitMs: Long): Long =
+            minOf(proposedWaitMs, (FIRST_AUDIO_TARGET_MS - requestAgeMs.coerceAtLeast(0)).coerceAtLeast(0))
 
         // Use existing queue headroom for measured slow phrases and refill margin.
         // Leave one slice of duration headroom; priming also exits if phrase tails fill every queue slot.

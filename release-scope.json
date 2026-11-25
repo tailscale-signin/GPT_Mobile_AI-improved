@@ -26,7 +26,8 @@
     "Retain a path to authorized GitHub tools on small routes while pausing unchanged discovery for an actionable round. Record privacy protection changes at delivery without settings values, and explain how to resume after changing the engineering Gateway. Preserve the measured stage and replay allowance when a saved-page handoff stops.",
     "Rebuild GitHub chat setup, task routing, context selection and progress around the selected repository. Fresh profiles use adaptive effort. Direct lookups start with the relevant read, and the chat header keeps branch and activity visible.",
     "Resolve read-only follow-ups within the selected workspace, match approvals to their originating turn, and link verified source quotes to the exact commit and lines.",
-    "Continue affordable GitHub operations after discovery stalls, preserve exact saved pages under replay pressure, and identify privacy and Gateway policy changes during active chat. Reduce response-cache contention and split GitHub indexing and verification work for Android."
+    "Continue affordable GitHub operations after discovery stalls, preserve exact saved pages under replay pressure, and identify privacy and Gateway policy changes during active chat. Reduce response-cache contention and split GitHub indexing and verification work for Android.",
+    "Start each selected speech processor with a fresh playback trial before longer comparisons. Preserve partial results and separate battery observations, limit optional buffering against the first-audio budget, and account for queued speech while the next native phrase is being generated."
   ],
   "limitations": [
     "The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.",
@@ -493,7 +494,14 @@
     "scripts/tests/test_locked_dependency_audit.py",
     "scripts/tests/test_release_evidence.py",
     "scripts/validate-local.sh",
-    "scripts/voice_listening_trial.py"
+    "scripts/voice_listening_trial.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergy.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyExport.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTracker.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTrackerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.17",

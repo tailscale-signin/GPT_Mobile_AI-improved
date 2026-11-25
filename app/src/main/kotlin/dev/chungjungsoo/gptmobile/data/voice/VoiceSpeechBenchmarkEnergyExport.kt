@@ -13,6 +13,7 @@ import kotlinx.serialization.json.put
 
 internal fun speechBenchmarkEnergyJson(observation: VoiceSpeechBenchmarkEnergyObservation): JsonObject = buildJsonObject {
     put("requestedBackend", observation.requestedBackend.name)
+    put("window", observation.window)
     put("start", speechEnergyEndpointJson(observation.start))
     put("end", observation.end?.let(::speechEnergyEndpointJson) ?: JsonNull)
     put("elapsedMs", observation.elapsedMs?.let(::JsonPrimitive) ?: JsonNull)
@@ -48,7 +49,8 @@ internal fun readSpeechBenchmarkEnergy(value: JsonObject): VoiceSpeechBenchmarkE
         observedPowerEvents = value.getValue("observedPowerEvents").jsonPrimitive.int,
         externalPowerObserved = value.getValue("externalPowerObserved").jsonPrimitive.boolean,
         unknownPowerStateObserved = value.getValue("unknownPowerStateObserved").jsonPrimitive.boolean,
-        interrupted = value["interrupted"]?.jsonPrimitive?.boolean ?: false
+        interrupted = value["interrupted"]?.jsonPrimitive?.boolean ?: false,
+        window = value["window"]?.jsonPrimitive?.int ?: 1
     )
     require(observation.end != null || observation.elapsedMs == null)
     require(value.getValue("status").jsonPrimitive.content == observation.status.name)

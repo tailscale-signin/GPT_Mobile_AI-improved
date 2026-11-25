@@ -37,6 +37,8 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunner
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackBenchmark
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackPass
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackProtocol
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackState
@@ -262,28 +264,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         private val energy = VoiceSpeechBenchmarkEnergyTracker(batterySource::begin)
 
         fun publish(value: VoiceSpeechBenchmarkReport) {
-            val normalized = energy.attach(
-                if (value.isRunning) {
-                    value
-                } else {
-                    value.copy(
-                        results = value.results.map { result ->
-                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
-                                result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
-                            } else {
-                                result
-                            }
-                        },
-                        engineResults = value.engineResults.map { result ->
-                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN) else result
-                        }
-                    )
-                }
-            )
+            val normalized = energy.attach(if (value.isRunning) value else value.finishPendingBackends())
+            val closedWindow = normalized.configuration.playback && normalized.energyObservations.count { it.end != null } != report.energyObservations.count { it.end != null }
             report = normalized
             // Stage notifications stay in memory; disk I/O cannot inflate the first-PCM measurement.
             val progress = normalized.completedChunks + normalized.playbackResults.size
-            val persist = progress != persistedSamples || !normalized.isRunning
+            val persist = progress != persistedSamples || closedWindow || !normalized.isRunning
             val saved = if (persist) store.save(normalized) else mutable.value.saved
             if (persist) persistedSamples = progress
             mutable.update { current ->
@@ -316,15 +302,18 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         val measurement = VoiceSpeechPlaybackBenchmark(context, models, writer.report.configuration, thermalStatus, engineFactory = sdkFactory)
         playbackRunner.set(measurement)
         if (cancelled.get()) measurement.cancel()
-        for (backend in writer.report.configuration.plannedBackendOrder) {
+        val failedBackends = mutableSetOf<VoiceSpeechBackend>()
+        for (pass in VoiceSpeechPlaybackProtocol.passes(writer.report.configuration)) {
             if (cancelled.get()) break
+            val backend = pass.backend
+            if (backend in failedBackends) continue
             if ((thermalStatus() ?: 0) >= 2) {
                 writer.report = writer.report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
                 break
             }
-            val preceding = writer.report.playbackResults.filterNot { it.requestedBackend == backend }
+            val preceding = writer.report.playbackResults
             publishPlaybackBackend(writer, backend, VoiceSpeechBenchmarkBackendState.RUNNING)
-            val observations = measurePlaybackBackend(measurement, backend, writer, preceding)
+            val (observations, passFailure) = measurePlaybackBackend(measurement, pass, writer, preceding)
             val results = if (nativeEngine) {
                 observations
             } else {
@@ -332,11 +321,13 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                     value.copy(requestedDelegate = dev.chungjungsoo.gptmobile.data.voice.requestedSpeechDelegate(backend), observedProviderStatus = "NOT_EXPOSED_BY_SDK", requestedThreads = null, effectiveThreads = null)
                 }
             }
-            val failed = results.firstOrNull { it.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) }
+            val failed = passFailure ?: results.firstOrNull { it.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) }
+            if (failed != null) failedBackends += backend
             val backendState = when {
                 failed?.state == VoiceSpeechPlaybackState.UNSUPPORTED -> VoiceSpeechBenchmarkBackendState.UNSUPPORTED
                 failed != null || measurement.thermalLimitReached -> VoiceSpeechBenchmarkBackendState.FAILED
                 cancelled.get() || results.any { it.state == VoiceSpeechPlaybackState.CANCELLED && it.cancellationTarget == null } -> VoiceSpeechBenchmarkBackendState.CANCELLED
+                !pass.completesBackend || results.isEmpty() -> VoiceSpeechBenchmarkBackendState.PARTIAL
                 else -> VoiceSpeechBenchmarkBackendState.COMPLETE
             }
             val cleanup = when {
@@ -368,21 +359,35 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         writer.publish(report.copy(state = finalState, finishedAtMillis = System.currentTimeMillis()))
     }
 
+    private data class PlaybackPassResult(val rows: List<VoiceSpeechPlaybackResult>, val failure: VoiceSpeechPlaybackResult? = null)
+
     private suspend fun measurePlaybackBackend(
         measurement: VoiceSpeechPlaybackBenchmark,
-        backend: VoiceSpeechBackend,
+        pass: VoiceSpeechPlaybackPass,
         writer: BenchmarkReportWriter,
         preceding: List<VoiceSpeechPlaybackResult>
-    ): List<VoiceSpeechPlaybackResult> = try {
-        measurement.measureSeries(backend) { rows -> writer.publish(writer.report.copy(playbackResults = preceding + rows)) }
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: LinkageError) {
-        listOf(VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.UNSUPPORTED, failure = dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.PROVIDER_LOAD))
-    } catch (error: Exception) {
-        val configuration = writer.report.configuration
-        val native = dev.chungjungsoo.gptmobile.data.voice.speechPlaybackFailureEvidence(error, backend, configuration.deviceKey, configuration.modelSha256)
-        listOf(VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.FAILED, failure = native?.classification?.code ?: dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.EXECUTION_FAILED, failureStage = native?.classification?.stage, nativeCode = native?.classification?.nativeCode))
+    ): PlaybackPassResult {
+        val backend = pass.backend
+        val failure = try {
+            val measured = measurement.measureSeries(backend, pass.plans) { rows -> writer.publish(writer.report.copy(playbackResults = preceding + rows)) }
+            return PlaybackPassResult(measured)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: LinkageError) {
+            VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.UNSUPPORTED, failure = dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.PROVIDER_LOAD)
+        } catch (error: Exception) {
+            val configuration = writer.report.configuration
+            val native = dev.chungjungsoo.gptmobile.data.voice.speechPlaybackFailureEvidence(error, backend, configuration.deviceKey, configuration.modelSha256)
+            VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.FAILED, failure = native?.classification?.code ?: dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.EXECUTION_FAILED, failureStage = native?.classification?.stage, nativeCode = native?.classification?.nativeCode)
+        }
+        val retained = writer.report.playbackResults.drop(preceding.size)
+        val plan = pass.plans.first()
+        return PlaybackPassResult(
+            retained.ifEmpty {
+                listOf(failure.copy(scenario = plan.scenario, repeat = plan.repeat, warmup = plan.warmup, expectedResident = plan.expectedResident, fixtureHash = plan.manifest.hash, cancellationTarget = plan.cancellationTarget))
+            },
+            failure
+        )
     }
 
     private fun publishPlaybackBackend(

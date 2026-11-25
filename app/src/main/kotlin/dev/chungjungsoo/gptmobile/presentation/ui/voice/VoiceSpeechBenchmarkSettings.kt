@@ -159,6 +159,9 @@ internal fun VoiceSpeechBenchmarkSettings(
     if (audible) {
         VoiceChoice("Playback workload", playbackScenario, VoiceSpeechPlaybackScenario.entries.map { it.name to it.label } + ("ALL" to "All six workloads"), { playbackScenario = it }, enabled = enabled && !state.running)
         VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.map { it.name to it.label }, { mode = it }, enabled = enabled && !state.running)
+        if (selected.size > 1 && (playbackScenario == "ALL" || playbackScenario == VoiceSpeechPlaybackScenario.COLD_START.name && mode != VoiceSpeechBenchmarkMode.QUICK.name)) {
+            Text("Each selected processor runs one fresh-session trial before any processor starts its remaining trials.", style = MaterialTheme.typography.bodySmall)
+        }
         if (mode == VoiceSpeechBenchmarkMode.STABILITY.name) {
             Text("Changing phrase shapes measures 20 resident plays each for short, medium and long answers after a separate warm-up. Select all six workloads to include fresh sessions and sustained playback.", style = MaterialTheme.typography.bodySmall)
         }
@@ -352,6 +355,9 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
                 OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("${backend.label} · ${rows.size} observed samples", style = MaterialTheme.typography.titleSmall)
+                        rows.firstOrNull { it.scenario == VoiceSpeechPlaybackScenario.COLD_START && it.repeat == 0 }?.firstPresentedAudioMs?.let {
+                            Text("First fresh-session audio presented at ${format(it / 1_000.0)} s", style = MaterialTheme.typography.bodySmall)
+                        }
                         Text("${rows.count { it.failure != null }} failures · ${rows.sumOf { it.bufferRestarts }} restarts · ${rows.count { it.cleanupState == "PENDING" }} pending cleanup", style = MaterialTheme.typography.bodySmall)
                         Text(rows.groupingBy { it.quality }.eachCount().entries.joinToString(" · ") { "${it.value} ${it.key.name.lowercase().replace('_', ' ')}" }, style = MaterialTheme.typography.bodySmall)
                         if (report.configuration.mode == VoiceSpeechBenchmarkMode.STABILITY) {
@@ -384,7 +390,7 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations", style = MaterialTheme.typography.bodySmall)
         for (result in report.engineResults) VoiceSpeechEngineBenchmarkCard(result)
     }
-    for (observation in report.energyObservations) VoiceSpeechBenchmarkEnergySummary(observation)
+    for (observation in report.energyObservations) VoiceSpeechBenchmarkEnergySummary(observation, report.configuration.comparesColdStartsFirst)
     Text(
         "Engineering goals · not measured results: preparation to first PCM below ${VoiceSpeechBenchmarkTargets.PREPARE_TO_FIRST_PCM_MS} ms; warm first PCM below ${VoiceSpeechBenchmarkTargets.WARM_FIRST_PCM_MS} ms; long-speech RTF below ${VoiceSpeechBenchmarkTargets.LONG_SPEECH_RTF}; zero clipped samples or playback interruptions. Accelerator kernel time share above ${(VoiceSpeechBenchmarkTargets.ACCELERATOR_KERNEL_TIME_SHARE * 100).toInt()}% is a goal where feasible and does not determine qualification.",
         style = MaterialTheme.typography.bodySmall,
@@ -404,7 +410,7 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
 }
 
 @Composable
-private fun VoiceSpeechBenchmarkEnergySummary(observation: VoiceSpeechBenchmarkEnergyObservation) {
+private fun VoiceSpeechBenchmarkEnergySummary(observation: VoiceSpeechBenchmarkEnergyObservation, splitColdTrial: Boolean) {
     val summary = when (observation.status) {
         VoiceSpeechEnergyStatus.IN_PROGRESS -> "observing whole-device battery counter"
         VoiceSpeechEnergyStatus.INTERRUPTED -> "battery observation interrupted; final endpoint unavailable"
@@ -418,7 +424,14 @@ private fun VoiceSpeechBenchmarkEnergySummary(observation: VoiceSpeechBenchmarkE
         VoiceSpeechEnergyStatus.NO_COUNTER_CHANGE -> "counter unchanged; this does not establish zero consumption"
         VoiceSpeechEnergyStatus.COUNTER_DECREASE_OBSERVED -> "whole-device counter decreased by ${format(checkNotNull(observation.observedCounterDecreaseNanowattHours) / 1_000_000.0)} mWh over ${format(checkNotNull(observation.elapsedMs) / 1000.0)} s"
     }
-    Text("${observation.requestedBackend.label} · $summary", style = MaterialTheme.typography.bodySmall)
+    val phase = if (!splitColdTrial) {
+        ""
+    } else if (observation.window == 1) {
+        " · first fresh trial"
+    } else {
+        " · remaining trials"
+    }
+    Text("${observation.requestedBackend.label}$phase · $summary", style = MaterialTheme.typography.bodySmall)
     if (observation.status == VoiceSpeechEnergyStatus.COUNTER_DECREASE_OBSERVED) {
         Text("Includes the display, background apps, preparation and reporting. Device counter resolution and power-event delivery vary; this observation cannot establish engine energy, power or savings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

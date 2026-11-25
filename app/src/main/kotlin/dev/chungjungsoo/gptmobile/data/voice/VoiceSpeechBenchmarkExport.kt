@@ -107,7 +107,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     if (!report.configuration.playback) {
         put("fixtureOrder", if (report.configuration.workload == VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES) "INTERLEAVED_LENGTHS" else "GROUPED_REPEATS")
     }
-    put("orderingProtocol", "recorded_cyclic_rotation_across_runs_not_randomized_within_run")
+    put("orderingProtocol", if (report.configuration.comparesColdStartsFirst) "one_cold_trial_per_backend_then_remaining_trials_in_recorded_rotation" else "recorded_cyclic_rotation_across_runs_not_randomized_within_run")
     put("plannedBackendOrder", buildJsonArray { report.configuration.plannedBackendOrder.forEach { add(JsonPrimitive(it.name)) } })
     put("playbackLatencyMs", JsonNull)
     put("acousticLatencyMs", JsonNull)
@@ -257,6 +257,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             nullable("sourceCommit", c.sourceCommit)
             put("playback", c.playback)
             put("playbackProtocolVersion", c.playbackProtocolVersion)
+            put("playbackScheduleVersion", c.playbackScheduleVersion)
             put("playbackScenarios", buildJsonArray { c.playbackScenarios.forEach { add(JsonPrimitive(it.name)) } })
             put("sustainedTargetAudioMs", c.sustainedTargetAudioMs)
             put("calibrationPolicy", c.calibrationPolicy.name)
@@ -833,6 +834,7 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         fixtureVersion = fixtureVersion,
         fixtureHash = if (schema == 1) null else c.optionalString("fixtureHash"),
         backendOrderSeed = c.optionalLong("backendOrderSeed") ?: 0,
+        playbackScheduleVersion = c.optionalBoundedLong("playbackScheduleVersion", 2)?.toInt() ?: 1,
         sourceCommit = c.optionalString("sourceCommit"),
         playback = c.optionalBoolean("playback") ?: false,
         playbackProtocolVersion = if (schema < 3) 0 else c.optionalBoundedLong("playbackProtocolVersion", VoiceSpeechPlaybackProtocol.VERSION.toLong())?.toInt() ?: 0,
@@ -937,8 +939,16 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
     val engines = value["engineResults"]?.jsonArray.orEmpty().also { require(it.size == if (nativeEngine) 0 else configuration.backends.size) }
         .map { readSpeechEngineBenchmark(it.jsonObject, configuration) }
     require(nativeEngine || engines.map { it.requestedBackend } == configuration.backends)
-    val energy = value["batteryCounterObservations"]?.jsonArray.orEmpty().also { require(it.size <= configuration.backends.size) }.map { readSpeechBenchmarkEnergy(it.jsonObject) }
-    require(energy.map { it.requestedBackend }.distinct().size == energy.size && energy.all { it.requestedBackend in configuration.backends })
+    val windowsPerBackend = if (configuration.comparesColdStartsFirst) 2 else 1
+    val energy = value["batteryCounterObservations"]?.jsonArray.orEmpty().also { require(it.size <= configuration.backends.size * windowsPerBackend) }.map { readSpeechBenchmarkEnergy(it.jsonObject) }
+    require(
+        energy.groupBy { it.requestedBackend }.all { (backend, windows) ->
+            backend in configuration.backends &&
+                windows.size <= windowsPerBackend &&
+                windows.map { it.window } == (1..windows.size).toList() &&
+                windows.dropLast(1).all { it.end != null }
+        }
+    )
     VoiceSpeechBenchmarkReport(
         startedAtMillis = value.getValue("startedAtMillis").jsonPrimitive.long.also { require(it >= 0) },
         configuration = configuration,

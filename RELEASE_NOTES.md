@@ -63,6 +63,7 @@ Native-product and reader-preference comparisons require independently collected
 
 ## Speech benchmark and playback
 
+- Start each selected speech processor with a fresh playback trial before longer comparisons. Preserve partial results and separate battery observations, limit optional buffering against the first-audio budget, and account for queued speech while the next native phrase is being generated.
 - Opening a foreground voice room starts preparation for Moonshine and the selected speech pack. During web lookups, a ready answer takes priority over a progress update that has not started playing. The Performance panel records the timing.
 - Auto can warm its admitted CPU session on voice entry. Adaptive playback takes a short opening clause or up to six complete opening words before adjusting phrase lengths to the audio queue.
 - Synthesis benchmarks can alternate short, medium and long fixtures. Reports show the native rejection reason, matched CPU frame counts, recoverable timing differences and distinct first-inference kernel time.

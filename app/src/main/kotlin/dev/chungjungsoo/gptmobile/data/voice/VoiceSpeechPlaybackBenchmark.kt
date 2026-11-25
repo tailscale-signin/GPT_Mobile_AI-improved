@@ -84,14 +84,13 @@ internal class VoiceSpeechPlaybackBenchmark(
     /** Compatibility entry point for a single fresh-session playback smoke test. */
     suspend fun measure(backend: VoiceSpeechBackend): VoiceSpeechPlaybackResult = measureSeries(backend).first()
 
-    suspend fun measureSeries(backend: VoiceSpeechBackend, publish: (List<VoiceSpeechPlaybackResult>) -> Unit = {}): List<VoiceSpeechPlaybackResult> = withContext(Dispatchers.Main.immediate) {
+    suspend fun measureSeries(backend: VoiceSpeechBackend, plans: List<VoiceSpeechPlaybackPlan> = VoiceSpeechPlaybackProtocol.plans(configuration), publish: (List<VoiceSpeechPlaybackResult>) -> Unit = {}): List<VoiceSpeechPlaybackResult> = withContext(Dispatchers.Main.immediate) {
         check(pendingRetirements.isEmpty() && !nativeCleanupPending) { "Previous native speech session is still retiring" }
         val results = mutableListOf<VoiceSpeechPlaybackResult>()
         suspend fun publishSnapshot(duringCleanup: Boolean = false) {
             val snapshot = results.toList()
             withContext(if (duringCleanup) NonCancellable + Dispatchers.IO else Dispatchers.IO) { publish(snapshot) }
         }
-        val plans = VoiceSpeechPlaybackProtocol.plans(configuration)
         for ((scenario, selected) in plans.groupBy { it.scenario }) {
             if (cancelled.get()) break
             // A cold or cancellation sample gets a fresh engine. Other scenarios reuse the exact owner.

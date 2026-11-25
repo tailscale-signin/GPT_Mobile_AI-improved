@@ -11,15 +11,34 @@ import org.junit.Test
 class VoiceSynthesisPerformanceTest {
     @Test fun aSlowNativePhraseDoesNotHoldFiveSecondsOfReadyPcmUntilTheDeadline() {
         val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
-        assertFalse(policy.nextChunkTooLate(5_425, 5_700, 0))
+        assertNull(policy.nativeReserveExit(5_425, 5_700, 0, 0))
         policy.observe(9_000, 5_425)
-        assertTrue(policy.nextChunkTooLate(5_425, 5_700, 100))
-        assertFalse(policy.nextChunkTooLate(500, 5_700, 100))
-        assertFalse(policy.nextChunkTooLate(5_425, 5_700, 4_000))
-        val exit = KokoroPcmBatches.awaitReserve(ArrayBlockingQueue(60), 144_000, { 130_200 }, { true }, { true }, { false }, { true }) { error("unexpected poll") }
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_LATE, policy.nativeReserveExit(5_425, 5_700, 100, 0))
+        assertNull(policy.nativeReserveExit(500, 5_700, 100, 0))
+        assertNull(policy.nativeReserveExit(5_425, 5_700, 4_000, 0))
+        val exit = KokoroPcmBatches.awaitReserve(ArrayBlockingQueue(60), 144_000, { 130_200 }, { true }, { true }, { false }, { VoicePcmReserveExit.NEXT_CHUNK_LATE }) { error("unexpected poll") }
         assertEquals(VoicePcmReserveExit.NEXT_CHUNK_LATE, exit)
         policy.beginStream()
-        assertFalse(policy.nextChunkTooLate(5_425, 5_700, 100))
+        assertNull(policy.nativeReserveExit(5_425, 5_700, 100, 8))
+    }
+
+    @Test fun firstAudioBudgetIncludesModelPreparationAndBothPrimingStages() {
+        assertEquals(0L, VoiceAdaptivePlayback.startupWaitMs(8_909, 3_745))
+        assertEquals(1_998L, VoiceAdaptivePlayback.startupWaitMs(3_002, 3_226))
+        assertEquals(0L, VoiceAdaptivePlayback.startupWaitMs(5_000, 60))
+        assertEquals(60L, VoiceAdaptivePlayback.startupWaitMs(1_200, 60))
+    }
+
+    @Test fun primingCountsAudioThatCanPlayDuringTheNextNativePhrase() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.BALANCED)
+        policy.observe(4_000, 3_000, spokenWords = 8)
+        // The 10-word phrase is estimated at six seconds. The existing PCM covers five of those seconds.
+        assertNull(policy.nativeReserveExit(5_000, 2_000, 0, 10))
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_COVERED, policy.nativeReserveExit(5_000, 2_000, 1_100, 10))
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_LATE, policy.nativeReserveExit(1_000, 2_000, 0, 10))
+        assertNull(policy.nativeReserveExit(5_000, 2_000, 7_000, 10))
+        policy.beginStream()
+        assertNull(policy.nativeReserveExit(5_000, 2_000, 1_100, 10))
     }
 
     @Test fun pcmViewsRetainEveryFrameWithoutCopyingThePhrase() {

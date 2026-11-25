@@ -45,6 +45,8 @@ internal data class VoiceSpeechPlaybackPlan(
 
 internal data class VoiceSpeechCaptionSpan(val segment: Int, val first: Int, val last: Int)
 
+internal data class VoiceSpeechPlaybackPass(val backend: VoiceSpeechBackend, val plans: List<VoiceSpeechPlaybackPlan>, val completesBackend: Boolean)
+
 /** Fixture expectation is independent of the pronunciation planner and its emitted captions. */
 internal data class VoiceSpeechCaptionManifest(val hash: String, val spans: Set<VoiceSpeechCaptionSpan>) {
     companion object {
@@ -66,9 +68,18 @@ internal object VoiceSpeechPlaybackProtocol {
     const val VERSION = 6
     const val MAX_SAMPLES_PER_BACKEND = 96
     const val MAX_CHUNKS_PER_SAMPLE = 128
-    const val FIRST_AUDIO_TARGET_MS = 5_000L
+    const val FIRST_AUDIO_TARGET_MS = VoiceAdaptivePlayback.FIRST_AUDIO_TARGET_MS
     const val CANCELLATION_TARGET_MS = 500L
     const val MAX_CANCEL_TARGET_WAIT_MS = 90_000L
+
+    fun passes(configuration: VoiceSpeechBenchmarkConfiguration): List<VoiceSpeechPlaybackPass> {
+        val plans = plans(configuration)
+        val order = configuration.plannedBackendOrder
+        if (!configuration.comparesColdStartsFirst) return order.map { VoiceSpeechPlaybackPass(it, plans, true) }
+        // Only a cold trial owns an independent session. Keep each warm cohort and sustained series together.
+        return order.map { VoiceSpeechPlaybackPass(it, plans.take(1), false) } +
+            order.map { VoiceSpeechPlaybackPass(it, plans.drop(1), true) }
+    }
 
     fun maximumSamples(configuration: VoiceSpeechBenchmarkConfiguration): Int = plans(configuration).size +
         if (VoiceSpeechPlaybackScenario.SUSTAINED in configuration.playbackScenarios) VoiceSpeechSustainedSeries.MAX_REPLIES - 1 else 0

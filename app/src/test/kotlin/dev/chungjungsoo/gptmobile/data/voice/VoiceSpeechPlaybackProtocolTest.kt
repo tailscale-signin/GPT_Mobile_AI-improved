@@ -13,6 +13,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechPlaybackProtocolTest {
+    @Test fun freshRoundVisitsEachProcessorBeforeRepeatsAndKeepsEachResidentCohortIntact() {
+        val config = configuration(full = true).copy(backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS, backendOrderSeed = 1, playbackScenarios = VoiceSpeechPlaybackScenario.entries)
+        val passes = VoiceSpeechPlaybackProtocol.passes(config)
+        val order = listOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP, VoiceSpeechBackend.CPU)
+        assertEquals(order + order, passes.map { it.backend })
+        assertTrue(passes.take(3).all { !it.completesBackend && it.plans.single().let { plan -> plan.scenario == VoiceSpeechPlaybackScenario.COLD_START && plan.repeat == 0 } })
+        for (backend in order) {
+            val own = passes.filter { it.backend == backend }
+            assertEquals(VoiceSpeechPlaybackProtocol.plans(config), own.flatMap { it.plans })
+            assertTrue(own.last().completesBackend)
+        }
+        for (other in listOf(config.copy(backends = order.take(1)), config.copy(playbackScheduleVersion = 1), config.copy(playbackScenarios = listOf(VoiceSpeechPlaybackScenario.RESIDENT_WARM)))) {
+            assertTrue(VoiceSpeechPlaybackProtocol.passes(other).all { it.completesBackend && it.plans == VoiceSpeechPlaybackProtocol.plans(other) })
+        }
+    }
+
+    @Test fun interruptedComparisonKeepsMeasuredProcessorsPartialAndUntouchedProcessorsUnrun() {
+        val config = configuration(full = true).copy(backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS)
+        val plan = VoiceSpeechPlaybackProtocol.plans(config).first()
+        val report = VoiceSpeechBenchmarkReport(1L, config, state = VoiceSpeechBenchmarkRunState.INTERRUPTED, playbackResults = listOf(observed(plan)))
+        val settled = report.finishPendingBackends()
+        assertEquals(listOf(VoiceSpeechBenchmarkBackendState.PARTIAL, VoiceSpeechBenchmarkBackendState.NOT_RUN, VoiceSpeechBenchmarkBackendState.NOT_RUN), settled.results.map { it.state })
+        assertEquals(settled, speechBenchmarkReportFromJson(speechBenchmarkJson(settled, local = true)))
+        assertNull(settled.recommendation())
+    }
+
     @Test fun stabilitySeparatesThreeWarmCohortsFromColdSamplesAndFitsTheBoundedReport() {
         val config = configuration().copy(mode = VoiceSpeechBenchmarkMode.STABILITY, playbackScenarios = VoiceSpeechPlaybackScenario.entries)
         val plans = VoiceSpeechPlaybackProtocol.expandedPlans(config, VoiceSpeechSustainedSeries.MAX_REPLIES)

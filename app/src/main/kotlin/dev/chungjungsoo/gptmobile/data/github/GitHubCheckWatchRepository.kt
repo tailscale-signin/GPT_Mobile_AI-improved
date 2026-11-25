@@ -107,7 +107,15 @@ class GitHubCheckWatchRepository @Inject constructor(
     }
     private suspend fun api(watch: GitHubCheckWatch, background: Boolean = true): GitHubEngineeringApi {
         val room = workspace.database.chatRoomDao().getChatRoomsByIds(listOf(watch.chatId)).singleOrNull()
-        require(room != null && (!background || !room.isTemporary)) { "Conversation was removed, or background watching requires a saved conversation." }
+        if (room == null) throw GitHubReadValidation("PERMISSION_DENIED", buildJsonObject { put("message", "This conversation no longer exists.") })
+        if (background && room.isTemporary) {
+            throw GitHubReadValidation(
+                "USER_INPUT_REQUIRED",
+                buildJsonObject {
+                    put("message", "Save this conversation for background check notifications, or request an inline observation with wait_timeout_seconds between 1 and 30.")
+                }
+            )
+        }
         val connection = requireNotNull(connections.getConnection(watch.connectionUid)) { "GitHub connection removed." }
         val permission = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl)
         require(connection.type == "GITHUB" && (if (watch.permissionRevision.isBlank()) connection.updatedAt == watch.connectionUpdatedAt else watch.permissionRevision == permission)) { "GitHub permissions changed; start a new watch." }

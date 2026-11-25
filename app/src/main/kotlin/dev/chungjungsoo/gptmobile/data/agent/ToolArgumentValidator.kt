@@ -80,7 +80,17 @@ internal object ToolArgumentValidator {
         val operation = toolName.githubOperationFamily()
         val selector = selectorProblem(operation, arguments, schema)
         val receipt = rejectionReceipt(operation, arguments, schema, validationErrors, selector)
-        val correction = if (selector?.field == "job_id") ciJobDiscovery(arguments, schema) else discoveryCorrection(toolName, arguments, schema)
+        val jobRead = if (selector?.field == "job_id") ciJobDiscovery(arguments) else null
+        val selectJobRead = jobRead != null && errors(jobRead, schema).isNotEmpty()
+        val correction = when {
+            selectJobRead -> buildJsonObject {
+                put("names", JsonArray(listOf(JsonPrimitive(toolName))))
+                put("action", requireNotNull(jobRead).getValue("action"))
+                put("catalog_only", true)
+            }
+            selector?.field == "job_id" -> jobRead
+            else -> discoveryCorrection(toolName, arguments, schema)
+        }
         val rejected = AgentToolResult(
             callId,
             ToolResultContent.Json(
@@ -134,7 +144,7 @@ internal object ToolArgumentValidator {
                         put(
                             "correction_call",
                             buildJsonObject {
-                                put("tool", toolName)
+                                put("tool", if (selectJobRead) ProgressiveToolCatalog.NAME else toolName)
                                 put("arguments", correction)
                             }
                         )
@@ -489,7 +499,7 @@ internal object ToolArgumentValidator {
 
     private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String?, val source: String, val discoveryAction: String = "list")
 
-    private fun ciJobDiscovery(arguments: JsonObject, schema: JsonObject): JsonObject? {
+    private fun ciJobDiscovery(arguments: JsonObject): JsonObject? {
         val repositoryFields = setOf("owner", "repo")
         if (repositoryFields.any(arguments::containsKey)) {
             for (field in repositoryFields) {
@@ -507,7 +517,8 @@ internal object ToolArgumentValidator {
             put("action", if (run == null) "runs" else "jobs")
             arguments.filterKeys { it in preserved }.forEach { (field, value) -> put(field, value) }
         }
-        return discovery.takeIf { errors(it, schema).isEmpty() && GitHubOperationArguments.errors("github_ci", it).isEmpty() }
+        val fullSchema = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_ci", "github_ci").inputSchema
+        return discovery.takeIf { errors(it, fullSchema).isEmpty() && GitHubOperationArguments.errors("github_ci", it).isEmpty() }
     }
 
     /** Missing and malformed read selectors need a typed discovery path, not prose parsing. */

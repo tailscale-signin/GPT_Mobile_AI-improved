@@ -97,6 +97,30 @@ class ToolCatalogSelectorRecoveryTest {
         assertTrue(catalog.singleActionSelectors(JsonObject(original + ("names" to JsonArray(listOf(JsonPrimitive(definitions.first().name), JsonPrimitive("unassigned")))))).isEmpty())
     }
 
+    @Test fun namedReadAliasSelectsRangesAndUnknownActionsExposeAnExecutableLocalContractLookup() = runTest {
+        val tool = GitHubOperationTool.definition("github_read", "github_read__native")
+        val catalog = ProgressiveToolCatalog(listOf(tool), "Read source", githubMode = true)
+        val selector = buildJsonObject {
+            put("names", JsonArray(listOf(JsonPrimitive(tool.name))))
+            put("action", "read")
+            put("catalog_only", true)
+        }
+        val canonical = catalog.canonicalArguments(selector)
+        assertEquals(JsonPrimitive("ranges"), canonical["action"])
+        val selected = catalog.execute("select-read", canonical)
+        assertFalse(selected.isError)
+        assertFalse(selected.dispatched)
+        val invalid = catalog.execute("unknown-action", JsonObject(selector + ("action" to JsonPrimitive("unknown"))))
+        assertTrue(invalid.isError)
+        val body = (invalid.content as ToolResultContent.Json).value.jsonObject
+        assertTrue((body.getValue("available_actions") as JsonArray).contains(JsonPrimitive("ranges")))
+        val correction = body.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive(ProgressiveToolCatalog.NAME), correction["tool"])
+        val lookup = catalog.execute("lookup", correction.getValue("arguments").jsonObject)
+        assertFalse(lookup.isError)
+        assertFalse(lookup.dispatched)
+    }
+
     @Test fun searchAliasPreservesNamedActionsAndRejectsConflictingOrMalformedSelectors() = runTest {
         val definition = GitHubOperationTool.definition("github_search", "github_search__native")
         val catalog = ProgressiveToolCatalog(listOf(definition), "Read repository instructions", githubMode = true)

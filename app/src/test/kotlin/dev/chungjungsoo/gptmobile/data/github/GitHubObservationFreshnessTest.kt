@@ -34,6 +34,19 @@ class GitHubObservationFreshnessTest {
         }
     }
 
+    @Test fun staleSavedPageRefreshesOnlyTheOriginalReadInTheSameTaskAndBranch() {
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_issue")
+        val source = json("""{"binding":"task","repository":"owner/repo","branch":"main","trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list","state":"open"}}""")
+        val page = kotlinx.serialization.json.JsonObject(source + json("""{"source_observation_receipt_id":"original","arguments":{"view_cursor":"saved"}}"""))
+        val rows = mapOf("original" to source, "page" to page)
+        val call = requireNotNull(GitHubExecutionContinuation.staleRead(listOf("page"), listOf(tool), rows, "request"))
+        assertEquals(json("""{"action":"list","state":"open","verify_live":true}"""), call.arguments)
+        for (change in listOf("""{"branch":"other"}""", """{"repository":"other/repo"}""", """{"trusted":false}""", """{"source_observation_receipt_id":"page"}""")) {
+            val altered = rows + ("page" to kotlinx.serialization.json.JsonObject(page + json(change)))
+            assertNull(GitHubExecutionContinuation.staleRead(listOf("page"), listOf(tool), altered, "request"))
+        }
+    }
+
     @Test fun immutableLookupCannotAgeRevalidatedMutableObservations() = runTest {
         for (status in listOf(200, 304)) {
             val accounting = GitHubDispatchAccounting()

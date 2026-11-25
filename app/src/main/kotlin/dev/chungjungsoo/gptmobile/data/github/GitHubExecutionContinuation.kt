@@ -358,17 +358,26 @@ internal object GitHubExecutionContinuation {
 
     fun staleRead(ids: List<String>, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, requestKey: String): ProviderEvent.ToolCall? {
         for (id in ids) {
-            val receipt = receipts[id] ?: continue
+            var receipt = receipts[id] ?: continue
+            val seen = mutableSetOf(id)
+            while ((receipt["arguments"] as? JsonObject)?.containsKey("view_cursor") == true) {
+                if (receipt["trusted"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false)) break
+                val sourceId = (receipt["source_observation_receipt_id"] as? JsonPrimitive)?.content ?: break
+                if (!seen.add(sourceId)) break
+                val original = receipts[sourceId] ?: break
+                if (listOf("binding", "repository", "branch", "tool").any { receipt[it] == null || receipt[it] != original[it] }) break
+                receipt = original
+            }
             if (receipt["trusted"] != JsonPrimitive(true) ||
                 receipt["success"] != JsonPrimitive(true) ||
                 receipt["verification_eligible"] == JsonPrimitive(false) ||
-                receipt["immutable"] == JsonPrimitive(true)
+                GitHubEvidencePolicy.immutable(receipt, receipts)
             ) {
                 continue
             }
             val args = receipt["arguments"] as? JsonObject ?: continue
             val name = (receipt["tool"] as? JsonPrimitive)?.content ?: continue
-            if ("view_cursor" in args || !GitHubAuthorizationBoundary.isReplayableRead(name, args)) continue
+            if ("view_cursor" in args || !GitHubAuthorizationBoundary.isReplayableRead(name, args) || GitHubAuthorizationBoundary.isBranchSelection(name, args)) continue
             val tool = tools.singleOrNull { it.name == name && it.modelVisible } ?: continue
             if ((tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") != true) continue
             val live = JsonObject(args + ("verify_live" to JsonPrimitive(true)))

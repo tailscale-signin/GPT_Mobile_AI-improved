@@ -7,6 +7,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** A bounded primary-model read; its provisional notes are checkpointed, never published as an answer. */
 internal class SavedPageDeliveryRound private constructor(private val expectedProjection: String) : AbstractCoroutineContextElement(Key) {
@@ -61,7 +63,22 @@ internal class SavedPageDeliveryRound private constructor(private val expectedPr
                 retainNotes(notes.toString())
                 emit(ProviderEvent.Completed)
             } else if (!reportedFailure) {
-                emit(ProviderEvent.Failed("The selected model did not complete a fresh saved-page read with bounded reading notes. Its pending pages remain checkpointed.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                val reason = when {
+                    failed -> "The saved-page response contained unsupported output or exceeded its note allowance."
+                    !completed || !read.freshRequestCompleted -> "The saved-page request has no matching fresh completion."
+                    else -> "The saved-page response returned empty reading notes."
+                }
+                emit(
+                    ProviderEvent.Failed(
+                        "$reason Its pending pages remain checkpointed.",
+                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "response_stream")
+                            put("failure_origin", "APPLICATION")
+                            put("logical_continuation_allowed", false)
+                        }
+                    )
+                )
             }
         }
     }

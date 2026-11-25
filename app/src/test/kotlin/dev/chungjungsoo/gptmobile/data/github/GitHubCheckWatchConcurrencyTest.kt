@@ -143,6 +143,14 @@ class GitHubCheckWatchConcurrencyTest {
         coVerify(exactly = 0) { fixture.dao.save(any()) }
     }
 
+    @Test fun temporaryChatBackgroundWatchReturnsAnActionableReasonBeforeNetworkAccess() = runBlocking {
+        val fixture = fixture(api { error("Background watch must not send a request") }, temporary = true)
+        val arguments = JsonObject(inlineArguments(1) - "wait_timeout_seconds")
+        val failure = runCatching { fixture.repository.subscribe("connection", "profile", 1, arguments) }.exceptionOrNull()
+        assertEquals("USER_INPUT_REQUIRED", (failure as? GitHubReadValidation)?.code)
+        assertTrue(failure?.message.orEmpty().contains("wait_timeout_seconds"))
+    }
+
     @Test fun checkWatchUsesTheLiveGitHubChatPolicyForItsBoundRepository() = runBlocking {
         val scope = GitHubConversationContext("connection", "owner", "repo", "main", head, "profile")
         val features = AppFeatureSettings(

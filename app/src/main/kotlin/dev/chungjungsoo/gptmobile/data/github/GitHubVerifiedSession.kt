@@ -600,6 +600,17 @@ internal class GitHubVerifiedSession(
                 emitAll(publish(savedDraft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
                 return@flow
             }
+            if (GitHubRequestCompletion.informational(task) && remainingToolCalls()?.let { it > 0 } == true && evidence.remainingTaskMillis() != 0L) {
+                val receipts = evidence.snapshot().first
+                val candidate = withContext(computationDispatcher) { GitHubPartialReport.fromReceipts(receipts) }
+                if (candidate.isNotBlank() &&
+                    GitHubPendingApproval.snapshot(receipts).isEmpty() &&
+                    receipts.values.none { GitHubExecutionLedger.receiptState(it) == GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME }
+                ) {
+                    emitAll(publish(candidate, GitHubAcceptancePublicationEvidence.Entry.RETAINED_OBSERVATIONS))
+                    return@flow
+                }
+            }
             // The normal provider path must honor the same reserve as the checklist.
             // Publish the immutable receipt snapshot while verification capacity remains.
             // Resume uses the durable task; this does not renew its authorized allowance.

@@ -88,6 +88,21 @@ internal class GitHubResultViews(
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
         val summary = (value as? JsonObject)?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.from(operation, request, it) }
         val displayBody = if (display == value) body else retainContinuations(display, "", operation, modelName, request, mutableListOf())
+        if (upstream.isError &&
+            display == value &&
+            continuations.isEmpty() &&
+            (upstream.errorCode in dev.chungjungsoo.gptmobile.data.github.GitHubTransportRecovery.codes || upstream.errorCode == "OUTPUT_LIMIT")
+        ) {
+            val visible = buildJsonObject {
+                put("schema", SCHEMA)
+                put("operation", operation)
+                put("local_page_complete", true)
+                put("data", displayBody)
+            }
+            if (visible.toString().encodeToByteArray().size <= pageBytes) {
+                return upstream.copy(content = ToolResultContent.Json(visible))
+            }
+        }
         val id = UUID.randomUUID().toString()
         val sourceRecovery = immutableRecovery(operation, modelName, request, value)
         val small = buildJsonObject {
@@ -536,6 +551,10 @@ internal class GitHubResultViews(
             put("schema", SCHEMA)
             put("operation", entry.operation)
             put("local_page_complete", complete)
+            if (entry.originalError) {
+                put("source_operation_failed", true)
+                entry.originalErrorCode?.let { put("source_error_code", it) }
+            }
             put("metadata", if (compact) JsonObject(emptyMap()) else metadata)
             put("fragments", JsonArray(records))
             put("fragment_offset", offset)

@@ -889,7 +889,10 @@ class GitHubTool(
                 return successResult(callId, presented.toString())
             }
             when (action) {
-                "watch_checks" -> successResult(callId, requireNotNull(watchChecks) { "Background check subscriptions require a connected account and saved chat." }(arguments).toString())
+                "watch_checks" -> {
+                    val watch = watchChecks ?: return AgentToolResult(callId, ToolResultContent.Text("Check monitoring needs a connected GitHub account and an existing chat. Use the PR or CI read tools to inspect the current state."), true, errorCode = "TOOL_UNAVAILABLE", dispatched = false)
+                    successResult(callId, watch(arguments).toString())
+                }
                 "search_repositories" -> handleSearchRepositories(callId, arguments)
                 "search_issues" -> handleSearchIssues(callId, arguments)
                 "get_file_contents" -> handleGetFileContents(callId, arguments)

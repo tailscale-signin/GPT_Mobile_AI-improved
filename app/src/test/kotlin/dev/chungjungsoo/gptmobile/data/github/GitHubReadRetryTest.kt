@@ -41,6 +41,20 @@ class GitHubReadRetryTest {
         assertEquals(null, GitHubTransportRecovery.waitBlocker(30_000, false, 30_001))
     }
 
+    @Test fun circuitProbeAfterTwoServerErrorsCompletesTheOriginalRead() = runTest {
+        var attempts = 0
+        val result = GitHubReadRetry.run {
+            when (++attempts) {
+                1, 2 -> throw GitHubReadRetry.HttpFailure(503, null)
+                3 -> throw GitHubRequestCircuit.Open(2398L)
+                else -> "recovered"
+            }
+        }
+        assertEquals("recovered", result)
+        assertEquals(4, attempts)
+        assertEquals(5398L, testScheduler.currentTime)
+    }
+
     @Test fun readWaitsForOneCircuitProbeWithoutCreatingAnotherToolCall() = runTest {
         val circuit = GitHubRequestCircuit(threshold = 1, cooldownMillis = 30_000, now = { testScheduler.currentTime })
         circuit.failed(circuit.admit(), IOException("connection reset"))

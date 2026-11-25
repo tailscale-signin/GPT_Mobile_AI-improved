@@ -42,6 +42,21 @@ class GitHubSavedViewRecoveryTest {
         }
     }
 
+    @Test fun completeVisibleFailuresCarryTheOriginalCodeWithoutAnUnusableSavedPage() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        for (code in listOf("GITHUB_TRANSIENT_SERVER", "GITHUB_CIRCUIT_OPEN", "OUTPUT_LIMIT")) {
+            val result = AgentToolResult("original", ToolResultContent.Text("Service returned an error"), true, errorCode = code)
+            val page = views.present("conversation", "github_search", "github_search__bound", result)
+            assertTrue(page.isError)
+            assertEquals(code, page.errorCode)
+            assertEquals(JsonPrimitive("Service returned an error"), body(page)["data"])
+            assertEquals(JsonPrimitive(true), body(page)["local_page_complete"])
+            assertFalse(body(page).containsKey("continuation_call"))
+            assertFalse(body(page).containsKey("recovery_call"))
+            assertFalse(body(page).containsKey("recovery_options"))
+        }
+    }
+
     @Test fun processRestartRestoresMutationResultAndLaterIssuedPagesWithoutMutationReplay() = runBlocking {
         val directory = Files.createTempDirectory("github-saved-result").toFile()
         try {

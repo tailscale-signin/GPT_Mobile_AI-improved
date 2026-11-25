@@ -40,6 +40,16 @@ internal object GitHubIntegrationPreparation {
         val readCalls = if (acquisitionAllowed) GitHubSelfTestReads.available(tools, receipts.values.toList()) else emptyList()
         val canCreate = !GitHubChecklistScope.readOnly(task) && approval?.get("state") == JsonPrimitive("READY") && (remaining == null || remaining >= minimum)
         val fixtureCall = GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = canCreate, cleanupOnly = !acquisitionAllowed, abortIncomplete = !acquisitionAllowed)
+        val reviewPlan = if (fixtureCall == null &&
+            acquisitionAllowed &&
+            approval?.get("state") == JsonPrimitive("CONDITIONAL") &&
+            remaining != null &&
+            remaining >= minimum
+        ) {
+            GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = true)?.takeIf { it.arguments["action"] == JsonPrimitive("branch") }
+        } else {
+            null
+        }
         val pending = capabilities.filterIsInstance<JsonObject>().filter { it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }
         val blockers = pending.groupBy { it.text("blocker_code").ifBlank { "BLOCKER_DETAIL_NOT_RECORDED" } }
         val fixtureActive = GitHubChecklistBudget.cleanupReserve(receipts) > 0
@@ -74,6 +84,7 @@ internal object GitHubIntegrationPreparation {
             put("additional_ready_read_count", (readCalls.size - 16).coerceAtLeast(0))
             put("owned_fixture_creation_admissible", canCreate && fixtureCall?.arguments?.get("action") == JsonPrimitive("branch"))
             fixtureCall?.let { put("next_owned_fixture_call", call(it)) }
+            reviewPlan?.let { put("fixture_approval_proposal", call(it)) }
             approval?.let { put("fixture_approval_preflight", it) }
             put("resume_policy", "Revalidate the current catalog and leases, reuse completed receipts, and resume the next missing step. Reconcile uncertain mutations before continuing. Verify owned-resource absence before releasing cleanup reserve.")
             put(

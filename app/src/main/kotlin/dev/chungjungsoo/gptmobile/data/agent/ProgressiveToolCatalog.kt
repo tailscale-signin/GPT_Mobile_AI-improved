@@ -488,6 +488,16 @@ class ProgressiveToolCatalog(
         // A catalog action with one tool can be a real backend action; preserve it.
         // Multi-name catalog discovery stays local and keeps every requested name.
         val names = normalized["names"] as? JsonArray
+        if (normalized["action"] == JsonPrimitive("read") && names?.size == 1) {
+            val name = (names.single() as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val candidate = name?.let { candidates[resolveName(it)] }
+            if (candidate?.modelVisible == true &&
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(candidate.name) == "github_read" &&
+                GitHubActionSchema.project(candidate, "ranges") != null
+            ) {
+                normalized["action"] = JsonPrimitive("ranges")
+            }
+        }
         val inventoryAction = normalized["action"] == JsonPrimitive("catalog_only") ||
             normalized["action"] == JsonPrimitive("catalog") &&
             names != null &&
@@ -632,7 +642,24 @@ class ProgressiveToolCatalog(
             val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.content
             val tool = names.singleOrNull()?.let(candidates::get)
             if (tool == null || action == null || GitHubActionSchema.project(tool, action) == null) {
-                return@synchronized AgentToolResult(callId, ToolResultContent.Text("Choose exactly one authorized GitHub tool name and an action from its contract. No selection changed."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+                val properties = tool?.inputSchema?.get("properties") as? JsonObject
+                val actions = (properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray
+                val correction = buildJsonObject {
+                    put("tool", NAME)
+                    put(
+                        "arguments",
+                        buildJsonObject {
+                            if (tool != null) put("names", JsonArray(listOf(JsonPrimitive(tool.name))))
+                            put("catalog_only", true)
+                        }
+                    )
+                }
+                val content = buildJsonObject {
+                    put("message", "Select an action declared by the named tool. Use the local catalog to inspect its contract.")
+                    actions?.let { put("available_actions", it) }
+                    put("correction_call", correction)
+                }
+                return@synchronized AgentToolResult(callId, ToolResultContent.Json(content), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             }
             actionSelections[tool.name] = contractFingerprint(tool) to action
         } else {

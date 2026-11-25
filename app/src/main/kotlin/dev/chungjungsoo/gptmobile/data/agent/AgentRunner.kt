@@ -2138,10 +2138,24 @@ class AgentRunner(
                 // inject restored plaintext notes after their masking/serialized-request boundary.
                 dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
             }
-            val reservedReadingTokens = SavedPageReading.reservation(savedPageReading, mayStage)
-            val sourceAllowance = (replayLimit - reservedReadingTokens).coerceAtLeast(0)
-            if (sourceAllowance == 0 && (savedPageReading != null || mayStage)) {
-                emit(ProviderEvent.Failed("Mandatory saved-page reading context does not fit this request. Saved pages and prior notes remain intact.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+            // Only reserve a new private note after full-page delivery actually fails.
+            var sourceAllowance = (replayLimit - SavedPageReading.reservation(savedPageReading, false)).coerceAtLeast(0)
+            if (sourceAllowance == 0 && savedPageReading != null) {
+                emit(
+                    ProviderEvent.Failed(
+                        "Mandatory saved-page reading context does not fit this request. Saved pages and prior notes remain intact.",
+                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "planning")
+                            put("failure_origin", "APPLICATION")
+                            put("dispatched", false)
+                            put("replay_budget_state", "NO_CONTINUATION_ALLOWANCE")
+                            put("replay_allowance", replayLimit)
+                            put("source_allowance", sourceAllowance)
+                            put("pending_saved_page_count", requiredSavedPageDigests.size)
+                        }
+                    )
+                )
                 return@flow
             }
             suspend fun project(required: Map<String, String?>) = prepareReplay(exchanges, sourceAllowance, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests, required)
@@ -2150,6 +2164,29 @@ class AgentRunner(
             var exact = delivered(replay)
             deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
             if (mayStage && requiredSavedPageDigests.any { (id, digest) -> deliveredBodies[id] != digest }) {
+                sourceAllowance = (replayLimit - SavedPageReading.reservation(savedPageReading, true)).coerceAtLeast(0)
+                if (sourceAllowance > 0) {
+                    replay = project(requiredSavedPageDigests)
+                    exact = delivered(replay)
+                    deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
+                } else {
+                    emit(
+                        ProviderEvent.Failed(
+                            "The saved reading context leaves no space for another page.",
+                            errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "planning")
+                                put("failure_origin", "APPLICATION")
+                                put("dispatched", false)
+                                put("replay_budget_state", "SAVED_PAGE_EXCEEDS_ALLOWANCE")
+                                put("source_allowance", 0)
+                                put("replay_allowance", replayLimit)
+                                put("pending_saved_page_count", requiredSavedPageDigests.size)
+                            }
+                        )
+                    )
+                    return@flow
+                }
                 // A private note must match the durable projection. A page containing a
                 // later wrap-up instruction can still be read in the ordinary final round.
                 val eligible = checkpoint?.eligibleReadingSources(exchanges.flatMap { it.calls }.associateBy { it.callId }, requiredSavedPageDigests)

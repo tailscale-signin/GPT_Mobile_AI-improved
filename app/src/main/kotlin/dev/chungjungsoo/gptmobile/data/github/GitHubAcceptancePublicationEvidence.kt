@@ -38,6 +38,7 @@ internal object GitHubAcceptancePublicationEvidence {
         PROSE_ONLY_CORRECTION,
         COMPLETED_DRAFT,
         RETAINED_REPORT_UNAVAILABLE,
+        RETAINED_OBSERVATIONS,
         RETAINED_FAILURE
     }
 

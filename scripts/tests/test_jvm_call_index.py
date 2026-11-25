@@ -1,4 +1,5 @@
 """Integration against real javac/kotlinc output; set JVM_GRAPH_ASM to Gradle's asm-N.jar."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -6,9 +7,25 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from build_jvm_call_index import create
+from build_jvm_call_index import create, write_index
+
+
+class IndexWriterTest(unittest.TestCase):
+    def test_size_boundary_publishes_only_complete_indexes(self):
+        data = {'schema': 1, 'methods': [['example/Api.call()V', 0, 1, 'a' * 64]]}
+        wire = json.dumps(data, separators=(',', ':')).encode()
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / 'nested' / 'jvm-call-index.json'
+            with patch('build_jvm_call_index.JSON_LIMIT', len(wire)):
+                self.assertEqual(len(wire), write_index(data, target))
+                self.assertEqual(wire, target.read_bytes())
+                with self.assertRaisesRegex(ValueError, 'Gateway limit'):
+                    write_index(dict(data, extra='one byte over is enough'), target)
+            self.assertEqual(wire, target.read_bytes())
+            self.assertEqual([target], list(target.parent.iterdir()))
 
 
 class RealCompilerTest(unittest.TestCase):

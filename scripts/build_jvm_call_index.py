@@ -8,7 +8,11 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'gateway'))
+from v14.code_graph.jvm_index_limits import JSON_LIMIT
 
 
 def git(repo, *args):
@@ -97,6 +101,19 @@ def create(repo, class_dirs, asm, requested=None):
             'files': files, 'methods': methods, 'calls': calls}
 
 
+def write_index(index, output):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=output.parent) as staging:
+        candidate = Path(staging) / output.name
+        with candidate.open('w', encoding='utf-8') as stream:
+            json.dump(index, stream, separators=(',', ':'))
+        size = candidate.stat().st_size
+        if size > JSON_LIMIT:
+            raise ValueError(f'Compiled JVM call index uses {size} bytes and exceeds the {JSON_LIMIT}-byte Gateway limit')
+        candidate.replace(output)
+    return size
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', type=Path, default=Path.cwd())
@@ -106,11 +123,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     index = create(args.repo.resolve(), args.classes, args.asm, args.head)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(index, separators=(',', ':')), encoding='utf-8')
-    if args.output.stat().st_size > 64 * 1024 * 1024:
-        raise ValueError('Compiled artifact exceeds the Gateway read budget')
-    print(f"Indexed {len(index['methods'])} methods and {len(index['calls'])} source-mapped calls at {index['commit_sha']}")
+    size = write_index(index, args.output)
+    print(f"Indexed {len(index['methods'])} methods and {len(index['calls'])} source-mapped calls at {index['commit_sha']} ({size} bytes)")
     if os.getenv('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
             print('source_sha=' + index['commit_sha'], file=out)

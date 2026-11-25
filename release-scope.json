@@ -20,6 +20,7 @@
     "Retain issued GitHub saved pages across temporary tool instances, preserve original readback evidence during reconciliation, avoid duplicate reports for archived failures, and guide CI job discovery during continuation.",
     "Honor an OpenAI Responses terminal receipt even when the stream subsequently raises a cleanup error.",
     "Verify the two public routing requirement digests in the credential history scan across PR merge revisions, with controls for different values, paths, fields and adjacent content.",
+    "Stream the complete compiled JVM call index to a temporary file and publish it atomically within a shared 128 MiB decoded bound, retaining the 32 MiB Gateway archive bound and revision checks.",
     "Rebuild GitHub chat setup, task routing, context selection and progress around the selected repository. Fresh profiles use adaptive effort. Direct lookups start with the relevant read, and the chat header keeps branch and activity visible."
   ],
   "limitations": [
@@ -374,6 +375,7 @@
     "gateway/v14/__init__.py",
     "gateway/v14/code_graph/engine.py",
     "gateway/v14/code_graph/jvm_impact.py",
+    "gateway/v14/code_graph/jvm_index_limits.py",
     "gateway/v14/code_graph/service.py",
     "gateway/v14/conversations.py",
     "gateway/v14/engineering_backend.py",

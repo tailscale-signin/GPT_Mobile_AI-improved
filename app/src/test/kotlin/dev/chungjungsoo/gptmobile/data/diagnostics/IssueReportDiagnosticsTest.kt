@@ -49,7 +49,7 @@ class IssueReportDiagnosticsTest {
         val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
         val additions = mapOf(
             "voice_engine" to setOf("MEDIAPIPE"),
-            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
             "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
         )
         for ((field, choices) in additions) {

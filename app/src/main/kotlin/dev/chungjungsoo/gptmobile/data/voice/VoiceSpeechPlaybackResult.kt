@@ -106,11 +106,14 @@ internal data class VoiceSpeechPlaybackResult(
     val sustainedWallElapsedMs: Long? = null,
     val sustainedWallDeadlineMs: Long? = null,
     val sustainedCompletedRepeats: Int? = null,
-    val sustainedQualification: String? = null
+    val sustainedQualification: String? = null,
+    val renderedManifestWords: Int? = null,
+    val nativeRetirementMs: Long? = null
 ) {
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
             manifestWordsExpected?.let { it > 0 && manifestWordsPrepared == it && manifestWordsObserved == it } == true &&
+            renderedManifestWords != 0 &&
             unexpectedCaptionWords == 0 &&
             captionClockRegressions == 0 &&
             captionTimingViolations == 0
@@ -161,6 +164,7 @@ internal interface VoicePlaybackMeasurementObserver {
     fun captionsPrepared(segment: Int, ranges: List<IntRange>) = Unit
     fun firstPresented(clockBasis: String, route: String) = Unit
     fun terminal(underruns: Int?, bufferRestarts: Int, longestRefillMs: Long, clockBasis: String, route: String) = Unit
+    fun captionClockCrossed(segment: Int, range: IntRange) = Unit
     fun firstAudioTrackWrite() = Unit
     fun trackPlayRequested() = Unit
     fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) = Unit
@@ -423,6 +427,14 @@ internal class VoiceSpeechPlaybackMeasurement(
         }
     }
 
+    private val crossedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
+
+    @Synchronized override fun captionClockCrossed(segment: Int, range: IntRange) {
+        if (stoppedAt != null || range.isEmpty()) return
+        val span = VoiceSpeechCaptionSpan(segment, range.first, range.last)
+        if (span in crossedWords || crossedWords.size < VoiceSpeechCaptionManifest.MAX_WORDS) crossedWords.add(span) else violations++
+    }
+
     @Synchronized fun caption(timing: VoiceCaptionTiming, segment: Int? = null, range: IntRange? = null) {
         if (stoppedAt != null) return
         captions++
@@ -439,6 +451,10 @@ internal class VoiceSpeechPlaybackMeasurement(
         if (stoppedAt != null) return
         if (cancellationRequested == null) cancellationRequested = elapsed()
         cancellationTargetReached = targetReached ?: cancellationTargetReached
+    }
+
+    @Synchronized fun stopToRetiredMs(retiredAt: Long?): Long? = retiredAt?.let { end ->
+        cancellationRequested?.let { requested -> ((end - started).coerceAtLeast(0) / 1_000_000 - requested).coerceAtLeast(0) }
     }
 
     @Synchronized override fun terminal(underruns: Int?, bufferRestarts: Int, longestRefillMs: Long, clockBasis: String, route: String) {
@@ -469,8 +485,9 @@ internal class VoiceSpeechPlaybackMeasurement(
             protocolVersion = if (plan == null) 0 else VoiceSpeechPlaybackProtocol.VERSION,
             scenario = plan?.scenario ?: VoiceSpeechPlaybackScenario.COLD_START, repeat = plan?.repeat ?: 0, warmup = plan?.warmup ?: false, expectedResident = plan?.expectedResident ?: false,
             engineReused = reused, fixtureHash = manifest?.hash, manifestWordsExpected = manifest?.spans?.size,
-            manifestWordsPrepared = manifest?.let { m -> expectedWords.count { it in m.spans } }, manifestWordsObserved = manifest?.let { m -> observedWords.count { it in m.spans } },
-            unexpectedCaptionWords = manifest?.let { m -> (expectedWords + observedWords).count { it !in m.spans } },
+            manifestWordsPrepared = manifest?.let { m -> expectedWords.count { it in m.spans } }, manifestWordsObserved = manifest?.let { m -> (crossedWords + observedWords).count { it in m.spans } },
+            renderedManifestWords = manifest?.let { m -> observedWords.count { it in m.spans } },
+            unexpectedCaptionWords = manifest?.let { m -> (expectedWords + observedWords + crossedWords).count { it !in m.spans } },
             firstAudioTrackWriteMs = firstWrite, trackPlayRequestedMs = playRequested, sessionPrepareMs = prepareMs,
             requestedThreads = requestedThreads, effectiveThreads = effectiveThreads, activePlaybackUnderruns = activeUnderruns, startupUnderruns = startupUnderruns, drainUnderruns = drainUnderruns,
             chunkRecords = chunkRecords.toList(), reserves = reserves.toList(), calibrations = calibrations.toList(), progress = progress.toList(), pipelineFailureCode = safeCode(pipelineFailureCode),

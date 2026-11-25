@@ -486,6 +486,8 @@ internal class KokoroVoiceOutput(
         val segments = ArrayBlockingQueue<String>(MAX_SEGMENTS)
         val pcm = ArrayBlockingQueue<VoicePcmSlice>(KokoroPcmBatches.QUEUE_BATCHES)
         val adaptive = VoiceAdaptivePlayback(performance)
+
+        @Volatile var nativePhraseStartedAt = 0L
         val enqueuedFrames = AtomicLong()
         val consumedFrames = AtomicLong()
         var presentedFrames = 0L
@@ -694,7 +696,15 @@ internal class KokoroVoiceOutput(
         if (closed) return null
         // A queued or active optional inference yields to the actual reply. Its
         // worker still owns the model until native cancellation has returned.
-        cancelPrewarm()
+        val warming = warmupRequest
+        val requestKey = ModelKey(voice.lexicon, threadCount, speechFactory)
+        if (warming != null && !warming.assetsOnly && warming.model.sameResident(requestKey)) {
+            warmupGeneration++
+            warmupRequest = null
+            silentWarmup.cancel()
+        } else {
+            cancelPrewarm()
+        }
         if (calibrating) {
             calibrationTicket++
             runCatching { loaded?.engine?.cancel() }
@@ -976,7 +986,11 @@ internal class KokoroVoiceOutput(
                 val tokenRetries = ArrayDeque<KokoroPhrase>()
                 while (true) {
                     if (active !== playback) return
-                    val phrase = tokenRetries.removeFirstOrNull() ?: plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
+                    val firstPhrase = !playback.firstPcm
+                    val phrase = tokenRetries.removeFirstOrNull() ?: plan.next(
+                        if (firstPhrase) 4 else playback.adaptive.phraseWords(bufferedAudioMs(playback)),
+                        finishSlack = if (firstPhrase) 0 else 3
+                    ) ?: break
                     if (model.engine.supportsStreaming) {
                         val ranges = phrase.wordRanges.takeIf { playback.onRange != null || playback.onTimedRange != null }
                         if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.speech, ranges, speed, silence)) return
@@ -985,6 +999,7 @@ internal class KokoroVoiceOutput(
                     playback.diagnostics?.synthesisStarted()
                     val reserveAtStartMs = bufferedAudioMs(playback)
                     val synthesisStarted = SystemClock.elapsedRealtime()
+                    playback.nativePhraseStartedAt = synthesisStarted
                     val encoded = try {
                         model.engine.preparePhrase(phrase.speech)
                     } catch (failure: dev.melo.kokoro.TimedKokoro.Failure) {
@@ -1027,6 +1042,7 @@ internal class KokoroVoiceOutput(
                     runCatching { playback.measurements?.pcmReady(synthesisMs, samples.size, sampleRate, model.engine.executionEvidence) }
                     // Reserve against the retained PCM duration, since trimming silence also
                     // removes time during which the following phrase could be synthesized.
+                    playback.nativePhraseStartedAt = 0L
                     playback.adaptive.observe(synthesisMs, audioMs, recurringSpeechCostMs(model.engine.executionEvidence, synthesisMs), generated.wordTokens.size / 2)
                     measuredSynthesis.update {
                         it.copy(synthesisMs = synthesisMs, generatedAudioMs = audioMs, warm = it.warm && it.executionProvider == provider, engineReused = it.engineReused && it.executionProvider == provider, executionProvider = provider)
@@ -1160,8 +1176,9 @@ internal class KokoroVoiceOutput(
             playback.adaptive.observeStreamDelivery(productionMs, retained.samples.size)
             // Native text projection omits source ranges when captions are disabled. Its
             // expanded speech offsets then belong to the normalized input, not the segment.
-            playback.captions.appendStream(segmentIndex, segment, streamStart, if (timedCaptions) retained.cues else emptyList(), retained.samples.size)
-            if (timedCaptions) runCatching { playback.measurements?.captionsPrepared(segmentIndex, retained.cues.map { it.range }) }
+            val captions = if (timedCaptions) retained.cues.map { it.lexicalRange(segment) } else emptyList()
+            playback.captions.appendStream(segmentIndex, segment, streamStart, captions, retained.samples.size)
+            if (timedCaptions) runCatching { playback.measurements?.captionsPrepared(segmentIndex, captions.map { it.range }) }
             measuredSynthesis.update {
                 it.copy(synthesisMs = (callbackStarted - started - callbackMs).coerceAtLeast(0), generatedAudioMs = stream.retainedFrames * 1_000 / chunk.sampleRate, executionProvider = engine.executionProvider)
             }
@@ -1422,6 +1439,11 @@ internal class KokoroVoiceOutput(
             canWait = { active === playback && !playback.synthesisDone },
             producerPending = { playback.synthesizing || playback.segments.isNotEmpty() },
             deadlineReached = { SystemClock.elapsedRealtime() >= deadline },
+            nextChunkTooLate = {
+                val now = SystemClock.elapsedRealtime()
+                val began = playback.nativePhraseStartedAt
+                began > 0 && playback.adaptive.nextChunkTooLate(bufferedAudioMs(playback), deadline - now, now - began)
+            },
             poll = {
                 playedFrames(track, playback)
                 Thread.sleep(POLL_MS)
@@ -1599,7 +1621,12 @@ internal class KokoroVoiceOutput(
         // Neither an ahead calibration offset nor newly generated PCM may move a
         // paused word. A refill may only clear an already-presented finalized word;
         // an explicit focus pause retains its current caption until focus returns.
-        val changedCue = playback.captions.consumed(captionFrames, advancing, completedThrough = minOf(captionFrames, presented).takeIf { playback.refilling && !playback.focusState.paused })
+        val changedCue = playback.captions.consumed(
+            captionFrames,
+            advancing,
+            completedThrough = minOf(captionFrames, presented).takeIf { playback.refilling && !playback.focusState.paused },
+            onWordCrossed = playback.measurements?.let { observer -> { cue -> observer.captionClockCrossed(cue.segment, cue.range) } }
+        )
         val canAdvance = VoicePlaybackClock.captionsAdvancing(trackPlaying, presented, captionFrames, accepted, playback.drainAt != null)
         val refresh = changedCue != null || playback.captionPlaying != canAdvance || canAdvance && now - playback.lastCaptionUpdate >= 100
         playback.captionPlaying = canAdvance
@@ -1711,9 +1738,7 @@ internal class KokoroVoiceOutput(
     private fun end(playback: Playback, reason: String, cancellationOrigin: String? = null) {
         if (active !== playback) return
         playback.cancelledAt = SystemClock.elapsedRealtime()
-        playback.key.factory.cancelPending()
         active = null
-        runCatching { loaded?.engine?.cancel() }
         measuredOutput.value = null
         measuredSynthesis.update { it.copy(bufferState = "idle") }
         main.removeCallbacks(playback.watchdog)
@@ -1726,8 +1751,10 @@ internal class KokoroVoiceOutput(
             }
             playback.underruns
         }
-        runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
         runCatching { playback.measurements?.terminal(underruns, playback.bufferRestarts, playback.longestRefillMs, playback.clockBasis, playback.route) }
+        playback.key.factory.cancelPending()
+        runCatching { loaded?.engine?.cancel() }
+        runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
         timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"} · bufferRestarts=${playback.bufferRestarts} · longestRefillMs=${playback.longestRefillMs} · rate=${playback.rate} · performance=${playback.performance.name} · pause=${playback.pause.name} · knownWords=${playback.knownWords} · initialisms=${playback.initialisms} · unknownWords=${playback.unknownWords} · spelledLetters=${playback.spelledLetters} · normalizedFormats=${playback.removedFormatCharacters}")
     }
 

@@ -9,6 +9,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSynthesisPerformanceTest {
+    @Test fun aSlowNativePhraseDoesNotHoldFiveSecondsOfReadyPcmUntilTheDeadline() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        assertFalse(policy.nextChunkTooLate(5_425, 5_700, 0))
+        policy.observe(9_000, 5_425)
+        assertTrue(policy.nextChunkTooLate(5_425, 5_700, 100))
+        assertFalse(policy.nextChunkTooLate(500, 5_700, 100))
+        assertFalse(policy.nextChunkTooLate(5_425, 5_700, 4_000))
+        val exit = KokoroPcmBatches.awaitReserve(ArrayBlockingQueue(60), 144_000, { 130_200 }, { true }, { true }, { false }, { true }) { error("unexpected poll") }
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_LATE, exit)
+        policy.beginStream()
+        assertFalse(policy.nextChunkTooLate(5_425, 5_700, 100))
+    }
+
     @Test fun pcmViewsRetainEveryFrameWithoutCopyingThePhrase() {
         val samples = FloatArray(24_007) { it.toFloat() }
         val slices = mutableListOf<VoicePcmSlice>()

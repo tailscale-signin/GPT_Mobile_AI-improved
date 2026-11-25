@@ -74,8 +74,8 @@ internal data class VoiceSpeechEngineBenchmarkResult(
 }
 
 internal fun requestedSpeechDelegate(backend: VoiceSpeechBackend): String = when (backend) {
-    VoiceSpeechBackend.LITERT_KOKORO_GPU -> "GPU"
-    VoiceSpeechBackend.LITERT_KOKORO_NPU -> "NPU"
+    VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED -> "GPU"
+    VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.LITERT_KOKORO_SM8750 -> "NPU"
     VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.POCKET_CPU -> "CPU"
     else -> "UNSUPPORTED"
 }
@@ -83,6 +83,8 @@ internal fun requestedSpeechDelegate(backend: VoiceSpeechBackend): String = when
 internal fun VoiceSpeechBenchmarkEngine.mediaPipeEngine(): MediaPipeSpeechEngine? = when (this) {
     VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> null
     VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO -> MediaPipeSpeechEngine.KOKORO
+    VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO_GPU -> MediaPipeSpeechEngine.KOKORO_GPU
+    VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO_SM8750 -> MediaPipeSpeechEngine.KOKORO_SM8750
     VoiceSpeechBenchmarkEngine.PHONON -> MediaPipeSpeechEngine.PHONON
     VoiceSpeechBenchmarkEngine.POCKET -> MediaPipeSpeechEngine.POCKET
 }

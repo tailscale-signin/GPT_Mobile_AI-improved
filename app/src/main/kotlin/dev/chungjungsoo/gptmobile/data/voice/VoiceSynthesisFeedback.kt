@@ -74,6 +74,13 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     @Synchronized fun predictedSynthesisMs(startup: Boolean = false): Long? =
         (if (startup) recentRecurringMs else recentSynthesisMs).maxOrNull()
 
+    /** A native producer cannot add another complete phrase before the remaining priming deadline. */
+    @Synchronized fun nextChunkTooLate(readyMs: Long, remainingWaitMs: Long, producingMs: Long): Boolean {
+        if (streamCadence.started || observations == 0 || productionRatio < 1.0 || readyMs < 1_000) return false
+        val expectedMs = recentSynthesisMs.lastOrNull() ?: return false
+        return expectedMs - producingMs.coerceAtLeast(0) > remainingWaitMs
+    }
+
     @Synchronized fun ratio(): Double? = productionRatio.takeIf { observations > 0 }
 
     /** Wait only while an actual producer exists; an unsealed quiet stream cannot deadlock priming. */

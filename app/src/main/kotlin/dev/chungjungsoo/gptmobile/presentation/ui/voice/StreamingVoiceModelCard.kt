@@ -30,6 +30,7 @@ internal fun StreamingVoiceModelCard(
     enabled: Boolean,
     selectVoice: (KokoroVoice) -> Unit,
     install: () -> Unit,
+    importCompiled: (android.net.Uri) -> Unit = {},
     cancel: () -> Unit,
     remove: () -> Unit,
     preview: () -> Unit,
@@ -37,6 +38,9 @@ internal fun StreamingVoiceModelCard(
     setup: Boolean = false
 ) {
     val model = MediaPipeSpeechCatalog.model(engine)
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importCompiled(uri)
+    }
     val current = state ?: LocalVoiceModelState(totalBytes = model.downloadBytes)
     val downloadMiB = (model.downloadBytes + 524_288) / 1_048_576
     Surface(
@@ -56,14 +60,14 @@ internal fun StreamingVoiceModelCard(
                 }
                 LocalVoiceModelStatus.READY -> Text("Installed and verified", color = MaterialTheme.colorScheme.primary)
                 LocalVoiceModelStatus.NOT_INSTALLED, LocalVoiceModelStatus.FAILED -> {
-                    Button(onClick = install, enabled = enabled, modifier = Modifier.testTag("download_streaming_voice")) {
-                        Text("Download voice pack · $downloadMiB MiB")
+                    Button(onClick = { if (model.importOnly) picker.launch(arrayOf("*/*")) else install() }, enabled = enabled && (!model.importOnly || dev.chungjungsoo.gptmobile.data.voice.isSm8750SpeechDevice()), modifier = Modifier.testTag("download_streaming_voice")) {
+                        Text(if (model.importOnly) "Import verified SM8750 pack" else "Download voice pack · $downloadMiB MiB")
                     }
                 }
             }
             current.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (current.status == LocalVoiceModelStatus.READY && !setup) {
-                if (engine == MediaPipeSpeechEngine.KOKORO) {
+                if (engine.isKokoro) {
                     KokoroVoice.entries.forEach { option ->
                         FilterChip(selected = voice == option, onClick = { selectVoice(option) }, label = { Text(option.label) }, enabled = enabled)
                     }

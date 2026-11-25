@@ -177,3 +177,18 @@ instrumentation method, or an absent completion receipt cannot satisfy them.
 - [Pinned Kokoro publisher bundle](https://huggingface.co/litert-community/Kokoro-82M/tree/bf1c2405642aa310bd210205c22d3ae1abc253fb)
 - [Pinned Phonon publisher bundle](https://huggingface.co/litert-community/phonon-31m-en/tree/ee374c33f0f6f8ed1d9f761e21cdb97df6accfe8)
 - [Pinned Pocket publisher bundle](https://huggingface.co/litert-community/pocket-tts/tree/00c866f2397788f514ab6bbcb931be22afc3b58f)
+
+### Kokoro processor and model selection
+
+Voice Mode offers original FP32 Kokoro weights through the native CPU, Adreno and Hexagon routes. The native graph can split between QNN and CPU. Phone benchmarks report the kernels that actually ran. Hexagon on SM8750 executes supported floating-point partitions with reduced precision. Fresh voice settings select the original native pack. Existing saved model selections continue to take precedence.
+
+The default LiteRT stream uses the publisher’s shared INT8/FP16 bundle. The optional GPU vocoder has a separate verified download. For Snapdragon 8 Elite, choose **Kokoro LiteRT · Snapdragon 8 Elite NPU vocoder**, tap **Import verified SM8750 pack**, and select `kokoro_sm8750.litertlm`. This build accepts the 295,602,498-byte model with SHA-256 `04ee7076b0c8e5b11239ba5ed8ee7a3540984acb17936441b904196154fc0ebb`. Its 17 compiled HTP partitions contain 273 operations from the vocoder. Remaining operators, the acoustic model and the text frontend retain their original implementation. Both specialized routes support incremental input, voice selection and timed PCM. The optional CPU recovery path uses the independently verified standard pack. Device placement remains unobserved for the SDK.
+
+The host recipe below uses the publisher GPU bundle at revision `bf1c2405642aa310bd210205c22d3ae1abc253fb`, LiteRT 2.4.0 headers and Python package, and QAIRT 2.52.0.261104 host libraries. The C policy limits compilation to the bounded residual blocks to avoid retaining the long-output graphs in the compiler. It forwards operation support decisions and compilation to the Qualcomm plugin. The script checks the source digest, the input and output signature, and the dispatch count. The Android installer verifies the complete packaged bytes before publishing them.
+
+```sh
+python scripts/build_kokoro_sm8750_pack.py kokoro_int8_gpu_fp16.litertlm kokoro_sm8750.litertlm \
+  --litert-source /path/to/LiteRT --qairt-lib /path/to/qairt/lib/x86_64-linux-clang
+```
+
+In **Speech benchmark**, choose native or shared LiteRT Kokoro, then **Set up 1× CPU, GPU and NPU comparison**. This selects all six audible workloads at exactly 1× with zero caption offset. Specialized packs also have independent benchmark entries. Protocol 6 records playback-clock word coverage separately from UI render callbacks, and stop-to-silence separately from confirmed worker retirement. Listening trials use the installed pack and request the selected backend without app-level fallback.

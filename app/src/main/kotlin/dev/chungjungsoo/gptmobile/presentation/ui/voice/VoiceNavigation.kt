@@ -110,6 +110,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                             enabled = backend.loaded,
                             selectVoice = {},
                             install = backendOwner::installStreamingModel,
+                            importCompiled = backendOwner::importSm8750Model,
                             cancel = backendOwner::cancelStreamingInstall,
                             remove = backendOwner::removeStreamingModel,
                             preview = {},

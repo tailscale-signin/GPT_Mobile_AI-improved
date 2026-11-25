@@ -22,6 +22,7 @@ internal class MediaPipeSpeechModelStore internal constructor(
     scope: CoroutineScope,
     private val manifests: List<MediaPipeSpeechModel> = MediaPipeSpeechCatalog.models,
     internal val prepareNpu: () -> Unit = {},
+    internal val requireSm8750: () -> Unit = { check(isSm8750SpeechDevice()) { "This vocoder is compiled for Snapdragon 8 Elite (SM8750)." } },
     sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }
 ) {
     constructor(context: Context, scope: CoroutineScope) : this(
@@ -49,7 +50,27 @@ internal class MediaPipeSpeechModelStore internal constructor(
         if (engine == null) stores.values.forEach { it.refresh(forceVerification) } else localStore(engine).refresh(forceVerification)
     }
 
-    suspend fun install(engine: MediaPipeSpeechEngine) = localStore(engine).install()
+    suspend fun install(engine: MediaPipeSpeechEngine) {
+        require(!MediaPipeSpeechCatalog.model(engine).importOnly)
+        localStore(engine).install()
+    }
+
+    suspend fun importCompiledVocoder(openPack: () -> java.io.InputStream) {
+        val model = manifests.single { it.engine == MediaPipeSpeechEngine.KOKORO_SM8750 }
+        localStore(model.engine).install(waitForOwner = false, sourceOverride = {
+            object : LocalVoiceAssetSource {
+                private val input = java.util.concurrent.atomic.AtomicReference<java.io.InputStream?>()
+                override fun open(url: String): LocalVoiceAssetStream {
+                    val stream = openPack()
+                    input.set(stream)
+                    return LocalVoiceAssetStream(stream, model.downloadBytes)
+                }
+                override fun cancel() {
+                    input.getAndSet(null)?.close()
+                }
+            }
+        })
+    }
 
     suspend fun remove(engine: MediaPipeSpeechEngine) = withContext(Dispatchers.IO) {
         localStore(engine).remove()

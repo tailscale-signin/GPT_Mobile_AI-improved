@@ -25,12 +25,16 @@ struct ShapeCacheAllowance {
 // memory never enables an idle accelerator session. These are residency
 // estimates, not a native allocator limit or a promise that three shapes fit.
 inline ShapeCacheAllowance AdmitShapeCache(bool accelerator, int64_t available,
-    int64_t retained, int64_t prospective) {
+    int64_t retained, int64_t prospective, bool large_weights = false) {
   if (!accelerator) return {1, kShapeCacheSingleBudgetBytes, ShapeCacheAdmission::CpuSingle};
   if (available <= 0) return {1, kShapeCacheSingleBudgetBytes, ShapeCacheAdmission::MemoryUnknown};
   const auto spare = std::max<int64_t>(0, available - kShapeCacheHeadroomBytes);
-  const auto bounded_retained = std::clamp<int64_t>(retained, 0, kShapeCacheMaximumBudgetBytes);
-  const auto budget = bounded_retained + std::min(spare, kShapeCacheMaximumBudgetBytes - bounded_retained);
+  // Measured original-weight sessions can individually exceed the compact-pack ceiling.
+  // Allow two such exact shapes only when the OS reports sufficient unused memory.
+  const auto ceiling = large_weights && available >= 3LL * 1024 * 1024 * 1024 ?
+      2 * kShapeCacheMaximumBudgetBytes : kShapeCacheMaximumBudgetBytes;
+  const auto bounded_retained = std::clamp<int64_t>(retained, 0, ceiling);
+  const auto budget = bounded_retained + std::min(spare, ceiling - bounded_retained);
   const bool room = spare > 0 && spare >= std::max<int64_t>(0, prospective);
   return {room ? size_t{3} : size_t{1}, budget,
       room ? ShapeCacheAdmission::BoundedThreeShapes : ShapeCacheAdmission::MemoryPressure};

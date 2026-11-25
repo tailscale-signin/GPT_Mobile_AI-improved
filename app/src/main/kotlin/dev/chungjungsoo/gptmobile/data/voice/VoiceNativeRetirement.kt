@@ -33,6 +33,7 @@ internal class VoiceNativeRetirement(
     private val retired = CompletableDeferred<Unit>()
     private val mutable = MutableStateFlow(VoiceNativeRetirementState.PENDING)
     val state = mutable.asStateFlow()
+    val retiredAtNanos: Long? get() = ended.get().takeIf { it >= 0 }
     val observationFailures: Int get() = failures.get()
     val elapsedMs: Long get() = ((ended.get().takeIf { it >= 0 } ?: nanoTime()) - started).coerceAtLeast(0) / 1_000_000
 

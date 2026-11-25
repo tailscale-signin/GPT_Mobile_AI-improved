@@ -48,6 +48,8 @@ internal data class VoiceBackendSettings(
 
 internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when (this) {
     VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU -> MediaPipeSpeechEngine.KOKORO
+    VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED -> MediaPipeSpeechEngine.KOKORO_GPU
+    VoiceSpeechBackend.LITERT_KOKORO_SM8750 -> MediaPipeSpeechEngine.KOKORO_SM8750
     VoiceSpeechBackend.PHONON_CPU -> MediaPipeSpeechEngine.PHONON
     VoiceSpeechBackend.POCKET_CPU -> MediaPipeSpeechEngine.POCKET
     else -> null
@@ -171,6 +173,16 @@ internal class VoiceBackendViewModel internal constructor(
         streamingInstalls[engine] = viewModelScope.launch { streamingModels().install(engine) }
     }
 
+    fun importSm8750Model(uri: android.net.Uri) {
+        val engine = MediaPipeSpeechEngine.KOKORO_SM8750
+        if (uri.scheme != "content" || streamingInstalls[engine]?.isActive == true) return
+        streamingInstalls[engine] = viewModelScope.launch {
+            streamingModels().importCompiledVocoder {
+                context.contentResolver.openInputStream(uri) ?: throw java.io.IOException("Could not open the selected voice pack.")
+            }
+        }
+    }
+
     fun cancelStreamingInstall() {
         val engine = mutable.value.backend.streamingEngine() ?: return
         if (engine == MediaPipeSpeechEngine.KOKORO) VoicePluginInstall.cancel(context)
@@ -285,6 +297,7 @@ internal class VoiceBackendViewModel internal constructor(
             }
         }
         VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU,
+        VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_SM8750,
         VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.POCKET_CPU -> {
             val engine = requireNotNull(value.backend.streamingEngine())
             val descriptor = MediaPipeSpeechCatalog.model(engine)
@@ -292,9 +305,9 @@ internal class VoiceBackendViewModel internal constructor(
             // Only inspect the selected pack. Voice/rate changes reuse the verified generation
             // instead of hashing every installed model or starting unrelated downloads.
             if (refreshedStreamingModels.add(engine)) viewModelScope.launch { models.refresh(engine, forceVerification = false) }
-            val accelerated = value.backend == VoiceSpeechBackend.LITERT_KOKORO_GPU || value.backend == VoiceSpeechBackend.LITERT_KOKORO_NPU
+            val accelerated = engine.isKokoro && value.backend != VoiceSpeechBackend.LITERT_KOKORO_CPU
             val status = if (accelerated) {
-                "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If initialization fails, playback opens the same model on CPU."
+                "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If initialization fails, playback tries the installed standard Kokoro CPU pack."
             } else {
                 "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
             }
@@ -304,7 +317,7 @@ internal class VoiceBackendViewModel internal constructor(
                     engine,
                     value.backend,
                     rate,
-                    if (engine == MediaPipeSpeechEngine.KOKORO) voice.streamingVoiceId() else descriptor.defaultVoice,
+                    if (engine.isKokoro) voice.streamingVoiceId() else descriptor.defaultVoice,
                     kokoroBucket = bucket,
                     incrementalInput = incremental,
                     onPlaybackDelegate = { configured ->

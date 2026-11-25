@@ -5,6 +5,18 @@ import java.util.concurrent.CancellationException
 /** finalEnd is false only for an internally mapped, observed prefix; provider cues have a fixed end. */
 internal data class VoiceStreamCue(val range: IntRange, val startFrame: Long, val endFrame: Long, val provenance: VoiceWordCueProvenance, val finalEnd: Boolean = true)
 
+/** A Tasks word timestamp can include the punctuation closing a clause. Keep symbols and internal punctuation. */
+internal fun VoiceStreamCue.lexicalRange(source: String): VoiceStreamCue {
+    if (range.isEmpty()) return this
+    var last = range.last
+    while (last > range.first && source[last] in ".,;:!?。，、；：！？") last--
+    return if (last == range.last || source.slice(range.first..last).none(Char::isLetterOrDigit)) {
+        this
+    } else {
+        copy(range = range.first..last)
+    }
+}
+
 /** Never close a producer from a playback callback; its synthesis owner retires it after this returns. */
 internal fun consumeVoiceStream(engine: VoicePhraseEngine, text: String, speaker: Int, speed: Float, active: () -> Boolean, emit: (VoicePcmChunk) -> Boolean) {
     try {

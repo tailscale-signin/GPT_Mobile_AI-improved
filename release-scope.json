@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
   "changes": [
+    "Add dedicated GPU and SM8750-compiled streaming Kokoro packs, exact 1× comparison, playback-clock and UI caption evidence, and memory-admitted original-FP32 graph reuse.",
     "Default Voice Mode to LiteRT Kokoro streaming at 1×, include its pack in first-launch setup, and expose requested GPU and experimental NPU delegates with CPU recovery.",
     "Preserve the observed stream stage and failure code for incomplete OpenAI responses and malformed tool frames after partial text. Distinguish output limits, content filtering and unspecified interruptions without retaining raw reasons or tool arguments.",
     "Allow a locally reviewed repository inspection to resume one authorized read-only evidence acquisition while preserving current permissions, remaining tool allowance, deadlines, unresolved operation outcomes and private drafts.",
@@ -408,6 +409,7 @@
     "Preserve guarded GitHub action continuations across focused tool schemas, and negotiate the crawler companion session protocol through Android discovery."
   ],
   "limitations": [
+    "The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.",
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
     "Physical Android performance, selected-provider behavior and the user's Windows/Gateway network require live device/service qualification. Automated fixtures do not establish those conditions.",
     "External provider rate limits, account credit balances and unavailable servers require their service or configuration conditions to recover; client changes improve classification, safe continuation and diagnostic evidence.",
@@ -755,6 +757,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMap.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMessagePlayback.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirement.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeRetirement.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceHistory.kt",
@@ -1435,6 +1438,7 @@
     "release-scope.json",
     "scripts/audit_locked_dependencies.py",
     "scripts/await_release_checks.py",
+    "scripts/build_kokoro_sm8750_pack.py",
     "scripts/build_qnn_gpu_precision_probe.py",
     "scripts/build_qualcomm_dispatch_candidate.py",
     "scripts/check_android_lint_memory.py",
@@ -1454,6 +1458,7 @@
     "scripts/heap-stress.init.gradle",
     "scripts/install_android_native_dependencies.sh",
     "scripts/kokoro_model_workbench.py",
+    "scripts/native/kokoro_vocoder_partition.c",
     "scripts/native/qnn_gpu_precision_probe.cpp",
     "scripts/optimize_release_apks.py",
     "scripts/prepare_emulator_action.py",

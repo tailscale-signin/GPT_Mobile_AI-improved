@@ -54,6 +54,7 @@ def create_app(public_url, reporter, rate_key):
                 "VOICE_EXECUTION_EVIDENCE_V1",
                 "VOICE_STREAMING_BACKEND_EVIDENCE_V1",
                 "VOICE_STREAMING_NPU_EVIDENCE_V1",
+                "VOICE_STREAMING_PACK_EVIDENCE_V1",
                 "VOICE_STREAMING_INSTALL_EVIDENCE_V1",
                 "REQUEST_BYTE_BUDGET_V1",
                 "CLAIM_EXTRACTION_SCHEMA_HASH_V1",

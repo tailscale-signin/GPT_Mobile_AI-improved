@@ -7,6 +7,27 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class VoicePcmCaptionsTest {
+    @Test fun aDelayedClockPollCrossesAll47FixtureWordsAndRendersOnlyTheCurrentWord() {
+        val source = VoiceSpeechBenchmarkFixture.LONG.text
+        val manifest = VoiceSpeechCaptionManifest.from(listOf(source))
+        val captions = VoicePcmCaptions()
+        val cues = Regex("""\S+""").findAll(source).mapIndexed { index, match ->
+            VoiceStreamCue(match.range, index * 100L, (index + 1) * 100L, VoiceWordCueProvenance.ESTIMATED).lexicalRange(source)
+        }.toList()
+        assertEquals(47, cues.size)
+        captions.appendStream(0, source, 0, cues, 4700)
+        val crossed = mutableListOf<VoiceSpeechCaptionSpan>()
+        assertNull(captions.consumed(2100, advancing = false, onWordCrossed = { error("paused clock") }))
+        val latest = captions.consumed(4650, onWordCrossed = { crossed += VoiceSpeechCaptionSpan(it.segment, it.range.first, it.range.last) })
+        assertEquals(manifest.spans, crossed.toSet())
+        assertEquals(cues.last().range, latest?.range)
+        assertNull(captions.consumed(4650, onWordCrossed = { error("duplicate crossing") }))
+        for ((text, expected) in listOf("10.25," to "10.25", "C++!" to "C++", ".NET" to ".NET", "…" to "…")) {
+            val cue = VoiceStreamCue(text.indices, 0, 1, VoiceWordCueProvenance.ESTIMATED).lexicalRange(text)
+            assertEquals(expected, text.slice(cue.range))
+        }
+    }
+
     @Test fun modelBoundariesIncludePaddingAndSpacesButHighlightOnlyTheWords() {
         // PAD, word, space, word, punctuation, PAD. Each value is in model duration units.
         val frames = kokoroWordFrames(longArrayOf(2, 4, 1, 3, 1, 2), intArrayOf(1, 2, 3, 4), 2, 7800)

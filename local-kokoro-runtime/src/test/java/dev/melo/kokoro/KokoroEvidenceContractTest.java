@@ -127,9 +127,13 @@ public final class KokoroEvidenceContractTest {
         long[] restarted = stored.clone(); restarted[48] = 3; restarted[49] = 19;
         require("HIT_PREVIOUS_PROCESS".equals(parse(restarted).contextCacheStatus), "Cross-process disk hit was lost");
         restarted[48] = 2; rejected(restarted);
-        long[] badState = stored.clone(); badState[49] = 20; rejected(badState);
+        for (int missing = 20; missing <= 21; missing++) {
+            long[] absent = stored.clone(); absent[49] = missing; absent[52] = 0;
+            require(parse(absent).contextCacheStatus.endsWith("FINGERPRINT_UNAVAILABLE"), "Missing partition identity");
+        }
+        long[] badState = stored.clone(); badState[49] = 22; rejected(badState);
         long[] badMode = stored.clone(); badMode[55] = 3; rejected(badMode);
-        long[] tooLargeContext = stored.clone(); tooLargeContext[52] = 268435457; rejected(tooLargeContext);
+        long[] tooLargeContext = stored.clone(); tooLargeContext[52] = 536870913; rejected(tooLargeContext);
         long[] badFallback = stored.clone(); badFallback[54] = 2; rejected(badFallback);
         for (int index = 50; index <= 53; index++) {
             long[] negative = stored.clone(); negative[index] = -1; rejected(negative);

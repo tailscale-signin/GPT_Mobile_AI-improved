@@ -18,7 +18,7 @@ enum class GraphPreparation : int64_t { None, CpuDynamic, Compiled, DiskContext,
 enum class ContextCacheStatus : int64_t {
   Disabled, Miss, Hit, Stored, Invalidated, Unavailable, Pending, WriteFailed, TooLarge, Busy, NotAccessed,
   InvalidConfiguration, IdentityUnavailable, FirmwareUnavailable, DirectoryUnavailable, LockUnavailable,
-  InventoryUnavailable, SpaceQueryFailed, InsufficientStorage, HitPreviousProcess
+  InventoryUnavailable, SpaceQueryFailed, InsufficientStorage, HitPreviousProcess, VendorFingerprintUnavailable, BootFingerprintUnavailable
 };
 struct ContextCacheLimits {
   size_t entries = 6;
@@ -26,6 +26,18 @@ struct ContextCacheLimits {
   int64_t entry_bytes = 256LL * 1024 * 1024;
   int64_t free_reserve_bytes = 64LL * 1024 * 1024;
 };
+
+inline ContextCacheLimits ContextLimitsForModel(bool large_weights) {
+  ContextCacheLimits limits;
+  if (large_weights) {
+    // Embedded, partially delegated graphs include full-precision CPU weights.
+    limits.entries = 3;
+    limits.entry_bytes = 512LL * 1024 * 1024;
+    limits.bytes = 2 * limits.entry_bytes;
+    limits.free_reserve_bytes = 256LL * 1024 * 1024;
+  }
+  return limits;
+}
 
 // The temporary BASIC model belongs only to one private export transaction.
 // Its hidden name is deliberately inadmissible to the published-cache inventory.

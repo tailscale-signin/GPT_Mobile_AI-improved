@@ -1,6 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
-internal enum class MediaPipeSpeechEngine { KOKORO, PHONON, POCKET }
+internal enum class MediaPipeSpeechEngine {
+    KOKORO,
+    KOKORO_GPU,
+    KOKORO_SM8750,
+    PHONON,
+    POCKET;
+
+    val isKokoro: Boolean get() = this == KOKORO || this == KOKORO_GPU || this == KOKORO_SM8750
+}
 
 /** Immutable publisher identities; a model download is never resolved through a moving branch. */
 internal data class MediaPipeSpeechModel(
@@ -25,8 +33,9 @@ internal data class MediaPipeSpeechModel(
     }
 
     val sourceUrl: String get() = "https://huggingface.co/$repository/tree/$revision"
+    val importOnly: Boolean get() = engine == MediaPipeSpeechEngine.KOKORO_SM8750
     val downloadUrl: String get() = "https://huggingface.co/$repository/resolve/$revision/$fileName"
-    internal val asset: LocalVoiceAsset get() = LocalVoiceAsset(fileName, downloadBytes, sha256, listOf(downloadUrl))
+    internal val asset: LocalVoiceAsset get() = LocalVoiceAsset(fileName, downloadBytes, sha256, if (importOnly) listOf("local-import") else listOf(downloadUrl))
 }
 
 internal object MediaPipeSpeechCatalog {
@@ -47,6 +56,32 @@ internal object MediaPipeSpeechCatalog {
             "af_heart",
             "Apache-2.0",
             "Kokoro-82M by hexgrad; quantized and packaged for LiteRT by litert-community."
+        ),
+        MediaPipeSpeechModel(
+            MediaPipeSpeechEngine.KOKORO_GPU,
+            "kokoro-gpu",
+            "Kokoro · GPU vocoder",
+            "litert-community/Kokoro-82M",
+            "bf1c2405642aa310bd210205c22d3ae1abc253fb",
+            "kokoro_int8_gpu_fp16.litertlm",
+            294_750_530,
+            "1ef178b127ec48c737daf17eabb4cea5f6b3ffbc510aced270fe5c267bbeac52",
+            "af_heart",
+            "Apache-2.0",
+            "Kokoro by hexgrad, GPU-oriented vocoder by litert-community."
+        ),
+        MediaPipeSpeechModel(
+            MediaPipeSpeechEngine.KOKORO_SM8750,
+            "kokoro-sm8750",
+            "Kokoro · Snapdragon 8 Elite vocoder",
+            "litert-community/Kokoro-82M",
+            "bf1c2405642aa310bd210205c22d3ae1abc253fb",
+            "kokoro_sm8750.litertlm",
+            295_602_498,
+            "04ee7076b0c8e5b11239ba5ed8ee7a3540984acb17936441b904196154fc0ebb",
+            "af_heart",
+            "Apache-2.0",
+            "Kokoro by hexgrad, litert-community voice pack with an SM8750-compiled vocoder."
         ),
         MediaPipeSpeechModel(
             MediaPipeSpeechEngine.PHONON,

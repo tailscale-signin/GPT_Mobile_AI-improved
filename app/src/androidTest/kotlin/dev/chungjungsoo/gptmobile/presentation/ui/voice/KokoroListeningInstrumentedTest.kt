@@ -6,7 +6,6 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoiceOutput
-import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
@@ -70,10 +69,10 @@ class KokoroListeningInstrumentedTest {
         val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build() }, { 1f }, measurements = observer)
         try {
             val factory = if (backend.isStreamingLocal) {
-                require(backend in setOf(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU))
+                val engine = requireNotNull(backend.streamingEngine()).also { require(it.isKokoro) }
                 val sdk = MediaPipeSpeechModelStore(context, scope)
-                runBlocking { sdk.refresh(MediaPipeSpeechEngine.KOKORO) }
-                MediaPipeVoicePhraseEngineFactory(sdk, MediaPipeSpeechEngine.KOKORO, backend, 1f, KokoroVoice.HEART.streamingVoiceId())
+                runBlocking { sdk.refresh(engine) }
+                MediaPipeVoicePhraseEngineFactory(sdk, engine, backend, 1f, KokoroVoice.HEART.streamingVoiceId())
             } else {
                 runBlocking { models.refresh() }
                 check(models.isInstalled()) { "Install the original FP32 pack" }

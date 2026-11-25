@@ -178,6 +178,7 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in voiceInstallEvidenceFields } || values["voice_install_failure"] == JsonPrimitive("WORK_NOT_FOUND")) add("VOICE_INSTALL_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in VoiceExecutionDiagnostics.fields }) add(VoiceExecutionDiagnostics.FEATURE)
         if (VoiceExecutionDiagnostics.requiresStreamingBackendSupport(values)) add(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE)
+        if (values["voice_selected_backend"] in setOf(JsonPrimitive("LITERT_KOKORO_GPU_OPTIMIZED"), JsonPrimitive("LITERT_KOKORO_SM8750"))) add(VoiceExecutionDiagnostics.STREAMING_PACK_FEATURE)
         if (values["voice_selected_backend"] == JsonPrimitive("LITERT_KOKORO_NPU")) add(VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
         if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")

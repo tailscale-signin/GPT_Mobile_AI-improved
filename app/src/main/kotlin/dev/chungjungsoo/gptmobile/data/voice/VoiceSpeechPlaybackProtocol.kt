@@ -63,7 +63,7 @@ internal data class VoiceSpeechCaptionManifest(val hash: String, val spans: Set<
 }
 
 internal object VoiceSpeechPlaybackProtocol {
-    const val VERSION = 5
+    const val VERSION = 6
     const val MAX_SAMPLES_PER_BACKEND = 96
     const val MAX_CHUNKS_PER_SAMPLE = 128
     const val FIRST_AUDIO_TARGET_MS = 5_000L

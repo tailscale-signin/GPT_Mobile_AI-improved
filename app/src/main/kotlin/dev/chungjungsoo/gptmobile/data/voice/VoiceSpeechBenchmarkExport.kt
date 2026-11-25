@@ -103,7 +103,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put("percentileConvention", "nearest_rank_minimum_20_samples")
     put("minimumPercentileSamples", VoiceSpeechBenchmarkBackendResult.MIN_PERCENTILE_SAMPLES)
     put("playbackCancellationBasis", "audio_stop_acknowledgement_before_native_retirement")
-    put("captionValidationScope", "independent_fixed_fixture_ranges_plus_clock_consistency_not_acoustic_alignment")
+    put("captionValidationScope", if (report.configuration.playbackProtocolVersion >= 6) "independent_source_ranges_crossed_on_calibrated_presentation_clock_render_callbacks_counted_separately" else "independent_source_ranges_and_observed_render_callbacks")
     if (!report.configuration.playback) {
         put("fixtureOrder", if (report.configuration.workload == VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES) "INTERLEAVED_LENGTHS" else "GROUPED_REPEATS")
     }
@@ -218,7 +218,16 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
                 }
             )
             put("htpPerformanceMode", c.htpPerformanceMode)
-            put("nativeModelVariant", c.nativeModelVariant.name)
+            if (nativeEngine) put("nativeModelVariant", c.nativeModelVariant.name)
+            put(
+                "modelWeightFormat",
+                when {
+                    nativeEngine -> c.nativeModelVariant.name
+                    c.engine.mediaPipeEngine()?.isKokoro == true -> "INT8_FP16"
+                    else -> "INT8"
+                }
+            )
+            put("acceleratorArithmeticPrecision", "UNOBSERVED")
             put(
                 "deadlines",
                 c.deadlines?.let { limits ->
@@ -593,7 +602,7 @@ private fun readFailureObservation(o: JsonObject, validatedAudio: Boolean = fals
         contextCacheStatus = o.optionalString("contextCacheStatus")?.also { require(safeSpeechContextCacheStatus(it) != null) },
         contextLoadMs = o.optionalBoundedLong("contextLoadMs"),
         contextStoreMs = o.optionalBoundedLong("contextStoreMs"),
-        contextBytes = o.optionalBoundedLong("contextBytes", 256L * 1024 * 1024),
+        contextBytes = o.optionalBoundedLong("contextBytes", 512L * 1024 * 1024),
         contextCacheEvictions = o.optionalBoundedLong("contextCacheEvictions", Long.MAX_VALUE),
         contextFallback = o.optionalBoolean("contextFallback"),
         htpPerformanceMode = o.optionalString("htpPerformanceMode")?.also { require(safeSpeechHtpPerformanceMode(it) != null) },
@@ -636,6 +645,8 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
     put("bufferRestarts", r.bufferRestarts)
     put("longestRefillMs", r.longestRefillMs)
     nullable("cancellationMs", r.cancellationMs)
+    nullable("nativeRetirementMs", r.nativeRetirementMs)
+    nullable("renderedManifestWords", r.renderedManifestWords)
     put("captionObservations", r.captionObservations)
     put("captionClockRegressions", r.captionClockRegressions)
     put("captionTimingViolations", r.captionTimingViolations)
@@ -976,7 +987,7 @@ private fun JsonObject.readChunks(key: String): List<VoiceSpeechBenchmarkChunk> 
         contextCacheStatus = c.optionalString("contextCacheStatus")?.also { require(safeSpeechContextCacheStatus(it) != null) },
         contextLoadMs = c.optionalBoundedLong("contextLoadMs"),
         contextStoreMs = c.optionalBoundedLong("contextStoreMs"),
-        contextBytes = c.optionalBoundedLong("contextBytes", 256L * 1024 * 1024),
+        contextBytes = c.optionalBoundedLong("contextBytes", 512L * 1024 * 1024),
         contextCacheEvictions = c.optionalBoundedLong("contextCacheEvictions", Long.MAX_VALUE),
         contextFallback = c.optionalBoolean("contextFallback"),
         htpPerformanceMode = c.optionalString("htpPerformanceMode")?.also { require(safeSpeechHtpPerformanceMode(it) != null) }
@@ -993,6 +1004,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     elapsedMs = r.boundedLong("elapsedMs"), totalSynthesisMs = r.boundedLong("totalSynthesisMs"), totalAudioMs = r.boundedLong("totalAudioMs"),
     chunks = r.boundedLong("chunks", if (r.optionalString("requestedDelegate") == null) 1000 else 16_384).toInt(), underruns = r.optionalBoundedLong("underruns")?.toInt(),
     bufferRestarts = r.boundedLong("bufferRestarts").toInt(), longestRefillMs = r.boundedLong("longestRefillMs"), cancellationMs = r.optionalBoundedLong("cancellationMs"),
+    nativeRetirementMs = r.optionalBoundedLong("nativeRetirementMs"), renderedManifestWords = r.optionalBoundedLong("renderedManifestWords", VoiceSpeechCaptionManifest.MAX_WORDS.toLong())?.toInt(),
     captionObservations = r.boundedLong("captionObservations").toInt(), captionClockRegressions = r.boundedLong("captionClockRegressions").toInt(), captionTimingViolations = r.boundedLong("captionTimingViolations").toInt(),
     clockBasis = r.optionalString("clockBasis")?.also { require(it in CLOCKS) }, route = r.optionalString("route")?.also { require(it in ROUTES) },
     effectiveProvider = r.optionalProvider("effectiveProvider"), acceleratorExecutionObserved = r.getValue("acceleratorExecutionObserved").jsonPrimitive.boolean,
@@ -1093,6 +1105,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
             require(result.chunkRecords.sumOf { it.audioMs } == result.totalAudioMs)
         }
         require(result.validatedChunks == result.chunkRecords.count { it.verifiedAudio })
+        require(result.renderedManifestWords == null || result.manifestWordsObserved?.let { result.renderedManifestWords <= it } == true)
         require(result.manifestWordsObserved == null || result.manifestWordsExpected?.let { result.manifestWordsObserved <= it } == true)
     }
 }

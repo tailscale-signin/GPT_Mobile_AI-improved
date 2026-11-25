@@ -34,6 +34,8 @@ internal class MediaPipeVoicePhraseEngineFactory(
         require(
             when (engine) {
                 MediaPipeSpeechEngine.KOKORO -> backend in setOf(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU)
+                MediaPipeSpeechEngine.KOKORO_GPU -> backend == VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED
+                MediaPipeSpeechEngine.KOKORO_SM8750 -> backend == VoiceSpeechBackend.LITERT_KOKORO_SM8750
                 MediaPipeSpeechEngine.PHONON -> backend == VoiceSpeechBackend.PHONON_CPU
                 MediaPipeSpeechEngine.POCKET -> backend == VoiceSpeechBackend.POCKET_CPU
             }
@@ -44,7 +46,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
     override val requiresKokoroAssets: Boolean get() = false
     override val nativeCleanupPending: Boolean get() = cleanupPending.get()
     override fun isReady(): Boolean = modelStore.isReady(engine)
-    val effectiveTargetBucket: Int = if (engine == MediaPipeSpeechEngine.KOKORO) kokoroBucket.sdkValue else 0
+    val effectiveTargetBucket: Int = if (engine.isKokoro) kokoroBucket.sdkValue else 0
     override val residentIdentity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:bucket=$effectiveTargetBucket:incremental=$incrementalInput:allowCpuFallback=${onPlaybackDelegate != null}"
     override val identity = "$residentIdentity:voice=$voiceId"
 
@@ -74,18 +76,20 @@ internal class MediaPipeVoicePhraseEngineFactory(
 
     private fun open(request: VoiceSpeechBackend, ticket: Long): MediaPipeVoicePhraseEngine {
         checkTicket(ticket)
-        val lease = modelStore.acquire(engine, request, speakingRate, model.defaultVoice, effectiveTargetBucket)
+        val selectedEngine = if (request == VoiceSpeechBackend.LITERT_KOKORO_CPU) MediaPipeSpeechEngine.KOKORO else engine
+        val lease = modelStore.acquire(selectedEngine, request, speakingRate, model.defaultVoice, effectiveTargetBucket)
         var task: MediaPipeSpeechTask? = null
         try {
-            if (request == VoiceSpeechBackend.LITERT_KOKORO_NPU) modelStore.prepareNpu()
+            if (request == VoiceSpeechBackend.LITERT_KOKORO_SM8750) modelStore.requireSm8750()
+            if (request == VoiceSpeechBackend.LITERT_KOKORO_NPU || request == VoiceSpeechBackend.LITERT_KOKORO_SM8750) modelStore.prepareNpu()
             checkTicket(ticket)
             task = taskFactory(
                 MediaPipeSpeechTaskConfiguration(
                     lease.file,
                     lease.cacheDirectory,
                     when (request) {
-                        VoiceSpeechBackend.LITERT_KOKORO_NPU -> Delegate.NPU
-                        VoiceSpeechBackend.LITERT_KOKORO_GPU -> Delegate.GPU
+                        VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.LITERT_KOKORO_SM8750 -> Delegate.NPU
+                        VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED -> Delegate.GPU
                         else -> Delegate.CPU
                     },
                     speakingRate,
@@ -117,7 +121,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
             // voice/stream errors belong to that task. Benchmark factories stay strict.
             if (task == null &&
                 onPlaybackDelegate != null &&
-                request in setOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU) &&
+                request in setOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_SM8750) &&
                 failure !is CancellationException &&
                 failure !is InterruptedException &&
                 (failure is Exception || failure is LinkageError)

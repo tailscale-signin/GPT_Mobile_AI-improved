@@ -143,6 +143,7 @@ internal class IssueReportSubmission(
             VoiceExecutionDiagnostics.FEATURE,
             VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE,
             VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE,
+            VoiceExecutionDiagnostics.STREAMING_PACK_FEATURE,
             IssueReportDiagnostics.VOICE_STREAMING_INSTALL_FEATURE,
             IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
             IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE,

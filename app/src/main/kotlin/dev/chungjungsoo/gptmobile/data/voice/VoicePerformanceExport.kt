@@ -188,7 +188,7 @@ private fun performanceExecutionJson(evidence: VoiceSpeechExecutionEvidence) = b
     put("contextCacheStatus", safeSpeechContextCacheStatus(evidence.contextCacheStatus)?.let(::JsonPrimitive) ?: JsonNull)
     number("contextLoadMs", evidence.contextLoadMs, 3_600_000)
     number("contextStoreMs", evidence.contextStoreMs, 3_600_000)
-    number("contextBytes", evidence.contextBytes, 256L * 1024 * 1024)
+    number("contextBytes", evidence.contextBytes, 512L * 1024 * 1024)
     number("contextCacheEvictions", evidence.contextCacheEvictions)
     flag("contextFallback", evidence.contextFallback)
     put("htpPerformanceMode", safeSpeechHtpPerformanceMode(evidence.htpPerformanceMode)?.let(::JsonPrimitive) ?: JsonNull)

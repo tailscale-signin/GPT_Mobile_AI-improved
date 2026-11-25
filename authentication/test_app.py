@@ -585,7 +585,8 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
         additions.insert(2, "VOICE_STREAMING_BACKEND_EVIDENCE_V1")
         additions.insert(3, "VOICE_STREAMING_NPU_EVIDENCE_V1")
-        additions.insert(4, "VOICE_STREAMING_INSTALL_EVIDENCE_V1")
+        additions.insert(4, "VOICE_STREAMING_PACK_EVIDENCE_V1")
+        additions.insert(5, "VOICE_STREAMING_INSTALL_EVIDENCE_V1")
         additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "SAVED_PAGE_CAPACITY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
@@ -693,7 +694,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertIn(feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
         additions = {
             "voice_engine": ("MEDIAPIPE",),
-            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
             "voice_fallback_source": ("LITERT_KOKORO", "PHONON", "POCKET"),
         }
         for field, choices in additions.items():

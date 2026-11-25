@@ -31,6 +31,9 @@ internal class VoiceSpeechPlaybackBenchmark(
     private val cancelled = AtomicBoolean(false)
     private val active = AtomicReference<Active?>(null)
     private val main = Handler(Looper.getMainLooper())
+    private data class PendingCleanup(val backend: VoiceSpeechBackend, val retirement: VoiceNativeRetirement, val measurement: VoiceSpeechPlaybackMeasurement?)
+
+    @Volatile private var pendingCleanup: PendingCleanup? = null
     private val retirements = mutableListOf<VoiceNativeRetirement>()
     private val privacyContext = ConversationPrivacyContext.capture()
     private val unretiredOwners = mutableListOf<Any>()
@@ -44,6 +47,25 @@ internal class VoiceSpeechPlaybackBenchmark(
 
     suspend fun awaitRetired() {
         synchronized(retirements) { retirements.toList() }.forEach { it.awaitRetired() }
+    }
+
+    fun confirmedCleanup(report: VoiceSpeechBenchmarkReport): VoiceSpeechBenchmarkReport {
+        val pending = pendingCleanup ?: return report
+        val retiredAt = pending.retirement.retiredAtNanos ?: return report
+        if (nativeCleanupPending || report.configuration != configuration) return report
+        val rows = report.playbackResults
+        val last = rows.indexOfLast { it.requestedBackend == pending.backend && it.cleanupState == "PENDING" }
+        if (last < 0) return report
+        return report.copy(
+            playbackResults = rows.mapIndexed { index, row ->
+                if (row.requestedBackend == pending.backend && row.cleanupState == "PENDING") {
+                    row.copy(cleanupState = "RETIRED", nativeRetirementMs = if (index == last) pending.measurement?.stopToRetiredMs(retiredAt) else null)
+                } else {
+                    row
+                }
+            },
+            engineResults = report.engineResults.map { if (it.requestedBackend == pending.backend) it.copy(cleanupState = "RETIRED") else it }
+        )
     }
 
     fun cancel() {
@@ -203,12 +225,14 @@ internal class VoiceSpeechPlaybackBenchmark(
                         results[results.lastIndex] = sustained.finishIncomplete(results.last(), cancelled.get() || !finishedSessionLoop || thermalLimitReached)
                             .let { if (thermalLimitReached) it.copy(pipelineFailureCode = "THERMAL_LIMIT") else it }
                     }
+                    val lastMeasurement = relay.current
                     relay.current = null
                     streamingRelay.current = null
                     withContext(NonCancellable + Dispatchers.Main.immediate) { output.close() }
                     val closing = VoiceNativeRetirement(output::awaitClosed).also { synchronized(retirements) { retirements += it } }
                     retirement = closing
                     val cleanup = withContext(NonCancellable) { closing.awaitWithinBudget() }
+                    if (cleanup == VoiceNativeRetirementState.PENDING) pendingCleanup = PendingCleanup(backend, closing, lastMeasurement)
                     if (strictFactory.nativeCleanupPending) {
                         quarantine()
                     }
@@ -216,7 +240,7 @@ internal class VoiceSpeechPlaybackBenchmark(
                         results[index] = if (nativeCleanupPending) {
                             results[index].copy(cleanupState = "FAILED", state = VoiceSpeechPlaybackState.FAILED, pipelineFailureCode = "NATIVE_RETIREMENT_FAILED")
                         } else {
-                            results[index].copy(cleanupState = cleanup.name)
+                            results[index].copy(cleanupState = cleanup.name, nativeRetirementMs = if (cleanup == VoiceNativeRetirementState.RETIRED && index == results.lastIndex) lastMeasurement?.stopToRetiredMs(closing.retiredAtNanos) else null)
                         }
                     }
                     publishSnapshot(duringCleanup = true)
@@ -263,7 +287,17 @@ internal class VoiceSpeechPlaybackBenchmark(
                 complete = {
                     val result = describe(measurement.result(VoiceSpeechPlaybackState.COMPLETE, thermalStatus()))
                     val valid = (if (streaming == null) result.executionVerified else result.streamedAudioValidated == true && result.chunks > 0) && result.captionManifestValid && result.firstPresentedAudioMs != null && result.totalAudioMs > 0
-                    completion.complete(if (valid || plan.cancellationTarget != null) result else result.copy(state = VoiceSpeechPlaybackState.FAILED, failure = VoiceSpeechFailureCode.OUTPUT_INVALID, pipelineFailureCode = "FIXTURE_VALIDATION_FAILED"))
+                    completion.complete(
+                        if (valid || plan.cancellationTarget != null) {
+                            result
+                        } else {
+                            result.copy(
+                                state = VoiceSpeechPlaybackState.FAILED,
+                                failure = VoiceSpeechFailureCode.OUTPUT_INVALID,
+                                pipelineFailureCode = if (result.streamedAudioValidated == true && !result.captionManifestValid) "CAPTION_MANIFEST_MISMATCH" else "FIXTURE_VALIDATION_FAILED"
+                            )
+                        }
+                    )
                 },
                 error = { failure, _ ->
                     val evidence = speechPlaybackFailureEvidence(failure.cause, backend, configuration.deviceKey, configuration.modelSha256)

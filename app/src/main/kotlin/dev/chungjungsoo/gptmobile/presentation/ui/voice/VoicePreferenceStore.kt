@@ -102,7 +102,7 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
         speakWhileGenerating = saved["speak_while_generating"] as? Boolean ?: defaults.speakWhileGenerating,
         kokoroBucket = MediaPipeKokoroBucket.entries.firstOrNull { it.name == saved["litert_kokoro_bucket"] } ?: defaults.kokoroBucket,
         incrementalSpeech = saved["incremental_speech_input"] as? Boolean ?: defaults.incrementalSpeech,
-        nativeModelVariant = KokoroModelVariant.entries.firstOrNull { it.name == saved["native_kokoro_model_variant"] } ?: defaults.nativeModelVariant,
+        nativeModelVariant = KokoroModelVariant.entries.firstOrNull { it.name == saved["native_kokoro_model_variant"] } ?: if (saved.isEmpty()) KokoroModelVariant.ORIGINAL_FP32 else defaults.nativeModelVariant,
         tuning = readVoiceTuningPreferences(saved)
     )
 }

@@ -38,6 +38,19 @@ class MediaPipeSpeechModelStoreTest {
         sha256 = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     )
 
+    @Test fun localCompiledPackUsesVerifiedBytesAndAnIndependentLease() = runBlocking {
+        val compiled = MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO_SM8750).copy(downloadBytes = bytes.size.toLong(), sha256 = hash(bytes))
+        val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, listOf(compiled)) { error("Import must not use the network") }
+        store.importCompiledVocoder { ByteArrayInputStream(ByteArray(bytes.size)) }
+        assertFalse(store.isReady(compiled.engine))
+        store.importCompiledVocoder { ByteArrayInputStream(bytes) }
+        assertTrue(store.isReady(compiled.engine))
+        store.acquire(compiled.engine, VoiceSpeechBackend.LITERT_KOKORO_SM8750, 1f, "af_heart").use { lease ->
+            assertEquals(compiled.fileName, lease.file.name)
+            assertTrue(lease.file.readBytes().contentEquals(bytes))
+        }
+    }
+
     @After fun cancelScope() = scope.cancel()
 
     @Test fun refreshAndReadinessNeverDownloadAndInstallUsesThePinnedAsset() = runBlocking {

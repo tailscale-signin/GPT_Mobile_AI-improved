@@ -81,7 +81,6 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
-import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
@@ -942,7 +941,7 @@ private fun VoiceChatSessionScreen(
                     changeRate = {
                         audio.stop()
                         rate = it
-                        backendOwner.configureSpeech(kokoroVoice, rate)
+                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant)
                         savePreferences()
                     },
                     changePause = {
@@ -956,7 +955,7 @@ private fun VoiceChatSessionScreen(
                     useConversationalFast = {
                         audio.stop()
                         rate = 1.25f
-                        backendOwner.configureSpeech(kokoroVoice, rate)
+                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant)
                         pause = VoicePauseDuration.SHORT
                         performance = VoicePerformanceMode.FAST
                         speakWhileGenerating = true
@@ -965,7 +964,7 @@ private fun VoiceChatSessionScreen(
                     useNaturalSpeech = {
                         audio.stop()
                         rate = STANDARD_SPEECH_RATE
-                        backendOwner.configureSpeech(kokoroVoice, rate)
+                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant)
                         pause = VoicePauseDuration.NATURAL
                         performance = VoicePerformanceMode.AUTO
                         speakWhileGenerating = true
@@ -978,13 +977,13 @@ private fun VoiceChatSessionScreen(
                     changeKokoroBucket = {
                         audio.stop()
                         kokoroBucket = it
-                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech)
+                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant)
                         savePreferences()
                     },
                     changeIncrementalSpeech = {
                         audio.stop()
                         incrementalSpeech = it
-                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech)
+                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant)
                         savePreferences()
                     }
                 ),
@@ -1015,6 +1014,7 @@ private fun VoiceChatSessionScreen(
                                 savePreferences()
                             },
                             install = backendOwner::installStreamingModel,
+                            importCompiled = backendOwner::importSm8750Model,
                             cancel = backendOwner::cancelStreamingInstall,
                             remove = {
                                 audio.stop()
@@ -1350,14 +1350,26 @@ private fun VoiceSettingsScreen(
             if (state.speechBackend.isStreamingLocal) {
                 VoiceSettingSwitch("Keep one speech stream for each reply", state.incrementalSpeech, actions.changeIncrementalSpeech)
                 Text("New text joins the current stream as it arrives. Turn this off to compare separate phrases in the speech benchmark.", style = MaterialTheme.typography.bodySmall)
-                if (state.speechBackend.streamingEngine() == MediaPipeSpeechEngine.KOKORO) {
+                if (state.speechBackend.streamingEngine()?.isKokoro == true) {
                     VoiceChoice("Kokoro phrase capacity · experiment", state.kokoroBucket.name, MediaPipeKokoroBucket.entries.map { it.name to it.label }, { actions.changeKokoroBucket(MediaPipeKokoroBucket.valueOf(it)) })
                     Text("Compare capacities with the same voice and text. Model default lets the runtime choose; a smaller capacity may help short phrases. The complete reply remains queued.", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", state.rate)}×")
+            var sliderRate by remember(state.rate) { androidx.compose.runtime.mutableFloatStateOf(state.rate) }
+            Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", sliderRate)}×")
             Text("Speech rate changes how quickly the voice talks. Performance mode changes how soon speech starts.", style = MaterialTheme.typography.bodySmall)
-            Slider(state.rate, actions.changeRate, valueRange = .5f..2f)
+            Slider(
+                value = sliderRate,
+                onValueChange = { sliderRate = it },
+                valueRange = .5f..2f,
+                steps = 29,
+                onValueChangeFinished = {
+                    val snapped = Math.round(sliderRate * 20) / 20f
+                    sliderRate = snapped
+                    if (snapped != state.rate) actions.changeRate(snapped)
+                }
+            )
+            OutlinedButton(onClick = { actions.changeRate(STANDARD_SPEECH_RATE) }, enabled = state.rate != STANDARD_SPEECH_RATE) { Text("Reset to 1×") }
             VoiceChoice("Pause duration", state.pause.name, VoicePauseDuration.entries.map { it.name to it.label }, { actions.changePause(VoicePauseDuration.valueOf(it)) })
             VoiceChoice("Performance mode", state.performance.name, VoicePerformanceMode.entries.map { it.name to it.label }, { actions.changePerformance(VoicePerformanceMode.valueOf(it)) })
             VoiceSettingSwitch("Speak while the reply is generating", state.speakWhileGenerating, actions.changeSpeakWhileGenerating)

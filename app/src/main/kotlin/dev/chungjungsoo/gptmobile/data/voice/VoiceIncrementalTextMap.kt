@@ -71,6 +71,6 @@ internal class VoiceReplyStreamText {
         val source = segments.getOrNull(if (found >= 0) found else -found - 2)
             ?.takeIf { cue.range.last < it.offset + it.text.length }
             ?: error("STREAM_CUE_SOURCE_BOUNDARY")
-        VoiceReplyStreamCaption(source.index, source.text, cue.copy(range = (cue.range.first - source.offset)..(cue.range.last - source.offset)))
+        VoiceReplyStreamCaption(source.index, source.text, cue.copy(range = (cue.range.first - source.offset)..(cue.range.last - source.offset)).lexicalRange(source.text))
     }
 }

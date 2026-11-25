@@ -164,7 +164,7 @@ class LocalVoiceModelStore internal constructor(
 
     suspend fun install() = install(waitForOwner = false)
 
-    internal suspend fun install(waitForOwner: Boolean) = withContext(Dispatchers.IO) {
+    internal suspend fun install(waitForOwner: Boolean, sourceOverride: (() -> LocalVoiceAssetSource)? = null) = withContext(Dispatchers.IO) {
         // The bundle waits for any screen-owned verification/transfer and reuses its result.
         // Individual screen taps still return immediately when the model is busy.
         if (waitForOwner) {
@@ -197,7 +197,7 @@ class LocalVoiceModelStore internal constructor(
                 (if (expandArchive != null) expandedAssets.sumOf { it.bytes } else 0) + 16L * 1024 * 1024
             if (root.usableSpace < spaceNeeded) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Free at least ${(spaceNeeded + 1_048_575) / 1_048_576} MiB to install local speech.")
             if (!staging.isDirectory && !staging.mkdirs()) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not prepare local speech storage.")
-            val source = sourceFactory().also { shared.source = it }
+            val source = (sourceOverride ?: sourceFactory)().also { shared.source = it }
             var complete = 0L
             for (asset in assets) {
                 currentCoroutineContext().ensureActive()

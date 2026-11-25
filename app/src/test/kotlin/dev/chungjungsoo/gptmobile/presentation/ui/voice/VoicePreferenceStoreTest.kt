@@ -49,6 +49,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoicePreferenceStoreTest {
+    @Test fun originalWeightsAreTheFreshNativeDefaultAndOlderPreferencesKeepTheirPack() {
+        assertEquals(KokoroModelVariant.ORIGINAL_FP32, readVoicePreferences(emptyMap<String, Any>()).nativeModelVariant)
+        assertEquals(KokoroModelVariant.INT8, readVoicePreferences(mapOf("captions" to true)).nativeModelVariant)
+    }
+
     @Test
     fun durableWorkManagerStatesRestoreVisibleInstallPhase() {
         val install = dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall

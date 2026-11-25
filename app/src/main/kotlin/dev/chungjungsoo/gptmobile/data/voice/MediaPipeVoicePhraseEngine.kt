@@ -32,8 +32,8 @@ internal class MediaPipeVoicePhraseEngine(
     // no such evidence or public thread-count control, so neither is manufactured here.
     override val executionProvider: String = when (configuredBackend) {
         VoiceSpeechBackend.LITERT_KOKORO_CPU -> "mediapipe-kokoro-cpu-requested"
-        VoiceSpeechBackend.LITERT_KOKORO_GPU -> "mediapipe-kokoro-gpu-requested"
-        VoiceSpeechBackend.LITERT_KOKORO_NPU -> "mediapipe-kokoro-npu-requested"
+        VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_GPU -> "mediapipe-kokoro-gpu-requested"
+        VoiceSpeechBackend.LITERT_KOKORO_SM8750, VoiceSpeechBackend.LITERT_KOKORO_NPU -> "mediapipe-kokoro-npu-requested"
         VoiceSpeechBackend.PHONON_CPU -> "mediapipe-phonon-cpu-requested"
         VoiceSpeechBackend.POCKET_CPU -> "mediapipe-pocket-cpu-requested"
         else -> error("Unsupported MediaPipe speech backend")

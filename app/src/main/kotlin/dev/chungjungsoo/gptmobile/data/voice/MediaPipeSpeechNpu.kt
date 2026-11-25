@@ -12,3 +12,5 @@ internal fun prepareMediaPipeSpeechNpu(context: Context) {
     val probe = QnnEnvironment.prepareForExecution(context)
     check(probe.prerequisitesReady) { probe.errorMessage ?: "Qualcomm NPU libraries are unavailable." }
 }
+
+internal fun isSm8750SpeechDevice(): Boolean = QualcommSocSupport.canonicalSoc(Build.SOC_MODEL.orEmpty()) == "SM8750"

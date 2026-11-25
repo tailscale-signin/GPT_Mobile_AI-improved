@@ -70,6 +70,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     private val cleanupQuarantined = AtomicBoolean()
     private val playbackRunner = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private val cancelled = AtomicBoolean(false)
+    private val persistRetirement = AtomicReference<(() -> Unit)?>(null)
     private val retiringPlayback = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private var job: Job? = null
 
@@ -170,7 +171,10 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 lease.release()
             } else {
                 retirementScope.launch {
-                    val released = lease.releaseAfterRetirement(retiring::awaitRetired, { retiring.nativeCleanupPending }) {
+                    val released = lease.releaseAfterRetirement({
+                        retiring.awaitRetired()
+                        if (!retiring.nativeCleanupPending) runCatching { persistRetirement.getAndSet(null)?.invoke() }
+                    }, { retiring.nativeCleanupPending }) {
                         cleanupQuarantined.set(true)
                         synchronized(failedCleanupOwners) { failedCleanupOwners += retiring }
                         mutable.update { it.withQuarantine(benchmarkLease.quarantineReason.value) }
@@ -189,7 +193,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         val sdkEngine = engine.mediaPipeEngine()
         val sdkModel = sdkEngine?.let(MediaPipeSpeechCatalog::model)
         val nativeEngine = sdkEngine == null
-        val sdkVoiceId = if (engine == VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO) voice.streamingVoiceId() else sdkModel?.defaultVoice
+        val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) voice.streamingVoiceId() else sdkModel?.defaultVoice
         val started = System.currentTimeMillis()
         val previousOrder = mutable.value.history.firstOrNull()?.configuration?.backendOrderSeed
         val orderSeed = previousOrder?.takeIf { it < Long.MAX_VALUE }?.plus(1) ?: 0L
@@ -206,7 +210,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 playback = playback,
                 playbackScenarios = playbackScenarios, calibrationPolicy = calibrationPolicy, captionOffsetMs = captionOffsetMs.coerceIn(-500, 500),
                 engine = engine, engineVoiceId = sdkVoiceId ?: voice.name, deepDiagnostics = deepDiagnostics,
-                kokoroBucket = if (engine == VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO) kokoroBucket else MediaPipeKokoroBucket.AUTO,
+                kokoroBucket = if (sdkModel?.engine?.isKokoro == true) kokoroBucket else MediaPipeKokoroBucket.AUTO,
                 incrementalInput = incrementalInput,
                 htpPerformanceMode = if (nativeEngine) htpPerformanceMode else "balanced",
                 nativeModelVariant = if (nativeEngine) nativeModelVariant else KokoroModelVariant.INT8,
@@ -341,7 +345,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             }
             publishPlaybackBackend(writer, backend, backendState, failed, cleanup, preceding + results)
             // Native ownership takes priority even when thermal pressure ended the work.
-            if (measurement.pendingRetirements.isNotEmpty() || measurement.nativeCleanupPending) {
+            if (results.any { it.cleanupState == "PENDING" } || measurement.pendingRetirements.isNotEmpty() || measurement.nativeCleanupPending) {
+                persistRetirement.set { writer.publish(measurement.confirmedCleanup(writer.report)) }
                 retiringPlayback.set(measurement)
                 writer.report = writer.report.copy(issue = VoiceSpeechBenchmarkIssue.NATIVE_CLEANUP_PENDING)
                 mutable.update { it.copy(nativeCleanupPending = true, notice = "Audio has stopped. Native speech cleanup is still pending; new speech work stays paused until it finishes.") }

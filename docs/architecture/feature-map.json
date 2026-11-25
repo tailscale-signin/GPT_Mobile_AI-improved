@@ -2767,9 +2767,9 @@
       "sha256": "659d7c59b3d5b4b63a60bb7cc33b83afaf83b6b837453aa2925780d1e57e93b5"
     },
     ".gitleaks.toml": {
-      "blob_sha": "5f3fa1b284bfb68b81e27588b18e12d26e2e4551",
-      "bytes": 8051,
-      "sha256": "df2c3f2a917c2e9f9fded472fd23954de733392269a4b24874238d69ef0339c4"
+      "blob_sha": "f72e0334b67db2e06a06d799e1a547ba53395e88",
+      "bytes": 8454,
+      "sha256": "a430d5d213a524dde615e6ca95f2573221f1d1c81e2e14416d9a2478b69cc7e6"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt": {
       "blob_sha": "d32e8d2c6b486e6b4df8afcf7a49974d6dd5de78",
@@ -6577,14 +6577,14 @@
       "sha256": "bcb9f05294cde3830c87ec4a741dce36c69f98a582cc4f3dcd9086c147e91ef0"
     },
     "scripts/test_gitleaks_model_pin.py": {
-      "blob_sha": "92f9fae9ea7688618f69d0879d870297af8e9302",
-      "bytes": 18918,
-      "sha256": "1f1512b576909143ad62a12decf3013d7e151841ae4a578b309a57898b9d3f69"
+      "blob_sha": "9d6088890b399464004d51facd9b8a0d418ffd09",
+      "bytes": 19579,
+      "sha256": "00df59afcfe00237a2c52d0dd6bfd5fbba393a08fe590cc8355880afc7c26c24"
     },
     "scripts/test_secret_history_integrity.py": {
-      "blob_sha": "cc7ad3fff2e36deea23a50fb6693e84f75bd0a85",
-      "bytes": 6463,
-      "sha256": "920fbf6c9a786428ac30fc32a29453564c70e4b9905d1f5d794f7df2c64190ae"
+      "blob_sha": "b9a5e01796fad50d1bd54a5328538a743e95c602",
+      "bytes": 6515,
+      "sha256": "ea88394224c546ebaedd391ad1afa501be65a5cbe7989a10661eefc407a3a050"
     },
     "scripts/tests/test_changed_behavior_coverage.py": {
       "blob_sha": "a47a2aae28cb0536bfd9aeb632028a982fb6ef06",

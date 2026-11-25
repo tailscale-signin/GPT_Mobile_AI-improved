@@ -73,6 +73,28 @@ class ToolExchangeCompactorTest {
         assertEquals(listOf(pending, page), replay)
     }
 
+    @Test fun requiredPageKeepsItsBytesAheadOfANewerAdmittedPageAtTheHardLimit() {
+        fun exchange(id: String, argument: String, body: String): AgentToolExchange {
+            val call = ProviderEvent.ToolCall(id, "github_read", buildJsonObject { put("path", argument) })
+            return AgentToolExchange(listOf(call), listOf(AgentToolResult(id, ToolResultContent.Text(body), false)))
+        }
+        val first = exchange("first", "original", "first-page-data ".repeat(28))
+        val newer = exchange("newer", "another", "newer-page-data ".repeat(28))
+        val pending = exchange("pending", "x".repeat(850), "pending result ".repeat(12))
+        val required = first.results.single()
+        val budget = ToolExchangeCompactor.estimateTokens(listOf(first, pending)) + 8
+        val replay = ToolExchangeCompactor.compact(
+            listOf(first, newer, pending),
+            budget,
+            64,
+            resultTokenAllowances = mapOf("first" to 180, "newer" to 180),
+            requiredSavedPageDigests = mapOf("first" to ToolResultDeliveryProof.digest(required.content))
+        )
+        assertEquals(first, replay.firstOrNull { it.calls == first.calls })
+        assertEquals(pending.calls, replay.last().calls)
+        assertTrue(ToolExchangeCompactor.estimateTokens(replay) <= budget)
+    }
+
     @Test fun unreadRetainedResultDoesNotClaimDeliveryWhenOnlyItsSummaryFits() {
         val exchange = retainedSummaryExchange()
         val replay = ToolExchangeCompactor.compact(listOf(exchange), 2000, 512)

@@ -138,8 +138,13 @@ internal object ToolExchangeCompactor {
                     val summary = (result.executionReceipt?.get("semantic_summary") ?: projected?.get("semantic_summary")) as? JsonObject
                     scores[result.callId] = relevance.score(call?.arguments, summary)
                 }
-                if (result.callId in priorityCallIds) scores[result.callId] = Int.MAX_VALUE - 1
-                if (result.callId in resultTokenAllowances) scores[result.callId] = Int.MAX_VALUE
+                // hardBound reorders complete call/result pairs after result allocation.
+                // Carry the same priority into that pass when only one saved page fits.
+                when {
+                    fingerprintIndex in requiredBodies -> scores[result.callId] = Int.MAX_VALUE
+                    result.callId in resultTokenAllowances -> scores[result.callId] = Int.MAX_VALUE - 1
+                    result.callId in priorityCallIds -> scores[result.callId] = Int.MAX_VALUE - 2
+                }
                 // A missing call is never deduplicated with an unrelated result.
                 fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${measurements[fingerprintIndex++].digest}")
             }

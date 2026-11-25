@@ -10,6 +10,7 @@ Application native-library stripping uses the same pinned NDK as the native modu
 
 ## Evidence-guided engineering and progress
 
+- GitHub log requests identify a missing or invalid job ID and offer a read to find the run or its jobs. Saved pages needed for the next model request keep priority when the conversation reaches its context limit.
 - Opening a private GitHub draft keeps its privacy lock and prevents a delayed workspace restore from reopening the previous room.
 - Saved GitHub pages retain their admitted selector identity across restoration. A legacy cursor-only recovery requires matching local proof and the current tool schema.
 - Automatic missing-tool recovery accepts only the selected local catalog; a foreign catalog does not create a retry or dispatch.

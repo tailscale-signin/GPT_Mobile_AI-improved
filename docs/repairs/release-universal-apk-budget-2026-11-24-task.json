@@ -56,6 +56,18 @@
     "base_sha": "67dce0e844603c704bf87c51112de243eac73c48",
     "working_branch": "fix/release-universal-apk-budget-2026-11-24",
     "reviewed_head": "49ed78143b5bc4a1a954b62b4f8820584b1dd3f7",
-    "intent": "Complete the remaining Quality playback and tool precheck findings from the build 150 audit and qualify the coordinated release."
+    "intent": "Complete the remaining Quality playback and tool precheck findings from the build 150 audit and qualify the coordinated release.",
+    "handset_followup": {
+      "reported_test_merge": "37a94eb9abd05da35ff4b4856245c04e33ea7f1f",
+      "issues_reviewed": [2539, 2540, 2541, 2542, 2543, 2544, 2545],
+      "regressions": [
+        "An admitted saved page could displace the exact page required by this model request during final context compaction.",
+        "A rejected CI log request could omit its required job ID from the missing-field count and discovery recipe."
+      ],
+      "other_observations": [
+        "Fixture proof was conditional, one CI claim lacked supporting evidence, and the path preflight rejected a missing path.",
+        "The provider connection failed after the request body was sent. Remote acceptance was unknown."
+      ]
+    }
   }
 }

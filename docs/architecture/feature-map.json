@@ -2756,9 +2756,9 @@
       "sha256": "1c0e6725bea8a27085878c091362e96c23bc983e2e510ab7dedcfd8d2f58fc7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": {
-      "blob_sha": "d4cd4629defebd0e307114b71c51f7c6a4db2f0c",
-      "bytes": 183084,
-      "sha256": "a8e1268b302ef0ac27739a926542785bb6009c0e39e4b7be25b59f8a59ab7132"
+      "blob_sha": "67ee42c23b2b84e5f73b463485498bd1ecaeff05",
+      "bytes": 183299,
+      "sha256": "1b9e87b48a3194ba46b693767674cf7d0dc5fe918405bc4aae935739c29cc1d0"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": {
       "blob_sha": "389dff549bb22a0118306daa203c529b28c02d95",
@@ -2836,9 +2836,9 @@
       "sha256": "c1a999db8c8894bc7cae8b44aed5d20173ae425671da8b390c5c82c1a6499e64"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt": {
-      "blob_sha": "90678294dd83e80183275444119184de87b7c828",
-      "bytes": 23351,
-      "sha256": "aaac81af8e5cf56a06edc57e0055dbe2396364d671e8c11f76ce02265bb917de"
+      "blob_sha": "fbc617ae723835f2ff4dbc367beca9ab2c566553",
+      "bytes": 23675,
+      "sha256": "186e214a8b0ccf88a6a037a2af5bf7330851b750c21a224addc73cbe78050988"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": {
       "blob_sha": "0bd0795b80484c24e8c23d1775c1aae2956eafd0",
@@ -4261,9 +4261,9 @@
       "sha256": "56e8708d5ae0ab9127929ce0d489d7b17d1a01da3dab4a2af576a3b28e77c113"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactorTest.kt": {
-      "blob_sha": "b8b8ea9914cacfe7f6a3317a449f7786658b6da9",
-      "bytes": 30970,
-      "sha256": "c62b7687693ce80276c0f74903e8f9f02939092dc5c5a2489c1d78f7c2a8672d"
+      "blob_sha": "7f138cb22ae1868a0002daaa8f27f013d56eccfd",
+      "bytes": 32293,
+      "sha256": "67774aa43fadea83fc8eb811d301e471556f987910dd18533dded61f09cf07c2"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt": {
       "blob_sha": "d8ecd1c17adb300752d1723af701509cf2429105",

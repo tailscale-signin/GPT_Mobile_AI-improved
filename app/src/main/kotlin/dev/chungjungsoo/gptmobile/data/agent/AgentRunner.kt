@@ -1490,7 +1490,7 @@ class AgentRunner(
             roundLimitReached, toolCallCount, executionToolCallLimit,
             unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId },
             executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) },
-            replayLimit, consumedCallIds, deliveredResultDigests
+            replayLimit, consumedCallIds, deliveredResultDigests, savedResultRecovery
         )
         finalResponseRequested = completedBatch.finalResponseRequested
         if (finalResponseRequested) {
@@ -1772,7 +1772,8 @@ class AgentRunner(
         hasActionableGitHubTools: Boolean,
         replayLimit: Int,
         consumedCallIds: Set<String>,
-        deliveredResultDigests: Map<String, String>
+        deliveredResultDigests: Map<String, String>,
+        savedResultRecovery: GitHubReplayRecovery.State?
     ): BatchCompletion {
         var finalResponseRequested = wasFinalResponseRequested
         val resultByCallId = producedResults.associateBy { it.callId }
@@ -1946,7 +1947,8 @@ class AgentRunner(
             retentionBudget,
             // Preserve complete evidence while it fits the retained budget.
             // Provider replay still enforces its independent, smaller allowance.
-            limits.maxReplayResultTokens.coerceIn(64, 2048)
+            limits.maxReplayResultTokens.coerceIn(64, 2048),
+            requiredSavedPageDigests = savedResultRecovery?.pendingSavedPageDeliveries(observations, deliveredResultDigests).orEmpty()
         ).exchanges
         exchanges.clear()
         exchanges.addAll(retained)

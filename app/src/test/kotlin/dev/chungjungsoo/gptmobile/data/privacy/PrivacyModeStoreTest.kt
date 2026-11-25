@@ -64,6 +64,17 @@ class PrivacyModeStoreTest {
     }
 
     @Test
+    fun savingUnchangedMaskAndRetentionChoicesKeepsThePreparedRevision() {
+        val fixture = Fixture()
+        val prepared = fixture.store.effectiveSnapshot(true)
+        fixture.store.requestCategory(PrivacyCategory.LOCATIONS, true)
+        fixture.store.requestVerifiedRetention(false)
+        fixture.awaitUpdates()
+        assertEquals(prepared, fixture.store.effectiveSnapshot(true))
+        assertEquals(prepared, fixture.recreate().effectiveSnapshot(true))
+    }
+
+    @Test
     fun restoringTheSamePrivacyChoicesDoesNotRestoreAnEarlierAuthorization() {
         val fixture = Fixture()
         val original = fixture.store.snapshot()

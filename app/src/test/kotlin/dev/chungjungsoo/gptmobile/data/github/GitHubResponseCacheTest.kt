@@ -35,6 +35,20 @@ class GitHubResponseCacheTest {
         assertEquals("new", cache.get("key")?.etag)
     }
 
+    @Test fun measuredHttpBodiesRespectReplacementEvictionAndMutationInvalidation() {
+        val cache = GitHubResponseCache(maxCharacters = 10)
+        val value = JsonPrimitive("ok")
+        cache.putResponse("tree", null, value, immutable = true, bodyCharacters = 6)
+        cache.putResponse("list", "etag", value, immutable = false, bodyCharacters = 4)
+        cache.invalidateMutable()
+        assertSame(value, cache.get("tree")?.value)
+        assertNull(cache.get("list"))
+        cache.putResponse("list", "new", value, immutable = false, bodyCharacters = 5)
+        assertNull(cache.get("tree"))
+        cache.putResponse("list", "large", value, immutable = false, bodyCharacters = 11)
+        assertNull(cache.get("list"))
+    }
+
     @Test fun uncacheableReplacementEvictsPreviouslyEligibleBody() {
         val cache = GitHubResponseCache(maxCharacters = 10)
         for ((etag, replacement) in listOf("new" to "too long to retain", null to "small")) {

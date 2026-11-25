@@ -195,16 +195,19 @@ class PrivacyModeStore @Inject constructor(
     }
 
     private fun updateRevision() {
-        synchronized(stateLock) { publish { it } }
+        synchronized(stateLock) { publish(forceRevision = true) { it } }
         persistLatest()
     }
 
     /** Caller holds only the short state lock, never the disk-write monitor. */
-    private fun publish(protectionChanged: Boolean = true, change: (PrivacyModeState) -> PrivacyModeState) {
+    private fun publish(protectionChanged: Boolean = true, forceRevision: Boolean = false, change: (PrivacyModeState) -> PrivacyModeState) {
         val current = snapshot()
-        val next = change(current).copy(
+        val changed = change(current)
+        val effectiveChange = changed != current || forceRevision
+        if (!effectiveChange && requested == null) return
+        val next = changed.copy(
             revision = Math.incrementExact(current.revision),
-            protectionRevision = if (protectionChanged) Math.incrementExact(current.protectionRevision) else current.protectionRevision
+            protectionRevision = if (protectionChanged && effectiveChange) Math.incrementExact(current.protectionRevision) else current.protectionRevision
         )
         // Transport checks and diagnostics share the complete effective policy before disk I/O.
         requestedPolicy = next

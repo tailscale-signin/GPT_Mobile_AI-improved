@@ -51,10 +51,18 @@ class GitHubResponseCache(
 
     @Synchronized internal fun invalidatedByMutation(key: String): Boolean = key in mutationInvalidations
 
-    @Synchronized fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false, allowWithoutEtag: Boolean = false) {
-        val eligible = !etag.isNullOrBlank() || immutable || allowWithoutEtag
-        val size = if (eligible) value.toString().length else 0
-        if (!eligible || size > maxCharacters) {
+    fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false, allowWithoutEtag: Boolean = false) {
+        val size = if (etag.isNullOrBlank() && !immutable && !allowWithoutEtag) null else value.toString().length
+        storeResponse(key, etag, value, immutable, size)
+    }
+
+    /** The HTTP reader already measured the response. Avoid re-encoding large trees while holding the cache lock. */
+    internal fun putResponse(key: String, etag: String?, value: JsonElement, immutable: Boolean, bodyCharacters: Int) {
+        storeResponse(key, etag, value, immutable, bodyCharacters.takeIf { immutable || !etag.isNullOrBlank() })
+    }
+
+    @Synchronized private fun storeResponse(key: String, etag: String?, value: JsonElement, immutable: Boolean, size: Int?) {
+        if (size == null || size !in 0..maxCharacters) {
             removeEntry(key)
             return
         }

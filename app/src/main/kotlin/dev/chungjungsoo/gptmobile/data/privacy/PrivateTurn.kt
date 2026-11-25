@@ -25,14 +25,15 @@ internal class PrivateTurn private constructor(
         suspend fun capture(store: PrivacyModeStore): PrivateTurn {
             val context = currentCoroutineContext()
             val conversation = context[ConversationPrivacyContext] ?: ConversationPrivacyContext.capture() ?: ConversationPrivacyContext(null, false)
-            return PrivateTurn(store, conversation, store.effectiveSnapshot(conversation.enabled), context[Job])
+            val policy = if (conversation.enabled) store.effectiveSnapshot(true) else PrivacyModeState()
+            return PrivateTurn(store, conversation, policy, context[Job])
         }
     }
 
     suspend fun validate() {
         owner?.ensureActive()
         currentCoroutineContext().ensureActive()
-        if (store.effectiveSnapshot(conversation.enabled) != policy) throw DispatchPolicyChangedException(listOf("devicePrivacy"))
+        if (conversation.enabled && store.effectiveSnapshot(true) != policy) throw DispatchPolicyChangedException(listOf("devicePrivacy"))
     }
 
     /** Native IPC reinstalls this guard without the marker, so it owns the captured policy. */

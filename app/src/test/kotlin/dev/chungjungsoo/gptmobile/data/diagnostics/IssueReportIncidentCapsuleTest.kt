@@ -364,6 +364,7 @@ class IssueReportIncidentCapsuleTest {
         )
         val diagnostics = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "POLICY_STALE", fields).diagnostics)
         assertTrue(diagnostics.isValid())
+        assertTrue(IssueReportDiagnostics.DEVICE_PRIVACY_POLICY_FEATURE in diagnostics.requiredServiceFeatures())
         assertEquals(JsonArray(listOf(JsonPrimitive("devicePrivacy"))), diagnostics.values["changed_policy_fields"])
         assertEquals(JsonArray(listOf(JsonPrimitive("PRIVACY"))), diagnostics.values["dispatch_policy_sections"])
         assertEquals(JsonPrimitive("delivery"), diagnostics.values["dispatch_policy_stage"])

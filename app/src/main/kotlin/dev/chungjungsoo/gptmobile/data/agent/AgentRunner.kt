@@ -327,7 +327,7 @@ class AgentRunner(
                 val searchContext = searchRoundContext(toolByName, executableToolByName, exchanges)
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
                 val roundDefinitions = try {
-                    val available = fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens + SavedPageReading.reservation(savedPageReading, false))
+                    val available = fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens + SavedPageReading.reservation(savedPageReading, false), discoveryPaused = unproductiveDiscoveryRounds >= 2 && retrySchemaNames == null)
                     val fitted = retrySchemaNames?.let { names -> available.filter { it.name in names } } ?: available
                     afterRepeatedGitHubDiscovery(fitted, unproductiveDiscoveryRounds >= 2)
                 } catch (capacity: GitHubToolContextBudgetException) {
@@ -2309,12 +2309,9 @@ class AgentRunner(
                 )
                 return@flow
             }
-            val preparedExchanges = SavedPageReading.project(
-                replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) },
-                savedPageReading,
-                noteBytes
-            )
-            val projectedTokens = SavedPageReading.projectionTokens(preparedExchanges, replayRenderCache)
+            val (preparedExchanges, projectedTokens) = SavedPageReading.providerProjection(replayExchanges, savedPageReading, noteBytes, replayLimit, replayRenderCache) {
+                dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it)
+            }
             if (projectedTokens > replayLimit) {
                 emit(
                     SavedPageDeliveryRound.blocked("The saved-page bodies and mandatory reading context exceed this request's replay allowance. No page was acknowledged.", "planning") {

@@ -86,6 +86,7 @@ def create_app(public_url, reporter, rate_key):
                 "GITHUB_POLICY_SELECTION_FIELDS_V1",
                 "VOICE_FOCUS_RETRY_COUNT_V1",
                 "FAILED_EVENT_OUTPUT_FIELDS_V1",
+                "DEVICE_PRIVACY_POLICY_CHANGE_V1",
             ])
         return response
 

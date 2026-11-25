@@ -147,10 +147,34 @@ internal object SavedPageReading {
 
     fun projectionTokens(exchanges: List<AgentToolExchange>, cache: ToolExchangeCompactor.RenderCache): Int {
         val overhead = exchanges.flatMap { it.results }.sumOf { result ->
-            if (result.savedPageReading == null) 0L else (bytes(result.modelText()).toLong() - bytes(cache.render(result.content))).coerceAtLeast(0)
+            if (result.savedPageReading == null && result.assistMetadata.isEmpty()) 0L else (bytes(result.modelText()).toLong() - bytes(cache.render(result.content))).coerceAtLeast(0)
         }
         val total = ToolExchangeCompactor.estimateTokens(exchanges, cache).toLong() + (overhead + 2) / 3 + instruction(exchanges)?.let { tokens(it) + 8 }.orZero()
         return total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    /** Optional model annotations may use spare context after the exact pages and reading notes fit. */
+    suspend fun providerProjection(
+        exchanges: List<AgentToolExchange>,
+        reading: JsonObject?,
+        noteBytes: Int?,
+        allowance: Int,
+        cache: ToolExchangeCompactor.RenderCache,
+        ready: suspend (AgentToolResult) -> AgentToolResult
+    ): Pair<List<AgentToolExchange>, Int> {
+        val projected = project(exchanges, reading, noteBytes)
+        val tokens = projectionTokens(projected, cache)
+        if (projected.none { exchange -> exchange.results.any { it.optionalAssistKey != null } }) return projected to tokens
+        if (tokens > allowance) {
+            if (projected.none { exchange -> exchange.results.any { it.optionalAssistKey != null && it.assistMetadata.isNotEmpty() } }) return projected to tokens
+            val required = projected.map { exchange ->
+                exchange.copy(results = exchange.results.map { if (it.optionalAssistKey != null) it.copy(assistMetadata = emptyList()) else it })
+            }
+            return required to projectionTokens(required, cache)
+        }
+        val annotated = projected.map { exchange -> exchange.copy(results = exchange.results.map { ready(it) }) }
+        val annotatedTokens = projectionTokens(annotated, cache)
+        return if (annotatedTokens <= allowance) annotated to annotatedTokens else projected to tokens
     }
 
     private fun Int?.orZero(): Int = this ?: 0

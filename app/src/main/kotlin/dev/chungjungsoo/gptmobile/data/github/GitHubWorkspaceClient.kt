@@ -2996,7 +2996,7 @@ class GitHubWorkspaceClient(
                 }
                 if (method == HttpMethod.Get) credential.refAvailability.succeeded(path)
                 if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
-                if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, GitHubResponseCache.isImmutableRequest(path))
+                if (cacheable) responseCache.putResponse(cacheKey, response.headers[HttpHeaders.ETag], parsed, GitHubResponseCache.isImmutableRequest(path), text.length)
                 parsed
             }
         }

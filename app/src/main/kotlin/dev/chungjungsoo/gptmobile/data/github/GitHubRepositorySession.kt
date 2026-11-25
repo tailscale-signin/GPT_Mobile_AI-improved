@@ -888,7 +888,7 @@ internal class GitHubRepositorySession(
             store.write(scope, "index-preparation:${context.commitSha}", progress)
             onCheckpoint?.invoke(progress)
         }
-        try {
+        suspend fun prepareEntries() {
             while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
                 budget.yieldIfActive()
                 // Reserve time to publish progress and bounded coverage metadata.
@@ -947,6 +947,9 @@ internal class GitHubRepositorySession(
                     retainProgress()
                 }
             }
+        }
+        try {
+            prepareEntries()
         } finally {
             // An outer deadline must retain the active blob's no-progress attempt too.
             // Plain cancellation never increments failures. A bounded explicit deferral

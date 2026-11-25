@@ -87,6 +87,8 @@ internal object ToolFailureMetadata {
         return ProviderEvent.Failed(
             if (unknown) {
                 "Execution authority changed while an earlier operation has an unknown outcome. Reconcile the retained receipts before any mutation; no model or tool continuation was started."
+            } else if (stage == "delivery" && result.dispatched && !result.isError && gatewayChange == "SELECTED") {
+                "An engineering Gateway was selected after the tool completed. Its result was saved. Resume to authorize it for the remaining work."
             } else if (gatewayChange == "SELECTED") {
                 "An engineering Gateway was selected during this task. Resume to authorize it for the remaining work and continue from the saved results."
             } else if (gatewayChange == "CLEARED") {

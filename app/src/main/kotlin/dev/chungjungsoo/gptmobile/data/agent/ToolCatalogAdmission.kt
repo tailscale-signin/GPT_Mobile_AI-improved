@@ -155,7 +155,7 @@ internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val o
 internal fun providerSchemaTokens(tool: AgentToolDefinition, githubMode: Boolean): Long = ProgressiveToolCatalog.schemaTokens(tool).toLong() + if (githubMode) 16 else 0
 
 /** Recheck warm as well as cold discoveries against the current request's remaining room. */
-internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limits: AgentRunLimits, initialSchemaTokens: Long, replayTokens: Long, maxSchemaTokens: Int? = null): List<AgentToolDefinition> {
+internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limits: AgentRunLimits, initialSchemaTokens: Long, replayTokens: Long, maxSchemaTokens: Int? = null, discoveryPaused: Boolean = false): List<AgentToolDefinition> {
     val visible = definitions.filter { it.modelVisible }
     if (limits.contextTokens == Int.MAX_VALUE && maxSchemaTokens == null) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
@@ -188,10 +188,20 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
     val discoveryCost = discovery?.takeUnless { it.name in requiredNames }?.let { providerSchemaTokens(it, limits.githubMode) } ?: 0L
     val discoveryFits = discovery != null && discoveryCost <= remaining
-    if (discoveryFits) remaining -= discoveryCost
+    // After unchanged discovery spend the next round on an operation if one fits on its own.
+    val nextOperation = if (discoveryPaused && discovery?.name !in requiredNames) {
+        required.firstOrNull { it.name != ProgressiveToolCatalog.NAME && ProgressiveToolCatalog.isGitHubTool(it) }
+            ?: visible.firstOrNull { it.name != ProgressiveToolCatalog.NAME && ProgressiveToolCatalog.isGitHubTool(it) && providerSchemaTokens(it, limits.githubMode) <= remaining }
+    } else {
+        null
+    }
+    if (nextOperation != null && requiredNames.add(nextOperation.name)) remaining -= providerSchemaTokens(nextOperation, limits.githubMode)
+    if (discoveryFits && nextOperation == null) remaining -= discoveryCost
     val omitted = linkedMapOf<String, String>()
     val selected = visible.filter { tool ->
-        if (tool.name in requiredNames || tool === discovery && discoveryFits) return@filter true
+        if (tool.name in requiredNames) return@filter true
+        if (tool === discovery && nextOperation != null) return@filter false
+        if (tool === discovery && discoveryFits) return@filter true
         val cost = providerSchemaTokens(tool, limits.githubMode)
         (cost <= remaining).also { fits ->
             if (fits) {
@@ -202,7 +212,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
         }
     }
     ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
-    if ((limits.githubMode || limits.githubTask) && !discoveryFits && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
+    if ((limits.githubMode || limits.githubTask) && !discoveryFits && nextOperation == null && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
         val needed = visible.filter { ProgressiveToolCatalog.isGitHubTool(it) || it.name in requiredNames }
         throw GitHubToolContextBudgetException(needed.sumOf { providerSchemaTokens(it, limits.githubMode) }, budget.available, budget).withRequiredSchemas(needed, limits.githubMode)
     }

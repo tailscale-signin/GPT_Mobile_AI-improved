@@ -105,6 +105,15 @@ class PrivateTurnTest {
         }
     }
 
+    @Test fun ordinaryChatKeepsItsInheritedAuthorityWhenPrivateMaskRulesChange() = runTest(ConversationPrivacyContext(101, false)) {
+        val fixture = Fixture()
+        var checks = 0
+        val guard = PrivateTurn.capture(fixture.store).authority(RequestAuthorizationGuard("selected-profile") { checks++ })
+        fixture.state = fixture.state.copy(categories = emptySet(), requireVerifiedRetention = true, revision = 2, protectionRevision = 2)
+        guard.validate()
+        assertEquals(1, checks)
+    }
+
     @Test fun categoryAndPrivateTermRevisionChangesInvalidateTheCapturedGuard() = runTest(ConversationPrivacyContext(101, true)) {
         for (change in listOf<(PrivacyModeState) -> PrivacyModeState>(
             { it.copy(categories = it.categories - PrivacyCategory.CONTACTS, revision = 2, protectionRevision = 2) },

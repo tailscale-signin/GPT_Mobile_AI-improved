@@ -198,6 +198,8 @@ internal data class IssueReportDiagnostics(
         // An older reporter knows 81 names. A clipped sample can hide every new name,
         // so its distinct retained-plus-omitted count also carries the newer contract.
         val knownPolicyCount = policyNames.size.toLong() + ((values["changed_policy_omitted_count"] as? JsonPrimitive)?.longOrNull ?: 0L)
+        val policySections = (values["dispatch_policy_sections"] as? JsonArray).orEmpty()
+        if (JsonPrimitive("devicePrivacy") in policyNames || JsonPrimitive("PRIVACY") in policySections || knownPolicyCount > PRE_DEVICE_PRIVACY_POLICY_FIELD_LIMIT) add(DEVICE_PRIVACY_POLICY_FEATURE)
         if (policyNames.any { (it as? JsonPrimitive)?.contentOrNull in policySelectionFields } || knownPolicyCount > LEGACY_POLICY_FIELD_LIMIT) {
             add(POLICY_SELECTION_FEATURE)
         }
@@ -257,10 +259,12 @@ internal data class IssueReportDiagnostics(
         const val PRECHECK_GROUP_FEATURE = "TOOL_PRECHECK_GROUP_V1"
         private val precheckGroupFields = setOf("precheck_rejection_count", "precheck_call_hashes", "precheck_span_ms")
         const val MISSING_TOOL_IDENTITY_FEATURE = "CATALOG_MISSING_TOOL_IDENTITY_V1"
+        const val DEVICE_PRIVACY_POLICY_FEATURE = "DEVICE_PRIVACY_POLICY_CHANGE_V1"
         const val POLICY_SELECTION_FEATURE = "GITHUB_POLICY_SELECTION_FIELDS_V1"
         const val VOICE_STREAMING_INSTALL_FEATURE = "VOICE_STREAMING_INSTALL_EVIDENCE_V1"
         const val VOICE_FOCUS_RETRIES_FEATURE = "VOICE_FOCUS_RETRY_COUNT_V1"
         private const val LEGACY_POLICY_FIELD_LIMIT = 81
+        private const val PRE_DEVICE_PRIVACY_POLICY_FIELD_LIMIT = 84
         private val policySelectionFields = setOf("githubProfileOverride.nextActionPolicy", "githubProfileOverride.evidenceElaboration", "githubProfileOverride.primaryPatchReviewConsent")
         internal val researchCriteria = setOf("WRITER_INCOMPLETE", "NO_ACQUISITION_PACKET", "NO_READABLE_SOURCES", "DELIVERY_VERIFICATION", "EMPTY_REPORT", "UNKNOWN_CITATION", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "MISSING_SECTION", "OMITTED_LEADING_STUDY", "OMITTED_UNREAD_LEAD", "UNSOURCED_SCIENTIFIC_PARAGRAPH", "METADATA_PRESENTED_AS_READ", "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE", "UNREGISTERED_REFERENCE_URL", "DIRECT_REFERENCE_MISSING", "QUESTION_EVIDENCE_NOT_CITED", "QUESTION_EVIDENCE_UNCOVERED", "QUESTION_EVIDENCE_METADATA_REQUIRED", "EVIDENCE_CLAIM_NOT_COVERED", "COUNTEREVIDENCE_NOT_DISCLOSED")
         private val researchEvidenceFields = setOf("research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash")

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a41d773224593a2bd546cbad02a918fe2dd76f52f8d7f273308087d83f3d2d20",
+  "source_digest": "2b82cdac4637ca4b699029e5e883e4077dce6d1e6098e84b332d259ee9bd1998",
   "file_count": 3132,
-  "indexed_line_count": 534045,
+  "indexed_line_count": 534052,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 300,
-      "indexed_line_count": 55499
+      "indexed_line_count": 55506
     },
     {
       "id": "research",
@@ -7459,8 +7459,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "2783af5499331a90314e88ec8ea398437310ebc3485d9a7f477bcda17a79c936",
-      "indexed_lines": 76
+      "sha256": "3ffac167ff72c0406e54d8bf074adc7d8bcd5a86956aebbe460f9d5add98866d",
+      "indexed_lines": 80
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
@@ -8180,8 +8180,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "bd54c8d20abe2921e5d7a07541b02d6796283998b33e89e58eb82198b305c243",
-      "indexed_lines": 542
+      "sha256": "94322fa4a845c3b8fa6a887b463a21b39a621c15fcd696206b24af6b8d68b3f1",
+      "indexed_lines": 544
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewCompatibility.kt",
@@ -8432,8 +8432,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusRequest.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "6b83697be4277cb6bb086b54b5b6edf8ae654eb4f889e5b7d9d97806cc797b66",
-      "indexed_lines": 343
+      "sha256": "e3366028f6398fa490a8ef4e3beb43c9796f833e49cfff2bf07f5085277711b2",
+      "indexed_lines": 344
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSummaryWorkbook.kt",

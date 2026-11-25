@@ -37,6 +37,19 @@ class PublicProgressInstructionsTest {
         assertFalse(prompt.contains("[bounded GitHub context]"))
     }
 
+    @Test fun maximumInlineBindingPreservesEveryCompoundTaskAndWholeOptionalSections() {
+        val binding = context.copy(owner = "o".repeat(39), repo = "r".repeat(121), ref = "b".repeat(180))
+        val prompt = binding.promptContext("Test all tools, review the selected branch and fix the issue")
+        assertTrue(prompt.length < 2000)
+        assertTrue(prompt.contains("GitHub workspace: ${binding.owner}/${binding.repo}\nBranch: ${binding.ref}\n"))
+        listOf(binding.commitSha, "never infer write approval", "Branch review", "first unread exact range", "Testing acceptance", "github_stage_patch").forEach {
+            assertTrue(it, prompt.contains(it))
+        }
+        val details = dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.DETAIL_INSTRUCTION
+        assertFalse(prompt.contains(details.substringBefore('.')) && !prompt.contains(details))
+        assertFalse(prompt.contains("untrusted continuation"))
+    }
+
     @Test fun compactIntegrationContextKeepsTheSamePrimaryPreviewProtocol() {
         val repository = context.promptContext("Test all GitHub integration tools", contextTokens = 8192)
         val system = toolStageInstructions(toolProgressInstructions(githubMode = true)) + "\n" + repository

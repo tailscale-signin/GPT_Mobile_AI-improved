@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "dd135b2f92cc5c4af4e806e9edcc56908d27e0bad5c303e5ff1c5c02ee202156",
+  "source_digest": "a41d773224593a2bd546cbad02a918fe2dd76f52f8d7f273308087d83f3d2d20",
   "file_count": 3132,
   "indexed_line_count": 534045,
   "line_coverage_available": false,
@@ -7459,7 +7459,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "d61910f831ab3d0c428a3b24bb95b7e1f2827110a0e35fd6212b31dcc0fd862c",
+      "sha256": "2783af5499331a90314e88ec8ea398437310ebc3485d9a7f477bcda17a79c936",
       "indexed_lines": 76
     },
     {

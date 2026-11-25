@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "bf3c1ada21fee509b3664bb35ffb96d9d42bc2cb2413bef55a765cc1da23cbce",
+  "source_digest": "52e925f9c0ac4b96f1580cd2a696600007f8b9009930842c5300c9a1c179b9c8",
   "file_count": 3132,
-  "indexed_line_count": 534082,
+  "indexed_line_count": 534098,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -77,7 +77,7 @@
       "id": "model_providers",
       "label": "Model providers and adapters",
       "file_count": 66,
-      "indexed_line_count": 9730
+      "indexed_line_count": 9746
     },
     {
       "id": "models_and_profiles",
@@ -2356,8 +2356,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ChatCompletionsEventAssembler.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "200900a7c6c61890c48e5339bcb22c481bcb0b87fa497080eee2b69c2f18fc7e",
-      "indexed_lines": 170
+      "sha256": "7801389f492342837161bdb50839238635f2f0b63a4b043ae1e816f7208e5aa1",
+      "indexed_lines": 173
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/FreePromptToolSession.kt",
@@ -2447,8 +2447,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderEventAssemblers.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "a31f85149f7ba65b293fda44624296d3c401737e68a2b4b40697b03d36cbbe92",
-      "indexed_lines": 308
+      "sha256": "180a7dee16e470146deaf96bb4a6160f0647be4777fc80a25e761a4fd97b6c17",
+      "indexed_lines": 321
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderOutputLimits.kt",

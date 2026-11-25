@@ -1477,7 +1477,7 @@ internal class GitHubVerifiedSession(
                 ""
             }
             Publication(
-                cause + reconciliationNotice + approvalNotice + GitHubEffectiveRecovery.publicationText(text, effectiveReport, publicationReceipts) + packagingEvidence + resources?.let(GitHubAnswerPresentation::resourceNotice).orEmpty() + failures + retentionNotice,
+                cause + reconciliationNotice + approvalNotice + GitHubEffectiveRecovery.publicationText(text, effectiveReport, publicationReceipts) + packagingEvidence + resources?.let { GitHubAnswerPresentation.resourceNotice(task, it) }.orEmpty() + failures + retentionNotice,
                 effectivePartial,
                 effectiveReport,
                 publicationEpoch,

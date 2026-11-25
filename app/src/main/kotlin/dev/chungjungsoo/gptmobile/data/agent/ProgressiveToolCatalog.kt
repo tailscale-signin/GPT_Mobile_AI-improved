@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
 import dev.chungjungsoo.gptmobile.data.github.GitHubNextActionMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -30,7 +31,9 @@ class ProgressiveToolCatalog(
     private var advanced = advancedTask(task)
     private val integrationPreset = task.lineSequence().any { it.trim() == "[github-workflow-preset:test_integration]" }
     internal val scopedGitHubStatus = githubMode && !integrationPreset && dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)
-    private val githubUpfront = githubMode && !scopedGitHubStatus || integrationPreset
+    private val lookup = if (githubMode && !integrationPreset) GitHubLookupRoute.from(task) else null
+    private val scopedRead = scopedGitHubStatus || lookup != null
+    private val githubUpfront = githubMode && !scopedRead || integrationPreset
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
     private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance get() = minOf(
@@ -59,14 +62,14 @@ class ProgressiveToolCatalog(
     // Explicit engineering tasks need stage/commit schemas without a repeated
     // discovery round; all executable authorization and wire-context gates remain.
     // Larger write/release and check-watch contracts stay on-demand.
-    private val upfrontEngineering = if (githubMode && !scopedGitHubStatus && !integrationPreset) {
+    private val upfrontEngineering = if (githubMode && !scopedRead && !integrationPreset) {
         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
             .intersect(setOf("github_stage_patch", "github_commit"))
     } else {
         emptySet()
     }
     private fun deferInitially(operation: String?): Boolean =
-        operation != null && operation in deferredEngineering && operation !in upfrontEngineering
+        operation != null && operation in deferredEngineering && operation != lookup?.operation && operation !in upfrontEngineering
 
     private fun preferredInitialContracts(definitions: List<AgentToolDefinition>, initialNames: Set<String>?): List<AgentToolDefinition> = definitions.groupBy { definition ->
         val name = definition.name
@@ -79,7 +82,7 @@ class ProgressiveToolCatalog(
         initial.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: initial.first()
     }
 
-    private val plannedOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+    private val plannedOperations = lookup?.let { setOf(it.operation) } ?: dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
     private val taskRequired = definitions.filter { definition ->
         definition.modelVisible &&
             !conversational &&
@@ -91,7 +94,17 @@ class ProgressiveToolCatalog(
                             !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name))
                         )
                 )
-    }.let { preferredInitialContracts(it, initialNames) }
+    }.let { preferredInitialContracts(it, initialNames) }.also { initial ->
+        if (lookup != null) {
+            for (tool in initial) {
+                if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name) == lookup.operation &&
+                    GitHubActionSchema.project(tool, lookup.action) != null
+                ) {
+                    actionSelections[tool.name] = contractFingerprint(tool) to lookup.action
+                }
+            }
+        }
+    }
     private val implementationTools = if (upfrontEngineering.isEmpty()) {
         emptyList()
     } else {
@@ -104,10 +117,8 @@ class ProgressiveToolCatalog(
     private val active = (
         if (conversational) {
             emptyList()
-        } else if (scopedGitHubStatus) {
-            // The native status workflow has four reads through two operation
-            // schemas. Retain the full authorized candidates for exact discovery;
-            // unrelated write/source/indexing schemas need not enter this prompt.
+        } else if (scopedRead) {
+            // Keep the first round scoped to the requested reads and preserve authorized discovery.
             window(taskRequired)
         } else if (githubUpfront) {
             window(
@@ -336,7 +347,7 @@ class ProgressiveToolCatalog(
     /** Reorder existing authorized contracts; discovery and execution admission remain independent. */
     @Synchronized
     internal fun focusRequirement(checkpoint: JsonObject?, mode: GitHubNextActionMode = GitHubNextActionMode.ACTIVE): Boolean {
-        if (conversational || scopedGitHubStatus || checkpoint == null) return false
+        if (conversational || scopedRead || checkpoint == null) return false
         val focus = if (mode == GitHubNextActionMode.ACTIVE) nextAction(checkpoint).focus else GitHubRequirementToolFocus.next(checkpoint)
         if (focus == null) return false
         val key = focus.identity to candidateRevision
@@ -839,6 +850,8 @@ class ProgressiveToolCatalog(
                             "mount_policy",
                             if (githubUpfront) {
                                 "AUTHORIZED_GITHUB_ON_DEMAND"
+                            } else if (lookup != null) {
+                                "SCOPED_GITHUB_LOOKUP"
                             } else if (scopedGitHubStatus) {
                                 "SCOPED_GITHUB_STATUS"
                             } else {
@@ -919,6 +932,8 @@ class ProgressiveToolCatalog(
                     "GITHUB_ENGINEERING_SCHEMAS_UPFRONT"
                 } else if (githubUpfront) {
                     "GITHUB_OPERATION_SCHEMAS_ON_DEMAND"
+                } else if (lookup != null) {
+                    "SCOPED_GITHUB_LOOKUP_WITH_AUTHORIZED_DISCOVERY"
                 } else if (scopedGitHubStatus) {
                     "SCOPED_GITHUB_STATUS_WITH_AUTHORIZED_DISCOVERY"
                 } else {

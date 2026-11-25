@@ -4,18 +4,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,24 +33,18 @@ import java.util.UUID
 @Composable
 internal fun GitHubWorkflowSettings(workflows: List<GitHubQuickWorkflow>, enabled: Boolean, onSave: (List<GitHubQuickWorkflow>) -> Unit) {
     var editing by remember { mutableStateOf<GitHubQuickWorkflow?>(null) }
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ThemeIcon(Icons.Rounded.AccountTree, null)
-                Text("Workflows", style = MaterialTheme.typography.titleMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Saved prompts for the workflow button in chat.", style = MaterialTheme.typography.bodySmall)
+        workflows.forEach { workflow ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { editing = workflow }, enabled = enabled, modifier = Modifier.weight(1f)) { Text(workflow.title, modifier = Modifier.fillMaxWidth()) }
+                IconButton(onClick = { editing = workflow }, enabled = enabled) { ThemeIcon(Icons.Rounded.Edit, "Edit ${workflow.title}") }
+                IconButton(onClick = { onSave(workflows.filterNot { it.id == workflow.id }) }, enabled = enabled) { ThemeIcon(Icons.Rounded.DeleteOutline, "Remove ${workflow.title}") }
             }
-            Text("One tap sends the full prompt. These shortcuts appear when your message box is empty.", style = MaterialTheme.typography.bodySmall)
-            workflows.forEach { workflow ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { editing = workflow }, enabled = enabled, modifier = Modifier.weight(1f)) { Text(workflow.title, modifier = Modifier.fillMaxWidth()) }
-                    IconButton(onClick = { editing = workflow }, enabled = enabled) { ThemeIcon(Icons.Rounded.Edit, "Edit ${workflow.title}") }
-                    IconButton(onClick = { onSave(workflows.filterNot { it.id == workflow.id }) }, enabled = enabled && workflows.size > 1) { ThemeIcon(Icons.Rounded.DeleteOutline, "Remove ${workflow.title}") }
-                }
-            }
-            OutlinedButton(onClick = { editing = GitHubQuickWorkflow(UUID.randomUUID().toString(), "", "") }, enabled = enabled && workflows.size < 30, modifier = Modifier.testTag("github_add_workflow")) {
-                ThemeIcon(Icons.Rounded.Add, null)
-                Text("Add workflow")
-            }
+        }
+        OutlinedButton(onClick = { editing = GitHubQuickWorkflow(UUID.randomUUID().toString(), "", "") }, enabled = enabled && workflows.size < 30, modifier = Modifier.testTag("github_add_workflow")) {
+            ThemeIcon(Icons.Rounded.Add, null)
+            Text("Add workflow")
         }
     }
     editing?.let { original ->
@@ -66,7 +57,7 @@ internal fun GitHubWorkflowSettings(workflows: List<GitHubQuickWorkflow>, enable
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(title, { title = it.take(80) }, label = { Text("Name") }, singleLine = true)
                     OutlinedTextField(prompt, { prompt = it.take(16000) }, label = { Text("Prompt to send") }, minLines = 4, maxLines = 20)
-                    Text("The complete prompt is sent immediately when selected in chat. Existing tool permissions still apply.", style = MaterialTheme.typography.bodySmall)
+                    Text("Running this workflow sends its prompt in the current conversation.", style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {

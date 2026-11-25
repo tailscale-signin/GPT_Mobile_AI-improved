@@ -11,24 +11,28 @@ private val legacyActivitySummary = Regex("^I have (?:completed [0-9]+ repositor
 
 /** Only explicitly public prose can replace a generic activity summary, including retained messages. */
 internal fun gitHubPublicSummary(timeline: List<AssistantTimelineItem>): AssistantTimelineItem? =
-    timeline.asReversed().firstNotNullOfOrNull(::publicProgressSummary)
+    timeline.asReversed().asSequence().filter { it.modelAuthored }.mapNotNull(::publicActivityCheckpoint).firstOrNull()
 
-private fun publicProgressSummary(item: AssistantTimelineItem): AssistantTimelineItem? =
+/** The transcript, headline and animated accent all use the same public event boundary. */
+private fun publicActivityCheckpoint(item: AssistantTimelineItem): AssistantTimelineItem? {
     if (item.type != AssistantTimelineItemType.NOTICE ||
         !item.progressCheckpoint ||
-        !item.modelAuthored ||
+        item.content.isBlank() ||
         item.delegationInvocationId != null ||
         item.delegationProfile != null ||
+        item.delegationRemote ||
         item.delegatedTool ||
         item.toolSequence != null ||
         item.toolMetrics != null ||
-        item.recalledFacts.isNotEmpty()
+        item.recalledFacts.isNotEmpty() ||
+        isContextDiagnostic(item.content)
     ) {
-        null
-    } else {
-        val publicText = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(item.content)
-        item.copy(content = publicText, statusSummary = true).takeIf { publicText.isNotBlank() }
+        return null
     }
+    if (!item.modelAuthored) return item
+    val text = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(item.content)
+    return item.copy(content = text, statusSummary = true).takeIf { text.isNotBlank() && !isContextDiagnostic(text) }
+}
 
 private fun legacyActivitySummary(text: String): Boolean {
     val normalized = text.replace(summaryWhitespace, " ").trim()
@@ -53,6 +57,7 @@ internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTi
                     it.delegationInvocationId == null &&
                     it.delegationProfile == null &&
                     !it.delegatedTool &&
+                    !it.delegationRemote &&
                     it.toolSequence == null &&
                     it.toolMetrics == null &&
                     it.recalledFacts.isEmpty()
@@ -81,7 +86,9 @@ internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTi
 }
 
 /** Presentation order is the last activation order, independent of retained evidence slots. */
-internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false, active: Boolean = false): List<AssistantTimelineItem> {
+internal data class GitHubActivityProjection(val lines: List<AssistantTimelineItem>, val hasActivePreview: Boolean)
+
+internal fun gitHubActivityProjection(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false, active: Boolean = false): GitHubActivityProjection {
     val previews = mutableSetOf<String>()
     val summaryPositions = mutableMapOf<String, Int>()
     val summaryEvents = mutableMapOf<ProgressSummaryIdentity, Int>()
@@ -89,23 +96,19 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
     val semanticPositions = mutableMapOf<String, Int>()
     val activationOrder = mutableMapOf<String, Long>()
     val coalesced = mutableListOf<AssistantTimelineItem>()
-    val publicSummaryAvailable = gitHubPublicSummary(timeline) != null
+    var latestPublic: AssistantTimelineItem? = null
+    var hasPublicSummary = false
     timeline.forEachIndexed { sourceIndex, retained ->
-        if (!retained.progressCheckpoint || retained.content.isBlank()) return@forEachIndexed
-        // A selected-model progress notice is public summary prose even when an
-        // older persistence path omitted statusSummary. Preserve its authorship
-        // and invocation identity; measured operational notices remain visible.
-        val item = publicProgressSummary(retained) ?: retained
+        val item = publicActivityCheckpoint(retained) ?: return@forEachIndexed
         if (!active && !item.modelAuthored && !item.statusSummary && GitHubProgressPresentation.isTransientActivity(item.content)) {
             return@forEachIndexed
         }
-        if (publicSummaryAvailable &&
-            !item.modelAuthored &&
-            item.statusSummary &&
-            (item.progressId == "github-activity-introduction" || legacyActivitySummary(item.content))
-        ) {
-            return@forEachIndexed
-        }
+        hasPublicSummary = hasPublicSummary || item.modelAuthored
+        // Compacted counters retain their original slot. A persisted sequence always
+        // follows legacy notices, and ties retain the first recorded activation.
+        val previousSequence = latestPublic?.progressSequence
+        val sequence = item.progressSequence
+        if (previousSequence == null || sequence != null && sequence > previousSequence) latestPublic = item
         val counterKey = GitHubProgressPresentation.liveKey(item.content).takeUnless { item.statusSummary }
         when {
             counterKey != null -> {
@@ -198,7 +201,14 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             result
         }
     val newestPair = previewsInOrder.takeLast(2)
-    val summariesInOrder = coalesced.filter { it.statusSummary }
+    val summariesInOrder = coalesced.filter { item ->
+        item.statusSummary &&
+            !(
+                hasPublicSummary &&
+                    !item.modelAuthored &&
+                    (item.progressId == "github-activity-introduction" || legacyActivitySummary(item.content))
+                )
+    }
     val ordered = previewsInOrder.dropLast(newestPair.size) + summariesInOrder + newestPair
     val summary = ordered.indexOfFirst { it.statusSummary }
     val introduced = when {
@@ -216,30 +226,22 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
         ) + ordered
     }
     if (searchActive && previewsInOrder.isEmpty()) {
-        return introduced + AssistantTimelineItem(
+        val search = AssistantTimelineItem(
             type = AssistantTimelineItemType.NOTICE,
             content = "Searching websites",
             progressCheckpoint = true,
             progressId = "github-search-preview"
         )
+        return GitHubActivityProjection(introduced + search, hasActivePreview = true)
     }
-    return introduced
-}
-
-/** A summary can retire the accent without moving the retired preview back into history. */
-internal fun gitHubHasActivePreview(timeline: List<AssistantTimelineItem>, searchActive: Boolean): Boolean {
-    if (searchActive && timeline.none { it.progressCheckpoint && !it.statusSummary && publicProgressSummary(it) == null }) return true
-    val latest = timeline.withIndex().filter { it.value.progressCheckpoint && it.value.content.isNotBlank() }
-        .maxWithOrNull(compareBy<IndexedValue<AssistantTimelineItem>> { it.value.progressSequence != null }.thenBy { it.value.progressSequence ?: it.index.toLong() })?.value ?: return searchActive
-    return !latest.statusSummary && publicProgressSummary(latest) == null
+    return GitHubActivityProjection(introduced, hasActivePreview = latestPublic?.statusSummary == false)
 }
 
 /** Count entries, independently of line wrapping or font size, retaining summary context. */
 internal fun gitHubVisibleActivityLines(lines: List<AssistantTimelineItem>, compact: Boolean, entryLimit: Int = 20): List<AssistantTimelineItem> {
     require(entryLimit >= 2)
     if (!compact || lines.size <= entryLimit) return lines
-    val start = lines.size - entryLimit
-    val summaryIndex = lines.indices.take(start + 1).lastOrNull { lines[it].statusSummary }
+    val summaryIndex = lines.indexOfLast { it.statusSummary }.takeIf { it >= 0 }
     val counters = lines.indices.filter { !lines[it].statusSummary && GitHubProgressPresentation.liveKey(lines[it].content) != null }
     val pinned = (listOfNotNull(summaryIndex, lines.lastIndex - 1, lines.lastIndex) + counters.asReversed())
         .distinct().take(entryLimit).toSet()

@@ -113,7 +113,7 @@ internal object ConfiguredDispatchAuthority {
         val current = after["githubProfileOverride"] as? JsonObject ?: return false
         if (previous - "intelligenceLevel" != current - "intelligenceLevel") return false
         fun level(value: JsonObject): dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel? {
-            val encoded = value["intelligenceLevel"] ?: return GitHubChatProfileOverride().intelligenceLevel
+            val encoded = value["intelligenceLevel"] ?: return GitHubChatProfileOverride.newProfile.intelligenceLevel
             return dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.entries.firstOrNull { encoded == JsonPrimitive(it.name) }
         }
         val accepted = level(previous) ?: return false
@@ -231,7 +231,7 @@ internal object ConfiguredDispatchAuthority {
             if (github != null) {
                 put("githubProfileSelection", github.mainProfileUid)
                 if (github.mainProfileUid == uid) {
-                    val override = Json.encodeToJsonElement(features.githubProfileOverrides[uid] ?: GitHubChatProfileOverride()) as JsonObject
+                    val override = Json.encodeToJsonElement(features.githubProfileOverrides[uid] ?: GitHubChatProfileOverride.newProfile) as JsonObject
                     // Quick workflows populate the composer. A submitted task already owns its prompt.
                     put("githubProfileOverride", if (legacy) override else JsonObject(override - "quickWorkflows"))
                 }

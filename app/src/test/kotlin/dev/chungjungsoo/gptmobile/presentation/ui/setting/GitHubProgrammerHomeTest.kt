@@ -24,6 +24,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -81,7 +82,7 @@ class GitHubProgrammerHomeTest {
         compose.setContent {
             MaterialTheme {
                 Column(Modifier.width(320.dp).height(360.dp)) {
-                    GitHubChatProgress(workspace, state)
+                    GitHubChatProgress(state)
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).testTag("github_test_messages")) {
                         items(100) { androidx.compose.material3.Text("Message $it") }
                     }
@@ -130,6 +131,57 @@ class GitHubProgrammerHomeTest {
         compose.onNodeWithText("Message 99").assertIsDisplayed()
     }
 
+    @Test fun chatActionsOnlyOfferAvailableDestinationsAndOpenTaskDetailsInPlace() {
+        var withTask by mutableStateOf(false)
+        var browsed = false
+        compose.setContent {
+            MaterialTheme {
+                GitHubChatActions(
+                    repositoryLoaded = true,
+                    mapAvailable = false,
+                    hasChanges = false,
+                    hasTask = withTask,
+                    onBrowseFiles = { browsed = true },
+                    onOpenChecks = {},
+                    onOpenMap = {},
+                    onReviewChanges = {}
+                ) { dismiss ->
+                    androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close task details") }
+                }
+            }
+        }
+
+        compose.onNodeWithContentDescription("GitHub chat actions").performClick()
+        compose.onNodeWithText("Task details").assertDoesNotExist()
+        compose.onNodeWithText("Repository map").assertDoesNotExist()
+        compose.onNodeWithText("Review changes").assertDoesNotExist()
+        compose.onNodeWithText("Checks & builds").assertIsDisplayed()
+        compose.onNodeWithText("Repository files").performClick()
+        compose.runOnIdle {
+            assertTrue(browsed)
+            withTask = true
+        }
+        compose.onNodeWithContentDescription("GitHub chat actions").performClick()
+        compose.onNodeWithText("Task details").performClick()
+        compose.onNodeWithText("Close task details").performClick()
+        compose.onNodeWithText("Close task details").assertDoesNotExist()
+    }
+
+    @Test fun approvalInTheCurrentChatTakesPriorityOverBackgroundGatewayProgress() {
+        val run = AgentRun("run", 1, 2, 3, "local", "CUSTOM", "model", "RUNNING")
+        val approval = dev.chungjungsoo.gptmobile.data.permissions.ToolApproval("approval", "run", "github", "github_write", "hash")
+        var state by mutableStateOf(GitHubProgrammerState(chatId = 1, runs = listOf(run), approvals = listOf(approval)))
+        var owner by mutableStateOf("earlier-run")
+        val job = dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob("job", "owner/repo", "work", state = "RUNNING", revision = 3, createdAt = 1.0, deadline = 500.0, message = "Running background checks")
+        compose.setContent { MaterialTheme { GitHubChatProgress(state, job, engineeringRunId = owner) } }
+
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals("Needs your approval").assertIsDisplayed()
+        compose.runOnIdle { state = state.copy(approvals = emptyList()) }
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals("Preparing response")
+        compose.runOnIdle { owner = run.runId }
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals(job.message)
+    }
+
     @Test fun commandShortcutsUseTheConversationComposerAndProfileChoice() {
         var sent = ""
         compose.setContent {
@@ -164,7 +216,7 @@ class GitHubProgrammerHomeTest {
         compose.setContent {
             MaterialTheme {
                 Column(Modifier.width(320.dp)) {
-                    GitHubChatProgress(workspace, GitHubProgrammerState(), job)
+                    GitHubChatProgress(GitHubProgrammerState(), job)
                 }
             }
         }
@@ -221,6 +273,34 @@ class GitHubProgrammerHomeTest {
         compose.onNodeWithTag("github_main_profile").performClick()
         compose.onNodeWithText("Other coder").performClick()
         assertEquals("other", selected)
+    }
+
+    @Test fun everydaySwitchesWorkWithoutOpeningServicesAndAdvancedBudgetRemainsSelectable() {
+        var preferences by mutableStateOf(dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile)
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
+                    GitHubProgrammerSettings(
+                        workspace,
+                        GitHubProgrammerState(profileUid = "local", profileSettings = preferences),
+                        {},
+                        {},
+                        {},
+                        onSettings = { preferences = it }
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("github_check_gateway").assertDoesNotExist()
+        compose.onNodeWithTag("github_chat_copilot_toggle").assertDoesNotExist()
+        compose.onNodeWithText("Evidence-based progress summaries").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(false, preferences.evidenceElaboration) }
+        compose.onNodeWithText("Desktop Gateway").performScrollTo().performClick()
+        compose.onNodeWithTag("github_check_gateway").assertExists()
+        compose.onNodeWithText("Advanced settings").performScrollTo().performClick()
+        compose.onNodeWithTag("github_engineering_budget").performScrollTo().performClick()
+        compose.onNodeWithText("Fast").performClick()
+        compose.runOnIdle { assertEquals(dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK, preferences.engineeringMode) }
     }
 
     @Test fun repositoryMapIsASettingsActionAndUsesTheExistingOpenCallback() {

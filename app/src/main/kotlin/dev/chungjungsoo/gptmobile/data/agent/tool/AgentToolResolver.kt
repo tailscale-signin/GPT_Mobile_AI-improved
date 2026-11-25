@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
+import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
 import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -1742,7 +1743,7 @@ class AgentToolResolver @Inject constructor(
         if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(message.content).conversational) return message
         // The workspace prompt includes general engineering tool names. It must not
         // turn the current user's bounded status request into a source/write task.
-        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(message.content)) return message
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(message.content) || GitHubLookupRoute.from(message.content) != null) return message
         return message.copy(content = context.promptContext(message.content) + "\n\n" + message.content)
     }
 
@@ -1768,7 +1769,7 @@ class AgentToolResolver @Inject constructor(
         val capabilities = GitHubOperationTool.taskTools(selectedTask)
         // Capability prefixes preserve long engineering tasks, but would hide a
         // short status intent from the catalogue's request-start matcher.
-        val selected = if (capabilities.isEmpty() || dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(selectedTask)) {
+        val selected = if (capabilities.isEmpty() || dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(selectedTask) || GitHubLookupRoute.from(selectedTask) != null) {
             selectedTask.take(4096)
         } else {
             (capabilities.joinToString(" ") + "\n" + selectedTask).take(4096)

@@ -11,6 +11,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAnswerPresentationTest {
+    @Test fun finalHeadingUsesTheRequestedOperationAcrossWorkspaceAndQuestionWording() {
+        val workspace = "GitHub workspace: owner/preview\nBranch: fix/review\n\n"
+        assertEquals("Pull requests", GitHubAnswerPresentation.title(workspace + "List open PRs"))
+        assertEquals("Investigation findings", GitHubAnswerPresentation.title(workspace + "Explain how the UI preview works"))
+        assertEquals("Implementation update", GitHubAnswerPresentation.title("Fix the preview in Chat.kt"))
+        assertEquals("Repository review", GitHubAnswerPresentation.title("Review the pull request"))
+    }
+
+    @Test fun retainsVerifiedPathWhenItIsTheOnlyFinding() {
+        val fact = "| Source.kt · Path | Source.kt | unknown |"
+        val answer = GitHubAnswerPresentation.render("Explain the issue", listOf(fact), emptyList(), emptyList(), emptyList())
+        assertTrue(answer.contains(fact))
+    }
+
     @Test fun failureFilteredObservationsAreNotPresentedAsTheLatestWorkflow() {
         val text = GitHubAnswerPresentation.render(
             "Repository status",

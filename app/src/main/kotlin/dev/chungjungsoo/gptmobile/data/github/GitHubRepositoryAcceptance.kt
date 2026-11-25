@@ -12,7 +12,7 @@ internal object GitHubRepositoryAcceptance {
     /** Additional requested work keeps its own implementation/test obligation. */
     fun requiresAdditionalEvidence(requirement: String): Boolean {
         val text = GitHubTaskContinuity.request(requirement).replace(Regex("`[^`]*`|\"[^\"]*\"|'[^']*'"), " ")
-        return Regex("(?i)\\b(?:implement|fix|repair|configure|set up|setup|build|test|deploy|publish|install|rewrite|refactor|document|enable|disable|rename|delete|remove|update|edit|add)\\b").containsMatchIn(text) ||
+        return Regex("(?i)\\b(?:implement|fix|repair|configure|set up|setup|build|test|deploy|publish|install|rewrite|rebuild|redesign|upgrade|refactor|document|enable|disable|rename|delete|remove|update|edit|add)\\b").containsMatchIn(text) ||
             Regex("(?i)\\b(?:and|then|also|plus)\\s+(?:create|fork|import|clone|open|close|merge|push|commit|make|ensure)\\b").containsMatchIn(text) ||
             Regex("(?i)\\b(?:with|containing|including)\\s+(?:(?:a|an|the)\\s+)?(?:readme|license|topics?|branch protection|application|app|service|feature|code|tests?)\\b").containsMatchIn(text)
     }

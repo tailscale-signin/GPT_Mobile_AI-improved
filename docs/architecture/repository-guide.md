@@ -69,6 +69,10 @@ file; Repomix accepts one selected range per path inside its existing sandbox.
 
 ## GitHub engineering intelligence
 
+GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The chat header keeps the branch visible alongside live progress, and its actions open repository files, checks, the map, task details or staged changes as they become available.
+
+Fresh profiles use adaptive budgeting and task context, with evidence-based progress and next-action selection enabled. Saved overrides retain their settings. Direct requests for issues, pull requests, branches, commits, workflows, runs, releases and tags start with the matching read. Compound tasks use the broader engineering planner. Source caching and sharing with another model follow the connection and profile settings.
+
 Choose the strategy in the selected AI profile's GitHub programmer settings.
 Existing profiles start with Intelligent. The primary profile retains responsibility
 for tool authorization, changes, verification and the final answer.
@@ -97,11 +101,13 @@ Fixed sampling preserves semantic intent planning. When a plan is malformed the
 primary can continue from the admitted request. Compaction prioritizes the
 pending handoff and named proof for outstanding criteria and their prerequisites.
 A profile with 2,048–8,191 context tokens can use a previously retained,
-authorized tree to locate up to four paths. When source caching is enabled and
-the highest-ranked path has a small retained blob, the prompt can include one
-bounded, line-numbered source window. A missing tree or source does not trigger
-a full rebuild. The runner can issue a targeted authorized read. Diagnostics
+authorized tree to locate up to four paths. When source caching is enabled, the
+phone checks those paths in rank order and includes the first usable, bounded
+source window. Other paths remain unread pointers. The runner can issue a
+targeted authorized read when the tree or source is missing. Diagnostics
 distinguish a reused tree, a reused full packet, a deadline and an access change.
+The model receives the pinned excerpts, relevant reference and test candidates,
+and coverage limits. Cache metrics and read-progress accounting stay in diagnostics.
 
 For independent review of the primary's code, select a distinct named reviewer
 in Model Delegation and enable **Independent patch review** in Deep Engineering

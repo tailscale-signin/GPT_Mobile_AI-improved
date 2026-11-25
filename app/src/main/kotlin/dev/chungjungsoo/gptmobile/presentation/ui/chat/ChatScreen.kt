@@ -1050,6 +1050,11 @@ private fun ChatScreenContent(
                 state = listState,
                 contentPadding = PaddingValues(top = innerPadding.calculateTopPadding() + embeddedHeaderHeight, bottom = composerHeight + 16.dp)
             ) {
+                if (chatToolConfig.github != null && isLoaded && canUseChat && isIdle && groupedMessages.userMessages.isEmpty() && pendingPrompts.isEmpty() && !hasOlderHistory && !hasNewerHistory) {
+                    item(key = "github-start") {
+                        GitHubChatStarters(chatViewModel.question)
+                    }
+                }
                 if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = { browseHistory(chatViewModel::loadOlderMessages) }) { Text("Load earlier messages") } }
                 if (hiddenTurnCount > 0) {
                     item(key = "archived-history-header") {
@@ -1452,7 +1457,7 @@ private fun ChatScreenContent(
                         diagnostics = composerDiagnostics,
                         workflows = chatToolConfig.github?.let { github ->
                             featureSettings.githubProfileOverrides[github.mainProfileUid]?.quickWorkflows
-                                ?: dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults
+                                ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile.quickWorkflows
                         }.orEmpty(),
                         chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },

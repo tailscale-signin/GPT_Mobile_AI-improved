@@ -17,6 +17,21 @@ internal data class GatewayRecoveryPresentation(
     val canCancel: Boolean
 )
 
+/** Keep current work and unconfirmed submissions ahead of older receipts in this chat. */
+internal data class GatewayChatJobs(
+    val current: List<GatewayEngineeringBinding>,
+    val history: List<GatewayEngineeringBinding>
+)
+
+internal fun gatewayChatJobs(bindings: List<GatewayEngineeringBinding>, chatId: Int): GatewayChatJobs {
+    val (open, finished) = bindings.asReversed().filter { it.chatId == chatId }.partition { it.job?.terminal != true }
+    return if (open.isEmpty()) {
+        GatewayChatJobs(finished.take(1), finished.drop(1))
+    } else {
+        GatewayChatJobs(open, finished)
+    }
+}
+
 internal fun gatewayRecoveryPresentation(binding: GatewayEngineeringBinding): GatewayRecoveryPresentation {
     val job = binding.job
     val reason = job?.blockedReason?.string("code")

@@ -2,6 +2,10 @@
 
 Android build **151** and Windows Gateway **18.1.4** use the Gateway 18 contract.
 
+## GitHub mode
+
+Rebuild GitHub chat setup, task routing, context selection and progress around the selected repository. Fresh profiles use adaptive effort. Direct lookups start with the relevant read, and the chat header keeps branch and activity visible.
+
 ## Repository intelligence, privacy and independent speech languages
 
 - Separate the visible transcript from the history used for sends, retries and Combined recovery. Ordinary chat opens page the latest 40 turns and message links retain their anchor.

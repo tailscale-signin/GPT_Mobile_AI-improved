@@ -322,6 +322,32 @@ class GitHubWorkspaceAdmissionTest {
         coVerify(exactly = 0) { client.execute("efficiency", any()) }
     }
 
+    @Test fun freshSetupSuggestsTheOnlyRepositoryAtItsVerifiedDefaultBranch() = runBlocking {
+        val client = authorize()
+        val repo = Json.parseToJsonElement("""{"full_name":"owner/only","default_branch":"trunk","permissions":{"push":false}}""").jsonObject
+        state.value = state.value.copy(setupRequired = true, selection = null, repositories = listOf(repo))
+        coEvery { client.execute("get_repository", any()) } returns repo
+        coEvery { client.execute("resolve_context", any()) } returns buildJsonObject { put("commit_sha", "b".repeat(40)) }
+        invokeSuspending("suggestOnlyRepository")
+        org.junit.Assert.assertEquals(GitHubRepositoryContext("owner", "only", "trunk"), state.value.selection)
+        assertTrue(state.value.setupRequired)
+        assertFalse(state.value.canWrite)
+        coVerify(exactly = 0) { client.execute("list_branches", any()) }
+    }
+
+    @Test fun repositorySuggestionLeavesAmbiguousPagedAndExistingSelectionsAlone() = runBlocking {
+        val client = authorize()
+        val only = Json.parseToJsonElement("""{"full_name":"owner/one"}""").jsonObject
+        val second = Json.parseToJsonElement("""{"full_name":"owner/two"}""").jsonObject
+        val fresh = state.value.copy(setupRequired = true, selection = null, repositories = listOf(only))
+        for (workspace in listOf(fresh.copy(moreRepositories = true), fresh.copy(repositories = listOf(only, second)), fresh.copy(selection = GitHubRepositoryContext("owner", "saved", "topic")), fresh.copy(setupRequired = false))) {
+            state.value = workspace
+            invokeSuspending("suggestOnlyRepository")
+            org.junit.Assert.assertEquals(workspace.selection, state.value.selection)
+        }
+        coVerify(exactly = 0) { client.execute(any(), any()) }
+    }
+
     private fun authorize(): GitHubWorkspaceClient {
         val connection = ToolConnection("connection", "GitHub", "github", "GITHUB", null, "BEARER", "credential", null)
         state.value = state.value.copy(connection = connection, canWrite = true)

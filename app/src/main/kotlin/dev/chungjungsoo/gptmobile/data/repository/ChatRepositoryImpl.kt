@@ -5162,7 +5162,7 @@ class ChatRepositoryImpl(
                 save = { id, value ->
                     val retained = workspace?.saveProtectedSynthesisCheckpoint("github-evidence:$binding:$id", user.chatId, runId, value, appendOnly = !dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.currentSnapshot(id), expectedRunFence = evidenceFence)
                     if (retained == false && persistentEvidence) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
-                    val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
+                    val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
                     try {
                         githubContext?.let { engineeringMemory?.observe(it, user.chatId, value, preferences) }
                     } catch (cancelled: CancellationException) {
@@ -6867,8 +6867,8 @@ class ChatRepositoryImpl(
     private suspend fun repositoryReferenceContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, task: String, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, emit: suspend (ApiState) -> Unit): String {
         val github = tools?.github ?: return ""
         if (user == null || repositoryTaskContext == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
-        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
-        val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user.content) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
+        val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
         val prepared = repositoryTaskContext.prepare(github, user.chatId, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
         AppLogRecorder.recordEvent("GitHub", "REPOSITORY_CONTEXT_PREPARED", mapOf("availability" to prepared.availability.name, "treeReused" to prepared.reusedTree, "packetReused" to prepared.reusedPacket))
         val text = prepared.text.ifEmpty { return prepared.nextAction }
@@ -6882,10 +6882,10 @@ class ChatRepositoryImpl(
 
     private suspend fun engineeringMemoryContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, runId: String, emit: suspend (ApiState) -> Unit): String {
         val github = tools?.github ?: return ""
-        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user?.content.orEmpty()) || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user?.content.orEmpty()).conversational) return ""
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user?.content.orEmpty()) || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user?.content.orEmpty()) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user?.content.orEmpty()).conversational) return ""
         val origin = dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.captureOrigin()
         if (user == null || engineeringMemory == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
-        val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
+        val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
         val text = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPreparation.prepare(
             github,
             resolvedTools,

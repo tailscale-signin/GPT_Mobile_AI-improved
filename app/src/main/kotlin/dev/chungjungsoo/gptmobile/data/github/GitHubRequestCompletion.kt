@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
 /** Answer truth, request coverage and engineering acceptance are independent dimensions. */
 internal object GitHubRequestCompletion {
     private val question = Regex("(?i)^(?:please\\s+)?(?:what|where|which|who|why|how|when|is|are|does|do|can|could|would|should|will|has|have|explain|describe|show|list|summarize|compare|review|diagnose|inspect|examine|analy[sz]e|find|read|look\\s+at|tell\\s+me)\\b")
-    private const val ACTION = "(?:add|implement|fix|repair|build|create|make|merge|publish|push|commit|delete|remove|change|update|run|test|deploy|install|cancel|rerun|continue|resume|apply)"
+    private const val ACTION = "(?:add|implement|fix|repair|rebuild|redesign|rewrite|upgrade|build|create|make|merge|publish|push|commit|delete|remove|change|update|run|test|deploy|install|cancel|rerun|continue|resume|apply)"
     private const val POLITE = "(?:please\\s+)?(?:(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?)?"
     private val mutation = Regex("(?im)^(?:\\s*[-*\\d.)]+\\s*)?(?:(?:and|then|also|next)\\s+)?$POLITE$ACTION\\b")
     private val inspection = Regex("(?i)^$POLITE(?:review|inspect|examine|analy[sz]e|find|read|check|look at|compare|investigate|explain|describe|summarize|list|show)\\b")

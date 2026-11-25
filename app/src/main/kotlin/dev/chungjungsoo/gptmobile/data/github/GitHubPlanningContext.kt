@@ -141,13 +141,19 @@ data class GitHubPlanningContext(
         /** Repository selection is data, not permission or proof of a fresh head/access check. */
         fun forRequest(request: String, contexts: List<GitHubPlanningContext>): String {
             if (CurrentRequestContract.from(request).conversational || contexts.isEmpty()) return ""
-            val repositoryIntent = GitHubOperationTool.taskTools(request).isNotEmpty() ||
+            val lookup = GitHubLookupRoute.from(request)
+            val repositoryIntent = lookup != null ||
+                GitHubOperationTool.taskTools(request).isNotEmpty() ||
                 selectedRepositoryReadIntent(request) ||
                 Regex("(?i)^(?:please\\s+)?(?:continue|resume|retry|try again|finish(?: it| that| this)?|fix(?: it| that| this)?|go ahead|do it|proceed|check again)[.!?\\s]*$").matches(request.trim())
             if (!repositoryIntent) return ""
             return buildString {
                 append("Selected GitHub executor targets (application data; these do not grant access):\n")
                 contexts.distinct().forEach { append(it.record()).append('\n') }
+                if (lookup != null) {
+                    append("Use the selected repository for the requested ${lookup.operation} ${lookup.action} read. Verify the current observation and follow its exact continuation when more records are requested.")
+                    return@buildString
+                }
                 append("Use the selected target for omitted owner/repo/ref. A newer successful resolve receipt supersedes the recorded head. Do not ask for a target already selected, invent owner/repo values, or reinterpret a workflow preset as a repository. If selection is missing or ambiguous, use authorized repository discovery or ask the user to select the exact target before dependent calls. Test fixtures are owned disposable branches/files inside the verified target, never guessed repositories.\n")
                 append("Copy each continuation_call's exact tool and arguments. Listing inventory, advertising schemas, executing operations and passing acceptance criteria are different counts. Use recorded coverage fields; never infer test success from discovery or an HTTP success. A 404 does not establish deletion or insufficient OAuth scopes; accepted OAuth scopes describe endpoint requirements, not missing grants.")
                 append(" Reuse retained branch observations and pinned source ranges. Once the requested edit's target source, repository instructions and acceptance criteria are established, make the next authorized working-branch or patch operation; only perform another discovery read for a specific missing prerequisite. A coding task is still unfinished when only reads and searches have completed.")

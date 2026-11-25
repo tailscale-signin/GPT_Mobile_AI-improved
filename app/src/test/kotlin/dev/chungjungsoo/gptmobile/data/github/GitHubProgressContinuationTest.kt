@@ -190,7 +190,11 @@ class GitHubProgressContinuationTest {
             listOf(read, write),
             listOf(read)
         )
-        val notice = GitHubAnswerPresentation.resourceNotice(resources)
+        assertEquals("", GitHubAnswerPresentation.resourceNotice(task, resources))
+        val exhausted = JsonObject(resources + ("remaining_calls" to JsonPrimitive(0)))
+        assertTrue(GitHubAnswerPresentation.resourceNotice(task, exhausted).contains("0 of 512"))
+        assertFalse(GitHubAnswerPresentation.resourceNotice(task, exhausted).contains("github_stage_patch"))
+        val notice = GitHubAnswerPresentation.resourceNotice("Which tools are available?", resources)
         assertTrue(notice.contains("504 of 512"))
         assertTrue(notice.contains("this round: github_read"))
         assertTrue(notice.contains("authorized catalog: github_stage_patch"))

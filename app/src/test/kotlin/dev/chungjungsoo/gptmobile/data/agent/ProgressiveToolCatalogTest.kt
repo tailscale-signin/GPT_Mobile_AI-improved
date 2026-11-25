@@ -277,10 +277,13 @@ class ProgressiveToolCatalogTest {
             for ((task, expected) in requests) {
                 val catalog = ProgressiveToolCatalog(definitions, task, githubMode = suffix.isNotEmpty())
                 val selected = catalog.selected(definitions + catalog.definition)
-                assertEquals(task, expected.map { it + suffix }.toSet() + ProgressiveToolCatalog.NAME, selected.map { it.name }.toSet())
+                val lookup = if (suffix.isNotEmpty()) dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(task) else null
+                val expectedNames = if (lookup != null) setOf("github_context_inspect") else expected
+                assertEquals(task, expectedNames.map { it + suffix }.toSet() + ProgressiveToolCatalog.NAME, selected.map { it.name }.toSet())
                 assertTrue(selected.sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
                 selected.filterNot { it.name == ProgressiveToolCatalog.NAME }.forEach { definition ->
-                    assertSame(definitions.single { it.name == definition.name }, definition)
+                    val source = definitions.single { it.name == definition.name }
+                    if (lookup != null) assertEquals(GitHubActionSchema.project(source, lookup.action), definition) else assertSame(source, definition)
                 }
             }
         }

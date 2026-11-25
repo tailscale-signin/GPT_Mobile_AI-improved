@@ -47,6 +47,49 @@ class GitHubTaskContextBundleTest {
         assertTrue((GitHubTaskContextBundle.cachedPathHints("owner/repo", "main", commit, null, "Repair")["source_read_candidates"] as JsonArray).isEmpty())
     }
 
+    @Test fun compactSelectionReturnsFirstUsableRetainedWindowAndPreservesOtherPointers() = runBlocking {
+        val paths = listOf("src/ParserA.kt", "src/ParserB.kt", "src/ParserC.kt", "src/ParserD.kt")
+        val shas = listOf("a", "b", "c", "d").map { it.repeat(40) }
+        val tree = buildJsonObject {
+            put(
+                "tree",
+                JsonArray(
+                    paths.mapIndexed { index, path ->
+                        buildJsonObject {
+                            put("type", "blob")
+                            put("path", path)
+                            put("sha", shas[index])
+                            put("size", 32)
+                        }
+                    }
+                )
+            )
+        }
+        val reads = mutableListOf<String>()
+        val snapshot = GitHubTaskSnapshot("account", "connection", "chat", "task", "owner", "repo", "main", commit, "e".repeat(40))
+        val result = GitHubCompactTaskContext.prepare(snapshot, tree, "parser behavior") { sha ->
+            reads += sha
+            when (sha) {
+                shas[0] -> null
+                shas[1] -> buildJsonObject {
+                    put("sha", shas[0])
+                    put("content", "WRONG_BLOB")
+                }
+                else -> buildJsonObject {
+                    put("sha", sha)
+                    put("content", "fun parse() = true")
+                }
+            }
+        }
+        assertEquals(shas.take(3), reads)
+        val window = result.getValue("source_window").jsonObject
+        assertEquals(JsonPrimitive(paths[2]), window["path"])
+        assertEquals(JsonPrimitive(shas[2]), window["blob_sha"])
+        assertEquals(JsonPrimitive("fun parse() = true"), window["excerpt"])
+        assertEquals(JsonArray((paths - paths[2]).map(::JsonPrimitive)), result["source_read_candidates"])
+        assertFalse(result.toString().contains("WRONG_BLOB"))
+    }
+
     @Test fun currentArmDoesNotReadSourceOrReferences() = runBlocking {
         val result = build(GitHubContextVariant.CURRENT) { error("CURRENT must not fetch context") }
         assertEquals(JsonArray(emptyList()), result["selected_ranges"])

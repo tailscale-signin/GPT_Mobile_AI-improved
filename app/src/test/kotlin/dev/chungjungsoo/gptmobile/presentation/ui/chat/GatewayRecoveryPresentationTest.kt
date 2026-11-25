@@ -15,6 +15,23 @@ class GatewayRecoveryPresentationTest {
     private val request = GatewayEngineeringRequest("owner/repo", "work", "main", "Fix the test", "chosen-model", chatId = 3, requestId = "original-request")
     private val binding = GatewayEngineeringBinding("original-profile", "https://gateway.example", request)
 
+    @Test fun chatPrioritizesOpenAndUnconfirmedJobsAndKeepsOlderReceiptsAccessible() {
+        val done = GatewayEngineeringJob("finished", "owner/repo", "work", state = "COMPLETED", revision = 3, createdAt = 1.0, deadline = 500.0, message = "Finished")
+        val history = binding.copy(request = request.copy(requestId = "history"), job = done)
+        val running = binding.copy(request = request.copy(requestId = "running"), job = done.copy(id = "active", state = "RUNNING"))
+        val restored = binding.copy(request = request.copy(requestId = "restored", chatId = 99), localChatId = request.chatId)
+        val elsewhere = binding.copy(localChatId = 99)
+        val latest = binding.copy(job = done.copy(id = "latest", state = "FAILED"))
+
+        val jobs = gatewayChatJobs(listOf(history, running, restored, elsewhere, latest), request.chatId)
+        assertEquals(listOf(restored, running), jobs.current)
+        assertEquals(listOf(latest, history), jobs.history)
+
+        val finished = gatewayChatJobs(listOf(history, latest, elsewhere), request.chatId)
+        assertEquals(listOf(latest), finished.current)
+        assertEquals(listOf(history), finished.history)
+    }
+
     @Test fun missingBindingAndUnobservedHardwareRemainExplicit() {
         val saved = gatewayRecoveryPresentation(binding)
         assertEquals("original-profile", saved.profileUid)

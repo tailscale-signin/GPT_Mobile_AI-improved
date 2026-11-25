@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -162,7 +163,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     var remaining = minOf(budget.available, maxSchemaTokens?.toLong() ?: Long.MAX_VALUE)
     // The native status plan needs every admitted status/health read even when
     // replay grows. Other engineering operations remain staged on demand.
-    val statusOperations = limits.githubTaskRequest?.takeIf {
+    val scopedOperations = limits.githubTaskRequest?.let(GitHubLookupRoute::from)?.let { setOf(it.operation) } ?: limits.githubTaskRequest?.takeIf {
         dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(it) &&
             it.lineSequence().none { line -> line.trim() == "[github-workflow-preset:test_integration]" }
     }?.let(dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest::requiredOperations).orEmpty()
@@ -173,7 +174,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     }
     val required = visible.filter { tool ->
         val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
-        val requiredForGitHub = (limits.githubMode || limits.githubTask) && (tool.name == "read_recovery_context" || operation in statusOperations)
+        val requiredForGitHub = (limits.githubMode || limits.githubTask) && (tool.name == "read_recovery_context" || operation in scopedOperations)
         val requested = tool.name in explicitlyRequired || operation in explicitlyRequired
         val requiredForRetry = maxSchemaTokens != null && (requested || AgentToolCapability.USER_DECISION in tool.capabilities)
         requiredForGitHub || requiredForRetry
@@ -233,7 +234,8 @@ internal fun planAuthorizedToolContext(
     val scopedGitHubStatus = effectiveGitHubMode &&
         dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task) &&
         task.lineSequence().none { it.trim() == "[github-workflow-preset:test_integration]" }
-    val fullGitHubCatalog = effectiveGitHubMode && !scopedGitHubStatus
+    val lookup = if (effectiveGitHubMode) GitHubLookupRoute.from(task) else null
+    val fullGitHubCatalog = effectiveGitHubMode && !scopedGitHubStatus && lookup == null
     // Current user intent wins over repository keywords in memory or workspace instructions.
     if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits, planningProvenance = planningProvenance)
     val definitions = tools.map { it.tool.definition }
@@ -245,7 +247,7 @@ internal fun planAuthorizedToolContext(
             emptyList()
         } + recovery
         ).distinctBy { it.name }
-    val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus || integration) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
+    val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus || lookup != null || integration) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
     val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
     // Pin the immediate status/context read, not every operation mentioned in
     // a multi-step engineering task. Remaining schemas are discoverable later.
@@ -256,6 +258,7 @@ internal fun planAuthorizedToolContext(
     }
     val requiredGitHubSchemas = when {
         !requireToolExecution -> emptyList()
+        lookup != null -> advertised.filter { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == lookup.operation }
         scopedGitHubStatus -> advertised.filter {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
         }

@@ -269,6 +269,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 selectRepositoryInternal(previousSelection.owner, previousSelection.repo, previousSelection.ref, restoring = true)
             } else {
                 loadRepositoryChoices()
+                suggestOnlyRepository()
             }
         }
     }
@@ -288,10 +289,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
         if (_state.value.appAuthorization) {
             loadInstallations(1)
             val current = _state.value
-            val installation = current.installations.firstOrNull { it.text("id") == current.installationId }
-                ?: current.installations.firstOrNull { it["account"]?.jsonObject?.text("login").equals(current.selection?.owner, true) }
-                ?: current.installations.singleOrNull()
-            val id = installation?.takeIf { it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull }?.text("id")
+            val active = current.installations.filter { it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull }
+            val installation = active.firstOrNull { it.text("id") == current.installationId }
+                ?: active.firstOrNull { it["account"]?.jsonObject?.text("login").equals(current.selection?.owner, true) }
+                ?: active.singleOrNull()?.takeUnless { current.moreInstallations }
+            val id = installation?.text("id")
             updateState { it.copy(installationId = id) }
         }
         loadRepositories(1)
@@ -356,8 +358,19 @@ class GitHubWorkspaceViewModel @Inject constructor(
         val current = _state.value
         val installation = current.installations.singleOrNull { it.text("id") == id }
         require(current.appAuthorization && installation != null && (installation["suspended_at"] == null || installation["suspended_at"] == kotlinx.serialization.json.JsonNull)) { "Choose an active installation for the connected GitHub App." }
-        _state.value = GitHubWorkspaceState(connection = current.connection, login = current.login, busy = true, appAuthorization = true, installations = current.installations, installationId = id, installationPage = current.installationPage, moreInstallations = current.moreInstallations, recoveryRepository = current.recoveryRepository, setupRequired = current.setupRequired, repositoryChoicesLoaded = true)
+        _state.value = GitHubWorkspaceState(connection = current.connection, login = current.login, busy = true, appAuthorization = true, installations = current.installations, installationId = id, installationPage = current.installationPage, moreInstallations = current.moreInstallations, recoveryRepository = current.recoveryRepository, setupRequired = current.setupRequired, uiReady = true)
         loadRepositories(1)
+        updateState { it.copy(repositoryChoicesLoaded = true) }
+        suggestOnlyRepository()
+    }
+
+    private suspend fun suggestOnlyRepository() {
+        val current = _state.value
+        if (!current.setupRequired || current.selection != null || current.moreRepositories || pendingRecovery?.dirty == true) return
+        val name = current.repositories.singleOrNull()?.text("full_name") ?: return
+        val owner = name.substringBefore('/')
+        val repo = name.substringAfter('/', "")
+        if (owner.isNotBlank() && repo.isNotBlank()) selectRepositoryInternal(owner, repo)
     }
 
     private suspend fun loadRepositories(page: Int) {

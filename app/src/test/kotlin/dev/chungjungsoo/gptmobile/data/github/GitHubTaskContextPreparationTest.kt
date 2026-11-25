@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -29,7 +30,13 @@ class GitHubTaskContextPreparationTest {
     private val connections = mockk<ToolConnectionRepository>()
     private val source = ResolvedAgentTool(mockk(), "selected", "GitHub", "github_context", "github_context", nativeGitHub = true)
     private val preparation = GitHubTaskContextPreparation(maps, semantic, connections)
-    private val receipt = buildJsonObject { put("selected_ranges", JsonArray(listOf(buildJsonObject { put("excerpt", "AUTHORIZED_SOURCE_CANARY") }))) }
+    private val receipt = buildJsonObject {
+        put("source_sha", context.commitSha)
+        put("selected_ranges", JsonArray(listOf(buildJsonObject { put("excerpt", "AUTHORIZED_SOURCE_CANARY") })))
+        put("source_read_progress", JsonArray(listOf(JsonPrimitive("diagnostic-only"))))
+        put("selection_truncated", true)
+        put("coverage", buildJsonObject { put("tree_complete", false) })
+    }
 
     @Test fun disabledSmallAndUnauthorizedTurnsDoNotReadAnyRepository() = runTest {
         assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.CURRENT, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID).text)
@@ -64,8 +71,25 @@ class GitHubTaskContextPreparationTest {
         val result = preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID)
         assertTrue(result.text.contains("untrusted source data"))
         assertTrue(result.text.contains("AUTHORIZED_SOURCE_CANARY"))
+        assertTrue(result.text.contains(context.commitSha))
+        assertTrue(result.text.contains("\"tree_complete\":false"))
+        assertTrue(result.text.contains("\"selection_truncated\":true"))
+        assertFalse(result.text.contains("diagnostic-only"))
         coVerify(exactly = 2) { connections.getConnection("selected") }
         coVerify(exactly = 0) { semantic.rankEngineering(any(), any(), any()) }
+    }
+
+    @Test fun evidenceFromAnUnexpectedRevisionIsWithheld() = runTest {
+        coEvery { connections.getConnection("selected") } returns connection
+        val mismatched = buildJsonObject {
+            receipt.forEach { (key, value) -> put(key, value) }
+            put("source_sha", "f".repeat(40))
+        }
+        coEvery { maps.executeForMap(context, any(), true) } returns response().copy(result = mismatched)
+        val result = preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID)
+        assertEquals(RepositoryContextAvailability.FAILED, result.availability)
+        assertEquals("", result.text)
+        assertTrue(result.nextAction.contains("authorized reader"))
     }
 
     @Test fun connectionChangeAfterPreparationDiscardsSource() = runTest {

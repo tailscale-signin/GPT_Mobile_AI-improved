@@ -11,6 +11,18 @@ import kotlinx.serialization.json.put
  */
 object GitHubOperationPlanner {
     fun plan(goal: String): JsonArray {
+        GitHubLookupRoute.from(goal)?.let { route ->
+            return buildJsonArray {
+                add(
+                    buildJsonObject {
+                        put("id", route.step)
+                        put("tool", route.operation)
+                        put("action", route.action)
+                        put("description", "Read the requested records from the selected repository. Apply the requested selectors and page limits, and report coverage from the returned receipts.")
+                    }
+                )
+            }
+        }
         val normalized = goal.lowercase()
         // A noun such as "release notes" or "staging" does not request publication.
         // Scope each verb to its own clause so "fix the bug but do not merge" keeps the fix.
@@ -38,7 +50,7 @@ object GitHubOperationPlanner {
         val mergeObject = """(?:it|them|#\d+|(?:this|that|the|our|these|those)\s+(?:open\s+)?(?:prs?|pull requests?|branches|branch)|(?:prs?|pull requests?)\s*#?\d+)"""
         val wantsMerge = requests("""merge(?![\s-]+(?:polic(?:y|ies)|strateg(?:y|ies)|conflicts?|checks?|queue|status)\b)""") ||
             requested("""merge\s+$mergeObject""", commaItems) != null
-        val wantsWrite = requests("fix|repair|patch|change|implement|update|refactor|add|stage")
+        val wantsWrite = requests("fix|repair|patch|change|implement|update|refactor|rebuild|redesign|rewrite|upgrade|add|stage")
         val lifecycle = GitHubRepositoryLifecycle.intent(goal)
 
         return buildJsonArray {
@@ -76,10 +88,10 @@ object GitHubOperationPlanner {
                 add(step("pr_context", "Resolve the working head and base, then check for an existing matching pull request before creation."))
             } else if (wantsMerge) {
                 add(step("pr_context", "Resolve the requested open pull request and verify its repository, base and head SHA. If the target is missing or ambiguous, report that before merging."))
-            } else if (listOf("review", "pull request", "pr ").any(normalized::contains)) {
+            } else if (Regex("""\b(?:pull requests?|prs?|reviews?)\b""").containsMatchIn(normalized)) {
                 add(step("pr_context", "Page PR files and checks with expected_head so a moving PR cannot mix revisions."))
             }
-            if (listOf("debug", "failure", "ci", "build").any(normalized::contains)) add(step(if (wantsWrite) "baseline_ci_failure_digest" else "ci_failure_digest", "Read the latest failed job at the selected branch and inspect failure context throughout the bounded log."))
+            if (Regex("""\b(?:debug(?:ging)?|failures?|ci|builds?)\b""").containsMatchIn(normalized)) add(step(if (wantsWrite) "baseline_ci_failure_digest" else "ci_failure_digest", "Read the latest failed job at the selected branch and inspect failure context throughout the bounded log."))
             if (wantsWrite) {
                 add(step("select_defect", "Select one actionable correctness issue with a source range, expected behavior, and the observation that would disprove it.", "read_ranges"))
                 add(step("regression", "Choose a narrow failing case or record the exact missing execution prerequisite.", "select_defect"))

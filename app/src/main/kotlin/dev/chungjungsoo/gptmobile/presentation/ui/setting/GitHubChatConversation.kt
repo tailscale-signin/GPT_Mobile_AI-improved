@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -115,23 +114,16 @@ internal fun GitHubChatConversation(
 /** Pinned under the repository title on every workspace tab. */
 @Composable
 internal fun GitHubChatProgress(
-    workspace: GitHubWorkspaceState,
     state: GitHubProgrammerState,
     engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null,
-    nativeProgress: GitHubNativeApprovalProgress? = null
+    nativeProgress: GitHubNativeApprovalProgress? = null,
+    engineeringRunId: String? = null
 ) {
-    val profile = state.profiles.firstOrNull { it.uid == state.context?.mainProfileUid }
-    var profileNotice by androidx.compose.runtime.remember(state.chatId, profile?.uid) { androidx.compose.runtime.mutableStateOf<String?>(null) }
-    androidx.compose.runtime.LaunchedEffect(state.chatId, profile?.uid) {
-        if (profile != null && !dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(profile)) {
-            profileNotice = "Chat is ready. Choose a local AI for autonomous work."
-            kotlinx.coroutines.delay(4000)
-            profileNotice = null
-        }
-    }
     val progress = androidx.compose.runtime.remember(state, nativeProgress) { state.progressProjection(nativeProgress) }
-    val active = progress.active || engineeringJob?.terminal == false
-    if (!active && engineeringJob == null) return
+    val followsGateway = !progress.waiting && progress.taskRuns.any { it.runId == engineeringRunId && it.status !in AgentRunStatus.terminal }
+    val headerJob = engineeringJob.takeIf { followsGateway || !progress.active }
+    val active = progress.active || headerJob?.terminal == false
+    if (!active && headerJob == null) return
     val fallbackStart = androidx.compose.runtime.saveable.rememberSaveable(state.chatId, active) { System.currentTimeMillis() }
     val trackingAttempt = progress.taskRuns.isNotEmpty() && (progress.waiting || progress.taskRuns.any { it.status !in AgentRunStatus.terminal })
     val started = if (active && !trackingAttempt) fallbackStart else progress.taskRuns.minOfOrNull { it.createdAt * 1000 }
@@ -144,15 +136,8 @@ internal fun GitHubChatProgress(
         textSizeIncrease = 0,
         startedAtMillis = started,
         completedAtMillis = completed,
-        engineeringJob = engineeringJob,
+        engineeringJob = headerJob,
         githubPresentation = true,
-        statusOverride = when {
-            progress.waiting -> progress.description
-            progress.generating -> null
-            profileNotice != null -> profileNotice
-            workspace.busy -> "Refreshing the repository"
-            !active -> progress.description
-            else -> null
-        }
+        statusOverride = progress.description
     )
 }

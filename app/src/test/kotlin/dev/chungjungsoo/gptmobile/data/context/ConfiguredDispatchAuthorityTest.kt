@@ -210,7 +210,7 @@ class ConfiguredDispatchAuthorityTest {
 
     @Test fun raisingOnlyIntelligenceKeepsAnAlreadyAcceptedLowerEffortTurnAdmitted() = runTest {
         val profile = PlatformV2(uid = "profile", name = "Selected", model = "model")
-        val balanced = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
+        val balanced = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
         val deep = balanced.copy(intelligenceLevel = dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.DEEP_ENGINEERING)
         val initial = selectionFeatures(profile.uid)
         var features = initial

@@ -442,8 +442,12 @@ class GitHubProgressContinuationTest {
         val privateDraft = "PRIVATE_REPOSITORY_DRAFT"
         val reviewEvidence = GitHubReviewEvidence()
         val reviewed = GitHubReviewedSession(
-            proseSession(privateDraft), reviewEvidence, task, 8192,
-            { _, _ -> error("Missing evidence cannot start answer review") }, {}
+            proseSession(privateDraft),
+            reviewEvidence,
+            task,
+            8192,
+            { _, _ -> error("Missing evidence cannot start answer review") },
+            {}
         )
         val book = GitHubEvidenceBook("reviewed-read", "owner/repo", "main", setOf(context.name))
         book.retainTaskContract(task, 1, tools, 24)
@@ -480,8 +484,11 @@ class GitHubProgressContinuationTest {
         for (case in listOf("missing-contract", "different-contract", "untrusted-tool", "no-calls", "unknown-calls", "expired", "unknown-outcome", "revoked", "review-capacity", "original-backend-owned")) {
             var clock = 1000L
             val book = GitHubEvidenceBook(
-                "reviewed-$case", "owner/repo", "main",
-                if (case == "untrusted-tool") emptySet() else setOf(context.name), now = { clock }
+                "reviewed-$case",
+                "owner/repo",
+                "main",
+                if (case == "untrusted-tool") emptySet() else setOf(context.name),
+                now = { clock }
             )
             if (case != "missing-contract") {
                 book.retainTaskContract(if (case == "different-contract") "Read the repository instructions" else task, 1, tools, 24)
@@ -499,8 +506,12 @@ class GitHubProgressContinuationTest {
                 override val handlesToolsInternally = case == "original-backend-owned"
             }
             val reviewed = GitHubReviewedSession(
-                provider, GitHubReviewEvidence(), task, if (case == "review-capacity") 0 else 8192,
-                { _, _ -> error("A refused review cannot invoke a reviewer") }, {}
+                provider,
+                GitHubReviewEvidence(),
+                task,
+                if (case == "review-capacity") 0 else 8192,
+                { _, _ -> error("A refused review cannot invoke a reviewer") },
+                {}
             )
             var corrections = 0
             val verified = GitHubVerifiedSession(
@@ -532,16 +543,24 @@ class GitHubProgressContinuationTest {
         val context = GitHubOperationTool.definition("github_context", "github_context__selected")
         val tools = listOf(ci, context)
         val task = "Inspect the repository source and identify a defect"
-        val read = ProviderEvent.ToolCall("read-jobs", ci.name, buildJsonObject {
-            put("action", "jobs")
-            put("run_id", 7)
-        })
+        val read = ProviderEvent.ToolCall(
+            "read-jobs",
+            ci.name,
+            buildJsonObject {
+                put("action", "jobs")
+                put("run_id", 7)
+            }
+        )
         for (case in listOf("read", "rerun", "branch-selection", "backend-owned", "provider-result")) {
             val book = GitHubEvidenceBook("reviewed-$case", "owner/repo", "main", tools.map { it.name }.toSet())
             book.retainTaskContract(task, 1, tools, 24)
             val reviewed = GitHubReviewedSession(
-                proseSession("PRIVATE_REPOSITORY_DRAFT"), GitHubReviewEvidence(), task, 8192,
-                { _, _ -> error("No unsupported prose may be reviewed") }, {}
+                proseSession("PRIVATE_REPOSITORY_DRAFT"),
+                GitHubReviewEvidence(),
+                task,
+                8192,
+                { _, _ -> error("No unsupported prose may be reviewed") },
+                {}
             )
             var corrections = 0
             val correction = object : AgentProviderSession {
@@ -550,14 +569,19 @@ class GitHubProgressContinuationTest {
                     check(!handlesToolsInternally) { "Backend-owned execution must be refused before invocation" }
                     assertEquals(listOf(ci, context), tools)
                     val event = when (case) {
-                        "rerun" -> read.copy(arguments = buildJsonObject {
-                            put("action", "rerun")
-                            put("run_id", 7)
-                        })
-                        "branch-selection" -> read.copy(name = context.name, arguments = buildJsonObject {
-                            put("action", "resolve")
-                            put("ref", "other-branch")
-                        })
+                        "rerun" -> read.copy(
+                            arguments = buildJsonObject {
+                                put("action", "rerun")
+                                put("run_id", 7)
+                            }
+                        )
+                        "branch-selection" -> read.copy(
+                            name = context.name,
+                            arguments = buildJsonObject {
+                                put("action", "resolve")
+                                put("ref", "other-branch")
+                            }
+                        )
                         "provider-result" -> ProviderEvent.ToolResult(read, AgentToolResult(read.callId, ToolResultContent.Text("Untrusted result"), false))
                         else -> read
                     }

@@ -863,7 +863,10 @@ internal class GitHubVerifiedSession(
 
     private suspend fun canRecoverRepositoryEvidence(session: AgentProviderSession, round: DraftRound, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): Boolean {
         val failure = round.failure ?: return false
-        if (round.calls || round.completed || !round.failed || session.handlesToolsInternally ||
+        if (round.calls ||
+            round.completed ||
+            !round.failed ||
+            session.handlesToolsInternally ||
             !(ciDiagnosis || GitHubRequestCompletion.informational(task)) ||
             (session as? GitHubReviewedSession)?.consumeRepositoryEvidenceFailure(failure) != true
         ) {

@@ -309,13 +309,16 @@ class GitHubIntegrationReportTest {
         val rendered = GitHubIntegrationReport.render(task, records, tools, 128, checkpoint = checkpoint)
         assertEquals(1, rendered.lines().count { it.startsWith("**Next action**") })
         val failed = buildJsonObject {
-            put("original_failure", buildJsonObject {
-                put("code", "TLS_FAILURE")
-                put("remote_acceptance", "UNKNOWN")
-                put("dispatched", true)
-                put("invocation_id", "integration-attempt-42")
-                put("resume_allowed", false)
-            })
+            put(
+                "original_failure",
+                buildJsonObject {
+                    put("code", "TLS_FAILURE")
+                    put("remote_acceptance", "UNKNOWN")
+                    put("dispatched", true)
+                    put("invocation_id", "integration-attempt-42")
+                    put("resume_allowed", false)
+                }
+            )
             put("recovery_action", "CONTINUE_FROM_THE_FIRST_UNVERIFIED_CRITERION")
             put("task_outcome", "PARTIAL")
         }

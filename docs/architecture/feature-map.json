@@ -3316,9 +3316,9 @@
       "sha256": "2680034826d6f23706235ed013091c492e376a0516d7e5f6bd92189e7493e2d3"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": {
-      "blob_sha": "c4643ab6b05a4dbb7d70d7d886c7e424b0d431c9",
-      "bytes": 128888,
-      "sha256": "6e75b53c2d60178cb570288bcbc4b417adb8e79eb2c555e488deed4a251de4ac"
+      "blob_sha": "3be647c806885aa5f8e1948dbecef369dc4fcc6f",
+      "bytes": 128924,
+      "sha256": "348dbe4adc7e4039eccca0cac01af9aaa35537b0169c13912ff534b65fef26ef"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt": {
       "blob_sha": "81585ad8f4532e5b9e7f6b1a6013d3f91c901c29",
@@ -4606,9 +4606,9 @@
       "sha256": "34a5752ecccd5b7c1ef89830a278c84b9ed7efedf5b3846fbb4b8d8bf23dfb72"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReportTest.kt": {
-      "blob_sha": "ac2d6112ac8ef02ad4008ef489369605af257a90",
-      "bytes": 22325,
-      "sha256": "c76316a77b9d399eb15a9eb45b6a2b717b420c32140ca60453183178761d1ebd"
+      "blob_sha": "943a5097e2a57e1e1717e160e1dcecd0e3d96a9b",
+      "bytes": 22395,
+      "sha256": "582543385d8d40b94af16825010b0d5411be455c02674efadbcb07f1b3696898"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservationTest.kt": {
       "blob_sha": "f22ca6ef4a0ee5fd19955c565ece2be1d45b9f81",

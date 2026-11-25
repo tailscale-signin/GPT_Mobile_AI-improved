@@ -393,7 +393,8 @@
     "Recheck a buffered durable GitHub continuation against the first pending database row before preparation or dispatch, retaining paused and changed queue state. Suppress public progress callbacks during private saved-page reading while preserving checkpoint validation, recovery and cancellation. Preserve mandatory saved-page reading notes independently of optional evidence and answer-tail compaction when an ordinary answer continues; refuse dispatch if the original request budget cannot retain them.",
     "Shorten the first Quality speech phrase and size later phrases from measured refill time. Split eligible multi-tool action selectors into individually validated local requests and group identical refused prechecks with bounded call evidence.",
     "Grade intent, tool necessity, implementation claims, duplicate remote effects and preventable payload failures against independent signed observations at the exact qualification revision. Partial labels retain their coverage and unknown result.",
-    "Run signed native comparisons against preregistered ChatGPT, Codex or Claude Code peers. Read only the selected ChatGPT conversation, retain its exact final answer and adjust the simultaneous confidence bounds to the frozen number of comparisons."
+    "Run signed native comparisons against preregistered ChatGPT, Codex or Claude Code peers. Read only the selected ChatGPT conversation, retain its exact final answer and adjust the simultaneous confidence bounds to the frozen number of comparisons.",
+    "Keep a newly configured private GitHub draft locked and keep its previous room closed when an earlier workspace restore finishes."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1011,6 +1012,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubActivityLinesTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt",

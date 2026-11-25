@@ -305,26 +305,30 @@ class GitHubProgrammerViewModel @Inject constructor(
                 }
                 if (room != null && context != null) migrateComposerDraft(room, context)
                 if (context != null) bootstrapper?.rememberConversation(context, room?.id, mutable.value.draft.isNotBlank() || !room?.draftText.isNullOrBlank())
-                observeConversation(room?.id)
-                mutable.update {
-                    it.copy(
-                        privacyModeLocked = if (!session.configured) {
-                            null
-                        } else if (it.privacyModeLocked == true || session.privacyModeLocked) {
-                            true
-                        } else if (context == null || session.chatId?.let { id -> id > 0 } == true && room == null) {
-                            if (session.chatId == 0) {
-                                false
+                withContextMain {
+                    // Draft migration and workspace persistence can outlive the route that started them.
+                    if (session != selection.value || workspace != destination.value) return@withContextMain
+                    observeConversation(room?.id)
+                    mutable.update {
+                        it.copy(
+                            privacyModeLocked = if (!session.configured) {
+                                it.privacyModeLocked
+                            } else if (it.privacyModeLocked == true || session.privacyModeLocked) {
+                                true
+                            } else if (context == null || session.chatId?.let { id -> id > 0 } == true && room == null) {
+                                if (session.chatId == 0) {
+                                    false
+                                } else {
+                                    null
+                                }
                             } else {
-                                null
-                            }
-                        } else {
-                            room?.privacyModeLocked ?: session.privacyModeLocked
-                        },
-                        decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK,
-                        copilotPluginEnabled = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
-                        copilotEnabled = GitHubCopilotAgentMergePolicy.enabled(features, room?.id, context)
-                    )
+                                room?.privacyModeLocked ?: session.privacyModeLocked
+                            },
+                            decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK,
+                            copilotPluginEnabled = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
+                            copilotEnabled = GitHubCopilotAgentMergePolicy.enabled(features, room?.id, context)
+                        )
+                    }
                 }
             }
         }

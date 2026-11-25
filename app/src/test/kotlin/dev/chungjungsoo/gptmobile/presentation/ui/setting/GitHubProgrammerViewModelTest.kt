@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -258,6 +260,36 @@ class GitHubProgrammerViewModelTest {
         assertEquals(true, model.state.value.privacyModeLocked)
         assertFalse(requireNotNull(rooms[42]).privacyModeEnabled)
         coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+    }
+
+    @Test fun delayedWorkspaceRestoreCannotClearThePrivateDraftLockOrReopenThePreviousRoom() = runBlocking {
+        val restoring = Channel<Unit>()
+        val resumeRestore = Channel<Unit>()
+        val bootstrapper = mockk<GitHubSessionBootstrapper>()
+        coEvery { bootstrapper.rememberConversation(any(), any(), any()) } coAnswers {
+            restoring.send(Unit)
+            resumeRestore.receive()
+        }
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        val restored = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true), bootstrapper = bootstrapper)
+        try {
+            restored.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
+            withTimeout(5000) {
+                restoring.receive()
+                restored.configureSession("coder", newConversation = true, privacyModeLocked = true)
+                assertEquals(true, restored.state.value.privacyModeLocked)
+                resumeRestore.send(Unit)
+
+                // The old restore has returned and the new route is still loading.
+                restoring.receive()
+                assertEquals(true, restored.state.value.privacyModeLocked)
+                assertEquals(null, restored.state.value.chatId)
+                resumeRestore.send(Unit)
+            }
+        } finally {
+            close(restored)
+        }
     }
 
     @Test fun reopeningAPrivateRoomResolvesTheSavedPolicyWithoutUsingRouteDefaults() = runBlocking {

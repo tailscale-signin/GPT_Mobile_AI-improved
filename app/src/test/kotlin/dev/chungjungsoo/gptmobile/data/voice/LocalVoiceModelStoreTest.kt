@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.UnknownHostException
@@ -147,6 +148,7 @@ class LocalVoiceModelStoreTest {
             store.releaseUse()
         }
         store.refresh(forceVerification = false)
+        store.install()
         assertEquals(LocalVoiceModelStatus.READY, store.state.value.status)
         assertEquals(verified, hashes.get())
         store.refresh()
@@ -170,6 +172,53 @@ class LocalVoiceModelStoreTest {
         assertTrue(model.delete())
         java.nio.file.Files.createSymbolicLink(model.toPath(), other.toPath())
         assertFalse(store.acquireUse())
+    }
+
+    @Test fun verifiedArchiveKeepsItsDigestAcrossPublicationAndDetectsLaterEdits() = runBlocking {
+        val expanded = asset.copy(name = "voice.onnx", urls = emptyList())
+        val hashes = AtomicInteger()
+        val root = files.newFolder()
+        val store = LocalVoiceModelStore(
+            root,
+            listOf(asset),
+            expandedAssets = listOf(expanded),
+            expandArchive = { directory -> File(directory, expanded.name).writeBytes(contents) },
+            assetDigest = { file ->
+                hashes.incrementAndGet()
+                hash(file.readBytes())
+            }
+        ) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String) = LocalVoiceAssetStream(contents.inputStream(), asset.bytes)
+                override fun cancel() = Unit
+            }
+        }
+        store.install()
+        assertEquals(1, hashes.get())
+        assertTrue(store.acquireUse())
+        store.releaseUse()
+        store.refresh(forceVerification = false)
+        assertEquals(1, hashes.get())
+        val model = File(store.modelDirectory(), expanded.name).toPath()
+        val modified = java.nio.file.Files.getLastModifiedTime(model)
+        java.nio.file.Files.write(model, ByteArray(contents.size))
+        java.nio.file.Files.setLastModifiedTime(model, modified)
+        assertFalse(store.acquireUse())
+        assertEquals(2, hashes.get())
+    }
+
+    @Test fun sourceCloseFailureAfterVerifiedPublicationDoesNotStrandTheNextInstaller() = runBlocking {
+        val store = LocalVoiceModelStore(files.newFolder(), listOf(asset)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String) = LocalVoiceAssetStream(contents.inputStream(), asset.bytes)
+                override fun cancel(): Unit = throw IOException("Importer was already closed")
+            }
+        }
+        store.install()
+        assertTrue(store.isInstalled())
+        withTimeout(2_000) { store.install(waitForOwner = true) }
+        assertTrue(store.acquireUse())
+        store.releaseUse()
     }
 
     @Test fun archiveCannotPublishUntilTheExpandedFilesVerify() = runBlocking {

@@ -8,7 +8,9 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageReply
 
 /** A message/run change projects only the changed source; UI meter/phase events reuse all results. */
 internal class VoiceReplyProjectionCache {
-    private data class Entry(val source: MessageV2, val status: String?, val reply: VoiceMessageReply)
+    class Entry(val source: MessageV2, val status: String?, val reply: VoiceMessageReply) {
+        var terminalPublished = false
+    }
     private val entries = mutableMapOf<Int, Entry>()
     private var previousGroups: List<List<MessageV2>>? = null
     private var previousStatusVersion: Any? = null
@@ -41,5 +43,5 @@ internal class VoiceReplyProjectionCache {
         return result
     }
 
-    fun message(id: Int): MessageV2? = entries[id]?.source
+    fun pendingTerminal(id: Int): Entry? = entries[id]?.takeIf { it.reply.complete && !it.terminalPublished }
 }

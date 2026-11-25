@@ -169,6 +169,56 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun doneSpeakingBeforeTheDecoderWorkerIsReadySkipsLoadingAndMicrophoneAdmission() {
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder)
+        val release = CountDownLatch(1)
+        fixture.worker.execute { release.await(3, TimeUnit.SECONDS) }
+        try {
+            fixture.audio.listen(fixture.listener)
+            fixture.audio.finishListening()
+            release.countDown()
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertTrue(decoder.threads.isEmpty())
+            assertEquals(1L, fixture.capture.started.count)
+            assertEquals(0, fixture.releases.get())
+            assertTrue(fixture.finals.isEmpty())
+            assertEquals(listOf("VOICE_NO_SPEECH"), fixture.codes)
+        } finally {
+            release.countDown()
+            fixture.close()
+        }
+    }
+
+    @Test fun cancellationWakesTheWorkerDuringASilencedRecorderBackoff() {
+        val failure = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_start", retryable = true)
+        val attempts = AtomicInteger()
+        val second = FakeCapture(startFailure = failure)
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, captureFactory = {
+            if (attempts.incrementAndGet() == 1) FakeCapture(startFailure = failure) else second
+        })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(second.released.await(3, TimeUnit.SECONDS))
+            fixture.audio.stop()
+            // The second recovery waits 800 ms. Cancellation releases ownership immediately.
+            assertTrue(decoder.closed.await(500, TimeUnit.MILLISECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(2, attempts.get())
+            assertTrue(fixture.finals.isEmpty())
+            assertTrue(fixture.codes.isEmpty())
+            assertTrue(VoiceMicrophoneLease.acquire("cancelled-retry"))
+        } finally {
+            VoiceMicrophoneLease.release("cancelled-retry")
+            fixture.close()
+        }
+    }
+
     @Test fun deniedAudioFocusKeepsItsCauseAndDefersRetryUntilTheSessionBackoff() {
         val failure = LocalVoiceCaptureException(
             "Another audio session holds focus",

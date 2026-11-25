@@ -97,10 +97,13 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     }
 
     suspend fun onVoiceLaunch() {
-        refreshedNativeModels.await()
+        val streaming = modelStores.filterNotNull().first().streamingKokoro
+        streaming.refresh(forceVerification = false)
+        // A missing standard pack already requires setup. Its download can start while
+        // the installed native pack is still undergoing its first digest check.
+        if (streaming.isInstalled()) refreshedNativeModels.await()
         val stores = modelStores.filterNotNull().first()
-        stores.streamingKokoro.refresh(forceVerification = false)
-        val installed = stores.moonshine.isInstalled() && stores.streamingKokoro.isInstalled() && stores.kokoro.isInstalled()
+        val installed = streaming.isInstalled() && stores.moonshine.isInstalled() && stores.kokoro.isInstalled()
         VoicePluginInstall.onFirstVoiceLaunch(context, stores.kokoroVariant, installed)
     }
 

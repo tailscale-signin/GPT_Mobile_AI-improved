@@ -52,6 +52,17 @@ class MediaPipeWordCueMapperTest {
         assertEquals(null, mapper.finish())
     }
 
+    @Test fun repeatedPacketsShareOneCueBudgetAcrossPendingAndAlreadyEmittedWords() {
+        val mapper = MediaPipeWordCueMapper("one two six", cueLimit = 2)
+        val one = WordTimestamp("one", 0, 3, 0f, .25f)
+        val two = WordTimestamp("two", 4, 7, .25f, .5f)
+        val six = WordTimestamp("six", 8, 11, .5f, .75f)
+        assertEquals(listOf(VoiceWordCue(0, 3, 0, 6_000)), mapper.accept(listOf(one, two), 6_000))
+        assertTrue(mapper.accept(listOf(one, six), 6_000).isEmpty())
+        assertEquals(listOf(VoiceWordCue(4, 7, 6_000, 12_000)), mapper.accept(listOf(two, six), 18_000))
+        assertTrue(mapper.accept(listOf(six), 18_000).isEmpty())
+    }
+
     @Test fun lateEarlierTextCannotReplaceAPartiallyPresentedWord() {
         val mapper = MediaPipeWordCueMapper("one two")
         val second = WordTimestamp("two", 4, 7, 0f, .5f)

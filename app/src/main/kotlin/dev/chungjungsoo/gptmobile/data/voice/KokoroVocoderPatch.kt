@@ -25,33 +25,40 @@ internal class KokoroVocoderPatch private constructor(
         if (length < 0 || offset < 0 || offset > buffer.size - length) throw IndexOutOfBoundsException()
         if (length == 0) return 0
         if (ended) return -1
-        if (recordLeft == 0) {
-            when (instructions.readUnsignedByte()) {
-                0 -> {
-                    if (bytesLeft != 0L || instructions.read() != -1) throw IOException("Invalid end of Kokoro vocoder patch.")
-                    ended = true
-                    return -1
-                }
-                1 -> {
-                    val position = instructions.readInt().toLong()
-                    recordLeft = instructions.readInt()
-                    if (position < 0 || position + recordLeft > baseBytes) throw IOException("Invalid source range in Kokoro vocoder patch.")
-                    base.seek(position)
-                    copyFromBase = true
-                }
-                2 -> {
-                    recordLeft = instructions.readInt()
-                    copyFromBase = false
-                }
-                else -> throw IOException("Unknown instruction in Kokoro vocoder patch.")
-            }
-            if (recordLeft <= 0 || recordLeft > bytesLeft) throw IOException("Invalid output range in Kokoro vocoder patch.")
+        var written = 0
+        while (written < length) {
+            if (recordLeft == 0 && !nextRecord()) break
+            val count = minOf(length - written, recordLeft)
+            if (copyFromBase) base.readFully(buffer, offset + written, count) else instructions.readFully(buffer, offset + written, count)
+            recordLeft -= count
+            bytesLeft -= count
+            written += count
         }
-        val count = minOf(length, recordLeft)
-        if (copyFromBase) base.readFully(buffer, offset, count) else instructions.readFully(buffer, offset, count)
-        recordLeft -= count
-        bytesLeft -= count
-        return count
+        return if (written == 0) -1 else written
+    }
+
+    private fun nextRecord(): Boolean {
+        when (instructions.readUnsignedByte()) {
+            0 -> {
+                if (bytesLeft != 0L || instructions.read() != -1) throw IOException("Invalid end of Kokoro vocoder patch.")
+                ended = true
+                return false
+            }
+            1 -> {
+                val position = instructions.readInt().toLong()
+                recordLeft = instructions.readInt()
+                if (position < 0 || position + recordLeft > baseBytes) throw IOException("Invalid source range in Kokoro vocoder patch.")
+                base.seek(position)
+                copyFromBase = true
+            }
+            2 -> {
+                recordLeft = instructions.readInt()
+                copyFromBase = false
+            }
+            else -> throw IOException("Unknown instruction in Kokoro vocoder patch.")
+        }
+        if (recordLeft <= 0 || recordLeft > bytesLeft) throw IOException("Invalid output range in Kokoro vocoder patch.")
+        return true
     }
 
     override fun close() {

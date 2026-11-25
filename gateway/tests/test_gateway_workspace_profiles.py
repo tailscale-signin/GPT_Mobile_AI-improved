@@ -14,16 +14,16 @@ from v14.engineering_validation import validate_policy_entry
 class PreparedProfileTests(TestCase):
     def test_android_profile_seeds_every_kokoro_archive_for_offline_native_builds(self):
         expected = {
-            'sherpa-onnx-af2d8d81dbfa61c4cea4c568da78f3982edca005.tar.gz':
-                'afcafe3c34bc2f15a363ad791fa1644a69bf0977a58c1b4f617468976c2faeb5',
+            'sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417.tar.gz':
+                '39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086',
             'flite-e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88.tar.gz':
                 '1eebf476797cea10b4706cfbb9db9ba34f7b8ccb1fe7e0069b0b7528e0b0be46',
             'utf8proc-v2.12.0.tar.gz':
                 'f564011d38b2888d583d510b08e69ffa15aa117155db1b9b49ef1dfe1fa25111',
-            'onnxruntime-android-arm64-v8a-static_lib-1.28.2.zip':
-                'bc68410f35f13df82c260830bf476ee5565f5efd0ec7622297829a929613c6c0',
-            'onnxruntime-android-x86_64-static_lib-1.28.2.zip':
-                'f49dbf456ffe71dd417afb2123ef15202f8f57a4b2a05f12af1cf71f55448137',
+            'onnxruntime-android-arm64-v8a-static_lib-1.31.0.zip':
+                '25f8a9649e775af85d4216e624ef1a820b1e1f26d82d5fc5145657fa9789c685',
+            'onnxruntime-android-x86_64-static_lib-1.31.0.zip':
+                '1d092333f363bd80c5d31a601f556e751679a2ddf063267a40406e54c7f0e05a',
         }
         self.assertIn('GPTMOBILE_KOKORO_DEPENDENCY_CACHE=/opt/gateway-kokoro-deps', profiles.ANDROID_TOOLS)
         for name, digest in expected.items():

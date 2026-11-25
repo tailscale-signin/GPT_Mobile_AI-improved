@@ -19,6 +19,9 @@ internal object GatewayVoicePcmStream {
     const val CONTENT_TYPE = "application/vnd.gptmobile.kokoro-pcm"
     const val PATH = "/gateway/voice/synthesize/stream"
     const val MAX_CHUNK_FRAMES = 4096
+
+    // Deliver the first 40 ms as soon as it arrives, even inside a 4,096-frame wire packet.
+    internal const val FIRST_DELIVERY_FRAMES = VOICE_PCM_SAMPLE_RATE / 25
     private const val MAX_HEADER_BYTES = 16_384
     private val magic = byteArrayOf(0x4b, 0x50, 0x43, 0x4d, 1, 0, 0, 0)
     private val sourceWord = Regex("[a-z']+")
@@ -44,10 +47,14 @@ internal object GatewayVoicePcmStream {
             val timing = GatewayVoiceProtocol.timing(metadata, id, model, tokenCount, expectedWords)
             check(integer(metadata, "audio_frames") == timing.frameCount.toLong())
             val cues = cues(text, timing.durations, expectedWords)
+            val packetSize = ByteArray(Int.SIZE_BYTES)
+            val payload = ByteArray(chunkLimit.toInt() * Float.SIZE_BYTES)
+            val floats = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
             var received = 0
             while (true) {
                 currentCoroutineContext().ensureActive()
-                val count = unsignedInt(exact(channel, 4))
+                readFully(channel, packetSize, packetSize.size)
+                val count = unsignedInt(packetSize)
                 if (count == 0L) {
                     check(received == timing.frameCount) { "Incomplete Gateway PCM stream" }
                     // A terminator cannot conceal another phrase or extra audio.
@@ -61,17 +68,22 @@ internal object GatewayVoicePcmStream {
                     break
                 }
                 check(count <= chunkLimit && count <= timing.frameCount - received) { "Invalid Gateway PCM chunk" }
-                val bytes = exact(channel, count.toInt() * 4)
-                val samples = FloatArray(count.toInt())
-                ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(samples)
-                check(samples.all(Float::isFinite)) { "Invalid Gateway PCM samples" }
-                currentCoroutineContext().ensureActive()
-                // emit applies playback backpressure before we read another
-                // network frame. Each array has a single immutable handoff.
-                if (!emit(VoicePcmChunk(samples, wordCues = if (received == 0) cues else emptyList()))) {
-                    throw CancellationException("Speech cancelled")
+                var remaining = count.toInt()
+                while (remaining > 0) {
+                    val frames = if (received == 0) minOf(remaining, FIRST_DELIVERY_FRAMES) else remaining
+                    readFully(channel, payload, frames * Float.SIZE_BYTES)
+                    val samples = FloatArray(frames)
+                    floats.position(0)
+                    floats.get(samples)
+                    check(samples.all(Float::isFinite)) { "Invalid Gateway PCM samples" }
+                    currentCoroutineContext().ensureActive()
+                    // Each callback owns its float array. Backpressure stops the next network read.
+                    if (!emit(VoicePcmChunk(samples, wordCues = if (received == 0) cues else emptyList()))) {
+                        throw CancellationException("Speech cancelled")
+                    }
+                    received += frames
+                    remaining -= frames
                 }
-                received += samples.size
             }
         } finally {
             channel.cancel(null)
@@ -96,6 +108,11 @@ internal object GatewayVoicePcmStream {
 
     private suspend fun exact(channel: ByteReadChannel, count: Int): ByteArray {
         val bytes = ByteArray(count)
+        readFully(channel, bytes, count)
+        return bytes
+    }
+
+    private suspend fun readFully(channel: ByteReadChannel, bytes: ByteArray, count: Int) {
         var offset = 0
         while (offset < count) {
             currentCoroutineContext().ensureActive()
@@ -103,7 +120,6 @@ internal object GatewayVoicePcmStream {
             check(read >= 0) { "Incomplete Gateway PCM stream" }
             if (read == 0) yield() else offset += read
         }
-        return bytes
     }
 
     private fun unsignedInt(bytes: ByteArray): Long =

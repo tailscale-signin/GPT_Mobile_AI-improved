@@ -23,6 +23,16 @@ class VoiceSpeechBufferTest {
         assertEquals(listOf("snow."), buffer.append("Toronto has snow.", true))
     }
 
+    @Test fun oversizedTermsWaitForCompletionWithoutSchedulingRepeatedFlushes() {
+        var now = 0L
+        val buffer = VoiceSpeechBuffer { now }
+        val input = "z".repeat(180) + " short words "
+        assertTrue(buffer.append(input, false, earlyStart = true, adaptive = true).orEmpty().isEmpty())
+        now = 200
+        assertNull(buffer.nextFlushDelayMs(null))
+        assertEquals(input.trimEnd(), buffer.append(input, true).orEmpty().joinToString("").trimEnd())
+    }
+
     @Test fun aWaitingLineCannotLeakAsPartialAudioAndLiteralRequestsKeepTheirWording() {
         val prompt = "What is the capital of Canada?"
         val buffer = VoiceSpeechBuffer(skipPreamble = VoiceSpokenLead.forQuestion(prompt))

@@ -1,6 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
-/** VAD windows are supported by the pinned Moonshine 0.1.5 native options. */
+/** VAD windows are supported by the pinned Moonshine 0.1.6 native options. */
 enum class VoiceListeningStyle(val label: String, val vadWindowSeconds: Float, val updateIntervalMillis: Long) {
     QUICK("Quick", .25f, 200),
     NATURAL("Natural", .5f, 350),

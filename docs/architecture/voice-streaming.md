@@ -5,6 +5,28 @@ Saved engine and rate choices take precedence. The same LiteRT text normalizatio
 pronunciation dictionaries and voice IDs serve the CPU, GPU and NPU streaming
 routes. Reply speech and microphone recognition have independent language settings.
 
+## Voice turn ownership and timing
+
+| Stage | Owner | What advances the turn |
+| --- | --- | --- |
+| Microphone and recognition | Android recognition service or local Moonshine | Done speaking, route changes and cancellation retire the capture owner. A late Android language-support callback cannot open the mic after Done. Moonshine wakes the decoder on PCM or end of input. |
+| Interruption detection | Hands-free monitor | A bounded pre-roll buffer retains microphone audio for an accepted interruption. The monitor checks cancellation before admitting the recorder. |
+| AI response | Voice session and the selected chat profile | Only admitted replies are read aloud. Adaptive phrase planning scans the next speakable window and respects protected terms. A completed Room publication is delivered once per observed message and terminal run state. |
+| Speech input | Native Kokoro, LiteRT Tasks or Gateway phrase engine | The bounded queue wakes the synthesizer on new text, completion or cancellation. A completed reply flushes the final pending phrase immediately. |
+| Audio output and live captions | PCM player and its presentation clock | Each cue is tied to its source text and audio frames. Late callbacks are fenced by the active reply, and captions advance with presented audio. |
+| Optional routes | Phonon and Pocket via MediaPipe, Android system speech, or Gateway CUDA | The chosen engine owns its available voices and timing. Gateway qualifies CUDA independently of phone delegates. |
+
+## Runtime dependencies
+
+| Path | Pinned implementation | Verification |
+| --- | --- | --- |
+| On-device transcription | Moonshine Voice 0.1.6 | Production recognizer and decoder compile against the published Android API. The Android lifecycle tests cover permission changes, route recovery and late callbacks. |
+| Streaming Kokoro, Phonon and Pocket | MediaPipe Tasks Audio 1.2.3 | This SDK includes its own Android speech runtime. LiteRT-LM supplies the separate chat model path. |
+| Native Android Kokoro | sherpa-onnx 2.0.3 and static ONNX Runtime 1.31.0 | The timing patch, model identity and compiled-context cache are versioned together. Both Android ABIs link against the pinned static archives. |
+| Qualcomm speech execution | QNN execution provider 2.8.0 with QAIRT 2.52.0 | Native code, the provider and its DSP libraries must be qualified together. |
+| Gateway CUDA speech | ONNX Runtime GPU 1.32.0 | The isolated Python environment uses platform-specific, hash-checked wheels. Readiness requires observed CUDA kernel execution during warm-up. |
+| Model archive extraction | Apache Commons Compress 1.28.0 | The Android runtime lock pins Commons IO, Codec and Lang. Digest and path checks precede model publication. |
+
 ## Model installation and voice selection
 
 The first visit queues Moonshine recognition, the standard LiteRT Kokoro pack and
@@ -12,6 +34,13 @@ the selected native Kokoro pack through the Android background installer. Setup
 shows combined progress, reuses verified installations and supports cancellation
 and manual resume. A new installation selects original FP32 for the native pack.
 Phonon and Pocket are available separately.
+
+When standard Kokoro is missing, setup can begin its transfer while checking the
+native pack. Native archive installation carries verified file digests through
+atomic publication on filesystems with per-file change times. A changed file
+or an explicit integrity check triggers verification again. The accelerator
+patch decoder fills a 64 KiB installer buffer across small copy records. The
+pinned GPU pack takes 4,498 output blocks and the SM8750 pack takes 4,511.
 
 | LiteRT Kokoro route | Model on the phone | Installation |
 | --- | --- | --- |
@@ -124,7 +153,9 @@ observed; older servers retain the existing JSON route. The new endpoint uses a
 bounded metadata header, little-endian Float32 frames and an explicit terminator.
 The phone checks request/model/token identity, timing, sample rate, frame limits,
 finite values, truncation and trailing content before treating the stream as
-complete. Headers do not count as first PCM.
+complete. Headers do not count as first PCM. The phone can deliver the first 960
+frames (40 ms of audio at 24 kHz) as soon as those bytes arrive, even when the
+remainder of the transport frame is still in flight.
 
 The private sidecar-to-Gateway boundary also transports binary audio, avoiding
 Base64 expansion throughout the new route. Slow clients retain their queue
@@ -132,12 +163,30 @@ admission until the stream drains. Cancellation remains principal-scoped, and
 the exact route uses the existing chat-scope authorization and private
 conversation guards.
 
+The Gateway checks CUDA availability before loading weights and disables ONNX
+Runtime telemetry in its speech worker. Setup verifies a candidate manifest
+before replacing an existing one and streams the digest checks for model and
+voice files. After a response drains, the idle queue and sidecar reader release
+their references to its audio.
+
 The current CUDA model still produces a complete neural phrase before transport
 begins. Its metadata says `generation_mode=complete_phrase`. Transport streaming
 reduces serialization and delivery overhead; it is not claimed as incremental
 neural generation.
 
 ## Evidence and qualification
+
+The following comparisons isolate individual production components. The Android
+measurements use OpenJDK 21 on a host.
+
+| Operation | Fixture and metric | Previous | Current |
+| --- | --- | ---: | ---: |
+| Map incremental UTF-8 timestamps to caption text | Allocated bytes per 12,000-character reply in 125 deltas, with identical mapped ranges | 1,308,584 | 192,288 |
+| Group a completed response for speech | Median allocated bytes per 11,500-character reply, 320 groups and identical output | 6,311,776 | 4,525,064 |
+| Verify a Gateway pack during setup | Peak traced Python allocations for 32 MiB of model data and 8 MiB of voice data | 40.0 MiB | 2.0 MiB |
+
+Time to first audible speech, caption alignment, thermal behavior and energy
+use are measured separately on the playback device.
 
 The LiteRT Kokoro acoustic stage runs on CPU by default. Selecting an
 accelerator requests it for eligible vocoder operations. MediaPipe reports the requested
@@ -225,6 +274,11 @@ In **Speech benchmark**, choose native or shared LiteRT Kokoro, then **Set up 1Ã
 
 ## Primary upstream references
 
+- [sherpa-onnx 2.0.3](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v2.0.3)
+- [Static Android ONNX Runtime 1.31.0 archives](https://github.com/csukuangfj/onnxruntime-libs/releases/tag/v1.31.0)
+- [Moonshine Voice 0.1.6 Android artifact](https://repo.maven.apache.org/maven2/ai/moonshine/moonshine-voice/0.1.6/)
+- [Apache Commons Compress releases](https://commons.apache.org/proper/commons-compress/changes.html)
+- [Gateway ONNX Runtime GPU 1.32.0 wheels](https://pypi.org/project/onnxruntime-gpu/1.32.0/)
 - [MediaPipe Text-to-Speech](https://developers.google.com/edge/mediapipe/solutions/audio/text_to_speech/index)
 - [MediaPipe 1.2.3 source and release](https://github.com/google-ai-edge/mediapipe/releases/tag/v1.2.3)
 - [Pinned Kokoro publisher bundle](https://huggingface.co/litert-community/Kokoro-82M/tree/bf1c2405642aa310bd210205c22d3ae1abc253fb)

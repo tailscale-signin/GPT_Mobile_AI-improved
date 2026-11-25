@@ -29,8 +29,16 @@ class VoiceReplyProjectionCacheTest {
         assertSame(second[0], terminal[0])
         assertTrue(terminal[1].complete)
         assertTrue(terminal[1].failed)
-        assertEquals("A streamed reply", cache.message(2)?.content)
+        val publication = requireNotNull(cache.pendingTerminal(2))
+        assertEquals("A streamed reply", publication.source.content)
+        assertSame(publication, cache.pendingTerminal(2)) // An unsuccessful read stays retryable.
+        publication.terminalPublished = true
+        cache.update(appended, completed.toMap(), completed::get)
+        assertNull(cache.pendingTerminal(2))
+        val replaced = appended.single().last().copy(ownershipFence = 11)
+        cache.update(listOf(listOf(replaced)), completed, completed::get)
+        assertSame(replaced, cache.pendingTerminal(2)?.source)
         cache.update(listOf(listOf(history)), completed, completed::get)
-        assertNull(cache.message(2))
+        assertNull(cache.pendingTerminal(2))
     }
 }

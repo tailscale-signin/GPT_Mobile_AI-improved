@@ -205,10 +205,12 @@ class GitHubTool(
         val mapSelection = kotlinx.coroutines.sync.Mutex()
         suspend fun scopeForRead(arguments: JsonObject): dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext {
             val options = arguments["options"] as? JsonObject
+            val action = (arguments["action"] as? JsonPrimitive)?.content
+            val gatewayWrite = arguments["map_source"] == JsonPrimitive("gateway") && action == "index"
             if (!bound.requestsCurrentMap(taskRequest.orEmpty()) ||
-                options?.containsKey("commit_sha") == true ||
-                arguments["action"] in setOf(JsonPrimitive("note"), JsonPrimitive("index")) ||
-                arguments["map_source"] == JsonPrimitive("gateway")
+                action == "note" ||
+                gatewayWrite ||
+                options?.keys?.any { it in setOf("commit_sha", "ref", "branch", "repository", "owner", "repo", "index_cursor", "cursor") } == true
             ) {
                 return currentScope()
             }

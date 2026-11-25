@@ -21,7 +21,9 @@ class GitHubEffectiveRecoveryTest {
 
     @Test fun postBodyFailureUsesOneInspectionActionWithTheRetainedReads() {
         val original = buildJsonObject {
-            put("code", "TLS_FAILED")
+            put("code", "TLS_FAILURE")
+            put("remote_acceptance", "UNKNOWN")
+            put("dispatched", true)
             put("invocation_id", "attempt-42")
             put("resume_allowed", false)
         }
@@ -44,6 +46,19 @@ class GitHubEffectiveRecoveryTest {
         assertTrue(result.contains("attempt-42"))
         assertTrue(result.contains("7 retained successful read receipts"))
         assertFalse(result.contains("Resume from"))
+        assertTrue(result.contains("Check remote acceptance"))
+        val local = JsonObject(
+            report + (
+                "original_failure" to buildJsonObject {
+                    put("code", "REPLAY_EVIDENCE_REQUIRED")
+                    put("dispatched", false)
+                    put("resume_allowed", false)
+                }
+                )
+        )
+        val saved = GitHubEffectiveRecovery.publicationText("Retained pages.", local, receipts)
+        assertTrue(saved.contains("saved-page recovery"))
+        assertFalse(saved.contains("Check remote acceptance"))
     }
 
     @Test fun outputCheckpointCannotOverrideTheTaskRecoveryDenial() {

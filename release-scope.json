@@ -855,6 +855,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ToolRoundInstructionsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateToolTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationToolTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundaryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/LocalDelegationCoordinatorTest.kt",

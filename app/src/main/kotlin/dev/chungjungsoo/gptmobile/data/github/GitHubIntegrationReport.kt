@@ -35,9 +35,9 @@ internal object GitHubIntegrationReport {
         val admissionReasons = admissions.filter { it.text("admission") != "READY" }.groupingBy { it.text("admission") }.eachCount()
         val deadlineReached = (checklist["stage_budget"] as? JsonObject)?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED"
         val reason = when {
-            deadlineReached -> "ACCEPTED_TASK_DEADLINE_REACHED" to "The accepted time window expired. Completed checks and the latest pagination receipt are saved."
             integration && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
+            deadlineReached -> "ACCEPTED_TASK_DEADLINE_REACHED" to "The accepted time window expired. Completed checks and the latest pagination receipt are saved."
             receipts.values.lastOrNull()?.get("error_code") == JsonPrimitive("COMBINED_BUDGET_EXHAUSTED") ->
                 "COMBINED_BUDGET_EXHAUSTED" to "The shared Combined turn allowance blocked the next operation. Individual profile calls may remain. Completed checks and pending operations have been saved."
             remaining == 0 -> "TOOL_BUDGET_EXHAUSTED" to "The recorded authorized tool-call budget has no remaining calls. Resume requires a new authorized budget."
@@ -170,6 +170,8 @@ internal object GitHubIntegrationReport {
                     append(".")
                 }
                 append("\n\n")
+            } else if (stop.text("recovery_action") == "RESOLVE_BOUND_APPROVAL") {
+                append("**Next action** · Review the existing approval card for this task.\n\n")
             } else {
                 val required = requiredCapabilities.mapTo(mutableSetOf()) { it.text("id") }
                 val next = groups.firstOrNull { group -> group.strings("capability_ids").any(required::contains) }

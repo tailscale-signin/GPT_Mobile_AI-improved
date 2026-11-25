@@ -2896,9 +2896,9 @@
       "sha256": "72eb966210a3f3d1127ec35be3a625f371117437b5bab3d1409130ae722e1cd1"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt": {
-      "blob_sha": "ab5409ef48fc7ba46cdd8a40e46cb9b8a4723ad8",
-      "bytes": 168691,
-      "sha256": "f6a30f2f60cedc81f8bcf2e43c6eea4b94aec2c7c845e2c2af7a90e4a970a2e9"
+      "blob_sha": "1e1d9c56088513bf50b4d301be15731501f95808",
+      "bytes": 168859,
+      "sha256": "6987f51634786656b481a7001a50619c8943d15383560db5966de56de83bd994"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectTool.kt": {
       "blob_sha": "e1e28aa58589bb7574343521ff26a3e773f64bdf",
@@ -4311,9 +4311,9 @@
       "sha256": "ceaddcfa4f184b8a5772a97b6a435cdd0d346237ec0eb6f54df477092eb2924d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt": {
-      "blob_sha": "b3a69a88002e337486f66d4ea4b33a871780975f",
-      "bytes": 13320,
-      "sha256": "bb7cea7b706cb8059ee81d573d9e3aeb7df0e56388643f768e22e6d2f6a5d091"
+      "blob_sha": "42e4b06a7e38f3cbb4c3505c28265870c9b38ed5",
+      "bytes": 14631,
+      "sha256": "e64b72b45c3de4d7a865c8dcb4ce8e7a35d34987d1213e1eca03e6b91d289a34"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt": {
       "blob_sha": "7ec767b716934ab9104c9d8389d6b641b8d70517",

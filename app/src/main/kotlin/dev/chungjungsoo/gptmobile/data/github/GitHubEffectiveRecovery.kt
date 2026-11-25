@@ -169,11 +169,17 @@ internal object GitHubEffectiveRecovery {
                 (it["arguments"] as? JsonObject)?.let { args -> dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(it.text("tool"), args) } == true
         }
         val beforeAction = text.substringBeforeLast("\n\n**Next action:** ", text).trimEnd()
+        val unknownAcceptance = original["remote_acceptance"] == JsonPrimitive("UNKNOWN") && original["dispatched"] != JsonPrimitive(false)
         return buildString {
             append(beforeAction)
-            append("\n\n**Next action** · Review the failed provider request")
+            append(if (unknownAcceptance) "\n\n**Next action** · Review the failed provider request" else "\n\n**Next action** · Inspect the recorded failure")
             invocation?.let { append(" `$it`") }
-            append(" and $reads retained successful read receipts. Check remote acceptance before starting a fresh task from the saved evidence. The failed request remains paused.")
+            append(" and $reads retained successful read receipts.")
+            if (unknownAcceptance) {
+                append(" Check remote acceptance before starting a fresh task from the saved evidence. The failed request remains paused.")
+            } else if (original.text("code") == "REPLAY_EVIDENCE_REQUIRED") {
+                append(" Follow the saved-page recovery details from this checkpoint.")
+            }
         }
     }
 

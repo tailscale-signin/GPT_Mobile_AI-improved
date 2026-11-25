@@ -62,6 +62,30 @@ class GitHubGraphRevisionAuthorityTest {
         return result
     }
 
+    @Test fun firstCurrentPhoneMapResolvesItsBranchAndReusesTheRevisionAcrossReads() = runTest {
+        for (firstAction in listOf("status", "index")) {
+            val requests = mutableListOf<String>()
+            client(requests::add).use { http ->
+                val scopes = mutableListOf<String>()
+                val tool = GitHubTool(
+                    "token", http, connectionUid = bound.connectionUid, conversationId = "fresh-$firstAction",
+                    taskId = "current", persistentState = false, repositoryScope = bound, taskRequest = "Inspect the latest branch map",
+                    graphQuery = { scope, _ ->
+                        scopes += scope.commitSha
+                        buildJsonObject { put("source_head_sha", scope.commitSha) }
+                    }
+                )
+                val graph = requireNotNull(tool.graphTool())
+                for (action in listOf(firstAction, "status")) {
+                    val result = graph.execute("map-${scopes.size}", buildJsonObject { put("action", action) })
+                    assertFalse(result.toString(), result.isError)
+                }
+                assertEquals(listOf(current, current), scopes)
+                assertEquals(1, requests.count { it.endsWith("/commits/main") })
+            }
+        }
+    }
+
     @Test fun nativeRefreshSupersedesTheChatBindingForTheNextGraphRead() = runTest {
         client().use { http ->
             val observed = mutableListOf<GitHubConversationContext>()

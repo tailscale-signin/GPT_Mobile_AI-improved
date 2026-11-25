@@ -147,10 +147,12 @@ interface ChatRepository {
     fun observeProviderWaitDeadlines(chatId: Int): Flow<List<ProviderWaitDeadline>>
     fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>>
     suspend fun fetchChatListV2(): List<ChatRoomV2>
+    suspend fun fetchChatRoom(chatId: Int): ChatRoomV2?
+    suspend fun completionMessage(chatId: Int, targetMessageId: Int?): MessageV2?
 
     /** Null is an unavailable owner, never permission for an unprotected request. */
     suspend fun conversationPrivacyLocked(chatId: Int): Boolean? =
-        (fetchChatListV2() + fetchArchivedChatListV2()).firstOrNull { it.id == chatId }?.privacyModeLocked
+        fetchChatRoom(chatId)?.privacyModeLocked
     suspend fun fetchArchivedChatListV2(): List<ChatRoomV2>
     suspend fun setChatArchived(chatId: Int, isArchived: Boolean)
     suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean)

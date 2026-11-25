@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -25,9 +26,15 @@ internal object GitHubEvidencePolicy {
         val visited = mutableSetOf<String>()
         while (true) {
             if (source["trusted"] != JsonPrimitive(true) || source["success"] != JsonPrimitive(true) || source["verification_eligible"] == JsonPrimitive(false)) return false
-            if (source["immutable"] == JsonPrimitive(true)) return true
+            // Older receipts marked every SHA-qualified search as immutable, including live issue searches.
+            // Reclassify those originals from their arguments and cursor pages from their bound original.
+            val tool = source.string("tool")
             val arguments = source["arguments"] as? JsonObject ?: JsonObject(emptyMap())
-            if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.immutableRead(source.string("tool"), arguments)) return true
+            if (tool.githubOperationFamily() == "github_search") {
+                if ("view_cursor" !in arguments) return GitHubOperationTool.immutableRead(tool, arguments)
+            } else if (source["immutable"] == JsonPrimitive(true) || GitHubOperationTool.immutableRead(tool, arguments)) {
+                return true
+            }
             val id = source.string("source_observation_receipt_id")
             if (id.isBlank() || !visited.add(id)) return false
             val original = receipts[id] ?: return false
@@ -72,7 +79,7 @@ internal object GitHubEvidencePolicy {
     private fun semanticType(receipt: JsonObject?, path: String): Pair<String, String> {
         val tool = receipt?.string("tool")?.githubOperationFamily().orEmpty()
         val arguments = (receipt?.get("arguments") as? JsonObject) ?: JsonObject(emptyMap())
-        val nativeAction = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments)?.string("action")
+        val nativeAction = GitHubOperationTool.nativeArguments(tool, arguments)?.string("action")
         val resource = when {
             "/check_runs/" in path -> "check_run"
             "/jobs/" in path || nativeAction in setOf("get_workflow_job", "get_job_logs") -> "job"

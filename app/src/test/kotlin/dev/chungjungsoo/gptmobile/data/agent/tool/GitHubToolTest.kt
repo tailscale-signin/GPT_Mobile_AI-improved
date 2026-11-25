@@ -703,7 +703,7 @@ class GitHubToolTest {
                 if (request.method != HttpMethod.Get) mutations++
                 when (request.url.encodedPath) {
                     "/repos/owner/repo/commits/working" -> respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}}}""", HttpStatusCode.OK)
-                    "/repos/owner/repo/git/trees/$tree" -> respond("""{"tree":[],"truncated":false}""", HttpStatusCode.OK)
+                    "/repos/owner/repo/git/trees/$tree" -> respond("""{"sha":"$tree","tree":[],"truncated":false}""", HttpStatusCode.OK)
                     else -> error("Unexpected request: ${request.url}")
                 }
             }

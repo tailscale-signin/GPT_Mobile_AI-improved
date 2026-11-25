@@ -53,6 +53,23 @@ class GitHubReviewProgressTest {
         }
     )
 
+    @Test fun issueSearchAndRestoredFragmentsRemainMutableAtASelectedCommit() {
+        val tool = "github_search__selected"
+        fun args(query: String) = json("""{"query":"$query","commit_sha":"$head"}""")
+        fun legacy(arguments: JsonObject) = JsonObject(receipt(tool, arguments, json("{}")) + ("immutable" to JsonPrimitive(true)))
+        val fragment = JsonObject(legacy(json("""{"view_cursor":"saved"}""")) + ("source_observation_receipt_id" to JsonPrimitive("original")))
+        for (query in listOf("is:issue crash", "open type:pr")) {
+            assertFalse(GitHubOperationTool.immutableRead(tool, args(query)))
+            val original = legacy(args(query))
+            assertFalse(GitHubEvidencePolicy.immutable(original, emptyMap()))
+            assertFalse(GitHubEvidencePolicy.immutable(fragment, mapOf("original" to original)))
+        }
+        assertFalse(GitHubEvidencePolicy.immutable(fragment, emptyMap()))
+        val source = legacy(args("GitHubTool"))
+        assertTrue(GitHubOperationTool.immutableRead(tool, args("GitHubTool")))
+        assertTrue(GitHubEvidencePolicy.immutable(fragment, mapOf("original" to source)))
+    }
+
     @Test fun pinnedComparisonAndItsRestoredFragmentsSurviveAgeAndEpochChanges() {
         val compared = comparison(listOf(json("""{"filename":"src/A.kt","status":"modified"}""")))
         val arguments = compared.getValue("arguments").jsonObject

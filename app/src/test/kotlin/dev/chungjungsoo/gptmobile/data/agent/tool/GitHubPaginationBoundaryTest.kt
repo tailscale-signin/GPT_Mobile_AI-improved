@@ -19,6 +19,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPaginationBoundaryTest {
+    @Test fun partialUpstreamSearchCannotBecomeCompleteWhenTheReturnedCountMatches() {
+        for ((tool, action) in listOf("github_context" to "search_commits", "github_context" to "search_repositories", "github_search" to "search_issues")) {
+            val boundary = GitHubPaginationBoundary()
+            fun args(page: Int) = json("""{"action":"$action","query":"fix","page":$page}""")
+            val partial = json("""{"items":[{"id":1}],"incomplete_results":true,"total_count":2,"has_more":true}""")
+            val terminal = json("""{"items":[{"id":2}],"incomplete_results":false,"total_count":2,"has_more":false}""")
+            assertEquals(null, boundary.assessPage(tool, args(1), partial).errorCode)
+            val end = boundary.assessPage(tool, args(2), terminal)
+            assertEquals(action, "GITHUB_PAGINATION_INCOMPLETE", end.errorCode)
+            assertEquals(JsonPrimitive(false), end.data["complete"])
+            val empty = json("""{"total_count":0,"incomplete_results":true,"has_more":false}""")
+            assertEquals("GITHUB_PAGINATION_INCOMPLETE", GitHubPaginationBoundary().assessPage(tool, args(1), empty).errorCode)
+            val full = json("""{"items":[{"id":1}],"incomplete_results":false,"total_count":1,"has_more":false}""")
+            assertEquals(JsonPrimitive(true), GitHubPaginationBoundary().assessPage(tool, args(1), full).data["complete"])
+        }
+    }
+
+    @Test fun copilotTaskContinuationDispatchesTheSecondTaskPageOnTheOriginalConnection() = runBlocking {
+        val received = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                received += arguments
+                val more = received.size == 1
+                return AgentToolResult(callId, ToolResultContent.Json(json("""{"tasks":[{"id":"task-${received.size}"}],"has_more":$more}""")), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_pr", backend, "task-list", "github_pr__one")
+        val request = json("""{"action":"copilot_tasks","per_page":1}""")
+        val first = tool.execute("first", request)
+        val call = (first.content as ToolResultContent.Json).value.jsonObject.getValue("continuation_call").jsonObject
+        assertEquals(JsonPrimitive("github_pr__one"), call["tool"])
+        val next = call.getValue("arguments").jsonObject
+        assertEquals(json("""{"action":"copilot_tasks","per_page":1,"page":2}"""), next)
+        assertFalse(tool.execute("next", next).isError)
+        assertEquals(next, received.last())
+    }
+
     @Test fun emptyCopilotTaskListCompletesWithoutCreatingOrInventingATask() {
         val args = json("""{"action":"copilot_tasks","page":1,"per_page":30}""")
         val result = GitHubPaginationBoundary().assessPage("github_pr", args, json("""{"tasks":[],"has_more":false}"""))

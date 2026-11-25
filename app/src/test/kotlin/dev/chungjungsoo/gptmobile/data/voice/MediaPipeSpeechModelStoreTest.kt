@@ -273,7 +273,8 @@ class MediaPipeSpeechModelStoreTest {
         val store = installedKokoro()
         for ((backend, delegate) in listOf(VoiceSpeechBackend.LITERT_KOKORO_NPU to Delegate.NPU, VoiceSpeechBackend.LITERT_KOKORO_GPU to Delegate.GPU)) {
             val configurations = mutableListOf<MediaPipeSpeechTaskConfiguration>()
-            val fallbacks = mutableListOf<VoiceSpeechBackend>()
+            val observed = mutableListOf<VoiceSpeechBackend>()
+            var failAccelerator = true
             val factory = MediaPipeVoicePhraseEngineFactory(
                 store,
                 MediaPipeSpeechEngine.KOKORO,
@@ -281,10 +282,10 @@ class MediaPipeSpeechModelStoreTest {
                 1.25f,
                 "am_adam",
                 MediaPipeKokoroBucket.TOKENS_64,
-                onCpuFallback = { fallbacks += it }
+                onPlaybackDelegate = { observed += it }
             ) { config ->
                 configurations += config
-                if (config.delegate != Delegate.CPU) throw IllegalStateException("Accelerator initialization failed")
+                if (config.delegate != Delegate.CPU && failAccelerator) throw IllegalStateException("Accelerator initialization failed")
                 object : MediaPipeSpeechTask {
                     override fun voiceIds() = setOf("af_heart", "am_adam")
                     override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream = error("Incremental input expected")
@@ -318,12 +319,29 @@ class MediaPipeSpeechModelStoreTest {
                     true
                 }
                 assertEquals(listOf(.25f), output)
+                val reused = mutableListOf<VoiceSpeechBackend>()
+                val anotherVoice = MediaPipeVoicePhraseEngineFactory(
+                    store,
+                    MediaPipeSpeechEngine.KOKORO,
+                    backend,
+                    1.25f,
+                    "af_heart",
+                    MediaPipeKokoroBucket.TOKENS_64,
+                    onPlaybackDelegate = { reused += it }
+                ) { error("Voice selection should reuse the open task") }
+                assertEquals(factory.residentIdentity, anotherVoice.residentIdentity)
+                repeat(2) { anotherVoice.prepareForPlayback(engine) }
+                assertEquals(listOf(VoiceSpeechBackend.LITERT_KOKORO_CPU), reused)
             }
-            assertEquals(listOf(backend), fallbacks)
+            assertEquals(listOf(VoiceSpeechBackend.LITERT_KOKORO_CPU), observed)
             assertEquals(listOf(delegate, Delegate.CPU), configurations.map { it.delegate })
             assertEquals(1, configurations.map { it.modelFile }.distinct().size)
             assertEquals(2, configurations.map { it.cacheDirectory }.distinct().size)
             assertTrue(configurations.all { it.speakingRate == 1.25f && it.targetBucket == 64 })
+
+            failAccelerator = false
+            factory.create(files.root, "", 2).use { engine -> factory.prepareForPlayback(engine) }
+            assertEquals(listOf(VoiceSpeechBackend.LITERT_KOKORO_CPU, backend), observed)
         }
         store.remove(MediaPipeSpeechEngine.KOKORO)
     }
@@ -337,7 +355,7 @@ class MediaPipeSpeechModelStoreTest {
                 MediaPipeSpeechEngine.KOKORO,
                 VoiceSpeechBackend.LITERT_KOKORO_NPU,
                 1f,
-                onCpuFallback = if (cancel) ({ _ -> error("Cancelled preparations must never recover") }) else null
+                onPlaybackDelegate = if (cancel) ({ _ -> error("Cancelled preparations must never recover") }) else null
             ) { config ->
                 delegates += config.delegate
                 if (cancel) throw CancellationException("Cancelled")

@@ -650,6 +650,8 @@ internal class GitHubResultViews(
                     "list_pull_requests" -> "list"
                     "get_pull_request_comments" -> "comments"
                     "pull_request_reviews" -> "reviews"
+                    "copilot_tasks" -> "copilot_tasks"
+                    "pr_threads" -> "threads"
                     else -> "context"
                 }
             )
@@ -913,6 +915,7 @@ internal class GitHubResultViews(
         values["commit_sha"] = sha
         if (operation == "github_read" && "ranges" !in values) values["ranges"] = root["ranges"] ?: return null
         val args = JsonObject(values)
+        if (operation == "github_search" && !GitHubOperationTool.immutableRead(name, args)) return null
         if (args["owner"] == null || args["repo"] == null || args.toString().toByteArray().size > 4096) return null
         return buildJsonObject {
             put("tool", name)

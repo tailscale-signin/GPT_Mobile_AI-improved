@@ -34,6 +34,7 @@ class GitHubNativeSearchContinuationTest {
                         put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", tree) }) })
                     }
                     "/git/trees/" in request.url.encodedPath -> buildJsonObject {
+                        put("sha", request.url.encodedPath.substringAfterLast('/'))
                         put("truncated", false)
                         put(
                             "tree",

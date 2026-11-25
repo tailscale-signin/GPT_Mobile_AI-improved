@@ -36,6 +36,36 @@ class GitHubCollaborationTest {
     }
     private fun parent(draft: Boolean = false, head: String = sha) = Json.parseToJsonElement("""{"number":7,"node_id":"PR_7","state":"open","draft":$draft,"head":{"sha":"$head"}}""").jsonObject
 
+    @Test fun threadPagesUseOneGraphQueryAndContinueOnlyOnTheObservedHead() = runTest {
+        var head = sha
+        val endCursor = "next"
+        var more = true
+        val queries = mutableListOf<JsonObject>()
+        suspend fun read(input: JsonObject) = GitHubCollaboration.execute(
+            "/repos/o/r",
+            "pr_threads",
+            input,
+            "",
+            request = { _, _, _ -> error("Unexpected REST lookup") },
+            graphQl = { query, variables ->
+                assertTrue(query.contains("pullRequest(number:"))
+                queries += variables
+                Json.parseToJsonElement("""{"data":{"repository":{"pullRequest":{"headRefOid":"$head","reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":$more,"endCursor":"$endCursor"}}}}}}""").jsonObject
+            }
+        )
+        val first = read(JsonObject(args("threads") - "expected_head_sha"))
+        val next = first.getValue("threads_continuation").jsonObject
+        assertEquals(JsonPrimitive(sha), next["expected_head_sha"])
+        assertEquals(JsonPrimitive("next"), next["after"])
+        assertEquals(Json.parseToJsonElement("""{"owner":"o","repo":"r","number":7,"after":null}"""), queries.single())
+        assertTrue(runCatching { read(next) }.exceptionOrNull()?.message.orEmpty().contains("did not advance"))
+        more = false
+        assertFalse("threads_continuation" in read(next))
+        assertEquals(JsonPrimitive("next"), queries.last()["after"])
+        head = "b".repeat(40)
+        assertTrue(runCatching { read(next) }.exceptionOrNull()?.message.orEmpty().contains("head changed"))
+    }
+
     @Test fun everyCollaborationActionIsModelVisibleAndClassifiedAsAWrite() {
         for ((tool, actions, prefix) in listOf(Triple("github_pr", GitHubCollaboration.prActions, "pr_"), Triple("github_issue", GitHubCollaboration.issueActions, "issue_"))) {
             for (action in actions) {

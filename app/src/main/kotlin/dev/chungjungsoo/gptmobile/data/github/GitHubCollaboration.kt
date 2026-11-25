@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -42,6 +43,7 @@ internal object GitHubCollaboration {
         val isPr = action.startsWith("pr_")
         val operation = action.substringAfter('_')
         val number = positive(if (isPr) "pull_number" else "issue_number")
+        if (action == "pr_threads") return threadPage(root, number, args, graphQl)
         val parentPath = "$root/${if (isPr) "pulls" else "issues"}/$number"
         val parent = read(parentPath).jsonObject
         val expected = text(if (isPr) "expected_head_sha" else "expected_updated_at")
@@ -50,34 +52,14 @@ internal object GitHubCollaboration {
         } else {
             value["updated_at"] == JsonPrimitive(expected)
         }
-        if (action !in reads) {
-            require(expected.isNotBlank() && (!isPr || expected.matches(Regex("[a-fA-F0-9]{40}")))) { "Read the current target and provide its revision guard." }
-            check(unchanged(parent)) { "The target changed. Refresh before continuing." }
-            if (!isPr) require("pull_request" !in parent) { "Use github_pr for pull requests." }
-        }
+        require(expected.isNotBlank() && (!isPr || expected.matches(Regex("[a-fA-F0-9]{40}")))) { "Read the current target and provide its revision guard." }
+        check(unchanged(parent)) { "The target changed. Refresh before continuing." }
+        if (!isPr) require("pull_request" !in parent) { "Use github_pr for pull requests." }
         val nodeId = parent["node_id"] ?: JsonNull
         val issuePath = "$root/issues/$number"
         var verified = false
         var outcome: JsonElement = JsonNull
         when (operation) {
-            "threads" -> {
-                val after = text("after").takeIf(String::isNotBlank)
-                require(after == null || after.length <= 1024) { "Invalid thread continuation." }
-                val data = graphQl(
-                    "query Threads(\$id:ID!,\$after:String) { node(id:\$id) { ... on PullRequest { id headRefOid reviewThreads(first:30,after:\$after) { nodes { id isResolved isOutdated path comments(first:1) { nodes { id databaseId body updatedAt } } } pageInfo { hasNextPage endCursor } } } } }",
-                    buildJsonObject {
-                        put("id", nodeId)
-                        put("after", after?.let(::JsonPrimitive) ?: JsonNull)
-                    }
-                )
-                val pr = data["data"]?.jsonObject?.get("node")?.jsonObject ?: error("PR thread response unavailable.")
-                return buildJsonObject {
-                    put("pull_number", number)
-                    put("head_sha", pr["headRefOid"] ?: JsonNull)
-                    put("threads", pr["reviewThreads"] ?: JsonNull)
-                    put("coverage", "One bounded thread page; follow pageInfo.endCursor using after while hasNextPage is true. Only the first comment of each thread is included.")
-                }
-            }
             "request_reviewers", "remove_reviewers" -> {
                 val reviewers = strings("reviewers", false)
                 val teams = strings("team_reviewers", false)
@@ -202,6 +184,41 @@ internal object GitHubCollaboration {
             put("result", outcome)
             if (isPr) put("head_sha", expected)
             if (operation == "enable_auto_merge") put("completion", "AUTO_MERGE_ENABLED_NOT_MERGED")
+        }
+    }
+
+    private suspend fun threadPage(root: String, number: Long, args: JsonObject, graphQl: suspend (String, JsonObject) -> JsonObject): JsonObject {
+        val after = (args["after"] as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
+        require(number <= Int.MAX_VALUE && (after == null || after.length <= 1024)) { "Invalid PR number or thread continuation." }
+        val repo = root.removePrefix("/repos/")
+        val response = graphQl(
+            "query Threads(\$owner:String!,\$repo:String!,\$number:Int!,\$after:String) { repository(owner:\$owner,name:\$repo) { pullRequest(number:\$number) { headRefOid reviewThreads(first:30,after:\$after) { nodes { id isResolved isOutdated path comments(first:1) { nodes { id databaseId body updatedAt } } } pageInfo { hasNextPage endCursor } } } } }",
+            buildJsonObject {
+                put("owner", repo.substringBefore('/'))
+                put("repo", repo.substringAfter('/'))
+                put("number", number)
+                put("after", after?.let(::JsonPrimitive) ?: JsonNull)
+            }
+        )
+        check((response["errors"] as? JsonArray).isNullOrEmpty()) { "GitHub returned an incomplete PR thread response." }
+        val pr = response["data"]?.jsonObject?.get("repository")?.jsonObject?.get("pullRequest")?.jsonObject ?: error("PR threads unavailable.")
+        val head = pr["headRefOid"]?.jsonPrimitive?.content.orEmpty()
+        check(head.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) { "GitHub omitted the PR head for this thread page." }
+        check(args["expected_head_sha"] == null || args["expected_head_sha"] == JsonPrimitive(head)) { "The PR head changed. Refresh the first thread page." }
+        val threads = pr["reviewThreads"]?.jsonObject ?: error("PR thread page unavailable.")
+        check(threads["nodes"] is JsonArray) { "PR thread rows unavailable." }
+        val page = threads["pageInfo"]?.jsonObject ?: error("PR thread pagination unavailable.")
+        val more = page["hasNextPage"]?.jsonPrimitive?.booleanOrNull ?: error("PR thread pagination unavailable.")
+        return buildJsonObject {
+            put("pull_number", number)
+            put("head_sha", head)
+            put("threads", threads)
+            put("coverage", "One thread page with the first comment of each thread.")
+            if (more) {
+                val cursor = (page["endCursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                check(!cursor.isNullOrBlank() && cursor.length <= 1024 && cursor != after) { "GitHub did not advance the PR thread cursor." }
+                put("threads_continuation", JsonObject(args + mapOf("action" to JsonPrimitive("pr_threads"), "after" to JsonPrimitive(cursor), "expected_head_sha" to JsonPrimitive(head))))
+            }
         }
     }
 }

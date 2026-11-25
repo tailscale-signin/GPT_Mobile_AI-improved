@@ -5,6 +5,7 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 
 /** The selected SDK engine owns its model lease; it never opens the native Kokoro pack or lexicon. */
@@ -16,11 +17,12 @@ internal class MediaPipeVoicePhraseEngineFactory(
     private val voiceId: String = MediaPipeSpeechCatalog.model(engine).defaultVoice,
     val kokoroBucket: MediaPipeKokoroBucket = MediaPipeKokoroBucket.AUTO,
     val incrementalInput: Boolean = true,
-    private val onCpuFallback: ((VoiceSpeechBackend) -> Unit)? = null,
+    private val onPlaybackDelegate: ((VoiceSpeechBackend) -> Unit)? = null,
     private val taskFactory: (MediaPipeSpeechTaskConfiguration) -> MediaPipeSpeechTask = ::AndroidMediaPipeSpeechTask
 ) : VoicePhraseEngineFactory {
     private val model = MediaPipeSpeechCatalog.model(engine)
     private val generation = AtomicLong()
+    private val reportedBackend = AtomicReference<VoiceSpeechBackend?>()
     private val pendingLock = Any()
     private var pending: MediaPipeSpeechTask? = null
     private val cleanupPending = AtomicBoolean()
@@ -43,10 +45,20 @@ internal class MediaPipeVoicePhraseEngineFactory(
     override val nativeCleanupPending: Boolean get() = cleanupPending.get()
     override fun isReady(): Boolean = modelStore.isReady(engine)
     val effectiveTargetBucket: Int = if (engine == MediaPipeSpeechEngine.KOKORO) kokoroBucket.sdkValue else 0
-    override val residentIdentity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:bucket=$effectiveTargetBucket:incremental=$incrementalInput:allowCpuFallback=${onCpuFallback != null}"
+    override val residentIdentity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:bucket=$effectiveTargetBucket:incremental=$incrementalInput:allowCpuFallback=${onPlaybackDelegate != null}"
     override val identity = "$residentIdentity:voice=$voiceId"
 
-    override fun prepareForPlayback(engine: VoicePhraseEngine) = engine.selectVoice(voiceId)
+    override fun prepareForPlayback(engine: VoicePhraseEngine) {
+        engine.selectVoice(voiceId)
+        if (engine is MediaPipeVoicePhraseEngine) reportBackend(engine)
+    }
+
+    private fun reportBackend(engine: MediaPipeVoicePhraseEngine) {
+        val report = onPlaybackDelegate ?: return
+        if (reportedBackend.getAndSet(engine.configuredBackend) != engine.configuredBackend) {
+            runCatching { report(engine.configuredBackend) }
+        }
+    }
 
     override fun cancelPending() {
         generation.incrementAndGet()
@@ -57,10 +69,10 @@ internal class MediaPipeVoicePhraseEngineFactory(
         check(!nativeCleanupPending) { "Native speech cleanup is unconfirmed; restart the app before another preparation." }
         // directory/lexicon/threads belong to the legacy engine contract. The SDK exposes no
         // thread-count control, and its model/voice frontend is wholly inside the verified bundle.
-        return open(backend, generation.get())
+        return open(backend, generation.get()).also(::reportBackend)
     }
 
-    private fun open(request: VoiceSpeechBackend, ticket: Long): VoicePhraseEngine {
+    private fun open(request: VoiceSpeechBackend, ticket: Long): MediaPipeVoicePhraseEngine {
         checkTicket(ticket)
         val lease = modelStore.acquire(engine, request, speakingRate, model.defaultVoice, effectiveTargetBucket)
         var task: MediaPipeSpeechTask? = null
@@ -104,21 +116,19 @@ internal class MediaPipeVoicePhraseEngineFactory(
             // Only retry failed accelerator environment setup or construction. Once a task exists, its
             // voice/stream errors belong to that task. Benchmark factories stay strict.
             if (task == null &&
-                onCpuFallback != null &&
+                onPlaybackDelegate != null &&
                 request in setOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU) &&
                 failure !is CancellationException &&
                 failure !is InterruptedException &&
                 (failure is Exception || failure is LinkageError)
             ) {
                 checkTicket(ticket)
-                val cpu = try {
+                return try {
                     open(VoiceSpeechBackend.LITERT_KOKORO_CPU, ticket)
                 } catch (cpuFailure: Throwable) {
                     if (cpuFailure !== failure) cpuFailure.addSuppressed(failure)
                     throw cpuFailure
                 }
-                runCatching { onCpuFallback?.invoke(request) }
-                return cpu
             }
             throw failure
         }

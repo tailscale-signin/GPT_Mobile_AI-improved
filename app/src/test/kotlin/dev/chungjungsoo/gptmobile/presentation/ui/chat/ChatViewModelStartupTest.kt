@@ -145,6 +145,27 @@ class ChatViewModelStartupTest {
         assertTrue(model.loadingStates.value.all { it == ChatViewModel.LoadingState.Idle })
     }
 
+    @Test fun savedChatOpensFromItsLiveWindowWithoutReadingEveryRoomOrTheFullTranscript() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        messages.value = listOf(MessageV2(id = 8, chatId = 7, content = "Saved request", platformType = null))
+        val model = createViewModel(combined = false)
+        withTimeout(5_000) { model.isLoaded.first { it } }
+        assertEquals("Saved request", model.groupedMessages.value.userMessages.single().content)
+        coVerify(exactly = 1) { repository.fetchChatRoom(7) }
+        coVerify(exactly = 0) { repository.fetchChatListV2() }
+        coVerify(exactly = 0) { repository.fetchArchivedChatListV2() }
+        coVerify(exactly = 0) { repository.fetchMessageReferencesV2(7) }
+    }
+
+    @Test fun failedInitialWindowKeepsTheDraftAndBlocksSending() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val model = createViewModel(combined = false, history = kotlinx.coroutines.flow.flow { error("Unavailable") })
+        withTimeout(5_000) { model.roomLoadError.first { it != null } }
+        model.askQuestion()
+        assertEquals("Saved draft", model.question.text.toString())
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+    }
+
     @Test fun ordinaryTranscriptExportRunsOffTheUiCallerAndRetainsOnlyTheSelectedAnswer() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         messages.value = listOf(
@@ -1136,15 +1157,14 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null, settings: SettingRepository = mockk(relaxed = true)): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null, settings: SettingRepository = mockk(relaxed = true), history: kotlinx.coroutines.flow.Flow<List<MessageV2>> = messages): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
-        every { repository.observeMessageWindow(chatId, any()) } returns messages
+        every { repository.observeMessageWindow(chatId, any()) } returns history
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
         every { repository.observeAgentRuns(chatId) } returns runs
         every { repository.observeProviderWaitDeadlines(chatId) } returns waitDeadlines
         every { repository.observeToolEvents(chatId) } returns flowOf(emptyList())
-        coEvery { repository.fetchChatListV2() } returns if (roomAvailable) listOf(room) else emptyList()
-        coEvery { repository.fetchArchivedChatListV2() } returns emptyList()
+        coEvery { repository.fetchChatRoom(chatId) } returns room.takeIf { roomAvailable }
         coEvery { repository.fetchMessagesV2(chatId) } answers { messages.value }
         coEvery { repository.fetchChatPlatformModels(chatId) } returns profiles.associate { it.uid to it.model }
         every { exitWork.enqueue(any(), any()) } answers {

@@ -31,6 +31,7 @@ class PhoneRepositoryGraphSessionTest {
     private val treeSha = "b".repeat(40)
     private val state = GitHubRepositoryStateStore()
     private var blobs = 0
+    private var treeOverride: JsonObject? = null
     private var treeSize = 50
     private var truncated = false
     private var invalidSource = false
@@ -42,7 +43,8 @@ class PhoneRepositoryGraphSessionTest {
             put("sha", path.substringAfterLast('/'))
             put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", treeSha) }) })
         }
-        "/git/trees/" in path -> buildJsonObject {
+        "/git/trees/" in path -> treeOverride ?: buildJsonObject {
+            put("sha", treeSha)
             put("truncated", truncated)
             put(
                 "tree",
@@ -144,6 +146,35 @@ class PhoneRepositoryGraphSessionTest {
         val summary = reader.repositoryMap("owner", "repo", arguments("status")).getValue("task_context").jsonObject
         assertFalse(summary.toString().contains("excerpt"))
         assertFalse(summary.toString().contains("fun useful"))
+    }
+
+    @Test fun malformedTreesCannotBecomeSharedSourceForAnotherTask() = runTest {
+        val args = arguments("architecture")
+        val legacyTree = buildJsonObject {
+            put("tree_sha", treeSha)
+            put("tree", JsonArray(emptyList()))
+            put("truncated", false)
+        }
+        state.write("account:owner/repo", "phone-graph:tree-v1:$treeSha", legacyTree)
+        state.write("account:owner/repo", "tree:$head", legacyTree)
+        val responses = listOf(
+            buildJsonObject {
+                put("sha", otherHead)
+                put("tree", JsonArray(emptyList()))
+            } to "EVIDENCE_REVISION_MISMATCH",
+            buildJsonObject { put("sha", treeSha) } to "GITHUB_TREE_UNAVAILABLE"
+        )
+        for ((response, expected) in responses) {
+            treeOverride = response
+            val failure = runCatching { session().repositoryMap("owner", "repo", args) }.exceptionOrNull()
+            assertEquals(expected, (failure as? GitHubReadValidation)?.code)
+        }
+        treeOverride = null
+        val recovered = session("new-chat-task").repositoryMap("owner", "repo", args)
+        assertEquals(treeSize, recovered.getValue("graph").jsonObject.getValue("expected_files").jsonPrimitive.int)
+        treeOverride = buildJsonObject { put("message", "Unexpected tree refetch") }
+        val reused = session("another-task").repositoryMap("owner", "repo", args)
+        assertEquals(recovered["nodes"], reused["nodes"])
     }
 
     @Test fun initialMapShowsTheRealTreeWithoutDownloadingAnySource() = runTest {

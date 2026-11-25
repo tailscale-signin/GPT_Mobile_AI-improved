@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import await_release_checks as checks
@@ -111,6 +112,34 @@ class WorkflowPaginationTest(unittest.TestCase):
         for link in ["", '<https://untrusted.invalid/page>; rel="next"']:
             with self.subTest(link=link), self.assertRaises(ValueError):
                 checks.fetch_runs("o/r", SHA, "fixture", opener=lambda *a, **k: self.Response({"total_count": 2, "workflow_runs": [{"id": 1}]}, link))
+
+    def test_overlapping_pages_cannot_hide_an_unseen_workflow(self):
+        next_url = f"https://api.github.com/repos/o/r/actions/runs?head_sha={SHA}&per_page=100&page=2"
+        pages = [self.Response({"total_count": 2, "workflow_runs": [{"id": 1}]}, f'<{next_url}>; rel="next"'),
+                 self.Response({"total_count": 2, "workflow_runs": [{"id": 1}]})]
+        with self.assertRaisesRegex(ValueError, "duplicate workflow"):
+            checks.fetch_runs("o/r", SHA, "fixture", opener=lambda *a, **k: pages.pop(0))
+
+    def test_inventory_count_and_run_id_must_be_observed(self):
+        for document in ({"workflow_runs": []}, {"total_count": 0, "workflow_runs": [{"id": 1}]},
+                         {"total_count": 1, "workflow_runs": [{"id": True}]}):
+            with self.subTest(document=document), self.assertRaises(ValueError):
+                checks.fetch_runs("o/r", SHA, "fixture", opener=lambda *a, **k: self.Response(document))
+
+    def test_release_waits_for_a_fresh_inventory_after_pages_shift(self):
+        run = dict(id=3, name="Build", head_sha=SHA, event="push", status="completed", conclusion="success")
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder, "release-checks.json")
+            snapshots = []
+            with patch.object(sys, "argv", ["await_release_checks", "--sha", SHA, "--repository", "o/r", "--output", str(output)]), \
+                 patch.dict(checks.os.environ, {"GH_TOKEN": "fixture"}), \
+                 patch.object(checks, "required_workflows", return_value=["Build"]), \
+                 patch.object(checks, "fetch_runs", side_effect=[checks.IncompleteWorkflowInventory("page shifted"), [run]]), \
+                 patch.object(checks.time, "sleep", side_effect=lambda _: snapshots.append(json.loads(output.read_text()))):
+                checks.main()
+            self.assertEqual(["PENDING"], [state["status"] for state in snapshots])
+            self.assertEqual([], snapshots[0]["workflows"])
+            self.assertEqual("PASSED", json.loads(output.read_text())["status"])
 
 
 if __name__ == "__main__":

@@ -1384,8 +1384,10 @@ def durable_cleanup_old_jobs(connection=None):
         if old_ids:
             projection = globals().get('gateway_conversations')
             if projection:
-                for job_id in old_ids:
-                    projection.mark_expired(conn, job_id)
+                expired = [job_id for job_id in old_ids if projection.mark_expired(conn, job_id)]
+                if len(expired) != len(old_ids):
+                    logger.warning("Retained %d unreadable job snapshots during cleanup", len(old_ids) - len(expired))
+                old_ids = expired
             conn.executemany(
                 "DELETE FROM gateway_events WHERE job_id = ?",
                 [(job_id,) for job_id in old_ids],
@@ -1450,6 +1452,8 @@ def init_durable_job_store():
                 for row in rows:
                     try:
                         public = json.loads(row["public_json"] or "{}")
+                        if not isinstance(public, dict) or public.setdefault("job_id", row["job_id"]) != row["job_id"]:
+                            raise ValueError("Invalid saved job identity")
                         result = (
                             json.loads(row["result_json"])
                             if row["result_json"]

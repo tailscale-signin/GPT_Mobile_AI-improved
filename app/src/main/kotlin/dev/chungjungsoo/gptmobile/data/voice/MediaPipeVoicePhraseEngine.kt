@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicReference
 internal class MediaPipeVoicePhraseEngine(
     private val task: MediaPipeSpeechTask,
     private val modelLease: AutoCloseable,
-    backend: VoiceSpeechBackend,
+    val configuredBackend: VoiceSpeechBackend,
     private val speakingRate: Float,
     private var voiceId: String,
     override val supportsIncrementalInput: Boolean = true
@@ -30,7 +30,7 @@ internal class MediaPipeVoicePhraseEngine(
 
     // A requested delegate is not evidence of actual kernel placement. The SDK provides
     // no such evidence or public thread-count control, so neither is manufactured here.
-    override val executionProvider: String = when (backend) {
+    override val executionProvider: String = when (configuredBackend) {
         VoiceSpeechBackend.LITERT_KOKORO_CPU -> "mediapipe-kokoro-cpu-requested"
         VoiceSpeechBackend.LITERT_KOKORO_GPU -> "mediapipe-kokoro-gpu-requested"
         VoiceSpeechBackend.LITERT_KOKORO_NPU -> "mediapipe-kokoro-npu-requested"

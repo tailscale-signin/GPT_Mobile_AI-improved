@@ -292,6 +292,12 @@ internal class VoiceBackendViewModel internal constructor(
             // Only inspect the selected pack. Voice/rate changes reuse the verified generation
             // instead of hashing every installed model or starting unrelated downloads.
             if (refreshedStreamingModels.add(engine)) viewModelScope.launch { models.refresh(engine, forceVerification = false) }
+            val accelerated = value.backend == VoiceSpeechBackend.LITERT_KOKORO_GPU || value.backend == VoiceSpeechBackend.LITERT_KOKORO_NPU
+            val status = if (accelerated) {
+                "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If initialization fails, playback opens the same model on CPU."
+            } else {
+                "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
+            }
             Prepared(
                 MediaPipeVoicePhraseEngineFactory(
                     models,
@@ -301,15 +307,12 @@ internal class VoiceBackendViewModel internal constructor(
                     if (engine == MediaPipeSpeechEngine.KOKORO) voice.streamingVoiceId() else descriptor.defaultVoice,
                     kokoroBucket = bucket,
                     incrementalInput = incremental,
-                    onCpuFallback = { requested ->
-                        report("${requested.label} could not initialize. Kokoro LiteRT is using CPU with the same voice and rate.")
+                    onPlaybackDelegate = { configured ->
+                        val message = if (configured == value.backend) status else "${value.backend.label} could not initialize. Kokoro LiteRT is using CPU with the same voice and rate."
+                        report(message)
                     }
                 ),
-                if (value.backend in setOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU)) {
-                    "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If initialization fails, playback opens the same model on CPU."
-                } else {
-                    "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
-                }
+                status
             )
         }
     }

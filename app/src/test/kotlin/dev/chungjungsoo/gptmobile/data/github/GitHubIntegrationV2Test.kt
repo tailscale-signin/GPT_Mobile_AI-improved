@@ -152,6 +152,7 @@ class GitHubIntegrationV2Test {
                 respond(
                     """
                     {
+                      "sha": "${"b".repeat(40)}",
                       "truncated": false,
                       "tree": [
                         {"path":"src/App.kt","type":"blob","mode":"100644","sha":"a","size":100},

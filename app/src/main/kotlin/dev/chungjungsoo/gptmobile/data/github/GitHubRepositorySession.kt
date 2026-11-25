@@ -161,22 +161,21 @@ internal class GitHubRepositorySession(
 
     private suspend fun retainedTree(context: GitHubTaskSnapshot): JsonObject? {
         val sourceScope = blobScope(context)
-        val treeKey = "phone-graph:tree-v1:${context.treeSha}"
+        val treeKey = "phone-graph:tree-v$GITHUB_TREE_CACHE_VERSION:${context.treeSha}"
         return cachedSource(sourceScope, treeKey)?.takeIf { it.s("tree_sha") == context.treeSha }
-            ?: cachedSource(sourceScope, "tree:${context.commitSha}")?.takeIf { it.s("tree_sha") == context.treeSha }?.also { store.write(sourceScope, treeKey, it) }
     }
 
     private suspend fun tree(context: GitHubTaskSnapshot): JsonObject {
         val scope = blobScope(context)
         retainedTree(context)?.let { return it }
-        val response = request("${root(context.owner, context.repo)}/git/trees/${context.treeSha}?recursive=1").jsonObject
-        val entries = response["tree"]?.jsonArray.orEmpty()
+        val response = GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/${context.treeSha}?recursive=1").jsonObject, context.treeSha)
+        val entries = response.getValue("tree").jsonArray
         val bounded = buildJsonObject {
             put("tree", JsonArray(entries.take(20000).map { row -> JsonObject(row.jsonObject.filterKeys { it in setOf("path", "sha", "size", "type", "mode") }) }))
             put("truncated", entries.size > 20000 || response["truncated"]?.jsonPrimitive?.booleanOrNull == true)
             put("tree_sha", context.treeSha)
         }
-        store.write(scope, "phone-graph:tree-v1:${context.treeSha}", bounded)
+        store.write(scope, "phone-graph:tree-v$GITHUB_TREE_CACHE_VERSION:${context.treeSha}", bounded)
         return bounded
     }
 
@@ -521,8 +520,8 @@ internal class GitHubRepositorySession(
         val entries = tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
         val eligible = indexableSourceEntries(entries)
         val sourceScope = blobScope(context)
-        val checkpointKey = "phone-map-progress:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}"
-        val cursorPrefix = "phone-index:${GitHubRepositoryStateStore.digest("$accountId|$connectionUid|${context.owner.lowercase()}/${context.repo.lowercase()}|${context.commitSha}|${context.treeSha}|${PhoneRepositoryGraph.PARSER_VERSION}").take(32)}:"
+        val checkpointKey = "phone-map-progress:v$GITHUB_TREE_CACHE_VERSION:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}"
+        val cursorPrefix = "phone-index:${GitHubRepositoryStateStore.digest("$GITHUB_TREE_CACHE_VERSION|$accountId|$connectionUid|${context.owner.lowercase()}/${context.repo.lowercase()}|${context.commitSha}|${context.treeSha}|${PhoneRepositoryGraph.PARSER_VERSION}").take(32)}:"
         val saved = store.read(sourceScope, checkpointKey)
         val savedPosition = (saved?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..eligible.size } ?: 0
         val suppliedCursor = args.s("index_cursor")
@@ -695,7 +694,7 @@ internal class GitHubRepositorySession(
         val result = PhoneRepositoryGraph.execute(context, tree, cached, status, args, retained) { built = it }
         if (topologyKey != null) built?.save(store, sourceScope, topologyKey)
         if (action == "status") {
-            val summary = store.read(scope, "phone-context-summary:${context.commitSha}")?.takeIf { it.s("source_sha") == context.commitSha }
+            val summary = store.read(scope, "phone-context-summary:v$GITHUB_TREE_CACHE_VERSION:${context.commitSha}")?.takeIf { it.s("source_sha") == context.commitSha }
             JsonObject(result + mapOf("source_storage" to store.sourceStorageStatus()) + summary?.let { mapOf("task_context" to it) }.orEmpty())
         } else {
             result
@@ -718,6 +717,7 @@ internal class GitHubRepositorySession(
             val requestKey = GitHubRepositoryStateStore.digest(
                 buildJsonObject {
                     put("bundle_version", GitHubTaskContextBundle.VERSION)
+                    put("tree_cache_version", GITHUB_TREE_CACHE_VERSION)
                     put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
                     put("repository", "${context.owner}/${context.repo}")
                     put("ref", context.ref)
@@ -830,7 +830,7 @@ internal class GitHubRepositorySession(
             put("source_current", packet.s("source_sha") == context.commitSha)
             put("summary_scope", "SELECTED_ACCOUNT_PROFILE_REPOSITORY_REVISION")
         }
-        store.write(scope, "phone-context-summary:${context.commitSha}", summary)
+        store.write(scope, "phone-context-summary:v$GITHUB_TREE_CACHE_VERSION:${context.commitSha}", summary)
     }
 
     /** Explicit foreground preparation. Every batch is bounded and pinned to one SHA. */
@@ -1169,7 +1169,7 @@ internal class GitHubRepositorySession(
             put("max_new_blobs", maxNewBlobs)
             options.json().forEach { (key, value) -> put(key, value) }
         }
-        val searchId = GitHubRepositoryStateStore.digest(definition.toString())
+        val searchId = GitHubRepositoryStateStore.digest("$GITHUB_TREE_CACHE_VERSION:$definition")
         val requestedSearchId = args.s("search_id")
         val cursorText = args.s("index_cursor").ifBlank { "0" }
         val requestedCursor = cursorText.toIntOrNull()?.takeIf { it >= 0 }
@@ -1616,9 +1616,9 @@ internal class GitHubRepositorySession(
                 null
             } else {
                 val treeSha = directoryTrees[dir] ?: continue
-                val response = cachedSource(blobScope(context), "guidance-tree:$treeSha")
-                    ?: request("${root(context.owner, context.repo)}/git/trees/$treeSha").jsonObject.also {
-                        store.write(blobScope(context), "guidance-tree:$treeSha", it)
+                val response = cachedSource(blobScope(context), "guidance-tree:v$GITHUB_TREE_CACHE_VERSION:$treeSha")
+                    ?: GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/$treeSha").jsonObject, treeSha).also {
+                        store.write(blobScope(context), "guidance-tree:v$GITHUB_TREE_CACHE_VERSION:$treeSha", it)
                     }
                 require(response["truncated"]?.jsonPrimitive?.booleanOrNull != true) { "The instruction directory listing is incomplete." }
                 response["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { row ->

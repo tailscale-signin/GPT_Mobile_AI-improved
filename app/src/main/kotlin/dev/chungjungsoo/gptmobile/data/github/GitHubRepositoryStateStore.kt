@@ -690,6 +690,6 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         const val MAX_PROTECTED_RECORD_BYTES = 160 * 1024
         private val CLAIM_KEY = Regex("(?:execution|fixture):[a-f0-9]{64}")
         private const val KEY = "github-repository-state-v1"
-        fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray()).joinToString("") { "%02x".format(it) }
+        fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray()).toHexString()
     }
 }

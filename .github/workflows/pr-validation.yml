@@ -460,17 +460,10 @@ jobs:
           python3 -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-ci.txt
       - name: Repository contracts and workflow policy
         run: |
-          python3 scripts/check_ci_policy.py
-          python3 scripts/sync_agent_metadata.py --check
-          python3 scripts/generate_architecture_index.py --check
+          bash scripts/validate-local.sh fast
           python3 scripts/check_unified_reliability_v2.py
-          python3 scripts/check_android_regex.py
-          python3 scripts/check_dependency_catalog.py
-          python3 -m unittest discover -s scripts/tests
           python3 scripts/test_gguf_prefill_governor.py
-          bash scripts/validate.sh resources
           python3 scripts/check_change_size.py --base "$CHANGE_BASE"
-          python3 scripts/scan_secrets.py
       - name: Scan reachable Git history for credentials
         run: bash scripts/scan_secret_history.sh --verify-integrity
       - name: Review newly introduced dependency vulnerabilities

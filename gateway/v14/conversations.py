@@ -507,11 +507,19 @@ class Conversations:
     def mark_expired(self, db, job_id):
         self.schema(db)
         row = db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()
-        public = json.loads(row[0]) if row else {}
+        try:
+            public = json.loads(row[0]) if row else {}
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(public, dict) or public.get('job_id', job_id) != job_id:
+            return False
         principal = public.get('principal_id')
+        if principal is not None and not isinstance(principal, str):
+            return False
         if principal:
             db.execute('INSERT OR REPLACE INTO gateway_history_tombstones VALUES(?,?,?,?)', (principal, 'generation', job_id, self.now()))
             db.execute('DELETE FROM gateway_generation_admissions WHERE job_id=?', (job_id,))
+        return True
 
     def is_expired(self, principal, kind, ident):
         return self.read(lambda db: bool(db.execute('SELECT 1 FROM gateway_history_tombstones WHERE principal=? AND kind=? AND id=?', (principal, kind, ident)).fetchone()))

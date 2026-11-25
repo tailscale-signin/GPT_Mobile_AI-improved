@@ -914,7 +914,8 @@ class GitHubWorkspaceClient(
         val commit = request("$root/commits/${segment(target)}").jsonObject
         val sha = commit["sha"]?.jsonPrimitive?.content ?: error("Selected commit is unavailable.")
         val treeSha = commit["commit"]?.jsonObject?.get("tree")?.jsonObject?.get("sha")?.jsonPrimitive?.content ?: error("Selected tree is unavailable.")
-        return JsonObject(GitHubRepositoryIndex.compact(request("$root/git/trees/$treeSha?recursive=1").jsonObject, page) + mapOf("commit_sha" to JsonPrimitive(sha), "tree_sha" to JsonPrimitive(treeSha)))
+        val tree = request("$root/git/trees/$treeSha?recursive=1").jsonObject
+        return JsonObject(GitHubRepositoryIndex.compact(tree, page) + mapOf("commit_sha" to JsonPrimitive(sha), "tree_sha" to JsonPrimitive(treeSha)))
     }
 
     private suspend fun relatedFiles(root: String, ref: String, path: String): JsonObject {
@@ -922,8 +923,13 @@ class GitHubWorkspaceClient(
         val target = ref.ifBlank {
             request(root).jsonObject["default_branch"]?.jsonPrimitive?.content ?: "HEAD"
         }
-        val tree = request("$root/git/trees/${segment(target)}?recursive=1").jsonObject
+        val commit = request("$root/commits/${segment(target)}").jsonObject
+        val sha = commit.getValue("sha").jsonPrimitive.content
+        val treeSha = commit.getValue("commit").jsonObject.getValue("tree").jsonObject.getValue("sha").jsonPrimitive.content
+        val tree = request("$root/git/trees/${segment(treeSha)}?recursive=1").jsonObject
         return buildJsonObject {
+            put("commit_sha", sha)
+            put("tree_sha", treeSha)
             put("path", path)
             put("related", GitHubRepositoryIndex.related(tree, path))
             put("truncated", tree["truncated"] ?: JsonPrimitive(false))
@@ -2912,7 +2918,7 @@ class GitHubWorkspaceClient(
                 }
                 if (response.status.value == 304 && cached != null) {
                     GitHubDispatchAccounting.freshness(path, GitHubReadFreshness.CONDITIONAL_BODY_UNCHANGED, cached.storedAtMillis)
-                    responseCache.put(cacheKey, cached.etag, cached.value)
+                    responseCache.revalidated(cacheKey, cached)
                     scheduler.recordCacheHit()
                     return@execute cached.value
                 }
@@ -2979,6 +2985,7 @@ class GitHubWorkspaceClient(
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+                if (method == HttpMethod.Get) GitHubRepositoryIndex.checkPinnedTreeResponse(path, parsed)
                 if (method == HttpMethod.Get &&
                     cached != null &&
                     cached.etag.isNotBlank() &&
@@ -2989,13 +2996,11 @@ class GitHubWorkspaceClient(
                 }
                 if (method == HttpMethod.Get) credential.refAvailability.succeeded(path)
                 if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
-                if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
+                if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, GitHubResponseCache.isImmutableRequest(path))
                 parsed
             }
         }
     }
-
-    private fun immutablePath(path: String): Boolean = Regex("/(?:git/(?:blobs|trees)|commits)/[a-fA-F0-9]{40,64}(?:[/?]|$)").containsMatchIn(path) && !path.contains("check-runs") && !path.substringBefore('?').endsWith("/status") || Regex("[?&]ref=[a-fA-F0-9]{40,64}(?:&|$)").containsMatchIn(path)
 
     private suspend fun accountedRequest(url: String, observationId: String?, mutation: Boolean, block: HttpRequestBuilder.() -> Unit): GitHubBoundedResponse = try {
         client.githubRequest(url, block)

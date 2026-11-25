@@ -62,6 +62,36 @@ class LocalVoiceModelStoreTest {
         assertFalse(File(store.modelDirectory().parentFile, "installing").exists())
     }
 
+    @Test fun slowProgressMayExceedFiveMinutesButAnIdleDownloadTimesOut() = runBlocking {
+        for (stalled in listOf(false, true)) {
+            var now = 0L
+            val store = LocalVoiceModelStore(files.newFolder(), listOf(asset), nanoTime = { now }) {
+                object : LocalVoiceAssetSource {
+                    override fun open(url: String): LocalVoiceAssetStream {
+                        val data = object : ByteArrayInputStream(contents) {
+                            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                                now += TimeUnit.MINUTES.toNanos(1)
+                                return if (stalled) 0 else super.read(buffer, offset, minOf(1, length))
+                            }
+                        }
+                        return LocalVoiceAssetStream(data, asset.bytes)
+                    }
+
+                    override fun cancel() = Unit
+                }
+            }
+            store.install()
+            assertTrue(now >= TimeUnit.MINUTES.toNanos(5))
+            if (stalled) {
+                assertEquals(VoiceAssetFailureKind.TIMEOUT, store.state.value.failureKind)
+                assertFalse(store.modelDirectory().exists())
+            } else {
+                assertTrue(store.verifyInstalledFiles())
+                assertTrue(store.isInstalled())
+            }
+        }
+    }
+
     @Test fun wrongHashAndOversizeNeverPublishAReadyModel() = runBlocking {
         for (data in listOf(ByteArray(contents.size), contents + byteArrayOf(1))) {
             val store = store { ByteArrayInputStream(data) }

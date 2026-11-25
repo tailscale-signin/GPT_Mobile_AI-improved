@@ -661,6 +661,19 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(restored['_events'][0]['sequence'], 1)
         self.assertEqual(self.runtime.durable_job_metrics['event_writes'], 1)
 
+    def test_restart_preserves_damaged_records_and_restores_a_legacy_job_by_its_primary_key(self):
+        self.legacy_database()
+        with closing(sqlite3.connect(self.db)) as db, db:
+            for key, public in [('old-format', {'status': 'completed'}), ('unreadable', []),
+                                ('conflict', {'job_id': 'other-job', 'status': 'running'})]:
+                db.execute('INSERT INTO gateway_jobs(job_id,public_json,status,updated_at) VALUES(?,?,?,?)',
+                           (key, json.dumps(public), 'completed', time.time()))
+        self.assertTrue(self.runtime.init_durable_job_store())
+        self.assertEqual({'saved', 'old-format'}, set(self.runtime.job_registry))
+        self.assertEqual('old-format', self.runtime.job_registry['old-format']['job_id'])
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertEqual(4, db.execute('SELECT COUNT(*) FROM gateway_jobs').fetchone()[0])
+
     def test_legacy_database_stream_upgrades_without_losing_saved_state(self):
         self.legacy_database(missing_finished=True)
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion):

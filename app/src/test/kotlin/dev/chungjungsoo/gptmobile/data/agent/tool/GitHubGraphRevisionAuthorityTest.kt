@@ -41,7 +41,7 @@ class GitHubGraphRevisionAuthorityTest {
                     val sha = if (requested in setOf("main", "feature")) current else requested
                     """{"sha":"$sha","commit":{"tree":{"sha":"$tree"}}}"""
                 }
-                "/git/trees/" in path -> """{"tree":[{"path":"src/File.kt","type":"blob","mode":"100644","sha":"$blob","size":20}],"truncated":false}"""
+                "/git/trees/" in path -> """{"sha":"$tree","tree":[{"path":"src/File.kt","type":"blob","mode":"100644","sha":"$blob","size":20}],"truncated":false}"""
                 "/git/blobs/" in path -> """{"sha":"$blob","encoding":"base64","content":"${Base64.getEncoder().encodeToString("fun observed() = 1\n".toByteArray())}"}"""
                 else -> error("Unexpected repository request $path")
             }

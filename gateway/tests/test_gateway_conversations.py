@@ -243,10 +243,23 @@ class ConversationHTTPTests(unittest.TestCase):
             self.assertTrue(second['complete'])
             self.assertEqual(3, len({row['job_id'] for row in first['items'] + second['items']}))
             self.assertEqual(400, client.get('/gateway/job-catalog?limit=101').status_code)
+            # A damaged snapshot owned by another principal must not break this phone's catalog.
+            with closing(self.runtime._durable_connect()) as db, db:
+                db.execute('INSERT INTO gateway_jobs(job_id,public_json,status,updated_at) VALUES(?,?,?,?)',
+                           ('foreign-job', '{invalid-json', 'completed', time.time()))
+            generation = client.get('/gateway/job-catalog', params={'kind': 'generation'})
+            self.assertEqual(200, generation.status_code)
+            self.assertEqual(3, len(generation.json()['items']))
+            with patch.object(self.store, 'owned_job_ids', side_effect=AssertionError('unrelated generation read')):
+                engineering = client.get('/gateway/job-catalog', params={'kind': 'engineering'})
+                self.assertEqual(200, engineering.status_code)
+                self.assertEqual([], engineering.json()['items'])
             # Reading both kinds of catalog never submits model work.
             self.assertEqual(3, model.call_count)
             with patch.object(self.runtime, 'DURABLE_JOB_RETENTION_SECONDS', -1):
                 self.runtime.durable_cleanup_old_jobs()
+            with closing(self.runtime._durable_connect()) as db:
+                self.assertEqual([('foreign-job',)], [tuple(row) for row in db.execute('SELECT job_id FROM gateway_jobs')])
             self.assertEqual(3, len(client.get('/gateway/conversations').json()['items']))
 
     def test_active_registry_and_journal_entries_survive_terminal_cache_pressure(self):
@@ -1036,7 +1049,7 @@ class ScopedConversationRouteTests(unittest.TestCase):
         engineering_fixtures.DurableEngineeringTests.admit(self, 'tailnet:owner')
         self.request['client_conversation_id'] = 'shared-client-key'
         job = self.store.create('tailnet:owner', self.request)
-        self.store.tx(lambda db: db.execute('CREATE TABLE IF NOT EXISTS gateway_jobs(public_json TEXT)'))
+        self.store.tx(lambda db: db.execute('CREATE TABLE IF NOT EXISTS gateway_jobs(job_id TEXT PRIMARY KEY,public_json TEXT NOT NULL)'))
         permissions = {'owner@example.test': {'principalId': 'owner', 'scopes': ['chat', 'jobs', 'tools', 'engineering']},
                        'other@example.test': {'principalId': 'other', 'scopes': ['chat', 'jobs', 'tools', 'engineering']},
                        'reader@example.test': {'principalId': 'owner', 'scopes': ['chat', 'jobs', 'tools']}}

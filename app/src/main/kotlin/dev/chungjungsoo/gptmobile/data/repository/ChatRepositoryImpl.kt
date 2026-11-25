@@ -96,6 +96,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryReadSession
 import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
@@ -7454,24 +7455,35 @@ class ChatRepositoryImpl(
 
     override suspend fun newestAssistantMessageId(chatId: Int): Int? = messageV2Dao.newestAssistantMessageId(chatId)
 
+    override suspend fun fetchChatRoom(chatId: Int): ChatRoomV2? =
+        chatRoomV2Dao.getChatRoom(chatId)?.let { committedCombinedRoom(it, settingRepository.getFeatureSettings()) }
+
+    override suspend fun completionMessage(chatId: Int, targetMessageId: Int?): MessageV2? {
+        val target = targetMessageId?.let { messageV2Dao.rawMessage(it) }
+            ?.takeIf { it.chatId == chatId && it.platformType != null }
+        val selected = target ?: messageV2Dao.newestAssistantMessageId(chatId)?.let { messageV2Dao.rawMessage(it) }
+        return selected?.takeIf { it.chatId == chatId && it.platformType != null }?.let {
+            resolveCombinedMessage(it.decodedArchiveText())
+        }
+    }
+
     override suspend fun fetchChatListV2(): List<ChatRoomV2> = committedCombinedRooms(chatRoomV2Dao.getChatRooms())
 
     override suspend fun conversationPrivacyLocked(chatId: Int): Boolean? = agentPersistenceDao.getChatRoom(chatId)?.privacyModeLocked
 
     private suspend fun committedCombinedRooms(rooms: List<ChatRoomV2>): List<ChatRoomV2> {
         val features = settingRepository.getFeatureSettings()
-        return rooms.map { room ->
-            val save = features.combinedSettingsJournal[room.id]
-            if (save == null || save.roomSettled || save.phase == dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) {
-                room
-            } else {
-                room.copy(
-                    activePlatform = save.previous.participantUids,
-                    enabledPlatform = (room.enabledPlatform + save.previous.participantUids).distinct(),
-                    combinedPrimaryUid = save.previous.primaryProfileUid
-                )
-            }
-        }
+        return rooms.map { committedCombinedRoom(it, features) }
+    }
+
+    private fun committedCombinedRoom(room: ChatRoomV2, features: AppFeatureSettings): ChatRoomV2 {
+        val save = features.combinedSettingsJournal[room.id] ?: return room
+        if (save.roomSettled || save.phase == dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) return room
+        return room.copy(
+            activePlatform = save.previous.participantUids,
+            enabledPlatform = (room.enabledPlatform + save.previous.participantUids).distinct(),
+            combinedPrimaryUid = save.previous.primaryProfileUid
+        )
     }
 
     private val compactedArchives = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()

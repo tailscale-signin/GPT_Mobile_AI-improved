@@ -85,7 +85,7 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
                 if (response.code == 401) authentication.set(true)
                 if (response.code in setOf(401, 403)) cache.clear()
                 if (response.code == 304 && cached != null) {
-                    cache.put(key, cached.etag, cached.value)
+                    cache.revalidated(key, cached)
                     scheduler.recordCacheHit()
                     return cached.value.toString()
                 }

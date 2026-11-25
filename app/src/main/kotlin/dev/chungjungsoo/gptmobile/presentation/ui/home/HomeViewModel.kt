@@ -613,7 +613,7 @@ class HomeViewModel @Inject constructor(
             }
             val pending = completedGenerations.value.firstOrNull { it.visibleChatId == room.id }
             if (pending != null && pending.chatId != room.id) {
-                val targetRoom = (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).firstOrNull { it.id == pending.chatId }
+                val targetRoom = chatRepository.fetchChatRoom(pending.chatId)
                 if (targetRoom != null) onOpen(targetRoom, pending.assistantMessageId)
                 return@launch
             }
@@ -790,8 +790,7 @@ class HomeViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val allChats = chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()
-            onResult(allChats.find { it.id == chatId })
+            onResult(chatRepository.fetchChatRoom(chatId))
         }
     }
 

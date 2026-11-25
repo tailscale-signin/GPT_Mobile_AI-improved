@@ -83,7 +83,7 @@ class PhoneRepositoryGraphRepositoryTest {
                 "/commits/" in request.url.encodedPath -> respond("""{"sha":"${context.commitSha}","commit":{"tree":{"sha":"${"b".repeat(40)}"}}}""", HttpStatusCode.OK, headers)
                 "/git/trees/" in request.url.encodedPath -> {
                     afterTree?.invoke()
-                    respond("""{"truncated":false,"tree":[{"path":"src/Example.kt","type":"blob","mode":"100644","sha":"${"c".repeat(40)}","size":20}]}""", HttpStatusCode.OK, headers)
+                    respond("""{"sha":"${request.url.encodedPath.substringAfterLast('/')}","truncated":false,"tree":[{"path":"src/Example.kt","type":"blob","mode":"100644","sha":"${"c".repeat(40)}","size":20}]}""", HttpStatusCode.OK, headers)
                 }
                 else -> error("The phone map must never contact a Gateway or download source for status: ${request.url.encodedPath}")
             }

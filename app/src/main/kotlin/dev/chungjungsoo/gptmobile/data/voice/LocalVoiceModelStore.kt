@@ -50,6 +50,7 @@ class LocalVoiceModelStore internal constructor(
     private val expandArchive: (suspend (File) -> Unit)? = null,
     private val revision: String = MODEL_REVISION,
     private val assetDigest: (File) -> String = ::digest,
+    private val nanoTime: () -> Long = System::nanoTime,
     private val sourceFactory: () -> LocalVoiceAssetSource
 ) {
     constructor(context: Context) : this(
@@ -310,7 +311,6 @@ class LocalVoiceModelStore internal constructor(
         val hash = MessageDigest.getInstance("SHA-256")
         var count = 0L
         var lastProgressAt = 0L
-        val deadline = System.nanoTime() + 5L * 60 * 1_000_000_000
         phase(VoiceTransferStage.CONNECTING)
         val transfer = try {
             try {
@@ -342,16 +342,21 @@ class LocalVoiceModelStore internal constructor(
             FileOutputStream(destination, count > 0).use { output ->
                 download.validator?.takeIf(::strongVoiceAssetValidator)?.let { checkpoint.writeText("$url\n$it") }
                 val buffer = ByteArray(64 * 1024)
+                var lastReceivedAt = nanoTime()
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    if (System.nanoTime() > deadline) throw VoiceAssetException(VoiceAssetFailureKind.TIMEOUT, "Speech download timed out. Check your connection and try again.")
                     val read = try {
                         download.input.read(buffer)
                     } catch (failure: IOException) {
                         throw voiceDownloadException(failure)
                     }
                     if (read < 0) break
-                    if (read == 0) continue
+                    val now = nanoTime()
+                    if (read == 0) {
+                        if (now - lastReceivedAt >= TRANSFER_IDLE_TIMEOUT_NS) throw VoiceAssetException(VoiceAssetFailureKind.TIMEOUT, "Speech download stopped receiving data. Resume to continue.")
+                        continue
+                    }
+                    lastReceivedAt = now
                     count += read
                     if (count > asset.bytes) {
                         checkpoint.delete()
@@ -359,7 +364,6 @@ class LocalVoiceModelStore internal constructor(
                     }
                     output.write(buffer, 0, read)
                     hash.update(buffer, 0, read)
-                    val now = System.nanoTime()
                     if (count == asset.bytes || now - lastProgressAt >= 100_000_000L) {
                         progress(count)
                         lastProgressAt = now
@@ -381,6 +385,7 @@ class LocalVoiceModelStore internal constructor(
         const val TOTAL_BYTES = 45_233_659L
         const val MODEL_REVISION = "tiny-streaming-en/quantized_26_08_21"
         private val stores = ConcurrentHashMap<String, Shared>()
+        private const val TRANSFER_IDLE_TIMEOUT_NS = 5L * 60 * 1_000_000_000
         private const val CDN = "https://download.moonshine.ai/model/$MODEL_REVISION/"
 
         // Authoritative release mirror: v0.1.5, resolved to an immutable revision. SHA-256s are

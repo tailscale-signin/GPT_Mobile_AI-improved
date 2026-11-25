@@ -286,6 +286,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         }
         if (observation != null && dispatched == null) return superseded(args, observation)
         if (observation != null) dispatched?.pending?.remove(observation.id)
+        val searchIncomplete = args["action"] in SEARCH_ACTIONS && result["incomplete_results"] != JsonPrimitive(false)
         val collections = rows(operation, args, result)
         if (collections.isEmpty()) {
             // A successful envelope with no record collection cannot establish
@@ -295,6 +296,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             // A zero-result first page is a complete empty collection. A
             // later zero-result page cannot erase previously observed records.
             if (!(operation == "github_pr" && args["action"] == JsonPrimitive("copilot_tasks")) &&
+                !searchIncomplete &&
                 reportedTotal == 0 &&
                 result["has_more"] == JsonPrimitive(false) &&
                 page(args) == 1 &&
@@ -364,7 +366,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         state.pending.entries.removeAll { now() - it.value.at !in 0..300_000_000_000L }
         val number = page(args)
         val branchList = operation == "github_context" && args["action"] == JsonPrimitive("list_branches")
-        val identities = collections.flatMap { (collection, values) -> values.map { identity(collection, it, branchList) } }.toSet()
+        val rowIds = collections.mapValues { (collection, values) -> values.map { identity(collection, it, branchList) } }
+        val identities = rowIds.values.flatMapTo(mutableSetOf()) { it }
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
@@ -372,7 +375,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val total = reportedTotal(operation, args, result)
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
-        state.inconsistent = state.inconsistent || result["pagination_inconsistent"] == JsonPrimitive(true) || result["tree_complete"] == JsonPrimitive(false)
+        state.inconsistent = state.inconsistent || searchIncomplete || result["pagination_inconsistent"] == JsonPrimitive(true) || result["tree_complete"] == JsonPrimitive(false)
         val upstreamMore = if (comparisonLimited) result["upstream_has_more"] ?: result["has_more"] else result["has_more"]
         state.pages[number] = Page(identities, now(), upstreamMore == JsonPrimitive(false))
         while (traversals.size > 128) reset(traversals.keys.first())
@@ -447,8 +450,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 if (name !in collections || value !is JsonArray || "upstream_record_ids" in collections) {
                     value
                 } else {
-                    val seen = earlier.toMutableSet()
-                    JsonArray(value.filter { seen.add(identity(name, it, branchList)) })
+                    val seen = mutableSetOf<String>()
+                    val ids = rowIds.getValue(name)
+                    JsonArray(value.filterIndexed { index, _ -> ids[index] !in earlier && seen.add(ids[index]) })
                 }
             }
         }
@@ -515,6 +519,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     }
 
     companion object {
+        private val SEARCH_ACTIONS = setOf("search_issues", "search_commits", "search_repositories").map(::JsonPrimitive).toSet()
         private val COLLECTIONS = setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits", "comments", "reviews", "threads", "files", "releases", "tags")
     }
 }

@@ -17,6 +17,7 @@ PRODUCTION_ROOTS = (
     'gateway', 'authentication', 'mcp',
 )
 EXTENSIONS = {'.kt', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.xaml', '.py', '.ps1', '.js', '.mjs', '.ts', '.tsx', '.jsx', '.html', '.css', '.xml', '.sql', '.cmake'}
+RESEARCH_UPSTREAMS = Path('mcp/research/upstreams')
 EXCLUDED_PARTS = {'tests', 'test', 'fixtures', 'node_modules', '__pycache__', '.venv', 'venv', 'build', 'dist', 'bin', 'obj', '.git'}
 MAX_FILES = 10_000
 MAX_FILE_BYTES = 16 * 1024 * 1024
@@ -141,7 +142,8 @@ def production_paths(root):
         for directory, dirs, names in os.walk(root / folder, followlinks=False):
             external = Path(folder).parts[0] in {'gateway', 'authentication', 'mcp'}
             if external:
-                dirs[:] = [name for name in dirs if name not in EXCLUDED_PARTS]
+                dirs[:] = [name for name in dirs if name not in EXCLUDED_PARTS
+                           and (Path(directory) / name).relative_to(root) != RESEARCH_UPSTREAMS]
             for name in dirs:
                 if (Path(directory) / name).is_symlink():
                     raise ValueError('Source inventory refuses linked source directories')

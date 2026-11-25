@@ -167,11 +167,17 @@ internal object PhoneRepositoryGraph {
                 val distances = traversal.distances
                 resultNodes = allNodes.filter { it.text("id") in distances }
                 resultEdges = allEdges.filter { it.text("source") in distances && it.text("target") in distances }
+                val fileDistances = linkedMapOf<String, Int>()
+                for (node in resultNodes) {
+                    val path = node.text("path")
+                    val distance = distances.getValue(node.text("id"))
+                    fileDistances[path] = minOf(fileDistances[path] ?: distance, distance)
+                }
                 extra["paths"] = JsonArray(
-                    resultNodes.distinctBy { it.text("path") }.map {
+                    fileDistances.map { (path, distance) ->
                         buildJsonObject {
-                            put("path", it.text("path"))
-                            put("distance", distances[it.text("id")] ?: 0)
+                            put("path", path)
+                            put("distance", distance)
                         }
                     }
                 )
@@ -401,16 +407,20 @@ internal object PhoneRepositoryGraph {
         val requestedBudget = arguments.number("budget_bytes", 32000)
         if (requestedBudget < 4096) fail("PHONE_GRAPH_RESULT_TOO_LARGE", "The phone map needs a result budget of at least 4096 bytes.", "INCREASE_GRAPH_RESULT_BUDGET")
         val budget = requestedBudget.coerceAtMost(128000)
-        var end = minOf(nodes.size, offset + size)
-        var edgeLimit = 160
-        fun compose(): JsonObject {
+        val pageEnd = minOf(nodes.size, offset + size)
+        val pageIds = nodes.subList(offset, pageEnd).mapTo(mutableSetOf()) { it.text("id") }
+        val pageEdges = edges.filter { it.text("source") in pageIds || it.text("target") in pageIds }
+        fun compose(end: Int, edgeLimit: Int): JsonObject {
             val selected = nodes.subList(offset, end)
             val ids = selected.mapTo(mutableSetOf()) { it.text("id") }
-            val visibleEdges = edges.filter { it.text("source") in ids && it.text("target") in ids }
-            val external = edges.count { (it.text("source") in ids) xor (it.text("target") in ids) }
+            val visibleEdges = pageEdges.filter { it.text("source") in ids && it.text("target") in ids }
+            val external = pageEdges.count { (it.text("source") in ids) xor (it.text("target") in ids) }
             val safeExtra = extra.filterKeys { it !in setOf("candidates", "paths", "path") }.toMutableMap()
             (extra["candidates"] as? JsonArray)?.let { candidates -> safeExtra["candidates"] = JsonArray(candidates.filter { (it as? JsonObject)?.text("id") in ids }) }
-            (extra["paths"] as? JsonArray)?.let { paths -> safeExtra["paths"] = JsonArray(paths.filter { (it as? JsonObject)?.text("path") in selected.map { it.text("path") } }.take(80)) }
+            (extra["paths"] as? JsonArray)?.let { paths ->
+                val selectedPaths = selected.mapTo(mutableSetOf()) { it.text("path") }
+                safeExtra["paths"] = JsonArray(paths.filter { (it as? JsonObject)?.text("path") in selectedPaths }.take(80))
+            }
             (extra["path"] as? JsonArray)?.let { path ->
                 // Path nodes already follow traversal order. Page their IDs together so
                 // a full path cannot consume the budget before its first page fits.
@@ -435,13 +445,34 @@ internal object PhoneRepositoryGraph {
                 if (end < nodes.size) put("next_cursor", "phone-v1:$snapshot:$query:$end")
             }
         }
-        var result = compose()
-        while (result.toString().toByteArray(Charsets.UTF_8).size > budget && (end > offset + 1 || edgeLimit > 0)) {
-            if (edgeLimit > 0) edgeLimit /= 2 else end--
-            result = compose()
+        fun JsonObject.fits() = toString().toByteArray(Charsets.UTF_8).size <= budget
+        val completePage = compose(pageEnd, 160)
+        if (completePage.fits()) return completePage
+
+        // Keep the longest contiguous node prefix that fits, then spend its remaining bytes on relationships.
+        // Only edges touching this page can affect payload size or external connection counts.
+        fun largestFit(lowest: Int, highest: Int, render: (Int) -> JsonObject): JsonObject? {
+            var low = lowest
+            var high = highest
+            var best: JsonObject? = null
+            while (low <= high) {
+                val mid = (low + high) / 2
+                val candidate = render(mid)
+                if (candidate.fits()) {
+                    best = candidate
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+            return best
         }
-        if (result.toString().toByteArray(Charsets.UTF_8).size > budget) fail("PHONE_GRAPH_RESULT_TOO_LARGE", "This source path does not fit the requested result budget. Increase the result budget.", "NARROW_GRAPH_QUERY")
-        return result
+        // The final page drops its continuation cursor, so try all its nodes before shortening it.
+        val nodePage = compose(pageEnd, 0).takeIf { it.fits() }
+            ?: largestFit(offset + 1, pageEnd - 1) { end -> compose(end, 0) }
+            ?: fail("PHONE_GRAPH_RESULT_TOO_LARGE", "This source path does not fit the requested result budget. Increase the result budget.", "NARROW_GRAPH_QUERY")
+        val end = offset + (nodePage.getValue("nodes") as JsonArray).size
+        return largestFit(1, minOf(160, nodePage.number("omitted_links"))) { limit -> compose(end, limit) } ?: nodePage
     }
 
     private fun fileNode(path: String, kind: String, sha: String = "", indexed: Boolean = false) = buildJsonObject {

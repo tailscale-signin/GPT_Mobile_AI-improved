@@ -1196,7 +1196,7 @@ Key metrics to track:
 ## References
 
 - [RESILIENT_CONVERSATIONS_LAYOUT.md](./RESILIENT_CONVERSATIONS_LAYOUT.md) - Repository layout plan
-- [Error Classification](./error-handling/error-classification.md) - Error type definitions
-- [Retry Strategies](./error-handling/retry-strategies.md) - Retry policies
-- [Circuit Breaker](./error-handling/circuit-breaker.md) - Implementation guide
-- [Fallback Mechanisms](./error-handling/fallback-mechanisms.md) - Fallback options
+- [Error Classification](#31-implement-error-classification) - Error type definitions
+- [Retry Strategies](#34-implement-retry-policy) - Retry policies
+- [Circuit Breaker](./adr/002-circuit-breaker-implementation.md) - Implementation guide
+- [Fallback Mechanisms](#42-implement-fallback-llm-client) - Fallback options

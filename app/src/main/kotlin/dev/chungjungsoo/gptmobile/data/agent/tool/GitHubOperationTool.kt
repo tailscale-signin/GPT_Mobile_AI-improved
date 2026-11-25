@@ -968,12 +968,21 @@ internal class GitHubOperationTool(
     companion object {
         val names = setOf("github_context_inspect", "github_pr_inspect", "github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue", "github_repository")
         fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }?.githubOperationFamily()
+        private fun searchAction(arguments: JsonObject): String {
+            val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty()
+            return if (dev.chungjungsoo.gptmobile.data.github.GitHubInspection.issueSearchQualifier.containsMatchIn(query)) "search_issues" else "search_repository"
+        }
+
         fun immutableRead(name: String, arguments: JsonObject): Boolean {
             if ("view_cursor" in arguments) return false
             fun pinned(key: String) = (arguments[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true
             return when (operationName(name)) {
-                "github_read", "github_search" -> pinned("commit_sha")
+                "github_read" -> pinned("commit_sha")
+                // A selected revision binds source blobs. Issue and PR search use the live search index.
+                "github_search" -> pinned("commit_sha") &&
+                    !(arguments["query"] as? JsonPrimitive)?.content.isNullOrBlank() &&
+                    searchAction(arguments) == "search_repository"
                 // Only the comparison's exact pair is immutable. Context status,
                 // PR metadata and checks may change even when their head is pinned.
                 "github_context" -> arguments["action"] == JsonPrimitive("changes") && pinned("base_sha") && pinned("commit_sha")
@@ -1015,7 +1024,7 @@ internal class GitHubOperationTool(
                     "recovery" -> "recovery_context"
                     else -> return null
                 }
-                "github_search" -> if (dev.chungjungsoo.gptmobile.data.github.GitHubInspection.issueSearchQualifier.containsMatchIn((args["query"] as? JsonPrimitive)?.content.orEmpty())) "search_issues" else "search_repository"
+                "github_search" -> searchAction(args)
                 "github_read" -> "read_ranges"
                 "github_stage_patch" -> "stage_patch"
                 "github_watch_checks" -> "watch_checks"
@@ -1625,7 +1634,7 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Search pinned repository. mode=paths matches filenames/* patterns. Read source_read_call next; follow exact continuation_call."
+                "github_search" -> "Search pinned source (mode=paths for filenames) or live issues and PRs (is:issue, is:pr). Follow source_read_call for source and continuation_call for more results."
                 "github_read" -> "Read bounded ranges: end_line or max_lines. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select its saved version. If the branch advanced, use restore_stage_id, branch and the new expected_head_sha to revalidate unchanged files without publishing. Review the returned stage ID before committing."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."

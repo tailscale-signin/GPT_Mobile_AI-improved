@@ -38,6 +38,46 @@ class GitHubDocumentationTest {
         assertEquals("false", second["has_more"]!!.jsonPrimitive.content)
     }
 
+    @Test fun rejectedTreeResponsesStayOutOfTheHttpCacheAndACorrectedResponseIsReusable() = runTest {
+        val commit = "a".repeat(40)
+        val tree = "b".repeat(40)
+        var treeRequests = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                val response = when (request.url.encodedPath) {
+                    "/repos/owner/repo/commits/$commit" -> """{"sha":"$commit","commit":{"tree":{"sha":"$tree"}}}"""
+                    "/repos/owner/repo/git/trees/$tree" -> when (++treeRequests) {
+                        1 -> """{"tree":[]}"""
+                        2 -> """{"sha":"$commit","tree":[]}"""
+                        3 -> """{"sha":"$tree"}"""
+                        4 -> """{"sha":"$tree","tree":[],"truncated":false}"""
+                        else -> error("The corrected immutable tree should be reused")
+                    }
+                    else -> error("Unexpected request ${request.url}")
+                }
+                respond(response, HttpStatusCode.OK)
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("token", http)
+            val args = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("ref", commit)
+            }
+            for (code in listOf("EVIDENCE_REVISION_MISMATCH", "EVIDENCE_REVISION_MISMATCH", "GITHUB_TREE_UNAVAILABLE")) {
+                val failure = runCatching { client.execute("repo_docs", args) }.exceptionOrNull()
+                assertEquals(code, (failure as? GitHubReadValidation)?.code)
+            }
+            val recovered = client.execute("repo_docs", args)
+            assertEquals(tree, recovered.jsonObject.getValue("tree_sha").jsonPrimitive.content)
+            assertEquals(recovered, client.execute("repo_docs", args))
+            assertEquals(4, treeRequests)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun docsDiscoveryUsesSelectedBranchAndReturnsCommitPinnedReadInstructions() = runTest {
         val commit = "a".repeat(40)
         val tree = "b".repeat(40)

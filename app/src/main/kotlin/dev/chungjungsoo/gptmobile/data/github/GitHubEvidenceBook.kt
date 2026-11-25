@@ -220,6 +220,7 @@ internal class GitHubEvidenceBook(
         val current = JsonObject(
             saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason", GitHubPolicyReadRecovery.REVALIDATED) } + buildJsonObject {
                 put("verification_eligible", exclusion == null && saved["trusted"] == JsonPrimitive(true))
+                if (name.githubOperationFamily() == "github_search") put("immutable", GitHubEvidencePolicy.immutable(saved, records))
                 exclusion?.let { put("exclusion_reason", it) }
             }
         )

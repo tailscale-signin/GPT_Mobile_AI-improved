@@ -80,6 +80,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -713,10 +714,13 @@ class ChatViewModel @Inject constructor(
         initialChatLoad = viewModelScope.launch {
             roomLoad.join()
             if (_roomLoadError.value == null) {
-                val profiles = fetchEnabledPlatformsInApp()
-                fetchMessages()
-                profiles.join()
-                if (chatRoomId == 0) _isLoaded.value = true
+                fetchEnabledPlatformsInApp().join()
+                if (chatRoomId == 0) {
+                    _isLoaded.value = true
+                } else {
+                    // The Room observer owns the initial transcript and subsequent live updates.
+                    combine(_isLoaded, _roomLoadError) { loaded, error -> loaded || error != null }.first { it }
+                }
             }
         }
         observePersistedMessages()
@@ -2088,7 +2092,7 @@ class ChatViewModel @Inject constructor(
                 savedStateHandle["combinedSettingsOperationId"] = next.operationId
                 _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTING)
                 combinedSettingsJournal.save(next, previous) { before, after -> chatRepository.applyCombinedChatSettings(before, after) }
-                val committedRoom = (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).first { it.id == room.id }
+                val committedRoom = checkNotNull(chatRepository.fetchChatRoom(room.id)) { "This conversation is no longer available." }
                 _chatRoom.value = committedRoom
                 _chatPlatformModels.value = chatRepository.fetchChatPlatformModels(room.id)
                 applyChatPlatformState(committedRoom)
@@ -3844,24 +3848,6 @@ class ChatViewModel @Inject constructor(
         return format.format(currentDate)
     }
 
-    private suspend fun fetchMessages() {
-        // If the room isn't new
-        if (chatRoomId != 0) {
-            _groupedMessages.update { fetchGroupedMessages(chatRoomId) }
-            if (_groupedMessages.value.assistantMessages.size != _indexStates.value.size) {
-                _indexStates.update { List(_groupedMessages.value.assistantMessages.size) { 0 } }
-            }
-            _isLoaded.update { true } // Finish fetching
-            return
-        }
-
-        // When message id should sync after saving chats
-        if (_chatRoom.value.id != 0) {
-            _groupedMessages.update { fetchGroupedMessages(_chatRoom.value.id) }
-            return
-        }
-    }
-
     private suspend fun fetchGroupedMessages(chatId: Int): GroupedMessages {
         val messages = chatRepository.fetchMessageReferencesV2(chatId).sortedBy { it.createdAt }
         return groupPersistedMessages(messages, enabledPlatformsInChat, chatId)
@@ -3937,7 +3923,7 @@ class ChatViewModel @Inject constructor(
                     conversationMode = requestedConversationMode
                 )
             } else {
-                (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).firstOrNull { it.id == chatRoomId }
+                chatRepository.fetchChatRoom(chatRoomId)
                     ?: run {
                         _roomLoadError.value = "This conversation is no longer available. Choose a chat to continue."
                         return@launch
@@ -4090,6 +4076,10 @@ class ChatViewModel @Inject constructor(
                     } else {
                         flowOf(chatId to emptyList())
                     }
+                }
+                .catch { failure ->
+                    if (failure !is Exception || failure is CancellationException) throw failure
+                    _roomLoadError.value = "Conversation history could not be loaded. Return to chat selection and try again."
                 }
                 .collect { (chatId, messages) ->
                     if (chatId <= 0) return@collect

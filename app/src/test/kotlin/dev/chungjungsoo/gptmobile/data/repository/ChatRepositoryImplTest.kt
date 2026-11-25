@@ -20,6 +20,8 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
+import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
+import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -116,6 +118,51 @@ import org.junit.Test
 
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
+
+    @Test fun singleConversationLookupIncludesArchivedRoomsAndPreservesUnsettledSettings() = runBlocking {
+        val room = ChatRoomV2(id = 7, title = "Saved", isArchived = true, enabledPlatform = listOf("new"), activePlatform = listOf("new"))
+        val rooms = mockk<ChatRoomV2Dao>()
+        coEvery { rooms.getChatRoom(7) } returns room
+        coEvery { rooms.getChatRoom(8) } returns null
+        val previous = dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft(
+            conversationIdentity = "original",
+            chatId = 7,
+            baseRevision = 1,
+            settings = dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(),
+            participantUids = listOf("old"),
+            models = mapOf("old" to "model"),
+            creativity = 0.7f,
+            primaryProfileUid = "old"
+        )
+        val save = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveOperation(
+            operationId = previous.operationId,
+            conversationIdentity = "original",
+            chatId = 7,
+            previous = previous,
+            requested = previous.copy(participantUids = listOf("new"))
+        )
+        val settings = mockk<SettingRepository>()
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(combinedSettingsJournal = mapOf(7 to save))
+        val repo = createRepository(settingsOverride = settings, roomsOverride = rooms)
+        assertEquals(room.copy(activePlatform = listOf("old"), enabledPlatform = listOf("new", "old"), combinedPrimaryUid = "old"), repo.fetchChatRoom(7))
+        assertNull(repo.fetchChatRoom(8))
+        io.mockk.coVerify(exactly = 0) { rooms.getChatRooms() }
+        io.mockk.coVerify(exactly = 0) { rooms.getArchivedChatRooms() }
+    }
+
+    @Test fun completionPreviewUsesTheScopedTargetOrItsOwnRoomsLatestAssistant() = runBlocking {
+        val messages = mockk<MessageV2Dao>()
+        val saved = MessageV2(id = 4, chatId = 7, content = "Saved reply", platformType = "profile")
+        coEvery { messages.rawMessage(4) } returns saved
+        coEvery { messages.rawMessage(5) } returns saved.copy(id = 5, chatId = 8)
+        coEvery { messages.newestAssistantMessageId(7) } returns 4
+        val repo = createRepository(messagesOverride = messages)
+        assertEquals(saved, repo.completionMessage(7, 4))
+        io.mockk.coVerify(exactly = 0) { messages.newestAssistantMessageId(any()) }
+        assertEquals(saved, repo.completionMessage(7, 5))
+        io.mockk.coVerify(exactly = 1) { messages.newestAssistantMessageId(7) }
+        io.mockk.coVerify(exactly = 0) { messages.loadMessages(any()) }
+    }
 
     @Test
     fun savedPrivateConversationRemainsMaskedWhenOptionsAreOffAndOrdinaryChatStaysIndependent() = runBlocking {
@@ -3004,7 +3051,9 @@ class ChatRepositoryImplTest {
         runsOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao? = null,
         privacyOverride: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null,
         reasoningCapabilitiesOverride: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
-        privacyModeOverride: dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore? = null
+        privacyModeOverride: dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore? = null,
+        roomsOverride: ChatRoomV2Dao? = null,
+        messagesOverride: MessageV2Dao? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = contextOverride ?: object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
@@ -3016,8 +3065,8 @@ class ChatRepositoryImplTest {
                 every { getStringSet(any(), any()) } answers { secondArg<Set<String>?>()?.toMutableSet() }
             }
         },
-        chatRoomV2Dao = proxy(),
-        messageV2Dao = proxy(),
+        chatRoomV2Dao = roomsOverride ?: proxy(),
+        messageV2Dao = messagesOverride ?: proxy(),
         chatPlatformModelV2Dao = proxy(),
         agentPersistenceDao = persistenceOverride ?: persistenceFixture(),
         agentRunDao = runsOverride ?: proxy(),

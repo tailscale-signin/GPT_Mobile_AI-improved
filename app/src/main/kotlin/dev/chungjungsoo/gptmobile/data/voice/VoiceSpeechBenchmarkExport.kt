@@ -227,6 +227,9 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
                     else -> "INT8"
                 }
             )
+            if (nativeEngine && c.runtimeId.endsWith("-gpufp32v1") && c.nativeModelVariant == KokoroModelVariant.ORIGINAL_FP32) {
+                put("nativeGpuGraphPrecisionRequest", "FP32_WHEN_ADRENO_IS_SELECTED")
+            }
             put("acceleratorArithmeticPrecision", "UNOBSERVED")
             put(
                 "deadlines",

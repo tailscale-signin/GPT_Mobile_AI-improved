@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "9261671524e9dd8e5c4d98e5fa85d1752b219b6563c4bd42ebeb5ac2d9fd5200",
+  "source_digest": "7263e7215c91cd331c686d7ea38803e67f020c2c3d7d1faee017caea3a725fbe",
   "file_count": 3133,
-  "indexed_line_count": 534800,
+  "indexed_line_count": 534811,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 134,
-      "indexed_line_count": 24012
+      "indexed_line_count": 24023
     },
     {
       "id": "portable_domain",
@@ -13689,8 +13689,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "35fab5f5dfcddfddd424f37665abbc787e03ff0d9a206ddc563e6b206f20120a",
-      "indexed_lines": 1142
+      "sha256": "d3d8547fd002451fbd53c2316eb9d1d822eaf4e89a334d74a2320d2be2a27487",
+      "indexed_lines": 1145
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
@@ -21837,8 +21837,8 @@
       "path": "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "fc94356d398dbe1db718689f8bbd89b8afd82d55bcbc84766f3076918cfe4018",
-      "indexed_lines": 170
+      "sha256": "7ea9357bb09e791cadc8fd226a6e600b96d3f77d0e633b0af016ec1f30542389",
+      "indexed_lines": 178
     },
     {
       "path": "local-kokoro-runtime/src/main/cpp/kokoro_gpu_discovery.h",
@@ -21970,7 +21970,7 @@
       "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "41d84411bc9a108a08298e60280dbe4bba35c62a4ae1fe25693524945f9de71d",
+      "sha256": "2a3a27fa824c7ce509b709bae39fe39fa195f901d144b9c413ed3dc5bb053032",
       "indexed_lines": 334
     },
     {

@@ -6,6 +6,8 @@ GitHub integration reports show the saved page after a time limit and the minimu
 
 Keep titles, technical terms, quantities and contextual readings together during live Kokoro speech. Reuse pack-bound native tokens on CPU, GPU and NPU and measure text-ready joins and warm first-presentation latency in audible Stability runs.
 
+Native Kokoro requests FP32 on Adreno for the original model. The pinned QAIRT adapter sets the GPU graph precision and the benchmark records the request. Physical kernel arithmetic and playback still require handset measurement.
+
 Voice settings offer separate publisher GPU and importable Snapdragon 8 Elite NPU vocoder packs. The playback benchmark records which words the audio clock crossed and which highlights reached the screen. Its 1× preset uses the same speech rate for every workload.
 
 The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.

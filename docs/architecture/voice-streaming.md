@@ -180,7 +180,7 @@ instrumentation method, or an absent completion receipt cannot satisfy them.
 
 ### Kokoro processor and model selection
 
-Voice Mode offers original FP32 Kokoro weights through the native CPU, Adreno and Hexagon routes. The native graph can split between QNN and CPU. Phone benchmarks report the kernels that actually ran. Hexagon on SM8750 executes supported floating-point partitions with reduced precision. Fresh voice settings select the original native pack. Existing saved model selections continue to take precedence.
+Voice Mode offers original FP32 Kokoro weights through the native CPU, Adreno and Hexagon routes. On Adreno, the original native model selects a QAIRT backend adapter that requests FP32 at graph creation. The compact model uses the vendor’s standard tensor precision. The native graph can split between QNN and CPU. Phone benchmarks report the kernels that actually ran. Hexagon on SM8750 executes supported floating-point partitions with reduced precision. Fresh voice settings select the original native pack. Existing saved model selections continue to take precedence.
 
 The default LiteRT stream uses the publisher’s shared INT8/FP16 bundle. The optional GPU vocoder has a separate verified download. For Snapdragon 8 Elite, choose **Kokoro LiteRT · Snapdragon 8 Elite NPU vocoder**, tap **Import verified SM8750 pack**, and select `kokoro_sm8750.litertlm`. This build accepts the 295,602,498-byte model with SHA-256 `04ee7076b0c8e5b11239ba5ed8ee7a3540984acb17936441b904196154fc0ebb`. Its 17 compiled HTP partitions contain 273 operations from the vocoder. Remaining operators, the acoustic model and the text frontend retain their original implementation. Both specialized routes support incremental input, voice selection and timed PCM. The optional CPU recovery path uses the independently verified standard pack. Device placement remains unobserved for the SDK.
 
@@ -189,6 +189,13 @@ The host recipe below uses the publisher GPU bundle at revision `bf1c2405642aa31
 ```sh
 python scripts/build_kokoro_sm8750_pack.py kokoro_int8_gpu_fp16.litertlm kokoro_sm8750.litertlm \
   --litert-source /path/to/LiteRT --qairt-lib /path/to/qairt/lib/x86_64-linux-clang
+```
+
+To rebuild the native Adreno FP32 policy, use the same QAIRT headers and Android NDK as the app. The builder exercises graph creation, precision changes, configuration preservation and provider rejection against the public interface before producing the Android library.
+
+```sh
+python scripts/build_kokoro_gpu_fp32.py --ndk /path/to/android-ndk-r29 \
+  --qairt-sdk /path/to/qairt/2.52.0.261104 --output libkokoro_qnn_gpu_fp32.so
 ```
 
 In **Speech benchmark**, choose native or shared LiteRT Kokoro, then **Set up 1× CPU, GPU and NPU comparison**. This selects all six audible workloads at exactly 1× with zero caption offset. Specialized packs also have independent benchmark entries. Protocol 6 records playback-clock word coverage separately from UI render callbacks, and stop-to-silence separately from confirmed worker retirement. Listening trials use the installed pack and request the selected backend without app-level fallback.

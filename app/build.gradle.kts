@@ -363,6 +363,7 @@ extensions.configure<ApplicationExtension> {
             // Both native-library audit manifests pin vendor ELF bytes exactly.
             // Keep these bytes unchanged when the app's NDK strips other libraries.
             keepDebugSymbols += setOf(
+                "**/libkokoro_qnn_gpu_fp32.so",
                 "**/libonnxruntime_providers_qnn.so",
                 "**/libCalculator_skel.so",
                 "**/libPlatformValidatorShared.so",
@@ -400,7 +401,7 @@ extensions.configure<ApplicationExtension> {
             // and TextSummarizer APIs load the separate text-generation binary.
             excludes += "**/libmediapipe_tasks_textgenai_jni.so"
             // The opt-in Kokoro GPU prototype uses the matching QAIRT GPU backend.
-            if (geniexRuntime) excludes += "**/libLiteRtDispatch_Qualcomm.so"
+            if (geniexRuntime) excludes += setOf("**/libLiteRtDispatch_Qualcomm.so", "**/libkokoro_qnn_gpu_fp32.so")
         }
     }
 }

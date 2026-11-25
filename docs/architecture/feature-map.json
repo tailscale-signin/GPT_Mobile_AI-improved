@@ -3808,9 +3808,9 @@
       "sha256": "abaf2b0cc2184d5b1f2ed7f2f773fa9763b3b9c7d47cdd82677da37b87553ac7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt": {
-      "blob_sha": "2c27217d9adc71d698d5f61e7691db5042593ac7",
-      "bytes": 79571,
-      "sha256": "35fab5f5dfcddfddd424f37665abbc787e03ff0d9a206ddc563e6b206f20120a"
+      "blob_sha": "24f8f087129d411bc205444435d0af1e4074eb6e",
+      "bytes": 79801,
+      "sha256": "d3d8547fd002451fbd53c2316eb9d1d822eaf4e89a334d74a2320d2be2a27487"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt": {
       "blob_sha": "5d92f9baae8fc95635cbb6ba8d7452431e3baac2",
@@ -5453,9 +5453,9 @@
       "sha256": "ccc1b2e4b3f1807f9088a602f10c0129d1a1ff58c8e3ee39e3eaa02d97fe9ada"
     },
     "docs/architecture/voice-streaming.md": {
-      "blob_sha": "3185b384b5a32a5f40e0caa6f29e1a3c3e4dd094",
-      "bytes": 13423,
-      "sha256": "df483d0eb4563ba36b547baed0fa5f03c5c5cc987867dacc563c88233233e4ca"
+      "blob_sha": "c4cf96512179a5d690fb13dc9107377dd73d3874",
+      "bytes": 14029,
+      "sha256": "a1f9a2f4ac6c44dc4251bee5d6358f6fc8f80b073aed8b6cced691adbd582f23"
     },
     "docs/audits/kokoro-model-workbench.md": {
       "blob_sha": "bbff58ae26e13b9e4c2f517669e2282903563d2a",
@@ -6173,9 +6173,9 @@
       "sha256": "9e4d61247a972060f780cb63a566a55c9c99a58e442431715325baa34c1d8c43"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h": {
-      "blob_sha": "a2a7ff6a2f3a140c8e93ab8063f58231bdd0d251",
-      "bytes": 8453,
-      "sha256": "fc94356d398dbe1db718689f8bbd89b8afd82d55bcbc84766f3076918cfe4018"
+      "blob_sha": "b0a1a72e0f4a0cceb53ca0bd0ffe85a4a4b0a6e4",
+      "bytes": 8974,
+      "sha256": "7ea9357bb09e791cadc8fd226a6e600b96d3f77d0e633b0af016ec1f30542389"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp": {
       "blob_sha": "8e82de3f74e928e97019de2a26aef25da917c476",
@@ -6223,9 +6223,9 @@
       "sha256": "a733556afde46bcdef1cbc3dadce1c0e00127389889ab758e72baa4e1b32b5d9"
     },
     "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": {
-      "blob_sha": "5e4f370a4691a32daf55c57fc1bc96b70f8547e9",
-      "bytes": 19600,
-      "sha256": "41d84411bc9a108a08298e60280dbe4bba35c62a4ae1fe25693524945f9de71d"
+      "blob_sha": "fee05e15626b4a047fb7bd565eeed8a6af2e0ae6",
+      "bytes": 19610,
+      "sha256": "2a3a27fa824c7ce509b709bae39fe39fa195f901d144b9c413ed3dc5bb053032"
     },
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroContextSignalContractTest.java": {
       "blob_sha": "9f63f5b97056abf07a2f93df95843aa62c01b50a",

@@ -73,8 +73,9 @@ class BinarySpeech:
         return PCM_STREAM_MAGIC + struct.pack('<I', len(encoded)) + encoded
 
     def chunks(self):
-        for offset in range(0, len(self.pcm), PCM_CHUNK_FRAMES * 4):
-            chunk = self.pcm[offset:offset + PCM_CHUNK_FRAMES * 4]
+        pcm = memoryview(self.pcm)
+        for offset in range(0, len(pcm), PCM_CHUNK_FRAMES * 4):
+            chunk = pcm[offset:offset + PCM_CHUNK_FRAMES * 4]
             yield struct.pack('<I', len(chunk) // 4) + chunk
         yield struct.pack('<I', 0)
 
@@ -157,22 +158,32 @@ async def bounded_json(request):
         raise VoiceError('VOICE_INVALID_REQUEST', 400) from None
 
 
-def _artifact(directory, name, maximum):
+def _artifact_path(directory, name, maximum):
     if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', name):
         raise VoiceError('VOICE_PACK_INVALID')
     path = (directory / name).resolve()
     if path.parent != directory or not path.is_file() or not 0 < path.stat().st_size <= maximum:
         raise VoiceError('VOICE_PACK_INVALID')
-    data = path.read_bytes()
-    if not 0 < len(data) <= maximum:
-        raise VoiceError('VOICE_PACK_INVALID')
-    return data
+    return path
 
 
-def load_pack(directory):
+def _artifact(directory, name, maximum):
+    with _artifact_path(directory, name, maximum).open('rb') as source:
+        size = os.fstat(source.fileno()).st_size
+        if not 0 < size <= maximum:
+            raise VoiceError('VOICE_PACK_INVALID')
+        data = source.read(size)
+        if len(data) != size or source.read(1):
+            raise VoiceError('VOICE_PACK_INVALID')
+        return data
+
+
+def load_pack(directory, *, candidate=None):
     directory = Path(directory).resolve()
     try:
-        manifest = json.loads(_artifact(directory, 'voice-manifest.json', MAX_BODY_BYTES))
+        # Setup verifies its candidate before replacing a working manifest. Inference
+        # owns the verified bytes it passes to ONNX Runtime.
+        manifest = json.loads(_artifact(directory, 'voice-manifest.json', MAX_BODY_BYTES)) if candidate is None else candidate
         if (manifest['protocol'] != PROTOCOL or manifest['frontend_id'] != FRONTEND
                 or manifest['sample_rate'] != SAMPLE_RATE or manifest['frames_per_duration'] != FRAMES_PER_DURATION):
             raise VoiceError('VOICE_PACK_INVALID')
@@ -184,10 +195,23 @@ def load_pack(directory):
             checksum = manifest[kind + '_sha256']
             if not isinstance(checksum, str) or not SHA256.fullmatch(checksum):
                 raise VoiceError('VOICE_PACK_INVALID')
-            data = _artifact(directory, manifest[kind], maximum)
-            if not hmac.compare_digest(hashlib.sha256(data).hexdigest(), checksum):
+            if candidate is None:
+                data = _artifact(directory, manifest[kind], maximum)
+                digest = hashlib.sha256(data)
+                artifacts[kind] = data
+            else:
+                with _artifact_path(directory, manifest[kind], maximum).open('rb') as source:
+                    digest = hashlib.sha256()
+                    size = 0
+                    while chunk := source.read(1024 * 1024):
+                        size += len(chunk)
+                        if size > maximum:
+                            raise VoiceError('VOICE_PACK_INVALID')
+                        digest.update(chunk)
+                    if size == 0:
+                        raise VoiceError('VOICE_PACK_INVALID')
+            if not hmac.compare_digest(digest.hexdigest(), checksum):
                 raise VoiceError('VOICE_PACK_HASH_MISMATCH')
-            artifacts[kind] = data
         warmup = token_request(dict(protocol=PROTOCOL, frontend_id=FRONTEND, request_id=str(uuid.uuid4()),
                                     token_ids=manifest['warmup_token_ids'], word_tokens=manifest['warmup_word_tokens'],
                                     speaker=0, speed=1.0, model_sha256=manifest['model_sha256']), manifest['model_sha256'])
@@ -232,11 +256,12 @@ class KokoroCudaBackend:
     def __init__(self, directory):
         import numpy as np
         import onnxruntime as ort
+        ort.disable_telemetry_events()
         self.np, self.ort, self.session = np, ort, None
-        manifest, artifacts, warmup = load_pack(directory)
-        self.model_sha256 = manifest['model_sha256']
         if PROVIDER not in ort.get_available_providers():
             raise VoiceError('VOICE_CUDA_UNAVAILABLE')
+        manifest, artifacts, warmup = load_pack(directory)
+        self.model_sha256 = manifest['model_sha256']
         with tempfile.TemporaryDirectory(prefix='gateway-voice-qualification-') as scratch:
             options = ort.SessionOptions()
             options.intra_op_num_threads = 2
@@ -465,26 +490,33 @@ class VoiceService:
                 self.queue.task_done()
                 return
             try:
-                if work.cancelled.is_set() or work.completion.done():
-                    continue
-                if time.monotonic() >= work.deadline:
-                    raise VoiceError('VOICE_TIMEOUT', 504)
-                generate = self.backend.synthesize_binary if work.binary else self.backend.synthesize
-                result = await asyncio.get_running_loop().run_in_executor(self.executor, generate, work.payload, work)
-                if work.binary and not isinstance(result, BinarySpeech):
-                    raise VoiceError('VOICE_TIMING_INVALID')
-                if not work.completion.done():
-                    if work.cancelled.is_set():
-                        raise VoiceError('VOICE_CANCELLED', 409)
-                    work.completion.set_result(result)
-            except Exception as error:
-                if not work.completion.done():
-                    code = error if isinstance(error, VoiceError) else VoiceError('VOICE_INFERENCE_FAILED')
-                    work.completion.set_exception(code)
+                await self._run_work(work)
             finally:
-                self.pending.pop((work.principal, work.payload['request_id']), None)
-                work.payload.clear()
                 self.queue.task_done()
+                # Waiting on the next queue item must not retain a completed PCM result.
+                del work
+
+    async def _run_work(self, work):
+        try:
+            if work.cancelled.is_set() or work.completion.done():
+                return
+            if time.monotonic() >= work.deadline:
+                raise VoiceError('VOICE_TIMEOUT', 504)
+            generate = self.backend.synthesize_binary if work.binary else self.backend.synthesize
+            result = await asyncio.get_running_loop().run_in_executor(self.executor, generate, work.payload, work)
+            if work.binary and not isinstance(result, BinarySpeech):
+                raise VoiceError('VOICE_TIMING_INVALID')
+            if not work.completion.done():
+                if work.cancelled.is_set():
+                    raise VoiceError('VOICE_CANCELLED', 409)
+                work.completion.set_result(result)
+        except Exception as error:
+            if not work.completion.done():
+                code = error if isinstance(error, VoiceError) else VoiceError('VOICE_INFERENCE_FAILED')
+                work.completion.set_exception(code)
+        finally:
+            self.pending.pop(work.key, None)
+            work.payload.clear()
 
     async def close(self):
         self.closed = True

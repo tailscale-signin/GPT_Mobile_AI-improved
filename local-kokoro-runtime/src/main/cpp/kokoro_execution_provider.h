@@ -53,7 +53,11 @@ inline std::string DeviceDiscovery(const char *stage, const std::vector<Ort::Con
 // ORT keeps a process-wide environment. Keep the plugin registered for its whole
 // lifetime so another warm session cannot unload a provider still in use.
 inline std::shared_ptr<Ort::Env> Environment() {
-  static auto env = std::make_shared<Ort::Env>(ORT_LOGGING_LEVEL_ERROR, "kokoro");
+  static auto env = [] {
+    auto local = std::make_shared<Ort::Env>(ORT_LOGGING_LEVEL_ERROR, "kokoro");
+    local->DisableTelemetryEvents();
+    return local;
+  }();
   return env;
 }
 

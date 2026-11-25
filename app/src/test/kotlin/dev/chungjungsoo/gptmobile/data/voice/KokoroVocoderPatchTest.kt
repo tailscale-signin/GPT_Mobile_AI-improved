@@ -59,6 +59,23 @@ class KokoroVocoderPatchTest {
         }
     }
 
+    @Test fun fillsTheInstallerBufferAcrossSmallCopyAndLiteralRecords() {
+        val base = files.newFile().apply { writeBytes(baseBytes) }
+        val instructions = patch {
+            repeat(4) {
+                copyRecord(1, 1)
+                literalRecord(byteArrayOf(7))
+            }
+            writeByte(0)
+        }
+        KokoroVocoderPatch.open(base, instructions.inputStream(), 8).use { stream ->
+            val output = ByteArray(10)
+            assertEquals(8, stream.read(output, 1, 9))
+            assertArrayEquals(byteArrayOf(0, 98, 7, 98, 7, 98, 7, 98, 7, 0), output)
+            assertEquals(-1, stream.read(output))
+        }
+    }
+
     @Test fun rejectsInvalidBoundsTruncationAndBytesAfterEnd() {
         val base = files.newFile().apply { writeBytes(baseBytes) }
         val end = record(0)

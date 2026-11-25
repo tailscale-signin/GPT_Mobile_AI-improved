@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import java.text.Normalizer
 
-/** Mirrors the text-key formats and Unicode normalization used by sherpa-onnx 2.0.1. */
+/** Mirrors the text-key formats and Unicode normalization used by sherpa-onnx 2.0.3. */
 internal object KokoroLexicon {
     private val whitespace = Regex("\\s+")
     private val requiredWords = setOf("here", "the", "you", "hello", "word", "voice", "answer", "this", "that", "read")

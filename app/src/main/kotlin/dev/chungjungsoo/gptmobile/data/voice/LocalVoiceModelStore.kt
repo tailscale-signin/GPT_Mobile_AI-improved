@@ -12,6 +12,7 @@ import java.net.URL
 import java.net.URLConnection
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.Locale
@@ -144,10 +145,14 @@ class LocalVoiceModelStore internal constructor(
         }
     }
 
-    private fun installationStamp(): VerifiedGeneration? {
+    private fun installationStamp(directory: File = installed): VerifiedGeneration? {
         val stamps = (expandedAssets.map { it.name } + "verified").map { name ->
-            val path = File(installed, name).toPath()
-            val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+            val path = File(directory, name).toPath()
+            val attributes = try {
+                Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+            } catch (_: NoSuchFileException) {
+                return null
+            }
             if (!attributes.isRegularFile || attributes.isSymbolicLink) return null
             val changed = runCatching { Files.getAttribute(path, "unix:ctime", LinkOption.NOFOLLOW_LINKS)?.toString() }.getOrNull()
             AssetStamp(name, attributes.size(), attributes.lastModifiedTime().toString(), attributes.creationTime().toString(), attributes.fileKey()?.toString(), changed)
@@ -173,8 +178,8 @@ class LocalVoiceModelStore internal constructor(
             return@withContext
         }
         try {
-            if (!waitForOwner || !isInstalled()) shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
-            if (verifyInstalledFiles(force = !waitForOwner, requireChangeTime = waitForOwner)) {
+            if (!isInstalled()) shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
+            if (verifyInstalledFiles(force = false, requireChangeTime = true)) {
                 shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes, transferStage = VoiceTransferStage.READY)
                 return@withContext
             }
@@ -232,22 +237,32 @@ class LocalVoiceModelStore internal constructor(
                 complete += asset.bytes
             }
             currentCoroutineContext().ensureActive()
-            if (expandArchive != null) {
+            val verifiedArchive = if (expandArchive != null) {
                 shared.state.value = shared.state.value.copy(transferStage = VoiceTransferStage.EXTRACTING)
                 expandedAssets.forEach { File(staging, it.name).delete() }
                 expandArchive.invoke(staging)
                 shared.state.value = shared.state.value.copy(transferStage = VoiceTransferStage.VERIFYING)
-                if (!verifyFiles(staging)) throw VoiceAssetException(VoiceAssetFailureKind.INTEGRITY, "The extracted speech files could not be verified.")
+                File(staging, "verified").writeText(revision)
+                val before = installationStamp(staging)
+                if (before == null || !verifyFiles(staging) || installationStamp(staging) != before) {
+                    throw VoiceAssetException(VoiceAssetFailureKind.INTEGRITY, "The extracted speech files could not be verified.")
+                }
                 assets.forEach { File(staging, it.name).delete() }
+                before.takeIf { it.stamps.all { stamp -> stamp.changed != null } }
+            } else {
+                File(staging, "verified").writeText(revision)
+                null
             }
             currentCoroutineContext().ensureActive()
-            File(staging, "verified").writeText(revision)
             // Only a fully validated directory is published. A partial model can never look ready.
             synchronized(shared) {
                 if (shared.users != 0) throw VoiceAssetException(VoiceAssetFailureKind.MODEL_IN_USE, "Local speech is still releasing its model. Try again shortly.")
                 shared.verifiedGeneration = null
                 if (installed.exists() && !installed.deleteRecursively()) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not replace incomplete speech files.")
                 if (!staging.renameTo(installed)) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not finish installing local speech.")
+                // The rename moves the directory and keeps the hashed files and their stamps.
+                // The first reader compares its installed snapshot to the verified staging snapshot.
+                shared.verifiedGeneration = verifiedArchive
             }
             shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes, transferStage = VoiceTransferStage.READY)
         } catch (cancelled: CancellationException) {
@@ -261,7 +276,7 @@ class LocalVoiceModelStore internal constructor(
                 httpStatus = (failure as? VoiceAssetException)?.httpStatus
             )
         } finally {
-            shared.source?.cancel()
+            closeSource(shared.source)
             shared.source = null
             shared.installJob = null
             if (staging.listFiles().orEmpty().none { it.isFile && it.length() > 0 }) staging.deleteRecursively()
@@ -270,8 +285,21 @@ class LocalVoiceModelStore internal constructor(
     }
 
     fun cancelInstall() {
-        shared.installJob?.cancel()
-        shared.source?.cancel()
+        val owner = shared.installJob ?: return
+        val source = shared.source
+        if (owner !== shared.installJob) return
+        owner.cancel()
+        closeSource(source)
+    }
+
+    // Closing an interrupted import stream can throw. The owner must still release its
+    // job and mutex so a later install can reuse verified files and retry.
+    private fun closeSource(source: LocalVoiceAssetSource?) {
+        try {
+            source?.cancel()
+        } catch (_: Exception) {
+            // Cancellation is best effort. The transfer loop also checks its job.
+        }
     }
 
     suspend fun remove() = withContext(Dispatchers.IO) {

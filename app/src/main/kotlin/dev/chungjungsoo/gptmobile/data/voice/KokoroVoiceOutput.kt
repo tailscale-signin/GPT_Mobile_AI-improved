@@ -483,7 +483,7 @@ internal class KokoroVoiceOutput(
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
         val captions = VoicePcmCaptions()
-        val segments = ArrayBlockingQueue<String>(MAX_SEGMENTS)
+        val segments = VoiceReplyTextQueue(MAX_SEGMENTS)
         val pcm = ArrayBlockingQueue<VoicePcmSlice>(KokoroPcmBatches.QUEUE_BATCHES)
         val adaptive = VoiceAdaptivePlayback(performance)
 
@@ -806,7 +806,7 @@ internal class KokoroVoiceOutput(
                     playback.queuedAudio &&
                     playback.enqueuedFrames.get() <= playback.consumedFrames.get() &&
                     playback.segments.isEmpty()
-                if (!waitingForText && (playback.synthesizing || playback.sealed || playback.segments.isNotEmpty()) && expired != null) {
+                if (!waitingForText && (playback.synthesizing || playback.sealed || !playback.segments.isEmpty()) && expired != null) {
                     fail(playback, "timeout", "Speech playback timed out. Your answer remains in chat.", cause = expired)
                 } else {
                     main.postDelayed(this, 1_000)
@@ -873,6 +873,7 @@ internal class KokoroVoiceOutput(
             override fun finish() {
                 if (active === playback && !playback.sealed) {
                     playback.sealed = true
+                    playback.segments.finish()
                     timing("input_complete", playback)
                 }
             }
@@ -927,16 +928,9 @@ internal class KokoroVoiceOutput(
             var waitingForTextMs = 0L
             while (active === playback) {
                 playback.synthesizing = false
-                val segment = playback.segments.poll() ?: run {
-                    val waitingSince = SystemClock.elapsedRealtime()
-                    playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS).also {
-                        waitingForTextMs += SystemClock.elapsedRealtime() - waitingSince
-                    }
-                }
-                if (segment == null) {
-                    if (playback.sealed && playback.segments.isEmpty()) break
-                    continue
-                }
+                val waitingSince = SystemClock.elapsedRealtime()
+                val segment = playback.segments.next() ?: break
+                waitingForTextMs += SystemClock.elapsedRealtime() - waitingSince
                 playback.synthesizing = true
                 if (model.engine.supportsStreaming && !playback.key.factory.requiresKokoroAssets) {
                     segmentIndex++
@@ -1107,16 +1101,12 @@ internal class KokoroVoiceOutput(
                     next = text.append(segmentIndex, segment, phrase)
                 } else {
                     playback.awaitingIncrementalText = true
-                    val queued = playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS)
-                    if (queued == null) {
-                        if (playback.sealed && playback.segments.isEmpty()) break
-                    } else {
-                        playback.awaitingIncrementalText = false
-                        playback.lastProgress = SystemClock.elapsedRealtime()
-                        segmentIndex++
-                        segment = queued
-                        plan = VoiceStreamingPhrasePlan(segment, pronunciations, speed)
-                    }
+                    val queued = playback.segments.next() ?: break
+                    playback.awaitingIncrementalText = false
+                    playback.lastProgress = SystemClock.elapsedRealtime()
+                    segmentIndex++
+                    segment = queued
+                    plan = VoiceStreamingPhrasePlan(segment, pronunciations, speed)
                 }
             }
             if (playback.sealed) playback.awaitingIncrementalText = false
@@ -1437,7 +1427,7 @@ internal class KokoroVoiceOutput(
             targetFrames = target,
             acceptedFrames = { playback.enqueuedFrames.get() - playback.consumedFrames.get() },
             canWait = { active === playback && !playback.synthesisDone },
-            producerPending = { playback.synthesizing || playback.segments.isNotEmpty() },
+            producerPending = { playback.synthesizing || !playback.segments.isEmpty() },
             deadlineReached = { SystemClock.elapsedRealtime() >= deadline },
             nextChunkTooLate = {
                 val now = SystemClock.elapsedRealtime()
@@ -1742,7 +1732,7 @@ internal class KokoroVoiceOutput(
         measuredOutput.value = null
         measuredSynthesis.update { it.copy(bufferState = "idle") }
         main.removeCallbacks(playback.watchdog)
-        playback.segments.clear()
+        playback.segments.cancel()
         playback.pcm.clear()
         val underruns = playback.trackLock.withLock {
             playback.track?.let { track ->
@@ -1806,6 +1796,5 @@ internal class KokoroVoiceOutput(
         const val MAX_REPLY_CHARS = 12_100
         const val MAX_SEGMENTS = MAX_REPLY_CHARS
         const val POLL_MS = 12L
-        const val INPUT_WAIT_MS = 100L
     }
 }

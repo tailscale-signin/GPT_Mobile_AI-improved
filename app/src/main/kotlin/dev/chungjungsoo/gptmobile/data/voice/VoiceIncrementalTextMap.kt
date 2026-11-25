@@ -2,33 +2,65 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 /** A bounded, append-only UTF-8 projection shared by the input and PCM workers. */
 internal class VoiceIncrementalTextMap {
-    private val byteBoundaries = mutableListOf(0)
-    private val characters = mutableListOf<IntRange>()
+    private var byteBoundaries = IntArray(32)
+    private var byteCount = 0
+    private var characterCount = 0
+    private var sourceCharacters: MutableList<IntRange>? = null
 
     @Synchronized fun append(text: String, sources: List<IntRange>? = null) {
         require(sources == null || sources.size == text.length)
+        val remaining = VoiceIncrementalStreamLimits.MAX_INPUT_BYTES - byteCount
+        require(text.length <= remaining) { "STREAM_INPUT_LIMIT" }
         val boundaries = VoiceStreamFrames.utf8Boundaries(text)
-        require(byteBoundaries.size - 1 + boundaries.size - 1 <= VoiceIncrementalStreamLimits.MAX_INPUT_BYTES) { "STREAM_INPUT_LIMIT" }
-        val offset = characters.size
-        for (index in 1 until boundaries.size) {
-            byteBoundaries += boundaries[index].let { if (it < 0) -1 else offset + it }
+        val addedBytes = boundaries.size - 1
+        require(addedBytes <= remaining) { "STREAM_INPUT_LIMIT" }
+        val needed = byteCount + boundaries.size
+        if (needed > byteBoundaries.size) {
+            val capacity = maxOf(needed, byteBoundaries.size * 2).coerceAtMost(VoiceIncrementalStreamLimits.MAX_INPUT_BYTES + 1)
+            byteBoundaries = byteBoundaries.copyOf(capacity)
         }
-        characters += sources ?: text.indices.map { (offset + it)..(offset + it) }
+        for (i in 1 until boundaries.size) {
+            val boundary = boundaries[i]
+            byteBoundaries[byteCount + i] = if (boundary < 0) -1 else characterCount + boundary
+        }
+        // SDK timestamps refer to the input itself. Only projected pronunciation text
+        // needs a source range per character, and a stream may start with ordinary text.
+        if (sources != null && sourceCharacters == null) {
+            sourceCharacters = MutableList(characterCount) { it..it }
+        }
+        sourceCharacters?.let { mapped ->
+            if (sources != null) {
+                mapped.addAll(sources)
+            } else {
+                for (i in text.indices) mapped.add((characterCount + i)..(characterCount + i))
+            }
+        }
+        byteCount += addedBytes
+        characterCount += text.length
     }
 
     @Synchronized fun range(startByte: Int, endByte: Int): IntRange {
         require(startByte >= 0 && endByte > startByte) { "STREAM_CUE_BYTE_BOUNDARY" }
-        val start = byteBoundaries.getOrNull(startByte)?.takeIf { it >= 0 } ?: error("STREAM_CUE_BYTE_BOUNDARY")
-        val end = byteBoundaries.getOrNull(endByte)?.takeIf { it >= 0 } ?: error("STREAM_CUE_BYTE_BOUNDARY")
-        val selected = characters.subList(start, end).filterNot(IntRange::isEmpty)
-        return if (selected.isEmpty()) IntRange.EMPTY else selected.minOf { it.first }..selected.maxOf { it.last }
+        val start = boundaryAt(startByte)
+        val end = boundaryAt(endByte)
+        check(start >= 0 && end >= 0) { "STREAM_CUE_BYTE_BOUNDARY" }
+        val mapped = sourceCharacters ?: return start until end
+        var first = Int.MAX_VALUE
+        var last = Int.MIN_VALUE
+        for (i in start until end) {
+            val range = mapped[i]
+            if (!range.isEmpty()) {
+                first = minOf(first, range.first)
+                last = maxOf(last, range.last)
+            }
+        }
+        return if (first > last) IntRange.EMPTY else first..last
     }
 
     @Synchronized fun contains(startByte: Int, endByte: Int): Boolean =
-        startByte >= 0 &&
-            endByte > startByte &&
-            byteBoundaries.getOrNull(startByte)?.let { it >= 0 } == true &&
-            byteBoundaries.getOrNull(endByte)?.let { it >= 0 } == true
+        endByte > startByte && boundaryAt(startByte) >= 0 && boundaryAt(endByte) >= 0
+
+    private fun boundaryAt(byte: Int): Int = if (byte in 0..byteCount) byteBoundaries[byte] else -1
 }
 
 internal data class VoiceReplyStreamCaption(val segment: Int, val text: String, val cue: VoiceStreamCue)

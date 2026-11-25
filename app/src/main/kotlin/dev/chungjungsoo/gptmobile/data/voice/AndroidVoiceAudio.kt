@@ -208,11 +208,23 @@ class AndroidVoiceAudio internal constructor(
     fun routeName(): String = runCatching { audioManager?.communicationDevice?.productName?.toString() }.getOrNull() ?: "System audio route"
     fun routes(): List<Pair<Int, String>> = audioManager?.availableCommunicationDevices.orEmpty().map { it.id to it.productName.toString() }
     fun selectRoute(id: Int): Boolean = runCatching {
+        if (closed) return@runCatching false
+        val manager = audioManager ?: return@runCatching false
+        val device = manager.availableCommunicationDevices.firstOrNull { it.id == id } ?: return@runCatching false
+        if (routeMode != null && manager.communicationDevice?.id == id) return@runCatching true
+        val previousMode = manager.mode
         stop()
-        val device = audioManager?.availableCommunicationDevices?.firstOrNull { it.id == id } ?: return@runCatching false
-        if (routeMode == null) routeMode = audioManager.mode
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        audioManager.setCommunicationDevice(device)
+        var selected = false
+        try {
+            manager.mode = AudioManager.MODE_IN_COMMUNICATION
+            selected = manager.setCommunicationDevice(device)
+            if (selected && routeMode == null) routeMode = previousMode
+            selected
+        } finally {
+            if (!selected) runCatching { manager.mode = previousMode }
+            // Changing the selected device can leave the device inventory unchanged.
+            routeChanged?.invoke()
+        }
     }.getOrDefault(false)
     override fun retryAfterMillis(): Long = recognitionGate.remainingMillis()
     private fun armWatchdog(timeout: Long, fail: () -> Unit) {
@@ -236,14 +248,17 @@ class AndroidVoiceAudio internal constructor(
             recognitionGate.release(sessionId)
             return
         }
-        val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        observations?.permission(permitted)
-        if (!permitted) {
-            recognitionGate.release(sessionId)
-            recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
-            listener.failure("Microphone permission is needed for voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION)
-            return
+        fun microphonePermitted(): Boolean {
+            val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            observations?.permission(permitted)
+            if (!permitted) {
+                recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
+                stop()
+                listener.failure("Microphone permission is needed for voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION)
+            }
+            return permitted
         }
+        if (!microphonePermitted()) return
         if (!VoiceMicrophoneLease.acquire(sessionId)) {
             recognitionGate.release(sessionId)
             listener.failure("Another voice session is using the microphone. Pause it before trying again.", "VOICE_MICROPHONE_BUSY", 500)
@@ -315,6 +330,13 @@ class AndroidVoiceAudio internal constructor(
                 if (!active() || finalizing) return
                 finalizeCapture()
                 if (!active()) return
+                if (!dispatched) {
+                    // A delayed qualification must never start capture after Done speaking.
+                    terminal("finished_before_start")
+                    stop()
+                    listener.final("")
+                    return
+                }
                 try {
                     engine.stopListening()
                 } catch (failure: Exception) {
@@ -493,6 +515,15 @@ class AndroidVoiceAudio internal constructor(
                         recoveryAction = repair
                     )
                     return@supportResult
+                }
+                if (!microphonePermitted()) return@supportResult
+                if (!onDevice) {
+                    val currentPrivacy = conversationPrivacy()
+                    if (!allowOnlineSpeech || currentPrivacy?.enabled == true || currentPrivacy?.chatId != privacy?.chatId) {
+                        stop()
+                        listener.failure("Voice settings changed before recording started. Tap the microphone to start with the current settings.", "VOICE_RECOGNIZER_UNAVAILABLE")
+                        return@supportResult
+                    }
                 }
                 cachedRecognitionSupport = intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE).orEmpty() to support
                 try {
@@ -1014,10 +1045,11 @@ class AndroidVoiceAudio internal constructor(
         terminal("disposed")
         releaseRecognition()
         closed = true
-        audioManager?.unregisterAudioDeviceCallback(routeCallback)
-        if (routeMode != null) {
-            audioManager?.clearCommunicationDevice()
-            routeMode?.let { audioManager?.mode = it }
+        runCatching { audioManager?.unregisterAudioDeviceCallback(routeCallback) }
+        routeMode?.let { previousMode ->
+            runCatching { audioManager?.clearCommunicationDevice() }
+            runCatching { audioManager?.mode = previousMode }
+            routeMode = null
         }
         releaseSpeech()
         (speechWork as? java.util.concurrent.ExecutorService)?.shutdown()

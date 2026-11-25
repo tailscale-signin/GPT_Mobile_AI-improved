@@ -18,9 +18,9 @@ from prepare_qnn_host_probe import DEFAULT_MANIFEST, prepare as prepare_qnn
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPENDENCIES = (
-    {"file": "sherpa-onnx-af2d8d81dbfa61c4cea4c568da78f3982edca005.tar.gz",
-     "url": "https://codeload.github.com/k2-fsa/sherpa-onnx/tar.gz/af2d8d81dbfa61c4cea4c568da78f3982edca005",
-     "bytes": 11932226, "sha256": "afcafe3c34bc2f15a363ad791fa1644a69bf0977a58c1b4f617468976c2faeb5"},
+    {"file": "sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417.tar.gz",
+     "url": "https://codeload.github.com/k2-fsa/sherpa-onnx/tar.gz/38016c6e0622e90bf417c35e8b47e0eb805af417",
+     "bytes": 12292551, "sha256": "39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086"},
     {"file": "flite-e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88.tar.gz",
      "url": "https://codeload.github.com/festvox/flite/tar.gz/e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88",
      "bytes": 20236683, "sha256": "1eebf476797cea10b4706cfbb9db9ba34f7b8ccb1fe7e0069b0b7528e0b0be46"},
@@ -28,11 +28,11 @@ DEPENDENCIES = (
      "url": "https://codeload.github.com/JuliaStrings/utf8proc/tar.gz/refs/tags/v2.12.0",
      "bytes": 207976, "sha256": "f564011d38b2888d583d510b08e69ffa15aa117155db1b9b49ef1dfe1fa25111"},
 )
-ORT_ROOT = "onnxruntime-linux-x64-glibc2_28-Release-1.28.2"
+ORT_ROOT = "onnxruntime-linux-x64-glibc2_28-Release-1.31.0"
 ORT = {
-    "url": f"https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.28.2/{ORT_ROOT}.zip",
-    "bytes": 9307967, "sha256": "4fb5bd289ea95d34ef210dfa5373311274ad0c6e02c744e88e14fd364fb84b43",
-    "publisherAsset": "https://api.github.com/repos/csukuangfj/onnxruntime-libs/releases/assets/548000970",
+    "url": f"https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.31.0/{ORT_ROOT}.zip",
+    "bytes": 11738264, "sha256": "c29ac82b45d958bbff08bc3d36057403831916b43a3475da24152bf6a11a6f86",
+    "publisherAsset": "https://api.github.com/repos/csukuangfj/onnxruntime-libs/releases/assets/677762408",
 }
 MODEL_ROOT = "kokoro-int8-multi-lang-v1_0"
 MODEL = {
@@ -108,7 +108,7 @@ def extract_ort(archive, output):
             with package.open(member) as source, destination.open("xb") as target:
                 shutil.copyfileobj(source, target, 64 * 1024)
             seen.add(name.as_posix())
-    if not required.issubset(seen) or (output / "VERSION_NUMBER").read_text().strip() != "1.28.2":
+    if not required.issubset(seen) or (output / "VERSION_NUMBER").read_text().strip() != "1.31.0":
         raise ValueError("ORT headers/library/version are incomplete or mismatched")
 
 

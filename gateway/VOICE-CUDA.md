@@ -22,9 +22,9 @@ and receives no Gateway or provider credentials.
 Prerequisites:
 
 - A supported NVIDIA GPU and driver.
-- Python 3.12 x64 with `venv` and `pip`.
+- Standard x64 CPython 3.11 through 3.14 with `venv` and `pip`. The commands below use 3.12. The lock selects NumPy 2.4.6 for Python 3.11 and 2.5.5 for newer supported versions.
 - CUDA 13.x and cuDNN 9.x libraries available to the process. The pinned
-  `onnxruntime-gpu==1.28.0` PyPI build uses CUDA 13.0; see the publisher's
+  `onnxruntime-gpu==1.32.0` PyPI build targets CUDA 13.x and cuDNN 9.x according to its wheel metadata. See the publisher's
   [CUDA compatibility table](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html).
 - The app-compatible
   [Kokoro multilingual v1.0 pack](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_0.html)
@@ -156,6 +156,6 @@ local CPU speech; network transfer and warmup can outweigh faster synthesis for
 short phrases.
 
 The lock uses exact publisher release hashes, including
-[ONNX Runtime GPU 1.28.0](https://pypi.org/pypi/onnxruntime-gpu/1.28.0/json).
+[ONNX Runtime GPU 1.32.0](https://pypi.org/pypi/onnxruntime-gpu/1.32.0/json).
 Profiling and cancellation use the documented
 [ONNX Runtime Python APIs](https://onnxruntime.ai/docs/api/python/api_summary.html).

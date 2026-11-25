@@ -687,6 +687,8 @@ dependencies {
         implementation(libs.secure.guava)
         add("ksp", libs.secure.guava)
         implementation(libs.secure.protobuf.lite)
+        implementation(libs.commons.codec)
+        implementation(libs.commons.io)
         implementation(libs.secure.commons.lang)
         implementation(libs.secure.log4j.api)
         implementation(libs.secure.bcprov)

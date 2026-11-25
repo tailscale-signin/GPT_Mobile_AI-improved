@@ -184,6 +184,76 @@
             <sha256 value="f7f23fc16ed463cf52579fffafa03940e8e653b33c6b4f106082c5bf15050f75" origin="Matching Maven Central and Google Central mirror bytes"/>
          </artifact>
       </component>
+      <component group="commons-codec" name="commons-codec" version="1.23.0">
+         <artifact name="commons-codec-1.23.0.jar">
+            <sha256 value="47504a3ce71d73a1b0af07675546b8d8c5af87f82ef12b6381f9eb3c17dd5a5b" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="commons-codec-1.23.0.pom">
+            <sha256 value="8c234370108606fee866044f5795124d941708ff4e70bfe7208e6b3d4d304031" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="commons-io" name="commons-io" version="2.22.0">
+         <artifact name="commons-io-2.22.0.jar">
+            <sha256 value="2b9a7b1f726fb86216dbd2c8321eabe0221dbd5b1be81c18e1cb53811b104758" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="commons-io-2.22.0.pom">
+            <sha256 value="6425cec0ea760035efa77277de85f89fa6dbed147ab3dd95b8d2cbc55340accf" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache" name="apache" version="37">
+         <artifact name="apache-37.pom">
+            <sha256 value="524ec4787aff73af6b3a9fafa154c7f1881b648299b663fdbfcadda1286f2353" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache" name="apache" version="39">
+         <artifact name="apache-39.pom">
+            <sha256 value="71752ed4c2435a1d8385fe0a4d330f39d04efec89f0d1ba5d1598d39f7397a44" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache" name="apache" version="40">
+         <artifact name="apache-40.pom">
+            <sha256 value="9c79f575a59ab5b622f591169411a4fdcfab71f8dc0440beaed87ac6b9b941f7" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.commons" name="commons-compress" version="1.28.0">
+         <artifact name="commons-compress-1.28.0.jar">
+            <sha256 value="e1522945218456f3649a39bc4afd70ce4bd466221519dba7d378f2141a4642ca" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="commons-compress-1.28.0.pom">
+            <sha256 value="033f4c78d632da88d0eb8ead974fc14a264392cebf12ab6c68d6cea7adf0c64a" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.commons" name="commons-lang3" version="3.22.0">
+         <artifact name="commons-lang3-3.22.0.jar">
+            <sha256 value="2ea88052c8662bf51874f4159467ba24b040b22dfd54d2596e11936896c76192" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="commons-lang3-3.22.0.pom">
+            <sha256 value="f2d1b011aa010af1b40c7c7ac3067914ca101f13da7f9cf6fc6771c8a9e82518" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.commons" name="commons-parent" version="105">
+         <artifact name="commons-parent-105.pom">
+            <sha256 value="31a68daabb4b361453788b9045ac87a6ae87c705e578facd99e4d9ddb6a481e9" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.commons" name="commons-parent" version="107">
+         <artifact name="commons-parent-107.pom">
+            <sha256 value="3b38ba6b152b096162e883b3f10ef1c40a8f37cf9d9392a34cab8fd580a98ffa" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.commons" name="commons-parent" version="98">
+         <artifact name="commons-parent-98.pom">
+            <sha256 value="d40318527f56033e0ff0789971cc38c856aa99a685eea11270814e7f1eda9fba" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.junit" name="junit-bom" version="5.14.2">
+         <artifact name="junit-bom-5.14.2.module">
+            <sha256 value="5d26f4440392326dd2483cf490143eea1495d5095459a0b9651a7b1b38e24ebf" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="junit-bom-5.14.2.pom">
+            <sha256 value="ed2dcc7855bd460bccc93a1bf0c962e63b566ff7d8f1ded0f1f2593ba8183aaf" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
       <component group="org.apache.commons" name="commons-lang3" version="3.18.0">
          <artifact name="commons-lang3-3.18.0.jar">
             <sha256 value="4eeeae8d20c078abb64b015ec158add383ac581571cddc45c68f0c9ae0230720" origin="Matching Maven Central and Google Central mirror bytes"/>
@@ -277,15 +347,15 @@
             <sha256 value="219809124475bc3550d31805146057bf230fc444e8a062d1ee0599bd7e163edb" origin="Verified against Maven Central publisher SHA-256"/>
          </artifact>
       </component>
-      <component group="ai.moonshine" name="moonshine-voice" version="0.1.5">
-         <artifact name="moonshine-voice-0.1.5.aar">
-            <sha256 value="ee2d95c21150683c743db8f3aef66281fd5408bcefc94be3ca1d2545ada1f571" origin="Verified against Maven Central publisher SHA-256 and Gradle module metadata"/>
+      <component group="ai.moonshine" name="moonshine-voice" version="0.1.6">
+         <artifact name="moonshine-voice-0.1.6.aar">
+            <sha256 value="65282ac1a1381ee99ecf1190f9059c9ef41684e8afb3fea90db8ca150865b52d" origin="Verified against Maven Central publisher SHA-256 and Gradle module metadata"/>
          </artifact>
-         <artifact name="moonshine-voice-0.1.5.module">
-            <sha256 value="7346e15215a5def7763c665b1679c8888fc1e781eac122f7d5df6010a60ce184" origin="Verified against Maven Central publisher SHA-256"/>
+         <artifact name="moonshine-voice-0.1.6.module">
+            <sha256 value="978d7586796075a59acae1d199401443d30fe24848a1e8fab1b3f16d03fff6c1" origin="Verified against Maven Central publisher SHA-256"/>
          </artifact>
-         <artifact name="moonshine-voice-0.1.5.pom">
-            <sha256 value="7d3139c1bf92df6892bbb4e393d50712863179c3df04d4c2978fd485d45154e4" origin="Verified against Maven Central publisher SHA-256"/>
+         <artifact name="moonshine-voice-0.1.6.pom">
+            <sha256 value="54b03f3b7ac339e06c52525e500e2ceaf8e0bac51055b625b619048720540cfe" origin="Verified against Maven Central publisher SHA-256"/>
          </artifact>
       </component>
       <component group="androidx.activity" name="activity" version="1.13.0">

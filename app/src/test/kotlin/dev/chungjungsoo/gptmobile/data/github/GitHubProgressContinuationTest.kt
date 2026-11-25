@@ -355,6 +355,36 @@ class GitHubProgressContinuationTest {
         assertTrue(GitHubExecutionContinuation.progressKeys(mapOf("cache" to JsonObject(original + ("shared_result" to JsonPrimitive(true))))).isEmpty())
     }
 
+    @Test fun zeroReceiptVerdictCanStartOneScopedReadOnlyWhileAcquisitionIsAuthorized() {
+        fun verdict(recovery: String = "RESUME_UNFINISHED_WORK", available: Boolean = true, unknown: Int = 0, needsInput: Boolean = false, used: Int = 0): JsonObject {
+            val original = report(recovery)
+            val ledger = original.getValue("execution_ledger") as JsonObject
+            return JsonObject(
+                original + buildJsonObject {
+                    put("execution_ledger", JsonObject(ledger + mapOf("unresolved_remote_outcomes" to JsonPrimitive(unknown), "user_input_required" to JsonPrimitive(needsInput))))
+                    put(
+                        "stage_budget",
+                        buildJsonObject {
+                            put("acquisition_allowed", available)
+                            put("used_calls", used)
+                        }
+                    )
+                }
+            )
+        }
+        fun allowed(candidate: JsonObject, calls: Int = 256, millis: Long = 60_000) =
+            GitHubExecutionContinuation.canResume(candidate, emptyMap(), calls, millis, initialRead = true)
+        assertTrue(allowed(verdict()))
+        assertFalse(GitHubExecutionContinuation.canResume(verdict(), emptyMap(), 256, 60_000))
+        assertFalse(allowed(verdict("RESUME_VERIFICATION")))
+        assertFalse(allowed(verdict(available = false)))
+        assertFalse(allowed(verdict(unknown = 1)))
+        assertFalse(allowed(verdict(needsInput = true)))
+        assertFalse(allowed(verdict(used = 1)))
+        assertFalse(allowed(verdict(), calls = 1))
+        assertFalse(allowed(verdict(), millis = 0))
+    }
+
     @Test fun unissuedCiLogLookupCanResumeDiscoveryWithinTheOriginalAllowance() {
         val args = Json.parseToJsonElement("""{"action":"logs","run_id":42,"start_line":1}""") as JsonObject
         val failure = buildJsonObject {

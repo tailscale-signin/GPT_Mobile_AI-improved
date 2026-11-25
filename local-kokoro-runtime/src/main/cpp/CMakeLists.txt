@@ -27,11 +27,11 @@ function(kokoro_dependency_url output remote filename)
 endfunction()
 
 kokoro_dependency_url(sherpa_url
-    "https://codeload.github.com/k2-fsa/sherpa-onnx/tar.gz/af2d8d81dbfa61c4cea4c568da78f3982edca005"
-    "sherpa-onnx-af2d8d81dbfa61c4cea4c568da78f3982edca005.tar.gz")
+    "https://codeload.github.com/k2-fsa/sherpa-onnx/tar.gz/38016c6e0622e90bf417c35e8b47e0eb805af417"
+    "sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417.tar.gz")
 FetchContent_Declare(sherpa
     URL ${sherpa_url}
-    URL_HASH SHA256=afcafe3c34bc2f15a363ad791fa1644a69bf0977a58c1b4f617468976c2faeb5
+    URL_HASH SHA256=39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086
     PATCH_COMMAND ${GIT_EXECUTABLE} --git-dir=. --work-tree=. apply ${CMAKE_CURRENT_SOURCE_DIR}/sherpa-timing.patch)
 FetchContent_Populate(sherpa)
 
@@ -54,15 +54,15 @@ FetchContent_Declare(utf8proc
 FetchContent_MakeAvailable(utf8proc)
 if(ANDROID)
     if(ANDROID_ABI STREQUAL "arm64-v8a")
-        set(ort_sha bc68410f35f13df82c260830bf476ee5565f5efd0ec7622297829a929613c6c0)
+        set(ort_sha 25f8a9649e775af85d4216e624ef1a820b1e1f26d82d5fc5145657fa9789c685)
     elseif(ANDROID_ABI STREQUAL "x86_64")
-        set(ort_sha f49dbf456ffe71dd417afb2123ef15202f8f57a4b2a05f12af1cf71f55448137)
+        set(ort_sha 1d092333f363bd80c5d31a601f556e751679a2ddf063267a40406e54c7f0e05a)
     else()
         message(FATAL_ERROR "Unsupported Kokoro ABI ${ANDROID_ABI}")
     endif()
-    set(ort_archive "onnxruntime-android-${ANDROID_ABI}-static_lib-1.28.2.zip")
+    set(ort_archive "onnxruntime-android-${ANDROID_ABI}-static_lib-1.31.0.zip")
     kokoro_dependency_url(ort_url
-        "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.28.2/${ort_archive}"
+        "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.31.0/${ort_archive}"
         "${ort_archive}")
     FetchContent_Declare(ort
         URL ${ort_url}

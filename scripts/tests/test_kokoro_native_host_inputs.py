@@ -35,7 +35,7 @@ class NativeHostInputsTest(unittest.TestCase):
         record = {"model.int8.onnx": {"bytes": 4, "sha256": hashlib.sha256(b"ONNX").hexdigest()}}
         host.extract_model(archive, self.output, expected or record)
 
-    def ort(self, *, version="1.28.2", omit=None, extra=()):
+    def ort(self, *, version="1.31.0", omit=None, extra=()):
         archive = self.root / "ort.zip"
         names = ["VERSION_NUMBER", "include/onnxruntime_c_api.h", "include/onnxruntime_cxx_api.h",
                  "include/onnxruntime_cxx_inline.h", "include/onnxruntime_ep_c_api.h", "lib/libonnxruntime.so"]
@@ -73,7 +73,7 @@ class NativeHostInputsTest(unittest.TestCase):
 
     def test_ort_requires_real_header_library_and_matching_version_inventory(self):
         self.ort()
-        self.assertEqual("1.28.2", (self.output / "VERSION_NUMBER").read_text())
+        self.assertEqual("1.31.0", (self.output / "VERSION_NUMBER").read_text())
         for options in ({"omit": "lib/libonnxruntime.so"}, {"version": "1.28.0"}):
             with self.subTest(options=options), tempfile.TemporaryDirectory(dir=self.root) as output:
                 self.output = Path(output)

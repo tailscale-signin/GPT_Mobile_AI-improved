@@ -47,7 +47,6 @@ internal class VoiceSpeechBuffer(
             val chunks = mutableListOf<String>()
             if (consumed < speechEnd && firstPendingAt == null) firstPendingAt = now()
             while (consumed < speechEnd) {
-                val tail = visible.substring(consumed)
                 val wordLimit = if (!startedSpeech) {
                     if (adaptive) VoiceAdaptivePlayback.OPENING_WORDS else 8
                 } else if (adaptive) {
@@ -55,7 +54,10 @@ internal class VoiceSpeechBuffer(
                 } else {
                     followUpWords
                 }
-                val characterLimit = if (adaptive) 128 else 240
+                val characterLimit = if (adaptive) ADAPTIVE_CHARACTERS else 240
+                // One character beyond the limit distinguishes a complete separator from one
+                // truncated by this window. A boundary outside the limit cannot be emitted.
+                val tail = visible.substring(consumed, minOf(speechEnd, consumed + characterLimit + 1))
                 val words = completeWord.findAll(tail).take(wordLimit + 3).toList()
                 val legalEnds = words.map { it.range.last + 1 }.filter { permitsBoundary(consumed + it) }
                 val targetEnd = words.getOrNull(wordLimit - 1)?.range?.last?.plus(1)
@@ -103,10 +105,10 @@ internal class VoiceSpeechBuffer(
 
     fun nextFlushDelayMs(feedback: VoiceSynthesisFeedback?): Long? {
         val since = firstPendingAt ?: return null
-        if (completeWord.findAll(previousSpeech, consumed).take(2).count() < 2) return null
-        val delay = (arrivalBudgetMs(feedback) - (now() - since)).coerceAtLeast(0)
-        if (delay == 0L && completeWord.findAll(previousSpeech, consumed).take(27).none { permitsBoundary(it.range.last + 1) }) return null
-        return delay
+        val tail = previousSpeech.substring(consumed, minOf(previousSpeech.length, consumed + ADAPTIVE_CHARACTERS + 1))
+        val ends = completeWord.findAll(tail).take(27).map { it.range.last + 1 }.toList()
+        if (ends.size < 2 || ends.none { it <= ADAPTIVE_CHARACTERS && permitsBoundary(consumed + it) }) return null
+        return (arrivalBudgetMs(feedback) - (now() - since)).coerceAtLeast(0)
     }
 
     private fun permitsBoundary(end: Int) = end >= boundaryBase && boundaries.permits(end - boundaryBase)
@@ -118,6 +120,7 @@ internal class VoiceSpeechBuffer(
     }
 
     private companion object {
+        const val ADAPTIVE_CHARACTERS = 128
         val sentenceEnd = Regex("[.!?]\\s+")
         val clauseEnd = Regex("[.!?,;:]\\s+|\\n")
         val phraseEnd = Regex("[.!?;:]\\s+|\\n")

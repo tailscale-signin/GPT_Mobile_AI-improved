@@ -714,44 +714,48 @@ private fun VoiceChatSessionScreen(
         session.autoContinue = listeningEnabled && !playback.hasPending
         val pending = playback.active
         if (pending?.complete == true) {
-            val observedMessage = replyProjection.message(pending.identity.messageId) ?: return@LaunchedEffect
-            val speakerAtRead = session.states.value.speaker
-            val reportReadFailure = session.terminalReadFailureReporter(pending.identity.key)
-            val terminal = try {
-                model.terminalVoiceReply(pending.identity.messageId, pending.identity.runId, observedMessage.ownershipFence)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
+            replyProjection.pendingTerminal(pending.identity.messageId)?.let { observation ->
+                val observedMessage = observation.source
+                val speakerAtRead = session.states.value.speaker
+                val reportReadFailure = session.terminalReadFailureReporter(pending.identity.key)
+                val terminal = try {
+                    model.terminalVoiceReply(pending.identity.messageId, pending.identity.runId, observedMessage.ownershipFence)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    currentCoroutineContext().ensureActive()
+                    if (playback.active != pending || manualMessage) return@LaunchedEffect
+                    reportReadFailure(error)
+                    return@LaunchedEffect
+                } ?: return@LaunchedEffect
                 currentCoroutineContext().ensureActive()
-                if (playback.active != pending || manualMessage) return@LaunchedEffect
-                reportReadFailure(error)
-                return@LaunchedEffect
-            } ?: return@LaunchedEffect
-            currentCoroutineContext().ensureActive()
-            val currentMessage = model.groupedMessages.value.assistantMessages.flatten().firstOrNull { it.id == pending.identity.messageId }
-            if (!enabled ||
-                lifecycle.currentState != Lifecycle.State.RESUMED ||
-                settingsOpen ||
-                routeOpen ||
-                benchmarkOwnership.value != null ||
-                manualMessage ||
-                session.states.value.speaker != speakerAtRead ||
-                currentMessage == null ||
-                currentMessage.currentRunId != pending.identity.runId ||
-                currentMessage.ownershipFence != observedMessage.ownershipFence
-            ) {
-                return@LaunchedEffect
-            }
-            // Separate Room collectors may still expose an old blank/prefix row with a
-            // new terminal status. Only the matching durable publication is delivered.
-            playback.terminalUpdate(
-                pending,
-                dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(terminal.message.content),
-                failed = terminal.run.status != AgentRunStatus.COMPLETED
-            )?.let { next ->
-                val failure = terminal.message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
-                    ?: terminal.run.terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
-                session.reply(next.identity.key, next.text, next.failed, failure, terminalStatus = terminal.run.status)
+                val currentMessage = model.groupedMessages.value.assistantMessages.asSequence().flatten().firstOrNull { it.id == pending.identity.messageId }
+                if (!enabled ||
+                    lifecycle.currentState != Lifecycle.State.RESUMED ||
+                    settingsOpen ||
+                    routeOpen ||
+                    benchmarkOwnership.value != null ||
+                    manualMessage ||
+                    playback.active != pending ||
+                    session.states.value.speaker != speakerAtRead ||
+                    currentMessage == null ||
+                    currentMessage.currentRunId != pending.identity.runId ||
+                    currentMessage.ownershipFence != observedMessage.ownershipFence
+                ) {
+                    return@LaunchedEffect
+                }
+                // Separate Room collectors may still expose an old blank/prefix row with a
+                // new terminal status. Only the matching durable publication is delivered.
+                playback.terminalUpdate(
+                    pending,
+                    dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(terminal.message.content),
+                    failed = terminal.run.status != AgentRunStatus.COMPLETED
+                )?.let { next ->
+                    val failure = terminal.message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+                        ?: terminal.run.terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
+                    session.reply(next.identity.key, next.text, next.failed, failure, terminalStatus = terminal.run.status)
+                }
+                observation.terminalPublished = true
             }
         } else {
             playback.update()?.let { next -> session.streamReply(next.identity.key, next.text) }

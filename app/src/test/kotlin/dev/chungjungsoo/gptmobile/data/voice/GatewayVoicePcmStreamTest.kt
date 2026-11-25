@@ -61,6 +61,38 @@ class GatewayVoicePcmStreamTest {
         assertTrue(chunks[1].wordCues.isEmpty())
     }
 
+    @Test fun `first audio and its cues arrive before a fragmented wire packet is complete`() = runBlocking {
+        val channel = ByteChannel(autoFlush = true)
+        val first = CompletableDeferred<VoicePcmChunk>()
+        val chunks = mutableListOf<VoicePcmChunk>()
+        val count = GatewayVoicePcmStream.FIRST_DELIVERY_FRAMES
+        val consumer = async(Dispatchers.Default) {
+            GatewayPcmFixture.read(channel) {
+                chunks += it
+                first.complete(it)
+                true
+            }
+        }
+        try {
+            channel.writeFully(GatewayPcmFixture.header() + GatewayPcmFixture.integer(1_800))
+            channel.writeFully(GatewayPcmFixture.chunk(count).copyOfRange(4, 4 + count * 4))
+            val initial = withTimeout(2_000) { first.await() }
+            assertEquals(count, initial.samples.size)
+            assertEquals(listOf(VoiceWordCue(0, 5, 600, 1_200, VoiceWordCueProvenance.NATIVE_DURATION)), initial.wordCues)
+            assertFalse(consumer.isCompleted)
+            val tail = GatewayPcmFixture.chunk(1_800 - count, -.5f)
+            channel.writeFully(tail.copyOfRange(4, tail.size) + GatewayPcmFixture.integer(0))
+            channel.close()
+            withTimeout(2_000) { consumer.await() }
+            assertEquals(listOf(count, 1_800 - count), chunks.map { it.samples.size })
+            assertTrue(chunks.first().samples.all { it == .25f })
+            assertTrue(chunks.last().samples.all { it == -.5f })
+            assertTrue(chunks.last().wordCues.isEmpty())
+        } finally {
+            consumer.cancelAndJoin()
+        }
+    }
+
     @Test fun `invalid identity timing or header bounds cannot emit PCM`() = runBlocking {
         val invalid = listOf(
             GatewayPcmFixture.header().also { it[0] = 0 },

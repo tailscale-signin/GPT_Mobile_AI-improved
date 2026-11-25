@@ -4,6 +4,9 @@
   "qualification": "scoped",
   "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
   "changes": [
+    "Allow a locally reviewed repository inspection to resume one authorized read-only evidence acquisition while preserving current permissions, remaining tool allowance, deadlines, unresolved operation outcomes and private drafts.",
+    "Keep prepared speech input byte counts owned by the native encoder, preserving the existing ASCII frontend, immutable prepared token copies and typed refusal diagnostics.",
+    "Allow bounded cold diagnostic APK packaging to complete while retaining the full unit suite, lint, unchanged memory limits, watchdog evidence and failure propagation.",
     "Bind expired-run reporting and pagination to the same terminal receipts, retain bounded source coverage and private planner usage, validate current map selection and report the measured saved-page recovery cause. Reuse digest-verified diagnostic shape checks within the capture budget.",
     "Keep pending saved-page bodies and private reading notes bound to the verified page across concurrent checkpoints. Recover missing CI job selectors and read-only evidence, classify interrupted provider streams, validate repository-map revisions and expose the earlier approval state for duplicate actions.",
     "Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.",
@@ -455,6 +458,7 @@
     "Minified native memory smoke"
   ],
   "allowedPaths": [
+    ".github/workflows/audit-workspace.yml",
     ".github/workflows/gateway-windows-installer.yml",
     ".github/workflows/geniex-preview.yml",
     ".github/workflows/native-memory-smoke.yml",

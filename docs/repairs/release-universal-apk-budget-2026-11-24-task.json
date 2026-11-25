@@ -50,6 +50,18 @@
     "status": "superseded_by_preserved_230_MiB_publication_contract",
     "reason": "Increasing the limit does not reduce the observed package and is not part of the reviewed release contract."
   },
+  "diagnostic_apk_packaging_followup": {
+    "source_head": "a48b458f7ab0a7f585fddfeb28881730808f4979",
+    "workflow_run": 45535381657,
+    "job": 138940713885,
+    "evidence_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45535381657/job/138940713885",
+    "observation": "The debug APK build reached :app:packageDebug, then the 1140-second process deadline returned exit 124 before the later push cancellation. No compiler failure was observed in the complete job log.",
+    "process_limit_seconds": 1980,
+    "step_limit_minutes": 35,
+    "job_limit_minutes": 135,
+    "preserved": "The full unit suite and lint, single worker, 4096 MiB heap, bounded common pool, 15-minute watchdog, failure propagation and artifact uploads remain unchanged.",
+    "qualification": "Fresh final-source hosted APK packaging and lint must pass; the historical timeout is not a successful current build."
+  },
   "build_150_followup": {
     "repository": "tailscale-signin/GPT_Mobile_AI-improved",
     "base_branch": "main",
@@ -81,5 +93,16 @@
       ],
       "original_report_check": "All 111 approved payloads matched their recorded SHA-256 digests. Posting each twice to the local HTTP fixture produced 111 distinct publisher writes."
     }
+  },
+  "final_composition_followup": {
+    "source_parent": "d62f2d3c44452964f14639f5a09c0e4c2994d45c",
+    "source_tree": "4f8d68283758f570e994ee7105d1e4049869b2de",
+    "concurrent_changes": "Preserve all current saved-page, provider, authorization, CI evidence, pronunciation-group, source coverage, private planner usage and diagnostic changes through the selected source parent.",
+    "reviewed_repository_continuation": "A locally generated missing-repository-evidence review refusal may return one read-only acquisition to the existing runner. Exact event origin, accepted task contract, current authorization, finite remaining calls, existing deadline and unresolved-outcome checks remain required. The private draft is never published by the handoff.",
+    "single_recovery_action": "Replace both existing deterministic next-action line formats when a provider request remains paused, preserving all subsequent report evidence and approval prerequisites. Exercise the actual integration renderer in the regression.",
+    "native_input_measurement": "The native encoder owns the final byte-count field on prepared phrases. The current frontend admits ASCII text, for which the previous Java length agrees; this is defensive measurement ownership, not a claim that accented input was previously admitted.",
+    "native_regression": "Keep two-rate text/prepared audio timing, public-array tamper sealing and foreign-vocabulary rejection. Check admitted ASCII invalid-speed diagnostic parity and separately reject unsupported accented input with its actual native byte count.",
+    "test_identity": "Retain VoicePcmCaptionsTest.expansionCanCrossPhraseLimitWithoutLosingItsOriginalRange with the complete strengthened 26b body; no additional retired runtime identity.",
+    "qualification": "Canonical host validation and the final-source hosted Android suites are required. Physical handset, accelerator and listening qualifications still require their own actual evidence."
   }
 }

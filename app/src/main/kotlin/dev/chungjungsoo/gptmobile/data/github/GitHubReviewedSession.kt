@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.SavedPageDeliveryRound
 import dev.chungjungsoo.gptmobile.data.agent.SavedPageReading
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
@@ -177,7 +178,13 @@ internal class GitHubReviewedSession(
     private val acceptedExecutionContract: () -> JsonObject? = { null },
     private val outputLimitForPass: (String) -> Int? = { null }
 ) : AgentProviderSession by delegate {
+    private val repositoryEvidenceFailure = AtomicReference<ProviderEvent.Failed?>()
+
+    /** Only this collection's exact local refusal can hand acquisition back to the runner. */
+    fun consumeRepositoryEvidenceFailure(failure: ProviderEvent.Failed): Boolean = repositoryEvidenceFailure.compareAndSet(failure, null)
+
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        repositoryEvidenceFailure.set(null)
         if (currentCoroutineContext()[SavedPageDeliveryRound] != null) {
             validatePublication()
             require(tools.isEmpty()) { "Saved-page reads cannot advertise tools." }
@@ -401,7 +408,9 @@ internal class GitHubReviewedSession(
                 else -> "Retry can resume saved verdicts after model availability recovers."
             }
             progress("Answer review blocked · $code · saved draft and ${receipts.size} evidence records retained. $recovery")
-            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = original?.transportComplete ?: (failure !is ReviewPassFailure), providerLimit = original?.providerLimit, taskOutcome = if (blocked && !formatRetry) "BLOCKED" else "PARTIAL", failureDetails = details, invocationId = original?.invocationId))
+            val event = ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = original?.transportComplete ?: (failure !is ReviewPassFailure), providerLimit = original?.providerLimit, taskOutcome = if (blocked && !formatRetry) "BLOCKED" else "PARTIAL", failureDetails = details, invocationId = original?.invocationId)
+            if (failure is ReviewInputFailure && failure.missing == listOf("REPOSITORY_EVIDENCE")) repositoryEvidenceFailure.set(event)
+            emit(event)
         }
     }
 

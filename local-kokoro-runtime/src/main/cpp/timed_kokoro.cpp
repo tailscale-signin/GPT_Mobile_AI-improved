@@ -874,10 +874,11 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_KokoroFrontend_open(
 
 static jobject EncodeJavaPhrase(JNIEnv *env, const Frontend *frontend, jstring text) {
   try {
-    const auto phrase = frontend->Encode(FromJava(env, text));
+    const auto input = FromJava(env, text);
+    const auto phrase = frontend->Encode(input);
     const auto cls = env->FindClass("dev/melo/kokoro/KokoroFrontend$EncodedPhrase");
     if (!cls) return nullptr;
-    const auto constructor = env->GetMethodID(cls, "<init>", "([J[I)V");
+    const auto constructor = env->GetMethodID(cls, "<init>", "([J[II)V");
     if (!constructor) return nullptr;
     const auto tokens = env->NewLongArray(phrase.tokens.size());
     if (!tokens) return nullptr;
@@ -886,7 +887,7 @@ static jobject EncodeJavaPhrase(JNIEnv *env, const Frontend *frontend, jstring t
     const std::vector<jlong> java_tokens(phrase.tokens.begin(), phrase.tokens.end());
     env->SetLongArrayRegion(tokens, 0, java_tokens.size(), java_tokens.data());
     env->SetIntArrayRegion(words, 0, phrase.word_tokens.size(), phrase.word_tokens.data());
-    return env->NewObject(cls, constructor, tokens, words);
+    return env->NewObject(cls, constructor, tokens, words, static_cast<jint>(input.size()));
   } catch (const kokoro_runtime::InputFailure &error) {
     ReportFailure(env, "frontend", error.code, -1, error.tokens, "frontend", error.bytes, error.token_limit, "stage=frontend");
   } catch (const std::bad_alloc &) {

@@ -53,7 +53,7 @@ class VoicePcmCaptionsTest {
         )
     }
 
-    @Test fun acronymMovesTogetherToTheNextPhraseWithoutLosingItsOriginalRange() {
+    @Test fun expansionCanCrossPhraseLimitWithoutLosingItsOriginalRange() {
         val text = "go ".repeat(15) + "API done."
         val phrases = KokoroSpeechText.timed(text) { true }.phrases!!
         assertEquals(listOf("go ".repeat(15).trimEnd(), "a p i done."), phrases.map { it.speech })

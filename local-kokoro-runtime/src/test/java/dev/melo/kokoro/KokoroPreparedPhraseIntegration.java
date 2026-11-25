@@ -26,6 +26,37 @@ public final class KokoroPreparedPhraseIntegration {
                 }
                 System.out.println("Prepared and text paths agreed for " + prepared.samples.length + " frames at speed " + rate);
             }
+            // Prepared and text entry points retain the same native input-byte count.
+            // Currently admitted frontend text is ASCII; this is an ownership contract.
+            KokoroFrontend.EncodedPhrase preparedInput = model.encode(phrase);
+            int originalBytes;
+            try {
+                model.generate(phrase, 0, Float.NaN);
+                throw new AssertionError("Invalid speed was accepted for text input");
+            } catch (TimedKokoro.Failure expected) {
+                if (!"FRONTEND_INVALID_SPEED".equals(expected.code)) throw expected;
+                originalBytes = expected.inputBytes;
+            }
+            try {
+                model.generate(preparedInput, 0, Float.NaN);
+                throw new AssertionError("Invalid speed was accepted for prepared input");
+            } catch (TimedKokoro.Failure expected) {
+                if (!"FRONTEND_INVALID_SPEED".equals(expected.code)) throw expected;
+                if (expected.inputBytes != originalBytes || originalBytes != phrase.length()) {
+                    throw new AssertionError("Prepared input lost the native encoded byte count");
+                }
+            }
+            // Unsupported separators still fail closed, with actual native bytes.
+            String accented = "the café is ready.";
+            try {
+                model.encode(accented);
+                throw new AssertionError("Unsupported accented separator was accepted");
+            } catch (TimedKokoro.Failure expected) {
+                if (!"FRONTEND_INVALID_SEPARATOR".equals(expected.code)) throw expected;
+                if (expected.inputBytes <= accented.length()) {
+                    throw new AssertionError("Frontend refusal lost the native encoded byte count");
+                }
+            }
             try {
                 model.generate(other.encode(phrase), 0, 1f);
                 throw new AssertionError("Foreign pronunciation dictionary accepted");

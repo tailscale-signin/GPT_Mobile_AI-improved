@@ -7,17 +7,17 @@ public final class KokoroFrontend implements AutoCloseable {
         public final long[] tokenIds;
         public final int[] wordTokens;
         private String vocabulary;
-        int inputBytes;
+        final int inputBytes;
         private long[] sealedTokens;
         private int[] sealedWords;
 
-        private EncodedPhrase(long[] tokenIds, int[] wordTokens) {
+        private EncodedPhrase(long[] tokenIds, int[] wordTokens, int inputBytes) {
             this.tokenIds = tokenIds;
             this.wordTokens = wordTokens;
+            this.inputBytes = inputBytes;
         }
-        EncodedPhrase bind(String key, int bytes) {
+        EncodedPhrase bind(String key) {
             vocabulary = key;
-            inputBytes = bytes;
             sealedTokens = tokenIds.clone();
             sealedWords = wordTokens.clone();
             return this;
@@ -35,7 +35,7 @@ public final class KokoroFrontend implements AutoCloseable {
     }
     public synchronized EncodedPhrase encode(String phrase) {
         if (handle == 0) throw new IllegalStateException("Kokoro frontend is closed");
-        return encodePhrase(handle, phrase).bind(vocabulary, phrase.length());
+        return encodePhrase(handle, phrase).bind(vocabulary);
     }
     @Override public synchronized void close() {
         if (handle != 0) release(handle);

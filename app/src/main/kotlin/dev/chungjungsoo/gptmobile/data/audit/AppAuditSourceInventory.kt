@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "1be64a9b5aeb796e25e87693e5510c5b5b662fefedb9c6fd527c5b2bb6fd956e"
+    val sourceDigest: String = "f888805e16c868f330cea2c4c6ac1a04c0a3fb2ea08d106f20f8010fd07ac3c6"
     val fileCount: Int = 3132
-    val lineCount: Int = 533993
+    val lineCount: Int = 534042
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -36,14 +36,14 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14881),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6999),
         AppAuditSourceArea("network", "Networking and readiness", 114, 11791),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 300, 55448),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 300, 55496),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14081),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 47, 5091),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15110),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 106, 17204),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 151, 25281),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 56, 8310),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 133, 23616),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 133, 23617),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 282, 103303),

@@ -668,23 +668,29 @@ internal class GitHubVerifiedSession(
         val first = if (boundary == null) -1 else exchanges.indexOfFirst { exchange -> exchange.calls.any { it.callId == boundary } }
         val readerContext = if (first < 0) exchanges else exchanges.subList(first, exchanges.size)
         val decisionStarted = System.nanoTime()
-        var round = collectDraft(patchSession ?: replannedReader ?: delegate, tools, readerContext)
+        val roundSession = patchSession ?: replannedReader ?: delegate
+        var round = collectDraft(roundSession, tools, readerContext)
         completedDecisionMillis = if (round.completed && !round.failed && round.calls) (System.nanoTime() - decisionStarted) / 1_000_000 else 0
         val retained = evidence.snapshot().first
+        val missingReviewEvidence = canRecoverRepositoryEvidence(roundSession, round, tools, retained)
         if (!initiallyVerifiedComplete &&
             !executionCorrectionAttempted &&
             openExecutionContinuation != null &&
             tools.isNotEmpty() &&
-            round.completed &&
-            !round.failed &&
-            !round.calls &&
-            round.draft.isNotBlank() &&
+            (missingReviewEvidence || round.completed && !round.failed && !round.calls && round.draft.isNotBlank()) &&
             retained.keys == initialReceiptIds &&
             (GitHubRequestCompletion.requiresRepositoryEvidence(task) || ciDiagnosis) &&
             remainingToolCalls()?.let { it > 0 } != false
         ) {
+            if (missingReviewEvidence) {
+                validatePublication()
+                evidence.taskAdmissionFailure()?.let { denied ->
+                    emit(denied)
+                    return@flow
+                }
+            }
             executionCorrectionAttempted = true
-            readOnlyEvidenceRecovery = ciDiagnosis || GitHubRequestCompletion.requiresRepositoryEvidence(task) && GitHubRequestCompletion.informational(task)
+            readOnlyEvidenceRecovery = missingReviewEvidence || ciDiagnosis || GitHubRequestCompletion.requiresRepositoryEvidence(task) && GitHubRequestCompletion.informational(task)
             progress("The response proposed work without new execution evidence. Resuming the accepted task once with its tools and receipts")
             val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, retained, evidence.diagnostic(), readOnlyRefresh = readOnlyEvidenceRecovery)
             round = collectDraft(openExecutionContinuation.invoke(prompt), tools, exchanges)
@@ -855,6 +861,42 @@ internal class GitHubVerifiedSession(
         }
     }
 
+    private suspend fun canRecoverRepositoryEvidence(session: AgentProviderSession, round: DraftRound, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): Boolean {
+        val failure = round.failure ?: return false
+        if (round.calls || round.completed || !round.failed || session.handlesToolsInternally ||
+            !(ciDiagnosis || GitHubRequestCompletion.informational(task)) ||
+            (session as? GitHubReviewedSession)?.consumeRepositoryEvidenceFailure(failure) != true
+        ) {
+            return false
+        }
+        val contract = evidence.acceptedPromptContract() ?: return false
+        val acceptedCalls = (contract["effective_tool_call_limit"] as? JsonPrimitive)?.intOrNull ?: return false
+        val remaining = remainingToolCalls() ?: return false
+        return contract["request_digest"] == JsonPrimitive(GitHubEvidenceBook.digest(task)) &&
+            (contract["repository"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true &&
+            acceptedCalls > 0 &&
+            remaining <= acceptedCalls &&
+            remaining > GitHubChecklistBudget.ordinaryVerificationReserve(executionCallLimit) &&
+            evidence.taskAdmissionFailure() == null &&
+            readOnlyEvidenceTools(tools).isNotEmpty() &&
+            receipts.values.none {
+                GitHubExecutionLedger.receiptState(it) in setOf(
+                    GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME,
+                    GitHubExecutionLedger.ReceiptState.DISPATCHED,
+                    GitHubExecutionLedger.ReceiptState.WAITING_FOR_APPROVAL
+                )
+            }
+    }
+
+    private fun readOnlyEvidenceTools(tools: List<AgentToolDefinition>): List<AgentToolDefinition> = tools.filter { tool ->
+        tool.modelVisible &&
+            evidence.trustsTool(tool.name) &&
+            tool.name.githubOperationFamily() in setOf(
+                GitHubAuthorizedCatalog.TOOL, "github", "github_context", "github_ci", "github_pr", "github_read",
+                "github_search", "github_issue", "github_release", "github_repository", "repository_graph", "repository_workspace"
+            )
+    }
+
     private fun draftEvents(session: AgentProviderSession, tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
         if (!readOnlyEvidenceRecovery) return session.streamRound(tools, exchanges)
         val blocked = ProviderEvent.Failed(
@@ -863,14 +905,7 @@ internal class GitHubVerifiedSession(
             taskOutcome = "BLOCKED"
         )
         if (session.handlesToolsInternally) return flowOf(blocked)
-        val readTools = tools.filter { tool ->
-            tool.modelVisible &&
-                evidence.trustsTool(tool.name) &&
-                tool.name.githubOperationFamily() in setOf(
-                    GitHubAuthorizedCatalog.TOOL, "github", "github_context", "github_ci", "github_pr", "github_read",
-                    "github_search", "github_issue", "github_release", "github_repository", "repository_graph", "repository_workspace"
-                )
-        }
+        val readTools = readOnlyEvidenceTools(tools)
         return session.streamRound(readTools, exchanges).transformWhile { event ->
             val admitted = when (event) {
                 is ProviderEvent.ToolResult -> false

@@ -248,7 +248,7 @@ public final class TimedKokoro implements AutoCloseable {
         lifetime.readLock().lock();
         try {
             if (handle == 0) throw new IllegalStateException("Kokoro is closed");
-            return encodeModelPhrase(handle, phrase).bind(vocabulary, phrase.length());
+            return encodeModelPhrase(handle, phrase).bind(vocabulary);
         } finally { lifetime.readLock().unlock(); }
     }
 

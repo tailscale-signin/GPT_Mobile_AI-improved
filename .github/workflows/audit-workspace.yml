@@ -165,7 +165,9 @@ jobs:
             app/build/reports/tests/testDebugUnitTest
           retention-days: 7
       - name: Debug APK build
-        timeout-minutes: 20
+        # Run 45535381657 reached packageDebug before its 19-minute process limit.
+        # Allow bounded cold packaging time and retain two minutes for cleanup.
+        timeout-minutes: 35
         id: apk
         if: ${{ !cancelled() && steps.production_compile.outcome == 'success' }}
         shell: bash
@@ -198,7 +200,7 @@ jobs:
             wait "$watchdog_pid" 2>/dev/null || true
           }
           trap cleanup_watchdog EXIT
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- --no-daemon --max-workers=1 --stacktrace :app:assembleDebug '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-apk.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1980 -- --no-daemon --max-workers=1 --stacktrace :app:assembleDebug '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-apk.log
       - name: Android lint
         # Exact-head run 43968609247 completed compilation, unit tests, and APK,
         # but lintAnalyzeDebugUnitTest was still running when the 2040-second

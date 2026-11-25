@@ -168,7 +168,11 @@ internal object GitHubEffectiveRecovery {
                 it["success"] == JsonPrimitive(true) &&
                 (it["arguments"] as? JsonObject)?.let { args -> dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(it.text("tool"), args) } == true
         }
-        val beforeAction = text.substringBeforeLast("\n\n**Next action:** ", text).trimEnd()
+        // Both receipt renderers use one-line actions; retain all following evidence.
+        val beforeAction = text.lineSequence()
+            .filterNot { it.startsWith("**Next action:** ") || it.startsWith("**Next action** · ") }
+            .joinToString("\n")
+            .trimEnd()
         val unknownAcceptance = original["remote_acceptance"] == JsonPrimitive("UNKNOWN") && original["dispatched"] != JsonPrimitive(false)
         return buildString {
             append(beforeAction)

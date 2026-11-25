@@ -4961,9 +4961,9 @@
       "sha256": "e15d56fab17a6484749312a2ff62b684251128a0f40ba25e28e8ac44b9eb3fc1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt": {
-      "blob_sha": "6e4240d7d2425f6677c060766bc5021a3c33a272",
-      "bytes": 17843,
-      "sha256": "ee7b3adc46e8e730d10e1149ebbfbad87850d64095c4ec4291f84d27a3e95e0d"
+      "blob_sha": "83e987e1ffa45b258a3f42eaf5d27e5cb6c8c64a",
+      "bytes": 18020,
+      "sha256": "19f67b402e072c74eb221d3bc483794906e6c9330ecfea6b621a15e80d71e2e3"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt": {
       "blob_sha": "4b3f577f1585f5511dd4e9a68539edadfbc052ec",
@@ -4996,9 +4996,9 @@
       "sha256": "150688bb8e871106703aa493672181cebba373fb80b099001d29185344604b35"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendAudioAdmissionTest.kt": {
-      "blob_sha": "d14650a9710a193ad5b7cf29deb0555cd9b67f4e",
-      "bytes": 9122,
-      "sha256": "a479c923611d89d86e0e713c229d6f76fcc02973281164519fddf5f9e3f61c6f"
+      "blob_sha": "2f37a817ddd24021e4cffbeb201ee1d8ffe85624",
+      "bytes": 9182,
+      "sha256": "fc4d63d2768cae3df1a46df50c9249e8f76a6dbd764e6f5fcb5851f7c4b23630"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityRuntimeIdentityTest.kt": {
       "blob_sha": "9dd3e1b839a64156419553f128fc4613cefff659",
@@ -5061,9 +5061,9 @@
       "sha256": "60faaa7a6be7b2e139be1ce587065c80947478981cdc4b4c5404f00f7e6c99bd"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt": {
-      "blob_sha": "e97fb3797fe0a21f7cba19a5f0ff57049eed7978",
-      "bytes": 11589,
-      "sha256": "f18df32ee99938b70945b40d7514c64ea7ace8211dd39f4a751c1f62bc7b1cd0"
+      "blob_sha": "192032911e69a2e84a2ee1464776b05c7cefa45f",
+      "bytes": 11602,
+      "sha256": "be81490dd2b7e7fac144e146a6d5278a5dcce7a2890e932511c5edb990181435"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt": {
       "blob_sha": "1be712299ad73fbdeb76b584a7f4870cdd7e4746",

@@ -68,7 +68,6 @@ internal data class VoiceSpeechBenchmarkConfiguration(
         require(playbackScenarios.isNotEmpty() && playbackScenarios.size <= 6 && playbackScenarios.distinct().size == playbackScenarios.size)
         require(sourceCommit == null || sourceCommit.matches(Regex("[0-9a-f]{40,64}")))
         require(engineVoiceId == null || engineVoiceId.isNotBlank() && engineVoiceId.length <= 128)
-        require(!playback || mode != VoiceSpeechBenchmarkMode.STABILITY)
         require(htpPerformanceMode in setOf("balanced", "burst", "high_performance"))
         require(sustainedTargetAudioMs in VoiceSpeechSustainedSeries.TARGETS)
     }
@@ -414,7 +413,7 @@ internal data class VoiceSpeechBenchmarkReport(
             !configuration.currentProtocol ||
             state != VoiceSpeechBenchmarkRunState.COMPLETE ||
             issue != null ||
-            configuration.mode != VoiceSpeechBenchmarkMode.FULL ||
+            configuration.mode == VoiceSpeechBenchmarkMode.QUICK ||
             configuration.calibrationPolicy != VoiceSpeechCalibrationPolicy.CONTROLLED_ZERO ||
             configuration.playbackScenarios.toSet() != VoiceSpeechPlaybackScenario.entries.toSet()
         ) {
@@ -448,7 +447,40 @@ internal data class VoiceSpeechBenchmarkReport(
                 }
         }
         if (VoiceSpeechBackend.CPU !in complete) return emptyList()
-        return complete.filter { playbackAudioReference(it) in setOf(VoiceSpeechAudioReferenceStatus.CPU_REFERENCE, VoiceSpeechAudioReferenceStatus.CONSISTENT) }
+        val comparable = complete.filter { playbackAudioReference(it) in setOf(VoiceSpeechAudioReferenceStatus.CPU_REFERENCE, VoiceSpeechAudioReferenceStatus.CONSISTENT) }
+        if (configuration.mode != VoiceSpeechBenchmarkMode.STABILITY) return comparable
+        if (configuration.sustainedTargetAudioMs < 300_000) return emptyList()
+        val qualified = comparable.filter { backend ->
+            val rows = playbackResults.filter { it.requestedBackend == backend }
+            val gaps = rows.flatMap { row -> row.chunkRecords.mapNotNull { it.join?.readyUnpunctuatedGapMs } }
+            rows.filter { it.scenario == VoiceSpeechPlaybackScenario.SUSTAINED }.all { it.activePlaybackUnderruns == 0 } &&
+                gaps.size >= 20 &&
+                (VoiceSpeechBenchmarkBackendResult.percentile(gaps, .95) ?: Long.MAX_VALUE) <= 150
+        }
+        val times = qualified.associateWith { backend ->
+            VoiceSpeechBenchmarkFixture.entries.mapNotNull { fixture ->
+                val times = warmPresentationTimes(backend, fixture)
+                if (times.size >= 20) VoiceSpeechBenchmarkBackendResult.percentile(times, .95) else null
+            }
+        }.filterValues { it.size == VoiceSpeechBenchmarkFixture.entries.size }
+        return times.keys.filter { backend ->
+            times.getValue(backend).withIndex().all { (index, time) -> time <= times.values.minOf { it[index] } + 100 }
+        }
+    }
+
+    fun warmPresentationTimes(backend: VoiceSpeechBackend, fixture: VoiceSpeechBenchmarkFixture): List<Long> {
+        val hash = VoiceSpeechWorkload.digest(fixture.text)
+        return playbackResults.filter {
+            it.requestedBackend == backend &&
+                it.scenario == VoiceSpeechPlaybackScenario.VARIED_SHAPES &&
+                it.fixtureHash == hash &&
+                it.expectedResident &&
+                it.engineReused == true &&
+                !it.warmup &&
+                it.state == VoiceSpeechPlaybackState.COMPLETE &&
+                it.cleanupState == "RETIRED" &&
+                it.quality in setOf(VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED, VoiceSpeechPlaybackQuality.STREAMING_PLAYBACK_OBSERVED)
+        }.mapNotNull { it.firstPresentedAudioMs }
     }
 
     fun playbackAudioReference(backend: VoiceSpeechBackend): VoiceSpeechAudioReferenceStatus {

@@ -913,9 +913,16 @@ internal class KokoroVoiceOutput(
             // This worker consumes one playback's ordered queue. Its bounded pronunciation
             // context dies with that playback, including cancellation or a failed phrase.
             val speechContext = KokoroSpeechContext()
+            val joins = VoiceSpeechJoinTracker()
+            var waitingForTextMs = 0L
             while (active === playback) {
                 playback.synthesizing = false
-                val segment = playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS)
+                val segment = playback.segments.poll() ?: run {
+                    val waitingSince = SystemClock.elapsedRealtime()
+                    playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS).also {
+                        waitingForTextMs += SystemClock.elapsedRealtime() - waitingSince
+                    }
+                }
                 if (segment == null) {
                     if (playback.sealed && playback.segments.isEmpty()) break
                     continue
@@ -966,17 +973,29 @@ internal class KokoroVoiceOutput(
                 }
                 segmentIndex++
                 val plan = KokoroPhrasePlan(phrases)
+                val tokenRetries = ArrayDeque<KokoroPhrase>()
                 while (true) {
                     if (active !== playback) return
-                    val phrase = plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
+                    val tokenRetry = tokenRetries.isNotEmpty()
+                    val phrase = tokenRetries.removeFirstOrNull() ?: plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
                     if (model.engine.supportsStreaming) {
                         val ranges = phrase.wordRanges.takeIf { playback.onRange != null || playback.onTimedRange != null }
                         if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.speech, ranges, speed, silence)) return
                         continue
                     }
                     playback.diagnostics?.synthesisStarted()
+                    val reserveAtStartMs = bufferedAudioMs(playback)
                     val synthesisStarted = SystemClock.elapsedRealtime()
-                    val generate = { model.engine.generate(phrase.speech, playback.voice.speakerId, speed) }
+                    val encoded = try {
+                        model.engine.preparePhrase(phrase.speech)
+                    } catch (failure: dev.melo.kokoro.TimedKokoro.Failure) {
+                        if (failure.code != "FRONTEND_TOKEN_LIMIT") throw failure
+                        val parts = phrase.splitAtGroup() ?: throw failure
+                        tokenRetries.addFirst(parts.second)
+                        tokenRetries.addFirst(parts.first)
+                        continue
+                    }
+                    val generate = { model.engine.generatePrepared(phrase.speech, encoded, playback.voice.speakerId, speed) }
                     val generated = performanceHint?.measure(VoiceCpuSchedulingPolicy.targetNanos(!playback.queuedAudio, bufferedAudioMs(playback)), generate) ?: generate()
                     if (active !== playback) return
                     val provider = model.engine.executionProvider
@@ -991,6 +1010,21 @@ internal class KokoroVoiceOutput(
                     val boundaries = if (timedCaptions) measuredBoundaries else IntArray(0)
                     val samples = silence?.filter(generated.samples, boundaries) ?: generated.samples
                     val audioMs = samples.size.toLong() * 1_000 / sampleRate
+                    val join = joins.observe(
+                        phrase.speech.last(),
+                        tokenRetry && tokenRetries.isNotEmpty(),
+                        generated.samples,
+                        samples,
+                        playback.enqueuedFrames.get(),
+                        reserveAtStartMs,
+                        waitingForTextMs,
+                        sampleRate
+                    )
+                    waitingForTextMs = 0
+                    if (join != null) {
+                        playback.measurements?.phraseJoin(join)
+                        timing("phrase_join", playback, "boundary=${join.boundary} · punctuation=${join.punctuation} · rawQuietMs=${join.rawQuietMs} · retainedQuietMs=${join.retainedQuietMs} · headroomMs=${join.headroomMs} · textWaitMs=${join.textWaitMs}")
+                    }
                     runCatching { playback.measurements?.pcmReady(synthesisMs, samples.size, sampleRate, model.engine.executionEvidence) }
                     // Reserve against the retained PCM duration, since trimming silence also
                     // removes time during which the following phrase could be synthesized.
@@ -1274,6 +1308,7 @@ internal class KokoroVoiceOutput(
         var framesWritten = 0L
         var playing = false
         var drainedAt: Long? = null
+        var drainedFrame = 0L
         while (active === playback) {
             val first = playback.pcm.poll(POLL_MS, TimeUnit.MILLISECONDS)
             if (first == null) {
@@ -1298,6 +1333,7 @@ internal class KokoroVoiceOutput(
                     playing = false
                     playback.refilling = true
                     drainedAt = SystemClock.elapsedRealtime()
+                    drainedFrame = framesWritten
                     measuredSynthesis.update { it.copy(bufferState = "refilling") }
                     playback.adaptive.underrun()
                     publishFeedback(playback)
@@ -1334,7 +1370,9 @@ internal class KokoroVoiceOutput(
                                 }
                                 drainedAt?.let { drained ->
                                     playback.bufferRestarts++
-                                    playback.longestRefillMs = maxOf(playback.longestRefillMs, SystemClock.elapsedRealtime() - drained)
+                                    val refillMs = SystemClock.elapsedRealtime() - drained
+                                    playback.longestRefillMs = maxOf(playback.longestRefillMs, refillMs)
+                                    if (!playback.focusState.paused) playback.measurements?.refillAt(drainedFrame, refillMs)
                                 }
                                 drainedAt = null
                                 playback.queuedAudio = true

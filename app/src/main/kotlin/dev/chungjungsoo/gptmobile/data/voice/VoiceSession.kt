@@ -987,12 +987,13 @@ class VoiceSession(
 internal fun speechChunks(text: String, limit: Int = 3000): List<String> {
     require(limit >= 2)
     val chunks = mutableListOf<String>()
+    val boundaries = if (text.length > limit) VoicePhraseBoundaries(text) else null
     var start = 0
     while (start < text.length) {
         var end = start + minOf(limit, text.length - start)
         if (end < text.length) {
             // Prefer a nearby word break while keeping long unbroken tokens bounded.
-            val boundary = (end - 1 downTo start + limit / 2).firstOrNull { text[it].isWhitespace() }
+            val boundary = (end - 1 downTo start + limit / 2).firstOrNull { text[it].isWhitespace() && boundaries?.permits(it + 1) == true }
             if (boundary != null) end = boundary + 1
             if (text[end - 1].isHighSurrogate()) end--
         }

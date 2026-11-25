@@ -13,6 +13,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechPlaybackProtocolTest {
+    @Test fun stabilitySeparatesThreeWarmCohortsFromColdSamplesAndFitsTheBoundedReport() {
+        val config = configuration().copy(mode = VoiceSpeechBenchmarkMode.STABILITY, playbackScenarios = VoiceSpeechPlaybackScenario.entries)
+        val plans = VoiceSpeechPlaybackProtocol.expandedPlans(config, VoiceSpeechSustainedSeries.MAX_REPLIES)
+        assertTrue(plans.size <= VoiceSpeechPlaybackProtocol.MAX_SAMPLES_PER_BACKEND)
+        val varied = plans.filter { it.scenario == VoiceSpeechPlaybackScenario.VARIED_SHAPES }
+        assertEquals(1, varied.count { it.warmup })
+        for (fixture in VoiceSpeechBenchmarkFixture.entries) {
+            assertEquals(20, varied.count { it.expectedResident && !it.warmup && it.segments == listOf(fixture.text) })
+        }
+        assertTrue(plans.filter { it.scenario == VoiceSpeechPlaybackScenario.COLD_START }.all { !it.expectedResident && !it.warmup })
+    }
+
+    @Test fun joinsSeparateRetainedSilenceTextWaitAndTrackRefill() {
+        val tracker = VoiceSpeechJoinTracker()
+        val head = floatArrayOf(0f, 0f, 1f)
+        val tail = floatArrayOf(1f, 0f, 0f, 0f)
+        assertNull(tracker.observe('t', true, tail, tail.copyOf(2), 0, 0, 0, 1000))
+        val join = requireNotNull(tracker.observe('.', false, head, head.copyOfRange(1, 3), 2, 10, 0, 1000))
+        assertEquals(VoiceSpeechJoinBoundary.TOKEN_LIMIT, join.boundary)
+        assertEquals(5L, join.rawQuietMs)
+        assertEquals(2L, join.retainedQuietMs)
+        assertEquals(13L, join.copy(refillMs = 11).readyUnpunctuatedGapMs)
+        assertNull(join.copy(textWaitMs = 1).readyUnpunctuatedGapMs)
+        assertNull(tracker.observe('s', false, tail, tail, 4, 0, 0, 1000)?.readyUnpunctuatedGapMs)
+    }
+
     private fun configuration(full: Boolean = false) = VoiceSpeechBenchmarkConfiguration(
         if (full) VoiceSpeechBenchmarkMode.FULL else VoiceSpeechBenchmarkMode.QUICK,
         listOf(VoiceSpeechBackend.CPU), KokoroVoice.HEART, 1, 1f, "a".repeat(64), "test-runtime", 147, 36, "b".repeat(64), playback = true

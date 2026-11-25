@@ -253,4 +253,21 @@ class VoiceSpeechBufferTest {
         val final = requireNotNull(buffer.append(opening + clause + tail, true, earlyStart = true))
         assertEquals(tail, (chunks + final).joinToString(""))
     }
+
+    @Test fun partialTitleAndNumberWaitForTheWholeTermAcrossProviderStalls() {
+        val source = "Dr. Chen checked the FP32 GPU for 3.5 milliseconds. Next."
+        var clock = 0L
+        val b = VoiceSpeechBuffer { clock }
+        val pieces = mutableListOf<String>()
+        for (end in 1..source.length) {
+            val text = source.take(end)
+            pieces += requireNotNull(b.append(text, false, true, adaptive = true))
+            clock += 180L
+            pieces += requireNotNull(b.append(text, false, true, adaptive = true))
+        }
+        pieces += requireNotNull(b.append(source, true))
+        assertEquals(source, pieces.joinToString(""))
+        assertTrue(pieces.any { "Dr. Chen" in it })
+        assertTrue(pieces.any { "3.5 milliseconds" in it })
+    }
 }

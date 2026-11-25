@@ -29,6 +29,7 @@ timeout 30s "$speech_contract_dir/provider-profile-test"
 timeout 30s java -Xmx256m --add-modules jdk.compiler com.sun.tools.javac.Main \
     -d "$speech_contract_dir/java" \
     local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java \
+    local-kokoro-runtime/src/main/java/dev/melo/kokoro/KokoroFrontend.java \
     local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java \
     local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeContextIntegration.java \
     local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroContextSignalContractTest.java

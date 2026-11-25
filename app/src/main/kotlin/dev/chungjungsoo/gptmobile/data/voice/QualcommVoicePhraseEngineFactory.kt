@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import dev.melo.kokoro.KokoroFrontend
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
 import java.security.MessageDigest
@@ -76,9 +77,11 @@ internal class QualcommVoicePhraseEngineFactory(
                     override val executionProvider: String get() = provider(backend)
                     override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
                     override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
-                    override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                    override fun preparePhrase(text: String): KokoroFrontend.EncodedPhrase = native.encode(text)
+                    override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio = generatePrepared(text, null, speaker, speed)
+                    override fun generatePrepared(text: String, encoded: KokoroFrontend.EncodedPhrase?, speaker: Int, speed: Float): VoicePhraseAudio {
                         val audio = try {
-                            native.generate(text, speaker, speed)
+                            if (encoded == null) native.generate(text, speaker, speed) else native.generate(encoded, speaker, speed)
                         } catch (error: Exception) {
                             observed = speechFailureExecutionEvidence(error, backend, deviceKey, modelVariant.modelSha256)
                             throw error
@@ -211,10 +214,12 @@ internal class QualcommVoicePhraseEngineFactory(
             override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
             override fun warmFirstInference(speaker: Int, speed: Float): Boolean =
                 selected == VoiceSpeechBackend.CPU && native.warmCpuInference(speaker, speed)
-            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+            override fun preparePhrase(text: String): KokoroFrontend.EncodedPhrase = native.encode(text)
+            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio = generatePrepared(text, null, speaker, speed)
+            override fun generatePrepared(text: String, encoded: KokoroFrontend.EncodedPhrase?, speaker: Int, speed: Float): VoicePhraseAudio {
                 check(selected == VoiceSpeechBackend.CPU || speaker == voice.speakerId && speed.toBits() == speechRate.toBits()) { "MODEL_CONFIGURATION" }
                 val audio = try {
-                    native.generate(text, speaker, speed)
+                    if (encoded == null) native.generate(text, speaker, speed) else native.generate(encoded, speaker, speed)
                 } catch (error: Exception) {
                     observed = speechFailureExecutionEvidence(error, backend, deviceKey, modelVariant.modelSha256)
                     throw error
@@ -298,7 +303,7 @@ internal class QualcommVoicePhraseEngineFactory(
             ::thermalStatus,
             { latestAudio }
         ) { phrase, speaker, rate ->
-            val audio = native.generate(phrase, speaker, rate)
+            val audio = native.generate(native.encode(phrase), speaker, rate)
             latestAudio = VoiceSpeechAudioObservation.measure(phrase, VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens))
             evidence(native.evidence(), provider(selected), null)
         }

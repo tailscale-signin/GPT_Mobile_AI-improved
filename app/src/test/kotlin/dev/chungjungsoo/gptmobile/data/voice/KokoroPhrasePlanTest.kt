@@ -28,4 +28,19 @@ class KokoroPhrasePlanTest {
         adaptive.observe(8_000, 4_000, spokenWords = 16)
         assertTrue(adaptive.phraseWords(3_000) <= 6)
     }
+
+    @Test fun nativeCaptionAndCaptionlessPlansKeepExpandedTermsAndSavedNamesWhole() {
+        val input = "Dr. Chen checked the FP32 GPU for 3.5 milliseconds before Sentoria replied."
+        for (timed in listOf(false, true)) {
+            val projected = KokoroSpeechText.withPolicy(input, { true }, mapOf("sentoria" to "sen toria"), 7, timed).phrases!!
+            val plan = KokoroPhrasePlan(projected)
+            val phrases = generateSequence { plan.next(6) }.toList()
+            for (term in listOf("doctor chen", "f p thirty two", "g p u", "three point five milliseconds", "sen toria")) {
+                assertTrue(term, phrases.any { term in it.speech })
+            }
+            assertTrue(phrases.all { it.speech.toByteArray().size <= 128 })
+            assertEquals(projected.flatMap { it.wordRanges }, phrases.flatMap { it.wordRanges })
+            if (!timed) assertTrue(phrases.all { it.wordRanges.isEmpty() })
+        }
+    }
 }

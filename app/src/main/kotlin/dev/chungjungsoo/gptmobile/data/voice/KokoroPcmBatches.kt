@@ -78,7 +78,7 @@ internal class VoiceQuietLimiter(sampleRate: Int, maxQuietMs: Int) {
         var removedStart = -1
         for ((index, sample) in samples.withIndex()) {
             while (nextBoundary < boundaries.size && boundaries[nextBoundary] == index) boundaries[nextBoundary++] = count
-            if (kotlin.math.abs(sample) <= 0.0003f) {
+            if (kotlin.math.abs(sample) <= VoiceSpeechJoinTracker.QUIET) {
                 if (quietFrames == limit) {
                     if (result == null) result = samples.copyOf()
                     if (removedStart < 0) removedStart = index

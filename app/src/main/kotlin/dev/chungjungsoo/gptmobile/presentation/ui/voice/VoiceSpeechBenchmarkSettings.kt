@@ -130,13 +130,15 @@ internal fun VoiceSpeechBenchmarkSettings(
         listOf("silent" to "Silent synthesis", "playback" to "Audible playback and captions"),
         {
             audible = it == "playback"
-            if (audible && mode == VoiceSpeechBenchmarkMode.STABILITY.name) mode = VoiceSpeechBenchmarkMode.FULL.name
         },
         enabled = enabled && !state.running
     )
     if (audible) {
         VoiceChoice("Playback workload", playbackScenario, VoiceSpeechPlaybackScenario.entries.map { it.name to it.label } + ("ALL" to "All six workloads"), { playbackScenario = it }, enabled = enabled && !state.running)
-        VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.filter { it != VoiceSpeechBenchmarkMode.STABILITY }.map { it.name to it.label }, { mode = it }, enabled = enabled && !state.running)
+        VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.map { it.name to it.label }, { mode = it }, enabled = enabled && !state.running)
+        if (mode == VoiceSpeechBenchmarkMode.STABILITY.name) {
+            Text("Changing phrase shapes measures 20 resident plays each for short, medium and long answers after a separate warm-up. Select all six workloads to include fresh sessions and sustained playback.", style = MaterialTheme.typography.bodySmall)
+        }
         if (playbackScenario == "ALL" || playbackScenario == VoiceSpeechPlaybackScenario.SUSTAINED.name) {
             VoiceChoice("Sustained audio target", sustainedTargetAudioMs, listOf("60000" to "1 minute", "300000" to "5 minutes", "600000" to "10 minutes"), { sustainedTargetAudioMs = it }, enabled = enabled && !state.running)
             Text("Counts completed, validated audio that reached playback. The test stops at the selected duration, 16 replies, or its wall-time limit.", style = MaterialTheme.typography.bodySmall)
@@ -328,6 +330,20 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
                         Text("${backend.label} · ${rows.size} observed samples", style = MaterialTheme.typography.titleSmall)
                         Text("${rows.count { it.failure != null }} failures · ${rows.sumOf { it.bufferRestarts }} restarts · ${rows.count { it.cleanupState == "PENDING" }} pending cleanup", style = MaterialTheme.typography.bodySmall)
                         Text(rows.groupingBy { it.quality }.eachCount().entries.joinToString(" · ") { "${it.value} ${it.key.name.lowercase().replace('_', ' ')}" }, style = MaterialTheme.typography.bodySmall)
+                        if (report.configuration.mode == VoiceSpeechBenchmarkMode.STABILITY) {
+                            VoiceSpeechBenchmarkFixture.entries.forEach { fixture ->
+                                val observations = report.warmPresentationTimes(backend, fixture)
+                                if (observations.size >= 20) {
+                                    val p50 = VoiceSpeechBenchmarkBackendResult.percentile(observations, .50)
+                                    val p95 = VoiceSpeechBenchmarkBackendResult.percentile(observations, .95)
+                                    Text("${fixture.label} warm first presented audio · p50 $p50 ms · p95 $p95 ms · n=${observations.size}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            val gaps = rows.filter { !it.warmup }.flatMap { row -> row.chunkRecords.mapNotNull { it.join?.readyUnpunctuatedGapMs } }
+                            if (gaps.size >= 20) {
+                                Text("Text-ready unpunctuated joins · p95 ${VoiceSpeechBenchmarkBackendResult.percentile(gaps, .95)} ms · n=${gaps.size} · retained PCM silence plus observed track refill", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide samples" else "Inspect samples and causes") }
                     }
                 }

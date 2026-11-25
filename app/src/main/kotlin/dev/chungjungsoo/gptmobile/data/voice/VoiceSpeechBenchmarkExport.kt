@@ -722,6 +722,21 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
                         nullable("cpuKernels", chunk.cpuKernels)
                         put("observation", chunk.observation?.let(::failureObservationJson) ?: JsonNull)
                         put("audioObservation", chunk.audioObservation?.let(::speechAudioObservationJson) ?: JsonNull)
+                        chunk.join?.let { join ->
+                            put(
+                                "join",
+                                buildJsonObject {
+                                    put("startFrame", join.startFrame)
+                                    put("boundary", join.boundary.name)
+                                    put("punctuation", join.punctuation.name)
+                                    put("rawQuietMs", join.rawQuietMs)
+                                    put("retainedQuietMs", join.retainedQuietMs)
+                                    put("headroomMs", join.headroomMs)
+                                    put("textWaitMs", join.textWaitMs)
+                                    put("refillMs", join.refillMs)
+                                }
+                            )
+                        }
                     }
                 )
             }
@@ -990,7 +1005,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     captionWordsObserved = r.optionalBoundedLong("captionWordsObserved", VoiceSpeechCaptionManifest.MAX_WORDS.toLong())?.toInt() ?: 0,
     protocolVersion = r.optionalBoundedLong("protocolVersion", VoiceSpeechPlaybackProtocol.VERSION.toLong())?.toInt() ?: 0,
     scenario = r.optionalString("scenario")?.let(VoiceSpeechPlaybackScenario::valueOf) ?: VoiceSpeechPlaybackScenario.COLD_START,
-    repeat = r.optionalBoundedLong("repeat", 32)?.toInt() ?: 0, warmup = r.optionalBoolean("warmup") ?: false, expectedResident = r.optionalBoolean("expectedResident") ?: false,
+    repeat = r.optionalBoundedLong("repeat", VoiceSpeechPlaybackProtocol.MAX_SAMPLES_PER_BACKEND.toLong())?.toInt() ?: 0, warmup = r.optionalBoolean("warmup") ?: false, expectedResident = r.optionalBoolean("expectedResident") ?: false,
     engineReused = r.optionalBoolean("engineReused"), fixtureHash = r.optionalString("fixtureHash")?.also { require(it.matches(SHA256)) },
     manifestWordsExpected = r.optionalBoundedLong("manifestWordsExpected", 1024)?.toInt(), manifestWordsPrepared = r.optionalBoundedLong("manifestWordsPrepared", 1024)?.toInt(),
     manifestWordsObserved = r.optionalBoundedLong("manifestWordsObserved", 1024)?.toInt(), unexpectedCaptionWords = r.optionalBoundedLong("unexpectedCaptionWords", 2048)?.toInt(),
@@ -1019,7 +1034,19 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
             chunk.boundedLong("index", 127).toInt().also { require(it == index) }, chunk.boundedLong("completedAtMs"), chunk.boundedLong("generationMs"), chunk.boundedLong("audioMs", 30_000),
             chunk.optionalBoundedLong("inputBytes", 1_000_000)?.toInt(), chunk.optionalString("inputSha256")?.also { require(it.matches(SHA256)) }, chunk.optionalProvider("effectiveProvider"), chunk.getValue("verifiedAudio").jsonPrimitive.boolean,
             chunk.optionalBoundedLong("acceleratorKernels")?.toInt(), chunk.optionalBoundedLong("cpuKernels")?.toInt(), chunk["observation"]?.takeUnless { it == JsonNull }?.jsonObject?.let { readFailureObservation(it, chunk.getValue("verifiedAudio").jsonPrimitive.boolean) },
-            chunk["audioObservation"]?.takeUnless { it == JsonNull }?.jsonObject?.let(::readSpeechAudioObservation)
+            chunk["audioObservation"]?.takeUnless { it == JsonNull }?.jsonObject?.let(::readSpeechAudioObservation),
+            chunk["join"]?.takeUnless { it == JsonNull }?.jsonObject?.let { join ->
+                VoiceSpeechPhraseJoin(
+                    join.boundedLong("startFrame", Long.MAX_VALUE),
+                    VoiceSpeechJoinBoundary.valueOf(join.string("boundary")),
+                    VoiceSpeechJoinPunctuation.valueOf(join.string("punctuation")),
+                    join.boundedLong("rawQuietMs", 60_000),
+                    join.boundedLong("retainedQuietMs", 60_000),
+                    join.boundedLong("headroomMs"),
+                    join.boundedLong("textWaitMs"),
+                    join.boundedLong("refillMs")
+                )
+            }
         )
     },
     reserves = r["reserveObservations"]?.jsonArray.orEmpty().also { require(it.size <= 128) }.map { raw ->

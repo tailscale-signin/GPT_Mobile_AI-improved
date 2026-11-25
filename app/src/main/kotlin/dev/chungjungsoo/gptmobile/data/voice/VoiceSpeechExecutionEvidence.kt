@@ -360,7 +360,7 @@ internal data class VoiceBackendCapability(
 
 internal object VoiceMeasuredBackendPolicy {
     // Bump whenever the fixed fixtures or their cost aggregation changes.
-    const val COMPARISON_PROTOCOL = VoiceSpeechWorkload.PROTOCOL + "-thermal-v2-audio-admission-v1"
+    const val COMPARISON_PROTOCOL = VoiceSpeechWorkload.PROTOCOL + "-thermal-v2-audio-admission-v1-" + VoicePhraseBoundaries.PROTOCOL
     const val FIXTURE_COUNT = VoiceSpeechWorkload.CALIBRATION_FIXTURE_COUNT
     val thermalSampleCount: Int get() = 1 + VoiceSpeechWorkload.calibrationPhrases.size * 2
 

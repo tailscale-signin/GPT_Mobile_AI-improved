@@ -7,6 +7,7 @@ internal data class VoiceStreamingPhrase(val text: String, val sourceCharacters:
 
 /** Natural SDK input stays bounded while byte cues can still point to the original displayed segment. */
 internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, String>, speed: Float) {
+    private val groups = VoicePhraseBoundaries(input)
     private val text: String
     private val sources: List<IntRange>
     private var consumed = 0
@@ -36,9 +37,17 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
         var end = consumed
         var words = 0
         for (word in chunkWords.findAll(text, consumed)) {
-            if (word.range.last + 1 > ceiling || words == limit) break
-            end = word.range.last + 1
+            val candidate = word.range.last + 1
+            if (candidate > ceiling) break
             words++
+            var last = candidate - 1
+            while (last > consumed && text[last].isWhitespace()) last--
+            val legal = candidate == text.length || groups.groupAt(sources[last].first) != groups.groupAt(sources[candidate].first)
+            if (legal) {
+                if (words > limit && end > consumed) break
+                end = candidate
+                if (words >= limit || text[last] in ".!?") break
+            }
         }
         if (end == consumed) {
             // Oversized unbroken words still make progress without splitting a code point or

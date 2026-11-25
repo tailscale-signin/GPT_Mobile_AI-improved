@@ -2,6 +2,10 @@
 
 Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+Keep titles, technical terms, quantities and contextual readings together during live Kokoro speech. Reuse pack-bound native tokens on CPU, GPU and NPU and measure text-ready joins and warm first-presentation latency in audible Stability runs.
+
+Physical ROG Phone 9 Pro playback and three-listener pronunciation comparisons remain unmeasured for the revised planner. Native FP32 processor preference requires device-specific qualification.
+
 Build 150 also corrects the hosted reporter contract for failed-event output flags, including omissions, and negotiates the extended capability list before sending restored audio-focus reports. GitHub CI diagnosis retains measured APK size failures with their commit, run, attempt, job and log lines; a specific repair remains pending until its supporting evidence is verified. Exhaustive pagination requests survive a chat restart. Context-limited saved pages reach the selected model in successive read-only rounds with bounded reading notes retained for later requests and restart. Diagnostic export collects the run journal and timeline before bulk history and uses smaller database pages as heap headroom falls. Large redacted workspace rows stream through a private temporary file so exporting the row and its checksums uses bounded buffers. Intermediate saved-page reads do not publish progress notes or overwrite a saved answer draft. Retained reading notes accompany later final-answer requests within the existing context budget. A buffered GitHub continuation rechecks its durable prompt before dispatch so a paused, edited or consumed row cannot execute from a stale snapshot.
 
 Quality voice playback starts with up to six words, then adjusts phrase length to the measured synthesis time and available audio. When several authorized tools support a requested action, their local schemas can be selected individually. Repeated identical tool prechecks share one pending report with a count and call history.

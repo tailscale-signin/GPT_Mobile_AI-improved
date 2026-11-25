@@ -209,6 +209,7 @@ public final class TimedKokoro implements AutoCloseable {
         }
     }
 
+    private final String vocabulary;
     private long handle;
     // Cancellation may run beside generate; close waits for both without blocking cancellation.
     private final ReentrantReadWriteLock lifetime = new ReentrantReadWriteLock();
@@ -229,6 +230,7 @@ public final class TimedKokoro implements AutoCloseable {
             throw new IllegalArgumentException("Invalid HTP performance mode");
         if (!contextDirectory.isEmpty() && (!contextDirectory.startsWith("/") || !contextIdentity.matches("[0-9a-f]{64}")))
             throw new IllegalArgumentException("Invalid speech context cache configuration");
+        vocabulary = KokoroFrontend.vocabularyKey(tokens, lexicon);
         handle = open(model, voices, tokens, lexicon, threads, provider, libraryDirectory, profilePrefix,
                 contextDirectory, contextIdentity, htpPerformanceMode);
     }
@@ -238,6 +240,24 @@ public final class TimedKokoro implements AutoCloseable {
         try {
             if (handle == 0) throw new IllegalStateException("Kokoro is closed");
             return generatePhrase(handle, phrase, speaker, speed);
+        } finally { lifetime.readLock().unlock(); }
+    }
+
+    /** Encode using the active pack without running the acoustic graph. */
+    public KokoroFrontend.EncodedPhrase encode(String phrase) {
+        lifetime.readLock().lock();
+        try {
+            if (handle == 0) throw new IllegalStateException("Kokoro is closed");
+            return encodeModelPhrase(handle, phrase).bind(vocabulary, phrase.length());
+        } finally { lifetime.readLock().unlock(); }
+    }
+
+    public Audio generate(KokoroFrontend.EncodedPhrase phrase, int speaker, float speed) {
+        lifetime.readLock().lock();
+        try {
+            if (handle == 0) throw new IllegalStateException("Kokoro is closed");
+            if (!phrase.matches(vocabulary)) throw new IllegalArgumentException("Kokoro vocabulary differs");
+            return generateEncodedPhrase(handle, phrase.inferenceTokens(), phrase.inferenceWords(), phrase.inputBytes, speaker, speed);
         } finally { lifetime.readLock().unlock(); }
     }
 
@@ -297,6 +317,8 @@ public final class TimedKokoro implements AutoCloseable {
     private static native long[] executionProgress(long handle);
     private static native String executionDiscovery(long handle);
     private static native Audio generatePhrase(long handle, String phrase, int speaker, float speed);
+    private static native KokoroFrontend.EncodedPhrase encodeModelPhrase(long handle, String phrase);
+    private static native Audio generateEncodedPhrase(long handle, long[] tokens, int[] words, int bytes, int speaker, float speed);
     private static native void cancelGeneration(long handle);
     private static native void resetGeneration(long handle);
     private static native void release(long handle);

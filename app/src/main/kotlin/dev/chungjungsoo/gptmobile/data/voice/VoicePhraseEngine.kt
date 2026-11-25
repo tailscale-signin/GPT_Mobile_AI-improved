@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.melo.kokoro.KokoroFrontend
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
 
@@ -50,6 +51,8 @@ internal interface VoicePhraseEngine : AutoCloseable {
     val supportsStreaming: Boolean get() = false
     val supportsIncrementalInput: Boolean get() = false
     fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio = throw UnsupportedOperationException("This engine streams PCM")
+    fun preparePhrase(text: String): KokoroFrontend.EncodedPhrase? = null
+    fun generatePrepared(text: String, encoded: KokoroFrontend.EncodedPhrase?, speaker: Int, speed: Float): VoicePhraseAudio = generate(text, speaker, speed)
 
     /**
      * Runs on the synthesis owner. emit blocks for bounded playback backpressure;
@@ -128,6 +131,11 @@ internal object TimedKokoroPhraseEngineFactory : VoicePhraseEngineFactory {
             override val executionProgress: VoiceSpeechProgress? get() = engine.speechProgress()
             override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio =
                 engine.generate(text, speaker, speed).let { VoicePhraseAudio(it.samples, it.durations, it.wordTokens) }
+            override fun preparePhrase(text: String): KokoroFrontend.EncodedPhrase = engine.encode(text)
+            override fun generatePrepared(text: String, encoded: KokoroFrontend.EncodedPhrase?, speaker: Int, speed: Float): VoicePhraseAudio {
+                val audio = if (encoded == null) engine.generate(text, speaker, speed) else engine.generate(encoded, speaker, speed)
+                return VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens)
+            }
             override fun warmFirstInference(speaker: Int, speed: Float): Boolean = engine.warmCpuInference(speaker, speed)
             override fun resetCancellation() = engine.resetCancellation()
             override fun cancel() = engine.cancel()

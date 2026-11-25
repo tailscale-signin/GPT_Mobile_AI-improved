@@ -408,6 +408,7 @@
     "scripts/tests/test_kokoro_native_host_inputs.py",
     "scripts/tests/test_locked_dependency_audit.py",
     "scripts/tests/test_release_evidence.py",
+    "scripts/validate-local.sh",
     "scripts/voice_listening_trial.py"
   ],
   "publicationRequest": {

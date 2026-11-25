@@ -10,6 +10,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GitHubObservationFreshnessTest {
+    private fun json(raw: String) = kotlinx.serialization.json.Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
+
     @Test fun derivedClaimsRefreshOnlyTheirExpiredOperands() {
         val report = kotlinx.serialization.json.Json.parseToJsonElement(
             """{"unresolved_claims":[{"status":"NOT_MEASURED","sources":[{"receipt_id":"old","status":"STALE"},{"receipt_id":"current","status":"VERIFIED"}]},{"receipt_id":"old","status":"STALE"}]}"""
@@ -18,7 +20,6 @@ class GitHubObservationFreshnessTest {
     }
 
     @Test fun staleClaimSelectsOnlyItsExactMutableReadAndDoesNotRepeatAfterRestart() {
-        fun json(raw: String) = kotlinx.serialization.json.Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
         val schema = json("""{"type":"object","properties":{"action":{"type":"string"},"issue_number":{"type":"integer"},"verify_live":{"type":"boolean"}},"required":["action","issue_number"]}""")
         val tool = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("github", "read", schema)
         val original = json("""{"trusted":true,"success":true,"tool":"github","arguments":{"action":"get_issue","issue_number":42}}""")

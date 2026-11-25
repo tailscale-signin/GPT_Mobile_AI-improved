@@ -52,7 +52,9 @@ internal class MediaPipeVoicePhraseEngineFactory(
     override val identity = "$residentIdentity:voice=$voiceId"
 
     override fun prepareForPlayback(engine: VoicePhraseEngine) {
-        if (engine is MediaPipeVoicePhraseEngine) {
+        if (engine is MediaPipePlaybackRecovery) {
+            engine.prepare(voiceId, ::reportBackend)
+        } else if (engine is MediaPipeVoicePhraseEngine) {
             engine.selectVoice(voiceId, onPlaybackDelegate != null)
             reportBackend(engine)
         } else {
@@ -77,10 +79,15 @@ internal class MediaPipeVoicePhraseEngineFactory(
         check(!nativeCleanupPending) { "Native speech cleanup is unconfirmed; restart the app before another preparation." }
         // directory/lexicon/threads belong to the legacy engine contract. The SDK exposes no
         // thread-count control, and its model/voice frontend is wholly inside the verified bundle.
-        return open(backend, generation.get()).also(::reportBackend)
+        val prepared = open(backend, generation.get()).also(::reportBackend)
+        return if (onPlaybackDelegate != null && prepared.configuredBackend in ACCELERATORS) {
+            MediaPipePlaybackRecovery(prepared, voiceId, ::reportBackend, { selected -> open(VoiceSpeechBackend.LITERT_KOKORO_CPU, generation.get(), selected) }, ::cancelPending)
+        } else {
+            prepared
+        }
     }
 
-    private fun open(request: VoiceSpeechBackend, ticket: Long): MediaPipeVoicePhraseEngine {
+    private fun open(request: VoiceSpeechBackend, ticket: Long, requestedVoice: String = voiceId): MediaPipeVoicePhraseEngine {
         checkTicket(ticket)
         val selectedEngine = if (request == VoiceSpeechBackend.LITERT_KOKORO_CPU) MediaPipeSpeechEngine.KOKORO else engine
         val lease = modelStore.acquire(selectedEngine, request, speakingRate, model.defaultVoice, effectiveTargetBucket)
@@ -107,13 +114,14 @@ internal class MediaPipeVoicePhraseEngineFactory(
                 pending = task
                 checkTicket(ticket)
             }
-            val selectedVoice = SpeechLanguages.availableVoice(voiceId, task.voiceIds(), onPlaybackDelegate != null)
+            val voices = task.voiceIds()
+            val selectedVoice = SpeechLanguages.availableVoice(requestedVoice, voices, onPlaybackDelegate != null)
                 ?: throw IOException("No installed voice matches the selected language in ${model.title}.")
             synchronized(pendingLock) {
                 checkTicket(ticket)
                 pending = null
             }
-            return MediaPipeVoicePhraseEngine(task, lease, request, speakingRate, selectedVoice, incrementalInput)
+            return MediaPipeVoicePhraseEngine(task, lease, request, speakingRate, selectedVoice, incrementalInput, voices, onPlaybackDelegate != null && request in ACCELERATORS)
         } catch (failure: Throwable) {
             synchronized(pendingLock) { if (pending === task) pending = null }
             val closeFailure = runCatching { task?.close() }.exceptionOrNull()
@@ -128,14 +136,14 @@ internal class MediaPipeVoicePhraseEngineFactory(
             // voice/stream errors belong to that task. Benchmark factories stay strict.
             if (task == null &&
                 onPlaybackDelegate != null &&
-                request in setOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_SM8750) &&
+                request in ACCELERATORS &&
                 failure !is CancellationException &&
                 failure !is InterruptedException &&
                 (failure is Exception || failure is LinkageError)
             ) {
                 checkTicket(ticket)
                 return try {
-                    open(VoiceSpeechBackend.LITERT_KOKORO_CPU, ticket)
+                    open(VoiceSpeechBackend.LITERT_KOKORO_CPU, ticket, requestedVoice)
                 } catch (cpuFailure: Throwable) {
                     if (cpuFailure !== failure) cpuFailure.addSuppressed(failure)
                     throw cpuFailure
@@ -143,6 +151,15 @@ internal class MediaPipeVoicePhraseEngineFactory(
             }
             throw failure
         }
+    }
+
+    private companion object {
+        val ACCELERATORS = setOf(
+            VoiceSpeechBackend.LITERT_KOKORO_GPU,
+            VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED,
+            VoiceSpeechBackend.LITERT_KOKORO_NPU,
+            VoiceSpeechBackend.LITERT_KOKORO_SM8750
+        )
     }
 
     private fun checkTicket(ticket: Long) {

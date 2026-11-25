@@ -9,9 +9,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.voice.GatewayVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.HttpsVoiceAssetSource
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
+import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
@@ -24,10 +26,12 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
+import dev.chungjungsoo.gptmobile.data.voice.isSm8750SpeechDevice
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,7 +49,9 @@ internal data class VoiceBackendSettings(
     val status: String = "Loading speech settings…",
     val factory: VoicePhraseEngineFactory = UnavailableVoicePhraseEngineFactory("Loading speech settings…"),
     val loaded: Boolean = false,
-    val streamingModels: Map<MediaPipeSpeechEngine, LocalVoiceModelState> = emptyMap()
+    val streamingModels: Map<MediaPipeSpeechEngine, LocalVoiceModelState> = emptyMap(),
+    val preparingNpuBase: Boolean = false,
+    val npuBaseError: String? = null
 )
 
 internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when (this) {
@@ -57,18 +63,10 @@ internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when
     else -> null
 }
 
-internal fun KokoroVoice.streamingVoiceId(): String = when (this) {
-    KokoroVoice.HEART -> "af_heart"
-    KokoroVoice.ADAM -> "am_adam"
-    KokoroVoice.EMMA -> "bf_emma"
-}
+internal val VoiceSpeechBackend.usesKokoroVoices: Boolean get() = !isStreamingLocal || streamingEngine()?.isKokoro == true
 
 internal fun VoiceSynthesisPreferences.nativeVoice(previous: KokoroVoice?): KokoroVoice =
-    KokoroVoice.entries.firstOrNull { it.streamingVoiceId() == voiceId } ?: when (language) {
-        "en-GB" -> KokoroVoice.EMMA
-        "en-US" -> KokoroVoice.HEART
-        else -> previous ?: KokoroVoice.HEART
-    }
+    KokoroVoice.fromStreamingId(voiceId) ?: previous ?: KokoroVoice.HEART
 
 internal fun VoiceSpeechBackend.forSynthesis(synthesis: VoiceSynthesisPreferences): VoiceSpeechBackend =
     if (!synthesis.language.startsWith("en-") && streamingEngine()?.isKokoro != true) VoiceSpeechBackend.LITERT_KOKORO_CPU else this
@@ -79,7 +77,8 @@ internal class VoiceBackendViewModel internal constructor(
     private val context: Context,
     private val settings: SettingRepository,
     private val preferences: VoiceBackendPreferenceStore,
-    private val io: CoroutineDispatcher
+    private val io: CoroutineDispatcher,
+    private val createStreamingStore: (Context, CoroutineScope) -> MediaPipeSpeechModelStore = ::MediaPipeSpeechModelStore
 ) : ViewModel() {
     @Inject constructor(
         @ApplicationContext context: Context,
@@ -107,6 +106,7 @@ internal class VoiceBackendViewModel internal constructor(
     private val streamingStoreLock = Mutex()
     private var streamingStore: MediaPipeSpeechModelStore? = null
     private val streamingInstalls = mutableMapOf<MediaPipeSpeechEngine, Job>()
+    private var npuBaseSource: HttpsVoiceAssetSource? = null
     private val refreshedStreamingModels = ConcurrentHashMap.newKeySet<MediaPipeSpeechEngine>()
 
     init {
@@ -153,15 +153,16 @@ internal class VoiceBackendViewModel internal constructor(
     fun configureSpeech(voice: KokoroVoice?, rate: Float, bucket: MediaPipeKokoroBucket = kokoroBucket, incremental: Boolean = incrementalSpeech, modelVariant: KokoroModelVariant = nativeModelVariant, synthesis: VoiceSynthesisPreferences? = null) {
         voice ?: return
         val selected = synthesis ?: if (this.voice != voice) {
-            val legacy = VoiceSynthesisPreferences.restore(null, null, voice.streamingVoiceId())
+            val legacy = VoiceSynthesisPreferences.restore(null, null, voice.streamingVoiceId)
             this.synthesis.selectLanguage(legacy.language).selectVoice(legacy.voiceId)
         } else {
             this.synthesis
         }
         val bounded = rate.takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: STANDARD_SPEECH_RATE
-        if (this.voice == voice && speechRate == bounded && kokoroBucket == bucket && incrementalSpeech == incremental && nativeModelVariant == modelVariant && this.synthesis == selected) return
+        val nativeVoice = selected.nativeVoice(voice)
+        if (this.voice == nativeVoice && speechRate == bounded && kokoroBucket == bucket && incrementalSpeech == incremental && nativeModelVariant == modelVariant && this.synthesis == selected) return
         this.synthesis = selected
-        this.voice = voice
+        this.voice = nativeVoice
         speechRate = bounded
         kokoroBucket = bucket
         incrementalSpeech = incremental
@@ -178,7 +179,7 @@ internal class VoiceBackendViewModel internal constructor(
 
     private suspend fun streamingModels(): MediaPipeSpeechModelStore = streamingStoreLock.withLock {
         streamingStore ?: withContext(io) {
-            MediaPipeSpeechModelStore(context, viewModelScope)
+            createStreamingStore(context, viewModelScope)
         }.also { store ->
             streamingStore = store
             viewModelScope.launch {
@@ -189,13 +190,37 @@ internal class VoiceBackendViewModel internal constructor(
 
     fun installStreamingModel() {
         val engine = mutable.value.backend.streamingEngine() ?: return
-        if (streamingInstalls[engine]?.isActive == true) return
-        streamingInstalls[engine] = viewModelScope.launch { streamingModels().install(engine) }
+        if (streamingInstalls[engine]?.isCompleted == false) return
+        streamingInstalls[engine] = viewModelScope.launch {
+            val models = streamingModels()
+            if (engine == MediaPipeSpeechEngine.KOKORO_SM8750) {
+                if (!isSm8750SpeechDevice()) return@launch
+                val standard = models.localStore(MediaPipeSpeechEngine.KOKORO)
+                val source = HttpsVoiceAssetSource()
+                npuBaseSource = source
+                mutable.value = mutable.value.copy(preparingNpuBase = true, npuBaseError = null)
+                try {
+                    // Join a first-launch transfer when present. Only a transfer started by this
+                    // request uses our source, so cancelling it leaves the shared owner alone.
+                    standard.install(waitForOwner = true, sourceOverride = { source })
+                    val result = standard.state.value
+                    if (result.status != LocalVoiceModelStatus.READY) {
+                        mutable.value = mutable.value.copy(npuBaseError = result.message ?: "Could not install standard Kokoro. Try again.")
+                        return@launch
+                    }
+                } finally {
+                    npuBaseSource = null
+                    mutable.value = mutable.value.copy(preparingNpuBase = false)
+                }
+            }
+            models.install(engine)
+        }
     }
 
     fun importSm8750Model(uri: android.net.Uri) {
         val engine = MediaPipeSpeechEngine.KOKORO_SM8750
-        if (uri.scheme != "content" || streamingInstalls[engine]?.isActive == true) return
+        if (uri.scheme != "content" || !isSm8750SpeechDevice() || streamingInstalls[engine]?.isCompleted == false) return
+        mutable.value = mutable.value.copy(npuBaseError = null)
         streamingInstalls[engine] = viewModelScope.launch {
             streamingModels().importCompiledVocoder {
                 context.contentResolver.openInputStream(uri) ?: throw java.io.IOException("Could not open the selected voice pack.")
@@ -206,8 +231,13 @@ internal class VoiceBackendViewModel internal constructor(
     fun cancelStreamingInstall() {
         val engine = mutable.value.backend.streamingEngine() ?: return
         if (engine == MediaPipeSpeechEngine.KOKORO) VoicePluginInstall.cancel(context)
-        streamingStore?.cancelInstall(engine)
+        val prerequisite = npuBaseSource.takeIf { engine == MediaPipeSpeechEngine.KOKORO_SM8750 }
         streamingInstalls[engine]?.cancel()
+        if (prerequisite != null) {
+            prerequisite.cancel()
+        } else {
+            streamingStore?.cancelInstall(engine)
+        }
     }
 
     /** The caller retires playback first; the model store also holds a native-use lease. */
@@ -328,9 +358,12 @@ internal class VoiceBackendViewModel internal constructor(
             // Only inspect the selected pack. Voice/rate changes reuse the verified generation
             // instead of hashing every installed model or starting unrelated downloads.
             if (refreshedStreamingModels.add(engine)) viewModelScope.launch { models.refresh(engine, forceVerification = false) }
+            if (engine in setOf(MediaPipeSpeechEngine.KOKORO_SM8750, MediaPipeSpeechEngine.KOKORO_GPU) && refreshedStreamingModels.add(MediaPipeSpeechEngine.KOKORO)) {
+                viewModelScope.launch { models.refresh(MediaPipeSpeechEngine.KOKORO, forceVerification = false) }
+            }
             val accelerated = engine.isKokoro && value.backend != VoiceSpeechBackend.LITERT_KOKORO_CPU
             val status = if (accelerated) {
-                "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If initialization fails, playback tries the installed standard Kokoro CPU pack."
+                "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If the delegate fails, playback can recover on standard Kokoro CPU."
             } else {
                 "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
             }
@@ -338,7 +371,7 @@ internal class VoiceBackendViewModel internal constructor(
             val evidence = runCatching { SpeechVoiceEvidence(context) }.getOrNull()
             fun modelUsed(configured: VoiceSpeechBackend) = MediaPipeSpeechCatalog.model(requireNotNull(configured.streamingEngine()))
             fun evidenceStatus(configured: VoiceSpeechBackend, usedId: String = selectedId): String {
-                val message = if (configured == value.backend) status else "${value.backend.label} could not initialize. Using standard Kokoro CPU."
+                val message = if (configured == value.backend) status else "${value.backend.label} was unavailable during playback. Using standard Kokoro CPU."
                 val voiceNotice = if (usedId != selectedId) "$selectedId is unavailable in this pack. Using $usedId for the same language. " else ""
                 return if (evidence?.has(modelUsed(configured), configured, usedId) == true) {
                     "$message $voiceNotice$usedId produced valid, non-silent audio samples on this phone with ${configured.label} configured."
@@ -376,11 +409,6 @@ internal class VoiceBackendViewModel internal constructor(
         val fallback = saved?.value?.backend?.takeIf { it != mutable.value.backend }?.let {
             "Using standard Kokoro CPU for ${synthesis.profile.label}. ${it.label} supports English."
         }
-        val nativeFallback = if (!mutable.value.backend.isStreamingLocal && voice.streamingVoiceId() != synthesis.voiceId) {
-            "Using ${voice.label} for this engine. ${synthesis.voiceId} is available with streaming Kokoro."
-        } else {
-            null
-        }
-        mutable.value = mutable.value.copy(status = listOfNotNull(saved?.error, catalogError, fallback, nativeFallback, backendStatus).joinToString(" "))
+        mutable.value = mutable.value.copy(status = listOfNotNull(saved?.error, catalogError, fallback, backendStatus).joinToString(" "))
     }
 }

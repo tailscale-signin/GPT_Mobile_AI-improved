@@ -80,6 +80,7 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
@@ -384,7 +385,7 @@ private fun VoiceChatSessionScreen(
                 kokoroBucket = saved.kokoroBucket
                 incrementalSpeech = saved.incrementalSpeech
                 nativeModelVariant = saved.nativeModelVariant
-                kokoroVoice = saved.kokoroVoice ?: KokoroVoice.HEART
+                kokoroVoice = synthesis.nativeVoice(saved.kokoroVoice)
                 kokoroThreads = saved.kokoroThreads
                 preferencesInitialized = true
             }
@@ -908,18 +909,6 @@ private fun VoiceChatSessionScreen(
                         buttonSounds = it
                         savePreferences()
                     },
-                    selectKokoroVoice = {
-                        audio.stop()
-                        kokoroVoice = it
-                        it?.streamingVoiceId()?.let { id ->
-                            SpeechLanguages.synthesis.firstOrNull { lang -> id in lang.voices }?.let { lang ->
-                                synthesis = synthesis.selectLanguage(lang.tag).selectVoice(id)
-                            }
-                        }
-                        audio.kokoroVoice = it
-                        backendOwner.configureSpeech(it, rate, synthesis = synthesis)
-                        savePreferences()
-                    },
                     selectKokoroThreads = {
                         audio.stop()
                         kokoroThreads = it
@@ -1005,7 +994,7 @@ private fun VoiceChatSessionScreen(
                     }
                 ),
                 engineContent = {
-                    SynthesisLanguageChoices(synthesis, backend.backend.streamingEngine()?.isKokoro == true) {
+                    SynthesisLanguageChoices(synthesis, backend.backend.usesKokoroVoices) {
                         audio.stop()
                         synthesis = it
                         kokoroVoice = it.nativeVoice(kokoroVoice)
@@ -1028,6 +1017,9 @@ private fun VoiceChatSessionScreen(
                         StreamingVoiceModelCard(
                             engine = engine,
                             state = backend.streamingModels[engine],
+                            standardPack = backend.streamingModels[MediaPipeSpeechEngine.KOKORO],
+                            preparingNpuBase = backend.preparingNpuBase,
+                            npuBaseError = backend.npuBaseError,
                             enabled = backend.loaded && !benchmarkRunning && !state.awaitingReply && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
                             install = backendOwner::installStreamingModel,
                             importCompiled = backendOwner::importSm8750Model,
@@ -1282,7 +1274,6 @@ private class VoiceSettingsActions(
     val changeCaptions: (Boolean) -> Unit,
     val changeSpokenReplies: (Boolean) -> Unit,
     val changeButtonSounds: (Boolean) -> Unit,
-    val selectKokoroVoice: (KokoroVoice?) -> Unit,
     val selectKokoroThreads: (Int) -> Unit,
     val installKokoroModel: () -> Unit,
     val cancelKokoroInstall: () -> Unit,
@@ -1306,7 +1297,7 @@ private fun VoiceSettingsScreen(
     engineContent: @Composable () -> Unit,
     tuningContent: @Composable () -> Unit
 ) {
-    var previewError by remember { mutableStateOf<String?>(null) }
+    var previewError by remember(state.kokoroVoice) { mutableStateOf<String?>(null) }
     VoiceSettingsPage(actions.done) {
         if (state.benchmarkRunning) {
             Text("Speech benchmark is running. Playback and voice settings are paused until it finishes or you stop it.", style = MaterialTheme.typography.bodyMedium)
@@ -1349,10 +1340,6 @@ private fun VoiceSettingsScreen(
                     threads = state.kokoroThreads,
                     english = state.synthesis.language.startsWith("en-"),
                     previewError = previewError,
-                    select = {
-                        previewError = null
-                        actions.selectKokoroVoice(it)
-                    },
                     selectThreads = actions.selectKokoroThreads,
                     install = actions.installKokoroModel,
                     cancel = actions.cancelKokoroInstall,

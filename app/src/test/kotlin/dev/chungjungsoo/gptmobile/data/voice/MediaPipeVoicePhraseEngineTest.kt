@@ -62,6 +62,39 @@ class MediaPipeVoicePhraseEngineTest {
         engine.close()
     }
 
+    @Test fun playbackCrossesALongWordBeforeTheNextSdkPacketAndClearsOnTheLastAudibleFrame() {
+        val captions = VoicePcmCaptions()
+        var reads = 0
+        val engine = engine(
+            TestTask {
+                TestStream {
+                    when (++reads) {
+                        1 -> AudioChunk(FloatArray(6_000) { .1f }, wordTimestamps = listOf(WordTimestamp("word", 0, 4, 0f, 1f)))
+                        2 -> {
+                            // The SDK may spend longer synthesizing the tail than the audio already queued.
+                            assertEquals(0..3, captions.consumed(1_200)?.range)
+                            assertEquals(6_000L, captions.active()?.endFrame)
+                            AudioChunk(FloatArray(3_000) { .1f }, chunkIndex = 1, isFinal = true)
+                        }
+                        else -> null
+                    }
+                }
+            }
+        )
+        val source = VoiceStreamFrames("word", cueLimit = 1)
+        val stream = VoiceStreamPause(source, VoiceQuietLimiter(VOICE_PCM_SAMPLE_RATE, 100))
+        engine.stream("word", 0, 1f) { chunk ->
+            val packet = stream.accept(chunk)
+            captions.appendStream(0, "word", 0, packet.cues, packet.samples.size)
+            true
+        }
+        stream.finish()
+        assertEquals(0..3, captions.consumed(8_999)?.range)
+        assertEquals(9_000L, captions.active()?.endFrame)
+        assertEquals(IntRange.EMPTY, captions.consumed(9_000)?.range)
+        engine.close()
+    }
+
     @Test fun callbackCancellationStopsNativePullsAndClosesOnlyTheStream() {
         val stream = TestStream { AudioChunk(floatArrayOf(.1f)) }
         val task = TestTask { stream }

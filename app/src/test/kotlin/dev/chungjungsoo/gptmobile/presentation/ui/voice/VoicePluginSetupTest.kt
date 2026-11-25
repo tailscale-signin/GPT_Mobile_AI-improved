@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceInstallState
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
@@ -97,6 +98,39 @@ class VoicePluginSetupTest {
         }
         compose.onNodeWithTag("download_streaming_voice").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, downloads) }
+    }
+
+    @Test fun acceleratorPreparationReflectsTheVerifiedBaseAndTheRequestedJob() {
+        org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build::class.java, "SOC_MODEL", "SM8750")
+        var engine by mutableStateOf(MediaPipeSpeechEngine.KOKORO_SM8750)
+        var base by mutableStateOf(LocalVoiceModelStatus.DOWNLOADING)
+        var requested by mutableStateOf(false)
+        compose.setContent {
+            MaterialTheme {
+                StreamingVoiceModelCard(
+                    engine = engine,
+                    state = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED),
+                    standardPack = LocalVoiceModelState(base),
+                    preparingNpuBase = requested,
+                    enabled = true,
+                    install = { requested = true },
+                    cancel = { requested = false },
+                    remove = {},
+                    preview = {},
+                    previewError = null
+                )
+            }
+        }
+        compose.onNodeWithText("Cancel preparation").assertDoesNotExist()
+        compose.onNodeWithText("Import verified SM8750 pack").assertIsDisplayed()
+        compose.onNodeWithText("Get standard Kokoro and prepare NPU pack").performClick()
+        compose.onNodeWithText("Cancel preparation").performClick()
+        compose.runOnIdle { base = LocalVoiceModelStatus.READY }
+        compose.onNodeWithText("Prepare NPU pack offline").assertIsDisplayed()
+        compose.runOnIdle { engine = MediaPipeSpeechEngine.KOKORO_GPU }
+        compose.onNodeWithText("Prepare GPU pack offline").assertIsDisplayed()
+        compose.runOnIdle { base = LocalVoiceModelStatus.NOT_INSTALLED }
+        compose.onNodeWithText("Download GPU pack", substring = true).assertIsDisplayed()
     }
 
     @Test fun anInstalledNativePackCannotMasqueradeAsTheSelectedStreamingPack() {

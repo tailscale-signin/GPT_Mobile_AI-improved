@@ -3,16 +3,6 @@ package dev.chungjungsoo.gptmobile.data.voice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexicon: String) {
-    HEART(3, "Heart · US English", KokoroModelPack.US_LEXICON),
-    ADAM(11, "Adam · US English", KokoroModelPack.US_LEXICON),
-    EMMA(21, "Emma · UK English", KokoroModelPack.GB_LEXICON);
-
-    companion object {
-        fun fromSaved(value: String?) = entries.firstOrNull { it.name == value }
-    }
-}
-
 internal interface KokoroOutput {
     val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? get() = null
     val synthesisFeedback: kotlinx.coroutines.flow.StateFlow<VoiceSynthesisFeedback>? get() = null

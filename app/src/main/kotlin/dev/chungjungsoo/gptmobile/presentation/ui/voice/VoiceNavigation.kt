@@ -18,7 +18,6 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
@@ -42,7 +41,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         val backend by backendOwner.state.collectAsStateWithLifecycle()
         val preferences by voiceSettings.preferences.collectAsStateWithLifecycle()
         LaunchedEffect(backendOwner, preferences) {
-            preferences?.let { backendOwner.configureSpeech(it.kokoroVoice ?: KokoroVoice.HEART, it.rate, it.kokoroBucket, it.incrementalSpeech, it.nativeModelVariant, it.synthesis) }
+            preferences?.let { backendOwner.configureSpeech(it.synthesis.nativeVoice(it.kokoroVoice), it.rate, it.kokoroBucket, it.incrementalSpeech, it.nativeModelVariant, it.synthesis) }
         }
         val stores by voiceSettings.modelStores.collectAsStateWithLifecycle()
         val moonshine = stores?.moonshine?.state?.collectAsStateWithLifecycle()?.value
@@ -88,7 +87,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                         voiceSettings.save(saved.copy(language = tag, recognitionBackend = engine))
                     }
                     if (androidRecognition && !offlineService) androidx.compose.material3.Text("Android offline recognition is unavailable on this phone. Choose English and the Moonshine engine to use the bundled recognizer.")
-                    SynthesisLanguageChoices(saved.synthesis, backend.backend.streamingEngine()?.isKokoro == true) {
+                    SynthesisLanguageChoices(saved.synthesis, backend.backend.usesKokoroVoices) {
                         val native = it.nativeVoice(saved.kokoroVoice)
                         voiceSettings.save(saved.copy(synthesis = it, kokoroVoice = native))
                     }
@@ -123,6 +122,9 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                         StreamingVoiceModelCard(
                             engine = engine,
                             state = backend.streamingModels[engine],
+                            standardPack = backend.streamingModels[MediaPipeSpeechEngine.KOKORO],
+                            preparingNpuBase = backend.preparingNpuBase,
+                            npuBaseError = backend.npuBaseError,
                             enabled = backend.loaded,
                             install = backendOwner::installStreamingModel,
                             importCompiled = backendOwner::importSm8750Model,

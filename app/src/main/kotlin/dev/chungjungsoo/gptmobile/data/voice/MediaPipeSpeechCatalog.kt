@@ -33,9 +33,9 @@ internal data class MediaPipeSpeechModel(
     }
 
     val sourceUrl: String get() = "https://huggingface.co/$repository/tree/$revision"
-    val importOnly: Boolean get() = engine == MediaPipeSpeechEngine.KOKORO_SM8750
+    val requiresSm8750: Boolean get() = engine == MediaPipeSpeechEngine.KOKORO_SM8750
     val downloadUrl: String get() = "https://huggingface.co/$repository/resolve/$revision/$fileName"
-    internal val asset: LocalVoiceAsset get() = LocalVoiceAsset(fileName, downloadBytes, sha256, if (importOnly) listOf("local-import") else listOf(downloadUrl))
+    internal val asset: LocalVoiceAsset get() = LocalVoiceAsset(fileName, downloadBytes, sha256, if (requiresSm8750) listOf("local-import") else listOf(downloadUrl))
 }
 
 internal object MediaPipeSpeechCatalog {

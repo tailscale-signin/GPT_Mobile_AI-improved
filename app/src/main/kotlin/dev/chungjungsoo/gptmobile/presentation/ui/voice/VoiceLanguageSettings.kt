@@ -76,9 +76,9 @@ internal fun RecognitionLanguageChoice(language: String, backend: VoiceRecogniti
 }
 
 @Composable
-internal fun SynthesisLanguageChoices(value: VoiceSynthesisPreferences, streamingKokoro: Boolean, change: (VoiceSynthesisPreferences) -> Unit) {
+internal fun SynthesisLanguageChoices(value: VoiceSynthesisPreferences, kokoroVoices: Boolean, change: (VoiceSynthesisPreferences) -> Unit) {
     VoiceChoice("Reply speech language", value.profile.tag, SpeechLanguages.synthesis.map { it.tag to it.label }, { change(value.selectLanguage(it)) })
-    if (streamingKokoro) {
+    if (kokoroVoices) {
         VoiceChoice("Voice for ${value.profile.label}", value.voiceId, value.profile.voices.map { it to it.substringAfter('_').replaceFirstChar(Char::uppercaseChar) }, { change(value.selectVoice(it)) })
     }
 }

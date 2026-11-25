@@ -9,8 +9,8 @@ import kotlin.math.roundToLong
  * mediapipe_audio 0.4.1 native wrapper documents times from the stream's start and
  * forwards them unchanged; neither offsets nor times are relative to a PCM chunk.
  *
- * Cumulative/repeated spans are emitted once. Cues beyond the audio produced so far
- * stay pending, so truncated or invalid metadata cannot point past audible PCM.
+ * Release each word at its first available PCM, extending the same cue as more
+ * audio arrives. Never project a timestamp past the PCM actually received.
  */
 internal class MediaPipeWordCueMapper(
     text: String,
@@ -22,6 +22,7 @@ internal class MediaPipeWordCueMapper(
     private val emitted = mutableSetOf<Pair<Int, Int>>()
     private var lastEndByte = 0
     private var lastEndFrame = 0L
+    private var openPrefix: VoiceWordCue? = null
 
     fun appendText(text: String) = boundaries.append(text)
 
@@ -29,7 +30,7 @@ internal class MediaPipeWordCueMapper(
         timestamps.take(cueLimit).forEach { timestamp ->
             val start = timestamp.startChar
             val end = timestamp.endChar
-            if (start < lastEndByte ||
+            if (start < (openPrefix?.endByte ?: lastEndByte) ||
                 end <= start ||
                 !boundaries.contains(start, end) ||
                 (start to end) in emitted
@@ -51,7 +52,14 @@ internal class MediaPipeWordCueMapper(
                 entries.remove()
                 continue
             }
-            if (cue.endFrame > availableFrames) break
+            if (cue.startFrame >= availableFrames) break
+            if (cue.endFrame > availableFrames) {
+                val prefix = cue.copy(endFrame = availableFrames, finalEnd = false)
+                if (openPrefix != prefix) ready += prefix
+                openPrefix = prefix
+                break
+            }
+            openPrefix = null
             entries.remove()
             emitted += cue.startByte to cue.endByte
             lastEndByte = cue.endByte
@@ -59,5 +67,11 @@ internal class MediaPipeWordCueMapper(
             ready += cue
         }
         return ready
+    }
+
+    /** A truncated estimate closes where the audio ended; a wholly unheard word stays unpublished. */
+    fun finish(): VoiceWordCue? = openPrefix?.copy(finalEnd = true).also {
+        openPrefix = null
+        pending.clear()
     }
 }

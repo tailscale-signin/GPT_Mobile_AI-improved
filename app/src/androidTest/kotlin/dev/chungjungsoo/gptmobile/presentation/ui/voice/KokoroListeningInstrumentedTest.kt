@@ -72,7 +72,7 @@ class KokoroListeningInstrumentedTest {
                 val engine = requireNotNull(backend.streamingEngine()).also { require(it.isKokoro) }
                 val sdk = MediaPipeSpeechModelStore(context, scope)
                 runBlocking { sdk.refresh(engine) }
-                MediaPipeVoicePhraseEngineFactory(sdk, engine, backend, 1f, KokoroVoice.HEART.streamingVoiceId())
+                MediaPipeVoicePhraseEngineFactory(sdk, engine, backend, 1f, KokoroVoice.HEART.streamingVoiceId)
             } else {
                 runBlocking { models.refresh() }
                 check(models.isInstalled()) { "Install the original FP32 pack" }

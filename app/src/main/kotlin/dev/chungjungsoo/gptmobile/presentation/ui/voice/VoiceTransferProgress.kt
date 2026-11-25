@@ -19,8 +19,8 @@ internal fun voiceTransferLabel(stage: VoiceTransferStage?): String = when (stag
 }
 
 @Composable
-internal fun VoiceTransferProgress(stage: VoiceTransferStage?, downloaded: Long, total: Long) {
-    Text(voiceTransferLabel(stage))
+internal fun VoiceTransferProgress(stage: VoiceTransferStage?, downloaded: Long, total: Long, label: String = voiceTransferLabel(stage)) {
+    Text(label)
     if (stage == VoiceTransferStage.TRANSFERRING && total > 0) {
         LinearProgressIndicator(progress = { (downloaded.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
     } else {

@@ -89,10 +89,11 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
 internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
     val defaults = VoicePreferences()
     val legacyVoice = KokoroVoice.fromSaved(saved["kokoro_voice"] as? String)
+    val synthesis = VoiceSynthesisPreferences.restore(saved["synthesis_language"] as? String, saved["synthesis_voices"] as? Set<*>, legacyVoice?.streamingVoiceId)
     val language = (saved["language"] as? String)?.takeIf { it.length <= 64 && java.util.Locale.forLanguageTag(it).language.isNotBlank() } ?: defaults.language
     return VoicePreferences(
         language = language,
-        synthesis = VoiceSynthesisPreferences.restore(saved["synthesis_language"] as? String, saved["synthesis_voices"] as? Set<*>, legacyVoice?.streamingVoiceId()),
+        synthesis = synthesis,
         online = saved["online"] as? Boolean ?: defaults.online,
         captions = saved["captions"] as? Boolean ?: defaults.captions,
         review = saved["review"] as? Boolean ?: defaults.review,
@@ -100,7 +101,7 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
         rate = (saved["rate"] as? Float)?.takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: defaults.rate,
         voice = (saved["voice"] as? String).orEmpty(),
         recognitionBackend = SpeechLanguages.recognitionBackend(language, VoiceRecognitionBackend.fromSaved(saved["recognition_backend"] as? String)),
-        kokoroVoice = legacyVoice,
+        kokoroVoice = synthesis.voices[synthesis.language]?.let(KokoroVoice::fromStreamingId) ?: legacyVoice,
         spokenReplies = saved["spoken_replies"] as? Boolean ?: defaults.spokenReplies,
         kokoroThreads = (saved["kokoro_threads"] as? Int)?.coerceIn(1, 4) ?: defaults.kokoroThreads,
         buttonSounds = saved["button_sounds"] as? Boolean ?: defaults.buttonSounds,

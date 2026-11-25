@@ -15,6 +15,23 @@ class SpeechLanguagesTest {
         assertTrue(profiles.all { it.preview.isNotBlank() })
     }
 
+    @Test fun everyEnglishStreamingVoiceHasItsNativeSpeakerAndDictionary() {
+        val english = SpeechLanguages.synthesis.filter { it.tag.startsWith("en-") }
+        assertEquals(english.flatMap { it.voices }.toSet(), KokoroVoice.entries.map { it.streamingVoiceId }.toSet())
+        assertEquals((0..27).toSet(), KokoroVoice.entries.map { it.speakerId }.toSet())
+        for (profile in english) {
+            for (id in profile.voices) {
+                val voice = requireNotNull(KokoroVoice.fromStreamingId(id))
+                assertEquals(if (profile.tag == "en-US") KokoroModelPack.US_LEXICON else KokoroModelPack.GB_LEXICON, voice.lexicon)
+                assertEquals(voice, KokoroVoice.fromSaved(voice.name))
+            }
+        }
+        assertEquals(3, KokoroVoice.HEART.speakerId)
+        assertEquals(11, KokoroVoice.ADAM.speakerId)
+        assertEquals(21, KokoroVoice.EMMA.speakerId)
+        assertEquals(27, KokoroVoice.LEWIS.speakerId)
+    }
+
     @Test fun freshInstallAndLegacyEnglishVoicesKeepAnOfflineDefault() {
         assertEquals("en-US", SpeechLanguages.recognitionDefault(Locale.JAPAN))
         assertEquals("en-CA", SpeechLanguages.recognitionDefault(Locale.CANADA))

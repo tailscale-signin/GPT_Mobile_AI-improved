@@ -30,12 +30,14 @@ internal fun VoiceSpeechBackendSettings(
         if (value.gateways.isEmpty()) Text("Add a Gateway connection in Settings to use PC speech.", style = MaterialTheme.typography.bodySmall)
     } else if (value.backend.isStreamingLocal) {
         Text("These engines stream audio locally. Each model has its own voice quality and speed; try a preview on this phone.", style = MaterialTheme.typography.bodySmall)
-        if (value.backend == VoiceSpeechBackend.LITERT_KOKORO_SM8750) {
-            Text("This pack uses a vocoder compiled for Snapdragon 8 Elite and the Kokoro CPU acoustic model. The benchmark measures delivered audio and reports SDK placement as unobserved.", style = MaterialTheme.typography.bodySmall)
-        } else if (value.backend in setOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED)) {
-            Text("Kokoro requests the GPU for its vocoder. The runtime can also use CPU and does not report processor placement.", style = MaterialTheme.typography.bodySmall)
-        } else if (value.backend == VoiceSpeechBackend.LITERT_KOKORO_NPU) {
-            Text("The LiteRT pack failed a Snapdragon 8 Elite compiler check. This route may use CPU. For verified NPU playback, select Hexagon NPU and run Recheck.", style = MaterialTheme.typography.bodySmall)
+        when (value.backend) {
+            VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED ->
+                Text("Prepare the GPU vocoder offline from installed standard Kokoro, or download the publisher’s GPU pack.", style = MaterialTheme.typography.bodySmall)
+            VoiceSpeechBackend.LITERT_KOKORO_SM8750 ->
+                Text("On Snapdragon 8 Elite (SM8750), prepare the compiled NPU vocoder from standard Kokoro or import a verified pack.", style = MaterialTheme.typography.bodySmall)
+            VoiceSpeechBackend.LITERT_KOKORO_NPU ->
+                Text("This option requests the NPU with the standard Kokoro pack. Snapdragon 8 Elite phones also support a pack compiled for their vocoder.", style = MaterialTheme.typography.bodySmall)
+            else -> Unit
         }
     } else {
         if (value.backend == VoiceSpeechBackend.AUTO) {

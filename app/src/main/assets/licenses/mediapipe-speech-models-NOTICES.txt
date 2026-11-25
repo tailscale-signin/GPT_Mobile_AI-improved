@@ -1,9 +1,10 @@
 MediaPipe speech models
 ======================
 
-The application downloads these optional models only after an explicit install action.
-Model files are not included in the APK. Immutable source revisions, expected sizes and
-SHA-256 hashes are recorded in MediaPipeSpeechCatalog.kt.
+Voice Mode installs the standard Kokoro bundle during first-use setup. The APK
+includes the two Kokoro binary patches listed below. Complete models are installed
+as separate files. MediaPipeSpeechCatalog.kt identifies the model versions and
+their SHA-256 hashes.
 
 Kokoro-82M
 Original model: hexgrad/Kokoro-82M, https://huggingface.co/hexgrad/Kokoro-82M
@@ -11,7 +12,18 @@ Conversion: litert-community/Kokoro-82M
 https://huggingface.co/litert-community/Kokoro-82M/tree/bf1c2405642aa310bd210205c22d3ae1abc253fb
 License: Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0
 The LiteRT community converted and quantized the original weights and packaged the
-frontends and voice assets. This app uses the CPU/GPU-compatible bundle unchanged.
+frontends and voice assets. The Apache License 2.0 is reproduced in
+kokoro-sherpa-onnx-NOTICES.txt in this directory.
+
+The GPT Mobile AI project created these patches from the above conversion:
+
+* kokoro_gpu.ksm reconstructs the publisher's GPU bundle, kokoro_int8_gpu_fp16.litertlm,
+  from the standard kokoro_int8_fp16.litertlm bundle.
+* kokoro_sm8750.ksm reconstructs the project's modified kokoro_sm8750.litertlm
+  bundle. The project changed the GPU bundle's backend metadata and compiled
+  vocoder partitions for the Snapdragon 8 Elite (SM8750) with LiteRT and Qualcomm
+  AI Runtime. The publisher's acoustic model, language frontends and voice assets
+  are carried over.
 
 Phonon 31M English
 Original model: Gradium, https://huggingface.co/gradium/phonon-31m-en

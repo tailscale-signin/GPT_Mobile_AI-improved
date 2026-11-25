@@ -12,9 +12,12 @@ internal class MediaPipeVoicePhraseEngine(
     val configuredBackend: VoiceSpeechBackend,
     private val speakingRate: Float,
     private var voiceId: String,
-    override val supportsIncrementalInput: Boolean = true
+    override val supportsIncrementalInput: Boolean = true,
+    availableVoices: Set<String>? = null,
+    private val allowDelegateRecovery: Boolean = false
 ) : VoicePhraseEngine {
     @Volatile var onValidatedSynthesis: ((String, VoiceSpeechBackend) -> Unit)? = null
+    private val voices by lazy { availableVoices ?: task.voiceIds() }
     private val operationLock = Any()
     private val stateLock = Any()
     private var activeStream: MediaPipeSpeechStream? = null
@@ -47,7 +50,7 @@ internal class MediaPipeVoicePhraseEngine(
             synchronized(stateLock) {
                 check(!closing && !closed && !retirementFailed && owner == null) { "Speech engine is not idle." }
             }
-            this.voiceId = requireNotNull(SpeechLanguages.availableVoice(voiceId, task.voiceIds(), sameLanguageFallback)) {
+            this.voiceId = requireNotNull(SpeechLanguages.availableVoice(voiceId, voices, sameLanguageFallback)) {
                 "The selected voice is unavailable in this model."
             }
         }
@@ -82,7 +85,7 @@ internal class MediaPipeVoicePhraseEngine(
             var completed = false
             try {
                 val cues = MediaPipeWordCueMapper(text, frameLimit, cueLimit)
-                stream = if (nextText == null) task.openStream(text, voiceId) else task.openIncrementalStream(voiceId)
+                stream = nativeStreamCall { if (nextText == null) task.openStream(text, voiceId) else task.openIncrementalStream(voiceId) }
                 val opened = stream
                 synchronized(stateLock) {
                     activeStream = opened
@@ -104,11 +107,11 @@ internal class MediaPipeVoicePhraseEngine(
                                     // Publish byte boundaries before native synthesis can emit their cues.
                                     // appendText enforces the whole reply's input-byte ceiling without truncation.
                                     cues.appendText(delta)
-                                    opened.pushText(delta)
+                                    nativeStreamCall { opened.pushText(delta) }
                                 }
                                 synchronized(stateLock) { checkCancellation() }
                                 inputFinished.set(true)
-                                opened.finishInput()
+                                nativeStreamCall { opened.finishInput() }
                             } catch (failure: Throwable) {
                                 inputFailure.compareAndSet(null, failure)
                                 synchronized(stateLock) { runCatching { activeStream?.cancel() } }
@@ -128,26 +131,27 @@ internal class MediaPipeVoicePhraseEngine(
                 while (true) {
                     synchronized(stateLock) { checkCancellation() }
                     inputFailure.get()?.let { throw it }
-                    val chunk = opened.readNext() ?: break
+                    val chunk = nativeStreamCall { opened.readNext() } ?: break
                     synchronized(stateLock) { checkCancellation() }
                     inputFailure.get()?.let { throw it }
                     require(!finalSeen) { "Speech SDK returned audio after its final chunk." }
                     require(++packets <= packetLimit) { "Speech stream packet limit exceeded." }
-                    require(chunk.sampleRateHz == VOICE_PCM_SAMPLE_RATE) { "Speech SDK must return 24 kHz mono PCM." }
+                    nativeStreamCall { require(chunk.sampleRateHz == VOICE_PCM_SAMPLE_RATE) { "Speech SDK must return 24 kHz mono PCM." } }
                     require(frames + chunk.samples.size <= frameLimit) { "Speech stream frame limit exceeded." }
-                    require(chunk.samples.all(Float::isFinite)) { "Speech SDK returned invalid PCM." }
+                    nativeStreamCall { require(chunk.samples.all(Float::isFinite)) { "Speech SDK returned invalid PCM." } }
                     nonSilent = nonSilent || chunk.samples.any { kotlin.math.abs(it) >= 1e-5f }
-                    frames += chunk.samples.size
-                    val readyCues = cues.accept(chunk.wordTimestamps, frames)
                     if (chunk.samples.isEmpty()) {
+                        val readyCues = cues.accept(chunk.wordTimestamps, frames)
                         if (readyCues.isNotEmpty()) emitChecked(VoicePcmChunk(FloatArray(0), wordCues = readyCues), emit)
                     } else {
                         var offset = 0
                         while (offset < chunk.samples.size) {
                             val end = minOf(offset + VOICE_PCM_SAMPLE_RATE, chunk.samples.size)
+                            frames += end - offset
+                            val readyCues = cues.accept(if (offset == 0) chunk.wordTimestamps else emptyList(), frames)
                             // The native SDK owns its array. Queue slices get independent ownership.
                             emitChecked(
-                                VoicePcmChunk(chunk.samples.copyOfRange(offset, end), wordCues = if (offset == 0) readyCues else emptyList()),
+                                VoicePcmChunk(chunk.samples.copyOfRange(offset, end), wordCues = readyCues),
                                 emit
                             )
                             offset = end
@@ -158,7 +162,8 @@ internal class MediaPipeVoicePhraseEngine(
                 synchronized(stateLock) { checkCancellation() }
                 inputFailure.get()?.let { throw it }
                 require(inputFinished.get()) { "Speech SDK ended before incremental text input finished." }
-                require(frames > 0 && nonSilent) { "Speech SDK returned no audible PCM." }
+                nativeStreamCall { require(frames > 0 && nonSilent) { "Speech SDK returned no audible PCM." } }
+                cues.finish()?.let { end -> emitChecked(VoicePcmChunk(FloatArray(0), wordCues = listOf(end)), emit) }
                 completed = true
             } catch (failure: Throwable) {
                 synchronized(stateLock) {
@@ -207,6 +212,18 @@ internal class MediaPipeVoicePhraseEngine(
                 }
             }
             runCatching { onValidatedSynthesis?.invoke(voiceId, configuredBackend) }
+        }
+    }
+
+    private inline fun <T> nativeStreamCall(operation: () -> T): T {
+        try {
+            return operation()
+        } catch (failure: Exception) {
+            if (!allowDelegateRecovery || failure is CancellationException || failure is InterruptedException) throw failure
+            throw MediaPipeDelegateFailure(failure)
+        } catch (failure: LinkageError) {
+            if (!allowDelegateRecovery) throw failure
+            throw MediaPipeDelegateFailure(failure)
         }
     }
 

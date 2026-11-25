@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.content.Context
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,13 +24,22 @@ internal class MediaPipeSpeechModelStore internal constructor(
     private val manifests: List<MediaPipeSpeechModel> = MediaPipeSpeechCatalog.models,
     internal val prepareNpu: () -> Unit = {},
     internal val requireSm8750: () -> Unit = { check(isSm8750SpeechDevice()) { "This vocoder is compiled for Snapdragon 8 Elite (SM8750)." } },
+    private val openVocoderPatch: (MediaPipeSpeechEngine) -> InputStream = { throw IOException("Kokoro vocoder patch is unavailable.") },
     sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }
 ) {
     constructor(context: Context, scope: CoroutineScope) : this(
         File(context.applicationContext.noBackupFilesDir, "voice-models"),
         File(context.applicationContext.cacheDir, "mediapipe-speech"),
         scope,
-        prepareNpu = { prepareMediaPipeSpeechNpu(context.applicationContext) }
+        prepareNpu = { prepareMediaPipeSpeechNpu(context.applicationContext) },
+        openVocoderPatch = { engine ->
+            val file = when (engine) {
+                MediaPipeSpeechEngine.KOKORO_SM8750 -> "kokoro_sm8750.ksm"
+                MediaPipeSpeechEngine.KOKORO_GPU -> "kokoro_gpu.ksm"
+                else -> error("No vocoder patch for ${engine.name}.")
+            }
+            context.applicationContext.assets.open("voice/$file")
+        }
     )
 
     init {
@@ -51,15 +61,39 @@ internal class MediaPipeSpeechModelStore internal constructor(
     }
 
     suspend fun install(engine: MediaPipeSpeechEngine) {
-        require(!MediaPipeSpeechCatalog.model(engine).importOnly)
-        localStore(engine).install()
+        if (engine != MediaPipeSpeechEngine.KOKORO_SM8750 && engine != MediaPipeSpeechEngine.KOKORO_GPU) {
+            localStore(engine).install()
+            return
+        }
+        withContext(Dispatchers.IO) {
+            val standard = stores[MediaPipeSpeechEngine.KOKORO]
+            val leased = standard?.acquireUse() == true
+            try {
+                if (!leased && engine == MediaPipeSpeechEngine.KOKORO_GPU) {
+                    localStore(engine).install()
+                } else {
+                    installPackFromStream(engine) {
+                        if (engine == MediaPipeSpeechEngine.KOKORO_SM8750) requireSm8750()
+                        if (!leased) throw IOException("Install standard Kokoro before preparing its Snapdragon vocoder.")
+                        val base = manifests.single { it.engine == MediaPipeSpeechEngine.KOKORO }
+                        val target = manifests.single { it.engine == engine }
+                        KokoroVocoderPatch.open(File(requireNotNull(standard).modelDirectory(), base.fileName), openVocoderPatch(engine), target.downloadBytes)
+                    }
+                }
+            } finally {
+                if (leased) standard?.releaseUse()
+            }
+        }
     }
 
-    suspend fun importCompiledVocoder(openPack: () -> java.io.InputStream) {
-        val model = manifests.single { it.engine == MediaPipeSpeechEngine.KOKORO_SM8750 }
+    suspend fun importCompiledVocoder(openPack: () -> InputStream) =
+        installPackFromStream(MediaPipeSpeechEngine.KOKORO_SM8750, openPack)
+
+    private suspend fun installPackFromStream(engine: MediaPipeSpeechEngine, openPack: () -> InputStream) {
+        val model = manifests.single { it.engine == engine }
         localStore(model.engine).install(waitForOwner = false, sourceOverride = {
             object : LocalVoiceAssetSource {
-                private val input = java.util.concurrent.atomic.AtomicReference<java.io.InputStream?>()
+                private val input = java.util.concurrent.atomic.AtomicReference<InputStream?>()
                 override fun open(url: String): LocalVoiceAssetStream {
                     val stream = openPack()
                     input.set(stream)

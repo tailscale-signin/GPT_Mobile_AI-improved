@@ -112,7 +112,10 @@ class MediaPipeSpeechNativeSmokeTest {
         var evidence: JSONObject? = null
         try {
             assertTrue(descriptor.defaultVoice in task.voiceIds())
-            if (kind == MediaPipeSpeechEngine.KOKORO) assertTrue(task.voiceIds().containsAll(setOf("af_heart", "am_adam", "bf_emma")))
+            if (kind.isKokoro) {
+                val missing = SpeechLanguages.synthesis.flatMap { it.voices }.toSet() - task.voiceIds()
+                assertTrue("Kokoro pack is missing catalogued voices: $missing", missing.isEmpty())
+            }
             val frames = VoiceStreamFrames(FIXTURE)
             val started = SystemClock.elapsedRealtime()
             var firstPcmMs: Long? = null

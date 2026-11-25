@@ -18,7 +18,8 @@ internal data class VoiceWordCue(
     val endByte: Int,
     val startFrame: Long,
     val endFrame: Long,
-    val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.ESTIMATED
+    val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.ESTIMATED,
+    val finalEnd: Boolean = true
 )
 
 /** Mono float PCM. The producer must not mutate samples after handing them to the consumer. */

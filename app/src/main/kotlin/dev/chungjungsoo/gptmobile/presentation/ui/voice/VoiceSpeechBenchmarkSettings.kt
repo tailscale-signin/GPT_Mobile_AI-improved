@@ -91,7 +91,7 @@ internal fun VoiceSpeechBenchmarkSettings(
     val selectedEngine = VoiceSpeechBenchmarkEngine.valueOf(engine)
     val nativeEngine = selectedEngine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
     val sdkModel = selectedEngine.mediaPipeEngine()?.let(MediaPipeSpeechCatalog::model)
-    val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) streamingKokoroVoice ?: (voice ?: KokoroVoice.HEART).streamingVoiceId() else sdkModel?.defaultVoice
+    val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) streamingKokoroVoice ?: (voice ?: KokoroVoice.HEART).streamingVoiceId else sdkModel?.defaultVoice
     val installed = if (nativeEngine) KokoroModelVariant.valueOf(nativeModelVariant) in state.availableNativeVariants else selectedEngine in state.availableEngines
     val availableBackends = selectedEngine.supportedBackends
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {

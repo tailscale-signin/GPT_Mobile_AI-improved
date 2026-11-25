@@ -36,15 +36,26 @@ class MediaPipeWordCueMapperTest {
     @Test fun futureCueWaitsForAudioAndOverlappingUpdatedSpansAreNotRepeated() {
         val mapper = MediaPipeWordCueMapper("one two")
         val first = WordTimestamp("one", 0, 3, 0f, .5f)
+        assertEquals(listOf(VoiceWordCue(0, 3, 0, 1_000, finalEnd = false)), mapper.accept(listOf(first), 1_000))
         assertTrue(mapper.accept(listOf(first), 1_000).isEmpty())
-        assertEquals(1, mapper.accept(emptyList(), 12_000).size)
+        assertEquals(listOf(VoiceWordCue(0, 3, 0, 12_000)), mapper.accept(emptyList(), 12_000))
         assertTrue(mapper.accept(listOf(first.copy(endChar = 4, startSec = .5f, endSec = .6f)), 14_400).isEmpty())
         assertTrue(mapper.accept(listOf(WordTimestamp("two", 4, 7, .4f, .6f)), 14_400).isEmpty())
     }
 
-    @Test fun cueBeyondProducedAudioIsNeverPublished() {
-        val mapper = MediaPipeWordCueMapper("word")
-        assertTrue(mapper.accept(listOf(WordTimestamp("word", 0, 4, 0f, 2f)), 24_000).isEmpty())
+    @Test fun truncatedEstimateClosesAtTheLastProducedFrameAndFutureWordsStayUnpublished() {
+        val mapper = MediaPipeWordCueMapper("word gap")
+        val cues = listOf(WordTimestamp("word", 0, 4, 0f, 2f), WordTimestamp("gap", 5, 8, 2f, 3f))
+        assertEquals(listOf(VoiceWordCue(0, 4, 0, 24_000, finalEnd = false)), mapper.accept(cues, 24_000))
         assertTrue(mapper.accept(emptyList(), 24_000).isEmpty())
+        assertEquals(VoiceWordCue(0, 4, 0, 24_000), mapper.finish())
+        assertEquals(null, mapper.finish())
+    }
+
+    @Test fun lateEarlierTextCannotReplaceAPartiallyPresentedWord() {
+        val mapper = MediaPipeWordCueMapper("one two")
+        val second = WordTimestamp("two", 4, 7, 0f, .5f)
+        assertEquals(listOf(VoiceWordCue(4, 7, 0, 6_000, finalEnd = false)), mapper.accept(listOf(second), 6_000))
+        assertEquals(listOf(VoiceWordCue(4, 7, 0, 12_000)), mapper.accept(listOf(WordTimestamp("one", 0, 3, 0f, .1f)), 12_000))
     }
 }

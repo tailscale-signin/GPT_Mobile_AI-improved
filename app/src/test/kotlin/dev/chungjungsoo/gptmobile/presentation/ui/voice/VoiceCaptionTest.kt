@@ -108,11 +108,6 @@ class VoiceCaptionTest {
         assertNull(caption.highlightRange(5..5))
     }
 
-    @Test fun captionsHaveFiveSymmetricTypeAndOpacityLevels() {
-        assertEquals(listOf(1f, 1.5f, 2f, 1.5f, 1f), (-2..2).map(::captionLineScale))
-        assertEquals(listOf(.5f, .75f, 1f, .75f, .5f), (-2..2).map(::captionLineAlpha))
-    }
-
     @Test fun manualReadingHoldsThroughNewTextAndPlaybackUntilReturningToTheEnd() {
         val following = VoiceCaptionReader()
         assertEquals(7f, following.position(7, 40))

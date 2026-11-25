@@ -1,31 +1,43 @@
 # Voice streaming and preparation
 
-New Voice Mode profiles use LiteRT Kokoro streaming on CPU at 1×. Saved engine
-and rate choices take precedence. The Kokoro GPU and NPU options request their
-respective delegates through MediaPipe Tasks Audio 1.2.3. They use the same
-model, voices, pronunciation overrides and incremental text path as CPU.
-Phonon, Pocket, native Kokoro and Gateway CUDA remain selectable.
+Voice Mode starts with **Kokoro LiteRT streaming · CPU (default)** at **1×**.
+Saved engine and rate choices take precedence. The same LiteRT text normalization,
+pronunciation dictionaries and voice IDs serve the CPU, GPU and NPU streaming
+routes. Reply speech and microphone recognition have independent language settings.
 
-## Model installation and ownership
+## Model installation and voice selection
 
-The first visit to Voice Mode schedules Moonshine recognition, LiteRT Kokoro,
-and the selected native Kokoro pack through the Android background installer.
-Existing verified packs are reused. Setup reports the combined progress and
-offers cancellation and retry. After cancellation or manual removal, a user
-can resume the download from setup. Phonon and Pocket are separate downloads.
+The first visit queues Moonshine recognition, the standard LiteRT Kokoro pack and
+the selected native Kokoro pack through the Android background installer. Setup
+shows combined progress, reuses verified installations and supports cancellation
+and manual resume. A new installation selects original FP32 for the native pack.
+Phonon and Pocket are available separately.
 
-`MediaPipeSpeechCatalog` pins each pack's publisher revision, filename, byte
-count and SHA-256. The shared Kokoro pack is 294,783,298 bytes. The installer
-checks the size and digest before making the download available to the engine.
-A native-use lease protects files mapped by a running engine. Switching
-between the Kokoro streaming delegates reuses the installed model and gives
-each delegate its own runtime cache.
+| LiteRT Kokoro route | Model on the phone | Installation |
+| --- | --- | --- |
+| CPU, GPU requested, NPU requested | Shared 294,783,298-byte INT8/FP16 pack | Downloaded during initial Voice Mode setup. Switching among these three delegates reuses the pack. |
+| GPU-optimized vocoder | Publisher's 294,750,530-byte GPU pack | Prepare from standard Kokoro with the 80,198-byte patch included in the app. The full publisher download is also available. |
+| Snapdragon 8 Elite NPU vocoder | 295,602,498-byte pack compiled for SM8750 | Prepare from standard Kokoro with the 2,236,700-byte patch included in the app. A complete verified pack can also be imported. |
 
-The resident engine identity includes the model digest, runtime, selected
-delegate, voice and exact speaking rate. MediaPipe exposes speaking rate at
-engine creation, so a rate change creates a new matching engine before another
-preview or reply. The public SDK has no CPU thread-count setting. Native CPU
-thread controls are therefore hidden for these engines.
+Each optional preparation produces a separate model file in local storage.
+The installer holds a lease on standard Kokoro while reconstructing the new pack,
+then verifies the full output size and SHA-256 before making it available.
+The optional packs preserve the pronunciation frontend, acoustic model, voices
+and timing support. Their changes are in the vocoder that generates the speech
+waveform.
+
+The LiteRT selector offers 54 voices across nine language profiles, including
+20 US English and eight UK English voices. It remembers the voice for each
+reply language. Native Kokoro offers those 28 English speakers and selects
+the US or UK lexicon for the chosen voice. The runtime checks the voice ID
+against the loaded pack before synthesis. If a requested speaker is unavailable,
+live playback can select another installed voice from the same language profile.
+
+The LiteRT runtime cache distinguishes the model digest, delegate, rate and
+streaming settings. A voice change selects the requested speaker for the next
+utterance. A rate change prepares an engine with that rate because the SDK sets
+the speaking rate when the task opens. CPU thread calibration is available for
+native Kokoro.
 
 ## Incremental audio and captions
 
@@ -42,12 +54,14 @@ chunks before delivery. A bounded text plan preserves the original reply's
 caption positions and pronunciation overrides without requiring native Kokoro's
 lexicon. Long saved replies are split before inference, including at slow rates.
 
-MediaPipe word positions are UTF-8 byte offsets, not Kotlin UTF-16 indices. Cue
-conversion accepts code-point boundaries and retains surrogate pairs. Its word
-times are estimated, and `VoiceWordCueProvenance.ESTIMATED` remains distinct from
-native Kokoro's duration-derived alignment. Both use the existing measured
-AudioTrack presentation clock for movement. Estimated word alignment does not
-become exact because the presentation clock is measured.
+MediaPipe reports word positions as UTF-8 byte offsets. The mapper converts
+them at Unicode code-point boundaries for Kotlin text. When a word begins in a
+PCM chunk and ends in a later one, the player publishes the cue as soon as audio
+reaches the word’s estimated start. Later chunks extend that same cue. The
+highlight follows the AudioTrack presentation clock, including for the first
+word. If the stream ends early, a partial cue closes at the last received frame.
+The SDK estimates word alignment. Native Kokoro derives its cues from the model’s
+token durations.
 
 Stopping playback explicitly cancels the native stream and task. The synthesis
 owner retires the handles after the blocking read returns; a playback callback
@@ -125,19 +139,23 @@ neural generation.
 
 ## Evidence and qualification
 
-Kokoro's acoustic model normally runs on CPU and its vocoder can request
-GPU or NPU. If the accelerator task fails to open during playback, the app
-tries the same pack on CPU and reports the fallback in Voice settings.
-Benchmarks measure the requested configuration without this app-level retry.
-MediaPipe does not expose executed-kernel placement, so results identify
-the delegate requested and leave the effective processor unknown. Native QNN
-has its own CPU-reference comparison and performance ranking.
+The LiteRT Kokoro acoustic stage runs on CPU by default. Selecting an
+accelerator requests it for eligible vocoder operations. MediaPipe reports the requested
+delegate but provides no per-kernel placement receipt. An SM8750 host compiler
+run with LiteRT 2.4.0 and QAIRT 2.52.0 rejected per-channel weight dequantization
+in the standard pack. On that phone, the **Snapdragon 8 Elite NPU vocoder** option
+uses a separately compiled model with 273 vocoder operations across 17 HTP
+partitions. Actual partition execution, speech quality and speed require a
+physical-device run. Native Hexagon has its own CPU-reference qualification and
+reports observed provider kernels.
 
-The standard Kokoro vocoder failed a host compilation for Snapdragon 8 Elite
-(SM8750) with LiteRT 2.4.0 and QAIRT 2.52.0. The Qualcomm compiler rejected
-the per-channel weight dequantization in the graph. On that phone, selecting
-LiteRT NPU can therefore produce CPU-only speech. The separate native Hexagon
-engine qualifies accelerator execution against CPU audio on the device.
+If an accelerator fails during setup or before it delivers audio or timing,
+live playback can retry once on the standard CPU pack at the same rate. Voice
+settings report the change. For incremental text, the player can replay a bounded
+prefix while the listener has heard none of it. After audio or a cue has been
+delivered, the failed stream stops to avoid repeating speech. A later synthesis
+can use CPU. Benchmarks and listening trials keep the requested route so a CPU
+retry cannot be scored as an accelerator result.
 
 Native QNN playback, including manual GPU/NPU selection, requires complete paired
 CPU and accelerator observations from the same current comparison workload,
@@ -170,25 +188,30 @@ that same packaged Android JNI. Both workflow names are required by the release
 scope on the final main commit. A verified download without inference, a skipped
 instrumentation method, or an absent completion receipt cannot satisfy them.
 
-## Primary upstream references
+## Native processor selection and model builds
 
-- [MediaPipe Text-to-Speech](https://developers.google.com/edge/mediapipe/solutions/audio/text_to_speech/index)
-- [MediaPipe 1.2.3 source and release](https://github.com/google-ai-edge/mediapipe/releases/tag/v1.2.3)
-- [Pinned Kokoro publisher bundle](https://huggingface.co/litert-community/Kokoro-82M/tree/bf1c2405642aa310bd210205c22d3ae1abc253fb)
-- [Pinned Phonon publisher bundle](https://huggingface.co/litert-community/phonon-31m-en/tree/ee374c33f0f6f8ed1d9f761e21cdb97df6accfe8)
-- [Pinned Pocket publisher bundle](https://huggingface.co/litert-community/pocket-tts/tree/00c866f2397788f514ab6bbcb931be22afc3b58f)
-
-### Kokoro processor and model selection
-
-Voice Mode offers original FP32 Kokoro weights through the native CPU, Adreno and Hexagon routes. On Adreno, the original native model selects a QAIRT backend adapter that requests FP32 at graph creation. The compact model uses the vendor’s standard tensor precision. The native graph can split between QNN and CPU. Phone benchmarks report the kernels that actually ran. Hexagon on SM8750 executes supported floating-point partitions with reduced precision. Fresh voice settings select the original native pack. Existing saved model selections continue to take precedence.
-
-The default LiteRT stream uses the publisher’s shared INT8/FP16 bundle. The optional GPU vocoder has a separate verified download. For Snapdragon 8 Elite, choose **Kokoro LiteRT · Snapdragon 8 Elite NPU vocoder**, tap **Import verified SM8750 pack**, and select `kokoro_sm8750.litertlm`. This build accepts the 295,602,498-byte model with SHA-256 `04ee7076b0c8e5b11239ba5ed8ee7a3540984acb17936441b904196154fc0ebb`. Its 17 compiled HTP partitions contain 273 operations from the vocoder. Remaining operators, the acoustic model and the text frontend retain their original implementation. Both specialized routes support incremental input, voice selection and timed PCM. The optional CPU recovery path uses the independently verified standard pack. Device placement remains unobserved for the SDK.
+Native Kokoro offers the original FP32 weights and the compact INT8 model on CPU,
+Adreno and Hexagon. On Adreno, the original native model requests FP32 when
+creating the QAIRT graph. On SM8750, Hexagon uses reduced precision for supported
+floating-point partitions. Native QNN may split a graph between CPU and the
+accelerator. The phone benchmark records the kernels it observes.
 
 The host recipe below uses the publisher GPU bundle at revision `bf1c2405642aa310bd210205c22d3ae1abc253fb`, LiteRT 2.4.0 headers and Python package, and QAIRT 2.52.0.261104 host libraries. The C policy limits compilation to the bounded residual blocks to avoid retaining the long-output graphs in the compiler. It forwards operation support decisions and compilation to the Qualcomm plugin. The script checks the source digest, the input and output signature, and the dispatch count. The Android installer verifies the complete packaged bytes before publishing them.
 
 ```sh
 python scripts/build_kokoro_sm8750_pack.py kokoro_int8_gpu_fp16.litertlm kokoro_sm8750.litertlm \
   --litert-source /path/to/LiteRT --qairt-lib /path/to/qairt/lib/x86_64-linux-clang
+```
+
+To reproduce the two patches stored in `app/src/main/assets/voice/`, supply the
+verified standard model as the source. The generator checks each input digest,
+replays the instructions and verifies the complete output against its target.
+The full SM8750 model has SHA-256
+`04ee7076b0c8e5b11239ba5ed8ee7a3540984acb17936441b904196154fc0ebb`.
+
+```sh
+python scripts/build_kokoro_streaming_delta.py kokoro_int8_fp16.litertlm kokoro_int8_gpu_fp16.litertlm kokoro_gpu.ksm
+python scripts/build_kokoro_streaming_delta.py kokoro_int8_fp16.litertlm kokoro_sm8750.litertlm kokoro_sm8750.ksm
 ```
 
 To rebuild the native Adreno FP32 policy, use the same QAIRT headers and Android NDK as the app. The builder exercises graph creation, precision changes, configuration preservation and provider rejection against the public interface before producing the Android library.
@@ -199,3 +222,11 @@ python scripts/build_kokoro_gpu_fp32.py --ndk /path/to/android-ndk-r29 \
 ```
 
 In **Speech benchmark**, choose native or shared LiteRT Kokoro, then **Set up 1× CPU, GPU and NPU comparison**. This selects all six audible workloads at exactly 1× with zero caption offset. Specialized packs also have independent benchmark entries. Protocol 6 records playback-clock word coverage separately from UI render callbacks, and stop-to-silence separately from confirmed worker retirement. Listening trials use the installed pack and request the selected backend without app-level fallback.
+
+## Primary upstream references
+
+- [MediaPipe Text-to-Speech](https://developers.google.com/edge/mediapipe/solutions/audio/text_to_speech/index)
+- [MediaPipe 1.2.3 source and release](https://github.com/google-ai-edge/mediapipe/releases/tag/v1.2.3)
+- [Pinned Kokoro publisher bundle](https://huggingface.co/litert-community/Kokoro-82M/tree/bf1c2405642aa310bd210205c22d3ae1abc253fb)
+- [Pinned Phonon publisher bundle](https://huggingface.co/litert-community/phonon-31m-en/tree/ee374c33f0f6f8ed1d9f761e21cdb97df6accfe8)
+- [Pinned Pocket publisher bundle](https://huggingface.co/litert-community/pocket-tts/tree/00c866f2397788f514ab6bbcb931be22afc3b58f)

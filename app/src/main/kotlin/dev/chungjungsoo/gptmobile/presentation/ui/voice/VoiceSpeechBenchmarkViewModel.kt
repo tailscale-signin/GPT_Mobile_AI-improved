@@ -194,7 +194,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         val sdkEngine = engine.mediaPipeEngine()
         val sdkModel = sdkEngine?.let(MediaPipeSpeechCatalog::model)
         val nativeEngine = sdkEngine == null
-        val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) streamingKokoroVoice ?: voice.streamingVoiceId() else sdkModel?.defaultVoice
+        val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) streamingKokoroVoice ?: voice.streamingVoiceId else sdkModel?.defaultVoice
         val started = System.currentTimeMillis()
         val previousOrder = mutable.value.history.firstOrNull()?.configuration?.backendOrderSeed
         val orderSeed = previousOrder?.takeIf { it < Long.MAX_VALUE }?.plus(1) ?: 0L

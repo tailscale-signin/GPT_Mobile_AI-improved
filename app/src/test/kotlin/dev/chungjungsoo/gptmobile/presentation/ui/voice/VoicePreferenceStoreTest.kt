@@ -280,6 +280,17 @@ class VoicePreferenceStoreTest {
         }
     }
 
+    @Test fun savedStreamingVoiceReplacesTheOldNativeFallbackOnUpgrade() {
+        val saved = mapOf("kokoro_voice" to "EMMA", "synthesis_language" to "en-GB", "synthesis_voices" to setOf("en-GB=bm_lewis", "ja=jm_kumo"))
+        val restored = readVoicePreferences(saved)
+        assertEquals(KokoroVoice.LEWIS, restored.kokoroVoice)
+        assertEquals("bm_lewis", restored.synthesis.voiceId)
+        assertEquals("jm_kumo", restored.synthesis.selectLanguage("ja").voiceId)
+        val legacy = readVoicePreferences(mapOf("kokoro_voice" to "ADAM"))
+        assertEquals(KokoroVoice.ADAM, legacy.kokoroVoice)
+        assertEquals("am_adam", legacy.synthesis.voiceId)
+    }
+
     @Test fun speechRateStartsAtNormalSpeedAndKeepsExplicitChoicesAcrossUpgrades() {
         assertEquals(1f, readVoicePreferences(emptyMap<String, Any>()).rate)
         for (saved in listOf(0.9f, 1.1f, 1.25f)) {

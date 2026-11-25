@@ -280,6 +280,22 @@ class PipelineTest(unittest.TestCase):
             self.assertIn(f'app/build/test-results/testDebugUnitTest/TEST-{name}.xml', steps[evidence])
         self.assertIn('app/build/reports/tests/testDebugUnitTest/', steps[evidence])
 
+    def test_complete_preview_and_release_unit_suites_have_time_to_report(self):
+        workflows = Path(__file__).resolve().parents[2] / '.github/workflows'
+        candidates = [('geniex-preview.yml', 'Run isolated preview unit tests'),
+                      ('release-build.yml', 'Run release validation unit tests')]
+        for name, title in candidates:
+            with self.subTest(workflow=name):
+                steps = re.split(r'(?m)^      - ', (workflows / name).read_text())
+                step, = [s for s in steps if s.startswith('name: ' + title + '\n')]
+                limit = int(re.search(r'timeout-minutes: (\d+)', step).group(1))
+                guard = int(re.search(r'--timeout-seconds (\d+) --', step).group(1))
+                self.assertEqual(55, limit)
+                self.assertEqual(limit * 60 - 120, guard)
+                self.assertIn(':app:testDebugUnitTest', step)
+                self.assertNotIn('--tests', step)
+                self.assertNotIn('continue-on-error', step)
+
     def test_geniex_packaging_has_bounded_parallelism_and_stall_evidence(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/geniex-preview.yml').read_text()
         debug = workflow.split('- name: Build isolated preview APK', 1)[1].split('- name: Validate release shrinker', 1)[0]

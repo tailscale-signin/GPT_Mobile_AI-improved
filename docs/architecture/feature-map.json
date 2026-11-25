@@ -2711,9 +2711,9 @@
       "sha256": "5a01576356b45ec9a7045502526b8a42c58bda3c7fef69a829dd051e1ea86ca7"
     },
     ".github/workflows/release-build.yml": {
-      "blob_sha": "2544852c4686390d106ac56a7e379f3b92c54cfb",
-      "bytes": 25734,
-      "sha256": "fde4a316c4504683ba49cda03c0b5ee8c3f28bc4237bc3ba88c033c02124cdb0"
+      "blob_sha": "9f797ca7d549e5d0c03ba9b9ea01c878e5e7b85f",
+      "bytes": 25849,
+      "sha256": "9dba1c88cb50eb9aac40e7abff01fcb365f9b68095b4e7f36ea1bfa03b3541bd"
     },
     ".github/workflows/speech-engine-smoke.yml": {
       "blob_sha": "3cbee4f2ee5729a7bf933d6a5b3fd4d582aaebb8",
@@ -6411,9 +6411,9 @@
       "sha256": "04dc2e6488e634c6107830758125fb3eed54834244357fea9e218857513d8fa5"
     },
     "scripts/tests/test_delivery_pipeline.py": {
-      "blob_sha": "68f1fc1fe926a4811f6db8f4693b34680138870a",
-      "bytes": 33939,
-      "sha256": "d05b1eed98a06c93548646a0d99768dcf47c985fdc59f6a877073802e6b31e96"
+      "blob_sha": "eaa9bdf8a4c77f40b4d085e2bf29cba4f85d81d8",
+      "bytes": 34954,
+      "sha256": "f2b0857fb15fcf98568879df224be7d1be2ff8f1647e97deae43f4e2c8c2ad7f"
     },
     "scripts/tests/test_generate_diagnostic_schema.py": {
       "blob_sha": "b7b17e92eaf94e14a1a5749f64acc3d770b13d9a",

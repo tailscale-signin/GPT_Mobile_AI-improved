@@ -62,8 +62,17 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
         while (lastContent > consumed && text[lastContent].isWhitespace()) lastContent--
         var nextContent = end
         while (nextContent < text.length && text[nextContent].isWhitespace()) nextContent++
-        require(nextContent == text.length || groups.groupAt(sources[lastContent].first) != groups.groupAt(sources[nextContent].first)) {
-            "STREAM_INPUT_LIMIT"
+        if (nextContent < text.length) {
+            val left = sources[lastContent]
+            val right = sources[nextContent]
+            // At the SDK ceiling, adjacent literal characters can continue in the next input.
+            // Repeated source ranges belong to a pronunciation, and contextual readings span words.
+            val literalContinuation = nextContent == lastContent + 1 &&
+                left.first == left.last &&
+                right.first == right.last &&
+                right.first == left.last + 1 &&
+                !groups.isContextual(left.first)
+            require(groups.groupAt(left.first) != groups.groupAt(right.first) || literalContinuation) { "STREAM_INPUT_LIMIT" }
         }
         val phrase = VoiceStreamingPhrase(text.substring(consumed, end), sources.subList(consumed, end))
         consumed = end

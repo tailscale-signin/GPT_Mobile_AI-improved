@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 /** Maps display characters to an indivisible spoken term for this reply only. */
 internal class VoicePhraseBoundaries(private val text: String, streaming: Boolean = false) {
     private val terms = IntArray(text.length) { it }
+    private val contextualStarts = mutableSetOf<Int>()
     private val unfinished: Int
 
     init {
@@ -44,6 +45,7 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
                 }
             }
             val start = first.range.first
+            if (last > i) contextualStarts += start
             for (index in start..words[last].range.last) terms[index] = start
             i = last + 1
         }
@@ -51,6 +53,8 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
     }
 
     fun groupAt(offset: Int): Int = terms.getOrElse(offset) { offset }
+
+    fun isContextual(offset: Int): Boolean = groupAt(offset) in contextualStarts
 
     /** End is an exclusive character offset including the original separator. */
     fun permits(end: Int): Boolean {

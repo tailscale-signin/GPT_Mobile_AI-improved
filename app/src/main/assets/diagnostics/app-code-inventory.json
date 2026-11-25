@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3df4331a2bd2d6974af6a0cc251b08197d6656de7d0f0c2811fbde6aa23e12d6",
+  "source_digest": "4a2a5b89dd047a1e727a596e04de884dd4eb9836cfe17f4009ff921e37c07e5c",
   "file_count": 3132,
-  "indexed_line_count": 534059,
+  "indexed_line_count": 534072,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 133,
-      "indexed_line_count": 23624
+      "indexed_line_count": 23637
     },
     {
       "id": "portable_domain",
@@ -13493,8 +13493,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseBoundaries.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "f954773a90071a957709897fd9450069fcc73eb1ae10a8a4a924a7c6cd9e6ce1",
-      "indexed_lines": 86
+      "sha256": "5c16e1cdb3fa91abea30abc00169d9f30c0f2161846150ef710e10d227dd573a",
+      "indexed_lines": 90
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
@@ -13836,8 +13836,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "ad31b89abfd75d72818f5bbd87e6ef075ec7b0c1f839f92a0022ff020e996ab6",
-      "indexed_lines": 76
+      "sha256": "4d132539e0ed1874d2c32337c7dcd77fb6026fa50e1dada26f87ab8083f5adf2",
+      "indexed_lines": 85
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt",

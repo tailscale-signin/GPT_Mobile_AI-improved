@@ -761,7 +761,14 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapReuseBenchmark.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PhoneMapBenchmarkPanel.kt",
         "scripts/github_routing_replay.py",
-        "scripts/qualify_github_routing_replay.py"
+        "scripts/qualify_github_routing_replay.py",
+        "gateway/benchmarks/campaign.py",
+        "gateway/benchmarks/campaign_gateway.py",
+        "gateway/benchmarks/campaign_synthetic.py",
+        "gateway/desktop/benchmark_campaigns.py",
+        "gateway/desktop/native_bridge.py",
+        "gateway/desktop/native/MainWindow.NativeProducts.cs",
+        "gateway/desktop/native/Core/NativeProductCampaignPresentation.cs"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlanTest.kt",
@@ -782,7 +789,12 @@
         "gateway/tests/test_gateway_preview_study.py",
         "gateway/tests/test_gateway_native_product_trials.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapReuseBenchmarkTest.kt",
-        "scripts/tests/test_github_routing_replay.py"
+        "scripts/tests/test_github_routing_replay.py",
+        "gateway/tests/test_gateway_native_campaigns.py",
+        "gateway/tests/test_gateway_campaign_gateway.py",
+        "gateway/tests/test_gateway_benchmark_campaigns.py",
+        "gateway/desktop/native/tests/Program.cs",
+        "gateway/tests/test_gateway_campaign_powershell.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -792,14 +804,17 @@
         "gateway/benchmarks/PHONE_ACTIONS.md",
         "docs/repairs/github-context-benchmark-2026-11-23.md",
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
-        "docs/engineering/github-routing-replay.md"
+        "docs/engineering/github-routing-replay.md",
+        "gateway/benchmarks/NATIVE_CAMPAIGNS.md",
+        "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json"
       ],
       "invariants": [
         "Freeze source, profile, task, budget and environment before comparison.",
         "Hidden grader material never enters retrieval or model input.",
         "Unknown cost, tokens and retrieval relevance remain unknown.",
         "Only explicit ordered invalidation identities transfer a previously exposed correction obligation; stale intermediate claims remain rejected and unexposed facts do not require a fabricated update.",
-        "An observed native comparison binds GPT Mobile AI and its preregistered peers to the same controls. The ChatGPT adapter accepts a single completed public answer from the selected unbranched conversation export. Missing observations remain visible."
+        "An observed native comparison binds GPT Mobile AI and its preregistered peers to the same controls. The ChatGPT adapter accepts a single completed public answer from the selected unbranched conversation export. Missing observations remain visible.",
+        "Installed Windows native campaigns freeze owner, origin, runtime, matched controls and randomized trial order; imports preserve final bytes and independent signatures. Status-only recovery retains the original request ID across interruption and application updates. Synthetic sessions cannot reach live grading; unmeasured comparisons stay unknown."
       ],
       "routing": {
         "role": "evidence",
@@ -3049,9 +3064,9 @@
       "sha256": "1b2493e5927036d11b7d1efae66a076f731278bd9046f4cb1b5f075a822ea9c8"
     },
     ".github/workflows/gateway-windows-installer.yml": {
-      "blob_sha": "91a4e6c648112def1257218488ebb1e57e1884bc",
-      "bytes": 5892,
-      "sha256": "d221657729bd8a03723e9dbfe33ef49b7b1302c62e5d207f475424072efea18f"
+      "blob_sha": "8e34118866edb6d6e99b8944fddcb7b65de18ed6",
+      "bytes": 6052,
+      "sha256": "16076a8181166d39a884af29914cf5420ee60bf299c0bfa4e35521faefc343c1"
     },
     ".github/workflows/native-memory-smoke.yml": {
       "blob_sha": "743f6dcc6670815a83e12257573fcbe3c056764a",
@@ -6489,9 +6504,9 @@
       "sha256": "378e7fa6a41a056e37fa8a6cb802c669093db796a01c24c03dd64a5567a0d1c6"
     },
     "docs/architecture/repository-guide.md": {
-      "blob_sha": "56cd2935c4b623a23cb8ed0347b3321ed9193792",
-      "bytes": 18875,
-      "sha256": "33414555f1b2ba323909f7ac23a33567cbcb97e47eebc49e9662683adc4d41ee"
+      "blob_sha": "2db49c6762aed9fb4357e60cacef3c683c5da59c",
+      "bytes": 19714,
+      "sha256": "3e59bdd686a2842968d63b3b76dbcad443e24a131a1fe3733b07597b2161afd4"
     },
     "docs/architecture/voice-streaming.md": {
       "blob_sha": "4e1a5bef1f09bd038c121bb8b657d4ceab796f63",
@@ -6933,6 +6948,11 @@
       "bytes": 4210,
       "sha256": "4d8bb6f2f795713bb69dc946c34ee045a619e8e295d0f2e5f3cce258ddb7f0e5"
     },
+    "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json": {
+      "blob_sha": "0ff667efecd29d5516cf4db20206cbeb4926e677",
+      "bytes": 4220,
+      "sha256": "e230ce4870b790d819cac18fe269d49196a0e3bb2885fee7eb3701cff703ef5b"
+    },
     "docs/repairs/windows-owner-presentation-2026-11-24-task.json": {
       "blob_sha": "921c965acfc045c03b55565d50bac1bf19a5aaed",
       "bytes": 8587,
@@ -6943,15 +6963,35 @@
       "bytes": 5329,
       "sha256": "f7c8a17c612b78d2feccda1da8dc4b50e00bc0a4125894a8a88aaead9735aa21"
     },
+    "gateway/benchmarks/NATIVE_CAMPAIGNS.md": {
+      "blob_sha": "8c57b6a100b365870d3d44641c2cad70304aae21",
+      "bytes": 11624,
+      "sha256": "db565f348f26884aae174469a26852f079bf3042400b270b5e3e3fd19cf8a146"
+    },
     "gateway/benchmarks/PHONE_ACTIONS.md": {
       "blob_sha": "9913058470a289d738bd01936de858dd6e42c9e7",
       "bytes": 9604,
       "sha256": "949dbd4debdafebff4339588cd9cb5b00a4ae1a9fc75c11a42b4e9820e5d2e10"
     },
     "gateway/benchmarks/README.md": {
-      "blob_sha": "f540bc3ae20e31cd5b91b62207f445ff85e358f3",
-      "bytes": 29000,
-      "sha256": "688a9b1e346afe98256fe90f60b10c2577ef7c2fedfcc10be1bc2708bea36706"
+      "blob_sha": "88721feb15f512e50dc1d864f4930c8470387dc9",
+      "bytes": 29309,
+      "sha256": "cfa5f9216470e9e29a1712ee9b33b94f9cd4e7a11979e088c57e9b2fd1e6d888"
+    },
+    "gateway/benchmarks/campaign.py": {
+      "blob_sha": "9aa322dc7438e3f8d96a2bf2bf70a48c884aba63",
+      "bytes": 67289,
+      "sha256": "8acf450f4cee512bf573e1d05e9c27b55e35b3627be50d4961c67bc656319cd2"
+    },
+    "gateway/benchmarks/campaign_gateway.py": {
+      "blob_sha": "575f57ff5cedff38cdd4764006718c4f26a00716",
+      "bytes": 20004,
+      "sha256": "f15d08708eb71de21c7f6f624890ec7997589aafbe2e7207c9f0ca0a10edfa3c"
+    },
+    "gateway/benchmarks/campaign_synthetic.py": {
+      "blob_sha": "d93f752a915dbbcf847f65993916219afd4d82fd",
+      "bytes": 10542,
+      "sha256": "6eb4c60cb921e41ff4950a3ab1c97dab91833adb78704ea6ffdbcc692e34474b"
     },
     "gateway/benchmarks/context_experiment.py": {
       "blob_sha": "043780d7cffe31a2ca9ef7914f6a240a4d8930e9",
@@ -7003,6 +7043,11 @@
       "bytes": 6171,
       "sha256": "c0f2fe7dabd279d8285fb436788abf5432fdfde854d5c1c22a9d4106c6fdaa8c"
     },
+    "gateway/desktop/benchmark_campaigns.py": {
+      "blob_sha": "44d0addcab7e0c922a3f8c82ad2a238909d12773",
+      "bytes": 20515,
+      "sha256": "288357d088cc108c2807d113245143e0b1cec68608aae96888430edf0a133f86"
+    },
     "gateway/desktop/control_store.py": {
       "blob_sha": "c49c26a5ae67d372e52c859ff8788e1aa6b986e3",
       "bytes": 44811,
@@ -7017,6 +7062,26 @@
       "blob_sha": "789fdbb19fc66837fb7b9d423fac8d000fc6c050",
       "bytes": 26645,
       "sha256": "445fb6e0e38d990fa00e5cd2ce23f0857b955799edf9a540f25470668b9740d4"
+    },
+    "gateway/desktop/native/Core/NativeProductCampaignPresentation.cs": {
+      "blob_sha": "f39e89ae4b0048b7e3ebd0aacae03e5f080ef4a9",
+      "bytes": 8268,
+      "sha256": "c06ff942f659ccbc1ba38e4de99ab648d10f72ed462095cef39b344c7fb218ff"
+    },
+    "gateway/desktop/native/MainWindow.NativeProducts.cs": {
+      "blob_sha": "db575b0586e2cb2eab55f87d3174b8c108956d1f",
+      "bytes": 41590,
+      "sha256": "29f1eaafa7da47255a2e47c699323c53f06be48aa1086a4d597efb18360e29ac"
+    },
+    "gateway/desktop/native/tests/Program.cs": {
+      "blob_sha": "36741eb6774a6090ef170f93049fd8aec6310633",
+      "bytes": 17212,
+      "sha256": "6a98c2c6a2e9fdacac41b5436667f4e21bdb1dcb3aa3e092145f290acaecc7bf"
+    },
+    "gateway/desktop/native_bridge.py": {
+      "blob_sha": "c1ef8def0072e617b079d03130b63172b4f14c0b",
+      "bytes": 39492,
+      "sha256": "a194327016d00f19d0a7d642539d40115361a0fd2d88d709bd332591aa3555af"
     },
     "gateway/desktop/ui.py": {
       "blob_sha": "7a86958a30b55c6219f3fedf3551b42394d62b63",
@@ -7038,10 +7103,25 @@
       "bytes": 88545,
       "sha256": "395b2e4100993138fb62a9dcc06df21bea8d8141effc9a81a3eb883e29884dbd"
     },
+    "gateway/tests/test_gateway_benchmark_campaigns.py": {
+      "blob_sha": "92b8a012212a4af5693b04465501e5db477ff28c",
+      "bytes": 17559,
+      "sha256": "c3a414c5a6de871f70497d2a70f25152d3a91ffee469b142c263ed7e7be2416f"
+    },
     "gateway/tests/test_gateway_benchmark_qualification.py": {
       "blob_sha": "6d655256094e8a80133cb3439e52237ea12ca5c8",
       "bytes": 12044,
       "sha256": "0a47bebef3a254b642f9570870d13f74ff6b29b4f19f9d7bc72e6ab1f2e7180b"
+    },
+    "gateway/tests/test_gateway_campaign_gateway.py": {
+      "blob_sha": "17c30527aadeca02cebdeb8ad9e3e8a15e03732a",
+      "bytes": 25686,
+      "sha256": "9554912ee32e14bf92efaa1d989e939b4752e3e21f13aba37d949290840bd70e"
+    },
+    "gateway/tests/test_gateway_campaign_powershell.py": {
+      "blob_sha": "1aa711b24846346beb77e3edb76089da651d0f5e",
+      "bytes": 8548,
+      "sha256": "e03dd1b38e73d3d6365e1ae9d27254d1e97a193d74926841e0bc2514a78e766e"
     },
     "gateway/tests/test_gateway_context_completion.py": {
       "blob_sha": "d4fcca06130c941bc4aa4b60a7be54d04b7a772d",
@@ -7112,6 +7192,11 @@
       "blob_sha": "9ee7b6febe9331c4b250911f47174d5a54777925",
       "bytes": 10328,
       "sha256": "b41fec619b93f691edf190fd05662908faf1f2eafb367c4aedf63d0e7ea78513"
+    },
+    "gateway/tests/test_gateway_native_campaigns.py": {
+      "blob_sha": "6014930a55dfac6658c23390e3f7b180c701df98",
+      "bytes": 37055,
+      "sha256": "8894c55e17494bbf71a83b91c435b89688ca284a185da829aff7777c7cdd3b68"
     },
     "gateway/tests/test_gateway_native_product_trials.py": {
       "blob_sha": "f57a8e1cbe08c746a0cee9d5349f3141ebb4c72c",

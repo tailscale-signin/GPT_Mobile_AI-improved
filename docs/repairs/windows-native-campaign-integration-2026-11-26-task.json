@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "windows-native-campaign-integration-2026-11-26",
+  "parentPullRequest": 2646,
+  "baseBranch": "fix/unified-github-gateway",
+  "baseSha": "77a5c8ed540a33356c037fb8ffae6ac397f43ac5",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "intent": "Integrate the independently graded native-product benchmark kit into the Windows Gateway app, including persistent matched campaigns, original-capture imports, supplied-answer grading, status-only recovery and honest scoreboards.",
+  "state": "IMPLEMENTED_LOCAL_GATES_PASSED",
+  "authorization": "User requested integration into the Windows app. Source implementation is authorized; no paid or native model generation has been requested or run.",
+  "preserved": [
+    "Existing Gateway model comparison and authenticated owner boundaries",
+    "Canonical independent product trial signatures and grader contracts",
+    "Original request identities after uncertain admission",
+    "Unknown costs, missing observations and unmeasured product quality",
+    "Synthetic evidence remains a separate non-submittable lane"
+  ],
+  "checkpoints": [
+    {
+      "state": "INSPECTED",
+      "sourceSha": "77a5c8ed540a33356c037fb8ffae6ac397f43ac5",
+      "details": "Windows default surface is WPF, with ephemeral native-bridge processes and persistent Gateway state. Work is isolated from the concurrently active checkout."
+    },
+    {
+      "state": "RECONCILED",
+      "sourceSha": "5e02fbfbb8c131412045d08a0fb46bbecc1587f4",
+      "details": "Rebased isolated work onto the three concurrent commits after the initial inspection; retained all current Android voice and GitHub regression changes."
+    },
+    {
+      "state": "VALIDATED_LOCALLY",
+      "sourceBaseSha": "5e02fbfbb8c131412045d08a0fb46bbecc1587f4",
+      "details": "Canonical host and Gateway gates passed; native product and model quality remain unmeasured. Added Windows smoke coverage for native campaign setup and unknown scoreboard; source packaging/reference checks must be regenerated before commit."
+    }
+  ],
+  "validation": [
+    {
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "PASSED",
+      "testsRun": 844,
+      "skipped": 1
+    },
+    {
+      "command": "python3 gateway/check_gateway.py",
+      "status": "PASSED",
+      "pythonSuites": 158,
+      "pythonTestsRun": 2214,
+      "pythonSkipped": 32,
+      "browserBridgeTestsPassed": 7,
+      "diagnosticStressEvents": 50000
+    },
+    {
+      "command": "GATEWAY_TEST_PWSH=<PowerShell-7.5.4> python3 -m unittest discover -s gateway/tests -p 'test_gateway_*campaign*.py'",
+      "status": "PASSED",
+      "testsRun": 89,
+      "skipped": 0,
+      "scope": "Synthetic Python and PowerShell transport on Linux; no product/model/Gateway requests"
+    },
+    {
+      "command": "Native Core Program.cs compiled and executed with bundled Roslyn and .NET runtime",
+      "status": "PASSED",
+      "assertions": 354,
+      "scope": "Portable Core only; not dotnet SDK build or WPF execution"
+    },
+    {
+      "command": "Roslyn parse of changed C# sources and Python AST smoke check",
+      "status": "PASSED",
+      "csharpFiles": 5
+    },
+    {
+      "command": "Windows WPF build, installer and interactive smoke",
+      "status": "NOT_RUN_LOCALLY",
+      "reason": "Local environment has no .NET SDK or Windows WPF runtime; existing Windows workflow is required for the integration commit."
+    }
+  ],
+  "productMeasurements": null,
+  "windowsExecution": null,
+  "integrationBaseSha": "5e02fbfbb8c131412045d08a0fb46bbecc1587f4",
+  "changes": [
+    "Embedded canonical native-product campaign controller and endpoint-restricted installed transport.",
+    "Added native WPF Native products tab, editable budgets, capture helpers, signed imports, supplied-answer grading, recovery and unknown-preserving reports.",
+    "Retained exact owner/origin/runtime/task bindings, original uncertain request IDs, external key custody and synthetic evidence separation.",
+    "Packaged Quick/Comprehensive definitions, GitHub intelligence protocols and PowerShell helper; added offline behavior and native presentation regressions."
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "schema": "benchmark-kit.read-only-probe.v1",
+  "id": "capability_boundary",
+  "title": "Exclude a non-common capability before execution",
+  "synthetic": true,
+  "executionScope": "SYNTHETIC_READ_ONLY_REHEARSAL",
+  "productionScoreEligible": false,
+  "objective": "Determine whether the supplied planned operation belongs in a common four-product lane. Do not execute it or infer unsupported capabilities.",
+  "allowedActions": [
+    "read_supplied_fixture",
+    "return_text_or_json_report"
+  ],
+  "forbiddenActions": [
+    "model_dispatch_by_kit",
+    "repository_write",
+    "workflow_dispatch",
+    "merge",
+    "publish",
+    "service_restart"
+  ],
+  "publicFixture": {
+    "fixtureNotice": "Synthetic capability inventory; not a statement about actual product features.",
+    "operation": "controlled_client_disconnect",
+    "capabilityObservations": [
+      {
+        "id": "e1",
+        "product": "GPT Mobile AI",
+        "supported": true
+      },
+      {
+        "id": "e2",
+        "product": "ChatGPT",
+        "supported": null
+      },
+      {
+        "id": "e3",
+        "product": "Codex",
+        "supported": null
+      },
+      {
+        "id": "e4",
+        "product": "Claude Code",
+        "supported": null
+      }
+    ],
+    "preregisteredCommonSupport": false
+  },
+  "outputContract": {
+    "requiredFields": [
+      "finding",
+      "evidenceIds",
+      "unknowns",
+      "nextAction"
+    ],
+    "doNotInfer": "Unsupported observations, successful mutations, provider identity, measured product quality."
+  }
+}

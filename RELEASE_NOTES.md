@@ -6,6 +6,8 @@ This release implements the sixteen findings from the November 26 build-151 runt
 
 ## Changes
 
+- Embed matched native-product benchmark campaigns in the Windows Gateway app, with editable preregistered controls, original capture imports, independent supplied-answer grading, original-request recovery and unknown-preserving scoreboards.
+
 - Voice Mode can speak one brief acknowledgment in the selected language while an answer is pending. A running lookup gets a search cue, and quick answers take priority. Speech model preparation overlaps audio setup, and stable opening words can play during a provider pause.
 
 - Voice Mode now keeps an active spoken reply playing after you switch chats or leave the app. Its notification opens the source chat and includes Stop. The selected speech language reaches Kokoro's phonemizer, and each language has its own pronunciation dictionary. French supports accented terms, elisions and multiword names. Compatible GPU and NPU routes retain their accelerator when switching to multilingual Kokoro. Native CPU speech can use up to 16 threads, within the device's available processor count.
@@ -48,5 +50,7 @@ Publication requires successful validation of the final PR head, main revision a
 - OpenRouter capabilities are bound to the observed exact model ID and freshness window. Unsupported or custom-route capabilities remain unknown; explicit fixed reasoning settings retain their selected behavior.
 - Qualification prerequisites, uncertain writes and missing source or execution evidence remain explicit. Recovery does not expand permissions, replay uncertain mutations or convert unfinished acceptance criteria into success.
 - The repository and gateway regressions include simulated transports. Physical handset execution and live side-by-side model quality have not been measured for these changes. Provider quota and explicit reasoning-off support depend on the selected backend.
+
+- The native campaign controller has no measured product-quality results. Synthetic fixtures and portable presentation checks do not establish Windows installation, native product execution or comparative superiority.
 
 Published tags remain immutable, and a passing earlier revision does not qualify a later commit.

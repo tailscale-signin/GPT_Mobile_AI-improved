@@ -26,6 +26,81 @@ Check(BenchmarkComparisonPresentation.Headline(new JsonObject { ["winner"] = "mo
     "Missing qualification status cannot become a winner");
 Check(BenchmarkComparisonPresentation.Headline(new JsonObject { ["status"] = "SUPERIOR_ON_MATCHED_SUITE", ["winner"] = "model-a" }) == "Superior on this matched suite: model-a",
     "Qualified matched-suite winner remains visible");
+var nativeReport = new JsonObject
+{
+    ["evidenceLane"] = "SYNTHETIC_ONLY", ["comparativeModelQuality"] = "REGISTERED_SUITE_ONLY",
+    ["nativeComparison"] = new JsonObject { ["verdict"] = "SUPERIOR_ON_REGISTERED_SUITE" }
+};
+Check(NativeProductCampaignPresentation.Headline(nativeReport) == "Synthetic fixture · product quality remains unmeasured",
+    "A synthetic verdict cannot become a product superiority claim");
+nativeReport["evidenceLane"] = "NATIVE_OBSERVED";
+nativeReport["comparativeModelQuality"] = "NOT_MEASURED";
+Check(NativeProductCampaignPresentation.Headline(nativeReport) == "Comparative product quality · Unknown",
+    "A verdict without measured product evidence remains unknown");
+nativeReport["comparativeModelQuality"] = "REGISTERED_SUITE_ONLY";
+Check(NativeProductCampaignPresentation.Headline(nativeReport) == "GPT Mobile AI superior on this registered suite",
+    "A canonical registered-suite verdict remains scoped to its suite");
+nativeReport.Object("nativeComparison")["verdict"] = "INCOMPLETE";
+Check(NativeProductCampaignPresentation.Headline(nativeReport).Contains("missing evidence remains Unknown"),
+    "An incomplete native comparison cannot become a ranking");
+nativeReport.Object("nativeComparison")["verdict"] = "unrecognized";
+Check(NativeProductCampaignPresentation.Headline(nativeReport) == "Inconclusive · no qualified winner",
+    "An unknown native verdict cannot become a winner");
+Check(NativeProductCampaignPresentation.Headline(new JsonObject()) == "Comparative product quality · Unknown",
+    "An unmeasured campaign remains unknown");
+foreach (JsonNode? value in new JsonNode?[] { null, JsonValue.Create("0"), JsonValue.Create(true), new JsonObject() })
+    Check(NativeProductCampaignPresentation.Metric(new JsonObject { ["cost"] = value }, "cost") == "Unknown",
+        "Missing or nonnumeric native measurements are never coerced to zero");
+Check(NativeProductCampaignPresentation.Metric(new JsonObject { ["cost"] = 0 }, "cost") == "0",
+    "An observed zero remains different from unknown");
+Check(NativeProductCampaignPresentation.Metric(new JsonObject { ["time"] = double.NaN }, "time") == "Unknown",
+    "Nonfinite native measurements are not displayed as observations");
+Check(NativeProductCampaignPresentation.Rate(new JsonObject { ["verifiedRate"] = null }) == "Unknown",
+    "Partial verification does not manufacture a completion rate");
+Check(NativeProductCampaignPresentation.Rate(new JsonObject { ["verifiedRate"] = 0.25 }) == "25%",
+    "A canonical verified completion ratio is displayed as a percentage");
+Check(NativeProductCampaignPresentation.Rate(new JsonObject { ["verifiedRate"] = 1.1 }) == "Unknown",
+    "An invalid completion ratio stays unknown");
+var customCampaignDefinition = new JsonObject
+{
+    ["tasks"] = new JsonArray(new JsonObject(), new JsonObject()),
+    ["products"] = new JsonArray("GPT Mobile AI", "ChatGPT", "Codex", "Claude Code"),
+    ["repeats"] = 3, ["maxSeconds"] = 600, ["maxCostUsd"] = 2.5, ["cache"] = "warm", ["marginPoints"] = 8
+};
+string campaignDefinitionSummary = NativeProductCampaignPresentation.CampaignDefinitionSummary(customCampaignDefinition);
+Check(campaignDefinitionSummary.Contains("24 scheduled trials") && campaignDefinitionSummary.Contains("600 s") &&
+    campaignDefinitionSummary.Contains("USD 2.5") && campaignDefinitionSummary.Contains("warm") && campaignDefinitionSummary.Contains("8 points"),
+    "The campaign preview uses the selected definition's actual time, cost, repeats, cache and margin");
+customCampaignDefinition["maxCostUsd"] = 0;
+Check(NativeProductCampaignPresentation.CampaignDefinitionSummary(customCampaignDefinition).Contains("cost ceiling: USD 0"),
+    "A zero campaign cost is displayed as a ceiling rather than a free-usage observation");
+customCampaignDefinition["maxCostUsd"] = null;
+customCampaignDefinition["repeats"] = null;
+Check(NativeProductCampaignPresentation.CampaignDefinitionSummary(customCampaignDefinition).Contains("USD Unknown") &&
+    NativeProductCampaignPresentation.CampaignDefinitionSummary(customCampaignDefinition).Contains("Unknown scheduled trials"),
+    "Unknown campaign controls cannot become a zero budget or an invented trial count");
+var unmeasuredNativeRows = NativeProductCampaignPresentation.ProductRows(new JsonObject()).ToArray();
+Check(unmeasuredNativeRows.Length == 4 && unmeasuredNativeRows.All(row => row.Text("timing").Contains("Unknown") && row.Text("cost").Contains("Unknown")),
+    "The empty scoreboard retains all four products with unknown timing and cost");
+Check(NativeProductCampaignPresentation.SeparateMeasurements(new JsonObject()).Contains("GitHub Intelligence / 100: Unknown"),
+    "Native final-answer evidence does not manufacture production GitHub Intelligence scores");
+var unresolvedOperation = new JsonObject { ["receipts"] = new JsonArray(
+    new JsonObject { ["scheduleIndex"] = 0, ["status"] = "UNRESOLVED", ["reason"] = "PRIVATE_CANDIDATE SECRET_KEY", ["requestId"] = "extref_" + new string('a', 32) },
+    new JsonObject { ["scheduleIndex"] = 1, ["status"] = "RUNTIME_CHANGED_READBACK_ONLY", ["submissionState"] = "OBSERVED", ["state"] = "COMPLETED" },
+    new JsonObject { ["scheduleIndex"] = 2, ["submissionState"] = "NOT_OBSERVED", ["requestId"] = "PRIVATE_CANDIDATE SECRET_KEY" }) };
+Check(NativeProductCampaignPresentation.OperationHeadline(unresolvedOperation).Contains("1 unresolved") &&
+    NativeProductCampaignPresentation.OperationHeadline(unresolvedOperation).Contains("1 readback-only"),
+    "Unresolved and revision-changed grading receipts remain visible in the action summary");
+var nativeReceiptRows = NativeProductCampaignPresentation.OperationRows(unresolvedOperation).ToArray();
+Check(nativeReceiptRows[0].Text("state").Contains("extref_" + new string('a', 32)) &&
+    nativeReceiptRows[0].Text("detail").Contains("recover performs status only"),
+    "Recovery guidance retains the original validated request identity");
+Check(nativeReceiptRows[1].Text("detail").Contains("cannot sign a new grade"),
+    "A runtime-changed readback does not imply a new independent grade");
+Check(nativeReceiptRows.All(row => !row.ToJsonString().Contains("PRIVATE_CANDIDATE") && !row.ToJsonString().Contains("SECRET_KEY")),
+    "Operation summaries omit raw error payloads and invalid request identities");
+Check(nativeReceiptRows[2].Text("detail").Contains("do not repeat or replace"),
+    "Unobserved admission cannot be presented as safe resubmission");
 var delta = BridgeFrame.Parse(Frame("delta", JsonValue.Create("Unicode reply · 你好")));
 Check(delta.Event == "delta" && delta.Value?.ToString() == "Unicode reply · 你好", "Streaming text survives transport");
 var accepted = BridgeFrame.Parse(Frame("accepted", new JsonObject { ["command_id"] = "send-123", ["detach_safe"] = true }));

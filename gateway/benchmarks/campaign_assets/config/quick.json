@@ -1,0 +1,117 @@
+{
+  "schema": "gpt-mobile-benchkit.campaign.v1",
+  "name": "quick",
+  "description": "Matched supplied-answer native product trial campaign. Generation is manual and is never launched by this kit.",
+  "products": [
+    "GPT Mobile AI",
+    "ChatGPT",
+    "Codex",
+    "Claude Code"
+  ],
+  "upstreamPreset": "quick",
+  "cache": "cold",
+  "repeats": 1,
+  "maxSeconds": 300,
+  "maxCostUsd": 0,
+  "marginPoints": 5,
+  "tasks": [
+    {
+      "pack": "python",
+      "id": "pagination-1",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-1",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-1",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-1",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-1",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-1",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-1",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-1",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-1",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-1",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-1",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-1",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-kotlin-stale-generation",
+      "family": "repository-kotlin-stale-generation",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-room-add-default",
+      "family": "repository-room-add-default",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-ci-required-needs",
+      "family": "repository-ci-required-needs",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-ci-skipped-gate",
+      "family": "repository-ci-skipped-gate",
+      "seed": 17
+    }
+  ],
+  "githubScenarioPreparation": "quick",
+  "note": "Zero is a budget, not a claim of free usage. Enter actual observed cost or null. Warm cache requires a separately frozen campaign. Related variants/repeats retain their original family."
+}

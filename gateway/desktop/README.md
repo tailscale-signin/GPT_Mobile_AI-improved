@@ -24,6 +24,24 @@ In **Settings → Gateway updates**, check the installed version, check for stab
 
 If startup fails, inspect `logs/gateway.log` and `status.json`. Logs rotate at 5 MiB with four backups. Do not publish raw logs without reviewing them for model/tool content. The startup shortcut is idempotent, uses a state-directory lock and binds the engine process tree to the supervisor lifetime on Windows. Repeated unexpected exits use a restart backoff of up to five minutes while the per-user supervisor is running. The latest recovery attempt and retry time are recorded in `status.json`. If a job is waiting for input/merge approval, finish or cancel it before updating or uninstalling.
 
+## Compare native products
+
+Open **Settings → Advanced → Diagnostics → Benchmarks → Native products** to
+compare GPT Mobile AI, ChatGPT, Codex and Claude Code using the existing
+independent grader. The installed app exports configuration templates, freezes
+Quick or Comprehensive matched campaigns, imports original native captures,
+grades supplied answers and recovers original request receipts after interruption.
+It does not generate product answers. Its scoreboard keeps missing results and
+costs unknown; synthetic demos remain separate from measured campaigns.
+
+The native UI includes configuration and measurement editors, separate signing
+key controls, next-task packets, schedule export and HTML/JSON/CSV/Markdown
+scoreboards. Campaigns survive app restarts under `data/native-product-campaigns`.
+The setup export also includes an optional PowerShell interface to the same
+installed controller. See [the full workflow](../benchmarks/NATIVE_CAMPAIGNS.md).
+The existing Gateway model **Compare** tab and compatibility dashboard remain
+available.
+
 ## Build and release
 
 On Windows x64 with Python 3.12, the .NET 10 SDK and Inno Setup 6.6 or later:

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2cf1c3afd5a426ec7bb2e636b622cfca7ed0a9a4876c78a7e74414f399b703dc",
-  "file_count": 3188,
-  "indexed_line_count": 545767,
+  "source_digest": "f12dcd3e2e8e722322ae07a05892e8a179dd29caeb537172f54ca3e5a12ffb68",
+  "file_count": 3195,
+  "indexed_line_count": 548674,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,8 +166,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 286,
-      "indexed_line_count": 104136
+      "file_count": 293,
+      "indexed_line_count": 107043
     },
     {
       "id": "authentication_service",
@@ -20098,6 +20098,34 @@
       "indexed_lines": 49
     },
     {
+      "path": "gateway/benchmarks/campaign.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "8acf450f4cee512bf573e1d05e9c27b55e35b3627be50d4961c67bc656319cd2",
+      "indexed_lines": 1070
+    },
+    {
+      "path": "gateway/benchmarks/campaign_assets/scripts/Invoke-NativeCampaign.ps1",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "1a13e3758eb07bb3d34df72e45f1be11158372736e1785c0b3aa4004b1ed9e54",
+      "indexed_lines": 192
+    },
+    {
+      "path": "gateway/benchmarks/campaign_gateway.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "f15d08708eb71de21c7f6f624890ec7997589aafbe2e7207c9f0ca0a10edfa3c",
+      "indexed_lines": 358
+    },
+    {
+      "path": "gateway/benchmarks/campaign_synthetic.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "6eb4c60cb921e41ff4950a3ab1c97dab91833adb78704ea6ffdbcc692e34474b",
+      "indexed_lines": 158
+    },
+    {
       "path": "gateway/benchmarks/capstones.py",
       "area_id": "gateway_software",
       "kind": "source",
@@ -20413,6 +20441,13 @@
       "indexed_lines": 260
     },
     {
+      "path": "gateway/desktop/benchmark_campaigns.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "288357d088cc108c2807d113245143e0b1cec68608aae96888430edf0a133f86",
+      "indexed_lines": 412
+    },
+    {
       "path": "gateway/desktop/benchmark_comparison.py",
       "area_id": "gateway_software",
       "kind": "source",
@@ -20679,6 +20714,13 @@
       "indexed_lines": 22
     },
     {
+      "path": "gateway/desktop/native/Core/NativeProductCampaignPresentation.cs",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "c06ff942f659ccbc1ba38e4de99ab648d10f72ed462095cef39b344c7fb218ff",
+      "indexed_lines": 136
+    },
+    {
       "path": "gateway/desktop/native/Core/PublicPreview.cs",
       "area_id": "gateway_software",
       "kind": "source",
@@ -20710,8 +20752,8 @@
       "path": "gateway/desktop/native/MainWindow.Benchmarks.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5f07b0be3c3fdd4bd381da9cd00b397e0eb87b8f3ac158115af63ad8f8453c0f",
-      "indexed_lines": 278
+      "sha256": "f4eb0221ef6b84abd402a2c8f503392391b1c4290c1b3f5f688034f3dddd2431",
+      "indexed_lines": 281
     },
     {
       "path": "gateway/desktop/native/MainWindow.Chat.cs",
@@ -20756,6 +20798,13 @@
       "indexed_lines": 336
     },
     {
+      "path": "gateway/desktop/native/MainWindow.NativeProducts.cs",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "29f1eaafa7da47255a2e47c699323c53f06be48aa1086a4d597efb18360e29ac",
+      "indexed_lines": 527
+    },
+    {
       "path": "gateway/desktop/native/MainWindow.Preferences.cs",
       "area_id": "gateway_software",
       "kind": "source",
@@ -20787,8 +20836,8 @@
       "path": "gateway/desktop/native/MainWindow.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "a837b320f2e733e043eff7ccc086acb2110e92bff3b28e3d63f066c3c232213c",
-      "indexed_lines": 524
+      "sha256": "b9cce8e9d10a31a8862ff26bf406e0f06f4556babe58dd5410985ffc086457df",
+      "indexed_lines": 561
     },
     {
       "path": "gateway/desktop/native/Ui.cs",
@@ -20801,8 +20850,8 @@
       "path": "gateway/desktop/native_bridge.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "b95847b71d711b7c1b4f7e073c47e6c7a703c876c78c31cb2e4997af61a50872",
-      "indexed_lines": 664
+      "sha256": "a194327016d00f19d0a7d642539d40115361a0fd2d88d709bd332591aa3555af",
+      "indexed_lines": 667
     },
     {
       "path": "gateway/desktop/native_launch.py",
@@ -20871,8 +20920,8 @@
       "path": "gateway/desktop/smoke_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "689636d529004d12c554ef47310930ae45f9a30243be7528137a4bf39d947deb",
-      "indexed_lines": 320
+      "sha256": "cefbd80e2b1100aaf4ad3758c42bc63e3d804081ca778dad5e8a1892a04621d1",
+      "indexed_lines": 325
     },
     {
       "path": "gateway/desktop/theme.py",
@@ -21802,8 +21851,8 @@
       "path": "gateway/v14/package.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "e8940d96e7e012995a87e4bdfb0f6cb9e18ebc1e9265a9a7b3cde752d4f1d1c8",
-      "indexed_lines": 43
+      "sha256": "c1907272ac23e28a280d5aa37cdb70595f876d311a2c967c0a76c47572e58fca",
+      "indexed_lines": 49
     },
     {
       "path": "gateway/v14/private_inference.py",

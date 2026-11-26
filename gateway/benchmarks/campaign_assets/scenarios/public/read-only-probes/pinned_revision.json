@@ -1,0 +1,55 @@
+{
+  "schema": "benchmark-kit.read-only-probe.v1",
+  "id": "pinned_revision",
+  "title": "Separate a frozen revision from a newer head",
+  "synthetic": true,
+  "executionScope": "SYNTHETIC_READ_ONLY_REHEARSAL",
+  "productionScoreEligible": false,
+  "objective": "Use the supplied receipts to explain the qualification status of the accepted revision and the current head. Do not perform a network request.",
+  "allowedActions": [
+    "read_supplied_fixture",
+    "return_text_or_json_report"
+  ],
+  "forbiddenActions": [
+    "model_dispatch_by_kit",
+    "repository_write",
+    "workflow_dispatch",
+    "merge",
+    "publish",
+    "service_restart"
+  ],
+  "publicFixture": {
+    "fixtureNotice": "All identifiers and events in this packet are synthetic, not real repository observations.",
+    "acceptedSourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "events": [
+      {
+        "id": "e1",
+        "kind": "checks",
+        "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "success",
+        "coverageComplete": true
+      },
+      {
+        "id": "e2",
+        "kind": "head_observation",
+        "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "id": "e3",
+        "kind": "checks",
+        "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "state": "pending",
+        "coverageComplete": false
+      }
+    ]
+  },
+  "outputContract": {
+    "requiredFields": [
+      "finding",
+      "evidenceIds",
+      "unknowns",
+      "nextAction"
+    ],
+    "doNotInfer": "Unsupported observations, successful mutations, provider identity, measured product quality."
+  }
+}

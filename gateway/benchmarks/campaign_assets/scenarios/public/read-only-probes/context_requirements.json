@@ -1,0 +1,61 @@
+{
+  "schema": "benchmark-kit.read-only-probe.v1",
+  "id": "context_requirements",
+  "title": "Retain unresolved acceptance requirements",
+  "synthetic": true,
+  "executionScope": "SYNTHETIC_READ_ONLY_REHEARSAL",
+  "productionScoreEligible": false,
+  "objective": "Reconstruct task status from the original requirements and compacted checkpoint. Report each requirement using only recorded evidence.",
+  "allowedActions": [
+    "read_supplied_fixture",
+    "return_text_or_json_report"
+  ],
+  "forbiddenActions": [
+    "model_dispatch_by_kit",
+    "repository_write",
+    "workflow_dispatch",
+    "merge",
+    "publish",
+    "service_restart"
+  ],
+  "publicFixture": {
+    "fixtureNotice": "Synthetic task-state exercise; no actual compaction was executed.",
+    "requirements": [
+      {
+        "id": "r1",
+        "description": "Behavior repaired"
+      },
+      {
+        "id": "r2",
+        "description": "Required checks on the tested head"
+      },
+      {
+        "id": "r3",
+        "description": "Uploaded release assets verified"
+      }
+    ],
+    "checkpoint": {
+      "id": "e1",
+      "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "r1": {
+        "state": "verified",
+        "receipt": "synthetic-test-receipt"
+      },
+      "r2": {
+        "state": "pending"
+      },
+      "r3": {
+        "state": "unobserved"
+      }
+    }
+  },
+  "outputContract": {
+    "requiredFields": [
+      "finding",
+      "evidenceIds",
+      "unknowns",
+      "nextAction"
+    ],
+    "doNotInfer": "Unsupported observations, successful mutations, provider identity, measured product quality."
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema": "gpt-mobile-benchkit.lab.v1",
+  "source": {
+    "kind": "installed-gateway",
+    "commit": null,
+    "runtimeDigest": null
+  },
+  "gateway": {
+    "root": null,
+    "allowedOrigin": null
+  },
+  "observerPublicKey": null,
+  "graderPublicKey": null,
+  "controls": {
+    "startingRevision": null,
+    "hardwareClass": null,
+    "commonToolPolicy": null,
+    "cacheResetProcedure": null,
+    "costAccountingBasis": null,
+    "timeMeasurementBasis": "Independent observer wall time from actual dispatch until the delivered final answer or observed terminal failure. Include product tool work and waits.",
+    "candidateNetworkPolicy": null,
+    "candidateStartingFilesPolicy": "Only public task prompt, starting files and output schema; no hidden grader, reference solution, controller expectations, observer keys or grader keys.",
+    "permissionsPolicy": "Only the separately granted permissions for the frozen native trial; this campaign never grants repository write or publication authority.",
+    "maxConcurrentProducts": 1
+  },
+  "products": {
+    "GPT Mobile AI": {
+      "version": null,
+      "surface": null,
+      "toolAccess": null,
+      "requestedModel": null,
+      "observedProviderModel": null,
+      "requestedSettings": null,
+      "providerAcknowledgedSettings": null,
+      "providerIdentityVerified": false
+    },
+    "ChatGPT": {
+      "version": null,
+      "surface": null,
+      "toolAccess": null,
+      "requestedModel": null,
+      "observedProviderModel": null,
+      "requestedSettings": null,
+      "providerAcknowledgedSettings": null,
+      "providerIdentityVerified": false
+    },
+    "Codex": {
+      "version": null,
+      "surface": null,
+      "toolAccess": null,
+      "requestedModel": null,
+      "observedProviderModel": null,
+      "requestedSettings": null,
+      "providerAcknowledgedSettings": null,
+      "providerIdentityVerified": false
+    },
+    "Claude Code": {
+      "version": null,
+      "surface": null,
+      "toolAccess": null,
+      "requestedModel": null,
+      "observedProviderModel": null,
+      "requestedSettings": null,
+      "providerAcknowledgedSettings": null,
+      "providerIdentityVerified": false
+    }
+  }
+}

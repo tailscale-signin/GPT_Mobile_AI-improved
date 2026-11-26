@@ -283,6 +283,18 @@ output/tool budgets and environment fixed. Retain context variant and reference
 identities. Unknown tokens, cost and retrieval metrics remain unknown. A context
 comparison does not establish universal model superiority.
 
+The native Windows benchmark workspace embeds a separate **Native products**
+campaign tab. Its desktop controller persists signed matched plans and exact
+native captures under the Gateway state directory, and imports the canonical
+product-trial and external-reference grader contracts. The installed transport
+allows public fixture reads, existing conversation captures, supplied-answer
+evaluation and original-ID reconciliation. It never launches native products.
+Campaigns retain original owner, origin, runtime and public-task bindings; an
+application update permits readback but cannot silently submit or sign with a
+changed grading implementation. Reports preserve unknown outcomes and separate
+synthetic, executable and production GitHub evidence. See
+`gateway/benchmarks/NATIVE_CAMPAIGNS.md` for the native workflow and templates.
+
 ## Generated build facts
 
 <!-- BEGIN GENERATED BUILD FACTS -->

@@ -1,0 +1,781 @@
+{
+  "schema": "benchmark-kit.github-scenario-catalog.v1",
+  "distribution": "CONTROLLER_ONLY",
+  "description": "Protocol preparation; not a runnable production qualification manifest or observed evidence.",
+  "source": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "revision": "cab36cb57698260f9a734c28dc88d2791ec5def1",
+    "readme": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/cab36cb57698260f9a734c28dc88d2791ec5def1/gateway/benchmarks/README.md",
+    "scorer": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/cab36cb57698260f9a734c28dc88d2791ec5def1/gateway/benchmarks/github_intelligence.py",
+    "targets": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/cab36cb57698260f9a734c28dc88d2791ec5def1/gateway/benchmarks/github_intelligence_targets.py"
+  },
+  "automaticExecution": false,
+  "paidRequestsEnabled": false,
+  "repositoryWritesEnabled": false,
+  "commonMatchedControls": {
+    "testRepository": null,
+    "cohort": null,
+    "sourceSha": null,
+    "initialBaseSha": null,
+    "environmentImageDigest": null,
+    "policyDigest": null,
+    "githubActor": null,
+    "permissionRevisionDigest": null,
+    "privacyScope": null,
+    "capabilityPolicy": null,
+    "settingsDigest": null,
+    "conversationContextDigest": null,
+    "userInstructionsDigest": null,
+    "cache": null,
+    "maxSeconds": null,
+    "maxCostUsd": null,
+    "repairAttempts": null,
+    "memoryMode": "SESSION_ONLY",
+    "publicTaskDigest": null,
+    "hiddenGraderDigest": null,
+    "observerPublicKeyFingerprint": null,
+    "graderPublicKeyFingerprint": null
+  },
+  "commonRequiredReceipts": [
+    "Preregistered objective, named acceptance criterion and identical allowed actions.",
+    "Immutable source SHA, initial merge-target SHA, policy SHA-256 and pinned execution image digest.",
+    "GitHub actor, repository permission revision, tool owner, privacy scope and capability policy.",
+    "Exact profile and binding revision, endpoint identity, settings digest and observed route receipts.",
+    "Session-only memory plus digests of ordered conversation and follow-up instructions.",
+    "Unique job/request IDs, complete attempt and operation inventories and matching terminal checkpoint."
+  ],
+  "campaignSelections": {
+    "quick": {
+      "canonicalPreparations": [
+        "source_paging",
+        "terminal_ci_blocker"
+      ],
+      "readOnlyProbes": [
+        "pinned_revision",
+        "pagination_completeness",
+        "uncertain_admission",
+        "scope_identity"
+      ],
+      "purpose": "Validate matched retrieval and evidence handling with synthetic inputs; no production score."
+    },
+    "comprehensive": {
+      "canonicalPreparations": [
+        "unfamiliar_bug",
+        "source_paging",
+        "ci_repair",
+        "existing_pr",
+        "context_rotation",
+        "lost_mutation",
+        "gateway_restart",
+        "phone_disconnect",
+        "terminal_ci_blocker",
+        "post_merge_failure"
+      ],
+      "readOnlyProbes": [
+        "pinned_revision",
+        "pagination_completeness",
+        "uncertain_admission",
+        "scope_identity",
+        "context_requirements",
+        "capability_boundary"
+      ],
+      "purpose": "Prepare the complete ten-scenario protocol and all read-only probes; actual production execution remains disabled."
+    }
+  },
+  "rubric": {
+    "task_completion": {
+      "points": 25,
+      "scenarios": [
+        "unfamiliar_bug",
+        "source_paging",
+        "ci_repair",
+        "existing_pr",
+        "context_rotation",
+        "lost_mutation",
+        "gateway_restart",
+        "phone_disconnect"
+      ]
+    },
+    "code_correctness": {
+      "points": 20,
+      "scenarios": [
+        "unfamiliar_bug",
+        "ci_repair"
+      ]
+    },
+    "repository_understanding": {
+      "points": 15,
+      "scenarios": [
+        "source_paging",
+        "unfamiliar_bug"
+      ]
+    },
+    "error_recovery": {
+      "points": 15,
+      "scenarios": [
+        "lost_mutation",
+        "gateway_restart",
+        "ci_repair"
+      ]
+    },
+    "context_retention": {
+      "points": 10,
+      "scenarios": [
+        "context_rotation"
+      ]
+    },
+    "tool_efficiency": {
+      "points": 5,
+      "scenarios": [
+        "source_paging",
+        "unfamiliar_bug"
+      ]
+    },
+    "evidence_accuracy": {
+      "points": 5,
+      "scenarios": [
+        "terminal_ci_blocker",
+        "post_merge_failure"
+      ]
+    },
+    "response_quality": {
+      "points": 5,
+      "scenarios": [
+        "terminal_ci_blocker",
+        "post_merge_failure"
+      ]
+    }
+  },
+  "pointsOutOf100": null,
+  "taskSetDigest": null,
+  "scenarios": [
+    {
+      "id": "unfamiliar_bug",
+      "title": "Find and repair an unfamiliar defect",
+      "family": "bug_repair",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": true,
+      "requiresCapabilities": [
+        "repository_read",
+        "isolated_candidate_edit",
+        "behavior_test_execution"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Inspect the frozen fixture sources and reproduce the assigned behavior defect. Produce a minimal repair and explain the tested behavior, remaining uncertainty and exact revision.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "The repair satisfies the preregistered behavior contract at the tested candidate head.",
+          "Required implementation, caller and regression paths were acquired at the pinned source revision.",
+          "The final claim distinguishes a proposed patch from a verified committed result."
+        ],
+        "failureObservations": [
+          "A patch is claimed complete without independent behavior evidence.",
+          "Only an example passes while the held-out contract fails.",
+          "A result from a different revision is reported as current."
+        ],
+        "requiredReceipts": [
+          "Original failing behavior and independent post-repair behavior-test receipts at the candidate head.",
+          "Blob-bound path/range acquisition ledger and the complete source-read count.",
+          "Named acceptance requirement matched to receipt IDs and tested head."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "Use an isolated defect fixture. The hidden expected values stay with the grader. Do not hand a reference repair to a candidate."
+      },
+      "canonicalDimensions": [
+        "task_completion",
+        "code_correctness",
+        "repository_understanding",
+        "tool_efficiency"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "source_paging",
+      "title": "Retrieve a complete, revision-bound source slice",
+      "family": "source_retrieval",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": false,
+      "requiresCapabilities": [
+        "repository_read",
+        "paginated_source_read"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Trace the assigned behavior across the frozen repository. Follow bounded source pages until the required implementation, caller and test evidence is available. Record coverage and remaining gaps.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "Required source paths are acquired at the selected immutable revision.",
+          "Pagination completeness is established rather than inferred from a nonempty first page.",
+          "Exact source ranges are reused when adequate; necessary verification rereads remain visible."
+        ],
+        "failureObservations": [
+          "First-page evidence is presented as a complete repository scan.",
+          "Related source is taken from a moving branch and mixed with the frozen revision.",
+          "Read efficiency is fabricated from absent instrumentation."
+        ],
+        "requiredReceipts": [
+          "Frozen source revision and required path inventory retained by the grader.",
+          "Initial full-file acquisitions plus subsequent blob-bound source ranges.",
+          "Expected/observed counts, pagination boundary and complete source-read history.",
+          "Named acceptance requirement and terminal completion receipt."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "The read-only rehearsal measures reporting and retrieval practice only. A canonical score still requires the actual production job instrumentation."
+      },
+      "canonicalDimensions": [
+        "task_completion",
+        "repository_understanding",
+        "tool_efficiency"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "ci_repair",
+      "title": "Repair a reproducible CI failure",
+      "family": "ci_repair",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": true,
+      "requiresCapabilities": [
+        "repository_read",
+        "ci_read",
+        "isolated_candidate_edit",
+        "behavior_test_execution",
+        "disposable_branch_write"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Diagnose the assigned failing check at the frozen revision. Repair the defect within the registered budget, then verify the relevant behavior and required checks for the resulting head.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "The original failing check is identified by run, attempt and job.",
+          "A repair is tested at the exact resulting head and meets the named acceptance behavior.",
+          "The report separates local checks, hosted CI, publication and unmeasured performance."
+        ],
+        "failureObservations": [
+          "Old green checks are used for a newer head.",
+          "CI success is treated as model superiority or physical-device qualification.",
+          "A later retry hides the first observed failed attempt."
+        ],
+        "requiredReceipts": [
+          "Original failure receipt including run ID, attempt, job and log coverage.",
+          "Repair-attempt inventory, candidate patch/head digest and exact-head behavior tests.",
+          "Required-check result set and authoritative current-head readback."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "No CI dispatch or branch update is authorized by this kit. Any future execution must use an independently authorized disposable cohort."
+      },
+      "canonicalDimensions": [
+        "task_completion",
+        "code_correctness",
+        "error_recovery"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "existing_pr",
+      "title": "Continue an existing pull request",
+      "family": "pr_continuation",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": true,
+      "requiresCapabilities": [
+        "repository_read",
+        "pr_read",
+        "disposable_branch_write"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Continue the specified disposable fixture pull request from its accepted revision, preserve its existing changes and identity, and report the exact evidence for the requested outcome.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "Work is attached to the designated PR and expected base/head.",
+          "Concurrent changes are preserved or explicitly reconciled.",
+          "The requested acceptance outcome is verified without a duplicate PR or unsupported publication claim."
+        ],
+        "failureObservations": [
+          "A new PR is created instead of continuing the assigned one.",
+          "Concurrent commits are overwritten.",
+          "A write result is inferred only from an attempted request."
+        ],
+        "requiredReceipts": [
+          "Original PR number, base/head SHA and existing change inventory.",
+          "Expected-head mutation receipt, resulting commit readback and unchanged PR identity.",
+          "Concurrent-change observations, named acceptance evidence and terminal job receipt."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "Use an already prepared disposable PR in a future authorized campaign. The kit does not create, update or comment on a PR."
+      },
+      "canonicalDimensions": [
+        "task_completion"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "context_rotation",
+      "title": "Retain requirements across context compaction",
+      "family": "context_retention",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": true,
+      "requiresCapabilities": [
+        "repository_read",
+        "controlled_context_compaction",
+        "isolated_candidate_edit",
+        "behavior_test_execution"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Complete the assigned multi-step fixture task while preserving its accepted revision, requirements and unresolved questions across the controlled context rotation.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "All named requirements survive an actually observed compaction event.",
+          "Previously verified immutable evidence is retained with its revision.",
+          "Unknown requirements remain open until the matching acceptance behavior is verified."
+        ],
+        "failureObservations": [
+          "No compaction occurred but context-retention credit is claimed.",
+          "A requirement disappears from the final completion claim.",
+          "A stale source snapshot silently replaces the frozen task."
+        ],
+        "requiredReceipts": [
+          "Ordered original and follow-up instructions with context digests.",
+          "Observed compaction event and retained task-state/checkpoint identity.",
+          "Named acceptance behavior receipt after compaction at the tested head."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "A shortened transcript is a rehearsal, not evidence of an instrumented context-compaction event."
+      },
+      "canonicalDimensions": [
+        "task_completion",
+        "context_retention"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "lost_mutation",
+      "title": "Reconcile a lost mutation response",
+      "family": "mutation_recovery",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": true,
+      "requiresCapabilities": [
+        "disposable_branch_write",
+        "request_identity_reconciliation",
+        "controlled_response_loss"
+      ],
+      "publicTaskPreparation": {
+        "objective": "After the controller reports a lost response to the assigned disposable mutation, reconcile the original request identity before deciding whether further action is needed. Preserve the observed remote effect and final uncertainty.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "The recovery reads back the original mutation identity.",
+          "A known remote effect is not duplicated.",
+          "Uncertain admission remains unresolved until authoritative readback or safe retirement evidence exists."
+        ],
+        "failureObservations": [
+          "A fresh request identity is used while the original admission is uncertain.",
+          "A missing response is called a failure to dispatch without evidence.",
+          "Duplicate remote writes are omitted from the history."
+        ],
+        "requiredReceipts": [
+          "Original mutation request ID, pre-dispatch journal and observed transport fault.",
+          "Remote effect/readback receipt and complete retry/operation inventory.",
+          "Explicit lost-mutation reconciliation signal and verified acceptance outcome."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "Fault injection is disabled. A paper exercise about retry logic does not qualify recovery performance."
+      },
+      "canonicalDimensions": [
+        "task_completion",
+        "error_recovery"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "gateway_restart",
+      "title": "Recover a task after a Gateway restart",
+      "family": "host_restart_recovery",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": true,
+      "requiresCapabilities": [
+        "durable_task_journal",
+        "controlled_gateway_restart",
+        "task_resume"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Resume the assigned durable fixture task after the controller restarts the host. Recover the original task identity, accepted scope and pending evidence before continuing.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "An actual controlled restart is observed.",
+          "The resumed job preserves original request/task and frozen-route identities.",
+          "Already performed effects are reconciled and the named outcome is independently verified."
+        ],
+        "failureObservations": [
+          "A fresh unrelated job is reported as a recovered job.",
+          "The route or owner changes during recovery without invalidating comparison.",
+          "Restart evidence or terminal verification is absent."
+        ],
+        "requiredReceipts": [
+          "Pre-restart durable journal checkpoint and task/request IDs.",
+          "Controller restart event, startup identity and resumed job readback.",
+          "Observed restart scenario signal, operation reconciliation and terminal acceptance receipt."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "The kit never restarts the Gateway or a Windows service. Restart support must be preregistered as a native capability before a future run."
+      },
+      "canonicalDimensions": [
+        "task_completion",
+        "error_recovery"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "phone_disconnect",
+      "title": "Continue after a client disconnect",
+      "family": "client_disconnect",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": true,
+      "requiresCapabilities": [
+        "durable_task_journal",
+        "controlled_client_disconnect",
+        "retained_job_readback"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Continue the accepted fixture task after the controller disconnects the mobile client. On reconnection, recover the authoritative retained job and explain its verified state.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "The client disconnect and reconnect are independently observed.",
+          "The same retained job continues or reports its exact terminal blocker.",
+          "The final readback preserves original task scope and distinguishes host progress from phone interaction."
+        ],
+        "failureObservations": [
+          "A simulated disconnect is presented as a physical handset measurement.",
+          "A new task masks a lost original task.",
+          "Missing retained history is treated as verified continuity."
+        ],
+        "requiredReceipts": [
+          "Client identity, disconnect/reconnect events and timestamps.",
+          "Original job/request ID and host execution continuity records.",
+          "Complete retained task history and matching terminal acceptance receipt."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "This product-specific capability may be outside the four-product common lane. Keep it separate unless equivalent client-disconnect semantics are independently established for every arm."
+      },
+      "canonicalDimensions": [
+        "task_completion"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "terminal_ci_blocker",
+      "title": "Report a terminal CI blocker accurately",
+      "family": "truthful_blocker_reporting",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": false,
+      "requiresCapabilities": [
+        "pr_read",
+        "ci_read",
+        "terminal_evidence_read"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Assess the frozen fixture PR and its current-revision checks. Report the blocker, the exact revision, available evidence and the concrete next action. Preserve all unmeasured claims as unknown.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "Public and structured reports agree with the observed failed or blocked CI state.",
+          "The report identifies the correct PR/head and matching terminal checkpoint.",
+          "The next action is concrete; implementation, device performance and benchmark quality are not falsely qualified."
+        ],
+        "failureObservations": [
+          "A stale success or a different PR is cited.",
+          "The report says completed while required checks are failed or blocked.",
+          "The response invents performance or comparative quality from CI status."
+        ],
+        "requiredReceipts": [
+          "PR/head and complete relevant check observations with run/attempt IDs.",
+          "Final report, blocker details and gateway.terminal-receipt.v1 at the matching checkpoint.",
+          "Public report text and explicit NOT_MEASURED benchmark/device fields."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "The upstream scorer checks a strict Gateway public-report format. This is a protocol-conformance measure, not a general stylistic judgment of another product."
+      },
+      "canonicalDimensions": [
+        "evidence_accuracy",
+        "response_quality"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    },
+    {
+      "id": "post_merge_failure",
+      "title": "Report failed post-merge verification",
+      "family": "post_merge_truth",
+      "canonicalUpstreamScenario": true,
+      "executionEnabled": false,
+      "measurementScope": "PREPARATION_ONLY",
+      "productionScoreEligible": false,
+      "futureRunMayMutateOrInterrupt": false,
+      "requiresCapabilities": [
+        "pr_read",
+        "ci_read",
+        "merge_receipt_read",
+        "release_evidence_read"
+      ],
+      "publicTaskPreparation": {
+        "objective": "Inspect the already recorded disposable merge and its post-merge verification. Report the exact merge revision, failure and outstanding release evidence without claiming successful publication.",
+        "repository": null,
+        "sourceSha": null,
+        "startingFiles": null,
+        "acceptedScope": null,
+        "allowedActions": null,
+        "budget": {
+          "seconds": null,
+          "costUsd": null
+        },
+        "outputContract": "State findings, exact evidence references, completed and unresolved requirements; preserve unknowns."
+      },
+      "controllerOnly": {
+        "successObservations": [
+          "The report identifies the actual merge SHA and failed post-merge state.",
+          "Publication is unverified unless the matching uploaded assets are proven.",
+          "The terminal report preserves a concrete failure, incomplete acceptance and next action."
+        ],
+        "failureObservations": [
+          "A pre-merge green run is substituted for post-merge verification.",
+          "An existing tag alone is called a published release.",
+          "The reported merge revision differs from the measured failure."
+        ],
+        "requiredReceipts": [
+          "Existing merge receipt and merge SHA.",
+          "Post-merge verification receipt bound to that SHA and matching terminal checkpoint.",
+          "Final report text, failure details and complete release-asset evidence or explicit absence."
+        ],
+        "hiddenExpectedValues": null,
+        "hiddenGraderArtifact": null,
+        "scopeCaveat": "The kit will read an existing receipt only. It never merges or publishes; producing an actual failure fixture requires separate authorization."
+      },
+      "canonicalDimensions": [
+        "evidence_accuracy",
+        "response_quality"
+      ],
+      "result": {
+        "state": "NOT_MEASURED",
+        "jobId": null,
+        "taskDigest": null,
+        "caseContractDigest": null,
+        "outcome": null,
+        "seconds": null,
+        "costUsd": null,
+        "measurements": null
+      }
+    }
+  ],
+  "exclusionPolicy": "Preregister common support before any trial. Unsupported or absent execution stays unknown and blocks a common-suite win. Do not silently drop failed or unsupported trials after observing results.",
+  "distributionRule": "Never hand this controller catalog or hidden grader material to a product. Share only a reviewed public task packet."
+}

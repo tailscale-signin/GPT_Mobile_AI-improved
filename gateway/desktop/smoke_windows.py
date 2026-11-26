@@ -191,6 +191,11 @@ def main():
                 assert capture.is_file() and capture.stat().st_size > 0, capture.name
             assert native['width'] >= 900 and native['height'] >= 600
             assert native['highContrastPaletteExercised'] and native['reducedMotionExercised'] and native['focusAndScrollPreserved']
+            assert native['nativeProductCampaignsExercised'] is True
+            for name in ('native-native-products.png', 'native-native-products-scoreboard.png'):
+                capture = root / name
+                assert capture.is_file() and capture.stat().st_size > 0, name
+            results.append('native product campaign setup, budget preview and unknown scoreboard render at 900x600 without generating answers')
             assert native['simulatedLayoutScale'] == 1.5
             assert native['visibleCompactRows'] >= 30 and native['catalogReceipts'] >= 105
             assert native['selectionAndPinsPreserved'] and native['simulatedScales'] == [1.0,1.25,1.5,2.0]

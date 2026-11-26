@@ -1,0 +1,430 @@
+{
+  "schema": "benchmark-kit.github-capabilities.v1",
+  "source": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "revision": "cab36cb57698260f9a734c28dc88d2791ec5def1",
+    "readme": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/cab36cb57698260f9a734c28dc88d2791ec5def1/gateway/benchmarks/README.md",
+    "scorer": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/cab36cb57698260f9a734c28dc88d2791ec5def1/gateway/benchmarks/github_intelligence.py",
+    "targets": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/cab36cb57698260f9a734c28dc88d2791ec5def1/gateway/benchmarks/github_intelligence_targets.py"
+  },
+  "status": "UNOBSERVED",
+  "purpose": "Freeze common supported capabilities and exact surfaces before any campaign.",
+  "products": {
+    "GPT Mobile AI": {
+      "surface": null,
+      "applicationVersion": null,
+      "requestedModel": null,
+      "observedModel": null,
+      "providerIdentityVerified": null,
+      "connectorOrToolSet": null,
+      "planOrSubscription": null,
+      "observationTime": null,
+      "evidenceDigest": null,
+      "capabilities": {
+        "behavior_test_execution": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "ci_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_client_disconnect": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_context_compaction": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_gateway_restart": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_response_loss": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "disposable_branch_write": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "durable_task_journal": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "isolated_candidate_edit": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "merge_receipt_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "paginated_source_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "pr_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "release_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "repository_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "request_identity_reconciliation": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "retained_job_readback": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "task_resume": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "terminal_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        }
+      }
+    },
+    "ChatGPT": {
+      "surface": null,
+      "applicationVersion": null,
+      "requestedModel": null,
+      "observedModel": null,
+      "providerIdentityVerified": null,
+      "connectorOrToolSet": null,
+      "planOrSubscription": null,
+      "observationTime": null,
+      "evidenceDigest": null,
+      "capabilities": {
+        "behavior_test_execution": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "ci_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_client_disconnect": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_context_compaction": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_gateway_restart": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_response_loss": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "disposable_branch_write": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "durable_task_journal": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "isolated_candidate_edit": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "merge_receipt_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "paginated_source_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "pr_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "release_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "repository_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "request_identity_reconciliation": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "retained_job_readback": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "task_resume": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "terminal_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        }
+      }
+    },
+    "Codex": {
+      "surface": null,
+      "applicationVersion": null,
+      "requestedModel": null,
+      "observedModel": null,
+      "providerIdentityVerified": null,
+      "connectorOrToolSet": null,
+      "planOrSubscription": null,
+      "observationTime": null,
+      "evidenceDigest": null,
+      "capabilities": {
+        "behavior_test_execution": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "ci_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_client_disconnect": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_context_compaction": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_gateway_restart": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_response_loss": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "disposable_branch_write": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "durable_task_journal": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "isolated_candidate_edit": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "merge_receipt_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "paginated_source_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "pr_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "release_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "repository_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "request_identity_reconciliation": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "retained_job_readback": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "task_resume": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "terminal_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        }
+      }
+    },
+    "Claude Code": {
+      "surface": null,
+      "applicationVersion": null,
+      "requestedModel": null,
+      "observedModel": null,
+      "providerIdentityVerified": null,
+      "connectorOrToolSet": null,
+      "planOrSubscription": null,
+      "observationTime": null,
+      "evidenceDigest": null,
+      "capabilities": {
+        "behavior_test_execution": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "ci_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_client_disconnect": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_context_compaction": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_gateway_restart": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "controlled_response_loss": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "disposable_branch_write": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "durable_task_journal": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "isolated_candidate_edit": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "merge_receipt_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "paginated_source_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "pr_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "release_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "repository_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "request_identity_reconciliation": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "retained_job_readback": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "task_resume": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        },
+        "terminal_evidence_read": {
+          "supported": null,
+          "evidenceDigest": null,
+          "limitation": null
+        }
+      }
+    }
+  },
+  "commonLaneApproved": null,
+  "excludedScenarios": null,
+  "comparisonEligible": null,
+  "rule": "A product name or subscription is not proof of a capability or backend model identity."
+}

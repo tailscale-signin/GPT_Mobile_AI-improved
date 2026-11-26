@@ -1,0 +1,55 @@
+{
+  "schema": "benchmark-kit.read-only-probe.v1",
+  "id": "pagination_completeness",
+  "title": "Retain an incomplete page boundary",
+  "synthetic": true,
+  "executionScope": "SYNTHETIC_READ_ONLY_REHEARSAL",
+  "productionScoreEligible": false,
+  "objective": "Report what the supplied bounded page proves, what remains unknown and the next read needed. Do not generate a claim about unseen rows.",
+  "allowedActions": [
+    "read_supplied_fixture",
+    "return_text_or_json_report"
+  ],
+  "forbiddenActions": [
+    "model_dispatch_by_kit",
+    "repository_write",
+    "workflow_dispatch",
+    "merge",
+    "publish",
+    "service_restart"
+  ],
+  "publicFixture": {
+    "fixtureNotice": "Synthetic page receipt.",
+    "request": {
+      "after": -1,
+      "limit": 2
+    },
+    "response": {
+      "throughOrdinal": 9,
+      "recordedTotal": 5,
+      "items": [
+        {
+          "ordinal": 0,
+          "check": "alpha",
+          "state": "success"
+        },
+        {
+          "ordinal": 1,
+          "check": "beta",
+          "state": "success"
+        }
+      ],
+      "next": 1,
+      "complete": false
+    }
+  },
+  "outputContract": {
+    "requiredFields": [
+      "finding",
+      "evidenceIds",
+      "unknowns",
+      "nextAction"
+    ],
+    "doNotInfer": "Unsupported observations, successful mutations, provider identity, measured product quality."
+  }
+}

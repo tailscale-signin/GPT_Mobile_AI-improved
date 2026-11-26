@@ -549,6 +549,9 @@ def dispatch(root, action, args, output):
         start_supervisor(root)
         return {'requested': True}
     if action.startswith('benchmark-'):
+        if action.startswith('benchmark-campaign-'):
+            from desktop import benchmark_campaigns
+            return benchmark_campaigns.dispatch(root, action.removeprefix('benchmark-campaign-'), args)
         from desktop import benchmark
         if action.startswith('benchmark-qualification-'):
             from desktop import benchmark_qualification as qualification

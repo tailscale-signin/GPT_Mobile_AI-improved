@@ -757,7 +757,14 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapReuseBenchmark.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PhoneMapBenchmarkPanel.kt",
         "scripts/github_routing_replay.py",
-        "scripts/qualify_github_routing_replay.py"
+        "scripts/qualify_github_routing_replay.py",
+        "gateway/benchmarks/campaign.py",
+        "gateway/benchmarks/campaign_gateway.py",
+        "gateway/benchmarks/campaign_synthetic.py",
+        "gateway/desktop/benchmark_campaigns.py",
+        "gateway/desktop/native_bridge.py",
+        "gateway/desktop/native/MainWindow.NativeProducts.cs",
+        "gateway/desktop/native/Core/NativeProductCampaignPresentation.cs"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlanTest.kt",
@@ -778,7 +785,12 @@
         "gateway/tests/test_gateway_preview_study.py",
         "gateway/tests/test_gateway_native_product_trials.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapReuseBenchmarkTest.kt",
-        "scripts/tests/test_github_routing_replay.py"
+        "scripts/tests/test_github_routing_replay.py",
+        "gateway/tests/test_gateway_native_campaigns.py",
+        "gateway/tests/test_gateway_campaign_gateway.py",
+        "gateway/tests/test_gateway_benchmark_campaigns.py",
+        "gateway/desktop/native/tests/Program.cs",
+        "gateway/tests/test_gateway_campaign_powershell.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -788,14 +800,17 @@
         "gateway/benchmarks/PHONE_ACTIONS.md",
         "docs/repairs/github-context-benchmark-2026-11-23.md",
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
-        "docs/engineering/github-routing-replay.md"
+        "docs/engineering/github-routing-replay.md",
+        "gateway/benchmarks/NATIVE_CAMPAIGNS.md",
+        "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json"
       ],
       "invariants": [
         "Freeze source, profile, task, budget and environment before comparison.",
         "Hidden grader material never enters retrieval or model input.",
         "Unknown cost, tokens and retrieval relevance remain unknown.",
         "Only explicit ordered invalidation identities transfer a previously exposed correction obligation; stale intermediate claims remain rejected and unexposed facts do not require a fabricated update.",
-        "An observed native comparison binds GPT Mobile AI and its preregistered peers to the same controls. The ChatGPT adapter accepts a single completed public answer from the selected unbranched conversation export. Missing observations remain visible."
+        "An observed native comparison binds GPT Mobile AI and its preregistered peers to the same controls. The ChatGPT adapter accepts a single completed public answer from the selected unbranched conversation export. Missing observations remain visible.",
+        "Installed Windows native campaigns freeze owner, origin, runtime, matched controls and randomized trial order; imports preserve final bytes and independent signatures. Status-only recovery retains the original request ID across interruption and application updates. Synthetic sessions cannot reach live grading; unmeasured comparisons stay unknown."
       ],
       "routing": {
         "role": "evidence",

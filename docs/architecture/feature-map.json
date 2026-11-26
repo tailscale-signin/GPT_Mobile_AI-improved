@@ -6949,9 +6949,9 @@
       "sha256": "4d8bb6f2f795713bb69dc946c34ee045a619e8e295d0f2e5f3cce258ddb7f0e5"
     },
     "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json": {
-      "blob_sha": "0ff667efecd29d5516cf4db20206cbeb4926e677",
-      "bytes": 4220,
-      "sha256": "e230ce4870b790d819cac18fe269d49196a0e3bb2885fee7eb3701cff703ef5b"
+      "blob_sha": "4cc1fde0a7d3d9fab04e1f74284c6f5bf9829db9",
+      "bytes": 5750,
+      "sha256": "5dee38c6900b742c2b81f55257b3cd2e8aae96c76b40bee862959986815f0b08"
     },
     "docs/repairs/windows-owner-presentation-2026-11-24-task.json": {
       "blob_sha": "921c965acfc045c03b55565d50bac1bf19a5aaed",
@@ -7104,9 +7104,9 @@
       "sha256": "395b2e4100993138fb62a9dcc06df21bea8d8141effc9a81a3eb883e29884dbd"
     },
     "gateway/tests/test_gateway_benchmark_campaigns.py": {
-      "blob_sha": "92b8a012212a4af5693b04465501e5db477ff28c",
-      "bytes": 17559,
-      "sha256": "c3a414c5a6de871f70497d2a70f25152d3a91ffee469b142c263ed7e7be2416f"
+      "blob_sha": "00b33a122474125bc4f461dc8423e8bdae449023",
+      "bytes": 17753,
+      "sha256": "3b98cc11d8638b09e86dd057b139fd721e702a636fad8fde51c67be9ae09f453"
     },
     "gateway/tests/test_gateway_benchmark_qualification.py": {
       "blob_sha": "6d655256094e8a80133cb3439e52237ea12ca5c8",
@@ -7114,9 +7114,9 @@
       "sha256": "0a47bebef3a254b642f9570870d13f74ff6b29b4f19f9d7bc72e6ab1f2e7180b"
     },
     "gateway/tests/test_gateway_campaign_gateway.py": {
-      "blob_sha": "17c30527aadeca02cebdeb8ad9e3e8a15e03732a",
-      "bytes": 25686,
-      "sha256": "9554912ee32e14bf92efaa1d989e939b4752e3e21f13aba37d949290840bd70e"
+      "blob_sha": "3e586da2735c0d8758b5ddb815798c265f766fea",
+      "bytes": 26805,
+      "sha256": "41f0207cefef57d671c48534517afd5a51606fa380e5f25b44e6597f2a0c2676"
     },
     "gateway/tests/test_gateway_campaign_powershell.py": {
       "blob_sha": "1aa711b24846346beb77e3edb76089da651d0f5e",
@@ -7194,9 +7194,9 @@
       "sha256": "b41fec619b93f691edf190fd05662908faf1f2eafb367c4aedf63d0e7ea78513"
     },
     "gateway/tests/test_gateway_native_campaigns.py": {
-      "blob_sha": "6014930a55dfac6658c23390e3f7b180c701df98",
-      "bytes": 37055,
-      "sha256": "8894c55e17494bbf71a83b91c435b89688ca284a185da829aff7777c7cdd3b68"
+      "blob_sha": "6dd17436f732118fa3ab73a65852b6b63b65a448",
+      "bytes": 38344,
+      "sha256": "c34b5524e6a8073a5c4c328ef0068099ebf4c78c3aca3ec21d88976a806a635b"
     },
     "gateway/tests/test_gateway_native_product_trials.py": {
       "blob_sha": "f57a8e1cbe08c746a0cee9d5349f3141ebb4c72c",

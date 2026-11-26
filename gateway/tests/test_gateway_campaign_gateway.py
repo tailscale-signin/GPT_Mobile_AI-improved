@@ -1,6 +1,7 @@
 """Offline installed-app transport contracts; no Gateway or provider requests."""
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -217,11 +218,34 @@ class InstalledOperationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        # Keep strong references so the test cannot accidentally rely on GC to
+        # release SQLite handles before Windows removes the fixture directory.
+        self.sqlite_connections = []
+        self.addCleanup(self.assert_sqlite_connections_closed)
         self.root = Path(self.temp.name).resolve()
         self.gateway = FixtureGateway()
         self.client = self.gateway.client_class()
         self.task_path, self.answer_path = self.root / 'task.json', self.root / 'candidate.txt'
         self.trial = self.root / 'original.sqlite'
+
+    def open_trial_database(self, path):
+        connection = sqlite3.connect(path)
+        self.sqlite_connections.append(connection)
+        return connection
+
+    def assert_sqlite_connections_closed(self):
+        unclosed = []
+        for connection in self.sqlite_connections:
+            try:
+                connection.execute('SELECT 1').close()
+            except sqlite3.ProgrammingError:
+                continue
+            unclosed.append(connection)
+        # Release resources after detecting a violation, then fail the test;
+        # this prevents a second cleanup error from obscuring the ownership bug.
+        for connection in unclosed:
+            connection.close()
+        self.assertEqual(0, len(unclosed), 'Every SQLite connection must be closed by its owner before fixture cleanup')
 
     def execute(self, operation, body, **values):
         return bridge.execute(self.root, operation, body, client_factory=self.client, **values)
@@ -238,7 +262,7 @@ class InstalledOperationTests(unittest.TestCase):
         self.prepare()
         self.assertEqual([], self.gateway.calls)
         self.assertFalse((self.root / '.git').exists())
-        with sqlite3.connect(self.trial) as database:
+        with closing(self.open_trial_database(self.trial)) as database:
             raw, attempted = database.execute('SELECT plan, attempted FROM trial').fetchone()
         saved = json.loads(raw)
         self.assertEqual(0, attempted)

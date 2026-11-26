@@ -25,11 +25,34 @@ class ControllerEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='benchkit-adversarial-')
         self.addCleanup(self.temp.cleanup)
+        # Retained references make leaked SQLite handles observable on every
+        # host instead of depending on garbage-collection timing on Windows.
+        self.sqlite_connections = []
+        self.addCleanup(self.assert_sqlite_connections_closed)
         self.base = Path(self.temp.name).resolve()
         self.inputs = synthetic.build_inputs(self.base / 'inputs', task_count=1)
         self.session = self.base / 'session'
         kit.initialize(self.inputs['config'], self.inputs['campaign'], self.inputs['tasks'], self.session,
                        self.inputs['observer_key'], synthetic=True)
+
+    def open_trial_database(self, path):
+        connection = sqlite3.connect(path)
+        self.sqlite_connections.append(connection)
+        return connection
+
+    def assert_sqlite_connections_closed(self):
+        unclosed = []
+        for connection in self.sqlite_connections:
+            try:
+                connection.execute('SELECT 1').close()
+            except sqlite3.ProgrammingError:
+                continue
+            unclosed.append(connection)
+        # Report the ownership failure even though cleanup releases a detected
+        # leak to avoid masking it with a second TemporaryDirectory exception.
+        for connection in unclosed:
+            connection.close()
+        self.assertEqual(0, len(unclosed), 'Every SQLite connection must be closed by its owner before fixture cleanup')
 
     def paths_for(self, index):
         return self.base / f'measurements-{index}.json', self.base / f'capture-{index}.raw'
@@ -266,12 +289,12 @@ class ControllerEvidenceTests(unittest.TestCase):
             if operation == 'prepare':
                 saved = {'request': {'request_id': request_id, 'fixture_digest': row['taskDigest'],
                                     'proposal_digest': kit.sha(candidate.read_bytes())}}
-                with sqlite3.connect(body['trial']) as db:
+                with contextlib.closing(self.open_trial_database(body['trial'])) as db, db:
                     db.execute('CREATE TABLE trial(id INTEGER PRIMARY KEY, plan TEXT, attempted INTEGER)')
                     db.execute('INSERT INTO trial VALUES(1, ?, 0)', (json.dumps(saved),))
                 return {'request_id': request_id}
             if operation == 'submit':
-                with sqlite3.connect(body['trial']) as db:
+                with contextlib.closing(self.open_trial_database(body['trial'])) as db, db:
                     db.execute('UPDATE trial SET attempted=1 WHERE id=1')
                 raise kit.KitError('SYNTHETIC transport interruption after durable intent')
             if operation == 'status':
@@ -292,7 +315,7 @@ class ControllerEvidenceTests(unittest.TestCase):
         self.assertEqual('UNRESOLVED', first['receipts'][0]['status'])
         self.assertEqual('status', second['receipts'][0]['operation'])
         self.assertEqual('STATUS_ONLY_RECOVERY', third['mode'])
-        with sqlite3.connect(trial) as db:
+        with contextlib.closing(self.open_trial_database(trial)) as db:
             saved, attempted = db.execute('SELECT plan, attempted FROM trial WHERE id=1').fetchone()
         self.assertEqual(1, attempted)
         self.assertEqual(request_id, json.loads(saved)['request']['request_id'])
@@ -398,7 +421,7 @@ class ControllerEvidenceTests(unittest.TestCase):
         trial.parent.mkdir(parents=True)
         saved = {'request': {'request_id': request_id, 'fixture_digest': row['taskDigest'],
                             'proposal_digest': kit.sha(candidate.read_bytes())}}
-        with sqlite3.connect(trial) as db:
+        with contextlib.closing(self.open_trial_database(trial)) as db, db:
             db.execute('CREATE TABLE trial(id INTEGER PRIMARY KEY, plan TEXT, attempted INTEGER)')
             db.execute('INSERT INTO trial VALUES(1, ?, 1)', (json.dumps(saved),))
         calls = []
@@ -550,12 +573,12 @@ class ControllerEvidenceTests(unittest.TestCase):
             if operation == 'prepare':
                 saved = {'request': {'request_id': request_id, 'fixture_digest': observation['taskDigest'],
                                     'proposal_digest': observation['artifactDigest']}}
-                with sqlite3.connect(trial) as db:
+                with contextlib.closing(self.open_trial_database(trial)) as db, db:
                     db.execute('CREATE TABLE trial(id INTEGER PRIMARY KEY, plan TEXT, attempted INTEGER)')
                     db.execute('INSERT INTO trial VALUES(1, ?, 0)', (json.dumps(saved),))
                 return {'request_id': request_id}
             self.assertEqual('submit', operation)
-            with sqlite3.connect(trial) as db:
+            with contextlib.closing(self.open_trial_database(trial)) as db, db:
                 db.execute('UPDATE trial SET attempted=1')
             with audit_path.open('ab') as stream:
                 stream.write(b'SYNTHETIC direct audit mutation\n')
@@ -569,7 +592,7 @@ class ControllerEvidenceTests(unittest.TestCase):
         self.assertFalse((self.session / 'grader/000001/trial.sqlite').exists())
         self.assertFalse((self.session / 'grader/000000/grade.json').exists())
         self.assertTrue(audit_path.read_bytes().endswith(b'SYNTHETIC direct audit mutation\n'))
-        with sqlite3.connect(self.session / 'grader' / f'{first:06d}' / 'trial.sqlite') as db:
+        with contextlib.closing(self.open_trial_database(self.session / 'grader' / f'{first:06d}' / 'trial.sqlite')) as db:
             self.assertEqual(1, db.execute('SELECT attempted FROM trial').fetchone()[0])
 
     def test_inbox_reports_once_after_partial_success_and_preserves_the_failed_slot(self):

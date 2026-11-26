@@ -461,6 +461,11 @@ public partial class MainWindow : Window
             await RequireCampaignRender(nativeProducts, "Native products");
             nativeProducts.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await SettleSmokeReads(); UpdateLayout();
+            var campaignHistoryState = Ui.Descendants<TextBlock>(page).SingleOrDefault(text => text.IsVisible &&
+                System.Windows.Automation.AutomationProperties.GetLiveSetting(text) == System.Windows.Automation.AutomationLiveSetting.Polite)
+                ?? throw new InvalidOperationException("Native campaign history has no visible operation status.");
+            if (campaignHistoryState.Text != "Choose a saved campaign or prepare a new matched campaign.")
+                throw new InvalidOperationException("Packaged native campaign history did not complete. Operation state: " + campaignHistoryState.Text);
             await RequireCampaignRender(CampaignText(text => text.Text == "Compare native products", "Compare native products"), "Compare native products");
             await RequireCampaignRender(CampaignButton("Choose campaign definition"), "Choose campaign definition");
             await RequireCampaignRender(CampaignButton("Freeze matched campaign"), "Freeze matched campaign");

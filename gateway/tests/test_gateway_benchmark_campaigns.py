@@ -93,7 +93,7 @@ class NativeCampaignDesktopTest(unittest.TestCase):
         value.update(seconds=18.25, costUsd=None, originEvidence='Independent observer note')
         atomic_json(path, value)
         after = service.read(self.root, self.ident)
-        self.assertEqual(str(path), after['next']['measurementsPath'])
+        self.assertTrue(Path(after['next']['measurementsPath']).samefile(path))
         self.assertEqual(value, campaign.read_json(path))
         self.assertEqual(value, after['next']['measurements'])
 
@@ -172,7 +172,9 @@ class NativeCampaignDesktopTest(unittest.TestCase):
         target = self.area / 'report-export'
         with patch.object(FakeClient, 'identity', side_effect=AssertionError('Offline export cannot connect')):
             result = service.export(self.root, self.ident, target)
-        self.assertEqual(str(target / 'scoreboard.html'), result['scoreboard'])
+        # Windows can expand the temporary directory's 8.3 alias when resolving
+        # an exported path. The contract is file identity, not path spelling.
+        self.assertTrue(Path(result['scoreboard']).samefile(target / 'scoreboard.html'))
         self.assertEqual({'scoreboard.html', 'scoreboard.md', 'scoreboard.json', 'scoreboard.csv',
                           'trial-details.csv', 'comparison.json'}, {p.name for p in target.iterdir()})
         self.assertTrue(all(b'PRIVATE KEY' not in file.read_bytes() for file in target.iterdir()))
@@ -186,7 +188,7 @@ class NativeCampaignDesktopTest(unittest.TestCase):
             result = service.templates(self.root, self.area / 'templates')
         config = campaign.read_json(result['configPath'])
         self.assertEqual(campaign.runtime_identity(), config['source'])
-        self.assertEqual(str(self.root), config['gateway']['root'])
+        self.assertTrue(Path(config['gateway']['root']).samefile(self.root))
         self.assertIsNone(config['controls']['startingRevision'])
         self.assertIsNone(config['products']['ChatGPT']['version'])
         self.assertEqual(0, result['modelRequests'])
@@ -232,7 +234,7 @@ class NativeCampaignDesktopTest(unittest.TestCase):
         self.assertEqual(1344, snapshot['scheduleTotal'])
         self.assertEqual(500, len(snapshot['schedule']))
         self.assertTrue(snapshot['scheduleTruncated'])
-        self.assertEqual(str(self.session / 'schedule.csv'), snapshot['schedulePath'])
+        self.assertTrue(Path(snapshot['schedulePath']).samefile(self.session / 'schedule.csv'))
         self.assertNotIn('slots', snapshot['report'])
         self.assertEqual(1344, len(campaign.read_json(path)['slots']))
 

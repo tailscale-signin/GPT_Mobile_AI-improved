@@ -7,7 +7,7 @@
   "baseSha": "77a5c8ed540a33356c037fb8ffae6ac397f43ac5",
   "workingBranch": "feature/windows-native-benchmark-kit",
   "intent": "Integrate the independently graded native-product benchmark kit into the Windows Gateway app, including persistent matched campaigns, original-capture imports, supplied-answer grading, status-only recovery and honest scoreboards.",
-  "state": "IMPLEMENTED_LOCAL_GATES_PASSED",
+  "state": "PR_OPEN_WINDOWS_PORTABILITY_VALIDATION",
   "authorization": "User requested integration into the Windows app. Source implementation is authorized; no paid or native model generation has been requested or run.",
   "preserved": [
     "Existing Gateway model comparison and authenticated owner boundaries",
@@ -31,6 +31,16 @@
       "state": "VALIDATED_LOCALLY",
       "sourceBaseSha": "5e02fbfbb8c131412045d08a0fb46bbecc1587f4",
       "details": "Canonical host and Gateway gates passed; native product and model quality remain unmeasured. Added Windows smoke coverage for native campaign setup and unknown scoreboard; source packaging/reference checks must be regenerated before commit."
+    },
+    {
+      "state": "HOSTED_WINDOWS_FEEDBACK",
+      "sourceSha": "5f6bf3538ef4d0cb0cba28fd5cea69f797398fd6",
+      "workflowRun": 45897742242,
+      "details": "Hosted .NET 10 native contracts and full WPF cross-build passed. Windows campaign tests reached 89 cases and exposed fixture SQLite handles retained after transaction contexts and two textual comparisons of equivalent Windows 8.3 and long paths; production resource handling already closes owned connections. Fixes retain file-identity and recovery assertions. Installer build and UI smoke remain pending the corrected test run."
+    },
+    {
+      "state": "WINDOWS_FIXTURE_REPAIR",
+      "details": "Closed all eight fixture-owned SQLite connections explicitly, preserved transaction commits, and added retained-handle lifecycle assertions before directory cleanup. File identity checks accept equivalent Windows path spellings. The native smoke now requires a successful packaged campaign-history bridge response rather than accepting layout after a swallowed read error. All 89 focused tests passed with PowerShell enabled on Linux; hosted Windows rerun remains required."
     }
   ],
   "validation": [
@@ -71,6 +81,13 @@
       "command": "Windows WPF build, installer and interactive smoke",
       "status": "NOT_RUN_LOCALLY",
       "reason": "Local environment has no .NET SDK or Windows WPF runtime; existing Windows workflow is required for the integration commit."
+    },
+    {
+      "command": "GitHub Actions Gateway Windows installer / native-cross-build",
+      "status": "PASSED",
+      "sourceSha": "5f6bf3538ef4d0cb0cba28fd5cea69f797398fd6",
+      "workflowRun": 45897742242,
+      "scope": "Hosted .NET 10 native behavior contracts and full Windows WPF cross-build; this job does not execute the Windows UI."
     }
   ],
   "productMeasurements": null,
@@ -81,5 +98,6 @@
     "Added native WPF Native products tab, editable budgets, capture helpers, signed imports, supplied-answer grading, recovery and unknown-preserving reports.",
     "Retained exact owner/origin/runtime/task bindings, original uncertain request IDs, external key custody and synthetic evidence separation.",
     "Packaged Quick/Comprehensive definitions, GitHub intelligence protocols and PowerShell helper; added offline behavior and native presentation regressions."
-  ]
+  ],
+  "pullRequest": 2651
 }

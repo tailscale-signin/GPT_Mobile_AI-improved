@@ -154,6 +154,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/delegation/WriterLoadReadinessTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RecoveryInterruptionExportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringDefaultsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundedCheckWaitTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistPaginationTest.kt",

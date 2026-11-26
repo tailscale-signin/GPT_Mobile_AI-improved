@@ -105,6 +105,26 @@ class GitHubAcceptanceRecoveryEvidenceTest {
         assertTrue(evidence.isEmpty())
     }
 
+    @Test fun expiredPreparationUsesTheExistingPublicDeadlineVocabulary() {
+        for (remainingKnown in listOf(true, false)) {
+            val verdict = json("""{"completion_verified":false,"test_checklist":{"preparation":{"schema":"github.integration-preparation.v1","status":"TIME_WINDOW_EXPIRED","ready_read_count":0,"additional_ready_read_count":0,"owned_fixture_creation_admissible":false,"budget":{"remaining_known":$remainingKnown,"acquisition_allowed":false,"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED"}}}}""")
+            val original = verdict.toString()
+            val evidence = GitHubAcceptanceRecoveryEvidence.fields(verdict)
+            assertEquals(JsonPrimitive("WINDOW_EXPIRED"), evidence["task_deadline_observation"])
+            assertEquals(JsonPrimitive(false), evidence["acceptance_acquisition_allowed"])
+            assertEquals(JsonPrimitive(0), evidence["acceptance_ready_read_count"])
+            assertEquals(JsonPrimitive(0), evidence["acceptance_additional_ready_read_count"])
+            assertEquals(JsonPrimitive(false), evidence["acceptance_fixture_creation_admissible"])
+            assertNull(evidence["acceptance_preparation_state"])
+            assertNull(evidence["task_deadline_renewed"])
+            assertFalse("TIME_WINDOW_EXPIRED" in evidence.toString())
+            assertEquals(original, verdict.toString())
+            assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+        }
+        val unbound = json("""{"test_checklist":{"preparation":{"schema":"github.integration-preparation.v1","status":"TIME_WINDOW_EXPIRED"}}}""")
+        assertTrue(GitHubAcceptanceRecoveryEvidence.fields(unbound).isEmpty())
+    }
+
     @Test fun aBoundedFamilySampleReportsItsOmittedCountAndStripsConnectionAliases() {
         val families = GitHubAcceptanceRecoveryEvidence.operationFamilies
         val capabilities = families.map { family -> json("""{"id":"${family}__private-connection:read","required":true,"state":"BLOCKED"}""") }

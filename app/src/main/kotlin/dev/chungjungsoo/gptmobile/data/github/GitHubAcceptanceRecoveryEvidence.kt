@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 /** Small closed projection of the actual retained preparation; it cannot dispatch or approve work. */
 internal object GitHubAcceptanceRecoveryEvidence {
     val deadlineObservations = setOf("CONTRACT_UNAVAILABLE", "NO_ACCEPTED_DEADLINE", "TIMING_UNAVAILABLE", "WINDOW_OPEN", "WINDOW_EXPIRED")
-    val preparationStates = setOf("TIME_WINDOW_EXPIRED", "CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED")
+    val preparationStates = setOf("CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED")
     val operationFamilies = setOf("github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_decide", "github_review", "github_engineering", "github_repository", "repository_graph")
     val policyRecoveryHints = setOf("CHECK_AUTHENTICATION", "CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION", "CHECK_POLICY_READ_PERMISSIONS", "WAIT_RATE_LIMIT", "REFRESH_POLICY_OBSERVATIONS")
     private val statusObservations = mapOf(
@@ -47,11 +47,16 @@ internal object GitHubAcceptanceRecoveryEvidence {
         val checklist = verdict["test_checklist"] as? JsonObject
         val preparation = checklist?.get("preparation") as? JsonObject
         if (preparation?.text("schema") == "github.integration-preparation.v1") {
+            val budget = preparation["budget"] as? JsonObject
+            // The retained plan has a richer local status vocabulary. Keep its
+            // expiry observable through the existing receiver deadline contract.
+            if (preparation.text("status") == "TIME_WINDOW_EXPIRED" && budget?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+                put("task_deadline_observation", "WINDOW_EXPIRED")
+            }
             preparation.text("status").takeIf { it in preparationStates }?.let { put("acceptance_preparation_state", it) }
             for ((source, destination) in listOf("ready_read_count" to "acceptance_ready_read_count", "additional_ready_read_count" to "acceptance_additional_ready_read_count")) {
                 preparation.number(source)?.takeIf { it in 0..16_000_000 }?.let { put(destination, it) }
             }
-            val budget = preparation["budget"] as? JsonObject
             if (budget != null && (budget["remaining_known"] == JsonPrimitive(true) || budget["stop_reason"] == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"))) {
                 (budget["acquisition_allowed"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("acceptance_acquisition_allowed", it) }
             }

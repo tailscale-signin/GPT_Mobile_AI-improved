@@ -88,6 +88,12 @@ another coding product is inferred from a deterministic regression.
 | #2649 | A terminal PR-list page can arrive before preceding pages. The integration checklist now follows the validated correction returned by the read within its existing sampling and authorization limits. |
 | #2650 | The task reached its accepted 60-minute deadline. The terminal report now marks further reads unavailable until the user renews the task and retains the unmet criteria. |
 
+Expired task preparation retains its internal `TIME_WINDOW_EXPIRED` status.
+Public diagnostic exports use the existing `WINDOW_EXPIRED` deadline observation,
+disabled acquisition and zero ready reads; they omit the unsupported preparation
+enum. This keeps the current receiver contract compatible without implying a
+renewal, fixture authority or satisfied prerequisites.
+
 ## Validation record
 
 Local focused JVM execution covers 32 production-context,
@@ -99,7 +105,10 @@ export suite also fails against the earlier implementation and passes after caus
 retention is repaired. Two adapter-specific terminal tests require the full Android
 test graph and were excluded only from the standalone host harness. Android session, provider,
 runner and recovery regressions are included in the ordinary test sources and
-must pass the repository's exact-revision PR and main-branch gates. The canonical
+must pass the repository's exact-revision PR and main-branch gates. Eleven focused
+acceptance-recovery projection tests also pass, including an expiry regression
+that fails against the preceding projection, and the existing receiver enum
+parity check accepts the compatible export. The canonical
 host gate is `bash scripts/validate-local.sh fast`; generated source maps and
 inventories must match the final combined revision. Release signing, artifact
 identity, packaging size, attestations and published-asset verification remain

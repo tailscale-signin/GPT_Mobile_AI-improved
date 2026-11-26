@@ -1176,7 +1176,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLink.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceExcerpts.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummary.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummary.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistBudget.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
@@ -1190,7 +1192,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRoutePolicyTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicyTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparationTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1207,7 +1211,8 @@
         "Validate retained path selectors against the selected repository and commit; reacquisition cannot establish complete historical coverage.",
         "Saved page recipes, test execution receipts and remaining verification reserve are independent observations.",
         "Fixture-specific accepted task approval remains authoritative through continuation.",
-        "Recover a legacy context head change through one fresh scoped LIVE header and one exact pinned read; cached observations, explicit or malformed pins, restored duplicate attempts and a second head change cannot expand the allowance."
+        "Recover a legacy context head change through one fresh scoped LIVE header and one exact pinned read; cached observations, explicit or malformed pins, restored duplicate attempts and a second head change cannot expand the allowance.",
+        "Expired accepted task budgets disable acquisition and ready reads; expose expiry through the existing public deadline vocabulary without granting renewal or inventing prerequisite readiness."
       ],
       "routing": {
         "role": "evidence",
@@ -3618,6 +3623,11 @@
       "bytes": 8901,
       "sha256": "0edf4a9329ede171a8c0018564b140130eeac3d203e00f9db255574dff11b6e4"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt": {
+      "blob_sha": "7b6562a5d7e1afbc0a34ba0f5dcd2fdacdd5bdb6",
+      "bytes": 8311,
+      "sha256": "ac773d8e3201128a14209f0fa75c9a3647d2c04ccece90926b0fe50a4ad5cd33"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWork.kt": {
       "blob_sha": "e01e6c7addfda8e1d657a447303a14f507e4f23d",
       "bytes": 6461,
@@ -3672,6 +3682,11 @@
       "blob_sha": "ac7dd26c2681e4c7521cc7e15932adee89df182d",
       "bytes": 1858,
       "sha256": "d0e2c3a0ae237737f4f0943292303c56f67ded159e9f9486a3de012d2db99038"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistBudget.kt": {
+      "blob_sha": "e3ff10dad2c1073fe434c72bde4a8a254e8204c1",
+      "bytes": 6944,
+      "sha256": "faf4764defa5dde71fbe4e575bd31287943285e7ebb5728765033334131f5d96"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt": {
       "blob_sha": "caa3cba851d2a93ca6e04fd3a20442815e8156af",
@@ -5363,6 +5378,11 @@
       "bytes": 8056,
       "sha256": "954d8b2e7eabe992d5016d4a579f5961cfce7daa661829eb542c21339b3e3682"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt": {
+      "blob_sha": "33edc1dc5ba1f9ef200d1ccf9b4d3a0b27bbdc20",
+      "bytes": 12059,
+      "sha256": "61a74ace0c4ac80f94df54ec3976f92e1a897401ea1172b78919924d12528581"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWorkTest.kt": {
       "blob_sha": "7013ad6a14332f7cf92a17de180d827b3704df58",
       "bytes": 4883,
@@ -5472,6 +5492,11 @@
       "blob_sha": "fe421e8490b8fcda22bbc4f1b14cc32a38837d66",
       "bytes": 40634,
       "sha256": "93ce3c8b8734f0d1a0ef4479d3ebfe23b6ee0ecdbc795eeef86a878434d932eb"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparationTest.kt": {
+      "blob_sha": "5d11d0b1008fd32d13176e0d6232f0e93ea02514",
+      "bytes": 21938,
+      "sha256": "abb496b591b38a6eaff77f8394023b195823def8a0ff81ec3a794ca5da657888"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReportTest.kt": {
       "blob_sha": "2bca13e960741a778a955cfdd763dd973fde7304",
@@ -6694,9 +6719,9 @@
       "sha256": "11e8309a920ad344493cd7d6c220b893d2139dab2c0b18a1fcaf0ca7c1bac12c"
     },
     "docs/repairs/github-mode-intelligence-2026-11-26.md": {
-      "blob_sha": "3ceb4e0e7a6ebfc6adc8b19a1647e8c2f003e49f",
-      "bytes": 8714,
-      "sha256": "05ee6867db54f6b4b39b582f50e2549765c7c65117f9570b7000106ff1065b63"
+      "blob_sha": "df6a3857b2dba2ff125546065bd63f69ad47d490",
+      "bytes": 9300,
+      "sha256": "1d4084ba66d9b6123d436e309c3154489b3f6919e76db9462f35d2bd136136eb"
     },
     "docs/repairs/github-progress-source-identity-2026-11-24-task.json": {
       "blob_sha": "416586638daafdfd3d121ca7920598d545479a5c",

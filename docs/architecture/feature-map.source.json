@@ -1172,7 +1172,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLink.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceExcerpts.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummary.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummary.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistBudget.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
@@ -1186,7 +1188,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRoutePolicyTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicyTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparationTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1203,7 +1207,8 @@
         "Validate retained path selectors against the selected repository and commit; reacquisition cannot establish complete historical coverage.",
         "Saved page recipes, test execution receipts and remaining verification reserve are independent observations.",
         "Fixture-specific accepted task approval remains authoritative through continuation.",
-        "Recover a legacy context head change through one fresh scoped LIVE header and one exact pinned read; cached observations, explicit or malformed pins, restored duplicate attempts and a second head change cannot expand the allowance."
+        "Recover a legacy context head change through one fresh scoped LIVE header and one exact pinned read; cached observations, explicit or malformed pins, restored duplicate attempts and a second head change cannot expand the allowance.",
+        "Expired accepted task budgets disable acquisition and ready reads; expose expiry through the existing public deadline vocabulary without granting renewal or inventing prerequisite readiness."
       ],
       "routing": {
         "role": "evidence",

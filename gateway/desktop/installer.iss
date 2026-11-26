@@ -22,7 +22,7 @@ WizardImageFile=..\..\dist\windows\setup-sidebar.png
 WizardImageBackColor=#001219
 DisableProgramGroupPage=yes
 DisableDirPage=no
-DisableReadyPage=yes
+DisableReadyPage=no
 WizardSizePercent=120
 ShowTasksTreeLines=no
 OutputDir=..\..\dist\windows
@@ -225,6 +225,7 @@ begin
   { Recommended fresh installs use validated built-in defaults. Preflight custom
     input and retained settings before replacing any installed files. }
   if (ModePage.SelectedValueIndex = 2) or not NeedsInitialSettings or FileExists(ExpandConstant('{app}\current.json')) then begin
+    DeleteFile(ExpandConstant('{tmp}\gateway-config-error.txt'));
     if not RuntimePrepared then begin
       ExtractTemporaryFiles('{app}\releases\{#GatewayVersion}\*');
       RuntimePrepared := True;
@@ -261,6 +262,9 @@ begin
     if ExistingInstallation then begin
       WizardForm.PageNameLabel.Caption := 'Repair or update Gateway';
       WizardForm.PageDescriptionLabel.Caption := 'Setup checks the existing installation and keeps its settings and saved work.';
+    end else begin
+      WizardForm.PageNameLabel.Caption := 'Ready to install Gateway';
+      WizardForm.PageDescriptionLabel.Caption := 'Review the destination and selected tasks before installing.';
     end;
   end;
   if CurPageID = wpFinished then begin
@@ -275,6 +279,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var TempFile, RepairArg: String; Code: Integer;
 begin
   if CurStep = ssPostInstall then begin
+    DeleteFile(ExpandConstant('{tmp}\gateway-config-error.txt'));
     TempFile := WriteWizardSettings;
     RepairArg := ''; if RepairDamaged then RepairArg := ' --repair-damaged';
     if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'configure' + RepairArg + ' --root "' + ExpandConstant('{app}') + '" --version {#GatewayVersion} --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then

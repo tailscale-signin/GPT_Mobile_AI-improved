@@ -501,19 +501,33 @@ object GitHubTaskContextBundle {
                 ?.takeIf { terms(it.value.take(1500)).intersect(query).isNotEmpty() }?.index?.plus(1) ?: 1
             end = minOf(lines.size, best?.number("end_line")?.takeIf { it >= start } ?: start + 40, start + 70)
         }
-        val selected = lines.subList(start - 1, end).joinToString("\n")
-        val excerpt = GitHubRepositorySession.utf8Prefix(selected, byteLimit)
+        val exact = mutableListOf<String>()
+        var bytes = 0
+        for (line in lines.subList(start - 1, end)) {
+            val size = line.toByteArray(Charsets.UTF_8).size + if (exact.isEmpty()) 0 else 1
+            if (bytes + size > byteLimit) break
+            exact += line
+            bytes += size
+        }
+        val unread = exact.isEmpty() || location != null && location >= start + exact.size
         return buildJsonObject {
             put("path", value.path)
             put("blob_sha", value.blobSha)
-            put("start_line", start)
-            put("end_line", start + excerpt.count { it == '\n' })
+            put("start_line", if (unread) location ?: start else start)
+            put("end_line", if (unread) location ?: start else start + exact.lastIndex)
             put("total_lines", lines.size)
-            put("excerpt", excerpt)
             put("reason", if (location == null) reason else "TASK_SOURCE_LOCATION")
             location?.let { put("matched_line", it) }
-            put("range_complete", excerpt == selected)
-            put("confidence", "SOURCE_OBSERVED_RELATIONSHIP_CANDIDATE")
+            if (unread) {
+                put("read_required", true)
+                put("range_complete", false)
+            } else {
+                val excerpt = exact.joinToString("\n")
+                put("excerpt", excerpt)
+                put("content_sha256", digest(excerpt))
+                put("range_complete", true)
+                put("confidence", "SOURCE_OBSERVED_RELATIONSHIP_CANDIDATE")
+            }
         }
     }
 

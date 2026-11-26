@@ -471,6 +471,58 @@ class GitHubTaskContextBundleTest {
         assertEquals(JsonPrimitive(false), result["source_complete"])
     }
 
+    @Test fun manifestGuidanceUsesSharedBindingCases() = runBlocking {
+        val path = "gateway/contracts/github-intelligence-client-cases-v1.json"
+        val fixture = listOf(java.io.File(path), java.io.File("../$path")).first { it.isFile }
+        val json = kotlinx.serialization.json.Json
+        val cases = json.parseToJsonElement(fixture.readText()).jsonObject.getValue("bindingCases").jsonArray
+        val blob = "b".repeat(40)
+        for (item in cases) {
+            val case = item.jsonObject
+            val manifest = buildJsonObject {
+                put("schema_version", 1)
+                val binding = when (case.getValue("kind").jsonPrimitive.content) {
+                    "string" -> JsonPrimitive(blob)
+                    "object" -> buildJsonObject { put("blob_sha", blob) }
+                    "stale" -> JsonPrimitive("0".repeat(40))
+                    "malformed" -> buildJsonObject { put("unsupported", true) }
+                    else -> null
+                }
+                if (binding != null) put("file_blobs", buildJsonObject { put(implementation, binding) })
+                put(
+                    "features",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("id", "repair")
+                                put("title", "repairReceipt")
+                                put("paths", JsonArray(listOf(JsonPrimitive(implementation))))
+                                put("invariants", JsonArray(listOf(JsonPrimitive("bounded"))))
+                            }
+                        )
+                    )
+                )
+            }
+            val result = build(GitHubContextVariant.TASK) { file ->
+                source(file)?.let { if (file == GitHubTaskContextBundle.FEATURE_MAP) it.copy(text = manifest.toString()) else it }
+            }
+            val feature = result.getValue("features").jsonArray.single().jsonObject
+            assertEquals(case["authoritative"] == JsonPrimitive(true), feature.getValue("invariants").jsonArray.isNotEmpty())
+        }
+    }
+
+    @Test fun explicitLatePathAndOversizedLineKeepAnExactReadHandle() = runBlocking {
+        val path = "late/Selected.kt"
+        val source = GitHubContextSource(path, "b".repeat(40), "small\n" + "z".repeat(4000))
+        val entries = (0 until 20_000).map { GitHubContextFile("other/File$it.kt", "c".repeat(40)) } +
+            GitHubContextFile(path, source.blobSha)
+        val bundle = GitHubTaskContextBundle.build("owner/repo", commit, "main", entries, "$path:2", load = { if (it == path) source else null })
+        val range = bundle.getValue("selected_ranges").jsonArray.map { it.jsonObject }.single { it["path"] == JsonPrimitive(path) }
+        assertEquals(JsonPrimitive(true), range["read_required"])
+        assertEquals(JsonPrimitive(2), range["start_line"])
+        assertFalse(range.containsKey("excerpt"))
+    }
+
     private suspend fun build(variant: GitHubContextVariant, query: String = "repairReceipt", load: suspend (String) -> GitHubContextSource? = ::source): JsonObject =
         GitHubTaskContextBundle.build("owner/repository", commit, "work", files(), query, variant, 24_000, load = load)
 

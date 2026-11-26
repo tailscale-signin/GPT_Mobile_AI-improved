@@ -715,7 +715,8 @@ internal class GitHubChatProgress(
         }
 
         private fun semanticObservation(name: String, args: JsonObject, facts: JsonObject, saved: Boolean): ResultObservation? {
-            if (operation(name, args).mutation) return null
+            val copilot = facts["copilot_observation"] as? JsonObject
+            if (operation(name, args).mutation && copilot == null) return null
             fun count(source: JsonObject, key: String) = (source[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
             fun quantity(value: Int, noun: String) = "$value $noun" + if (value == 1) "" else "s"
             fun savedSummary(summary: String) = if (saved) "From saved results: ${summary.replaceFirstChar(Char::lowercase)} Current state still needs verification." else summary
@@ -728,6 +729,15 @@ internal class GitHubChatProgress(
                 resolvedConditions,
                 (listOf(summary) + related).map(::savedSummary)
             )
+            if (copilot != null && name.githubOperationFamily() == "github_pr") {
+                val action = GitHubActionIdentity.canonicalArguments(name, args)["action"]
+                if (action in setOf(JsonPrimitive("copilot_create_task"), JsonPrimitive("copilot_task_status")) && facts["action"] == action) {
+                    val phase = (copilot["phase"] as? JsonPrimitive)?.contentOrNull ?: return null
+                    val goal = (copilot["purpose"] as? JsonPrimitive)?.contentOrNull ?: return null
+                    val repo = (copilot["repository"] as? JsonPrimitive)?.contentOrNull ?: return null
+                    return observation("GitHub Copilot · $phase", "GitHub Copilot was asked to $goal in $repo. Its reported state is $phase.")
+                }
+            }
             val range = facts["source_range"] as? JsonObject
             if (name.githubOperationFamily() == "github_read" && range != null) {
                 val path = (range["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)

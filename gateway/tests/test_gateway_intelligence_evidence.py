@@ -45,10 +45,12 @@ class EvidenceTests(unittest.TestCase):
         path = 'core.py'
         tree = {path: {'mode': '100644', 'sha': self.sha}}
         feature = {'id': 'core', 'title': 'Core', 'paths': [path], 'invariants': ['bounded']}
-        for binding, expected in ((None, []), ({}, []), ({path: 9}, []), ({path: 'b' * 40}, []),
-                                  ({path: self.sha}, ['bounded']), ({path: {'blob_sha': self.sha}}, ['bounded'])):
-            row = _features(dict(schema_version=1, features=[feature], file_blobs=binding), tree)[0]
-            self.assertEqual(expected, row['invariants'])
+        shared = json.loads((Path(__file__).resolve().parents[1] / 'contracts' / 'github-intelligence-client-cases-v1.json').read_text(encoding='utf-8'))
+        bindings = {'absent': None, 'malformed': {path: {'unsupported': True}}, 'stale': {path: '0' * 40},
+                    'string': {path: self.sha}, 'object': {path: {'blob_sha': self.sha}}}
+        for case in shared['bindingCases']:
+            row = _features(dict(schema_version=1, features=[feature], file_blobs=bindings[case['kind']]), tree)[0]
+            self.assertEqual(case['authoritative'], bool(row['invariants']))
 
     def test_copilot_unicode_and_branch_contract(self):
         request = dict(request_id='original', repository='owner/repo', base_ref='main', expected_base_sha=self.sha,

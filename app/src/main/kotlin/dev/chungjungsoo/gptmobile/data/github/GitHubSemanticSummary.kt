@@ -38,6 +38,9 @@ internal object GitHubSemanticSummary {
                 put("action", action)
                 put("source_result_sha256", GitHubEvidenceBook.digest(source.toString()))
                 put("hash_scope", "IMMUTABLE_SOURCE_RESULT")
+                if (operation.githubOperationFamily() == "github_pr" && action in setOf("copilot_create_task", "copilot_task_status")) {
+                    copilotObservation(data, canonicalRequest)?.let { put("copilot_observation", it) }
+                }
                 if (operation.githubOperationFamily() == "github_read" && action in setOf("", "ranges", "read_ranges")) {
                     val coverage = (data["source_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                     if (coverage.isNotEmpty()) {
@@ -335,6 +338,36 @@ internal object GitHubSemanticSummary {
     }
 
     /** Keep useful observations when an older summary exceeds the replay allowance. */
+    private fun copilotObservation(data: JsonObject, request: JsonObject): JsonObject? {
+        val owner = data.text("orchestration_owner")
+        val schema = if (owner == "GATEWAY") "github.copilot-tasks.v1" else "github.copilot-task.v1"
+        if (owner !in setOf("GATEWAY", "ANDROID_DIRECT") || data.text("schema") != schema || data.text("execution_owner") != "GITHUB_CLOUD") return null
+        val repository = request.text("owner") + "/" + request.text("repo")
+        if (!repository.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) || data.text("repository").let { it.isNotEmpty() && !it.equals(repository, true) }) return null
+        val id = data.text("task_id")
+        if (request.text("task_id").let { it.isNotEmpty() && it != id } || request.text("request_id").let { it.isNotEmpty() && it != data.text("request_id") }) return null
+        val status = data.text("remote_state").ifBlank { (data["task"] as? JsonObject)?.text("state").orEmpty() }.lowercase(java.util.Locale.ROOT)
+        val confirmed = status.takeIf { it in setOf("queued", "in_progress", "completed", "failed", "idle", "waiting_for_user", "timed_out", "cancelled") && id.isNotBlank() }
+        val phase = confirmed ?: when {
+            owner == "GATEWAY" && data.text("state") == "ACCEPTED" -> "saved by Gateway"
+            data.text("status") == "REMOTE_ACCEPTED" && id.isNotBlank() -> "accepted by GitHub"
+            data.text("status") == "RECONCILE_REQUIRED" || data.text("state") == "RECONCILE_REQUIRED" -> "awaiting reconciliation"
+            else -> return null
+        }
+        val intent = when {
+            Regex("""\b(review|audit)\b""", RegexOption.IGNORE_CASE).containsMatchIn(request.text("prompt")) -> "review the requested change"
+            Regex("""\b(test|tests|benchmark)\b""", RegexOption.IGNORE_CASE).containsMatchIn(request.text("prompt")) -> "work on the requested verification"
+            else -> "work on the submitted task"
+        }
+        return buildJsonObject {
+            put("repository", repository)
+            put("phase", phase.replace('_', ' '))
+            put("purpose", intent)
+            put("controller", owner)
+            if (id.isNotBlank() && id.length <= 256 && id.none(Char::isISOControl)) put("url", "https://github.com/$repository/copilot/tasks/${GitHubWorkspaceClient.segment(id)}")
+        }
+    }
+
     internal fun bounded(summary: JsonObject, maxCharacters: Int = MAX_SUMMARY_CHARACTERS): JsonObject {
         if (summary.toString().length <= maxCharacters) return summary
         val retained = summary.toMutableMap()
@@ -351,7 +384,7 @@ internal object GitHubSemanticSummary {
         if (JsonObject(retained).toString().length <= maxCharacters) return JsonObject(retained)
         // Legacy or malformed summaries cannot consume an unbounded replay. Keep
         // identity and the first useful observation, not an all-or-nothing placeholder.
-        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "pr_head_ref", "pr_head_repo", "source_result_sha256", "apk_size_failure", "failed_job_step", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "source_ranges", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
+        val priority = listOf("schema", "operation", "action", "copilot_observation", "commit_sha", "head_sha", "base_sha", "pr_head_ref", "pr_head_repo", "source_result_sha256", "apk_size_failure", "failed_job_step", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "source_ranges", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
         val bounded = linkedMapOf<String, kotlinx.serialization.json.JsonElement>("summary_truncated" to JsonPrimitive(true))
         for (key in priority + retained.keys) {
             if (key in bounded) continue

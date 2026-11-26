@@ -105,7 +105,9 @@ class VoiceSynthesisPerformanceTest {
         policy.underrun()
         assertNull("No complete phrase has been observed", policy.predictedSynthesisMs())
         assertNull(policy.ratio())
-        assertEquals("An unfinished stream still uses the six-word opening", 6, policy.phraseWords(6_000))
+        assertEquals("The slow delivery still protects limited PCM headroom", 6, policy.phraseWords(1_400))
+        assertEquals("Measured PCM headroom permits a bounded followup", 12, policy.phraseWords(2_100))
+        assertEquals("Ample PCM headroom permits followups before stream completion", 16, policy.phraseWords(6_000))
         val queue = ArrayBlockingQueue<VoicePcmSlice>(KokoroPcmBatches.QUEUE_BATCHES)
         var acceptedFrames = 2_400L
         var polls = 0

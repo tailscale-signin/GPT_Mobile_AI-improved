@@ -15,6 +15,11 @@ from v14.identity import PrincipalResolver, account_authorized
 
 class SameAccountTests(unittest.TestCase):
     def test_authenticated_account_defaults_on_and_honors_saved_host_choice(self):
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertTrue(Config.from_env().account_engineering)
+            self.assertFalse(Config.from_env().remote_engineering)
+        with patch.dict('os.environ', {'GATEWAY_ACCOUNT_ENGINEERING': 'false'}):
+            self.assertFalse(Config.from_env().account_engineering)
         with tempfile.TemporaryDirectory() as path:
             self.assertTrue(account_engineering(path))
             preference = Path(path) / 'data' / 'account-engineering.json'

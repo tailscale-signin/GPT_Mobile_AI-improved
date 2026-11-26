@@ -142,6 +142,12 @@ class ControlStore:
             db.close()
 
     def schema(self, db):
+        # The last completed migration also records that all preceding schema
+        # setup committed. Advance this marker when adding a schema migration.
+        migration = 'owner_job_admission_default'
+        db.execute('CREATE TABLE IF NOT EXISTS gateway_control_migrations (name TEXT PRIMARY KEY)')
+        if db.execute('SELECT 1 FROM gateway_control_migrations WHERE name=?', (migration,)).fetchone():
+            return
         statements = [
             'CREATE TABLE IF NOT EXISTS gateway_control_settings (id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, desired TEXT NOT NULL, effective TEXT NOT NULL, pending TEXT NOT NULL, author TEXT NOT NULL, changed REAL NOT NULL)',
             'CREATE TABLE IF NOT EXISTS gateway_control_commands (principal TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL, revision INTEGER NOT NULL, changes TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY(principal,id))',
@@ -179,15 +185,30 @@ class ControlStore:
             db.execute('UPDATE gateway_control_settings SET desired=?,effective=? WHERE id=1', (encoded(desired), encoded(effective)))
             db.execute('INSERT OR REPLACE INTO gateway_control_policy_observation VALUES (1,?,?)', (policy['revision'], policy['profile_id']))
 
+        # Older normal invitations wrote OFF at revision zero. Editing the
+        # admission switch advances its revision, including an explicit OFF.
+        changed = db.execute("""
+            INSERT INTO engineering_admission_settings(principal,enabled,revision)
+            SELECT 'paired:' || id, 1, 1 FROM gateway_control_devices
+            WHERE role='owner' AND revoked=0
+            ON CONFLICT(principal) DO UPDATE SET enabled=1,revision=1
+            WHERE engineering_admission_settings.revision=0 AND engineering_admission_settings.enabled=0
+        """).rowcount
+        if changed:
+            db.execute('UPDATE gateway_control_settings SET revision=revision+1,author=?,changed=? WHERE id=1',
+                       ('migration:owner-job-admission', self.now()))
+        db.execute('INSERT INTO gateway_control_migrations VALUES (?)', (migration,))
+
     def _sync_host_policy(self, db):
         from desktop.phone_policies import state
         policy = state(self.root)
         old = db.execute('SELECT revision FROM gateway_control_policy_observation WHERE id=1').fetchone()
-        if not old or old[0] != policy['revision']:
-            repos = sorted(policy['repositories']) if policy['state'] == 'READY' else []
-            db.execute('UPDATE gateway_control_devices SET repositories=? WHERE revoked=0 AND id IN '
-                       '(SELECT device_id FROM gateway_control_address_devices)', (encoded(repos),))
-        if old and old[0] != policy['revision']:
+        if old and old[0] == policy['revision']:
+            return policy
+        repos = sorted(policy['repositories']) if policy['state'] == 'READY' else []
+        db.execute('UPDATE gateway_control_devices SET repositories=? WHERE revoked=0 AND id IN '
+                   '(SELECT device_id FROM gateway_control_address_devices)', (encoded(repos),))
+        if old:
             row = db.execute('SELECT desired,effective,pending FROM gateway_control_settings WHERE id=1').fetchone()
             desired = dict(json.loads(row['desired']), validation_profile=policy['profile_id'])
             pending = [item for item in json.loads(row['pending']) if item['field'] != 'validation_profile']
@@ -579,7 +600,7 @@ class ControlStore:
         device = self.device(db, 'paired:' + row['device_id'])
         if not device:
             raise ControlError('access_revoked', 401)
-        db.execute('INSERT OR IGNORE INTO engineering_admission_settings VALUES (?,?,0)', ('paired:' + row['device_id'], int(quick)))
+        db.execute('INSERT OR IGNORE INTO engineering_admission_settings VALUES (?,?,0)', ('paired:' + row['device_id'], int(device['role'] == 'owner')))
         return {'token': token, 'installation_id': self.installation(db), 'principal_id': 'paired:' + row['device_id'],
                 'device_id': row['device_id'], 'role': row['role'], 'engineering_connection': quick}
 

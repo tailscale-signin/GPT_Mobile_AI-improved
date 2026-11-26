@@ -161,8 +161,6 @@ def install_control_settings(app, runtime, state, engineering, config):
                                      ('worker', 'running', 'engineering_worker')]:
             if key in checks and checks[key] != available:
                 prerequisites.append(label)
-        if checks.get('validation_policy') == 'missing':
-            prerequisites.append('validation_policy_for_implementation')
         if checks.get('draining'):
             prerequisites.append('runtime_draining')
         if not ready.get('ready') and not prerequisites:
@@ -170,7 +168,8 @@ def install_control_settings(app, runtime, state, engineering, config):
         return {'effective': dict(current), 'blocking_jobs': blocking_jobs(runtime, engineering),
                 'pending_work': pending_work(runtime, engineering), 'runtime': state.snapshot(),
                 'engineering_ready': ready.get('ready') is True and not prerequisites,
-                'engineering_prerequisites': prerequisites}
+                'engineering_prerequisites': prerequisites,
+                'implementation_prerequisites': ['validation_policy_for_implementation'] if checks.get('validation_policy') == 'missing' else []}
 
     @app.get('/gateway/admin/settings')
     async def get_settings():

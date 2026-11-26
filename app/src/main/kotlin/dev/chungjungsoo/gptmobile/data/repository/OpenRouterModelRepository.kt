@@ -1,7 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogSnapshotStore
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelItem
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelsResponse
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
@@ -13,7 +18,31 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 @Singleton
-class OpenRouterModelRepository @Inject constructor() {
+class OpenRouterModelRepository internal constructor(
+    private val snapshotStore: OpenRouterCatalogSnapshotStore? = null
+) {
+    @Inject constructor(@ApplicationContext context: Context) : this(
+        OpenRouterCatalogSnapshotStore(File(context.filesDir, "openrouter/public-capabilities-v1.json"))
+    )
+
+    private var restoredSnapshot = false
+
+    /** A missing picker/idle warmup must not turn a known public alias into an unknown 4K route. */
+    internal suspend fun prepareRequestLimits(provider: String, endpoint: String?, model: String, routing: String?, allowRefresh: Boolean): OpenRouterCatalogLimits.Limits? {
+        if (provider != "OPENROUTER" || !OpenRouterCatalogLimits.officialEndpoint(endpoint)) return null
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                if (!restoredSnapshot) {
+                    restoredSnapshot = true
+                    val now = System.currentTimeMillis()
+                    snapshotStore?.read(now)?.let { OpenRouterCatalogLimits.restore(it.models, it.observedAtMillis, now) }
+                }
+            }
+        }
+        OpenRouterCatalogLimits.forRequest(provider, endpoint, model, routing)?.let { return it }
+        if (allowRefresh) fetchModels()
+        return OpenRouterCatalogLimits.forRequest(provider, endpoint, model, routing)
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -36,6 +65,7 @@ class OpenRouterModelRepository @Inject constructor() {
         mutex.withLock {
             val now = System.nanoTime() / 1_000_000
             cachedModels?.takeIf { now - cachedAt in 0..(if (forceRefresh) 30_000 else 3_600_000) }?.let {
+                OpenRouterCatalogLimits.restore(it, sourceValidatedAt)
                 return@withLock Result.success(it)
             }
 
@@ -68,7 +98,9 @@ class OpenRouterModelRepository @Inject constructor() {
                     sourceValidatedAt = System.currentTimeMillis()
                     cachedAt = System.nanoTime() / 1_000_000
                     failedAt = Long.MIN_VALUE
-                    dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.remember(sorted)
+                    OpenRouterCatalogLimits.remember(sorted, sourceValidatedAt)
+                    // A cache write failure does not invalidate the fetched public metadata.
+                    runCatching { snapshotStore?.write(sorted, sourceValidatedAt) }
                     sorted
                 } finally {
                     connection.disconnect()
@@ -105,6 +137,6 @@ class OpenRouterModelRepository @Inject constructor() {
     }
 
     private companion object {
-        const val MODELS_URL = "https://openrouter.ai/api/v1/models"
+        const val MODELS_URL = OpenRouterCatalogSnapshotStore.PUBLIC_SOURCE
     }
 }

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
@@ -45,7 +46,7 @@ internal object ToolArgumentValidator {
                     "Use positive ordered start_line/end_line spanning at most 2000 lines; read longer logs in successive windows. "
             "github_watch_checks" ->
                 "Use github_ci action=runs with head_sha to discover a run_id, or github_pr action=list to discover a pr_number. " +
-                    "Supply an observed selector for the head to monitor. "
+                    "For all checks on an observed commit, pass all_checks=true and its exact commit_sha. "
             "github_context" ->
                 "For saved content use only the exact view_cursor from continuation_call. " +
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
@@ -74,6 +75,36 @@ internal object ToolArgumentValidator {
             "Declared fields: " + declared + if (choices.isBlank()) "" else ". Allowed choices: $choices"
     }
 
+    private fun watchSelectorRecovery(toolName: String, arguments: JsonObject): JsonObject? {
+        if (toolName.githubOperationFamily() != "github_watch_checks" ||
+            GitHubOperationArguments.wholeCommitWatch(arguments) ||
+            arguments.keys.any { it !in setOf("owner", "repo", "commit_sha", "wait_timeout_seconds", "follow_pr", "all_checks") } ||
+            ("owner" in arguments) != ("repo" in arguments) ||
+            listOf("owner", "repo").any { key -> key in arguments && (arguments[key] as? JsonPrimitive)?.takeIf { it.isString }?.content.isNullOrBlank() }
+        ) {
+            return null
+        }
+        val sha = arguments["commit_sha"]
+        if (sha != null && (sha as? JsonPrimitive)?.takeIf { it.isString }?.content?.matches(Regex("[a-fA-F0-9]{40}")) != true) return null
+        val operation = if (sha == null) "github_context" else "github_ci"
+        val related = operation + toolName.removePrefix("github_watch_checks")
+        val discovery = buildJsonObject {
+            arguments.filterKeys { it in setOf("owner", "repo", "commit_sha") }.forEach { (key, value) -> put(key, value) }
+            if (sha == null) {
+                put("action", "status")
+            } else {
+                put("action", "runs")
+                put("page", 1)
+                put("per_page", 100)
+            }
+        }
+        if (errors(discovery, GitHubOperationTool.definition(operation, related).inputSchema).isNotEmpty()) return null
+        return buildJsonObject {
+            put("tool", related)
+            put("arguments", discovery)
+        }
+    }
+
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
     fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null, catalog: ProgressiveToolCatalog? = null): AgentToolResult {
         val selectors = catalog?.singleActionSelectors(arguments).orEmpty()
@@ -91,6 +122,7 @@ internal object ToolArgumentValidator {
             selector?.field == "job_id" -> jobRead
             else -> discoveryCorrection(toolName, arguments, schema)
         }
+        val watchRecovery = watchSelectorRecovery(toolName, arguments)
         val rejected = AgentToolResult(
             callId,
             ToolResultContent.Json(
@@ -102,6 +134,7 @@ internal object ToolArgumentValidator {
                         "message",
                         when {
                             selectors.isNotEmpty() -> "$message Use each correction_calls entry once with a fresh call ID to inspect its local action schema."
+                            watchRecovery != null -> "$message Use recovery_call to discover the watch target in the selected repository."
                             correction != null -> "$message Use correction_call for the bounded read."
                             else -> message
                         }
@@ -124,6 +157,7 @@ internal object ToolArgumentValidator {
                             )
                         )
                     }
+                    watchRecovery?.let { put("recovery_call", it) }
                     if (selector != null) {
                         put("reason", receipt.getValue("reason_code"))
                         put(
@@ -189,7 +223,7 @@ internal object ToolArgumentValidator {
                     val ci = ciRejections.takeIf { toolName.githubOperationFamily() == "github_ci" }.orEmpty()
                         .filter { it.fields.isNotEmpty() && it.fields.all(declaredFields::contains) }
                     if (ci.isNotEmpty()) put("semantic_ci_rules", JsonArray(ci.map { it.rule.name }.distinct().sorted().map(::JsonPrimitive)))
-                    val missingWatchSelector = operation == "github_watch_checks" && "view_cursor" !in arguments && GitHubOperationArguments.watchSelectors.none(arguments::containsKey)
+                    val missingWatchSelector = operation == "github_watch_checks" && "view_cursor" !in arguments && GitHubOperationArguments.watchSelectors.none(arguments::containsKey) && !GitHubOperationArguments.wholeCommitWatch(arguments)
                     val watchFields = if (missingWatchSelector) GitHubOperationArguments.watchSelectors else emptyList()
                     val fields = (
                         unknownFields + nestedUnknown.filter { it in IssueReportIncidentCapsule.fieldNames } +

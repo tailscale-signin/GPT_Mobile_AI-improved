@@ -73,7 +73,7 @@ class GitHubSchemaAdmissionEvidenceTest {
             withGitHubSchemaAdmissionEvidence("profile", "model", null, capacity, 4096) { throw GitHubToolContextBudgetException(2481, 139, GitHubSchemaBudget(4096, 2485, 512, 256, 704)) }
         }
         val fields = requireNotNull(bound.providerFailure().failureDetails)
-        assertEquals(JsonPrimitive(4096), fields["admission_configured_context_tokens"])
+        assertEquals(JsonPrimitive(8192), fields["admission_configured_context_tokens"])
         assertEquals(JsonPrimitive(5632), fields["admission_route_context_tokens"])
         assertEquals(JsonPrimitive("DECLARED"), fields["admission_capacity_provenance"])
         assertEquals(JsonPrimitive(4096), fields["admission_capacity_tokens"])

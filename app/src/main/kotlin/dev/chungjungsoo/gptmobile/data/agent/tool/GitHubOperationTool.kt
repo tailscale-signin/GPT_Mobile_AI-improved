@@ -174,7 +174,7 @@ internal class GitHubOperationTool(
         // Repository normalization is for dispatch and must not rewrite the public
         // correction proposal or the call-bound diagnostic observation.
         if (operation in names && ToolArgumentValidator.errors(arguments, definition.inputSchema).isNotEmpty()) {
-            return watchSelectorRecovery(executeNormalized(callId, arguments), arguments)
+            return executeNormalized(callId, arguments)
         }
         if (operation == "github_search" &&
             backend is GitHubTool &&
@@ -236,42 +236,6 @@ internal class GitHubOperationTool(
             )
         )
         return searchValidationOwner?.capture(result, definition.name, arguments, definition.inputSchema) ?: result
-    }
-
-    private fun watchSelectorRecovery(rejected: AgentToolResult, arguments: JsonObject): AgentToolResult {
-        if (operation != "github_watch_checks" ||
-            !rejected.isError ||
-            arguments.keys.any { it !in setOf("owner", "repo", "commit_sha", "wait_timeout_seconds", "follow_pr") } ||
-            ("owner" in arguments) != ("repo" in arguments) ||
-            (arguments["commit_sha"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.matches(Regex("[a-fA-F0-9]{40}")) != true
-        ) {
-            return rejected
-        }
-        val ciName = relatedToolName("github_ci")
-        val discovery = buildJsonObject {
-            arguments.filterKeys { it in setOf("owner", "repo", "commit_sha") }.forEach { (key, value) -> put(key, value) }
-            put("action", "runs")
-            put("page", 1)
-            put("per_page", 100)
-        }
-        if (ToolArgumentValidator.errors(discovery, definition("github_ci", ciName).inputSchema).isNotEmpty()) return rejected
-        val body = (rejected.content as? ToolResultContent.Json)?.value as? JsonObject ?: return rejected
-        return rejected.copy(
-            content = ToolResultContent.Json(
-                JsonObject(
-                    body + buildJsonObject {
-                        put("message", "A watch needs an observed pr_number or run_id. Read the exact commit's runs with recovery_call, then select an observed run_id for the original watch request. No subscription was created.")
-                        put(
-                            "recovery_call",
-                            buildJsonObject {
-                                put("tool", ciName)
-                                put("arguments", discovery)
-                            }
-                        )
-                    }
-                )
-            )
-        )
     }
 
     private suspend fun executeNormalized(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1649,7 +1613,10 @@ internal class GitHubOperationTool(
                     properties["pr_number"] = field("integer")
                     properties["run_id"] = field("integer")
                     properties["run_attempt"] = integer(1, Int.MAX_VALUE, "Expected workflow attempt for a fixed run_id.")
-                    properties["commit_sha"] = field("string")
+                    properties["commit_sha"] = buildJsonObject {
+                        put("type", "string")
+                        put("pattern", "^[a-fA-F0-9]{40}$")
+                    }
                     properties["wait_timeout_seconds"] = integer(1, 30, "Bound initial reads and inline polling to this interval; returns observed outcomes without creating a background subscription. Omit for background watching.")
                 }
                 "github_release" -> {
@@ -1719,7 +1686,7 @@ internal class GitHubOperationTool(
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Copilot is off by default and requires global plugin and per-chat opt-in. copilot_create_task requires request_id,prompt,base_ref,expected_base_sha; the preview Agent tasks API requires Copilot Business or Enterprise and Agent tasks write permission. Native direct mode needs no Gateway; the selected Gateway can manage standalone continuation. copilot_task_status resumes by task_id/request_id or gateway_job_id on the original Gateway; copilot_tasks discovers remote tasks read-only. Never replay uncertain creation or switch owners. GitHub cloud work continues when the app closes; remote completion does not prove CI, exact-head acceptance or merge authority. Copilot Agent Merge: agent_merge_status reads enrollment; agent_merge_enable/update require current expected_head_sha and permitted allowed_actions; agent_merge_disable stops watching. Copilot credits are billed separately. No Agent Merge tool automatically merges a PR. Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Prefer headers for title/state/head/base only; context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions. threads returns observed thread IDs for resolve_thread/reopen_thread; follow pageInfo using after. edit_comment and edit_review_comment require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and does not prove a completed merge."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. For CI diagnosis, resolve and pin the selected head, then inspect completed failed runs at each run's latest attempt. Skipped notification workflows are not failed builds; a complete empty failure query is a valid finding. Discover workflows, then runs (100/page), then jobs using run_id. Runs filters use status; returned runs include conclusion. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations, with positive ordered line bounds spanning at most 2000 lines. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
-                "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. For whole-commit CI, pass all_checks=true and its observed commit_sha. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
+                "github_watch_checks" -> "Watch a PR by pr_number, a run by run_id, or all checks by all_checks=true with an exact commit_sha. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
                 "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {

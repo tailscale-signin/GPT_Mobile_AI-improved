@@ -6,11 +6,18 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** One caller-requested wait has a hard deadline; an unfinished check is a pending result. */
 internal object GitHubBoundedCheckWait {
     const val MAX_SECONDS = 30
+    fun hasObservation(result: JsonObject?): Boolean {
+        if (result == null || result["head_binding_verified"] != JsonPrimitive(true) || result["background_subscription"] != JsonPrimitive(false)) return false
+        return (result["observations"] as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true &&
+            (result["head_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}")) == true
+    }
+
     suspend fun await(
         seconds: Int,
         now: () -> Long = { System.nanoTime() / 1_000_000 },

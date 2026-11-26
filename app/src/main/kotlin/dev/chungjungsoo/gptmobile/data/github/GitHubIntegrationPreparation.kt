@@ -127,7 +127,7 @@ internal object GitHubIntegrationPreparation {
         "ISSUE_ID_REQUIRED" -> listOf("Issue number from an authorized issue inventory; PR numbers cannot substitute")
         "PULL_REQUEST_ID_REQUIRED" -> listOf("Pull request number from an authorized PR inventory", "Observed head SHA")
         "WORKFLOW_RUN_OR_JOB_REQUIRED" -> listOf("Run at the selected repository revision", "Observed executed job for logs or completed failed run for failure analysis")
-        "CHECK_SUBSCRIPTION_REQUIRED" -> listOf("Observed run/PR and exact head SHA", "Bounded inline observation or separately verified saved-chat subscription")
+        "CHECK_SUBSCRIPTION_REQUIRED" -> listOf("Observed PR, run, or exact commit SHA from the selected repository", "Bounded inline observation or separately verified saved-chat subscription")
         "RELEASE_OR_TAG_REQUIRED" -> listOf("Tag or release from the selected repository inventory")
         "REPOSITORY_INPUT_REQUIRED" -> listOf("Authorized repository/ref", "Observed immutable revision and source path")
         "GRAPH_INDEX_REQUIRED" -> listOf("Authorized graph status and index preparation for the selected immutable repository revision")

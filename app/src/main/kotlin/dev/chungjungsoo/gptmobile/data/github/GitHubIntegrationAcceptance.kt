@@ -25,7 +25,8 @@ internal object GitHubIntegrationAcceptance {
         receipts: Map<String, JsonObject>,
         tools: List<AgentToolDefinition>,
         runtime: JsonObject = GitHubRuntimeIdentity.current(),
-        fixturePreflight: JsonObject? = null
+        fixturePreflight: JsonObject? = null,
+        evaluatedCapabilities: JsonArray? = null
     ): JsonArray {
         val eligible = receipts.values.filter(::eligible)
         val catalog = GitHubAuthorizedCatalog.snapshot(receipts, tools)
@@ -148,7 +149,7 @@ internal object GitHubIntegrationAcceptance {
                         !applicationWork.containsMatchIn(requirement) &&
                         !deviceWork.containsMatchIn(requirement) -> {
                         proof = eligible
-                        GitHubTestChecklist.capabilitiesComplete(task, receipts, tools, fixturePreflight) to
+                        GitHubTestChecklist.capabilitiesComplete(task, receipts, tools, fixturePreflight, evaluatedCapabilities) to
                             "Every requested authorized API action needs its own qualifying receipt and required fixture cleanup. Catalog, traversal and device execution have separate coverage."
                     }
                     else -> false to "No matching execution predicate is available for this requirement; independent API observations do not establish device, application or implementation acceptance."

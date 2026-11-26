@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringDefaults
 import dev.chungjungsoo.gptmobile.data.github.GatewayKnownProfileStore
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
@@ -22,8 +23,8 @@ import kotlinx.coroutines.launch
 /** Process-scoped passive metadata. Android may stop this process; no periodic-work deadline is promised. */
 @Singleton
 internal class GatewayMenuMonitor internal constructor(source: Flow<List<GatewayMenuConnection>>, scope: CoroutineScope) {
-    @Inject constructor(settings: SettingRepository, repository: GatewayAvailabilityRepository, scopes: GatewayVerifiedScopeStore, knownProfiles: GatewayKnownProfileStore) :
-        this(gatewayMenuConnections(settings, repository, scopes, knownProfiles), CoroutineScope(SupervisorJob() + Dispatchers.IO))
+    @Inject constructor(settings: SettingRepository, repository: GatewayAvailabilityRepository, scopes: GatewayVerifiedScopeStore, knownProfiles: GatewayKnownProfileStore, engineering: GatewayEngineeringDefaults) :
+        this(gatewayMenuConnections(settings, repository, scopes, knownProfiles, engineering), CoroutineScope(SupervisorJob() + Dispatchers.IO))
 
     private val current = MutableStateFlow<List<GatewayMenuConnection>>(emptyList())
     val connections = current.asStateFlow()

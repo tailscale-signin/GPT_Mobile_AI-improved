@@ -255,10 +255,13 @@ data class ProfileFailureRecord(
                 recoveryDetails = if (claimCheckpoint) {
                     JsonObject(details.orEmpty().filterKeys { it in setOf("failed_stage", "review_stage", "recovery_action", "provider_wait_no_wait_reason", "provider_wait_decision_state", "provider_wait_scheduler_state", "provider_wait_persisted") })
                 } else {
-                    ProviderRecoveryFailure.retainedDetails(details)
-                        ?: ProviderWaitSchedulingResult.retainedNoWaitReason(details)?.let { reason ->
-                            JsonObject(mapOf("provider_wait_no_wait_reason" to JsonPrimitive(reason.name)))
-                        }
+                    val retained = ProviderRecoveryFailure.retainedDetails(details)
+                    val noWaitReason = ProviderWaitSchedulingResult.retainedNoWaitReason(details)
+                    if (retained != null || noWaitReason != null) {
+                        JsonObject(retained.orEmpty() + listOfNotNull(noWaitReason?.let { "provider_wait_no_wait_reason" to JsonPrimitive(it.name) }).toMap())
+                    } else {
+                        null
+                    }
                 },
                 engineeringRejection = if (errorCode.equals("ENGINEERING_STATE_OR_INPUT_CHANGED", ignoreCase = true)) GatewayInputRejectionDetails.retained(details) else null,
                 providerFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(details),

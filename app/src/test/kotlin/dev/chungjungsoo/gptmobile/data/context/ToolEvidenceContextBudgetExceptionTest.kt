@@ -151,6 +151,33 @@ class ToolEvidenceContextBudgetExceptionTest {
         assertSame(normalized, ToolEvidenceContextBudgetException.requireAllocation(normalized, Int.MAX_VALUE - 1, Int.MAX_VALUE))
     }
 
+    @Test fun recordedEmptyPullRequestReceiptFitsWithoutIncreasingTheContextCeiling() {
+        val old = ReplayAllowance.allocate(Int.MAX_VALUE, 3013, 2048, 4096)
+        assertEquals(53, old.replay)
+        val admitted = ReplayAllowance.forToolTurn(Int.MAX_VALUE, 3013, 2048, 4096)
+        assertEquals(4096, admitted.ceiling)
+        assertTrue(admitted.replay >= 128)
+        assertTrue(admitted.replay >= 108)
+        assertTrue(admitted.output >= 128)
+        assertTrue(admitted.output < old.output)
+        assertTrue(admitted.input.toLong() + admitted.safety + admitted.output + admitted.replay <= admitted.ceiling)
+        assertSame(admitted, ToolEvidenceContextBudgetException.requireAllocation(admitted, Int.MAX_VALUE, 2048, minimumReplayTokens = 128, minimumOutputTokens = 128))
+    }
+
+    @Test fun anUnusablePositiveEvidenceAllowanceIsRejectedBeforeToolExecution() {
+        val old = ReplayAllowance.allocate(4096, 3013, 2048, 4096)
+        assertThrows(ToolEvidenceContextBudgetException::class.java) {
+            ToolEvidenceContextBudgetException.requireAllocation(old, 4096, 2048, minimumReplayTokens = 128, minimumOutputTokens = 128)
+        }
+        for (prompt in listOf(4821, 5801, 8208, 8747)) {
+            val blocked = ReplayAllowance.forToolTurn(4096, prompt, 2048, 4096)
+            assertThrows(ToolEvidenceContextBudgetException::class.java) {
+                ToolEvidenceContextBudgetException.requireAllocation(blocked, 4096, 2048, minimumReplayTokens = 128, minimumOutputTokens = 128)
+            }
+            assertEquals(4096, blocked.ceiling)
+        }
+    }
+
     private fun reject(allocation: ReplayAllowance.Allocation, resolved: Int, requested: Int): ToolEvidenceContextBudgetException =
         assertThrows(ToolEvidenceContextBudgetException::class.java) {
             ToolEvidenceContextBudgetException.requireAllocation(allocation, resolved, requested)

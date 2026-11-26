@@ -9,7 +9,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -20,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -59,13 +57,12 @@ internal fun GatewayControlChatEntry(profile: PlatformV2, model: GatewayControlV
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(profile.name, style = MaterialTheme.typography.titleMedium)
-                    Text(if (admission.enabled) "Engineering on" else "Engineering off", style = MaterialTheme.typography.bodySmall)
+                    Text(if (admission.enabled) "Engineering on" else "New engineering jobs paused by owner", style = MaterialTheme.typography.bodySmall)
                 }
-                if (admission.principalId.startsWith("tailnet:")) {
-                    Switch(admission.enabled, onCheckedChange = { model.toggleDirect(profile) }, enabled = !busy)
-                }
+                OutlinedButton(onClick = { details = true }) { Text("Gateway settings") }
             }
         }
+        if (details) GatewayControlSettingsDialog(onDismiss = { details = false }, initialProfileUid = profile.uid, model = model)
         return
     }
     OutlinedCard(Modifier.fillMaxWidth()) {
@@ -73,20 +70,8 @@ internal fun GatewayControlChatEntry(profile: PlatformV2, model: GatewayControlV
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(profile.name.take(120), style = MaterialTheme.typography.titleMedium)
-                    Text("Gateway Engineering", style = MaterialTheme.typography.bodySmall)
+                    Text("Gateway engineering", style = MaterialTheme.typography.bodySmall)
                 }
-                Switch(
-                    checked = snapshot?.desired?.get("engineering_enabled") == JsonPrimitive(true),
-                    onCheckedChange = { enabled ->
-                        if (enabled && state?.engineeringBindingConfirmed != true) {
-                            confirmBinding = true
-                        } else if (snapshot != null) {
-                            model.apply(profile, snapshot.revision, JsonObject(mapOf("engineering_enabled" to JsonPrimitive(enabled))))
-                        }
-                    },
-                    enabled = state?.writable == true && !busy && snapshot?.writableFields?.contains("engineering_enabled") == true,
-                    modifier = Modifier.testTag("chat_gateway_owner_engineering")
-                )
             }
             Text(
                 when {

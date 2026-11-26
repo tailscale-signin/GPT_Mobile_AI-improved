@@ -11,7 +11,7 @@ internal class ToolEvidenceContextBudgetException private constructor(
     val code: String,
     val observation: Observation?
 ) : IllegalStateException(
-    "$code: This request needs positive reply and tool evidence allowances. " +
+    "$code: This request needs usable reply and exact tool evidence allowances. " +
         "Resolved context=$resolvedContextTokens; allowance=${allocation.ceiling}; input=${allocation.input}; " +
         "safety=${allocation.safety}; requested reply=$requestedOutputTokens; allocated reply=${allocation.output}; " +
         "tool evidence=${allocation.replay} tokens. " +
@@ -25,7 +25,7 @@ internal class ToolEvidenceContextBudgetException private constructor(
     val replay: Int get() = allocation.replay
     val capacityProvenance: CapacityProvenance =
         if (resolvedContextTokens in 1 until Int.MAX_VALUE) {
-            observation?.capacity?.takeIf { it.tokens == resolvedContextTokens }?.provenance ?: CapacityProvenance.UNKNOWN
+            observation?.planningProvenance ?: CapacityProvenance.UNKNOWN
         } else {
             CapacityProvenance.CONSERVATIVE_POLICY
         }
@@ -36,7 +36,8 @@ internal class ToolEvidenceContextBudgetException private constructor(
         val modelHash: String?,
         val configuredOutputTokens: Int?,
         val capacity: ProviderRouteCapacity.PrimaryContextDecision,
-        val planningContextTokens: Int
+        val planningContextTokens: Int,
+        val planningProvenance: CapacityProvenance = if (capacity.tokens == planningContextTokens) capacity.provenance else CapacityProvenance.UNKNOWN
     ) {
         internal fun matches(context: Int, allocation: ReplayAllowance.Allocation): Boolean =
             planningContextTokens == context &&
@@ -44,20 +45,22 @@ internal class ToolEvidenceContextBudgetException private constructor(
                 if (context < Int.MAX_VALUE) allocation.ceiling == context else allocation.ceiling in 0..4096
 
         companion object {
-            fun capture(profileUid: String, model: String, configuredOutputTokens: Int?, capacity: ProviderRouteCapacity.PrimaryContextDecision, planningContextTokens: Int) =
+            fun capture(profileUid: String, model: String, configuredOutputTokens: Int?, capacity: ProviderRouteCapacity.PrimaryContextDecision, planningContextTokens: Int, planningProvenance: CapacityProvenance? = null) =
                 Observation(
                     profileUid.takeIf(String::isNotBlank)?.let(::researchHash),
                     model.takeIf(String::isNotBlank)?.let(::researchHash),
                     configuredOutputTokens,
                     capacity,
-                    planningContextTokens
+                    planningContextTokens,
+                    planningProvenance ?: if (capacity.tokens == planningContextTokens) capacity.provenance else CapacityProvenance.UNKNOWN
                 )
         }
     }
 
     companion object {
-        fun requireAllocation(allocation: ReplayAllowance.Allocation, resolvedContextTokens: Int, requestedOutputTokens: Int, observation: Observation? = null): ReplayAllowance.Allocation {
-            if (allocation.output > 0 && allocation.replay > 0) return allocation
+        fun requireAllocation(allocation: ReplayAllowance.Allocation, resolvedContextTokens: Int, requestedOutputTokens: Int, observation: Observation? = null, minimumReplayTokens: Int = 1, minimumOutputTokens: Int = 1): ReplayAllowance.Allocation {
+            require(minimumReplayTokens > 0 && minimumOutputTokens > 0)
+            if (allocation.output >= minimumOutputTokens && allocation.replay >= minimumReplayTokens) return allocation
             val code = if (requestedOutputTokens <= 0) "OUTPUT_CAPACITY_EXCEEDED" else "CONTEXT_CAPACITY_EXCEEDED"
             throw ToolEvidenceContextBudgetException(allocation, resolvedContextTokens, requestedOutputTokens, code, observation?.takeIf { it.matches(resolvedContextTokens, allocation) })
         }

@@ -143,6 +143,40 @@ class GitHubCheckWatchConcurrencyTest {
         coVerify(exactly = 0) { fixture.dao.save(any()) }
     }
 
+    @Test fun commitOnlyWatchVerifiesTheRemoteObjectBeforeObservingAllChecks() = runBlocking {
+        var returnedHead = head
+        val paths = mutableListOf<String>()
+        val repository = fixture(
+            object : GitHubEngineeringApi({ "token" }) {
+                override suspend fun request(path: String, method: String, body: JSONObject?): String {
+                    paths += path
+                    return when (path) {
+                        "/repos/owner/repo/git/commits/$head" -> """{"sha":"$returnedHead"}"""
+                        "/repos/owner/repo/commits/$head/check-runs?per_page=100&page=1" -> """{"total_count":1,"check_runs":[{"id":1,"status":"completed","conclusion":"success"}]}"""
+                        "/repos/owner/repo/commits/$head/status?per_page=100" -> """{"total_count":0,"statuses":[]}"""
+                        else -> error("Unexpected request $path")
+                    }
+                }
+            },
+            temporary = true
+        ).repository
+        val arguments = buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repo")
+            put("commit_sha", head)
+            put("all_checks", true)
+            put("wait_timeout_seconds", 2)
+        }
+        val result = repository.subscribe("connection", "profile", 1, arguments)
+        assertEquals(JsonPrimitive("PASSED"), result["status"])
+        assertEquals(JsonPrimitive(head), result["head_sha"])
+        assertEquals(JsonPrimitive(false), result["background_subscription"])
+        returnedHead = "b".repeat(40)
+        paths.clear()
+        assertTrue(runCatching { repository.subscribe("connection", "profile", 1, arguments) }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(listOf("/repos/owner/repo/git/commits/$head"), paths)
+    }
+
     @Test fun temporaryChatBackgroundWatchReturnsAnActionableReasonBeforeNetworkAccess() = runBlocking {
         val fixture = fixture(api { error("Background watch must not send a request") }, temporary = true)
         val arguments = JsonObject(inlineArguments(1) - "wait_timeout_seconds")

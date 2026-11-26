@@ -101,7 +101,8 @@ object ChatRepositoryModule {
         reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository,
         gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore,
         privacyMode: PrivacyModeStore,
-        repositoryTaskContext: dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation
+        repositoryTaskContext: dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation,
+        modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -154,6 +155,7 @@ object ChatRepositoryModule {
         reasoningCapabilities = reasoningCapabilities,
         gitHubApprovalState = gitHubApprovalState,
         privacyMode = privacyMode,
-        repositoryTaskContext = repositoryTaskContext
+        repositoryTaskContext = repositoryTaskContext,
+        modelPreparation = modelPreparation
     )
 }

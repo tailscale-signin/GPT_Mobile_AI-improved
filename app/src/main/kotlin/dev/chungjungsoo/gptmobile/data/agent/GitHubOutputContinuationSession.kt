@@ -167,12 +167,8 @@ internal class GitHubOutputContinuationSession(
         var claimContinuation = restored != null &&
             handoff == null &&
             (restored["resume_kind"] == JsonPrimitive("OUTPUT_CONTINUATION") || restored["resume_kind"] == null && restored["state"] == JsonPrimitive("OUTPUT_LIMIT"))
-        var interruptedContinuation = restored != null && handoff == null && !claimContinuation && restored["state"] != JsonPrimitive("NO_OUTPUT_REPAIR")
-        var interruptionAttempts = if (previous?.get("recovery_revision") == JsonPrimitive(recoveryRevision)) {
-            (previous["interruption_attempts"] as? JsonPrimitive)?.intOrNull?.coerceIn(0, GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES) ?: 0
-        } else {
-            0
-        }
+        var interruptedContinuation = restored != null && GitHubRecoveryProgress.resumeCause(restored) == GitHubRecoveryProgress.Cause.TRANSPORT_INTERRUPTION
+        val recovery = GitHubRecoveryProgress(previous, recoveryRevision)
         val pendingApproval = dev.chungjungsoo.gptmobile.data.github.GitHubPendingApproval.waiting(exchanges)
         val unresolvedOutcome = exchanges.any { exchange -> exchange.results.any { result -> result.callId !in reconciled && (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes || result.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(true) || GatewayOutcomeRecovery.requiresReconciliation("", result.errorCode)) } }
         val receipts = continuationReceiptBoundary(previous, evidence.receipts, reconciled)
@@ -188,7 +184,7 @@ internal class GitHubOutputContinuationSession(
             evidenceDigest,
             providerEvidenceDigest,
             attempts,
-            interruptionAttempts,
+            recovery.checkpoint(state, failure, claimContinuation, noOutputProgress.visibleOutputRepairPending),
             receiptBoundary,
             settledCallIds,
             claimContinuation,
@@ -238,36 +234,25 @@ internal class GitHubOutputContinuationSession(
         while (true) {
             if (needsContinuation) {
                 if (noOutputProgress.visibleOutputRepairPending && reopenForVisibleOutput == null) {
-                    val failure = noOutputProgress.failure(draft)
+                    val failure = ProviderRecoveryFailure.withInterruption(noOutputProgress.failure(draft), currentCheckpoint)
                     save("BLOCKED_NO_PROGRESS", failure = failure)
                     emit(failure)
                     return@flow
                 }
                 if (noOutputProgress.visibleOutputRepairPending && noOutputProgress.visibleOutputRepairRequestClaimed) {
-                    val failure = noOutputProgress.claimedVisibleOutputFailure(draft)
+                    val failure = ProviderRecoveryFailure.withInterruption(noOutputProgress.claimedVisibleOutputFailure(draft), currentCheckpoint)
                     save("BLOCKED_NO_PROGRESS", failure = failure)
                     emit(failure)
                     return@flow
                 }
-                if (interruptedContinuation && interruptionAttempts >= GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES) {
-                    save("WAITING_FOR_CONNECTION", resumable = true)
-                    emit(
-                        ProviderEvent.Failed(
-                            "The bounded continuation attempt did not finish. Saved results remain available; resume after the connection or provider condition changes.",
-                            errorCode = "OUTPUT_CONTINUATION_UNAVAILABLE",
-                            taskOutcome = "PARTIAL",
-                            failureDetails = buildJsonObject {
-                                put("recovery_state", "WAITING_FOR_CONNECTION")
-                                put("resume_required", true)
-                                put("request_replay_allowed", false)
-                            }
-                        )
-                    )
+                if (interruptedContinuation && recovery.consecutiveTransportRecoveries >= GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES) {
+                    val failure = transportRecoveryExhausted(currentCheckpoint, recovery.consecutiveTransportRecoveries)
+                    save("WAITING_FOR_CONNECTION", resumable = true, failure = failure)
+                    emit(failure)
                     return@flow
                 }
                 if (claimContinuation && attempts >= maxContinuations) {
-                    save("OUTPUT_LIMIT")
-                    emit(
+                    val failure = ProviderRecoveryFailure.withInterruption(
                         ProviderEvent.Failed(
                             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED: The saved GitHub draft and operation receipts are retained after $attempts output-length continuation requests. Tool rounds have a separate allowance. Narrow the remaining request or increase the supported output capacity.",
                             errorCode = "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED",
@@ -283,12 +268,15 @@ internal class GitHubOutputContinuationSession(
                                 put("user_input_required", true)
                                 put("next_action", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST")
                             }
-                        )
+                        ),
+                        currentCheckpoint
                     )
+                    save("OUTPUT_LIMIT", resumable = false, failure = failure)
+                    emit(failure)
                     return@flow
                 }
                 if (claimContinuation) attempts++
-                if (interruptedContinuation) interruptionAttempts++
+                if (interruptedContinuation) recovery.claimTransportRecovery()
                 // Claim before dispatch so process death cannot replenish the allowance.
                 val repairingNoOutput = noOutputProgress.visibleOutputRepairPending || currentCheckpoint?.get("state") == JsonPrimitive("NO_OUTPUT_REPAIR")
                 save(
@@ -331,22 +319,27 @@ internal class GitHubOutputContinuationSession(
                     if (authorityFailure != null) throw authorityFailure
                     val original = dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, partialOutput = false)
                     val contextBlocked = error is IllegalArgumentException && error.message?.startsWith("CONTINUATION_CONTEXT_CAPACITY:") == true
-                    val failure = ProviderEvent.Failed(
-                        original?.message ?: if (contextBlocked) error.message.orEmpty() else "The saved GitHub draft could not be reopened. Draft and operation receipts remain available.",
-                        errorCode = original?.code ?: if (contextBlocked) "CONTEXT_CAPACITY_EXCEEDED" else "OUTPUT_CONTINUATION_UNAVAILABLE",
-                        taskOutcome = "PARTIAL",
-                        failureDetails = JsonObject(
-                            original?.failureDetails.orEmpty() + buildJsonObject {
-                                put("failed_stage", "final_synthesis")
-                                put("draft_retained", draft.isNotBlank())
-                                put("request_replay_allowed", false)
-                                put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
-                                if (contextBlocked) {
-                                    put("dispatched", false)
-                                    put("retryable", false)
+                    val failure = ProviderRecoveryFailure.withInterruption(
+                        ProviderEvent.Failed(
+                            original?.message ?: if (contextBlocked) error.message.orEmpty() else "The saved GitHub draft could not be reopened. Draft and operation receipts remain available.",
+                            errorCode = original?.code ?: if (contextBlocked) "CONTEXT_CAPACITY_EXCEEDED" else "OUTPUT_CONTINUATION_UNAVAILABLE",
+                            taskOutcome = "PARTIAL",
+                            failureDetails = JsonObject(
+                                original?.failureDetails.orEmpty() + buildJsonObject {
+                                    put("failed_stage", original?.failureDetails?.get("failed_stage") ?: JsonPrimitive("final_synthesis"))
+                                    put("recovery_stage", "final_synthesis")
+                                    put("draft_retained", draft.isNotBlank())
+                                    put("request_replay_allowed", false)
+                                    put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
+                                    if (contextBlocked) {
+                                        put("dispatched", false)
+                                        put("retryable", false)
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        ),
+                        currentCheckpoint,
+                        currentFailureIsCause = true
                     )
                     save("INTERRUPTED", resumable = true, failure = failure)
                     emit(failure)
@@ -370,7 +363,7 @@ internal class GitHubOutputContinuationSession(
             val calls = generated.calls
             val completed = generated.completed
             val finishReason = generated.finishReason
-            val failure = generated.failure
+            val failure = generated.failure?.let { if (it.invocationId == null && generated.invocationId != null) it.copy(invocationId = generated.invocationId) else it }
             val receivedToolResult = generated.receivedToolResult
             val novel = if (needsContinuation) continuationSuffix(draft, generated.text) else generated.text
             if (novel.isNotEmpty()) draftLineage.append(generated.lineage)
@@ -405,12 +398,13 @@ internal class GitHubOutputContinuationSession(
                     save("NO_OUTPUT_REPAIR", resumable = true)
                     continue
                 }
-                val noProgress = noOutputProgress.failure(draft)
+                val noProgress = ProviderRecoveryFailure.withInterruption(noOutputProgress.failure(draft), currentCheckpoint)
                 save("BLOCKED_NO_PROGRESS", failure = noProgress)
                 emit(noProgress)
                 return@flow
             }
             if (limited && safeBoundary && draft.isNotBlank() && novel.isNotBlank()) {
+                recovery.completedBoundary(toolHandoff = false)
                 needsContinuation = true
                 claimContinuation = true
                 interruptedContinuation = false
@@ -431,7 +425,7 @@ internal class GitHubOutputContinuationSession(
                     mayResumeText &&
                     binding?.matches(Regex("[a-f0-9]{64}")) == true
                 ) {
-                    if (interruptedContinuation) interruptionAttempts--
+                    recovery.providerWait(releaseTransportClaim = interruptedContinuation && limit.knownNotAccepted)
                     if (claimContinuation && limit.knownNotAccepted) attempts--
                     if (limit.knownNotAccepted) noOutputProgress.releaseRejectedVisibleOutputRequest()
                     val saved = save("WAITING_PROVIDER_LIMIT", resumable = true, failure = failure)
@@ -440,9 +434,10 @@ internal class GitHubOutputContinuationSession(
                     return@flow
                 }
                 if (!limited || !continuationPermitted) claimContinuation = false
-                save(if (limited && safeBoundary) "OUTPUT_LIMIT" else "INTERRUPTED", resumable = mayResumeText, failure = failure)
+                val interruption = failure ?: ProviderEvent.Failed("The GitHub draft did not reach a complete response boundary. Saved text and receipts remain available.", errorCode = if (limited) "OUTPUT_LIMIT" else "INCOMPLETE_PROVIDER_STREAM")
+                save(if (limited && safeBoundary) "OUTPUT_LIMIT" else "INTERRUPTED", resumable = mayResumeText, failure = interruption)
                 // Incomplete frames stay with the runner's protocol repair; no buffered call is dispatched.
-                emit(failure ?: ProviderEvent.Failed("The GitHub draft did not reach a complete response boundary. Saved text and receipts remain available.", errorCode = if (limited) "OUTPUT_LIMIT" else "INCOMPLETE_PROVIDER_STREAM"))
+                emit(interruption)
                 return@flow
             }
             if (needsContinuation && calls.isEmpty() && novel.isBlank()) {
@@ -452,11 +447,12 @@ internal class GitHubOutputContinuationSession(
                     outputTokens = generated.outputTokens, reasoningTokens = generated.reasoningTokens,
                     effectiveOutputTokens = generated.effectiveOutputTokens, serializedOutputTokens = generated.serializedOutputTokens
                 )
-                val noProgress = noOutputProgress.failure(draft)
+                val noProgress = ProviderRecoveryFailure.withInterruption(noOutputProgress.failure(draft), currentCheckpoint)
                 save("BLOCKED_NO_PROGRESS", failure = noProgress)
                 emit(noProgress)
                 return@flow
             }
+            recovery.completedBoundary(toolHandoff = calls.isNotEmpty())
             save(if (calls.isEmpty()) "COMPLETED" else "TOOL_HANDOFF", pendingCalls = calls)
             if (calls.isEmpty() && draft.isNotEmpty()) emit(ProviderEvent.TextDelta(draft, draftLineage.lineage))
             calls.forEach { emit(it) }
@@ -464,6 +460,27 @@ internal class GitHubOutputContinuationSession(
             return@flow
         }
     }
+
+    private fun transportRecoveryExhausted(checkpoint: JsonObject?, attempts: Int): ProviderEvent.Failed = ProviderRecoveryFailure.withInterruption(
+        ProviderEvent.Failed(
+            "The bounded connection recovery did not finish. Saved results remain available; resume after the connection changes.",
+            errorCode = "OUTPUT_CONTINUATION_UNAVAILABLE",
+            taskOutcome = "PARTIAL",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "final_synthesis")
+                put("failure_origin", "local_recovery")
+                put("recovery_state", "WAITING_FOR_CONNECTION")
+                put("stop_reason", "TRANSPORT_RECOVERY_LIMIT")
+                put("transport_recoveries_used", attempts)
+                put("transport_recovery_limit", GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES)
+                put("resume_required", true)
+                put("dispatched", false)
+                put("request_replay_allowed", false)
+                put("next_action", "RESTORE_CONNECTION_AND_RESUME")
+            }
+        ),
+        checkpoint
+    )
 
     /**
      * Keep the saved-tool reconciliation failure projection outside streamRound's
@@ -721,7 +738,7 @@ internal class GitHubOutputContinuationSession(
         evidenceDigest: String,
         providerEvidenceDigest: String,
         attempts: Int,
-        interruptionAttempts: Int,
+        recoveryProgress: JsonObject,
         receiptBoundary: JsonArray,
         settledCallIds: Set<String>,
         claimContinuation: Boolean,
@@ -733,17 +750,15 @@ internal class GitHubOutputContinuationSession(
             try {
                 bindWaitReceipts(receiptBoundary)
             } catch (error: ProviderRecoveryFailure) {
-                val interruption = failure?.errorCode?.let { code ->
-                    buildJsonObject {
-                        put("code", code)
-                        failure.failureDetails?.let { put("details", it) }
-                    }
-                }
+                val interruption = failure?.let(ProviderRecoveryFailure::interruptionFrom)
                 throw ProviderRecoveryFailure(error.code, error.original ?: interruption, error.correlation)
             }
         } else {
             null
         }
+        val interruption = failure?.let(ProviderRecoveryFailure::interruptionFrom)
+        val originalInterruption = currentCheckpoint?.let(ProviderRecoveryFailure::interruption) ?: interruption
+        val latestInterruption = interruption ?: currentCheckpoint?.let(ProviderRecoveryFailure::latestInterruption)
         val checkpoint = buildJsonObject {
             put("schema", "github.output-checkpoint.v1")
             put("evidence_digest", evidenceDigest)
@@ -753,7 +768,7 @@ internal class GitHubOutputContinuationSession(
             put("continuations", attempts)
             put("continuation_revision", continuationRevision)
             put("recovery_revision", recoveryRevision)
-            put("interruption_attempts", interruptionAttempts)
+            recoveryProgress.forEach { (key, value) -> put(key, value) }
             noOutputProgress.forEach { (key, value) -> put(key, value) }
             put("context", checkpointContext)
             put("completed_results", waitReceipts?.completed ?: receiptBoundary)
@@ -777,19 +792,24 @@ internal class GitHubOutputContinuationSession(
             put("tool_actions_replayed", false)
             put("draft_kind", if (text.isBlank()) "NO_VISIBLE_DRAFT" else "UNVERIFIED_VISIBLE_DRAFT")
             put("user_input_required", pendingApproval || failure?.failureDetails?.get("user_input_required") == JsonPrimitive(true))
-            currentCheckpoint?.let(ProviderRecoveryFailure::interruption)?.let { put("original_interruption", it) }
+            originalInterruption?.let { put("original_interruption", it) }
+            latestInterruption?.let { put("latest_interruption", it) }
             put(
                 "recovery_kind",
                 when {
                     state == "RECONCILIATION_REQUIRED" -> "UNKNOWN_REMOTE_OUTCOME"
                     state == "WAITING_PROVIDER_LIMIT" && failure?.failureDetails?.get("dispatch_state") == JsonPrimitive("PRECHECK_REJECTED") -> "LOCAL_PROVIDER_RETRY_REJECTED"
                     state == "WAITING_PROVIDER_LIMIT" && failure?.providerLimit?.knownNotAccepted == true -> "PROVIDER_REQUEST_REJECTED"
+                    state == "WAITING_FOR_CONNECTION" || failure?.let(GitHubTaskRecovery::isConnectionUnavailable) == true -> "TRANSPORT_INTERRUPTION"
                     claimContinuation -> "TRUNCATED_OUTPUT_CONTINUATION"
                     receiptBoundary.isNotEmpty() -> "RESUMED_TOOL_LOOP"
                     else -> "PROVIDER_REQUEST"
                 }
             )
-            if (state == "WAITING_PROVIDER_LIMIT") put("next_action", "WAIT_PROVIDER_DEADLINE")
+            if (state == "WAITING_PROVIDER_LIMIT") {
+                put("next_action", "WAIT_PROVIDER_DEADLINE")
+                failure?.providerLimit?.let { put("provider_retry_at_ms", it.retryAt) }
+            }
             if (state == "COMPLETED") put("next_action", "NONE")
             if (pendingApproval) put("blocking_condition", "WAITING_FOR_APPROVAL")
             if (pendingCalls.isNotEmpty()) {

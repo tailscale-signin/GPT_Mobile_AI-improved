@@ -26,7 +26,7 @@ internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     retrying -> "Retrying…"
     category == "WAITING_FOR_APPROVAL" -> "Waiting for approval"
     category == "ENDPOINT_RETIRED" -> "Endpoint retired"
-    category == "BILLING_UNAVAILABLE" -> "Provider credits unavailable"
+    category == "BILLING_UNAVAILABLE" -> "Provider allowance unavailable"
     category == "QUEUED_JOB" -> "Waiting for remote job"
     category == "CACHED_UNUSABLE_RESPONSE" -> "Cached answer unavailable"
     category == "HOSTED_GENERATION_FAILED" -> "Provider generation failed"
@@ -102,7 +102,7 @@ internal fun combinedProfileFailures(
     val retryAt = savedDeadline?.effectiveRetryAt ?: classified.retryAfterMillis
     val reason = when {
         classified.category == "ENDPOINT_RETIRED" -> "The provider retired this endpoint. Update the endpoint or model before starting a new turn."
-        classified.category == "BILLING_UNAVAILABLE" -> "The provider cannot generate with the current account balance. Restore credits before starting a new turn."
+        classified.category == "BILLING_UNAVAILABLE" -> PROVIDER_ALLOWANCE_GUIDANCE
         waitingForLimit -> "This profile is paused by a provider limit. Wait for its allowance or combine the available replies without this profile for this turn."
         waitingForApproval -> "This GitHub task is paused until you resolve its existing Approve & Commit card. Generic Continue is disabled while the approval is pending."
         run.status == AgentRunStatus.WAITING_REMOTE_JOB || classified.category == "QUEUED_JOB" -> "The remote job is still queued or generating. Check its saved status or continue without this profile."

@@ -247,6 +247,27 @@ class GatewayControlRepositoryTest {
         assertEquals(listOf("/gateway/pairing/claim", "/gateway/pairing/finish", "/gateway/settings", "/gateway/settings"), calls)
     }
 
+    @Test fun signedOwnerPairingBindsOnlyTheReportedInferenceAddress() = runTest {
+        val expires = System.currentTimeMillis() / 1000 + 120
+        val link = "gptmobile://gateway-control?endpoint=https%3A%2F%2F192.168.1.9%3A29444&installation_id=pc&fingerprint=${"a".repeat(64)}&code=${"b".repeat(43)}&expires=$expires"
+        coEvery { keys.publicKey(any()) } returns "key"
+        coEvery { transport.exchange(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            val body = when (arg<String>(6)) {
+                "/gateway/pairing/claim" -> """{"pairing_id":"approved","state":"approved","expires_at":$expires}"""
+                "/gateway/pairing/finish" -> """{"endpoint":"https://192.168.1.9:29444","installation_id":"pc","principal_id":"$principal","device_id":"${"d".repeat(32)}","role":"owner","token":"token","fingerprint":"${"a".repeat(64)}","gateway_port":8090}"""
+                "/gateway/settings" -> json.encodeToString(controlSnapshot(principal, 1))
+                else -> error("Unexpected pairing path")
+            }
+            GatewayControlResponse(200, body)
+        }
+        repository().pair(profile, link)
+        assertTrue(saved().engineeringBindingConfirmed)
+        for (other in listOf("http://192.168.1.8:8090/v1", "http://192.168.1.9:8080/v1")) {
+            repository().pair(profile.copy(apiUrl = other), link)
+            assertFalse(saved().engineeringBindingConfirmed)
+        }
+    }
+
     @Test fun aLostPairingClaimUsesTheRetainedCodeAndKeyAndShowsComparablePhoneFingerprint() = runTest {
         val publicKey = "phone-public-key-base64"
         val expires = System.currentTimeMillis() / 1000 + 300

@@ -333,7 +333,7 @@ class AgentRunner(
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
                 val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
-                val owedSchema = if ((limits.githubMode || limits.githubTask) && limits.contextTokens <= 4096 && pendingSavedPages.isNotEmpty()) {
+                val owedSchema = if ((limits.githubMode || limits.githubTask) && pendingSavedPages.isNotEmpty()) {
                     automaticRecovery?.owedPageSchema(pendingSavedPages, exposedDefinitions.filter { it.name in executableToolByName })
                 } else {
                     null

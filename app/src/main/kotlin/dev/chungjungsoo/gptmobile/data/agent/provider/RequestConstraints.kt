@@ -30,6 +30,7 @@ data class RequestConstraints(
     val requireGatewayConversation: Boolean = false,
     val freshResponse: Boolean = false,
     val contextCeiling: Int? = null,
+    val plannedContextCapacity: dev.chungjungsoo.gptmobile.data.context.PlannedContextCapacity? = null,
     val permissionRevision: String = "legacy-unverified",
     val requireKnownCapacity: Boolean = false,
     val finalResponseSchemaJson: String? = null,

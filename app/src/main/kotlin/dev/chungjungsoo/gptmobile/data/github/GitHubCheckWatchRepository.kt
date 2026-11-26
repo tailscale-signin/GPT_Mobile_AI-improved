@@ -249,13 +249,13 @@ class GitHubCheckWatchRepository @Inject constructor(
         val root = GitHubEngineeringApi.root(owner, repo)
         val pull = args["pr_number"]?.jsonPrimitive?.longOrNull
         val run = args["run_id"]?.jsonPrimitive?.longOrNull
-        require(pull != null || run != null) { "Supply pr_number or run_id." }
+        val allChecks = args["all_checks"] == JsonPrimitive(true)
+        val requestedHead = args["commit_sha"]?.jsonPrimitive?.contentOrNull
+        require(pull != null || run != null || allChecks) { "Supply pr_number, run_id, or all_checks=true with an exact commit_sha." }
+        require(!allChecks || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.wholeCommitWatch(args)) { "All-check monitoring requires an exact commit_sha." }
         require((pull == null || pull > 0) && (run == null || run > 0)) { "PR and workflow run IDs must be positive." }
         val connection = connections.getConnection(connectionUid)
             ?: throw GitHubReadValidation("PERMISSION_DENIED", buildJsonObject { put("message", "Reconnect GitHub before starting a check watch.") })
-        val allChecks = args["all_checks"] == JsonPrimitive(true)
-        val requestedHead = args["commit_sha"]?.jsonPrimitive?.contentOrNull
-        require(!allChecks || requestedHead?.matches(Regex("[a-fA-F0-9]{40}")) == true) { "All-check monitoring requires an exact commit_sha." }
         val target = if (allChecks) "all|$pull|${requestedHead?.lowercase()}" else "$pull|$run"
         val id = "github-checks:" + GitHubRepositoryStateStore.digest("$chatId|$connectionUid|$profileUid|$owner/$repo|$target")
         val follow = args["follow_pr"]?.jsonPrimitive?.booleanOrNull == true
@@ -281,8 +281,14 @@ class GitHubCheckWatchRepository @Inject constructor(
             require(run != null && expected != null && expected > 0 && attempt == expected) { "The observed workflow attempt changed. Refresh this run before subscribing." }
         }
         require(pullHead == null || runHead == null || pullHead == runHead) { "The workflow run belongs to a different PR revision." }
-        val head = (pullHead ?: runHead)?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
-            ?: throw GitHubReadValidation("GITHUB_EVIDENCE_REQUIRED", buildJsonObject { put("message", "GitHub did not return the head SHA for this check watch. Refresh the pull request or workflow run.") })
+        // A SHA-only watch needs an authenticated observation of this repository's commit.
+        val commitHead = if (pull == null && run == null) {
+            Json.parseToJsonElement(api.request("$root/git/commits/${requireNotNull(requestedHead)}")).jsonObject["sha"]?.jsonPrimitive?.contentOrNull
+        } else {
+            null
+        }
+        val head = (pullHead ?: runHead ?: commitHead)?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
+            ?: throw GitHubReadValidation("GITHUB_EVIDENCE_REQUIRED", buildJsonObject { put("message", "GitHub did not return the head SHA for this check watch. Refresh the commit, pull request or workflow run.") })
         args["commit_sha"]?.jsonPrimitive?.content?.let { expected ->
             require(expected.equals(head, true)) { "The PR or run head differs from commit_sha. Refresh the exact revision before subscribing." }
         }

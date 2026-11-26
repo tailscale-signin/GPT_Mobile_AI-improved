@@ -1,14 +1,49 @@
 package dev.chungjungsoo.gptmobile.data.delegation
 
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import java.nio.file.Files
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class WriterLoadReadinessTest {
+    @Test fun streamQuotaPauseSurvivesRestartAndAllowsAChangedCredentialOrAnExplicitRecheck() {
+        val directory = Files.createTempDirectory("writer-quota-test").toFile()
+        try {
+            val profile = PlatformV2(name = "writer", compatibleType = ClientType.OPENAI, token = "credential")
+            var now = System.currentTimeMillis()
+            val store = KnownWriterFailures(directory) { now }
+            val receipt = buildJsonObject {
+                put("http_status", 200)
+                put("provider_failure_kind", "BUDGET")
+                put("provider_budget_kind", "PROVIDER_QUOTA")
+            }
+            val event = ProviderEvent.Failed("No quota", errorCode = "BILLING_UNAVAILABLE", failureDetails = receipt)
+            store.observe(profile, event)
+            val restored = KnownWriterFailures(directory) { now }
+            val failure = requireNotNull(restored.blocked(profile))
+            assertEquals(200, failure.status)
+            assertEquals("insufficient_quota", failure.code)
+            assertNull(restored.blocked(profile.copy(token = "changed")))
+            restored.recheck(profile)
+            assertNull(store.blocked(profile))
+            store.observe(profile, event.copy(errorCode = "GATEWAY_OUTCOME_UNKNOWN"))
+            assertNull(store.blocked(profile))
+            store.observe(profile, event)
+            now += 299_999L
+            assertNotNull(restored.blocked(profile))
+            now++
+            assertNull(restored.blocked(profile))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun billingDenialSurvivesRestartWithAccountGuidanceAndExplicitRecheck() {
         val directory = Files.createTempDirectory("writer-billing-test").toFile()
         try {

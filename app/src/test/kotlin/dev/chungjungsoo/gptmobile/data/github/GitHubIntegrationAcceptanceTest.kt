@@ -493,6 +493,16 @@ class GitHubIntegrationAcceptanceTest {
         }
     }
 
+    @Test fun conditionalCiMutationDoesNotBlockVerifiedRequiredReads() {
+        val operations = listOf(tool("github_context", "status"), tool("github_ci", "cancel"))
+        val records = mapOf("source" to receipts().getValue("source"))
+        val request = "test all tools"
+        val rows = GitHubTestChecklist.rows(records, operations, request).filterIsInstance<JsonObject>()
+        assertEquals(JsonPrimitive(false), rows.single { it["id"] == JsonPrimitive("github_ci:cancel") }["required"])
+        assertTrue(GitHubTestChecklist.capabilitiesComplete(request, records, operations))
+        assertFalse(GitHubTestChecklist.capabilitiesComplete(request, emptyMap(), operations))
+    }
+
     @Test fun explicitlyRequestedInventoryRemainsAnAcceptanceBlocker() {
         val authorizedTools = tools.map { if (it.name == "github_context") tool(it.name, "status", "branches") else it }
         val records = inventoryReceipts(authorizedTools)

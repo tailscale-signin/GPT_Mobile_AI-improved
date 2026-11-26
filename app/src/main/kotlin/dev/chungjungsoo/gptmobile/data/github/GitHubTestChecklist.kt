@@ -611,7 +611,11 @@ internal object GitHubTestChecklist {
     }
 
     private fun readOnly(capability: Capability): Boolean {
-        val arguments = buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) }
+        val arguments = buildJsonObject {
+            if (capability.action.isNotBlank()) put("action", capability.action)
+            // The capability can be exercised with a bounded, subscription-free observation.
+            if (capability.tool == "github_watch_checks") put("wait_timeout_seconds", 1)
+        }
         return dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, arguments) ||
             dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isLocalGraphIndexing(capability.tool, arguments)
     }
@@ -685,7 +689,9 @@ internal object GitHubTestChecklist {
                     else -> "NOT_TESTED"
                 }
                 val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it, allTrusted) } == true
-                val incomplete = graphIncomplete || latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
+                val pending = latest?.takeIf { it["success"] == JsonPrimitive(true) }?.let(::data)
+                val observedPendingWatch = capability.tool == "github_watch_checks" && GitHubBoundedCheckWait.hasObservation(pending)
+                val incomplete = graphIncomplete || (pending?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS") && !observedPendingWatch)
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val unsupportedFixture = !readOnly(capability) && !GitHubSelfTestFixtures.supports(capability.tool, capability.action)
                 val ciActionWithoutRun = capability.tool == "github_ci" && capability.action in setOf("dispatch", "rerun", "cancel") && eligible.isEmpty() && observed.isEmpty()
@@ -721,7 +727,7 @@ internal object GitHubTestChecklist {
                     repositoryPrerequisites?.requiredInputs?.isNotEmpty() == true -> "Repository lifecycle prerequisites: " + repositoryPrerequisites.requiredInputs.joinToString("; ")
                     graphPrerequisites.isNotEmpty() -> "Graph prerequisite: $graphObservation. " + graphPrerequisites.joinToString("; ")
                     conditionalDecision -> "Conditional user-decision behavior has no genuine decision in this task. It remains untested; test it in the interaction harness."
-                    capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
+                    capability.tool == "github_watch_checks" -> "Requires an observed pull request, workflow run, or exact commit in the selected repository. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" && capability.action == "copilot_task_status" -> "Requires a task ID from the selected Copilot task inventory or a saved creation receipt."
@@ -840,7 +846,7 @@ internal object GitHubTestChecklist {
                     put("waiting_for_approval", waitingApproval)
                     put("requires_live_transport", liveRequired)
                     if (capability.tool == "github_watch_checks") {
-                        val inline = successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") != null }
+                        val inline = successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") != null && GitHubBoundedCheckWait.hasObservation(data(it)) }
                         put("bounded_inline_observation_verified", inline)
                         put("background_subscription_verified", successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") == null && data(it)?.get("subscription_id") is JsonPrimitive })
                     }
@@ -917,14 +923,16 @@ internal object GitHubTestChecklist {
     }
 
     /** Action coverage is one acceptance criterion, independent from build/device criteria. */
-    fun capabilitiesComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, fixturePreflight: JsonObject? = null): Boolean {
+    fun capabilitiesComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, fixturePreflight: JsonObject? = null, evaluatedCapabilities: JsonArray? = null): Boolean {
         if (tools.isEmpty()) return false
         if (GitHubAuthorizedCatalog.required(tools, receipts) && GitHubAuthorizedCatalog.snapshot(receipts, tools)["complete"] != JsonPrimitive(true)) return false
-        val mutations = catalog(tools).filter { !readOnly(it) && it.tool != "github_decide" && !GitHubChecklistScope.readOnly(task) && (!GitHubChecklistScope.supportedFixturePlan(task) || GitHubSelfTestFixtures.supports(it.tool, it.action)) }
+        val coverage = (evaluatedCapabilities ?: rows(receipts, tools, task, fixturePreflight)).filterIsInstance<JsonObject>().filter { it["required"] == JsonPrimitive(true) }
+        if (coverage.none { it.text("status") in setOf("PASSED", "RECOVERED") } || coverage.any { it.text("status") !in setOf("PASSED", "RECOVERED") }) return false
+        // Enforce fixture proof for the same required actions used by the acceptance ledger.
+        val requiredIds = coverage.mapTo(hashSetOf()) { it.text("id") }
+        val mutations = catalog(tools).filter { "${it.tool}:${it.action}" in requiredIds && !readOnly(it) }
         if (mutations.any { !GitHubSelfTestFixtures.supports(it.tool, it.action) }) return false
         if (mutations.isNotEmpty() && !GitHubSelfTestFixtures.complete(receipts)) return false
-        val coverage = rows(receipts, tools, task, fixturePreflight).filter { (it as JsonObject)["required"] != JsonPrimitive(false) }
-        if (coverage.none { (it as JsonObject).text("status") in setOf("PASSED", "RECOVERED") } || coverage.any { (it as JsonObject).text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }) return false
         if (GitHubChecklistScope.exhaustive(task) && (pendingPages(receipts).isNotEmpty() || inventoryCoverage(receipts).any { (it as JsonObject).text("coverage") != "retrieval complete at observation" })) return false
         if (workflowExecutions(receipts).any { (it as JsonObject)["execution_verified"] != JsonPrimitive(true) }) return false
         return true
@@ -1012,7 +1020,7 @@ internal object GitHubTestChecklist {
         put("omitted_unobserved_capability_count", catalog.cumulative.size - capabilities.size)
         put("catalog_count_scope", "Known catalog and historical observations; not a final authorized denominator or task acceptance count.")
         val requirements = if (integrationCoverage) {
-            GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight, evaluatedCapabilities = capabilities)
         } else {
             JsonArray(
                 GitHubRequestCompletion.requirements(task).map { requirement ->

@@ -174,7 +174,7 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
                             TextButton(onClick = { model.refresh(it, forceNetwork = true) }, enabled = !busy) { Text("Refresh settings") }
                         } else if (admission != null) {
                             Text("Connected", style = MaterialTheme.typography.titleMedium)
-                            Text(if (admission.enabled) "Engineering on" else "Engineering off")
+                            Text(if (admission.enabled) "Accept new engineering jobs" else "New engineering jobs paused")
                             if (admission.principalId.startsWith("tailnet:")) {
                                 Switch(admission.enabled, onCheckedChange = { _ -> model.toggleDirect(it) }, enabled = !busy)
                             }
@@ -327,8 +327,8 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Engineering", style = MaterialTheme.typography.titleMedium)
-                        Text("Run jobs for your connected repositories.", style = MaterialTheme.typography.bodySmall)
+                        Text("Accept new engineering jobs", style = MaterialTheme.typography.titleMedium)
+                        Text("On by default for connected repositories. Owners can pause new jobs here.", style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(desiredEngineering, onCheckedChange = { on ->
                         if (on && !state.engineeringBindingConfirmed) {

@@ -71,6 +71,25 @@ file; Repomix accepts one selected range per path inside its existing sandbox.
 
 GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The chat header keeps the branch visible alongside live progress, and its actions open repository files, checks, the map, task details or staged changes as they become available.
 
+A selected GitHub plugin in ordinary chat and the dedicated GitHub screen use
+the same request-scoped planning policy for repository work. For example,
+“Show PR #12” on either surface resolves to the selected connection and
+repository, advertises the matching read, and retains the observation for the
+answer. Unrelated conversation and account-level repository discovery have
+their own scope. If two connections could supply the requested repository,
+the app asks for a selection before dispatch.
+
+With an official GitHub MCP connection, the model chooses a read from that
+connection's advertised schemas. The deterministic first read and the native
+verification ledger use tools bound to the app's GitHub executor.
+
+| Stage | Runtime responsibility |
+| --- | --- |
+| Select the target | `GitHubTaskScope` resolves the request, connection, repository and branch from the explicit workspace or admitted native plugin. The dispatch guard checks current authorization. |
+| Prepare the turn | The profile's intelligence level determines reasoning effort. An exact record lookup uses its direct read. Engineering tasks select revision-bound source, dependencies and tests from the repository map within the route's available context. |
+| Execute | The progressive tool catalog selects schemas from the authorized inventory. The runner checks each call against its bound repository, available budget and approvals. A connected gateway can host the engineering job and retain its identity across reconnects. |
+| Verify and answer | The evidence book records tool results and outstanding acceptance criteria. Its next-action policy guides the next read or recovery. The final answer identifies what ran and which observations or prerequisites are still missing. |
+
 Fresh profiles use adaptive budgeting and task context, with evidence-based progress and next-action selection enabled. Saved overrides retain their settings. Direct requests for issues, pull requests, branches, commits, workflows, runs, releases and tags start with the matching read. Compound tasks use the broader engineering planner. Source caching and sharing with another model follow the connection and profile settings.
 
 Numbered follow-ups use the current workspace and the immediately preceding admitted read to resolve issue or pull-request references. Ambiguous numbers prompt for the record type. Requests for a previous report retain its original evidence scope. Source citations use the selected connection’s web origin, the checked revision, and the quoted line range.

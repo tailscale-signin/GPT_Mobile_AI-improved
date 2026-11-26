@@ -478,6 +478,7 @@ class AgentToolResolver @Inject constructor(
         // provenance wrappers as model-visible native operations.
         nativeGraphFallbacks.set(finalized.filter { it.nativeGitHub && it.realToolName == "github_context" })
         val catalogTask = githubCatalogTask(profileUid, scopedGitHubMessage(userMessage, chatToolConfig?.github), hasGitHubRepositoryContext)
+        val githubTaskScope = dev.chungjungsoo.gptmobile.data.agent.GitHubTaskScope.fromTools(userMessage?.content.orEmpty(), chatToolConfig?.github, finalized)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&
@@ -490,7 +491,7 @@ class AgentToolResolver @Inject constructor(
         }
         if (coldBindings.isEmpty()) {
             if (finalized.none { it.nativeGitHub }) return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform)
-            val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, githubMode = chatToolConfig?.github != null)
+            val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, githubMode = githubTaskScope.usesRepositoryIntelligence)
             return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
         }
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
@@ -574,7 +575,7 @@ class AgentToolResolver @Inject constructor(
             }
             dev.chungjungsoo.gptmobile.data.agent.GitHubToolInventory.recordDiscovered(userMessage?.chatId, chatToolConfig?.github, admitted)
             aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
-        }, acquisitionState = acquisitionState, githubMode = chatToolConfig?.github != null)
+        }, acquisitionState = acquisitionState, githubMode = githubTaskScope.usesRepositoryIntelligence)
         return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
     }
 

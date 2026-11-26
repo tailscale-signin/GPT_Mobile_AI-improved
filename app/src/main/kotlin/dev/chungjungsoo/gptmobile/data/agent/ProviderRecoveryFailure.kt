@@ -58,7 +58,7 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
         val CODES = setOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "PROVIDER_WAIT_OUTCOME_UNKNOWN", "PROVIDER_WAIT_TASK_CHANGED", "PROVIDER_WAIT_CHECKPOINT_INVALID", "PROVIDER_WAIT_INPUT_CHANGED", "PROVIDER_WAIT_PREFIX_CHANGED", "PROVIDER_WAIT_REVIEW_REQUIRED", "RESEARCH_RECOVERY_ACTION_CHANGED")
         private val CORRELATION_KEYS = setOf("checkpoint_binding", "checkpoint_digest", "resume_claim_id", "ownership_fence", "run_id", "observed_checkpoint_digest", "observed_checkpoint_state", "checkpoint_mismatch_reason", "expected_tool_journal_digest", "observed_tool_journal_digest", "expected_tool_evidence_digest", "observed_tool_evidence_digest", "tool_checkpoint_binding_sha256", "queued_tool_count", "unsettled_tool_count", "settled_tool_count", "checkpoint_validation_stage")
         val CHECKPOINT_MISMATCH_REASONS = setOf("MISSING_CHECKPOINT", "STATE_CHANGED", "RESUME_DISALLOWED", "DIGEST_CHANGED", "TASK_BINDING_CHANGED", "TOOL_BINDING_CHANGED", "EVIDENCE_DIGEST_INVALID", "TOOL_OUTCOME_UNKNOWN", "TOOL_RESULTS_PENDING", "TOOL_JOURNAL_CHANGED", "TOOL_RECEIPTS_CHANGED", "TOOL_REPLAY_PROJECTION_UNPROVEN", "TOOL_RESULT_SEMANTICS_UNPROVEN", "TOOL_RESULT_SEMANTICS_CHANGED", "TOOL_JOURNAL_CHANGED_DURING_RESTORE", "RECOVERY_OWNER_UNAVAILABLE", "CHECKPOINT_COMPARE_AND_SET_REJECTED")
-        val CHECKPOINT_STATES = setOf("WAITING_PROVIDER_LIMIT", "TOOL_RESULTS_READY", "TOOL_HANDOFF", "BLOCKED_RECOVERY", "COMPLETED", "PARTIAL", "FAILED", "GENERATING", "WRITING", "NO_OUTPUT_REPAIR", "OUTPUT_LIMIT", "INTERRUPTED", "BLOCKED_NO_PROGRESS", "UNKNOWN")
+        val CHECKPOINT_STATES = setOf("WAITING_PROVIDER_LIMIT", "WAITING_FOR_CONNECTION", "TOOL_RESULTS_READY", "TOOL_HANDOFF", "BLOCKED_RECOVERY", "COMPLETED", "PARTIAL", "FAILED", "GENERATING", "WRITING", "NO_OUTPUT_REPAIR", "OUTPUT_LIMIT", "INTERRUPTED", "BLOCKED_NO_PROGRESS", "UNKNOWN")
 
         fun checkpointCorrelation(expected: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint, observed: JsonObject?, reason: String? = null): JsonObject = buildJsonObject {
             correlation(expected, null, null, null).forEach { (key, value) -> put(key, value) }
@@ -90,29 +90,81 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
         /** Persist closed local facts, never an arbitrary exception or checkpoint body. */
         fun retainedDetails(details: JsonObject?): JsonObject? {
             if (details == null) return null
-            val code = (details["recovery_code"] as? JsonPrimitive)?.contentOrNull ?: return null
-            if (code !in CODES) return null
+            val code = (details["recovery_code"] as? JsonPrimitive)?.contentOrNull
+            // Continuation wrappers also carry historical interruption facts. They
+            // are observations, not a local recovery refusal or retry authority.
+            val interruptions = retainedInterruptions(details)
+            if (code !in CODES) return interruptions
             return buildJsonObject {
                 details.filterKeys { it in CORRELATION_KEYS || it in setOf("recovery_code", "failure_origin", "next_action", "attempt_dispatch_state", "dispatch_evidence_scope") }
                     .filterValues { it is JsonPrimitive && it.content.length <= 160 }.forEach { (key, value) -> put(key, value) }
-                retainedInterruption(details["original_interruption"] as? JsonObject)?.let { put("original_interruption", it) }
+                interruptions?.forEach { (key, value) -> put(key, value) }
             }
         }
+
+        fun retainedInterruptions(details: JsonObject?): JsonObject? = buildJsonObject {
+            for (key in listOf("original_interruption", "latest_interruption")) {
+                retainedInterruption(details?.get(key) as? JsonObject)?.takeIf { it.isNotEmpty() }?.let { put(key, it) }
+            }
+        }.takeIf { it.isNotEmpty() }
 
         fun retainedInterruption(original: JsonObject?): JsonObject? = original?.let {
             buildJsonObject {
                 (original["code"] as? JsonPrimitive)?.takeIf { it.content.length <= 96 }?.let { put("code", it) }
                 (original["details"] as? JsonObject)?.let { facts ->
-                    put("details", JsonObject(facts.filterKeys { it in setOf("code", "failed_stage", "http_status", "dispatched", "dispatch_state", "remote_acceptance", "retry_after_ms", "retry_at_ms", "retry_source", "consecutive_rejections", "invocation_id", "run_id") }.filterValues { it is JsonPrimitive && it.content.length <= 160 }))
+                    put("details", JsonObject(facts.filterKeys { it in setOf("code", "failed_stage", "http_status", "dispatched", "dispatch_state", "remote_acceptance", "retry_after_ms", "retry_at_ms", "retry_source", "consecutive_rejections", "invocation_id", "run_id", "provider_failure_kind", "provider_limit_source", "request_replay_allowed", "logical_continuation_allowed", "generation_completed", "retryable") }.filterValues { it is JsonPrimitive && it.content.length <= 160 }))
                 }
             }
         }
 
-        fun interruption(checkpoint: JsonObject): JsonObject? = (checkpoint["original_interruption"] as? JsonObject) ?: checkpoint["failure_code"]?.let { code ->
-            buildJsonObject {
-                put("code", code)
-                (checkpoint["failure_details"] as? JsonObject)?.let { put("details", it) }
+        fun interruption(checkpoint: JsonObject): JsonObject? = retainedInterruption(checkpoint["original_interruption"] as? JsonObject) ?: checkpointInterruption(checkpoint)
+
+        fun latestInterruption(checkpoint: JsonObject): JsonObject? = retainedInterruption(checkpoint["latest_interruption"] as? JsonObject) ?: checkpointInterruption(checkpoint) ?: interruption(checkpoint)
+
+        private fun checkpointInterruption(checkpoint: JsonObject): JsonObject? = checkpoint["failure_code"]?.let { code ->
+            retainedInterruption(
+                buildJsonObject {
+                    put("code", code)
+                    (checkpoint["failure_details"] as? JsonObject)?.let { put("details", it) }
+                }
+            )
+        }
+
+        /** Capture the physical invocation even when its adapter did not repeat it in details. */
+        fun interruptionFrom(failure: ProviderEvent.Failed): JsonObject? =
+            retainedInterruption(failure.failureDetails?.get("latest_interruption") as? JsonObject) ?: (failure.errorCode ?: failure.providerLimit?.httpStatus?.toString() ?: failure.providerLimit?.category)?.let { code ->
+                retainedInterruption(
+                    buildJsonObject {
+                        put("code", code)
+                        put(
+                            "details",
+                            buildJsonObject {
+                                failure.failureDetails?.forEach { (key, value) -> put(key, value) }
+                                failure.invocationId?.let { put("invocation_id", it) }
+                                failure.providerLimit?.let { limit ->
+                                    if (failure.failureDetails?.get("failed_stage") == null) put("failed_stage", "model_invocation")
+                                    put("retry_at_ms", limit.retryAt)
+                                    limit.httpStatus?.let { put("http_status", it) }
+                                    limit.retrySource?.let { put("retry_source", it) }
+                                    put("consecutive_rejections", limit.consecutiveRejections)
+                                }
+                            }
+                        )
+                    }
+                )
             }
+
+        /** A local terminal wrapper explains its own refusal without discarding the provider cause. */
+        fun withInterruption(failure: ProviderEvent.Failed, checkpoint: JsonObject?, currentFailureIsCause: Boolean = false): ProviderEvent.Failed {
+            val original = checkpoint?.let(::interruption) ?: return failure
+            val latest = if (currentFailureIsCause) interruptionFrom(failure) else latestInterruption(checkpoint)
+            return failure.copy(
+                failureDetails = buildJsonObject {
+                    failure.failureDetails?.forEach { (key, value) -> put(key, value) }
+                    put("original_interruption", original)
+                    latest?.let { put("latest_interruption", it) }
+                }
+            )
         }
 
         fun require(condition: Boolean, code: String, correlation: JsonObject = JsonObject(emptyMap())) {

@@ -36,6 +36,9 @@ internal object GitHubOperationArguments {
         )
     }
     val watchSelectors = listOf("pr_number", "run_id")
+    fun wholeCommitWatch(args: JsonObject): Boolean = args["all_checks"] == JsonPrimitive(true) &&
+        (args["commit_sha"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.matches(Regex("[a-fA-F0-9]{40}")) == true
+
     val readRangeFields = setOf("path", "start_line", "end_line", "max_lines", "start_offset")
 
     /** Advertise the same conditional prerequisites enforced before dispatch. */
@@ -46,11 +49,15 @@ internal object GitHubOperationArguments {
             else -> null
         }
         if (selectors != null) {
-            return JsonArray(
-                (selectors + "view_cursor").map { field ->
-                    buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive(field)))) }
-                }
-            )
+            val alternatives = (selectors + "view_cursor").map { field ->
+                buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive(field)))) }
+            }
+            if (operation != "github_watch_checks") return JsonArray(alternatives)
+            val wholeCommit = buildJsonObject {
+                put("required", JsonArray(listOf("all_checks", "commit_sha").map(::JsonPrimitive)))
+                put("properties", buildJsonObject { put("all_checks", buildJsonObject { put("const", true) }) })
+            }
+            return JsonArray(alternatives + wholeCommit)
         }
         val alternatives: List<Pair<List<String>, List<String>>> = when (operation) {
             "github_repository" -> listOf(
@@ -223,7 +230,10 @@ internal object GitHubOperationArguments {
                 positive("pr_number")
                 positive("run_id")
                 if ("commit_sha" in args && !text("commit_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "commit_sha must be the exact 40-character head to monitor"
-                if (watchSelectors.none(args::containsKey)) errors += "provide pr_number or run_id from PR or workflow discovery"
+                if (args["all_checks"] == JsonPrimitive(true) && !wholeCommitWatch(args)) errors += "all_checks requires the exact commit_sha"
+                if (watchSelectors.none(args::containsKey) && !wholeCommitWatch(args)) errors += "provide pr_number, run_id, or all_checks=true with the exact commit_sha"
+                if (args["follow_pr"] == JsonPrimitive(true) && ("pr_number" !in args || "run_id" in args)) errors += "follow_pr requires pr_number without a fixed run_id"
+                if ("run_attempt" in args && "run_id" !in args) errors += "run_attempt requires run_id"
                 if ("wait_timeout_seconds" in args && text("wait_timeout_seconds").toIntOrNull()?.let { it in 1..30 } != true) errors += "wait_timeout_seconds must be 1..30; omit it for the existing background subscription"
             }
             "github_read" -> {

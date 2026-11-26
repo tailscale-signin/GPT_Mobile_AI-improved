@@ -270,7 +270,10 @@ internal data class IssueReportContext(
                 ?.takeIf { it in reasonCodes || it in acceptanceReasonCodes || it in recoveryReasonCodes || it in GatewayInputRejectionDetails.reasonCodes || stage == "model_preparation" && it in IssueReportDiagnostics.modelPreparationReasonCodes || toolPrecheck && it in toolPrecheckReasonCodes }
             val engineering = reasonCode in GatewayInputRejectionDetails.reasonCodes
             val fieldNames = selectionFields + if (engineering) GatewayInputRejectionDetails.fieldNames else emptySet()
-            val original = (value("original_interruption") as? Map<*, *>)?.takeIf { localRecovery != null }
+            // Historical causes may accompany a continuation wrapper as well as
+            // a recovery refusal. These existing public fields never replace the
+            // current incident's stage, HTTP status, invocation or retry facts.
+            val original = value("original_interruption") as? Map<*, *>
             val originalDetails = original?.get("details") as? Map<*, *>
             val originalCode = when (val code = original?.get("code")) {
                 is String -> code.takeIf { it.length <= 96 }
@@ -314,7 +317,7 @@ internal data class IssueReportContext(
                     diagnostics?.schemaVersion == 3 -> 7
                     engineering || stage in admissionStages || diagnostics?.schemaVersion == 2 -> 6
                     diagnostics != null -> 5
-                    localRecovery != null || reasonCode in recoveryReasonCodes || reasonCode in toolPrecheckReasonCodes || recoveryAction in lifecycleRecoveryActions -> 4
+                    localRecovery != null || originalCode != null || originalStatus != null || reasonCode in recoveryReasonCodes || reasonCode in toolPrecheckReasonCodes || recoveryAction in lifecycleRecoveryActions -> 4
                     needsReviewContext(stage, recoveryAction) -> 3
                     acceptanceContext -> 2
                     else -> 1

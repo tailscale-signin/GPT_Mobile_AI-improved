@@ -110,6 +110,15 @@ class GitHubSelfTestReadsTest {
         assertEquals(null, GitHubSelfTestReads.next(listOf(watch), listOf(source, runs, observed)))
     }
 
+    @Test fun watchCanBeExercisedWithAnObservedCommitWhenTheRepositoryHasNoRuns() {
+        val head = "a".repeat(40)
+        val watch = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_watch_checks")
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$head"}}""")
+        val recipe = requireNotNull(GitHubSelfTestReads.next(listOf(watch), listOf(status)))
+        assertEquals(json("""{"all_checks":true,"commit_sha":"$head","wait_timeout_seconds":1}"""), recipe.arguments)
+        assertEquals(null, GitHubSelfTestReads.next(listOf(watch), listOf(json("""{"trusted":false,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$head"}}"""))))
+    }
+
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
     private fun tool(name: String, action: String) = AgentToolDefinition(name, action, json("""{"type":"object","properties":{"action":{"const":"$action"}}}"""))
 

@@ -250,7 +250,7 @@ fun AddPlatformScreen(
                             profileLabels = emptyList()
                             maxToolCallsText = if (clientType == ClientType.FREE) "50" else ""
                             showAdvancedSettings = false
-                            isReasoningEnabled = false
+                            isReasoningEnabled = clientType == ClientType.LLAMA
                             step = AddPlatformStep.DETAILS
                         }
                     )

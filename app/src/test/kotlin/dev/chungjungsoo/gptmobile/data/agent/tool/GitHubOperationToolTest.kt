@@ -1,11 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolRoundAdmission
 import dev.chungjungsoo.gptmobile.data.agent.captureProviderInvocation
@@ -684,6 +686,26 @@ class GitHubOperationToolTest {
         assertEquals("INVALID_ARGUMENTS", tool.execute("changed", JsonObject(cursor + changed)).errorCode)
         assertEquals("INVALID_ARGUMENTS", tool.execute("write", JsonObject(cursor + ("files" to JsonArray(emptyList())))).errorCode)
         assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun budgetedWatchAcceptsExactCommitAndRecoversAnUnboundTarget() = runBlocking {
+        val backend = Backend()
+        val name = "github_watch_checks__selected"
+        val bound = ToolExecutionBudget(AgentRunLimits()).bind(GitHubOperationTool("github_watch_checks", backend, "watch-by-commit", name))
+        val ownerRepo = args("""{"owner":"owner","repo":"repo"}""")
+        val rejected = bound.execute("no-target", ownerRepo)
+        assertFalse(rejected.dispatched)
+        val recipe = (rejected.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject
+        assertEquals(JsonPrimitive("github_context__selected"), recipe["tool"])
+        assertEquals(JsonObject(ownerRepo + ("action" to JsonPrimitive("status"))), recipe["arguments"])
+        assertTrue(backend.calls.isEmpty())
+
+        val head = "a".repeat(40)
+        val accepted = bound.execute("commit-watch", args("""{"owner":"owner","repo":"repo","all_checks":true,"commit_sha":"$head"}"""))
+        assertFalse(accepted.isError)
+        assertEquals(JsonPrimitive("watch_checks"), backend.calls.single()["action"])
+        assertEquals(JsonPrimitive(head), backend.calls.single()["commit_sha"])
+        assertEquals(null, backend.calls.single()["run_id"])
     }
 
     @Test fun invalidWatchIdentifiersAreRejectedBeforeBackendDispatch() = runBlocking {

@@ -27,6 +27,12 @@ object EngineeringAdaptivePolicy {
         }
     }
 
+    /** A task target can narrow a route budget, never supply missing provider capacity. */
+    internal fun forToolContext(config: EngineeringProfileSettings?, task: String, existing: TokenBudgetSettings, boundGitHubWorkspace: Boolean, requireExecution: Boolean = true, availableTools: Int = 0): TokenBudgetSettings {
+        val route = ReplayAllowance.conservativeToolPlanningBudget(existing, ReplayAllowance.needsConservativeToolReserve(boundGitHubWorkspace, requireExecution, availableTools))
+        return config?.let { budgets(it, task, route, boundGitHubWorkspace) } ?: route
+    }
+
     fun budgets(config: EngineeringProfileSettings, task: String, existing: TokenBudgetSettings, boundGitHubWorkspace: Boolean = false): TokenBudgetSettings {
         if (config.mode == EngineeringMode.OFF) return existing
         if (config.githubOnly && !boundGitHubWorkspace && !Regex("(?i)github|repository|\\brepo\\b|\\bcommit\\b|pull request|\\bci\\b").containsMatchIn(task)) return existing

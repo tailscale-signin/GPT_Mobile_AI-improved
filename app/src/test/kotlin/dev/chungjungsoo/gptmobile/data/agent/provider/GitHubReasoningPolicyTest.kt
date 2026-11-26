@@ -29,6 +29,30 @@ class GitHubReasoningPolicyTest {
         assertEquals(ReasoningMode.OFF, off.reasoningModeOverride)
     }
 
+    @Test fun automaticVisibleDeliveryOnlySelectsAnAdvertisedEffort() {
+        val advertised = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.Limits(
+            context = 1_048_576,
+            output = 131_072,
+            reasoningControlAdvertised = true,
+            reasoningEfforts = setOf("max", "high", "low", "none")
+        )
+        val repair = RequestConstraints(maxOutputTokens = 4096, maximizeReasoning = true).forRole(dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE)
+        assertTrue(GitHubReasoningPolicy.automaticVisibleDelivery(repair))
+        assertFalse(GitHubReasoningPolicy.automaticVisibleDelivery(repair.copy(reasoningModeOverride = ReasoningMode.ON)))
+        assertEquals("none", GitHubReasoningPolicy.visibleOutputEffort(repair, advertised.copy(reasoningMandatory = false)))
+        assertEquals("minimal", GitHubReasoningPolicy.visibleOutputEffort(repair, advertised.copy(reasoningMandatory = true, reasoningEfforts = setOf("none", "minimal", "low"))))
+        assertEquals("low", GitHubReasoningPolicy.visibleOutputEffort(repair, advertised))
+        assertEquals("low", GitHubReasoningPolicy.visibleOutputEffort(repair.copy(reasoningModeOverride = ReasoningMode.AUTO), advertised))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.copy(reasoningModeOverride = ReasoningMode.ON), advertised))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.copy(reasoningModeOverride = ReasoningMode.OFF), advertised))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.copy(allowReasoning = false), advertised))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair, null))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair, advertised.copy(reasoningEfforts = emptySet())))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair, advertised.copy(reasoningControlAdvertised = false)))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.forRole("primary"), advertised))
+        assertEquals(4096, repair.maxOutputTokens)
+    }
+
     @Test fun manualThinkingRecoveryLeavesVisibleRoomWithoutIncreasingTotalOutput() {
         val role = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
         for (output in listOf(2048, 4096, 6144, 8192, 16384)) {

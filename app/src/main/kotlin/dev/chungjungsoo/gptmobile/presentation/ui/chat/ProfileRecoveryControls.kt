@@ -16,6 +16,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import java.net.URI
 
+internal const val PROVIDER_ALLOWANCE_GUIDANCE = "Check this profile’s API quota and spending limits, or choose another profile. Other replies remain saved."
+
 internal enum class ProfileRecoveryKind {
     NONE,
     MODEL,
@@ -129,7 +131,7 @@ internal fun ProfileRecoveryActions(
                 if (qualified) TextButton(onClick = onRetry, enabled = enabled && state?.checking != true) { Text("Retry checked configuration") }
             }
             ProfileRecoveryKind.BILLING -> {
-                Text("Restore this profile’s provider credits, then start a new request. Other replies remain saved.", style = MaterialTheme.typography.bodySmall)
+                Text(PROVIDER_ALLOWANCE_GUIDANCE, style = MaterialTheme.typography.bodySmall)
                 if (canManageBilling) TextButton(onClick = onBilling, enabled = enabled) { Text("Manage billing for $profileName") }
                 TextButton(onClick = onSettings, enabled = enabled) { Text("Change settings for $profileName") }
             }

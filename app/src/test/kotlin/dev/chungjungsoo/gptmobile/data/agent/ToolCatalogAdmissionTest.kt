@@ -346,6 +346,31 @@ class ToolCatalogAdmissionTest {
         }
     }
 
+    @Test fun measuredHeadroomStagesExplicitOperationsAbove4096AndPreservesTheRecoveryReader() {
+        val operations = listOf("github_context", "github_pr", "github_issue")
+        val task = operations.joinToString(" then ") { "use tool $it" }
+        val tools = (operations + "read_recovery_context").map { name ->
+            val tool = object : AgentTool {
+                override val definition = AgentToolDefinition(name, "bounded operation ".repeat(if (name in operations) 140 else 8), buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject) = error("Planning must not dispatch")
+            }
+            ResolvedAgentTool(tool, null, "GitHub", name, name)
+        }
+        val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
+        for (capacity in listOf(5632, 8192)) {
+            val baseInput = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.maximumEstimatedPrompt(capacity.toLong() - 512) - 2350
+            val prompt = "r".repeat(baseInput.toInt() * 3)
+            val plan = planAuthorizedToolContext(turns, prompt, tools, TokenBudgetSettings(contextTokens = capacity, outputTokens = 512), true, githubMode = true)
+            assertEquals(operations.toSet(), plan.stagedGitHubOperations.toSet())
+            assertTrue(plan.tools.any { it.name == "read_recovery_context" })
+            assertTrue(plan.tools.any { it.name == ProgressiveToolCatalog.NAME })
+            assertTrue(plan.tools.any { it.name == operations.first() })
+            assertTrue(operations.all { name -> plan.authorizedTools.any { it.name == name } })
+            val replay = plan.promptTokens.toLong() + plan.toolResultBytes / 3
+            assertTrue(replay + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(replay) + 512 <= capacity)
+        }
+    }
+
     @Test fun defaultReplyReserveYieldsToRequiredSchemasWhileExplicitReserveStaysPinned() {
         val github = GitHubTool().operations().filter { it.definition.name in setOf("github_context", "github_pr") }
         val tools = github.map { ResolvedAgentTool(it, null, "GitHub", it.definition.name, it.definition.name) }

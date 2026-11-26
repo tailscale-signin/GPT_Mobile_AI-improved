@@ -9,7 +9,13 @@ internal object GitHubTaskRecovery {
     const val MAX_CONNECTION_RECOVERIES = 1
     private val connectionCodes = setOf("CONNECTION_ABORTED", "DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "NETWORK_TIMEOUT", "TRANSPORT_EOF", "STREAM_INTERRUPTED", "INCOMPLETE_PROVIDER_STREAM", "LOCAL_SERVICE_UNREACHABLE")
 
-    fun isConnectionUnavailable(failure: ProviderEvent.Failed): Boolean = failure.errorCode?.uppercase() in connectionCodes || isConnectionUnavailable(failure.message)
+    fun isConnectionUnavailable(failure: ProviderEvent.Failed): Boolean {
+        if (failure.providerLimit != null) return false
+        val code = failure.errorCode?.uppercase()
+        return code in connectionCodes ||
+            (code == null || code in setOf("CONNECTION", "NETWORK", "PROVIDER_INVOCATION_FAILED", "UNCLASSIFIED_PROVIDER_FAILURE")) &&
+            isConnectionUnavailable(failure.message)
+    }
 
     /** Permission to continue saved work is independent from permission to repeat its HTTP request. */
     fun delayMillis(failure: ProviderEvent.Failed, recoveries: Int, hasUnknownOutcome: Boolean = false): Long? {

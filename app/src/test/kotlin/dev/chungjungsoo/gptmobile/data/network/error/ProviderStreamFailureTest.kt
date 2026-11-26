@@ -120,6 +120,8 @@ class ProviderStreamFailureTest {
         val emitted = OpenAIResponsesEventAssembler().accept(event).single() as ProviderEvent.Failed
         assertEquals("BILLING_UNAVAILABLE", emitted.errorCode)
         assertFalse(emitted.message.contains("private"))
+        assertTrue(emitted.message.contains("insufficient API quota"))
+        assertEquals(JsonPrimitive("PROVIDER_QUOTA"), emitted.failureDetails?.get("provider_budget_kind"))
         assertEquals(ProviderFailureKind.BUDGET, ProviderFailure.parse(429, """{"error":{"code":"insufficient_quota"}}""").kind)
         assertFalse(ProfileFailureRecord.classify("You have no credits remaining").retryAllowed)
     }

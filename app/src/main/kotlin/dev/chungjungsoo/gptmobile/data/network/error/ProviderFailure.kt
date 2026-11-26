@@ -55,7 +55,11 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
             val rawCode = code?.lowercase(java.util.Locale.ROOT)
             val rawType = type?.lowercase(java.util.Locale.ROOT)
             val semanticCodes = setOfNotNull(rawCode, rawType)
-            val budget = ProviderBudgetEvidence.from(metadata)
+            val budget = if ("insufficient_quota" in semanticCodes && metadata?.containsKey("limit_source") != true && metadata?.containsKey("reason") != true) {
+                ProviderBudgetEvidence(ProviderBudgetKind.PROVIDER_QUOTA)
+            } else {
+                ProviderBudgetEvidence.from(metadata)
+            }
             val kind = when {
                 semanticCodes.any { it in setOf("content_policy_violation", "content_filter", "safety_blocked") } -> ProviderFailureKind.CONTENT_POLICY
                 semanticCodes.any { it in BUDGET_CODES } || status == 402 || budget.limitSource != null || budgetMessage.containsMatchIn(message.orEmpty().take(4096)) -> ProviderFailureKind.BUDGET

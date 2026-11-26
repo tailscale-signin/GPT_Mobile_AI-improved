@@ -1216,7 +1216,7 @@ class ChatViewModelStartupTest {
         model.retryChat(0, 0)
         verify(exactly = 0) { coordinator.start(any()) }
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
-        assertTrue(model.attachmentNotice.value.orEmpty().contains("provider credits"))
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("API quota"))
         assertEquals("A complete useful response.", model.groupedMessages.value.assistantMessages.single()[1].content)
     }
 

@@ -7,6 +7,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechBufferTest {
+    @Test fun bufferedAudioLetsAClauseFinishAndLowReserveReleasesWords() {
+        var clock = 0L
+        val buffer = VoiceSpeechBuffer { clock }
+        val healthy = VoiceSynthesisFeedback(bufferedAudioMs = 1600)
+        val low = healthy.copy(bufferedAudioMs = 160)
+        val greeting = "Ready. "
+        fun append(tail: String, feedback: VoiceSynthesisFeedback) =
+            requireNotNull(buffer.append(greeting + tail, false, earlyStart = true, feedback = feedback, adaptive = true))
+        assertEquals(listOf(greeting), append("", healthy))
+        assertTrue(append("Listen to ", healthy).isEmpty())
+        clock += 550L
+        assertTrue(append("Listen to ", healthy).isEmpty())
+        assertEquals(450L, buffer.nextFlushDelayMs(healthy))
+        assertEquals(0L, buffer.nextFlushDelayMs(low))
+        assertEquals(listOf("Listen to "), append("Listen to ", low))
+        assertEquals(listOf("that sound."), buffer.append(greeting + "Listen to that sound.", true))
+    }
+
+    @Test fun streamedInitialsAndAbbreviationsStayWithTheirReferentAndQuotedSentencesStartPromptly() {
+        for (term in listOf("J. R. Tolkien", "U.S. cinema", "e.g. lighting", "Fig. 2")) {
+            var clock = 0L
+            val buffer = VoiceSpeechBuffer(now = { clock }, preserveLiteralTerms = true)
+            val reply = "Consider $term before deciding."
+            val spoken = mutableListOf<String>()
+            for (i in 1..reply.length) {
+                clock += 130
+                spoken += requireNotNull(buffer.append(reply.take(i), false, earlyStart = true, adaptive = true))
+            }
+            spoken += requireNotNull(buffer.append(reply, true))
+            assertEquals(reply, spoken.joinToString(""))
+            assertTrue("Split $term across $spoken", spoken.any { term in it })
+        }
+        for (quote in listOf("“Go!” ", "‘Yes.’ ", "«Oui…» ", "(Ready?) ")) {
+            assertEquals(listOf(quote), VoiceSpeechBuffer(preserveLiteralTerms = true).append(quote + "Next", false, earlyStart = true))
+        }
+    }
+
     @Test fun adaptiveDeadlineStartsAtTheFirstStableWordAndSchedulesOnlyUsefulWork() {
         var now = 20L
         val buffer = VoiceSpeechBuffer { now }

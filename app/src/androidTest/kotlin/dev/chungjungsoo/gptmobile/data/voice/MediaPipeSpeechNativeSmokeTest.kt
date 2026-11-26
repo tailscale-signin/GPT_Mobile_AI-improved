@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import android.app.Instrumentation
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
@@ -9,6 +11,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.google.mediapipe.tasks.audio.texttospeech.AudioChunk
 import com.google.mediapipe.tasks.core.Delegate
 import java.io.File
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CopyOnWriteArrayList
@@ -16,6 +19,13 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -176,11 +186,111 @@ class MediaPipeSpeechNativeSmokeTest {
         } finally {
             // If native retirement fails, preserve its files rather than unlink mapped data.
             engine.close()
-            check(directory.deleteRecursively()) { "Could not remove the native smoke checkpoint/cache." }
+            try {
+                if (backend == VoiceSpeechBackend.LITERT_KOKORO_CPU) {
+                    evidence?.put("application_playback", observeKokoroPlayback(instrumentation, descriptor, model))
+                }
+            } finally {
+                check(directory.deleteRecursively()) { "Could not remove the native smoke checkpoint/cache." }
+            }
         }
         val completedEvidence = checkNotNull(evidence)
         evidenceFile.writeText(completedEvidence.toString(2))
         instrumentation.sendStatus(2, Bundle().apply { putString("mediapipe_smoke_evidence", completedEvidence.toString()) })
+    }
+
+    private fun observeKokoroPlayback(instrumentation: Instrumentation, descriptor: MediaPipeSpeechModel, model: File): JSONObject {
+        val context = instrumentation.targetContext
+        val root = Files.createTempDirectory(context.cacheDir.toPath(), "kokoro-playback-").toFile()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val models = MediaPipeSpeechModelStore(File(root, "models"), File(root, "cache"), scope, listOf(descriptor)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String): LocalVoiceAssetStream {
+                    check(url == descriptor.downloadUrl)
+                    return LocalVoiceAssetStream(model.inputStream(), model.length())
+                }
+                override fun cancel() = Unit
+            }
+        }
+        val started = AtomicLong()
+        val written = AtomicLong(-1)
+        val presented = AtomicLong(-1)
+        val basis = AtomicReference<String>()
+        val observer = object : VoicePlaybackMeasurementObserver {
+            override fun firstAudioTrackWrite() {
+                written.compareAndSet(-1, SystemClock.elapsedRealtime() - started.get())
+            }
+            override fun firstPresented(clockBasis: String, route: String) {
+                basis.set(clockBasis)
+                presented.compareAndSet(-1, SystemClock.elapsedRealtime() - started.get())
+            }
+        }
+        val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        val output = KokoroVoiceOutput(context, KokoroModelPack.store(File(root, "native")), { attributes }, { 1f }, measurements = observer)
+        val firstCaption = AtomicBoolean()
+        val lastCaption = AtomicBoolean()
+        val appendedAfterPresentation = AtomicBoolean()
+        val done = CountDownLatch(1)
+        val failure = AtomicReference<String>()
+        val voice = KokoroVoice.HEART
+        val observed = AtomicReference<ObservedNativeTask>()
+        val ending = "The next word arrives."
+        val factory = MediaPipeVoicePhraseEngineFactory(models, descriptor.engine, VoiceSpeechBackend.LITERT_KOKORO_CPU, 1f, voice.streamingVoiceId) {
+            ObservedNativeTask(AndroidMediaPipeSpeechTask(it)).also(observed::set)
+        }
+        var activity: android.app.Activity? = null
+        try {
+            runBlocking { models.install(descriptor.engine) }
+            check(models.isReady(descriptor.engine))
+            // API 35+ grants audio focus to a foreground app. Start its real launcher activity.
+            activity = instrumentation.startActivitySync(checkNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName)))
+            instrumentation.runOnMainSync {
+                output.configureEngine(factory)
+                output.configurePronunciation(mapOf("GPU" to "graphics processor"))
+                lateinit var reply: VoiceReplyPlayback
+                output.bindPlaybackStarted {
+                    appendedAfterPresentation.set(presented.get() >= 0)
+                    reply.enqueue(ending)
+                    reply.finish()
+                }
+                output.bindSpokenRange { segment, _, range ->
+                    if (segment == 0 && range == 0..2) firstCaption.set(true)
+                    if (segment == 1 && ending.lastIndex - 1 in range) lastCaption.set(true)
+                }
+                started.set(SystemClock.elapsedRealtime())
+                reply = checkNotNull(output.openReply(voice, done::countDown) { reason, _ ->
+                    failure.set(reason)
+                    done.countDown()
+                })
+                reply.enqueue("GPU is ready.")
+            }
+            check(done.await(60, TimeUnit.SECONDS)) { "Android streaming playback did not drain." }
+            check(failure.get() == null) { "Android streaming playback failed: ${failure.get()}" }
+            val trace = checkNotNull(observed.get()?.latestInput)
+            check(trace.pushedText.joinToString("").contains("graphics processor")) { "The saved pronunciation did not reach the SDK." }
+            check(trace.finishCalls.get() == 1 && trace.closed.get())
+            check(written.get() in 0..presented.get() && appendedAfterPresentation.get())
+            check(firstCaption.get() && lastCaption.get()) { "Playback did not present both original caption ranges." }
+            return JSONObject()
+                .put("voice_id", voice.streamingVoiceId)
+                .put("speaking_rate", 1f.toDouble())
+                .put("first_audio_track_write_ms", written.get())
+                .put("first_presented_audio_ms", presented.get())
+                .put("clock_basis", basis.get())
+                .put("presented_before_last_text", appendedAfterPresentation.get())
+                .put("pronunciation_reached_sdk", true)
+                .put("source_caption_ranges_presented", firstCaption.get() && lastCaption.get())
+                .put("finish_input_calls", trace.finishCalls.get())
+                .put("stream_closed", trace.closed.get())
+        } finally {
+            instrumentation.runOnMainSync {
+                output.close()
+                activity?.finish()
+            }
+            scope.cancel()
+            check(output.awaitClosed(15_000)) { "The application playback owner did not retire." }
+            check(root.deleteRecursively())
+        }
     }
 
     private fun cancelNativeStream(task: MediaPipeSpeechTask, voiceId: String, afterFirstChunk: Boolean, incremental: Boolean = false): String {

@@ -9,6 +9,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSynthesisPerformanceTest {
+    @Test fun incrementalFollowupsUsePcmHeadroomBeforeEndOfInput() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        assertEquals(6, policy.phraseWords(0))
+        policy.beginStream()
+        policy.observeStreamDelivery(350, 24000)
+        assertEquals(6, policy.phraseWords(450))
+        assertEquals(12, policy.phraseWords(900))
+        assertEquals(16, policy.phraseWords(1400))
+        policy.observeStreamDelivery(1200, 24000)
+        assertEquals(6, policy.phraseWords(1400))
+        policy.endStream(0)
+    }
+
     @Test fun aSlowNativePhraseDoesNotHoldFiveSecondsOfReadyPcmUntilTheDeadline() {
         val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
         assertNull(policy.nativeReserveExit(5_425, 5_700, 0, 0))

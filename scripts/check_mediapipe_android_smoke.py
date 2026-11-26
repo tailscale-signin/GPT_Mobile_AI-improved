@@ -107,6 +107,19 @@ def check_receipt(receipt, engine, run_id):
         require(type(receipt.get(key)) is int and 0 <= receipt[key] <= 300_000, f"Missing bounded native timing: {key}")
     for key in ("cancel_before_first_read", "cancel_after_first_chunk"):
         require(isinstance(receipt.get(key), str) and receipt[key] in {"native_cancelled", "end_of_stream"}, f"Native cancellation did not complete: {key}")
+    if engine == "kokoro":
+        playback = receipt.get("application_playback")
+        require(isinstance(playback, dict), "Missing actual application streaming playback")
+        for key, expected in {
+            "voice_id": "af_heart", "finish_input_calls": 1, "presented_before_last_text": True,
+            "pronunciation_reached_sdk": True, "source_caption_ranges_presented": True, "stream_closed": True,
+        }.items():
+            require(type(playback.get(key)) is type(expected) and playback[key] == expected, f"Application playback mismatch: {key}")
+        require(type(playback.get("speaking_rate")) in (int, float) and playback["speaking_rate"] == 1.0, "Expected normal-rate Kokoro playback")
+        written = playback.get("first_audio_track_write_ms")
+        presented = playback.get("first_presented_audio_ms")
+        require(type(written) is int and type(presented) is int and 0 <= written <= presented <= 60_000, "Missing ordered Android output timing")
+        require(playback.get("clock_basis") in ("audio_timestamp", "playback_head"), "Missing AudioTrack presentation clock")
     for key in ("incremental_stream", "incremental_stream_after_cancellation"):
         check_incremental_stream(receipt.get(key), key)
     before = receipt.get("incremental_cancel_before_first_read")

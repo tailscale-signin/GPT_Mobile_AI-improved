@@ -63,9 +63,9 @@ class AndroidVoiceAudio internal constructor(
     private var playbackStarted: (() -> Unit)? = null
     private var spokenRange: ((Int, String, IntRange) -> Unit)? = null
 
-    @Volatile private var pronunciations: Map<String, String> = emptyMap()
+    @Volatile private var pronunciations = VoicePronunciationDictionary.EMPTY
     override fun configurePronunciation(overrides: Map<String, String>) {
-        pronunciations = VoicePronunciationOverrides.clean(overrides)
+        pronunciations = VoicePronunciationDictionary(overrides)
     }
     override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
         spokenRange = spoken
@@ -567,10 +567,12 @@ class AndroidVoiceAudio internal constructor(
     override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) =
         speak(text, allowOnlineSpeech, complete, error)
 
-    internal fun speakOffline(text: String, complete: () -> Unit, error: (String) -> Unit) =
-        speak(text, false, complete, error)
+    internal fun captureOfflineSpeech(): VoiceOfflineSpeech {
+        val dictionary = pronunciations
+        return { text, complete, error -> speak(text, false, complete, error, dictionary) }
+    }
 
-    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit) {
+    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit, pronunciation: VoicePronunciationDictionary = pronunciations) {
         val privacy = conversationPrivacy()
         stop()
         if (closed) return
@@ -578,7 +580,6 @@ class AndroidVoiceAudio internal constructor(
         val observations = diagnosticProbe
         val audioStarted = playbackStarted
         val rangeObserver = spokenRange
-        val pronunciation = pronunciations
         var reportedStart = false
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         val wasWarm = speechReady
@@ -689,7 +690,7 @@ class AndroidVoiceAudio internal constructor(
                     if (closed || ticket != generation) return@work
                     val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
                     val spoken = text.substring(0, end) + if (text.length > 12000) " ${VoiceSpeechText.LIMIT_NOTICE}" else ""
-                    val projection = VoicePronunciationOverrides.project(spoken, pronunciation)
+                    val projection = pronunciation.project(spoken, englishFallback = Locale.forLanguageTag(config.language).language == "en")
                     val chunks = speechChunks(projection.text, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
                     var chunkOffset = 0
                     val chunkStarts = chunks.map { chunk -> chunkOffset.also { chunkOffset += chunk.length } }

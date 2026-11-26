@@ -29,6 +29,21 @@ class KokoroPcmBatchesTest {
         assertEquals(VoicePcmReserveExit.STOPPED, exit(active = false))
     }
 
+    @Test fun hardwarePrimingConsumesOnlyAvailablePcmAfterTheReserveReleases() {
+        val queue = object : ArrayBlockingQueue<VoicePcmSlice>(4) {
+            override fun poll(timeout: Long, unit: TimeUnit): VoicePcmSlice? = error("Priming waited a second time")
+        }
+        val samples = FloatArray(8)
+        val first = VoicePcmSlice(samples, 0, 2)
+        val second = VoicePcmSlice(samples, 2, 3)
+        val third = VoicePcmSlice(samples, 5, 3)
+        assertEquals(listOf(first), KokoroPcmBatches.primeReady(queue, first, 8))
+        queue.add(second)
+        queue.add(third)
+        assertEquals(listOf(first, second), KokoroPcmBatches.primeReady(queue, first, 5))
+        assertEquals(third, queue.poll())
+    }
+
     @Test fun callbackPcmIsBoundedByDurationWithoutLosingOrRepeatingFrames() {
         for (sampleRate in listOf(8_000, 24_000, 48_000)) {
             val original = FloatArray(sampleRate * 2 + 7) { it.toFloat() }

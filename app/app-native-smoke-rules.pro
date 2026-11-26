@@ -25,3 +25,13 @@
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceStreamCue { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceWordCueProvenance { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend { *; }
+# The minified test APK opens the real streaming output and observes its Android playback clock.
+-keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.KokoroVoiceOutput { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.KokoroVoice { *; }
+-keep interface dev.chungjungsoo.gptmobile.data.voice.VoiceReplyPlayback { *; }
+-keep interface dev.chungjungsoo.gptmobile.data.voice.VoicePlaybackMeasurementObserver { *; }
+-keep interface dev.chungjungsoo.gptmobile.data.voice.LocalVoiceAssetSource { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.LocalVoiceAssetStream { *; }

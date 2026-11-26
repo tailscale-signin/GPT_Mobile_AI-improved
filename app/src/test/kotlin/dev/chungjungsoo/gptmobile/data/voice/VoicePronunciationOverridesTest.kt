@@ -7,6 +7,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePronunciationOverridesTest {
+    @Test fun streamingKokoroReceivesNaturalTextWhileEnglishAlternativesShareItsExplicitReadings() {
+        val original = "Élodie uses JSON, a GPU and MyTool."
+        val configured = mutableMapOf("MyTool" to "json")
+        val dictionary = VoicePronunciationDictionary(configured)
+        configured["MyTool"] = "new tool"
+        val natural = dictionary.project(original)
+        val fallback = dictionary.project(original, englishFallback = true)
+        assertEquals("Élodie uses JSON, a GPU and json.", natural.text)
+        assertEquals("Élodie uses jason, a G P U and json.", fallback.text)
+        for ((rendering, source) in listOf("jason" to "JSON", "G P U" to "GPU", "json" to "MyTool")) {
+            val start = fallback.text.indexOf(rendering)
+            val mapped = requireNotNull(fallback.sourceRange(start, start + rendering.length))
+            assertEquals(source, original.substring(mapped))
+        }
+        val plan = VoiceStreamingPhrasePlan(original, dictionary, 1f, englishFallback = true)
+        val chunks = generateSequence { plan.next(4) }.toList()
+        assertEquals(fallback.text, chunks.joinToString("") { it.text })
+        assertEquals(fallback.sourceCharacters, chunks.flatMap { it.sourceCharacters })
+    }
+
+    @Test fun nativeAndTextOnlyRoutesApplyExplicitReplacementsOnlyOnce() {
+        val original = "MyTool uses JSON."
+        val overrides = mapOf("MyTool" to "json", "JSON" to "jay son")
+        val native = KokoroSpeechText.withPolicy(original, { true }, overrides, 16, timed = true)
+        assertEquals(listOf("json uses jay son."), native.parts)
+        assertEquals(listOf("MyTool", "uses", "JSON", "JSON"), native.phrases!!.flatMap { phrase -> phrase.wordRanges.map(original::substring) })
+        assertEquals("json uses jay son.", VoicePronunciationDictionary(overrides).project(original, englishFallback = true).text)
+    }
+
     @Test fun accentedNamesAndLiteralTechnicalTermsCanBeCorrected() {
         val corrections = mapOf("São" to "sow", "C++" to "see plus plus", "C#" to "see sharp", ".NET" to "dot net", "GPT-4" to "gee pee tee four")
         val input = "São uses C++, C#, .NET and GPT-4."

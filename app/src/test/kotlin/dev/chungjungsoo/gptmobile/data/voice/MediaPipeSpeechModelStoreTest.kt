@@ -401,6 +401,112 @@ class MediaPipeSpeechModelStoreTest {
         store.remove(MediaPipeSpeechEngine.KOKORO)
     }
 
+    @Test fun failedGpuWarmupPreparesCpuWithoutPublishingAudioOrVoiceEvidence(): Unit = runBlocking {
+        val store = installedKokoro()
+        val attempts = mutableListOf<Pair<Delegate, String>>()
+        val reported = mutableListOf<VoiceSpeechBackend>()
+        val validated = mutableListOf<VoiceSpeechBackend>()
+        val factory = MediaPipeVoicePhraseEngineFactory(
+            store,
+            MediaPipeSpeechEngine.KOKORO,
+            VoiceSpeechBackend.LITERT_KOKORO_GPU,
+            1f,
+            onPlaybackDelegate = { reported += it },
+            onValidatedSynthesis = { _, configured -> validated += configured }
+        ) { config ->
+            sealedTask { text ->
+                attempts += config.delegate to text
+                var read = false
+                val next: () -> AudioChunk? = {
+                    if (!read) {
+                        read = true
+                        AudioChunk(floatArrayOf(.2f))
+                    } else if (config.delegate == Delegate.GPU) {
+                        error("Accelerator failed after a silent warmup packet")
+                    } else {
+                        null
+                    }
+                }
+                next
+            }
+        }
+        factory.create(files.root, "", 2).use { engine ->
+            assertTrue(engine.warmFirstInference(0, 1f))
+            assertEquals(listOf(Delegate.GPU to VoiceSilentWarmup.PHRASE, Delegate.CPU to VoiceSilentWarmup.PHRASE), attempts)
+            assertTrue(validated.isEmpty())
+            val heard = mutableListOf<Float>()
+            engine.stream("reply", 0, 1f) { heard.addAll(it.samples.toList()) }
+            assertEquals(listOf(.2f), heard)
+            assertEquals(Delegate.CPU to "reply", attempts.last())
+            assertEquals(listOf(VoiceSpeechBackend.LITERT_KOKORO_CPU), validated)
+            assertEquals(listOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_CPU), reported)
+        }
+    }
+
+    @Test fun prematureNpuEndWhileWaitingForMoreTextReplaysOnlyTheUnheardPrefix(): Unit = runBlocking {
+        val store = installedKokoro()
+        val waiting = CountDownLatch(1)
+        val calls = AtomicInteger()
+        val input = mutableMapOf<Delegate, MutableList<String>>()
+        val factory = MediaPipeVoicePhraseEngineFactory(
+            store,
+            MediaPipeSpeechEngine.KOKORO,
+            VoiceSpeechBackend.LITERT_KOKORO_NPU,
+            1f,
+            onPlaybackDelegate = {}
+        ) { config ->
+            object : MediaPipeSpeechTask {
+                override fun voiceIds() = setOf("af_heart")
+                override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream = error("Expected incremental input")
+                override fun openIncrementalStream(voiceId: String): MediaPipeSpeechStream {
+                    val deltas = mutableListOf<String>()
+                    input[config.delegate] = deltas
+                    val finished = CountDownLatch(1)
+                    return object : MediaPipeSpeechStream {
+                        var emitted = false
+                        override fun pushText(text: String) {
+                            deltas += text
+                        }
+                        override fun finishInput() = finished.countDown()
+                        override fun readNext(): AudioChunk? {
+                            if (config.delegate == Delegate.NPU) {
+                                check(waiting.await(2, TimeUnit.SECONDS))
+                                return null
+                            }
+                            check(finished.await(2, TimeUnit.SECONDS))
+                            if (emitted) return null
+                            emitted = true
+                            return AudioChunk(floatArrayOf(.3f))
+                        }
+                        override fun cancel() = finished.countDown()
+                        override fun close() = Unit
+                    }
+                }
+                override fun cancel() = Unit
+                override fun close() = Unit
+            }
+        }
+        factory.create(files.root, "", 2).use { engine ->
+            val heard = mutableListOf<Float>()
+            engine.streamInput({
+                when (calls.getAndIncrement()) {
+                    0 -> "First "
+                    1 -> {
+                        waiting.countDown()
+                        CountDownLatch(1).await(2, TimeUnit.SECONDS)
+                        error("Failed accelerator did not retire its text worker")
+                    }
+                    2 -> "second."
+                    else -> null
+                }
+            }, 0, 1f) { heard.addAll(it.samples.toList()) }
+            assertEquals(listOf(.3f), heard)
+            assertEquals(listOf("First "), input[Delegate.NPU])
+            assertEquals(listOf("First ", "second."), input[Delegate.CPU])
+            assertEquals(4, calls.get())
+        }
+    }
+
     @Test fun earlyNpuReadFailureReplaysOnlyConsumedInputAndKeepsWarmedVoice(): Unit = runBlocking {
         val store = installedKokoro()
         val routes = mutableListOf<VoiceSpeechBackend>()

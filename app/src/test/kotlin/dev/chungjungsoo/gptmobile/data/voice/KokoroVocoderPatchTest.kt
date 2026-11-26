@@ -6,12 +6,17 @@ import java.io.DataOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -119,6 +124,57 @@ class KokoroVocoderPatchTest {
         assertTrue(store.isReady(npu))
     }
 
+    @Test fun gpuPreparationJoinsFirstLaunchDownloadAndCancellingTheWaitLeavesItRunning() = runBlocking(Dispatchers.IO) {
+        val baseTransfer = CountDownLatch(1)
+        val finishTransfer = CountDownLatch(1)
+        val patches = mutableListOf<MediaPipeSpeechEngine>()
+        val store = newStore(patches, beforeBaseRead = {
+            baseTransfer.countDown()
+            check(finishTransfer.await(5, TimeUnit.SECONDS))
+        })
+        val firstLaunch = async { store.install(standard) }
+        try {
+            assertTrue(baseTransfer.await(2, TimeUnit.SECONDS))
+            val cancelled = async(start = CoroutineStart.UNDISPATCHED) { store.install(gpu) }
+            assertFalse(cancelled.isCompleted)
+            cancelled.cancelAndJoin()
+            assertTrue(firstLaunch.isActive)
+            val requested = async(start = CoroutineStart.UNDISPATCHED) { store.install(gpu) }
+            assertFalse(requested.isCompleted)
+            finishTransfer.countDown()
+            firstLaunch.await()
+            requested.await()
+            assertEquals(listOf(gpu), patches)
+            assertTrue(store.isReady(standard))
+            assertTrue(store.isReady(gpu))
+        } finally {
+            finishTransfer.countDown()
+        }
+    }
+
+    @Test fun gpuInstallWithoutStandardKokoroStillDownloadsOnlyThePublisherGpuPack() = runBlocking {
+        val requests = mutableListOf<String>()
+        val target = descriptor(gpu, targetBytes(gpu))
+        val store = MediaPipeSpeechModelStore(
+            files.newFolder(),
+            files.newFolder(),
+            scope,
+            listOf(descriptor(standard, baseBytes), target)
+        ) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String): LocalVoiceAssetStream {
+                    requests += url
+                    return LocalVoiceAssetStream(ByteArrayInputStream(targetBytes(gpu)), target.downloadBytes)
+                }
+                override fun cancel() = Unit
+            }
+        }
+        store.install(gpu)
+        assertEquals(listOf(target.downloadUrl), requests)
+        assertFalse(store.isReady(standard))
+        assertTrue(store.isReady(gpu))
+    }
+
     @Test fun rejectsWrongDeviceAndDamagedPatchWithoutRetainingBaseOrPublishingPartialAudioPack() = runBlocking {
         val opened = mutableListOf<MediaPipeSpeechEngine>()
         val store = newStore(opened, supported = false, damageGpuPatch = true)
@@ -138,7 +194,7 @@ class KokoroVocoderPatchTest {
         assertFalse(store.localStore(engine).modelDirectory().exists())
     }
 
-    private fun newStore(opened: MutableList<MediaPipeSpeechEngine>, supported: Boolean = true, damageGpuPatch: Boolean = false): MediaPipeSpeechModelStore {
+    private fun newStore(opened: MutableList<MediaPipeSpeechEngine>, supported: Boolean = true, damageGpuPatch: Boolean = false, beforeBaseRead: () -> Unit = {}): MediaPipeSpeechModelStore {
         val base = descriptor(standard, baseBytes)
         val networkReads = AtomicInteger()
         return MediaPipeSpeechModelStore(
@@ -160,6 +216,7 @@ class KokoroVocoderPatchTest {
                 override fun open(url: String): LocalVoiceAssetStream {
                     assertEquals(base.downloadUrl, url)
                     assertEquals(1, networkReads.incrementAndGet())
+                    beforeBaseRead()
                     return LocalVoiceAssetStream(ByteArrayInputStream(baseBytes), base.downloadBytes)
                 }
 

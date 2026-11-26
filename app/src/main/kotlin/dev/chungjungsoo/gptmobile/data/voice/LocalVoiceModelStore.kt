@@ -105,6 +105,9 @@ class LocalVoiceModelStore internal constructor(
         }
     }
 
+    /** A derived pack can reuse a download already in progress without taking ownership of it. */
+    internal suspend fun acquireUseAfterInstall(): Boolean = shared.mutex.withLock { acquireUse() }
+
     internal fun releaseUse() = synchronized(shared) { shared.users = (shared.users - 1).coerceAtLeast(0) }
 
     suspend fun refresh(forceVerification: Boolean = true) = withContext(Dispatchers.IO) {

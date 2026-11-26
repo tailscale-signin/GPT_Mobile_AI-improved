@@ -32,7 +32,14 @@ internal class MediaPipePlaybackRecovery(
 
     override fun warmFirstInference(speaker: Int, speed: Float): Boolean = synchronized(operations) {
         synchronized(state) { checkActive() }
-        current?.warmFirstInference(speaker, speed) == true
+        val engine = if (cpuNeeded) cpu() else checkNotNull(current)
+        try {
+            engine.warmFirstInference(speaker, speed)
+        } catch (failure: MediaPipeDelegateFailure) {
+            // A warmup publishes neither audio nor voice evidence, even if the accelerator
+            // fails after returning some PCM. Prepare the CPU before the first audible reply.
+            retryOnCpu(failure, canReplay = true) { it.warmFirstInference(speaker, speed) }
+        }
     }
 
     fun prepare(voiceId: String, reporter: (MediaPipeVoicePhraseEngine) -> Unit) {
@@ -81,16 +88,23 @@ internal class MediaPipePlaybackRecovery(
                     emit(chunk)
                 })
             } catch (failure: MediaPipeDelegateFailure) {
-                synchronized(state) { checkActive() }
-                cpuNeeded = true
-                if (delivered || prefix?.canReplay == false) throw checkNotNull(failure.cause)
-                try {
-                    run(cpu(), prefix?.let { it::replay }, emit)
-                } catch (cpuFailure: Throwable) {
-                    if (cpuFailure !== failure.cause) cpuFailure.addSuppressed(checkNotNull(failure.cause))
-                    throw cpuFailure
+                retryOnCpu(failure, !delivered && prefix?.canReplay != false) { replacement ->
+                    run(replacement, prefix?.let { it::replay }, emit)
                 }
             }
+        }
+    }
+
+    private inline fun <T> retryOnCpu(failure: MediaPipeDelegateFailure, canReplay: Boolean, operation: (MediaPipeVoicePhraseEngine) -> T): T {
+        synchronized(state) { checkActive() }
+        cpuNeeded = true
+        val cause = checkNotNull(failure.cause)
+        if (!canReplay) throw cause
+        try {
+            return operation(cpu())
+        } catch (cpuFailure: Throwable) {
+            if (cpuFailure !== cause) cpuFailure.addSuppressed(cause)
+            throw cpuFailure
         }
     }
 

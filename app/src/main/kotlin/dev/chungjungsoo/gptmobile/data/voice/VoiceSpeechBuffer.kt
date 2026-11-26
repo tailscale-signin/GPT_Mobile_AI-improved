@@ -67,7 +67,7 @@ internal class VoiceSpeechBuffer(
                         permitsBoundary(consumed + boundary.range.last + 1) &&
                             (
                                 startedSpeech ||
-                                    boundary.value.any { it in ".!?" } ||
+                                    VoicePhraseBoundaries.endsSentence(tail, boundary.range.first) ||
                                     completeWord.findAll(tail.substring(0, boundary.range.last + 1)).take(3).count() >= 3
                                 )
                     }?.range?.last?.plus(1)
@@ -113,17 +113,19 @@ internal class VoiceSpeechBuffer(
 
     private fun permitsBoundary(end: Int) = end >= boundaryBase && boundaries.permits(end - boundaryBase)
 
-    private fun arrivalBudgetMs(feedback: VoiceSynthesisFeedback?): Long = when {
-        !startedSpeech -> 120L
-        (feedback?.bufferedAudioMs ?: 0) < 300 -> 200L
-        else -> 500L
+    private fun arrivalBudgetMs(feedback: VoiceSynthesisFeedback?): Long {
+        if (!startedSpeech) return 120L
+        // When audio is already queued, give the provider time to finish the next
+        // thought. As the playback head catches up, release available words sooner.
+        return ((feedback?.bufferedAudioMs ?: 0L) - 300L).coerceIn(200L, 1000L)
     }
 
     private companion object {
         const val ADAPTIVE_CHARACTERS = 128
-        val sentenceEnd = Regex("[.!?]\\s+")
-        val clauseEnd = Regex("[.!?,;:]\\s+|\\n")
-        val phraseEnd = Regex("[.!?;:]\\s+|\\n")
+        const val QUOTE_AND_SPACE = """["'”’»)}\]]*\s+"""
+        val sentenceEnd = Regex("[.!?…。！？]$QUOTE_AND_SPACE")
+        val clauseEnd = Regex("[.!?…。！？,;:]$QUOTE_AND_SPACE|\\n")
+        val phraseEnd = Regex("[.!?…。！？;:]$QUOTE_AND_SPACE|\\n")
         val completeWord = Regex("\\S+\\s+")
     }
 }

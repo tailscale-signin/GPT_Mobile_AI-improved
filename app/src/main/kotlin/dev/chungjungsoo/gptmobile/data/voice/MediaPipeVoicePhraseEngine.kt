@@ -198,8 +198,10 @@ internal class MediaPipeVoicePhraseEngine(
                 }
                 synchronized(stateLock) { checkCancellation() }
                 inputFailure.get()?.let { throw it }
-                require(inputFinished.get()) { "Speech SDK ended before incremental text input finished." }
-                nativeStreamCall { require(frames > 0 && nonSilent) { "Speech SDK returned no audible PCM." } }
+                nativeStreamCall {
+                    require(inputFinished.get()) { "Speech SDK ended before incremental text input finished." }
+                    require(frames > 0 && nonSilent) { "Speech SDK returned no audible PCM." }
+                }
                 cues.finish()?.let { end -> emitChecked(VoicePcmChunk(FloatArray(0), wordCues = listOf(end)), emit) }
                 completed = true
             } catch (failure: Throwable) {

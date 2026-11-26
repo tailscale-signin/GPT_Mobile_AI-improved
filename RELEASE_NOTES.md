@@ -32,6 +32,11 @@ The repository-map benchmark uses simulated GitHub transport. A host measurement
 
 ## Voice updates and earlier release context
 
+Kokoro now adjusts phrase length while an incremental reply is playing. A buffered
+reply can finish a clause, and low audio reserves release available words sooner.
+Initials such as “J. R. Tolkien” stay together and quoted answers can start
+playing as soon as the sentence closes.
+
 LiteRT playback comparisons measure SDK task opening, first PCM, first presented audio, raw clipping and cancellation. The results distinguish the stop request, the return of an outstanding SDK read and engine retirement. Matched trials compare model-only prewarming with a cancellable first inference. Exports include every requested delegate and preserve older benchmark history.
 
 

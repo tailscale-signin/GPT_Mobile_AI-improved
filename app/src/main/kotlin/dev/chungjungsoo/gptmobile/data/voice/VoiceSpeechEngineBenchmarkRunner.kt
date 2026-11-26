@@ -197,7 +197,7 @@ internal class VoiceSpeechEngineBenchmarkRunner(
                     attemptAt = nanoTime()
                     val sampleMeasurement = VoiceSpeechEnginePcmMeasurement(fixture, repeat, text, before, preparedAt.takeIf { result.samples.isEmpty() }, nanoTime)
                     measurement = sampleMeasurement
-                    val plan = VoiceStreamingPhrasePlan(text, emptyMap(), configuration.speechRate)
+                    val plan = VoiceStreamingPhrasePlan(text, VoicePronunciationDictionary.EMPTY, configuration.speechRate, englishFallback = !result.requestedBackend.isLiteRtKokoro)
                     if (streamEngine.supportsIncrementalInput) {
                         sampleMeasurement.beginStream(text, incrementalInput = true)
                         watchdog.beginPhase(VoiceSpeechBenchmarkDeadlineScope.CHUNK)

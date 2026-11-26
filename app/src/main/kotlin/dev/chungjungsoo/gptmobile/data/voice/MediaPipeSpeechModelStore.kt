@@ -67,7 +67,7 @@ internal class MediaPipeSpeechModelStore internal constructor(
         }
         withContext(Dispatchers.IO) {
             val standard = stores[MediaPipeSpeechEngine.KOKORO]
-            val leased = standard?.acquireUse() == true
+            val leased = standard?.acquireUseAfterInstall() == true
             try {
                 if (!leased && engine == MediaPipeSpeechEngine.KOKORO_GPU) {
                     localStore(engine).install()

@@ -6,7 +6,9 @@ import java.util.Locale
 internal data class VoiceStreamingPhrase(val text: String, val sourceCharacters: List<IntRange>)
 
 /** Natural SDK input stays bounded while byte cues can still point to the original displayed segment. */
-internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, String>, speed: Float) {
+internal class VoiceStreamingPhrasePlan(input: String, dictionary: VoicePronunciationDictionary, speed: Float, englishFallback: Boolean = false) {
+    constructor(input: String, overrides: Map<String, String>, speed: Float) : this(input, VoicePronunciationDictionary(overrides), speed)
+
     private val groups = VoicePhraseBoundaries(input)
     private val text: String
     private val sources: List<IntRange>
@@ -15,7 +17,7 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
     private val characters = BreakIterator.getCharacterInstance(Locale.ROOT)
 
     init {
-        val projection = VoicePronunciationOverrides.project(input, overrides)
+        val projection = dictionary.project(input, englishFallback)
         text = projection.text
         sources = projection.sourceCharacters
         characters.setText(text)
@@ -46,7 +48,7 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
             if (legal) {
                 if (words > limit && end > consumed) break
                 end = candidate
-                if (words >= limit || text[last] in ".!?") break
+                if (words >= limit || VoicePhraseBoundaries.endsSentence(text, last)) break
             }
         }
         if (end == consumed) {

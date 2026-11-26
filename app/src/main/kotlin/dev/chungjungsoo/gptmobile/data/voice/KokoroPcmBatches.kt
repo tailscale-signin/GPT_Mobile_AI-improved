@@ -41,6 +41,18 @@ internal object KokoroPcmBatches {
         return VoicePcmReserveExit.STOPPED
     }
 
+    /** Once the reserve releases, prime the hardware with the audio already available. */
+    fun primeReady(queue: BlockingQueue<VoicePcmSlice>, first: VoicePcmSlice, targetFrames: Int): List<VoicePcmSlice> {
+        val batches = mutableListOf(first)
+        var frames = first.size
+        while (frames < targetFrames) {
+            val next = queue.poll() ?: break
+            batches += next
+            frames += next.size
+        }
+        return batches
+    }
+
     fun slices(samples: FloatArray, sampleRate: Int, offer: (VoicePcmSlice) -> Boolean): Boolean {
         require(sampleRate in 8_000..48_000)
         val frames = sampleRate * DURATION_MS / 1_000

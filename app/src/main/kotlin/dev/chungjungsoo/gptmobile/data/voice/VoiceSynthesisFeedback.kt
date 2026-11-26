@@ -101,16 +101,20 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
 
     @Synchronized fun phraseWords(bufferedMs: Long): Int {
         if (!mode.usesMeasuredPhraseLength) return mode.followUpWords
-        if (observations == 0) return OPENING_WORDS
+        // An incremental Kokoro stream records its whole synthesis duration only
+        // at end-of-input. Its buffered PCM and delivery intervals are available
+        // while it is speaking, including before the second text push.
+        if (observations == 0 && !streamCadence.started) return OPENING_WORDS
+        val headroom = if (streamCadence.started) bufferedMs - (streamCadence.reserveCostMs() ?: 0L) else bufferedMs
         val wordCost = recentWordCostMs.maxOrNull()
-        if (wordCost != null && bufferedMs >= 300) {
-            val continuityBudget = (bufferedMs / (wordCost * 1.2)).toInt().coerceIn(OPENING_WORDS, mode.followUpWords)
+        if (wordCost != null && headroom >= 300) {
+            val continuityBudget = (headroom / (wordCost * 1.2)).toInt().coerceIn(OPENING_WORDS, mode.followUpWords)
             return if (productionRatio >= 1.0) minOf(8, continuityBudget) else continuityBudget
         }
         return when {
-            bufferedMs < 300 -> 6
+            headroom < 300 -> OPENING_WORDS
             productionRatio >= 1.0 -> 8
-            bufferedMs < 1_000 -> 12
+            headroom < 1_000 -> 12
             else -> mode.followUpWords
         }
     }

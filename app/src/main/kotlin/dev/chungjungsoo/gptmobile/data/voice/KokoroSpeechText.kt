@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.data.voice.KokoroEnglishReadings.abbreviations
+import dev.chungjungsoo.gptmobile.data.voice.KokoroEnglishReadings.initialisms
+import dev.chungjungsoo.gptmobile.data.voice.KokoroEnglishReadings.technicalInitialisms
+import dev.chungjungsoo.gptmobile.data.voice.KokoroEnglishReadings.technicalNames
 import java.text.Normalizer
 import java.time.LocalDate
 import java.util.Locale
@@ -34,7 +38,10 @@ internal data class KokoroSpeechProjection(val phrases: List<KokoroPhrase>?, val
 internal class KokoroSpeechContext {
     private var precedingText = ""
 
-    fun project(input: String, isKnown: (String) -> Boolean, overrides: Map<String, String>, wordLimit: Int, timed: Boolean): KokoroSpeechProjection {
+    fun project(input: String, isKnown: (String) -> Boolean, overrides: Map<String, String>, wordLimit: Int, timed: Boolean): KokoroSpeechProjection =
+        project(input, isKnown, VoicePronunciationDictionary(overrides), wordLimit, timed)
+
+    fun project(input: String, isKnown: (String) -> Boolean, overrides: VoicePronunciationDictionary, wordLimit: Int, timed: Boolean): KokoroSpeechProjection {
         val projection = KokoroSpeechText.withPolicy(input, isKnown, overrides, wordLimit, timed, contextBefore = precedingText)
         if (projection.phrases != null) {
             precedingText = (precedingText + input.takeLast(KOKORO_CONTEXT_CHARS)).takeLast(KOKORO_CONTEXT_CHARS)
@@ -55,22 +62,7 @@ internal object KokoroSpeechText {
         """[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?(?:[ \t]?[aApP]\.?[mM]\.?)?|[$£€][+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?|[vV][0-9]+(?:\.[0-9]+)+|(?<![a-zA-Z0-9])[+\-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[eE][+\-]?[0-9]+(?:(?![a-zA-Z0-9]|\.[0-9])|(?=(?:ms|min|[ckm]?m|[µμ]?g|kg|[kKMGT]?[Bb]|[kMG]?Hz|s|h)(?![a-zA-Z0-9])))|(?<![a-zA-Z0-9./])[+\-]?(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)(?![a-zA-Z0-9/]|\.[a-zA-Z0-9])|[0-9]+(?i:st|nd|rd|th)(?![a-zA-Z0-9])|\^[+\-]?[0-9]+(?![0-9eE]|\.[0-9])|[+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+|\.[0-9]+)(?:\.[0-9]+)*|(?:[kKMGT]?[Bb]|[ckm]?m)/[smh](?:\^2(?![a-zA-Z0-9]|\.[0-9]))?(?![a-zA-Z])|[ckm]?m\^[23](?![a-zA-Z0-9]|\.[0-9])|[µμ]g(?![a-zA-Z])|°[ \t]?[CF](?![a-zA-Z])|(?<![a-zA-Z0-9])(?:Ms\.|(?i:e\.g\.?|i\.e\.?|etc\.|vs\.|dr\.|mr\.|mrs\.|prof\.|sr\.|jr\.|approx\.))(?![a-zA-Z])|(?<![a-zA-Z0-9])(?:[a-zA-Z]\.)+[a-zA-Z]\.?(?![a-zA-Z0-9])|(?<![a-zA-Z0-9])(?i:c\+\+|[cf]#|\.net)(?![a-zA-Z0-9])|(?<![a-zA-Z0-9])(?:H2O|CO2|O2|N2|NaCl)(?![a-zA-Z0-9])|[a-zA-Z]+(?:'[a-zA-Z]+)*|[.,!?;:\n%&#@/+=<>≤≥≠×÷*|°^\-–]"""
     )
     private val camelBoundary = Regex("""(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])""")
-    private val initialisms = setOf("AI", "API", "APK", "AAR", "ABI", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "PDF", "NPU", "ASR", "JVM", "PCM", "IP", "USD", "CAD", "EUR", "GBP", "GPT", "GLM", "QNN", "ONNX", "JNI", "JDK", "JRE", "GL", "TLS", "SSL", "TCP", "UDP", "RPC", "SSE", "JWT", "BPE", "UTF", "LSTM", "CNN", "RNN", "SSD", "HDD", "DDR", "HDMI", "PCI", "PCIE", "FPS", "RGB", "RGBA", "FP", "NVFP", "GCC", "GDB", "RTX", "GTX")
     private val spokenAcronyms = mapOf("RAM" to "ram", "JSON" to "jason")
-
-    // These keys are technical names even when an answer writes them in lowercase. Ordinary
-    // words such as RAM, ARM, US and IT must never become automatic lowercase initialisms.
-    private val technicalInitialisms = setOf("ai", "api", "apk", "aar", "abi", "cpu", "gpu", "npu", "html", "http", "https", "llm", "mcp", "sdk", "sql", "ssh", "tts", "url", "xml", "usb", "dns", "vpn", "cli", "ide", "pdf", "asr", "jvm", "pcm", "gpt", "glm", "qnn", "onnx", "jni", "jdk", "jre", "tls", "ssl", "tcp", "udp", "rpc", "sse", "jwt", "bpe", "lstm", "cnn", "rnn", "ssd", "hdd", "ddr", "hdmi", "fps", "rgb", "rgba", "nvfp", "gcc", "gdb", "utf", "rtx", "gtx")
-    private val technicalNames = mapOf(
-        "github" to "git hub", "gitlab" to "git lab", "chatgpt" to "chat GPT", "openai" to "open AI",
-        "opengl" to "open GL", "webgpu" to "web GPU", "typescript" to "type script", "javascript" to "java script",
-        "json" to "jason", "c++" to "c plus plus", "c#" to "c sharp", "f#" to "f sharp", ".net" to "dot net", "pcie" to "PCI e"
-    )
-    private val abbreviations = mapOf(
-        "e.g." to "for example", "e.g" to "for example", "i.e." to "that is", "i.e" to "that is", "etc." to "et cetera", "vs." to "versus",
-        "dr." to "doctor", "mr." to "mister", "mrs." to "missus", "ms." to "miz", "prof." to "professor",
-        "sr." to "senior", "jr." to "junior", "approx." to "approximately"
-    )
     private val formulaNames = mapOf("H2O" to "h two o", "CO2" to "c o two", "O2" to "o two", "N2" to "n two", "NaCl" to "sodium chloride")
     private val dottedInitialism = Regex("(?:[a-zA-Z]\\.)+[a-zA-Z]\\.?")
     private val scientificNumber = Regex("[+\\-]?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[eE][+\\-]?[0-9]+")
@@ -123,9 +115,12 @@ internal object KokoroSpeechText {
         project(input, markdown = false, isKnown, timed = true)
 
     fun withPolicy(input: String, isKnown: (String) -> Boolean, overrides: Map<String, String>, wordLimit: Int, timed: Boolean, contextBefore: String = ""): KokoroSpeechProjection =
+        withPolicy(input, isKnown, VoicePronunciationDictionary(overrides), wordLimit, timed, contextBefore)
+
+    fun withPolicy(input: String, isKnown: (String) -> Boolean, overrides: VoicePronunciationDictionary, wordLimit: Int, timed: Boolean, contextBefore: String = ""): KokoroSpeechProjection =
         project(input, markdown = false, isKnown, timed, overrides, wordLimit.coerceIn(4, MAX_POLICY_WORDS), contextBefore)
 
-    private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean, timed: Boolean = false, overrides: Map<String, String> = emptyMap(), wordLimit: Int = MAX_PART_WORDS, contextBefore: String = ""): KokoroSpeechProjection {
+    private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean, timed: Boolean = false, overrides: VoicePronunciationDictionary = VoicePronunciationDictionary.EMPTY, wordLimit: Int = MAX_PART_WORDS, contextBefore: String = ""): KokoroSpeechProjection {
         val clipped = if (input.length <= MAX_INPUT) {
             input
         } else {
@@ -138,7 +133,7 @@ internal object KokoroSpeechText {
             clipped + if (input.length > MAX_INPUT) " ${VoiceSpeechText.LIMIT_NOTICE}" else ""
         }
         val formatCharacters = invisibleFormat.findAll(projected).count()
-        val pronunciation = VoicePronunciationOverrides.project(projected, overrides)
+        val pronunciation = overrides.project(projected)
         val normalized = normalizeCharacters(pronunciation.text, pronunciation.sourceCharacters)
         val plain = normalized.first
         // Context informs only interpretation. It is never tokenized, emitted or included in
@@ -150,7 +145,6 @@ internal object KokoroSpeechText {
         val origins = normalized.second
         val boundaries = VoicePhraseBoundaries(projected)
         val groupIds = mutableListOf<Int>()
-        val correctionKeys = VoicePronunciationOverrides.clean(overrides).keys
         var sourceRange = IntRange.EMPTY
         var knownWords = 0
         var initialismWords = 0
@@ -207,12 +201,8 @@ internal object KokoroSpeechText {
             val key = value.lowercase(Locale.ROOT)
             val explicitInitialism = dottedInitialism.matches(value) && key !in abbreviations
             val expanded = when {
-                key == "read" || key == "lead" -> {
-                    val corrected = correctionKeys.isNotEmpty() &&
-                        original.last < projected.length &&
-                        VoicePronunciationOverrides.key(projected.substring(original)) in correctionKeys
-                    if (corrected) value else contextualReading(key, before, plain.substring(match.range.last + 1, minOf(plain.length, match.range.last + 65)), isKnown)
-                }
+                original in pronunciation.replacements -> value
+                key == "read" || key == "lead" -> contextualReading(key, before, plain.substring(match.range.last + 1, minOf(plain.length, match.range.last + 65)), isKnown)
                 key in abbreviations -> abbreviations.getValue(key)
                 explicitInitialism -> value.filter(Char::isLetter).uppercase(Locale.ROOT)
                 key in technicalNames -> technicalNames.getValue(key)

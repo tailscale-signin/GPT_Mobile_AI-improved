@@ -16,11 +16,22 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
             val next = words.getOrNull(i + 1)
             val value = first.value
             val title = title.matches(value)
+            val abbreviated = abbreviation.matches(value)
             val numeric = number.matches(value)
             // A following partial unit is still undecided until its last character arrives.
-            if (title && next != null && nameStart(next.value) || numeric && next != null && isUnit(next.value)) {
+            if (title || abbreviated) {
+                // Initials can form a chain such as "J. R. Tolkien". A unit's
+                // final period can arrive after the preceding letter in a new delta.
+                while (last + 1 < words.size && abbreviation.matches(words[last + 1].value)) last++
+                val continuation = words.getOrNull(last + 1)
+                if (continuation != null && (nameStart(continuation.value) || abbreviated && number.matches(continuation.value))) {
+                    last++
+                } else if (streaming && continuation == null) {
+                    pending = minOf(pending, first.range.first)
+                }
+            } else if (numeric && next != null && isUnit(next.value)) {
                 last++
-            } else if (streaming && (title || numeric) && (next == null || next.range.last == text.lastIndex && (title || couldBeUnit(next.value)))) {
+            } else if (streaming && numeric && (next == null || next.range.last == text.lastIndex && couldBeUnit(next.value))) {
                 pending = minOf(pending, first.range.first)
             }
             if (value.equals("lead", true)) {
@@ -70,6 +81,14 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
         const val PROTOCOL = "spoken-groups-v1"
         private val word = Regex("\\S+")
         private val title = Regex("""(?i)(?:dr|mr|mrs|ms|prof|sr|jr)\.""")
+        // Keep examples and dotted initials with their following word for Kokoro's tokenizer.
+        private val abbreviation = Regex("""(?:[A-Za-z]\.){2,}|[A-Z]\.|(?i:no|fig|vs|approx)\.""")
+        private const val CLOSERS = "\"'”’»)]}"
+        fun endsSentence(text: String, lastContent: Int): Boolean {
+            var end = lastContent
+            while (end >= 0 && text[end] in CLOSERS) end--
+            return end >= 0 && text[end] in ".!?…。！？"
+        }
         private val number = Regex("""[+−-]?(?:\d+(?:[.,:/-]\d+)*|\.\d+)(?:[eE][+-]?\d+)?""")
         private val units = setOf(
             "ms", "s", "min", "h", "hz", "khz", "mhz", "ghz", "b", "kb", "mb", "gb", "tb", "kg", "g", "mg", "µg",

@@ -70,6 +70,13 @@ native Kokoro.
 
 ## Incremental audio and captions
 
+Live replies use a short opening phrase. After PCM starts arriving, the text
+planner subtracts the observed delivery interval from the queued audio duration
+to choose the next phrase length. A healthy queue gives the next clause up to
+one second to arrive. A low queue releases available words after 200 ms.
+Initials, dotted abbreviations and their following words stay together across
+provider updates. Closing quotation marks travel with the sentence they end.
+
 `VoicePhraseEngine` retains complete-phrase native generation and adds an
 incremental PCM contract. A streaming producer hands immutable mono Float32
 chunks at 24 kHz to a synchronous callback. The existing bounded audio queue

@@ -82,7 +82,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(
         system.bindConversationPrivacy(privacy)
         val recognition = MoonshineVoiceRecognizer(context, stores.moonshine)
         val kokoro = createKokoroVoiceOutput(context, stores.kokoro, system::playbackAttributes, { system.speechRate }, privacy)
-        val audio = VoicePluginAudio(system, recognition, kokoro, system::speakOffline, system::releaseRecognition)
+        val audio = VoicePluginAudio(system, recognition, kokoro, system::captureOfflineSpeech, system::releaseRecognition)
         var checkpoint: String? = null
         val session = VoiceSession(audio, submit = model::submitVoiceTranscript, awaitsAdmission = true, submittedRequestId = { model.voiceAdmission.value?.requestId }, changed = { state ->
             val admission = model.voiceAdmission.value

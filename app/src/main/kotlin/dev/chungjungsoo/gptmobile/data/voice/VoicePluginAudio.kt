@@ -38,14 +38,24 @@ internal interface KokoroOutput {
     fun awaitClosed(timeoutMs: Long): Boolean = true
 }
 
+internal typealias VoiceOfflineSpeech = (String, () -> Unit, (String) -> Unit) -> Unit
+
 /** Owns the microphone and playback backend for the visible voice session. */
 internal class VoicePluginAudio(
     private val system: VoiceAudio,
     private val local: VoiceRecognitionInput,
-    private val kokoro: KokoroOutput? = null,
-    private val offlineSpeech: (String, () -> Unit, (String) -> Unit) -> Unit = { _, _, error -> error("No offline Android voice is available.") },
+    private val kokoro: KokoroOutput?,
+    private val captureOfflineSpeech: () -> VoiceOfflineSpeech,
     private val releaseSystemRecognition: () -> Unit
 ) : VoiceAudio {
+    constructor(
+        system: VoiceAudio,
+        local: VoiceRecognitionInput,
+        kokoro: KokoroOutput? = null,
+        offlineSpeech: VoiceOfflineSpeech = { _, _, error -> error("No offline Android voice is available.") },
+        releaseSystemRecognition: () -> Unit
+    ) : this(system, local, kokoro, captureOfflineSpeech = { offlineSpeech }, releaseSystemRecognition)
+
     private var closed = false
     var requireLocalOutput: Boolean = false
     private var playbackGeneration = 0L
@@ -166,6 +176,7 @@ internal class VoicePluginAudio(
         system.stop()
         val ticket = ++playbackGeneration
         val fallbackText = StringBuilder()
+        val offlineSpeech = captureOfflineSpeech()
         var useFallback = false
         var fallbackStarted = false
         var fallbackFailure: VoicePlaybackFailure? = null
@@ -256,6 +267,7 @@ internal class VoicePluginAudio(
         local.stop()
         val ticket = ++playbackGeneration
         val origin = diagnosticProbe
+        val offlineSpeech = captureOfflineSpeech()
         fun current() = !closed && ticket == playbackGeneration
         system.bindPlaybackStarted { if (current()) playbackBegan(ticket) }
         val voice = kokoroVoice

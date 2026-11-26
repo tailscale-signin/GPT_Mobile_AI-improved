@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+import io
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import smoke_mediapipe_speech as smoke
@@ -149,6 +150,34 @@ class IncrementalCheckpointProtocolTest(unittest.TestCase):
         self.assertEqual(2, task.events.count(("open", "", False)))
         self.assertEqual(2, task.events.count("close"))
         self.assertEqual(1, receipt["finish_input_calls"])
+
+
+class GpuEvidenceTests(unittest.TestCase):
+    def test_kernel_events_must_execute_during_the_corpus(self):
+        output = io.BytesIO(b"Created event 1 (0x11) Command ndrange_kernel\nKOKORO_CORPUS_BEGIN\n"
+                            b"pthread: Command complete, event 1\nCreated event 2 (0x22) Command ndrange_kernel\n"
+                            b"Created event 3 (0x33) Command read_buffer\npthread: Command complete, event 3\n"
+                            b"pthread: Command complete, event 2\npthread: Command complete, event 2\n"
+                            b"Created event 4 (0x44) Command ndrange_kernel\nKOKORO_CORPUS_END\n"
+                            b"pthread: Command complete, event 4\nGPU accelerator could not be loaded and registered.\n")
+        evidence = {"pocl_completed_corpus_kernels": 0, "runtime_reported_gpu_unavailable": False}
+        smoke.read_worker_output(output, [], evidence)
+        self.assertEqual(evidence, {"pocl_completed_corpus_kernels": 1, "runtime_reported_gpu_unavailable": True})
+
+    def test_numeric_and_cue_mismatches_do_not_qualify(self):
+        corpus = dict(input_sha256="fixture", sample_rate_hz=24000, frames=24000, rms=.2, clipped_frames=0,
+                      word_cues=[dict(utf8_start=0, utf8_end=3)])
+        self.assertTrue(smoke.compare_corpus(corpus, corpus)["consistent"])
+        for change in (dict(frames=5000), dict(rms=.01), dict(clipped_frames=3000),
+                       dict(word_cues=[dict(utf8_start=1, utf8_end=3)])):
+            self.assertFalse(smoke.compare_corpus(corpus, corpus | change)["consistent"])
+        with self.assertRaises(RuntimeError):
+            smoke.compare_corpus(corpus, corpus | dict(input_sha256="other"))
+
+    def test_gpu_unavailability_is_specific_to_acceleration(self):
+        self.assertTrue(smoke.gpu_unavailable("GPU accelerator could not be loaded and registered."))
+        self.assertFalse(smoke.gpu_unavailable("Invalid model schema"))
+        self.assertFalse(smoke.gpu_unavailable("Failed to allocate GPU buffer for the model"))
 
 
 if __name__ == "__main__":

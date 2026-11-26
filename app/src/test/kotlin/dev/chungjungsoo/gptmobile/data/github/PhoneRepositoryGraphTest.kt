@@ -335,6 +335,30 @@ class PhoneRepositoryGraphTest {
         assertTrue(result.objects("nodes").map { it.text("id") }.toSet().intersect(next.objects("nodes").map { it.text("id") }.toSet()).isEmpty())
     }
 
+    @Test fun tightMapPagesSpendSpareBytesOnVisibleRelationships() {
+        val budget = 4256
+        val sources = mapOf("Calls.kt" to callChain(30))
+        val tree = tree(*sources.keys.toTypedArray())
+        val result = execute(tree, cached(sources), args = buildJsonObject { put("budget_bytes", budget) })
+        val visible = result.objects("nodes").mapTo(mutableSetOf()) { it.text("id") }
+        val full = execute(tree, cached(sources), args = buildJsonObject { put("budget_bytes", 128000) })
+        val candidates = full.objects("edges").filter { it.text("source") in visible && it.text("target") in visible }
+        val count = result.objects("edges").size
+        assertTrue(candidates.isNotEmpty())
+        assertEquals(candidates.take(count), result.objects("edges"))
+        assertEquals(candidates.size - count, result.text("omitted_links").toInt())
+        assertTrue(result.toString().encodeToByteArray().size <= budget)
+        if (count < candidates.size) {
+            val withNextEdge = JsonObject(
+                result + mapOf(
+                    "edges" to JsonArray(candidates.take(count + 1)),
+                    "omitted_links" to JsonPrimitive(candidates.size - count - 1)
+                )
+            )
+            assertTrue("Every relationship that fits on the selected page should be visible", withNextEdge.toString().encodeToByteArray().size > budget)
+        }
+    }
+
     @Test fun pathAndImpactExposeCandidateScopeAndNeverExecutedTestClaims() {
         val sources = mapOf("A.kt" to "fun first() { second() }\nfun second() {}")
         val tree = tree("A.kt")
@@ -352,6 +376,8 @@ class PhoneRepositoryGraphTest {
         assertEquals("call_candidate", path.objects("edges").single().text("relation"))
         val impact = execute(tree, cache, "impact", buildJsonObject { put("symbol", "second") })
         assertEquals(setOf("first", "second"), impact.objects("nodes").map { it.text("name") }.toSet())
+        assertEquals("A.kt", impact.objects("paths").single().text("path"))
+        assertEquals("0", impact.objects("paths").single().text("distance"))
         assertEquals("CANDIDATE_IMPACT_REQUIRES_VERIFICATION", impact.text("relationship_scope"))
         assertTrue(impact.text("limitations").contains("No executed tests"))
     }

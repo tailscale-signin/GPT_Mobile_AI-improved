@@ -18,6 +18,19 @@ class VoiceIncrementalTextMapTest {
         assertThrows(IllegalStateException::class.java) { text.range(8, 12) }
     }
 
+    @Test fun firstPronunciationMapAfterPlainTextKeepsEarlierAndLaterUtf16Offsets() {
+        val text = VoiceIncrementalTextMap()
+        text.append("🚀")
+        text.append("GPU", listOf(7..9, IntRange.EMPTY, 7..9))
+        text.append("é")
+        assertEquals(0..1, text.range(0, 4))
+        assertEquals(7..9, text.range(4, 7))
+        assertEquals(IntRange.EMPTY, text.range(5, 6))
+        assertEquals(5..5, text.range(7, 9))
+        assertFalse(text.contains(1, 4))
+        assertFalse(text.contains(9, 10))
+    }
+
     @Test fun oneStreamMapsPronunciationAndLaterSegmentCuesToTheirOriginalCaptions() {
         val text = VoiceReplyStreamText()
         val first = VoiceStreamingPhrasePlan("GPU", mapOf("gpu" to "graphics processor"), 1f).next(8)!!

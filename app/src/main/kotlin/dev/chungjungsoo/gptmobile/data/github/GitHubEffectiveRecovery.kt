@@ -182,7 +182,13 @@ internal object GitHubEffectiveRecovery {
             if (unknownAcceptance) {
                 append(" Check remote acceptance before starting a fresh task from the saved evidence. The failed request remains paused.")
             } else if (original.text("code") == "REPLAY_EVIDENCE_REQUIRED") {
-                append(" Follow the saved-page recovery details from this checkpoint.")
+                append(
+                    when (original.text("replay_budget_state")) {
+                        "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH" -> " Reopen the original read from its saved repository revision and verify the returned page against its receipt."
+                        "SAVED_PAGE_EXCEEDS_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE" -> " Reduce the requested range or increase the available context, then continue with the saved receipts."
+                        else -> " Follow the saved-page recovery details from this checkpoint."
+                    }
+                )
             }
         }
     }

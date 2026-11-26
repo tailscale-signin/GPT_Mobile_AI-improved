@@ -239,6 +239,7 @@ data class GatewayEngineeringJob(
     @SerialName("pr_url") val prUrl: String? = null,
     @SerialName("head_sha") val headSha: String? = null,
     @SerialName("changed_files") val changedFiles: List<String> = emptyList(),
+    @SerialName("changed_file_coverage") val changedFileCoverage: JsonObject? = null,
     val tests: List<JsonObject> = emptyList(),
     @SerialName("checks_passed") val checksPassed: Boolean = false,
     @SerialName("merge_ready") val mergeReady: Boolean = false,

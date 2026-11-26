@@ -133,6 +133,7 @@ private val MEDIAPIPE_FAMILIES = setOf("MEDIAPIPE", "MEDIAPIPE_KOKORO", "MEDIAPI
 private fun mediaPipeExecution(provider: String): Pair<String, String>? = when (provider) {
     "mediapipe-kokoro-cpu-requested" -> "MEDIAPIPE_KOKORO" to "CPU"
     "mediapipe-kokoro-gpu-requested" -> "MEDIAPIPE_KOKORO" to "GPU"
+    "mediapipe-kokoro-npu-requested" -> "MEDIAPIPE_KOKORO" to "NPU"
     "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON" to "CPU"
     "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET" to "CPU"
     else -> null
@@ -187,7 +188,7 @@ private fun performanceExecutionJson(evidence: VoiceSpeechExecutionEvidence) = b
     put("contextCacheStatus", safeSpeechContextCacheStatus(evidence.contextCacheStatus)?.let(::JsonPrimitive) ?: JsonNull)
     number("contextLoadMs", evidence.contextLoadMs, 3_600_000)
     number("contextStoreMs", evidence.contextStoreMs, 3_600_000)
-    number("contextBytes", evidence.contextBytes, 256L * 1024 * 1024)
+    number("contextBytes", evidence.contextBytes, 512L * 1024 * 1024)
     number("contextCacheEvictions", evidence.contextCacheEvictions)
     flag("contextFallback", evidence.contextFallback)
     put("htpPerformanceMode", safeSpeechHtpPerformanceMode(evidence.htpPerformanceMode)?.let(::JsonPrimitive) ?: JsonNull)

@@ -72,6 +72,13 @@ class AppAuditInventoryTest(unittest.TestCase):
         self.assertEqual(2, data['file_count'])
         self.assertEqual({'external_integrations', 'benchmark'}, {row['area_id'] for row in data['files']})
 
+    def test_preparing_research_companions_preserves_the_application_inventory(self):
+        self.write('mcp/research/prepare-airbnb.mjs')
+        before = inventory.document(self.root)
+        self.write('mcp/research/upstreams/airbnb/index.ts')
+        self.write('mcp/research/upstreams/hn-server/src/index.ts')
+        self.assertEqual(before, inventory.document(self.root))
+
     def test_generated_outputs_do_not_create_a_self_referential_digest(self):
         self.write('gateway/main.py')
         expected = inventory.document(self.root)

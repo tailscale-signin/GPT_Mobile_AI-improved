@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal data class VoiceBackendPreference(val backend: VoiceSpeechBackend = VoiceSpeechBackend.CPU, val gatewayUid: String = "")
+internal data class VoiceBackendPreference(val backend: VoiceSpeechBackend = VoiceSpeechBackend.DEFAULT, val gatewayUid: String = "")
 internal data class VoiceBackendPreferenceState(val value: VoiceBackendPreference = VoiceBackendPreference(), val error: String? = null)
 
 /** Application ownership lets a selected backend finish saving after its navigation entry closes. */
@@ -49,13 +49,13 @@ internal class VoiceBackendPreferenceStore internal constructor(private val open
                 val backend = VoiceSpeechBackend.entries.firstOrNull { it.name == saved["backend"] }
                 val uid = (saved["gateway_uid"] as? String)?.takeIf { it.length <= 256 }.orEmpty()
                 VoiceBackendPreferenceState(
-                    VoiceBackendPreference(backend ?: VoiceSpeechBackend.CPU, uid),
-                    "Saved speech settings were invalid. CPU defaults are in use.".takeIf { saved["backend"] != null && backend == null }
+                    VoiceBackendPreference(backend ?: VoiceSpeechBackend.DEFAULT, uid),
+                    "Saved speech settings were invalid. Using ${VoiceSpeechBackend.DEFAULT.label}.".takeIf { saved["backend"] != null && backend == null }
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                VoiceBackendPreferenceState(error = "Saved speech settings could not be read. CPU defaults are in use.")
+                VoiceBackendPreferenceState(error = "Saved speech settings could not be read. Using ${VoiceSpeechBackend.DEFAULT.label}.")
             }
             mutable.compareAndSet(null, loaded)
         }

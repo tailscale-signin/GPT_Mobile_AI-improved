@@ -10,6 +10,38 @@ import org.junit.Test
 class GitHubActivityLinesTest {
     private fun line(text: String, summary: Boolean = false) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, text, progressCheckpoint = true, statusSummary = summary)
 
+    private fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false, active: Boolean = false) =
+        gitHubActivityProjection(timeline, task, searchActive, active).lines
+
+    private fun gitHubHasActivePreview(timeline: List<AssistantTimelineItem>, searchActive: Boolean) =
+        gitHubActivityProjection(timeline, "", searchActive, active = true).hasActivePreview
+
+    @Test fun privateAndDiagnosticEventsCannotBecomeHighlightsOrRetireThePublicAccent() {
+        val read = line("Reading build.gradle.kts").copy(progressSequence = 1)
+        val notice = line("internal trace", true).copy(modelAuthored = true, progressSequence = 2)
+        val hidden = listOf(
+            notice.copy(type = AssistantTimelineItemType.THINKING),
+            notice.copy(toolSequence = 4),
+            notice.copy(delegationRemote = true),
+            notice.copy(delegatedTool = true, modelAuthored = false),
+            notice.copy(content = "<think>internal only</think>"),
+            notice.copy(content = "[telemetry] internal trace", modelAuthored = false)
+        )
+        val projection = gitHubActivityProjection(listOf(read) + hidden, "Inspect the build", active = true)
+        assertEquals(listOf(read), projection.lines.filterNot { it.statusSummary }.map { it.copy(progressId = null) })
+        assertTrue(projection.hasActivePreview)
+        assertTrue(projection.lines.none { "internal" in it.content })
+        assertEquals(null, gitHubPublicSummary(hidden))
+    }
+
+    @Test fun compactHistoryPinsNewestFindingAlongsideTheLatestPreviews() {
+        val latest = line("Build failed at the signing step", true)
+        val lines = listOf(line("Preparing to inspect the build", true)) +
+            (1..22).map { line("Reading file $it") } + latest + line("Checking signing inputs") + line("Reading the build log")
+        val visible = gitHubVisibleActivityLines(lines, compact = true, entryLimit = 3)
+        assertEquals(lines.takeLast(3), visible)
+    }
+
     @Test fun identifiedSummaryStateCyclesRetainTheirEventOrder() {
         listOf(false, true).forEach { authored ->
             val first = line("Issue #2440 is open.", true).copy(modelAuthored = authored, progressId = "open-1", progressSequence = 1)

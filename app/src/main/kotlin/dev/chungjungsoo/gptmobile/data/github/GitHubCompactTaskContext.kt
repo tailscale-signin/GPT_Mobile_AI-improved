@@ -10,20 +10,34 @@ import kotlinx.serialization.json.put
 
 /** The caller has already admitted the account and selected revision. Only read retained blobs. */
 internal object GitHubCompactTaskContext {
+    private val blobIdentity = Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
+
     suspend fun prepare(context: GitHubTaskSnapshot, tree: JsonObject?, query: String, cachedBlob: suspend (String) -> JsonObject?): JsonObject {
         val hints = GitHubTaskContextBundle.cachedPathHints("${context.owner}/${context.repo}", context.ref, context.commitSha, tree, query)
         val paths = hints["source_read_candidates"] as JsonArray
-        val path = (paths.firstOrNull() as? JsonPrimitive)?.contentOrNull
-        val entry = (tree?.get("tree") as? JsonArray)?.asSequence()?.filterIsInstance<JsonObject>()
-            ?.firstOrNull { path != null && it["path"] == JsonPrimitive(path) && it["type"] == JsonPrimitive("blob") && it["mode"] !in setOf(JsonPrimitive("120000"), JsonPrimitive("160000")) }
-        val sha = (entry?.get("sha") as? JsonPrimitive)?.contentOrNull
-        val size = (entry?.get("size") as? JsonPrimitive)?.longOrNull
-        // A compact lookup can inspect one small text blob. Other candidates remain pointers.
-        val window = if (path != null && sha != null && sha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) && size != null && size in 1..65_536L) {
+        val candidates = paths.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        val treeEntries = (tree?.get("tree") as? JsonArray).orEmpty().asSequence().filterIsInstance<JsonObject>()
+        val entries = treeEntries
+            .filter { (it["path"] as? JsonPrimitive)?.contentOrNull in candidates && it["type"] == JsonPrimitive("blob") && it["mode"] !in setOf(JsonPrimitive("120000"), JsonPrimitive("160000")) }
+            .associateBy { it["path"] }
+        // Try the ranked pointers in order, stopping at the first usable retained window.
+        val window = candidates.firstNotNullOfOrNull { path ->
+            val entry = entries[JsonPrimitive(path)] ?: return@firstNotNullOfOrNull null
+            val sha = (entry["sha"] as? JsonPrimitive)?.contentOrNull?.takeIf(blobIdentity::matches) ?: return@firstNotNullOfOrNull null
+            val size = (entry["size"] as? JsonPrimitive)?.longOrNull ?: return@firstNotNullOfOrNull null
+            if (size !in 1..65_536L) return@firstNotNullOfOrNull null
             val retained = cachedBlob(sha)?.takeIf { it["sha"] == JsonPrimitive(sha) }
-            (retained?.get("content") as? JsonPrimitive)?.contentOrNull?.takeIf { it.length <= 65_536 && it.isNotBlank() }?.let { sourceWindow(path, sha, query, it) }
-        } else {
-            null
+            (retained?.get("content") as? JsonPrimitive)?.contentOrNull
+                ?.takeIf { it.length <= 65_536 && it.isNotBlank() }?.let { content ->
+                    val location = GitHubTaskContextBundle.requestedLine(path, query) { name ->
+                        tree?.get("truncated") != JsonPrimitive(true) &&
+                            treeEntries.none { row ->
+                                val other = (row["path"] as? JsonPrimitive)?.contentOrNull
+                                row["type"] == JsonPrimitive("blob") && other != path && other?.substringAfterLast('/') == name
+                            }
+                    }
+                    sourceWindow(path, sha, query, content, location)
+                }
         }
         return buildJsonObject {
             put("repository", hints.getValue("repository"))
@@ -31,18 +45,17 @@ internal object GitHubCompactTaskContext {
             put("commit_sha", hints.getValue("commit_sha"))
             put("source_sha", hints.getValue("source_sha"))
             put("tree_reused", tree != null)
-            put("source_read_candidates", if (window == null) paths else JsonArray(paths.drop(1)))
+            put("source_read_candidates", if (window == null) paths else JsonArray(paths.filter { it != window["path"] }))
             window?.let { put("source_window", it) }
         }
     }
 
-    private fun sourceWindow(path: String, sha: String, query: String, source: String): JsonObject? {
+    private fun sourceWindow(path: String, sha: String, query: String, source: String, location: Int?): JsonObject? {
         val lines = GitHubRepositorySession.sourceLines(source)
-        val location = Regex("""(?:${Regex.escape(path)}|${Regex.escape(path.substringAfterLast('/'))}):(\d+)""").find(query)
         val terms = Regex("""[\p{L}\p{N}_]{3,}""").findAll(query.take(2048)).map { it.value }.distinct().take(16).toList()
         val start = if (location != null) {
-            val line = location.groupValues[1].toIntOrNull()?.takeIf { it in 1..lines.size } ?: return null
-            line - 1
+            if (location !in 1..lines.size) return null
+            location - 1
         } else {
             lines.indices.maxByOrNull { index -> terms.count { lines[index].contains(it, ignoreCase = true) } } ?: return null
         }

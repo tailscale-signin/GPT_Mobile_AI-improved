@@ -6,6 +6,7 @@ optional NumPy tests exercise the real backend with a narrowly mocked ORT driver
 import asyncio
 import base64
 import copy
+import gc
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ import tempfile
 import threading
 import time
 import unittest
+import weakref
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -351,6 +353,18 @@ class VoiceQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.service.streams), 2)
         self.service.release_stream(self.service.streams['owner', second['request_id']])
         self.service.release_stream(self.service.streams['owner', third['request_id']])
+
+    async def test_drained_stream_releases_pcm_while_native_worker_is_idle(self):
+        self.backend.release.set()
+        request = payload()
+        speech = await self.service.synthesize('owner', request, binary=True)
+        reference = weakref.ref(speech)
+        self.service.release_stream(self.service.streams['owner', request['request_id']])
+        del speech
+        await self.service.queue.join()
+        await asyncio.sleep(0)
+        gc.collect()
+        self.assertIsNone(reference())
 
     async def test_binary_native_cancellation_retires_admission_without_delivering_pcm(self):
         request = payload()
@@ -802,9 +816,20 @@ class VoiceNativeBoundaryTests(unittest.TestCase):
                 path = self.options.profile_file_prefix + '.json'
                 Path(path).write_text(json.dumps([cuda_event(provider)]))
                 return path
-        driver = SimpleNamespace(SessionOptions=Options, RunOptions=Options, InferenceSession=Session,
+        driver = SimpleNamespace(disable_telemetry_events=lambda: None, SessionOptions=Options, RunOptions=Options, InferenceSession=Session,
                                  get_available_providers=lambda: [PROVIDER, 'CPUExecutionProvider'])
         return driver, sessions
+
+    def test_missing_cuda_provider_skips_reading_model_weights(self):
+        calls = []
+        ort = SimpleNamespace(disable_telemetry_events=lambda: calls.append('telemetry off'),
+                              get_available_providers=lambda: calls.append('providers') or ['CPUExecutionProvider'])
+        with patch.dict(sys.modules, onnxruntime=ort), patch('v14.voice.load_pack') as read:
+            with self.assertRaises(VoiceError) as unavailable:
+                KokoroCudaBackend('unused')
+            self.assertEqual(unavailable.exception.code, 'VOICE_CUDA_UNAVAILABLE')
+            read.assert_not_called()
+            self.assertEqual(calls, ['telemetry off', 'providers'])
 
     def test_warmed_session_proves_cuda_and_preserves_native_style_timing_contract(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -995,6 +1020,38 @@ serve(parser.parse_args().directory, factory=Synthetic)
 
 
 class VoiceSetupTests(unittest.TestCase):
+    def test_existing_cuda_venv_is_checked_before_installing_any_wheels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'data').mkdir()
+            (root / 'current.json').write_text('{}')
+            python = root / 'addons/voice-cuda/venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+            python.parent.mkdir(parents=True)
+            python.touch()
+            failure = subprocess.CalledProcessError(1, 'python')
+            with patch('setup_voice_cuda.subprocess.run', side_effect=failure) as process:
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    install(root, root, sys.executable)
+            self.assertIs(failure, raised.exception)
+            process.assert_called_once()
+            executable, *flags, script = process.call_args.args[0]
+            self.assertTrue(python.samefile(executable))
+            self.assertEqual(['-I', '-c'], flags)
+            self.assertTrue(script.strip())
+            self.assertEqual({'check': True}, process.call_args.kwargs)
+            self.assertFalse((root / 'data/voice-cuda.json').exists())
+
+    def test_invalid_candidate_preserves_last_verified_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_pack(root)
+            original = (root / 'voice-manifest.json').read_bytes()
+            (root / 'lexicon-us-en.txt').write_text('hello ' + 'h ' * 512 + '\n', encoding='utf-8')
+            with self.assertRaises(VoiceError):
+                prepare(root)
+            self.assertEqual((root / 'voice-manifest.json').read_bytes(), original)
+            self.assertEqual(load_pack(root)[0], json.loads(original))
+
     def test_manifest_encodes_fixed_publisher_word_and_setup_enables_only_after_qualification(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

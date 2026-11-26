@@ -72,10 +72,9 @@ internal object GitHubReadRetry {
                 // Keep the original tool call and authority while the credential's
                 // circuit cools down. Writes and long waits require explicit recovery.
                 // A second open observation cannot extend this bounded read allowance.
-                if (!readOnly || circuitWaited || retries >= 2 || open.retryAfterMs !in 1L..GitHubTransportRecovery.MAX_WAIT_MILLIS) throw open
+                if (!readOnly || circuitWaited || open.retryAfterMs !in 1L..GitHubTransportRecovery.MAX_WAIT_MILLIS) throw open
                 circuitWaited = true
                 delay(open.retryAfterMs)
-                retries++
             } catch (failure: IOException) {
                 currentCoroutineContext().ensureActive()
                 if (failure.isLocalPrivacyPolicyRejection() || !readOnly || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status)) throw failure

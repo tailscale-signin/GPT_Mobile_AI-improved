@@ -21,7 +21,7 @@ SOURCE = "b" * 40
 
 def native_receipt(engine="phonon", run_id=RUN_ID):
     model = smoke.MODELS[engine]
-    return {
+    receipt = {
         "schema": "mediapipe-android-jni-smoke-v2",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
@@ -50,6 +50,14 @@ def native_receipt(engine="phonon", run_id=RUN_ID):
             "input_owner_retired": True, "stream_closed": True, "total_ms": 500,
         },
     }
+    if engine == "kokoro":
+        receipt["application_playback"] = {
+            "voice_id": "af_heart", "speaking_rate": 1, "first_audio_track_write_ms": 200,
+            "first_presented_audio_ms": 240, "clock_basis": "audio_timestamp",
+            "presented_before_last_text": True, "pronunciation_reached_sdk": True,
+            "source_caption_ranges_presented": True, "finish_input_calls": 1, "stream_closed": True,
+        }
+    return receipt
 
 
 def incremental_receipt():
@@ -98,6 +106,21 @@ def fixture(directory, engine="phonon", source=SOURCE):
 
 
 class MediaPipeAndroidReceiptTest(unittest.TestCase):
+    def test_kokoro_requires_playback_head_progress_before_second_text_and_original_caption_ranges(self):
+        receipt = native_receipt("kokoro")
+        smoke.check_receipt(receipt, "kokoro", RUN_ID)
+        for key, invalid in (
+            ("first_audio_track_write_ms", -1), ("first_presented_audio_ms", 199),
+            ("clock_basis", "queued"), ("presented_before_last_text", False),
+            ("pronunciation_reached_sdk", False), ("source_caption_ranges_presented", False),
+            ("speaking_rate", 1.25), ("stream_closed", False),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                smoke.check_receipt({**receipt, "application_playback": {**receipt["application_playback"], key: invalid}}, "kokoro", RUN_ID)
+        del receipt["application_playback"]
+        with self.assertRaises(ValueError):
+            smoke.check_receipt(receipt, "kokoro", RUN_ID)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

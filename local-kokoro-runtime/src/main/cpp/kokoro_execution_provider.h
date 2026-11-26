@@ -53,7 +53,11 @@ inline std::string DeviceDiscovery(const char *stage, const std::vector<Ort::Con
 // ORT keeps a process-wide environment. Keep the plugin registered for its whole
 // lifetime so another warm session cannot unload a provider still in use.
 inline std::shared_ptr<Ort::Env> Environment() {
-  static auto env = std::make_shared<Ort::Env>(ORT_LOGGING_LEVEL_ERROR, "kokoro");
+  static auto env = [] {
+    auto local = std::make_shared<Ort::Env>(ORT_LOGGING_LEVEL_ERROR, "kokoro");
+    local->DisableTelemetryEvents();
+    return local;
+  }();
   return env;
 }
 
@@ -108,7 +112,8 @@ inline std::vector<Ort::ConstEpDevice> SelectDevices(Ort::Env &env,
 inline Ort::SessionOptions Options(Ort::Env &env, int threads,
     const std::string &provider, const std::string &library_dir,
     const std::string &profile_prefix, int64_t token_count,
-    const std::string &context_path = "", const std::string &htp_performance_mode = "balanced") {
+    const std::string &context_path = "", const std::string &htp_performance_mode = "balanced",
+    const std::string &model_path = "") {
   Ort::SessionOptions options;
   options.SetIntraOpNumThreads(threads);
   options.SetInterOpNumThreads(1);
@@ -120,8 +125,15 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
   const auto selected = SelectDevices(env, provider, library_dir);
   // QAIRT 2.52 and the plugin 2.8.0 are pinned together in Gradle. Explicit
   // backend paths ensure the GPU selection cannot accidentally use HTP or CPU.
-  std::unordered_map<std::string, std::string> settings{
-      {"backend_path", library_dir + (provider == "qnn-gpu" ? "/libQnnGpu.so" : "/libQnnHtp.so")}};
+  // The installer binds model.onnx to the original FP32 digest. The compact pack
+  // has a distinct filename. Select the graph policy before the provider opens.
+  std::string backend_library = "/libQnnHtp.so";
+  if (provider == "qnn-gpu") {
+    const auto model_file = model_path.substr(model_path.find_last_of('/') + 1);
+    backend_library = model_file == "model.onnx" ? "/libkokoro_qnn_gpu_fp32.so" : "/libQnnGpu.so";
+    if (!std::ifstream(library_dir + backend_library).good()) throw std::runtime_error("PROVIDER_LOAD");
+  }
+  std::unordered_map<std::string, std::string> settings{{"backend_path", library_dir + backend_library}};
   if (provider == "qnn-htp") settings.emplace("htp_performance_mode", htp_performance_mode);
   if (token_count < 3 || token_count > 511) throw std::runtime_error("Invalid speech graph shape");
   // The pinned Kokoro export names its input sequence dimension explicitly.

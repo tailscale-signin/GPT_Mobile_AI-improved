@@ -197,8 +197,8 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 150
-        versionName = "0.9.66.16"
+        versionCode = 151
+        versionName = "0.9.66.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -363,6 +363,7 @@ extensions.configure<ApplicationExtension> {
             // Both native-library audit manifests pin vendor ELF bytes exactly.
             // Keep these bytes unchanged when the app's NDK strips other libraries.
             keepDebugSymbols += setOf(
+                "**/libkokoro_qnn_gpu_fp32.so",
                 "**/libonnxruntime_providers_qnn.so",
                 "**/libCalculator_skel.so",
                 "**/libPlatformValidatorShared.so",
@@ -400,7 +401,7 @@ extensions.configure<ApplicationExtension> {
             // and TextSummarizer APIs load the separate text-generation binary.
             excludes += "**/libmediapipe_tasks_textgenai_jni.so"
             // The opt-in Kokoro GPU prototype uses the matching QAIRT GPU backend.
-            if (geniexRuntime) excludes += "**/libLiteRtDispatch_Qualcomm.so"
+            if (geniexRuntime) excludes += setOf("**/libLiteRtDispatch_Qualcomm.so", "**/libkokoro_qnn_gpu_fp32.so")
         }
     }
 }
@@ -568,6 +569,20 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     )
 }
 
+// Use the same compiler outputs as the build, including Android's built-in Kotlin compiler.
+tasks.register<Exec>("writeJvmCallIndex") {
+    val kotlinTasks = listOf("compileDebugKotlin", "compileDebugUnitTestKotlin").map { tasks.named<KotlinCompile>(it) }
+    val javaTasks = listOf("compileDebugJavaWithJavac", "compileDebugUnitTestJavaWithJavac").map { tasks.named<JavaCompile>(it) }
+    dependsOn(kotlinTasks, javaTasks)
+    val outputFile = layout.buildDirectory.file("reports/jvm-call-index.json")
+    workingDir(rootProject.projectDir)
+    doFirst {
+        val asm = requireNotNull(gradle.gradleHomeDir).resolve("lib").listFiles().orEmpty().single { it.name.matches(Regex("""asm-[0-9][0-9.]*\.jar""")) }
+        val dirs = kotlinTasks.map { it.get().destinationDirectory.get().asFile } + javaTasks.map { it.get().destinationDirectory.get().asFile }
+        commandLine(listOf("python3", "scripts/build_jvm_call_index.py", "--asm", asm.absolutePath, "--head", System.getenv("JVM_CALL_INDEX_HEAD").orEmpty(), "--output", outputFile.get().asFile.absolutePath, "--classes") + dirs.map { it.absolutePath })
+    }
+}
+
 dependencies {
     // Embedded recognition only; model downloads and microphone ownership are app-controlled.
     // The existing app supplies AndroidX/OkHttp. Do not select the SDK's older transitive stack.
@@ -672,6 +687,8 @@ dependencies {
         implementation(libs.secure.guava)
         add("ksp", libs.secure.guava)
         implementation(libs.secure.protobuf.lite)
+        implementation(libs.commons.codec)
+        implementation(libs.commons.io)
         implementation(libs.secure.commons.lang)
         implementation(libs.secure.log4j.api)
         implementation(libs.secure.bcprov)

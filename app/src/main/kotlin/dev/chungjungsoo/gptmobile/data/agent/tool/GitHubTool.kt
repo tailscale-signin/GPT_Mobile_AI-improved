@@ -114,7 +114,8 @@ class GitHubTool(
             modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty(),
             planningTarget,
             snapshot?.commitSha ?: repositoryScope?.commitSha,
-            snapshot?.updatedAt ?: repositoryScope?.observedAtMillis
+            snapshot?.updatedAt ?: repositoryScope?.observedAtMillis,
+            webOrigin = apiOrigins.authorization
         )
     }
     internal fun planningDescription() = dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext(
@@ -171,7 +172,11 @@ class GitHubTool(
     private val savedViewScope by lazy {
         GitHubResultViews.scope(durableIdentity, connectionUid, conversationId, taskId, (repositoryScope?.repository ?: repositoryContext)?.fullName.orEmpty())
     }
-    private val savedViews by lazy { dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore(operationBlocks, "$operationBlockScope:saved:$savedViewScope") }
+    private val savedViews by lazy {
+        val store = stateStore?.takeIf { persistentState }
+            ?: dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.stateForCredential(requestCredential().token, apiOrigins.hostIdentity)
+        dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore(store, "$operationBlockScope:saved:$savedViewScope")
+    }
 
     private suspend fun validateSavedViewAccess() {
         check(!credentialAdmissionFailed) { "GitHub authorization could not be verified." }
@@ -184,7 +189,7 @@ class GitHubTool(
     internal fun operations(): List<GitHubOperationTool> {
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
         return GitHubOperationTool.names.map {
-            GitHubOperationTool(requireNotNull(GitHubOperationTool.operationName(it)), this, savedViewScope, it + suffix, loadSavedView = savedViews::loadWithDiagnostics, saveSavedView = savedViews::save, validateSavedViewAccess = ::validateSavedViewAccess)
+            GitHubOperationTool(requireNotNull(GitHubOperationTool.operationName(it)), this, savedViewScope, it + suffix, loadSavedView = savedViews::loadWithDiagnostics, saveSavedView = savedViews::save, restorePinnedSource = savedViews::restorePinnedSource, validateSavedViewAccess = ::validateSavedViewAccess)
         }
     }
 
@@ -889,7 +894,10 @@ class GitHubTool(
                 return successResult(callId, presented.toString())
             }
             when (action) {
-                "watch_checks" -> successResult(callId, requireNotNull(watchChecks) { "Background check subscriptions require a connected account and saved chat." }(arguments).toString())
+                "watch_checks" -> {
+                    val watch = watchChecks ?: return AgentToolResult(callId, ToolResultContent.Text("Check monitoring needs a connected GitHub account and an existing chat. Use the PR or CI read tools to inspect the current state."), true, errorCode = "TOOL_UNAVAILABLE", dispatched = false)
+                    successResult(callId, watch(arguments).toString())
+                }
                 "search_repositories" -> handleSearchRepositories(callId, arguments)
                 "search_issues" -> handleSearchIssues(callId, arguments)
                 "get_file_contents" -> handleGetFileContents(callId, arguments)

@@ -10,6 +10,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GitHubObservationFreshnessTest {
+    private fun json(raw: String) = kotlinx.serialization.json.Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
+
     @Test fun derivedClaimsRefreshOnlyTheirExpiredOperands() {
         val report = kotlinx.serialization.json.Json.parseToJsonElement(
             """{"unresolved_claims":[{"status":"NOT_MEASURED","sources":[{"receipt_id":"old","status":"STALE"},{"receipt_id":"current","status":"VERIFIED"}]},{"receipt_id":"old","status":"STALE"}]}"""
@@ -18,7 +20,6 @@ class GitHubObservationFreshnessTest {
     }
 
     @Test fun staleClaimSelectsOnlyItsExactMutableReadAndDoesNotRepeatAfterRestart() {
-        fun json(raw: String) = kotlinx.serialization.json.Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
         val schema = json("""{"type":"object","properties":{"action":{"type":"string"},"issue_number":{"type":"integer"},"verify_live":{"type":"boolean"}},"required":["action","issue_number"]}""")
         val tool = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("github", "read", schema)
         val original = json("""{"trusted":true,"success":true,"tool":"github","arguments":{"action":"get_issue","issue_number":42}}""")
@@ -31,6 +32,19 @@ class GitHubObservationFreshnessTest {
         for (change in listOf("""{"immutable":true}""", """{"trusted":false}""", """{"verification_eligible":false}""", """{"arguments":{"action":"close_issue","issue_number":42}}""")) {
             val excluded = kotlinx.serialization.json.JsonObject(original + json(change))
             assertNull(GitHubExecutionContinuation.staleRead(listOf("old"), listOf(tool), mapOf("old" to excluded), "request"))
+        }
+    }
+
+    @Test fun staleSavedPageRefreshesOnlyTheOriginalReadInTheSameTaskAndBranch() {
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_issue")
+        val source = json("""{"binding":"task","repository":"owner/repo","branch":"main","trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list","state":"open"}}""")
+        val page = kotlinx.serialization.json.JsonObject(source + json("""{"source_observation_receipt_id":"original","arguments":{"view_cursor":"saved"}}"""))
+        val rows = mapOf("original" to source, "page" to page)
+        val call = requireNotNull(GitHubExecutionContinuation.staleRead(listOf("page"), listOf(tool), rows, "request"))
+        assertEquals(json("""{"action":"list","state":"open","verify_live":true}"""), call.arguments)
+        for (change in listOf("""{"branch":"other"}""", """{"repository":"other/repo"}""", """{"trusted":false}""", """{"source_observation_receipt_id":"page"}""")) {
+            val altered = rows + ("page" to kotlinx.serialization.json.JsonObject(page + json(change)))
+            assertNull(GitHubExecutionContinuation.staleRead(listOf("page"), listOf(tool), altered, "request"))
         }
     }
 

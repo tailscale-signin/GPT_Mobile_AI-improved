@@ -38,7 +38,7 @@ internal object IssueReportIncidentCapsule {
         "url", "download_url", "accept", "since", "until", "filter", "status", "conclusion", "inputs", "files", "encoding", "recursive", "names", "inventory_cursor", "inventory_version", "catalog_only"
     )
     val dispatchPolicyFields = setOf("dispatch_policy_sections", "dispatch_policy_stage", "dispatch_policy_resume_required")
-    private val policySections = setOf("PROFILE", "BUDGET", "SPEND", "TOOLS", "MCP", "PERMISSIONS", "ASSIST", "DELEGATION", "RESEARCH", "GATEWAY", "GITHUB", "REASONING", "ENGINEERING")
+    private val policySections = setOf("PROFILE", "BUDGET", "SPEND", "TOOLS", "MCP", "PERMISSIONS", "ASSIST", "DELEGATION", "RESEARCH", "GATEWAY", "GITHUB", "REASONING", "ENGINEERING", "PRIVACY")
     private val policyStages = setOf("provider_admission", "tool_precheck", "tool_dispatch", "tool_execution", "delivery", "verification")
 
     /** Serialized production policy/profile keys only; never scope IDs or settings values. */
@@ -47,7 +47,7 @@ internal object IssueReportIncidentCapsule {
         "githubProfileOverride.webSearch", "githubProfileOverride.githubTools", "githubProfileOverride.engineeringMode", "githubProfileOverride.maximumContext", "githubProfileOverride.contextVariant", "githubProfileOverride.engineeringMemory", "githubProfileOverride.allowCloudEngineeringMemory", "githubProfileOverride.workflowPreset", "githubProfileOverride.quickWorkflows", "githubProfileOverride.engineeringGatewayProfileUid", "githubProfileOverride.executionBatchMode", "githubProfileOverride.sampling",
         "githubProfileOverride.intelligenceLevel", "githubProfileOverride.nextActionPolicy", "githubProfileOverride.evidenceElaboration", "githubProfileOverride.recoveryConsultConsent", "githubProfileOverride.engineeringTeamConsent", "githubProfileOverride.recoveryExecutionConsent", "githubProfileOverride.primaryPatchReviewConsent",
         "assist", "assistPolicy", "budget", "conversationDelegation", "conversationGateway",
-        "conversationResearch", "delegation", "engineering", "githubProfileOverride", "githubProfileSelection",
+        "conversationResearch", "delegation", "devicePrivacy", "engineering", "githubProfileOverride", "githubProfileSelection",
         "llamaReasoning", "location", "plugins", "profile", "profile.accelerator",
         "profile.apiUrl", "profile.batchApiUrl", "profile.batchMode", "profile.compatibleType", "profile.dangerousContentSafetyThreshold",
         "profile.disableAllTools", "profile.disableLocalTools", "profile.disableRemoteTools", "profile.enabled", "profile.harassmentSafetyThreshold",
@@ -548,6 +548,25 @@ internal object IssueReportIncidentCapsule {
         ) {
             IssueReportDiagnostics.replayBudgetFields.forEach(::remove)
         }
+        if (area != "INCIDENT" ||
+            feature != ReportFeature.CHAT ||
+            source != "CHAT_FAILURE" ||
+            code != "REPLAY_EVIDENCE_REQUIRED" ||
+            text(fields["failure_origin"]) != "APPLICATION" ||
+            phase !in setOf("planning", "provider_admission", "response_stream") ||
+            text(fields["replay_missing_record"]) !in IssueReportDiagnostics.replayMissingRecords
+        ) {
+            IssueReportDiagnostics.replaySourceFields.forEach(::remove)
+        }
+        if (area == "INCIDENT" &&
+            feature == ReportFeature.CHAT &&
+            source == "CHAT_FAILURE" &&
+            code == "REPLAY_EVIDENCE_REQUIRED" &&
+            text(fields["incident_capture_site"]) == ExceptionCaptureSite.AGENT_FAILED_EVENT.name &&
+            fields["failed_event_details_present"] in setOf(false, JsonPrimitive(false))
+        ) {
+            put("replay_missing_record", "TERMINAL_FAILURE_DETAILS")
+        }
         remove("app_search_readiness")
         if (area == "INCIDENT" &&
             feature == ReportFeature.CHAT &&
@@ -633,6 +652,7 @@ internal object IssueReportIncidentCapsule {
 
     private fun policySection(field: String?): String? = when (field?.substringBefore('.')) {
         "profile", "profileBehavior" -> "PROFILE"
+        "devicePrivacy" -> "PRIVACY"
         "budget" -> "BUDGET"
         "spend" -> "SPEND"
         "tools", "plugins", "tool_inventory" -> "TOOLS"

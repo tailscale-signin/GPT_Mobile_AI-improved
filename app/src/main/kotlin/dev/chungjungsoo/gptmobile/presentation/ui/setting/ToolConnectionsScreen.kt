@@ -1222,7 +1222,10 @@ private fun ConnectionDetailsStep(
     onClearCredentialChange: (Boolean) -> Unit
 ) {
     if (provider?.type == ToolConnectionType.GITHUB) {
-        GitHubSetupOverview(step = 1)
+        GitHubSetupOverview(
+            title = "GitHub connection",
+            description = "Sign in with GitHub or use a personal access token to choose which repositories this connection can access."
+        )
         Spacer(Modifier.height(20.dp))
     }
     val normalizedAlias = ToolConnectionsViewModel.normalizeAlias(alias)
@@ -1230,7 +1233,7 @@ private fun ConnectionDetailsStep(
     val aliasError = stringResource(R.string.stable_alias_error)
     Text(
         text = if (provider?.type == ToolConnectionType.GITHUB) {
-            "Sign in with GitHub or connect a personal access token for repositories, pull requests and Actions workflows. Token permissions control repository access; tool permissions control approvals for actions."
+            "Tool permissions control which GitHub actions require your approval."
         } else {
             stringResource(
                 if (isMcp) R.string.mcp_details_description else R.string.web_search_details_description,

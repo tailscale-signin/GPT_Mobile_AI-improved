@@ -11,13 +11,16 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceInstallState
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTransferStage
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -34,6 +37,35 @@ import org.robolectric.annotation.Config
 class VoicePluginSetupTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun recognitionEngineAndPerLanguageReplyVoiceCanChangeIndependently() {
+        var engine by mutableStateOf(VoiceRecognitionBackend.LOCAL_MOONSHINE)
+        var synthesis by mutableStateOf(VoiceSynthesisPreferences("es"))
+        compose.setContent {
+            MaterialTheme {
+                Column {
+                    RecognitionLanguageChoice("en-US", engine) { _, selected -> engine = selected }
+                    SynthesisLanguageChoices(synthesis, true) { synthesis = it }
+                }
+            }
+        }
+        compose.onNodeWithText("Moonshine").performClick()
+        compose.onNodeWithText("Android offline recognizer").performClick()
+        compose.onNodeWithText("Dora").performClick()
+        compose.onNodeWithText("Alex").performClick()
+        val spanish = SpeechLanguages.synthesis.first { it.tag == "es" }.label
+        val japanese = SpeechLanguages.synthesis.first { it.tag == "ja" }.label
+        compose.onNodeWithText(spanish).performClick()
+        compose.onNodeWithText(japanese).performScrollTo().performClick()
+        compose.onNodeWithText("Alpha").assertIsDisplayed()
+        compose.onNodeWithText(japanese).performClick()
+        compose.onNodeWithText(spanish).performScrollTo().performClick()
+        compose.onNodeWithText("Alex").assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, engine)
+            assertEquals("em_alex", synthesis.voiceId)
+        }
+    }
+
     @Test fun entrySetupCanChooseAndDownloadAStreamingPackBeforeNativeKokoroIsInstalled() {
         var selected by mutableStateOf(VoiceSpeechBackend.CPU)
         var downloads = 0
@@ -46,9 +78,7 @@ class VoicePluginSetupTest {
                         StreamingVoiceModelCard(
                             engine = engine,
                             state = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED),
-                            voice = KokoroVoice.HEART,
                             enabled = true,
-                            selectVoice = {},
                             install = { downloads++ },
                             cancel = {},
                             remove = {},
@@ -68,6 +98,39 @@ class VoicePluginSetupTest {
         }
         compose.onNodeWithTag("download_streaming_voice").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, downloads) }
+    }
+
+    @Test fun acceleratorPreparationReflectsTheVerifiedBaseAndTheRequestedJob() {
+        org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build::class.java, "SOC_MODEL", "SM8750")
+        var engine by mutableStateOf(MediaPipeSpeechEngine.KOKORO_SM8750)
+        var base by mutableStateOf(LocalVoiceModelStatus.DOWNLOADING)
+        var requested by mutableStateOf(false)
+        compose.setContent {
+            MaterialTheme {
+                StreamingVoiceModelCard(
+                    engine = engine,
+                    state = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED),
+                    standardPack = LocalVoiceModelState(base),
+                    preparingNpuBase = requested,
+                    enabled = true,
+                    install = { requested = true },
+                    cancel = { requested = false },
+                    remove = {},
+                    preview = {},
+                    previewError = null
+                )
+            }
+        }
+        compose.onNodeWithText("Cancel preparation").assertDoesNotExist()
+        compose.onNodeWithText("Import verified SM8750 pack").assertIsDisplayed()
+        compose.onNodeWithText("Get standard Kokoro and prepare NPU pack").performClick()
+        compose.onNodeWithText("Cancel preparation").performClick()
+        compose.runOnIdle { base = LocalVoiceModelStatus.READY }
+        compose.onNodeWithText("Prepare NPU pack offline").assertIsDisplayed()
+        compose.runOnIdle { engine = MediaPipeSpeechEngine.KOKORO_GPU }
+        compose.onNodeWithText("Prepare GPU pack offline").assertIsDisplayed()
+        compose.runOnIdle { base = LocalVoiceModelStatus.NOT_INSTALLED }
+        compose.onNodeWithText("Download GPU pack", substring = true).assertIsDisplayed()
     }
 
     @Test fun anInstalledNativePackCannotMasqueradeAsTheSelectedStreamingPack() {
@@ -92,7 +155,7 @@ class VoicePluginSetupTest {
         val missing = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED)
         var starts = 0
         var reports = 0
-        compose.setContent { MaterialTheme { Column { VoicePluginSetup(missing, missing, installation, { starts++ }, {}, { reports++ }) } } }
+        compose.setContent { MaterialTheme { Column { VoicePluginSetup(missing, missing, missing, installation, { starts++ }, {}, { reports++ }) } } }
         compose.onNodeWithText("Waiting for an internet connection…").assertIsDisplayed()
         compose.onNodeWithText("Report download problem").assertIsDisplayed().performClick()
         assertEquals(1, reports)
@@ -103,6 +166,23 @@ class VoicePluginSetupTest {
         assertEquals(0, starts)
         compose.onNodeWithText("Resume download").performClick()
         assertEquals(1, starts)
+    }
+
+    @Test fun missingStreamingPackRemainsVisibleAfterBothOriginalPacksAreReady() {
+        val installed = LocalVoiceModelState(LocalVoiceModelStatus.READY, 10, 10)
+        val missing = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED, 0, 100)
+        var streaming by mutableStateOf(missing)
+        var starts = 0
+        compose.setContent {
+            MaterialTheme { Column { VoicePluginSetup(installed, installed, streaming, VoiceInstallState(), { starts++ }, {}) } }
+        }
+        compose.onNodeWithText("Voice Chat plugin ready").assertDoesNotExist()
+        compose.onNodeWithText("Download Voice Chat plugin").performClick()
+        compose.runOnIdle {
+            assertEquals(1, starts)
+            streaming = installed
+        }
+        compose.onNodeWithText("Voice Chat plugin ready").assertIsDisplayed()
     }
 
     @Test fun connectionAndArchivePreparationAreVisibleBeforeReady() {

@@ -1,8 +1,11 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using System.Text.Json.Nodes;
 using Gateway.Desktop.Core;
 
@@ -127,6 +130,127 @@ internal static class Ui
         var image = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth * dpi.DpiScaleX),
             (int)Math.Ceiling(view.ActualHeight * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
         image.Render(view);
+        SaveCapture(image, file);
+    }
+
+    public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root) => FullyWithinRenderBounds(element, root, out _);
+
+    public static bool ClipContainsRenderBounds(Geometry clip, Rect bounds)
+    {
+        // WPF viewport rectangles include their edges; the geometry relation can
+        // report Intersects for a contained row that shares those exact edges.
+        if (clip is RectangleGeometry rectangle && rectangle.RadiusX == 0 && rectangle.RadiusY == 0 &&
+            (rectangle.Transform == null || rectangle.Transform.Value.IsIdentity))
+            return rectangle.Rect.Contains(bounds);
+        return clip.FillContainsWithDetail(new RectangleGeometry(bounds)) == IntersectionDetail.FullyContains;
+    }
+
+    public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root, out string rejection)
+    {
+        rejection = "";
+        if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+        {
+            rejection = $"{element.GetType().Name}: IsVisible={element.IsVisible}, RenderSize={element.RenderSize}";
+            return false;
+        }
+        var bounds = new Rect(element.RenderSize);
+        Visual current = element;
+        while (true)
+        {
+            var clip = VisualTreeHelper.GetClip(current);
+            if (clip != null && !ClipContainsRenderBounds(clip, bounds))
+            {
+                rejection = $"{current.GetType().Name}: bounds={bounds}, clip={clip.Bounds}, relation={clip.FillContainsWithDetail(new RectangleGeometry(bounds))}";
+                return false;
+            }
+            if (ReferenceEquals(current, root))
+            {
+                bool contained = new Rect(root.RenderSize).Contains(bounds);
+                if (!contained) rejection = $"Root: bounds={bounds}, RenderSize={root.RenderSize}";
+                return contained;
+            }
+            if (VisualTreeHelper.GetParent(current) is not Visual parent)
+            {
+                rejection = $"{current.GetType().Name}: no visual parent before the capture root";
+                return false;
+            }
+            bounds = current.TransformToAncestor(parent).TransformBounds(bounds);
+            current = parent;
+        }
+    }
+
+    public static async Task CaptureReference(Window owner, FrameworkElement content, Size size, string file, Action<FrameworkElement> verify)
+    {
+        if (!ReferenceEquals(owner.Content, content) || size.Width <= 0 || size.Height <= 0 ||
+            size.Width != Math.Floor(size.Width) || size.Height != Math.Floor(size.Height))
+            throw new InvalidOperationException("Reference capture requires the current content and an integral layout size.");
+
+        // A CI desktop can clamp Window.ActualWidth/Height below the reference size.
+        // Present the same controls in an offscreen popup, without the Window's client clip.
+        var dpi = VisualTreeHelper.GetDpi(owner);
+        using var source = new HwndSource(new HwndSourceParameters("Gateway reference capture")
+        {
+            Width = (int)Math.Ceiling(size.Width * dpi.DpiScaleX), Height = (int)Math.Ceiling(size.Height * dpi.DpiScaleY),
+            PositionX = -32000, PositionY = -32000,
+            WindowStyle = unchecked((int)0x90000000), // WS_POPUP | WS_VISIBLE
+            ExtendedWindowStyle = 0x08000080 // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+        });
+        var frame = new Border
+        {
+            Width = size.Width, Height = size.Height, Background = owner.Background, Resources = owner.Resources,
+            DataContext = owner.DataContext, FlowDirection = owner.FlowDirection, Language = owner.Language,
+            UseLayoutRounding = owner.UseLayoutRounding, SnapsToDevicePixels = owner.SnapsToDevicePixels
+        };
+        if (frame.Background is not SolidColorBrush backdrop || backdrop.Color.A != byte.MaxValue ||
+            backdrop.Opacity != 1 || frame.Opacity != 1)
+            throw new InvalidOperationException("Reference capture requires a fully opaque solid background.");
+        TextElement.SetFontFamily(frame, owner.FontFamily);
+        TextElement.SetFontSize(frame, owner.FontSize);
+        TextElement.SetFontStyle(frame, owner.FontStyle);
+        TextElement.SetFontWeight(frame, owner.FontWeight);
+        TextElement.SetFontStretch(frame, owner.FontStretch);
+        TextElement.SetForeground(frame, owner.Foreground);
+        owner.Content = null;
+        try
+        {
+            try { frame.Child = content; }
+            catch (Exception error)
+            {
+                throw new InvalidOperationException($"Reference attachment failed: visualParent={VisualTreeHelper.GetParent(content)?.GetType().FullName ?? "none"}, logicalParent={content.Parent?.GetType().FullName ?? "none"}, requested={size}.", error);
+            }
+            source.RootVisual = frame;
+            content.InvalidateMeasure(); content.InvalidateArrange();
+            frame.Measure(size); frame.Arrange(new Rect(size)); frame.UpdateLayout();
+            await frame.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+            frame.UpdateLayout();
+            bool complete = FullyWithinRenderBounds(content, frame, out string rejection);
+            var sourceDpi = VisualTreeHelper.GetDpi(frame);
+            if (frame.RenderSize != size || content.RenderSize != size || !complete)
+                throw new InvalidOperationException($"Reference content did not render at its complete requested bounds: requested={size}, frame={frame.RenderSize}, content={content.RenderSize}, owner={owner.RenderSize}, ownerDpi={dpi.DpiScaleX}x{dpi.DpiScaleY}, sourceDpi={sourceDpi.DpiScaleX}x{sourceDpi.DpiScaleY}, rejection={rejection}.");
+            verify(frame);
+
+            // Render WPF at the reference DPI; never resize or pad a clipped bitmap.
+            var image = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+            image.Render(frame);
+            int stride = image.PixelWidth * 4;
+            var pixels = new byte[stride * image.PixelHeight];
+            image.CopyPixels(pixels, stride, 0);
+            // Keep the exact rendered PNG even when coverage validation fails.
+            SaveCapture(image, file);
+            int roundedGlyphPixels = ReferenceCaptureCoverage.ValidatePbgra32(pixels, image.PixelWidth, image.PixelHeight);
+            Console.WriteLine($"Reference capture coverage: {image.PixelWidth}x{image.PixelHeight}, glyph-alpha rounding pixels={roundedGlyphPixels}.");
+        }
+        finally
+        {
+            source.RootVisual = null;
+            frame.Child = null;
+            owner.Content = content;
+            owner.UpdateLayout();
+        }
+    }
+
+    private static void SaveCapture(BitmapSource image, string file)
+    {
         var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
         using var stream = File.Create(file); png.Save(stream);
     }

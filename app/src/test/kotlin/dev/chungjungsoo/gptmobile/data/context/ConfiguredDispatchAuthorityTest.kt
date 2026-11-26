@@ -208,6 +208,23 @@ class ConfiguredDispatchAuthorityTest {
         assertTrue(ConfiguredDispatchAuthority.githubOverrideChanges(before, before).isEmpty())
     }
 
+    @Test fun raisingOnlyIntelligenceKeepsAnAlreadyAcceptedLowerEffortTurnAdmitted() = runTest {
+        val profile = PlatformV2(uid = "profile", name = "Selected", model = "model")
+        val balanced = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
+        val deep = balanced.copy(intelligenceLevel = dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.DEEP_ENGINEERING)
+        val initial = selectionFeatures(profile.uid)
+        var features = initial
+        val settings = selectionSettings({ listOf(profile) }, { features })
+        val guard = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        features = initial.copy(githubProfileOverrides = mapOf(profile.uid to deep))
+        guard.validate()
+        val deeperTurn = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        features = initial.copy(githubProfileOverrides = mapOf(profile.uid to balanced))
+        assertTrue(runCatching { deeperTurn.validate() }.exceptionOrNull() is DispatchPolicyChangedException)
+        features = initial.copy(githubProfileOverrides = mapOf(profile.uid to deep.copy(githubTools = false)))
+        assertTrue(runCatching { guard.validate() }.exceptionOrNull() is DispatchPolicyChangedException)
+    }
+
     @Test fun queuedAndRestoredGithubTasksKeepTheirSubmittedPromptAndRevalidateExecutionSettings() = runTest {
         val profile = PlatformV2(uid = "profile", name = "Selected", model = "model")
         val shortcut = dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow("shortcut", "Label", "First prompt")

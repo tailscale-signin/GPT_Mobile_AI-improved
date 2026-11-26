@@ -1,16 +1,62 @@
-# Android 0.9.66.16 — smoother voice chat and reliable execution
+# Android 0.9.66.17 — repository intelligence, private dispatch and voice
 
-Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
+Android build **151** and Windows Gateway **18.1.4** use the Gateway 18 contract.
+
+## GitHub mode
+
+Standalone record numbers such as `#43` inherit the preceding read’s type only in the same workspace. Saved-page failures retain the canonical operation and hashed receipt or source when available, including registered tool aliases without exposing their private names.
+
+Private saved-page reading spends its context allowance on checkpoint-eligible source pairs. Pages carrying final-answer instructions remain available for ordinary delivery, and an exhausted body allowance is reported without discarding original proofs or repeating tool calls.
+
+
+Rebuild GitHub chat setup, task routing, context selection and progress around the selected repository. Fresh profiles use adaptive effort. Direct lookups start with the relevant read, and the chat header keeps branch and activity visible.
+
+Follow-up questions can refer to an issue or pull request by number. GitHub mode checks the preceding read and workspace before resolving a bare number. Verified source quotations link to the exact lines on the configured GitHub host, and an approval waiting on an older turn no longer holds a later answer open.
+
+GitHub chat can answer “What tools can you use here?” and “Can you inspect my PRs?” from its tool definitions. Open **Tools and features** to search documented tools, settings and integrations alongside the latest chat and Gateway observations. The same reviewed feature routes rank admitted tools when a task needs them. Code searches now open the matching lines at the checked commit, including matches deep in a file. The mobile Gateway tool list loads every authorized page when opened and refreshes if the catalog changes mid-read.
+
+Interrupted OpenAI Responses keep visible text and disable replay when the stream closes before its completion receipt. Device-privacy reports now verify service support before submission.
+
+## Repository intelligence, privacy and independent speech languages
+
+- Separate the visible transcript from the history used for sends, retries and Combined recovery. Ordinary chat opens page the latest 40 turns and message links retain their anchor.
+- Use compiler-produced JVM method descriptors, source lines and call sites for repository impact and test discovery. Keep language-level lexical matches identifiable when a matching build artifact is unavailable.
+- Replay redacted GitHub reads on an exact revision and compare routing policies by verified requirements, repeat reads, elapsed time and available token receipts.
+- Choose GitHub evidence sources using unmet criteria, measured yields, permissions and the validity of cached source ranges.
+- Carry source revision, blob and line ranges to the final provider request, record omission or partial delivery, and link source-backed conclusions to independently observed evidence where available.
+- Join changed Android line and branch coverage with fresh named JUnit outcomes. The PR gate checks reviewed behavior contracts and retains a change-by-change report.
+- Benchmark repository-map reuse across chats, branch movement, account switches and eviction using the production cache and repeatable fixtures.
+- Offer verified retention as a dispatch requirement for private chats while preserving profile selection, on-device inference and local masking.
+- Set recognition and synthesis languages independently and retain observed local voice and backend evidence separately from requested accelerator placement.
+- Preserve the PR’s LiteRT speech and Adreno FP32 changes, improve GitHub search and saved-page continuation, and reduce Gateway job and saved-chat lookup costs.
+
+The repository-map benchmark uses simulated GitHub transport. A host measurement or requested speech delegate does not establish live handset latency or physical accelerator placement.
+
+## Voice updates and earlier release context
+
+Kokoro now adjusts phrase length while an incremental reply is playing. A buffered
+reply can finish a clause, and low audio reserves release available words sooner.
+Initials such as “J. R. Tolkien” stay together and quoted answers can start
+playing as soon as the sentence closes.
+
+LiteRT playback comparisons measure SDK task opening, first PCM, first presented audio, raw clipping and cancellation. The results distinguish the stop request, the return of an outstanding SDK read and engine retirement. Matched trials compare model-only prewarming with a cancellable first inference. Exports include every requested delegate and preserve older benchmark history.
+
 
 GitHub integration reports show the saved page after a time limit and the minimum remaining inventory calls. Phone maps identify the pinned revision and source coverage. Source reads preserve captured lines across files, and saved-page recovery distinguishes missing data, delivery mismatches and measured capacity. Private planning uses a separate token record. Failed provider requests show the retained reads available for inspection.
 
 Keep titles, technical terms, quantities and contextual readings together during live Kokoro speech. Reuse pack-bound native tokens on CPU, GPU and NPU and measure text-ready joins and warm first-presentation latency in audible Stability runs.
 
+Native Kokoro requests FP32 on Adreno for the original model. The pinned QAIRT adapter sets the GPU graph precision and the benchmark records the request. Physical kernel arithmetic and playback still require handset measurement.
+
+Voice settings offer separate publisher GPU and importable Snapdragon 8 Elite NPU vocoder packs. The playback benchmark records which words the audio clock crossed and which highlights reached the screen. Its 1× preset uses the same speech rate for every workload.
+
+The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.
+
 Physical ROG Phone 9 Pro playback and three-listener pronunciation comparisons remain unmeasured for the revised planner. Native FP32 processor preference requires device-specific qualification.
 
 Build 150 also corrects the hosted reporter contract for failed-event output flags, including omissions, and negotiates the extended capability list before sending restored audio-focus reports. GitHub CI diagnosis retains measured APK size failures with their commit, run, attempt, job and log lines; a specific repair remains pending until its supporting evidence is verified. Exhaustive pagination requests survive a chat restart. Context-limited saved pages reach the selected model in successive read-only rounds with bounded reading notes retained for later requests and restart. Diagnostic export collects the run journal and timeline before bulk history and uses smaller database pages as heap headroom falls. Large redacted workspace rows stream through a private temporary file so exporting the row and its checksums uses bounded buffers. Intermediate saved-page reads do not publish progress notes or overwrite a saved answer draft. Retained reading notes accompany later final-answer requests within the existing context budget. A buffered GitHub continuation rechecks its durable prompt before dispatch so a paused, edited or consumed row cannot execute from a stale snapshot.
 
-Quality voice playback starts with up to six words, then adjusts phrase length to the measured synthesis time and available audio. When several authorized tools support a requested action, their local schemas can be selected individually. Repeated identical tool prechecks share one pending report with a count and call history.
+Quality voice playback starts with up to four words, then adjusts phrase length to the measured synthesis time and available audio. When several authorized tools support a requested action, their local schemas can be selected individually. Repeated identical tool prechecks share one pending report with a count and call history.
 
 Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal download limit remains 230 MiB, with 180 MiB for each single-ABI APK. Compression runs after bundle assembly and before signing, reserves scratch space, applies 180-second native-process timeouts and checks a shared 900-second deadline between phases, and rejects archive growth before replacing the unsigned package.
 
@@ -34,6 +80,7 @@ Native-product and reader-preference comparisons require independently collected
 
 ## Speech benchmark and playback
 
+- Start each selected speech processor with a fresh playback trial before longer comparisons. Preserve partial results and separate battery observations, limit optional buffering against the first-audio budget, and account for queued speech while the next native phrase is being generated.
 - Opening a foreground voice room starts preparation for Moonshine and the selected speech pack. During web lookups, a ready answer takes priority over a progress update that has not started playing. The Performance panel records the timing.
 - Auto can warm its admitted CPU session on voice entry. Adaptive playback takes a short opening clause or up to six complete opening words before adjusting phrase lengths to the audio queue.
 - Synthesis benchmarks can alternate short, medium and long fixtures. Reports show the native rejection reason, matched CPU frame counts, recoverable timing differences and distinct first-inference kernel time.
@@ -190,6 +237,27 @@ Final-request refusal diagnostics report only the four observed typed outcomes f
 - Stage a frozen export as a validated private artifact before choosing its destination, then stream it to the provider; large reports stay out of Android saved-state bundles and recover after process recreation.
 
 The added engine benchmark measures structural PCM, callback delivery and playback behavior. It does not establish cross-engine intelligibility, perceptual equivalence, acoustic latency, energy savings or an automatic engine winner. The supplied 631bad14 phone logs are baseline observations, not verification of these changes.
+
+## Saved document recall
+
+Document recall checks consent again after asynchronous source validation. Revoking
+consent, or revoking and restoring it during that check, stops the prepared request
+before it reaches the provider. Ordinary chats continue to use their own privacy
+policy when private masking settings change.
+
+## Windows Gateway setup
+
+The installer shows the destination and selected tasks before installation. Setup
+clears the previous configuration error file before checking settings and applying
+them. The Windows setup smoke check covers and captures the tasks and review pages.
+
+The Jobs reference capture lays out the actual WPF controls at 1904 by 1000 pixels
+and checks that at least 30 distinct rows are fully rendered. Rows aligned exactly
+with a viewport edge count as visible; rows extending beyond it are rejected. The check rejects
+clipped or transparent output when the VM desktop is smaller than the reference
+layout.
+Failed native smoke runs preserve the observed phase, exception and partial
+captures before cleaning up the temporary installation.
 
 ## Release validation
 
@@ -471,7 +539,7 @@ See the [workspace guide](docs/engineering/github-agent-workspace.md) and [runti
 - Physical audio-route latency, caption alignment, interruption recovery, long-reply continuity and frame/memory behavior still require speaker, wired and Bluetooth replay on the target phone. Bounded buffering cannot guarantee uninterrupted speech when synthesis remains slower than playback.
 - Streaming speech delivery feedback has bounded-state and ordinary-worker regression coverage; those controls do not identify every device-specific cause of audible stutter or establish perceptual playback improvement. Physical voice/route measurements remain separate.
 - Gateway CUDA remains optional and requires a reachable, compatible configured Gateway. Local fixtures do not qualify the selected desktop GPU, account, network or live service.
-- The host QNN probes verify finite nonzero PCM and timing from the same inference, not waveform or perceptual equivalence. The 83-token probe differs from its CPU reference by 50 ms of total predicted duration; the recorded host emulator uses ORT 1.28.0 while native/JNI validation uses the pinned application ORT 1.28.2.
+- The host QNN probes verify finite nonzero PCM and timing from the same inference, not waveform or perceptual equivalence. The 83-token probe differs from its CPU reference by 50 ms of total predicted duration; that historical comparison used ORT 1.28.0 in the host emulator and ORT 1.28.2 in the Android runtime. The current native build pins ORT 1.31.0 and sherpa-onnx 2.0.3. Device performance and perceptual speech quality require fresh measurements.
 - The separate native cancellation/failure/reuse regression uses pinned application ORT 1.28.2 with the official QNN 2.7 host emulator, explicit host device/STL ports and a deterministic fault after real kernel execution. It establishes session/profile lifecycle behavior; physical GPU/HTP performance and Android packaging remain separate qualifications.
 
 The recorded graph regression covers 17-, 31- and 83-token probes of the exact shipped model, each with 39 QNN kernels plus CPU partitions and valid same-inference PCM/duration alignment. This mixed execution is separate from the recovery path that replaces a failed accelerator with CPU. See the [QNN graph evidence and reproduction](docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/README.md) and [retained diagnostic repair ledger](docs/engineering/voice-update-nonvoice-scope-2026-11-22.md) for the measured scope and remaining device checks.

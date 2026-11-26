@@ -319,7 +319,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
     private suspend fun selectGateway(profile: PlatformV2) {
         if (settings.getFeatureSettings().githubProfileOverrides[profile.uid]?.engineeringGatewayDefaultApplied == true) return
         settings.mutateFeatureSettings { current ->
-            val saved = current.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
+            val saved = current.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride.newProfile
             if (saved.engineeringGatewayDefaultApplied || saved.engineeringGatewayProfileUid != null) {
                 current
             } else {

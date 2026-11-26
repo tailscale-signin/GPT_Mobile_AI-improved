@@ -100,6 +100,19 @@ class GitHubActionSchemaTest {
         )
     }
 
+    @Test fun focusedBranchDependenciesAdmitsTheNextPage() {
+        val schema = requireNotNull(GitHubActionSchema.project(GitHubOperationTool.definition("github_context"), "branch_dependencies")).inputSchema
+        val next = buildJsonObject {
+            put("action", "branch_dependencies")
+            put("owner", "team")
+            put("repo", "app")
+            put("branch", "feature/one")
+            put("page", 2)
+        }
+        assertTrue(ToolArgumentValidator.errors(next, schema).isEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_context", next).isEmpty())
+    }
+
     @Test fun searchCorrectsTheReadLimitWithoutRewritingPinnedContinuationArguments() {
         val definition = GitHubOperationTool.definition("github_search")
         val arguments = Json.parseToJsonElement("""{"action":"search","query":"object Task","max_new_blobs":0}""") as JsonObject
@@ -220,7 +233,8 @@ class GitHubActionSchemaTest {
         val run = runSelections(listOf("logs", "logs", "logs"))
         assertEquals(listOf(false, true, true).map(::JsonPrimitive), run.discoveryChanges)
         assertTrue(run.definitions.take(3).all { tools -> tools.any { it.name == ProgressiveToolCatalog.NAME } })
-        assertTrue(run.definitions.drop(3).all { tools -> tools.none { it.name == ProgressiveToolCatalog.NAME } })
+        assertTrue(run.definitions[3].none { it.name == ProgressiveToolCatalog.NAME })
+        assertTrue(run.definitions[4].any { it.name == ProgressiveToolCatalog.NAME })
         assertTrue(run.definitions.all { tools -> tools.any { it.name == "github_ci__selected" } })
         assertEquals(1, run.executed)
         assertTrue(run.events.filterIsInstance<AgentRunEvent.Notice>().any { it.message.contains("discovery is paused", true) })

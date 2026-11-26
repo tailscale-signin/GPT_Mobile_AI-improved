@@ -703,7 +703,7 @@ class GitHubToolTest {
                 if (request.method != HttpMethod.Get) mutations++
                 when (request.url.encodedPath) {
                     "/repos/owner/repo/commits/working" -> respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}}}""", HttpStatusCode.OK)
-                    "/repos/owner/repo/git/trees/$tree" -> respond("""{"tree":[],"truncated":false}""", HttpStatusCode.OK)
+                    "/repos/owner/repo/git/trees/$tree" -> respond("""{"sha":"$tree","tree":[],"truncated":false}""", HttpStatusCode.OK)
                     else -> error("Unexpected request: ${request.url}")
                 }
             }
@@ -1123,7 +1123,7 @@ class GitHubToolTest {
                 requests++
                 assertEquals("/search/repositories", request.url.encodedPath)
                 assertEquals("language:Kotlin", request.url.parameters["q"])
-                respond("""{"total_count":0,"items":[]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                respond("""{"total_count":0,"incomplete_results":false,"items":[]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
             }
         )
         try {

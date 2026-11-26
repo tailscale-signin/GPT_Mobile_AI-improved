@@ -12,6 +12,37 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_android_recognition_limit_keeps_dispatch_and_local_backoff_in_approved_report(self):
+        for stage, dispatched in (("precheck", False), ("capture_start", True), ("voice_recognition", True)):
+            with self.subTest(stage=stage):
+                capture = self.capture("VOICE", {
+                    "incident_phase": stage,
+                    "causal_provenance": "EXPLICIT_CAUSE",
+                    "causal_failure_code": "VOICE_RECOGNIZER_RATE_LIMITED",
+                    "incident_origin": "UNKNOWN",
+                    "recovery_observation": "TERMINAL",
+                    "retry_delay_ms": 15_000,
+                    "retry_delay_source": "LOCAL_BACKOFF",
+                    "voice_engine": "SYSTEM",
+                    "voice_phase": "STARTING" if stage != "voice_recognition" else "LISTENING",
+                })
+                report = self.report(capture)
+                report.update(feature="voice", errorCode="VOICE_RECOGNIZER_RATE_LIMITED")
+                report["context"].update(source="VOICE_STATE", stage=stage, operation="voice_recognition",
+                                         dispatched=dispatched, retryable=False, retryAfterMillis=15_000,
+                                         recoveryAction="SPEECH_SERVICE")
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| Failure stage | `{stage}` |", issue["body"])
+                self.assertIn("LOCAL_BACKOFF", issue["body"])
+                self.assertIn("EXPLICIT_CAUSE", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                rejected = copy.deepcopy(report)
+                rejected["context"]["diagnostics"]["values"]["causal_id_hash"] = "voice:raw-session:19"
+                with self.assertRaises(ReportError):
+                    issue_from_report(rejected)
+
     def test_phone_deadline_public_alias_uses_existing_context_and_incident_vocabulary(self):
         for action in ("index", "query"):
             capture = self.capture("TOOL", {
@@ -92,7 +123,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_streaming_voice_values_roundtrip_only_in_voice_without_claiming_an_observed_delegate(self):
         additions = {
             "voice_engine": {"MEDIAPIPE"},
-            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"},
+            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"},
             "voice_fallback_source": {"LITERT_KOKORO", "PHONON", "POCKET"},
         }
         for field, choices in additions.items():
@@ -240,7 +271,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 issue_from_report(self.report(self.capture("VOICE", {**values, field: "private-canary"})))
 
     def test_active_mediapipe_voice_report_preserves_engine_without_unverified_provider(self):
-        for backend in ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"):
+        for backend in ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"):
             with self.subTest(backend=backend):
                 capture = self.capture("VOICE", {
                     "voice_engine": "MEDIAPIPE", "voice_phase": "SPEAKING", "voice_selected_backend": backend,
@@ -267,6 +298,7 @@ class IncidentReportContractTest(unittest.TestCase):
         for backend, engine in (
             ("LITERT_KOKORO_CPU", "LITERT_KOKORO"),
             ("LITERT_KOKORO_GPU", "LITERT_KOKORO"),
+            ("LITERT_KOKORO_NPU", "LITERT_KOKORO"),
             ("PHONON_CPU", "PHONON"),
             ("POCKET_CPU", "POCKET"),
         ):
@@ -296,7 +328,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_streaming_voice_execution_still_rejects_unknown_or_wrong_area_values(self):
         for field, invalid in (
-            ("voice_selected_backend", "LITERT_KOKORO_NPU"),
+            ("voice_effective_provider", "LITERT_KOKORO_NPU"),
             ("voice_selected_backend", "PHONON_GPU"),
             ("voice_selected_backend", "POCKET_GPU"),
             ("voice_selected_backend", "private speech or model path"),
@@ -1984,7 +2016,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_voice_capture_and_playback_evidence_is_bounded_and_area_specific(self):
         values = {"voice_playback_failure": "AUDIO_FOCUS_DENIED", "voice_playback_focus_attempts": 2,
                   "voice_capture_silenced_stage": "CAPTURE_READ", "voice_caption_alignment": "NO_TIMING",
-                  "voice_install_recognition_status": "CHECKING", "voice_install_playback_status": "READY"}
+                  "voice_install_recognition_status": "CHECKING", "voice_install_playback_status": "READY", "voice_install_streaming_status": "DOWNLOADING"}
         validate_diagnostics(self.capture("VOICE", values))
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("PROVIDER", values))
@@ -2347,7 +2379,7 @@ class IncidentReportContractTest(unittest.TestCase):
         values = {
             "voice_install_state": "RUNNING", "voice_install_scheduler": "JOB_SCHEDULER",
             "voice_install_pending_reason": "EXECUTING", "voice_install_elapsed_ms": 120_000,
-            "voice_install_pack": "MOONSHINE", "voice_install_transfer_stage": "FAILED",
+            "voice_install_pack": "LITERT_KOKORO", "voice_install_transfer_stage": "FAILED",
             "voice_install_failure_kind": "HTTP", "voice_install_http_status": 503,
             "voice_install_downloaded_bytes": 2_000_000, "voice_install_total_bytes": 177_000_000,
         }
@@ -2420,6 +2452,18 @@ class IncidentReportContractTest(unittest.TestCase):
                     validate_diagnostics(capture)
                 with self.assertRaises(ReportError):
                     issue_from_report(self.report(capture))
+
+    def test_private_delivery_stop_retains_only_the_public_policy_name(self):
+        values = {"dispatch_policy_sections": ["PRIVACY"], "dispatch_policy_stage": "delivery",
+                  "dispatch_policy_resume_required": True, "changed_policy_fields": ["devicePrivacy"],
+                  "changed_policy_field_count": 1, "changed_policy_unknown_count": 0,
+                  "changed_policy_malformed_count": 0, "changed_policy_omitted_count": 0,
+                  "changed_policy_observation": "OBSERVED"}
+        capture = self.capture("INCIDENT", values)
+        self.assertEqual(capture, validate_diagnostics(capture))
+        issue_from_report(self.report(capture))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("INCIDENT", dict(values, changed_policy_fields=["devicePrivacy.privateTerm"])))
 
     def test_dispatch_policy_diagnostics_keep_closed_categories(self):
         capture = self.capture("INCIDENT", {"dispatch_policy_sections": ["PROFILE", "TOOLS", "PERMISSIONS"],
@@ -2654,8 +2698,11 @@ class IncidentReportContractTest(unittest.TestCase):
         behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
-        self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(84, len(capsule.POLICY_FIELD_NAMES))
+        private_turn = (base / "data/privacy/PrivateTurn.kt").read_text()
+        privacy_keys = set(re.findall(r'DispatchPolicyChangedException\(listOf\("([A-Za-z]+)"\)\)', private_turn))
+        self.assertEqual({"devicePrivacy"}, privacy_keys)
+        self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | privacy_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
+        self.assertEqual(85, len(capsule.POLICY_FIELD_NAMES))
 
     def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
         code = "REPLAY_EVIDENCE_REQUIRED"
@@ -2689,6 +2736,13 @@ class IncidentReportContractTest(unittest.TestCase):
         _, issue = issue_from_report(report)
         self.assertIn("| replay_budget_state | `REQUIRED_SAVED_PAGE_NOT_PRESENT` |", issue["body"])
         self.assertIn("| pending_saved_page_count | `1` |", issue["body"])
+        scoped = {**fields, "replay_missing_record": "SAVED_PAGE_BODY", "replay_call_hash": "a" * 64,
+                  "replay_source_hash": "b" * 64, "replay_expected_body_hash": "c" * 64}
+        validate_diagnostics(self.capture("INCIDENT", scoped))
+        for key, value in (("replay_missing_record", "private body"), ("replay_call_hash", "raw-call-id"),
+                           ("replay_source_hash", "path/to/source.kt")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {**scoped, key: value}))
         bounded = {**fields, "replay_budget_state": "SAVED_PAGE_EXCEEDS_ALLOWANCE",
                    "minimum_page_body_tokens": 25001, "source_allowance": 24000}
         validate_diagnostics(self.capture("INCIDENT", bounded))

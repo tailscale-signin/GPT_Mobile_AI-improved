@@ -41,11 +41,13 @@ internal data class VoiceSpeechBenchmarkEnergyObservation(
     val observedPowerEvents: Int = 0,
     val externalPowerObserved: Boolean = false,
     val unknownPowerStateObserved: Boolean = false,
-    val interrupted: Boolean = false
+    val interrupted: Boolean = false,
+    val window: Int = 1
 ) {
     init {
         require(elapsedMs == null || elapsedMs in 0..MAX_WINDOW_MS)
         require(observedPowerEvents in 0..MAX_POWER_EVENTS)
+        require(window in 1..2)
         require(!monitoringConfirmed || monitorRegistered && end != null)
         require(!interrupted || end == null && elapsedMs == null && !monitoringConfirmed)
     }

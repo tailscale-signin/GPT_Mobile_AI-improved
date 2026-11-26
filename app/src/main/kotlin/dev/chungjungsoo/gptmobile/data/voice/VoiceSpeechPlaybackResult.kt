@@ -106,11 +106,24 @@ internal data class VoiceSpeechPlaybackResult(
     val sustainedWallElapsedMs: Long? = null,
     val sustainedWallDeadlineMs: Long? = null,
     val sustainedCompletedRepeats: Int? = null,
-    val sustainedQualification: String? = null
+    val sustainedQualification: String? = null,
+    val renderedManifestWords: Int? = null,
+    val nativeRetirementMs: Long? = null,
+    val stopOrigin: VoiceSpeechStopOrigin? = null,
+    val sdkCancelToReadReturnMs: Long? = null,
+    val prewarmMode: VoiceSpeechPrewarmMode? = null,
+    val prewarmCompleted: Boolean? = null,
+    val prewarmElapsedMs: Long? = null,
+    val recoveryAfter: VoiceSpeechCancellationTarget? = null,
+    val sdkPcm: VoicePcmSignal? = null,
+    val cacheDirectoryPresent: Boolean? = null,
+    val cacheDirectoriesEvicted: Int? = null,
+    val firstSdkPcmAfterStreamStartMs: Long? = null
 ) {
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
             manifestWordsExpected?.let { it > 0 && manifestWordsPrepared == it && manifestWordsObserved == it } == true &&
+            renderedManifestWords != 0 &&
             unexpectedCaptionWords == 0 &&
             captionClockRegressions == 0 &&
             captionTimingViolations == 0
@@ -161,6 +174,7 @@ internal interface VoicePlaybackMeasurementObserver {
     fun captionsPrepared(segment: Int, ranges: List<IntRange>) = Unit
     fun firstPresented(clockBasis: String, route: String) = Unit
     fun terminal(underruns: Int?, bufferRestarts: Int, longestRefillMs: Long, clockBasis: String, route: String) = Unit
+    fun captionClockCrossed(segment: Int, range: IntRange) = Unit
     fun firstAudioTrackWrite() = Unit
     fun trackPlayRequested() = Unit
     fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) = Unit
@@ -284,6 +298,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     @Synchronized fun reached(target: VoiceSpeechCancellationTarget): Boolean = when (target) {
         VoiceSpeechCancellationTarget.PREPARATION -> currentStage == VoiceSpeechStage.PREPARING
         VoiceSpeechCancellationTarget.INFERENCE -> currentStage == VoiceSpeechStage.SYNTHESIS
+        VoiceSpeechCancellationTarget.SDK_STREAM_CALL -> currentStage == VoiceSpeechStage.SDK_STREAM_CALL
         VoiceSpeechCancellationTarget.PLAYBACK -> firstPresented != null
     }
 
@@ -295,6 +310,7 @@ internal class VoiceSpeechPlaybackMeasurement(
         return when (target) {
             VoiceSpeechCancellationTarget.PREPARATION -> modelPreparationActive || activeStage == VoiceSpeechStage.PREPARING
             VoiceSpeechCancellationTarget.INFERENCE -> activeStage == VoiceSpeechStage.SYNTHESIS
+            VoiceSpeechCancellationTarget.SDK_STREAM_CALL -> activeStage == VoiceSpeechStage.SDK_STREAM_CALL
             VoiceSpeechCancellationTarget.PLAYBACK -> firstPresented != null
         }
     }
@@ -382,7 +398,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     }
 
     @Synchronized override fun preparationPhase(stage: String, elapsedMs: Long) {
-        if (stoppedAt == null && stage in setOf("GATE_WAIT", "MODEL_LOAD")) preparationPhases[stage] = elapsedMs.coerceAtLeast(0)
+        if (stoppedAt == null && stage in SPEECH_PREPARATION_PHASES) preparationPhases[stage] = elapsedMs.coerceAtLeast(0)
     }
 
     @Synchronized override fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) {
@@ -423,6 +439,14 @@ internal class VoiceSpeechPlaybackMeasurement(
         }
     }
 
+    private val crossedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
+
+    @Synchronized override fun captionClockCrossed(segment: Int, range: IntRange) {
+        if (stoppedAt != null || range.isEmpty()) return
+        val span = VoiceSpeechCaptionSpan(segment, range.first, range.last)
+        if (span in crossedWords || crossedWords.size < VoiceSpeechCaptionManifest.MAX_WORDS) crossedWords.add(span) else violations++
+    }
+
     @Synchronized fun caption(timing: VoiceCaptionTiming, segment: Int? = null, range: IntRange? = null) {
         if (stoppedAt != null) return
         captions++
@@ -435,10 +459,28 @@ internal class VoiceSpeechPlaybackMeasurement(
         }
     }
 
-    @Synchronized fun cancelRequested(targetReached: Boolean? = null) {
+    private var stopOrigin: VoiceSpeechStopOrigin? = null
+    private var cacheDirectoryPresent: Boolean? = null
+    private var cacheDirectoriesEvicted: Int? = null
+
+    @Synchronized fun cacheObserved(present: Boolean, evicted: Int) {
+        if (stoppedAt == null) {
+            cacheDirectoryPresent = present
+            cacheDirectoriesEvicted = evicted
+        }
+    }
+
+    @Synchronized fun cancelRequested(targetReached: Boolean? = null, origin: VoiceSpeechStopOrigin? = null) {
         if (stoppedAt != null) return
-        if (cancellationRequested == null) cancellationRequested = elapsed()
+        if (cancellationRequested == null) {
+            cancellationRequested = elapsed()
+            stopOrigin = origin
+        }
         cancellationTargetReached = targetReached ?: cancellationTargetReached
+    }
+
+    @Synchronized fun stopToRetiredMs(retiredAt: Long?): Long? = retiredAt?.let { end ->
+        cancellationRequested?.let { requested -> ((end - started).coerceAtLeast(0) / 1_000_000 - requested).coerceAtLeast(0) }
     }
 
     @Synchronized override fun terminal(underruns: Int?, bufferRestarts: Int, longestRefillMs: Long, clockBasis: String, route: String) {
@@ -469,8 +511,9 @@ internal class VoiceSpeechPlaybackMeasurement(
             protocolVersion = if (plan == null) 0 else VoiceSpeechPlaybackProtocol.VERSION,
             scenario = plan?.scenario ?: VoiceSpeechPlaybackScenario.COLD_START, repeat = plan?.repeat ?: 0, warmup = plan?.warmup ?: false, expectedResident = plan?.expectedResident ?: false,
             engineReused = reused, fixtureHash = manifest?.hash, manifestWordsExpected = manifest?.spans?.size,
-            manifestWordsPrepared = manifest?.let { m -> expectedWords.count { it in m.spans } }, manifestWordsObserved = manifest?.let { m -> observedWords.count { it in m.spans } },
-            unexpectedCaptionWords = manifest?.let { m -> (expectedWords + observedWords).count { it !in m.spans } },
+            manifestWordsPrepared = manifest?.let { m -> expectedWords.count { it in m.spans } }, manifestWordsObserved = manifest?.let { m -> (crossedWords + observedWords).count { it in m.spans } },
+            renderedManifestWords = manifest?.let { m -> observedWords.count { it in m.spans } },
+            unexpectedCaptionWords = manifest?.let { m -> (expectedWords + observedWords + crossedWords).count { it !in m.spans } },
             firstAudioTrackWriteMs = firstWrite, trackPlayRequestedMs = playRequested, sessionPrepareMs = prepareMs,
             requestedThreads = requestedThreads, effectiveThreads = effectiveThreads, activePlaybackUnderruns = activeUnderruns, startupUnderruns = startupUnderruns, drainUnderruns = drainUnderruns,
             chunkRecords = chunkRecords.toList(), reserves = reserves.toList(), calibrations = calibrations.toList(), progress = progress.toList(), pipelineFailureCode = safeCode(pipelineFailureCode),
@@ -479,10 +522,12 @@ internal class VoiceSpeechPlaybackMeasurement(
             failedTokenCount = native?.tokenCount, failedTokenLimit = native?.tokenLimit, failedRequestedProvider = native?.requestedProvider,
             failedEffectiveProvider = native?.effectiveProvider, failedDiscoverySummary = native?.discoverySummary,
             failedAttemptMs = (attemptStarted ?: preparationAttemptStarted.takeIf { native != null && chunks == 0 })?.let { (ended - it).coerceAtLeast(0) }.takeIf { failure != null || native != null }, failureObservation = native?.observation,
+            prewarmMode = plan?.prewarmMode, recoveryAfter = plan?.recoveryAfter,
             cancellationTarget = plan?.cancellationTarget, cancellationTargetReached = cancellationTargetReached, arrivalIntervalMs = plan?.arrivalIntervalMs ?: 0,
             underrunsByPhase = phaseUnderruns.toMap(), preparationPhases = preparationPhases.toMap(),
             timeoutLimitMs = native?.timeoutLimitMs, timeoutElapsedMs = native?.timeoutElapsedMs, timeoutScope = native?.timeoutScope,
-            omittedPcmRecords = omittedPcmRecords
+            omittedPcmRecords = omittedPcmRecords, stopOrigin = stopOrigin,
+            cacheDirectoryPresent = cacheDirectoryPresent, cacheDirectoriesEvicted = cacheDirectoriesEvicted
         )
     }
 

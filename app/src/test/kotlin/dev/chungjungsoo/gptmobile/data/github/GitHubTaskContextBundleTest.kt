@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -45,6 +46,49 @@ class GitHubTaskContextBundleTest {
         assertFalse(paths.any { ".." in it.toString() || "docs/" in it.toString() })
         assertTrue(hints.toString().toByteArray().size <= 640)
         assertTrue((GitHubTaskContextBundle.cachedPathHints("owner/repo", "main", commit, null, "Repair")["source_read_candidates"] as JsonArray).isEmpty())
+    }
+
+    @Test fun compactSelectionReturnsFirstUsableRetainedWindowAndPreservesOtherPointers() = runBlocking {
+        val paths = listOf("src/ParserA.kt", "src/ParserB.kt", "src/ParserC.kt", "src/ParserD.kt")
+        val shas = listOf("a", "b", "c", "d").map { it.repeat(40) }
+        val tree = buildJsonObject {
+            put(
+                "tree",
+                JsonArray(
+                    paths.mapIndexed { index, path ->
+                        buildJsonObject {
+                            put("type", "blob")
+                            put("path", path)
+                            put("sha", shas[index])
+                            put("size", 32)
+                        }
+                    }
+                )
+            )
+        }
+        val reads = mutableListOf<String>()
+        val snapshot = GitHubTaskSnapshot("account", "connection", "chat", "task", "owner", "repo", "main", commit, "e".repeat(40))
+        val result = GitHubCompactTaskContext.prepare(snapshot, tree, "parser behavior") { sha ->
+            reads += sha
+            when (sha) {
+                shas[0] -> null
+                shas[1] -> buildJsonObject {
+                    put("sha", shas[0])
+                    put("content", "WRONG_BLOB")
+                }
+                else -> buildJsonObject {
+                    put("sha", sha)
+                    put("content", "fun parse() = true")
+                }
+            }
+        }
+        assertEquals(shas.take(3), reads)
+        val window = result.getValue("source_window").jsonObject
+        assertEquals(JsonPrimitive(paths[2]), window["path"])
+        assertEquals(JsonPrimitive(shas[2]), window["blob_sha"])
+        assertEquals(JsonPrimitive("fun parse() = true"), window["excerpt"])
+        assertEquals(JsonArray((paths - paths[2]).map(::JsonPrimitive)), result["source_read_candidates"])
+        assertFalse(result.toString().contains("WRONG_BLOB"))
     }
 
     @Test fun currentArmDoesNotReadSourceOrReferences() = runBlocking {
@@ -121,6 +165,65 @@ class GitHubTaskContextBundleTest {
         assertEquals(JsonPrimitive(80), selected["matched_line"])
         assertEquals(JsonPrimitive("TASK_SOURCE_LOCATION"), selected["reason"])
         assertTrue(selected["start_line"]!!.jsonPrimitive.int <= 80 && selected["end_line"]!!.jsonPrimitive.int >= 80)
+    }
+
+    @Test fun qualifiedLocationStaysWithItsFileAndKeepsTheNamedLineInsideTheUtf8Budget() = runBlocking {
+        val named = "src/main/Worker.kt"
+        val other = "src/debug/Worker.kt"
+        val files = listOf(GitHubContextFile(named, "b".repeat(40)), GitHubContextFile(other, "c".repeat(40)))
+        val source = listOf("fun handle() = 1", "界".repeat(900), "check(visibleMarker)", "after()").joinToString("\n")
+        suspend fun ranges(task: String) = GitHubTaskContextBundle.build(
+            "owner/repo",
+            commit,
+            "main",
+            files,
+            task,
+            budgetBytes = 24_000,
+            load = { path -> GitHubContextSource(path, files.single { it.path == path }.blobSha, source) }
+        ).getValue("selected_ranges").jsonArray.map { it.jsonObject }.associateBy { it.getValue("path").jsonPrimitive.content }
+
+        val qualified = ranges("Read ./src/main/Worker.kt#L3 and compare the debug worker")
+        val hit = qualified.getValue(named)
+        assertEquals(JsonPrimitive(3), hit["matched_line"])
+        assertEquals(JsonPrimitive(3), hit["start_line"])
+        assertTrue(hit.getValue("excerpt").jsonPrimitive.content.startsWith("check(visibleMarker)"))
+        assertFalse(qualified.getValue(other).containsKey("matched_line"))
+        assertFalse(ranges("Inspect Worker.kt:3").values.any { it.containsKey("matched_line") })
+    }
+
+    @Test fun compactFallbackDoesNotReassignALineFromAnUncachedNamesake() = runBlocking {
+        val paths = listOf("src/main/Worker.kt", "src/debug/Worker.kt")
+        val shas = listOf("b".repeat(40), "c".repeat(40))
+        val tree = buildJsonObject {
+            put(
+                "tree",
+                JsonArray(
+                    paths.mapIndexed { index, path ->
+                        buildJsonObject {
+                            put("type", "blob")
+                            put("path", path)
+                            put("sha", shas[index])
+                            put("size", 64)
+                        }
+                    }
+                )
+            )
+        }
+        val snapshot = GitHubTaskSnapshot("account", "connection", "chat", "task", "owner", "repo", "main", commit, "e".repeat(40))
+        val result = GitHubCompactTaskContext.prepare(snapshot, tree, "Read src/main/Worker.kt:3") { sha ->
+            if (sha == shas.first()) {
+                null
+            } else {
+                buildJsonObject {
+                    put("sha", sha)
+                    put("content", "fun worker() {}\nsecond\nthird")
+                }
+            }
+        }
+        val window = result.getValue("source_window").jsonObject
+        assertEquals(JsonPrimitive(paths.last()), window["path"])
+        assertEquals(JsonPrimitive(1), window["start_line"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(paths.first()))), result["source_read_candidates"])
     }
 
     @Test fun staleManifestCannotSelectAnUnrelatedStalePath() = runBlocking {

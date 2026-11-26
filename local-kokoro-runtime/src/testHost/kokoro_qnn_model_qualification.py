@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Exact-model graph regression using QNN's x86 HTP emulator, never device qualification.
 
-Requires onnxruntime 1.28.0, onnxruntime-qnn 2.7.0 and numpy on the host. Build the
-adapter against the app's 1.28.2 headers and place it beside the QNN plugin.
-The Android/native JNI gate separately exercises the pinned 1.28.2 runtime.
+Reproduces the recorded Python ONNX Runtime 1.28.0 / QNN 2.7.0 host trace.
+Build its adapter against ORT 1.28 headers and place it beside that QNN plugin.
+The separate native lifecycle gate uses the application's current runtime pins.
 """
 import argparse
 import collections

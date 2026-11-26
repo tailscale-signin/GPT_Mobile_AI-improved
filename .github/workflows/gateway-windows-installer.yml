@@ -79,6 +79,8 @@ jobs:
             dist/windows/*.log
             dist/windows/smoke-failure.json
             dist/windows/native-*-failure.txt
+            dist/windows/native-*.png
+            dist/windows/native-*-smoke.json
           if-no-files-found: ignore
 
   attest-windows-packages:

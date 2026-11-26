@@ -276,7 +276,7 @@ VOICE_INSTALL_EVIDENCE_FIELDS = {
 }
 ENUMS["voice_install_failure"].add("WORK_NOT_FOUND")
 ENUMS["voice_install_pending_reason"] = {"UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"}
-ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO"}
+ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO", "LITERT_KOKORO"}
 ENUMS["voice_install_transfer_stage"] = {"CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"}
 ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"}
 COUNTS.add("voice_install_elapsed_ms")
@@ -306,6 +306,12 @@ REPLAY_BUDGET_COUNTS = {"replay_allowance", "replay_tokens", "replay_exchange_co
 COUNTS.update(REPLAY_BUDGET_COUNTS)
 ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH", "SAVED_PAGE_EXCEEDS_ALLOWANCE"}
 FIELDS_BY_AREA["INCIDENT"].update(REPLAY_BUDGET_COUNTS | {"replay_budget_state"})
+REPLAY_SOURCE_HASHES = {"replay_call_hash", "replay_source_hash", "replay_expected_body_hash"}
+HASH_FIELDS.update(REPLAY_SOURCE_HASHES)
+ENUMS["replay_missing_record"] = {"EXPECTED_BODY_DIGEST", "SAVED_PAGE_BODY", "BODY_ALLOWANCE", "PROJECTION_MATCH",
+                                  "FRESH_PROVIDER_COMPLETION", "READING_NOTES", "NOTE_LIMIT", "UNSUPPORTED_OUTPUT",
+                                  "CHECKPOINT_IDENTITY", "AUTHORIZED_REOPEN", "PRIVATE_RECEIPT_ALLOWANCE", "PRIVATE_SCHEMA_ALLOWANCE", "TERMINAL_FAILURE_DETAILS"}
+FIELDS_BY_AREA["INCIDENT"].update(REPLAY_SOURCE_HASHES | {"replay_missing_record"})
 COUNTS.add("reconciliation_tracked_signature_count")
 FLAGS.add("round_catalog_discovery_available")
 ENUMS["reconciliation_source"] = {"SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"}
@@ -329,7 +335,7 @@ COMPLETION_EVIDENCE_FIELDS = {"empty_completion_observed_attempts", "empty_compl
 ATTEMPTS.update(COMPLETION_EVIDENCE_FIELDS)
 FIELDS_BY_AREA["PROVIDER"].update(COMPLETION_EVIDENCE_FIELDS)
 ENUMS["provider_failure_code"].add("TOOL_PROTOCOL_INVALID_FRAME")
-VOICE_PACK_STATUS_FIELDS = {"voice_install_recognition_status", "voice_install_playback_status"}
+VOICE_PACK_STATUS_FIELDS = {"voice_install_recognition_status", "voice_install_playback_status", "voice_install_streaming_status"}
 for field in VOICE_PACK_STATUS_FIELDS:
     ENUMS[field] = {"CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"}
 FIELDS_BY_AREA["VOICE"].update(VOICE_CAPTURE_PLAYBACK_FIELDS | VOICE_PACK_STATUS_FIELDS)

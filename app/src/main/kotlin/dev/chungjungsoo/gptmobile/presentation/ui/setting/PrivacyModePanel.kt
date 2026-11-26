@@ -60,6 +60,8 @@ class PrivacyModeViewModel @Inject constructor(
 
     fun setEnabled(enabled: Boolean) = store.requestEnabled(enabled)
 
+    fun setVerifiedRetention(required: Boolean) = store.requestVerifiedRetention(required)
+
     fun retrySaving() = store.retrySaving()
 
     suspend fun privateTerms() = withContext(Dispatchers.IO) { store.privateTerms().joinToString("\n") }
@@ -107,11 +109,21 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Text(
-            "All enabled AI profiles remain selectable. Detected details in your chosen categories are replaced on this device before a cloud request. The remaining text can reach the selected cloud model. Route verification is separate: an unverified provider's retention is unknown and its own policies apply.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Require verified retention", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (state.requireVerifiedRetention) {
+                        "Private chats can use on-device inference, a verified local Gateway, or a verified cloud route. An unavailable verification blocks sending and keeps your conversation on the device."
+                    } else {
+                        "An unverified cloud provider may receive locally masked text under its own retention policy."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = state.requireVerifiedRetention, onCheckedChange = viewModel::setVerifiedRetention, modifier = Modifier.testTag("settings_verified_retention"))
+        }
         Text(
             "The lock marks the conversation's permanent policy. Yellow text marks confirmed replacements or local restoration for that message; it does not mean every sensitive detail was detected or that the whole conversation stayed on this device. Review custom terms when a detail needs explicit protection.",
             style = MaterialTheme.typography.bodySmall,
@@ -144,7 +156,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             Text(if (details) "Hide protection details" else "How protection works")
         }
         if (details) {
-            Text("A verified strict cloud route requires its account, model and upstream checks, including no routine content retention. When those checks are unavailable, the selected profile can use locally masked text; the app does not claim verified retention for that route. External tools, attachments and voice require their own destination checks.", style = MaterialTheme.typography.bodySmall)
+            Text("A verified strict cloud route requires its account, model and upstream checks, including no routine content retention. Require verified retention applies to private conversations at send time. With that option off, an unverified profile can receive locally masked text under its own policy. External tools, attachments and voice require their own destination checks.", style = MaterialTheme.typography.bodySmall)
             Text("Enabled calculator, current-date and text-slicing tools run on this device. Their results pass through the same personal-data permissions and local masking before reaching a model. GitHub, Research and connected service tools remain blocked until their external routes meet the privacy requirements.", style = MaterialTheme.typography.bodySmall)
             Text("Route verification reports only the checks it actually passed. Not verified means evidence is incomplete; incompatible means a strict-route requirement is unmet. These labels do not disable profile selection or prove that automated masking found every private detail.", style = MaterialTheme.typography.bodySmall)
             Text("Automated masking recognizes common formats and your custom terms. Provider agreements may allow legally required exceptions and non-content usage metadata. Other cloud providers require their applicable account and endpoint approvals.", style = MaterialTheme.typography.bodySmall)

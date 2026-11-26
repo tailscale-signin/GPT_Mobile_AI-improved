@@ -51,10 +51,10 @@ class GitHubChatPolicyTest {
         assertFalse(GitHubCopilotAgentMergePolicy.enabled(configured, 42, context))
     }
 
-    @Test fun newlyPairedProfileUsesUltraNativeCeilingWhileSavedExplicitCapsRemainAuthoritative() {
+    @Test fun newlyPairedProfileUsesAdaptiveCeilingWhileSavedExplicitCapsRemainAuthoritative() {
         val fresh = dev.chungjungsoo.gptmobile.data.pairing.PairedServer(1, "Computer", "LLAMA", "http://192.168.1.4:8080/v1", "selected", 1200).profile(1000).copy(uid = "p")
         assertEquals(Int.MAX_VALUE, fresh.maxToolCalls)
-        assertEquals(512, GitHubChatPolicy.platform(fresh, features, context).maxToolCalls)
+        assertEquals(256, GitHubChatPolicy.platform(fresh, features, context).maxToolCalls)
         assertFalse(GitHubChatPolicy.platform(fresh, features, context).enabled)
         assertEquals(100, GitHubChatPolicy.platform(fresh.copy(maxToolCalls = 100), features, context).maxToolCalls)
         assertEquals(50, GitHubChatPolicy.platform(fresh.copy(maxToolCalls = 50), features, context).maxToolCalls)
@@ -195,16 +195,16 @@ class GitHubChatPolicyTest {
         assertSame(ordinary, GitHubChatPolicy.tools(ordinary, features, "p"))
     }
 
-    @Test fun githubDefaultsEnableScopedToolsAndUltraBudgetWithoutMutatingStoredProfile() {
+    @Test fun githubDefaultsEnableScopedToolsAndAdaptiveBudgetWithoutMutatingStoredProfile() {
         val selected = GitHubChatPolicy.platform(profile, features, context)
         assertFalse(selected.disableAllTools)
         assertEquals(4, selected.maxToolCalls)
         assertEquals(512, selected.maxTokens)
         assertTrue(profile.disableAllTools)
         val effective = GitHubChatPolicy.features(features, "p", context)
-        assertEquals(EngineeringMode.ULTRA_MAX, effective.engineeringProfiles.getValue("p").mode)
-        assertEquals(1_048_576, effective.tokenBudget.contextTokens)
-        assertEquals(1440, effective.tokenBudget.generationTimeoutMinutes)
+        assertEquals(EngineeringMode.ADAPTIVE, effective.engineeringProfiles.getValue("p").mode)
+        assertEquals(features.tokenBudget.contextTokens, effective.tokenBudget.contextTokens)
+        assertEquals(features.tokenBudget.generationTimeoutMinutes, effective.tokenBudget.generationTimeoutMinutes)
         assertTrue(effective.isToolPluginEnabledForProfile("p", ToolPluginId.GITHUB))
         val tools = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = context), features, "p"))
         assertTrue(tools.isToolEnabled("c"))
@@ -221,7 +221,7 @@ class GitHubChatPolicyTest {
     @Test fun maximumContextLeavesAutomaticOutputAdmissibleOnLlamaFallback() {
         val automatic = profile.copy(maxTokens = null)
         val selected = GitHubChatPolicy.platform(automatic, features, context)
-        val effective = GitHubChatPolicy.features(features, automatic.uid, context)
+        val effective = GitHubChatPolicy.features(features.copy(githubProfileOverrides = mapOf("p" to GitHubChatProfileOverride(maximumContext = true))), automatic.uid, context)
         assertEquals(null, selected.maxTokens)
         assertEquals(0, effective.tokenBudget.outputTokens)
         val capacity = 32_768
@@ -236,7 +236,7 @@ class GitHubChatPolicyTest {
     }
 
     @Test fun maximumContextPreservesExplicitOutputCaps() {
-        val configured = features.copy(tokenBudget = features.tokenBudget.copy(outputTokens = 1024))
+        val configured = features.copy(tokenBudget = features.tokenBudget.copy(outputTokens = 1024), githubProfileOverrides = mapOf("p" to GitHubChatProfileOverride(maximumContext = true)))
         val effective = GitHubChatPolicy.features(configured, "p", context)
         assertEquals(1024, effective.tokenBudget.outputTokens)
         assertEquals(512, GitHubChatPolicy.platform(profile, configured, context).maxTokens)
@@ -250,6 +250,44 @@ class GitHubChatPolicyTest {
         assertTrue(tools.isToolEnabled("github_decide"))
         assertEquals(32, tools.maxToolCalls)
         assertEquals(512, GitHubChatPolicy.platform(profile, settings, context).maxTokens)
+    }
+
+    @Test fun automaticBudgetRespectsSavedLimitsAndLegacyProfileOverridesSurviveDecoding() {
+        val limits = features.tokenBudget.copy(contextTokens = 8192, profileContextCeilings = mapOf("p" to 4096), generationTimeoutMinutes = 10, responseCharacterLimit = 12_000)
+        val configured = features.copy(tokenBudget = limits)
+        val automatic = GitHubChatPolicy.features(configured, "p", context)
+        assertEquals(EngineeringMode.ADAPTIVE, automatic.engineeringProfiles.getValue("p").mode)
+        assertEquals(limits, automatic.tokenBudget)
+        val optedOut = Json.decodeFromString<GitHubChatProfileOverride>("""{"webSearch":false,"githubTools":false,"evidenceElaboration":false}""")
+        val saved = configured.copy(githubProfileOverrides = mapOf("p" to optedOut))
+        val stored = requireNotNull(GitHubChatPolicy.settings(saved, "p", context))
+        assertEquals(EngineeringMode.ULTRA_MAX, stored.engineeringMode)
+        assertTrue(stored.maximumContext)
+        assertFalse(stored.webSearch)
+        assertFalse(stored.githubTools)
+        assertFalse(stored.evidenceElaboration)
+        val roundTrip = Json.decodeFromString<GitHubChatProfileOverride>(Json.encodeToString(GitHubChatProfileOverride.newProfile))
+        assertEquals(GitHubChatProfileOverride.newProfile, roundTrip)
+        assertEquals(listOf("review", "ci", "status"), roundTrip.quickWorkflows.map { it.id })
+        assertEquals(GitHubQuickWorkflow.defaults, stored.quickWorkflows)
+        val noShortcuts = roundTrip.copy(quickWorkflows = emptyList())
+        assertTrue(Json.decodeFromString<GitHubChatProfileOverride>(Json.encodeToString(noShortcuts)).quickWorkflows.isEmpty())
+    }
+
+    @Test fun defaultToolsRespectExplicitChatExclusionsAndToolCatalogSize() {
+        val restricted = ChatMcpToolConfig(
+            github = context,
+            disabledToolIds = setOf(context.connectionUid, "web_search", "github_decide"),
+            maxTools = 2
+        )
+        val tools = requireNotNull(GitHubChatPolicy.tools(restricted, features, "p"))
+        for (id in restricted.disabledToolIds) {
+            assertFalse(tools.isToolEnabled(id))
+            assertFalse(tools.isToolEnabled(listOf(id)))
+        }
+        assertTrue(tools.isToolEnabled("read_url"))
+        assertEquals(2, tools.maxTools)
+        assertEquals(0, GitHubChatPolicy.tools(restricted.copy(maxTools = 0), features, "p")?.maxTools)
     }
 
     @Test fun explicitConversationStopStillDisablesAllTools() {

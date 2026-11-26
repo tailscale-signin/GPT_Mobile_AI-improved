@@ -133,7 +133,7 @@ jobs:
   checkpoint:
     name: Real ${{ matrix.engine }} checkpoint on Linux
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -168,6 +168,30 @@ jobs:
             --output "artifacts/mediapipe-$SPEECH_ENGINE.json" \
             --model-dir "$RUNNER_TEMP/mediapipe-$SPEECH_ENGINE" \
             --timeout 300 2>&1 | tee "artifacts/mediapipe-$SPEECH_ENGINE.log"
+      - name: Probe Kokoro GPU vocoder on the Linux host
+        if: matrix.engine == 'kokoro'
+        timeout-minutes: 8
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          POCL_DEVICES: pthread
+          POCL_DEBUG: events
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install --no-install-recommends -y libegl-mesa0 libgl1-mesa-dri ocl-icd-libopencl1 pocl-opencl-icd clinfo
+          clinfo -l | tee artifacts/opencl-devices.txt
+          status=0
+          python scripts/smoke_mediapipe_speech.py --engine kokoro-gpu \
+            --output artifacts/mediapipe-kokoro-gpu.json --model-dir "$RUNNER_TEMP/mediapipe-kokoro-gpu" \
+            --cpu-reference artifacts/mediapipe-kokoro.json --timeout 300 || status=$?
+          if [[ "$status" == 77 ]] && jq -e '.status == "gpu_unavailable" and .gpu_dispatch == "none"' artifacts/mediapipe-kokoro-gpu.json >/dev/null; then
+            echo 'The hosted software device could not initialize the Kokoro GPU delegate.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$status" != 0 ]]; then
+            exit "$status"
+          else
+            jq -r '"GPU request: \(.gpu_dispatch). CPU-reference comparison passed."' artifacts/mediapipe-kokoro-gpu.json >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Retain exact-source model and runtime evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

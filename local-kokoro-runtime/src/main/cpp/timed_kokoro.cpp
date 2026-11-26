@@ -200,15 +200,16 @@ struct ModelSession {
 struct Model : Frontend {
   Model(const sherpa_onnx::OfflineTtsModelConfig &config, const std::string &library_dir,
       const std::string &profile_prefix, const std::string &context_directory,
-      const std::string &context_identity, const std::string &htp_performance_mode,
+      const std::string &context_identity, const std::string &htp_performance_mode, const std::string &partition_digest,
       const char **opening_stage = nullptr) : Frontend(config.kokoro.tokens, config.kokoro.lexicon, opening_stage),
       config(config), library_dir(library_dir), profile_prefix(profile_prefix), context_directory(context_directory),
-      context_identity(context_identity), htp_performance_mode(htp_performance_mode) {
+      context_identity(context_identity), htp_performance_mode(htp_performance_mode), partition_digest(partition_digest) {
     if (opening_stage) *opening_stage = "preparing";
     // Include model transformation/workspace headroom and per-session voices.
     // This estimate is disclosed, supplemented by observed RSS growth, and is
     // never described as an allocator-enforced RAM bound.
     const auto model_bytes = FileBytes(config.kokoro.model);
+    large_weights = model_bytes > 256LL * 1024 * 1024;
     const auto voice_bytes = FileBytes(config.kokoro.voices);
     estimated_session_bytes = model_bytes > 0 && model_bytes < kCacheBudgetBytes && voice_bytes < kCacheBudgetBytes ?
         2 * model_bytes + voice_bytes + 64LL * 1024 * 1024 : kCacheBudgetBytes;
@@ -234,13 +235,22 @@ struct Model : Frontend {
       if (context_seed.empty()) {
         std::string firmware;
 #if defined(__ANDROID__)
-        // Vendor/DSP firmware can change separately from the system image.
-        // Hash detected versions; never expose these strings in diagnostics.
-        for (const auto *property : {"ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint"}) {
-          char value[PROP_VALUE_MAX]{};
-          const auto size = __system_property_get(property, value);
-          if (size <= 0) { context_status = kokoro_runtime::ContextCacheStatus::FirmwareUnavailable; return {}; }
-          firmware += "|" + std::string(value, size);
+        if (kokoro_runtime::IsSha256(partition_digest)) {
+          firmware = "|partitions|" + partition_digest;
+        } else {
+          for (const auto *property : {"ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint"}) {
+            const auto *info = __system_property_find(property);
+            std::string value;
+            if (info) __system_property_read_callback(info, [](void *cookie, const char *, const char *text, uint32_t) {
+              *static_cast<std::string *>(cookie) = text;
+            }, &value);
+            if (value.empty() || value == "unknown") {
+              context_status = firmware.empty() ? kokoro_runtime::ContextCacheStatus::VendorFingerprintUnavailable :
+                  kokoro_runtime::ContextCacheStatus::BootFingerprintUnavailable;
+              return {};
+            }
+            firmware += "|" + value;
+          }
         }
 #endif
         auto seed = context_identity + "|" + Ort::GetVersionString() + "|" +
@@ -283,7 +293,7 @@ struct Model : Frontend {
         ObserveContext(session);
         session.context_cache.reset();
       } else if (invalid_output && !session.context_identity.empty()) {
-        kokoro_runtime::CompiledContextCache cache(context_directory, session.context_identity);
+        kokoro_runtime::CompiledContextCache cache(context_directory, session.context_identity, kokoro_runtime::ContextLimitsForModel(large_weights));
         cache.Invalidate();
         context_status = cache.status;
         context_evictions += cache.evictions;
@@ -353,7 +363,7 @@ struct Model : Frontend {
     };
     session->context_identity = ContextIdentity(token_count);
     if (!session->context_identity.empty()) {
-      session->context_cache = std::make_unique<kokoro_runtime::CompiledContextCache>(context_directory, session->context_identity);
+      session->context_cache = std::make_unique<kokoro_runtime::CompiledContextCache>(context_directory, session->context_identity, kokoro_runtime::ContextLimitsForModel(large_weights));
       std::string cached;
       {
         kokoro_runtime::ElapsedMilliseconds timer(context_load_ms);
@@ -410,7 +420,7 @@ struct Model : Frontend {
   void ConfigureCache(int64_t retained, int64_t prospective) const {
     available_memory_bytes = config.provider == "cpu" ? 0 : AvailableMemoryBytes();
     const auto allowance = kokoro_runtime::AdmitShapeCache(config.provider != "cpu",
-        available_memory_bytes, retained, prospective);
+        available_memory_bytes, retained, prospective, large_weights);
     cache_admission = allowance.reason;
     sessions.Configure(allowance);
   }
@@ -616,7 +626,7 @@ struct Model : Frontend {
   sherpa_onnx::OfflineTtsModelConfig config;
   std::string library_dir;
   std::string profile_prefix;
-  std::string context_directory, context_identity, htp_performance_mode;
+  std::string context_directory, context_identity, htp_performance_mode, partition_digest;
   mutable std::string context_seed;
   mutable kokoro_runtime::GraphPreparation preparation_source = kokoro_runtime::GraphPreparation::None;
   mutable kokoro_runtime::ContextCacheStatus context_status = kokoro_runtime::ContextCacheStatus::Disabled;
@@ -624,6 +634,7 @@ struct Model : Frontend {
   mutable bool context_fallback = false;
   mutable kokoro_runtime::ShapeCache<ModelSession> sessions{1, kCacheBudgetBytes};
   mutable ModelSession *active = nullptr;
+  bool large_weights = false;
   int64_t estimated_session_bytes = kCacheBudgetBytes;
   mutable int64_t phrase_tokens = 0;
   mutable int64_t input_bytes = 0;
@@ -743,7 +754,7 @@ void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &e
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_TimedKokoro_open(
     JNIEnv *env, jclass, jstring model, jstring voices, jstring tokens, jstring lexicon, jint threads,
     jstring provider, jstring library_dir, jstring profile_prefix, jstring context_directory,
-    jstring context_identity, jstring htp_performance_mode) {
+    jstring context_identity, jstring htp_performance_mode, jstring partition_digest) {
   const char *opening_stage = "configuration";
   const char *requested_provider = "unverified";
   const auto report = [&](int native_code) {
@@ -770,7 +781,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_TimedKokoro_open(
     const auto mode = FromJava(env, htp_performance_mode);
     Require(kokoro_runtime::ValidHtpPerformanceMode(mode), "Invalid HTP performance mode");
     return reinterpret_cast<jlong>(new Model(config, FromJava(env, library_dir), FromJava(env, profile_prefix),
-        FromJava(env, context_directory), FromJava(env, context_identity), mode, &opening_stage));
+        FromJava(env, context_directory), FromJava(env, context_identity), mode, FromJava(env, partition_digest), &opening_stage));
   } catch (const std::bad_alloc &) {
     ReportError(env, "java/lang/OutOfMemoryError", "Kokoro allocation failed");
   } catch (const Ort::Exception &error) {

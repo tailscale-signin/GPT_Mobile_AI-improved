@@ -10,7 +10,16 @@ from v14.jobs import record_execution_isolation
 NATIVE_TOOLS = frozenset({
     'github_context', 'github_search', 'github_read', 'github_pr', 'github_ci',
     'github_watch_checks', 'github_stage_patch', 'github_commit', 'github_write', 'github_release', 'github_issue',
+    'github_context_inspect', 'github_pr_inspect', 'github_repository', 'github_decide',
+    'repository_graph', 'repository_workspace',
 })
+
+
+def native_tool_operation(tool):
+    function = tool.get('function') if isinstance(tool, dict) else None
+    name = function.get('name') if isinstance(function, dict) else None
+    operation = name.split('__', 1)[0] if isinstance(name, str) else None
+    return operation if operation in NATIVE_TOOLS else None
 
 
 def native_github_request(payload):
@@ -19,11 +28,8 @@ def native_github_request(payload):
     role = policy.get('request_role', '') if isinstance(policy, dict) else ''
     if isinstance(role, str) and role.startswith('github-'):
         return True  # Explicit client engineering role includes discovery-only and review rounds.
-    return any(
-        isinstance(tool, dict) and isinstance(tool.get('function'), dict)
-        and str(tool['function'].get('name', '')).split('__', 1)[0] in NATIVE_TOOLS
-        for tool in payload.get('tools', []) or []
-    )
+    tools = payload.get('tools')
+    return isinstance(tools, list) and any(native_tool_operation(tool) for tool in tools)
 
 
 class GitHubPerformance:
@@ -39,17 +45,20 @@ class GitHubPerformance:
             self.counts['successes' if status == 200 else 'failures'] += 1
             self.latencies.append(elapsed_ms)
             if isinstance(result, dict):
-                usage = result.get('usage') or {}
-                known = all(isinstance(usage.get(k), int) and not isinstance(usage[k], bool) and usage[k] >= 0
+                usage = result.get('usage')
+                known = isinstance(usage, dict) and all(isinstance(usage.get(k), int) and not isinstance(usage[k], bool) and usage[k] >= 0
                             for k in ('prompt_tokens', 'completion_tokens'))
                 if known:
                     self.counts['usageSamples'] += 1
                     for key in ('prompt_tokens', 'completion_tokens'):
                         self.counts[key] += usage[key]
-                for choice in result.get('choices', []) or []:
-                    for call in (choice.get('message') or {}).get('tool_calls', []) or []:
-                        operation = str((call.get('function') or {}).get('name', '')).split('__', 1)[0]
-                        if operation in NATIVE_TOOLS:
+                # Diagnostics must never replace the upstream response with a metrics exception.
+                choices = result.get('choices')
+                for choice in choices if isinstance(choices, list) else ():
+                    message = choice.get('message') if isinstance(choice, dict) else None
+                    calls = message.get('tool_calls') if isinstance(message, dict) else None
+                    for call in calls if isinstance(calls, list) else ():
+                        if operation := native_tool_operation(call):
                             self.operations[operation] += 1
 
     def snapshot(self):

@@ -103,7 +103,7 @@ internal class VoicePcmCaptions {
         lastStreamEnd = produced
     }
 
-    @Synchronized fun consumed(frames: Long, advancing: Boolean = true, completedThrough: Long? = null): VoicePcmCue? {
+    @Synchronized fun consumed(frames: Long, advancing: Boolean = true, completedThrough: Long? = null, onWordCrossed: ((VoicePcmCue) -> Unit)? = null): VoicePcmCue? {
         if (frames <= 0) return null
         if (!advancing) {
             if (completedThrough == null) return null
@@ -126,7 +126,11 @@ internal class VoicePcmCaptions {
         lastConsumed = maxOf(lastConsumed, frames)
         var cue: VoicePcmCue? = current.takeIf { currentRevised }
         currentRevised = false
-        while (pending.isNotEmpty() && pending.first().frame <= lastConsumed) cue = pending.removeFirst()
+        while (pending.isNotEmpty() && pending.first().frame <= lastConsumed) {
+            val next = pending.removeFirst()
+            if (!next.range.isEmpty()) onWordCrossed?.invoke(next)
+            cue = next
+        }
         if (cue != null) current = cue
         return cue
     }

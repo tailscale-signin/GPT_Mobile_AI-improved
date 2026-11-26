@@ -78,7 +78,7 @@ class GatewayChatSubmission @Inject constructor(
         ) {
             return null
         }
-        val preferences = features.githubProfileOverrides[request.platform.uid] ?: GitHubChatProfileOverride()
+        val preferences = features.githubProfileOverrides[request.platform.uid] ?: GitHubChatProfileOverride.newProfile
         if (!preferences.githubTools || tools?.allToolsDisabled == true) return null
         val user = request.userMessages.lastOrNull() ?: return null
         if (existing == null && repair == null && GatewayOwnedTurnPolicy.intent(user.content) == GatewayOwnedTurnPolicy.Intent.INTEGRATION_TEST) return null

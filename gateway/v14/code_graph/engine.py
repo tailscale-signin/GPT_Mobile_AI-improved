@@ -666,7 +666,7 @@ def bounded(value, maximum=16000):
                 for key, child in item.items():
                     if isinstance(child, list) and child:
                         candidates.append((len(encoded(child)), item, key, 'list'))
-                    elif isinstance(child, dict) and len(child) > 1 and key not in {'graph', 'retrieval'}:
+                    elif isinstance(child, dict) and len(child) > 1 and key not in {'graph', 'retrieval', 'compiler_impact'}:
                         candidates.append((len(encoded(child)), item, key, 'dict'))
                     elif isinstance(child, str) and len(child) > 400 and key not in {'id', 'url'}:
                         candidates.append((len(child), item, key, 'text'))

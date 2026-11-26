@@ -92,6 +92,12 @@ Protocol references: [ZDR and Safety Retention](https://openrouter.ai/docs/guide
 
 OpenAI uses stateless Chat Completions with storage disabled. Anthropic uses Messages. Google requires an independently approved Vertex OpenAI-compatible deployment and a current bearer token. The standard Gemini Developer API stays blocked. Of the bundled free routes, only the fixed anonymous OVHcloud API can use an account administrator’s exact-model approval. Automatic routers, volunteer workers, retired endpoints and routes without independently enforceable upstream privacy remain unavailable.
 
+## Require verified retention
+
+Enable **Require verified retention** in Privacy Options to apply it to sends and retries in every locked private conversation on this device. All enabled profiles remain selectable. On-device inference stays available. A Gateway or cloud profile must pass the existing route, account and model checks before inference. When verification is unavailable, the message stays in the chat and the provider receives no conversation content. Verification can make metadata requests without sending the conversation. A change to this setting invalidates requests prepared under the previous policy.
+
+The option starts off for existing installations. In that mode an unverified cloud profile may receive locally masked text under the provider’s own policy.
+
 ## What is sent
 
 The protected wire format accepts text, a single model and a bounded output allowance. Local masking runs over the entire outgoing text history and system message. Its encrypted, request-scoped replacement map stays in memory. Custom terms are stored in the Android Keystore-backed vault. Automated pattern detection has limits, particularly for unmarked names and contextual facts. Original conversation history remains on the device. Account agreements may retain usage metadata and permit legally required exceptions.

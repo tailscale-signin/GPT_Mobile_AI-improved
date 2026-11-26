@@ -37,9 +37,12 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunner
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackBenchmark
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackPass
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackProtocol
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechStopOrigin
 import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
@@ -70,6 +73,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     private val cleanupQuarantined = AtomicBoolean()
     private val playbackRunner = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private val cancelled = AtomicBoolean(false)
+    private val stopOrigin = AtomicReference<VoiceSpeechStopOrigin?>(null)
+    private val persistRetirement = AtomicReference<(() -> Unit)?>(null)
     private val retiringPlayback = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private var job: Job? = null
 
@@ -129,7 +134,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         incrementalInput: Boolean = true,
         htpPerformanceMode: String = "balanced",
         nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
-        sustainedTargetAudioMs: Long = 300_000L
+        sustainedTargetAudioMs: Long = 300_000L,
+        streamingKokoroVoice: String? = null
     ) {
         benchmarkLease.quarantineReason.value?.let { reason ->
             mutable.update { it.withQuarantine(reason) }
@@ -144,11 +150,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             }
             return
         }
+        stopOrigin.set(null)
         cancelled.set(false)
         mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null, nativeCleanupPending = false) }
         job = viewModelScope.launch(ConversationPrivacyContext.capture() ?: EmptyCoroutineContext) {
             try {
-                withContext(Dispatchers.IO) { execute(mode, backends, voice, threads, rate, workload, playback, playbackScenarios, calibrationPolicy, captionOffsetMs, engine, deepDiagnostics, kokoroBucket, incrementalInput, htpPerformanceMode, nativeModelVariant, sustainedTargetAudioMs, lease) }
+                withContext(Dispatchers.IO) { execute(mode, backends, voice, threads, rate, workload, playback, playbackScenarios, calibrationPolicy, captionOffsetMs, engine, deepDiagnostics, kokoroBucket, incrementalInput, htpPerformanceMode, nativeModelVariant, sustainedTargetAudioMs, streamingKokoroVoice, lease) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -170,7 +177,10 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 lease.release()
             } else {
                 retirementScope.launch {
-                    val released = lease.releaseAfterRetirement(retiring::awaitRetired, { retiring.nativeCleanupPending }) {
+                    val released = lease.releaseAfterRetirement({
+                        retiring.awaitRetired()
+                        if (!retiring.nativeCleanupPending) runCatching { persistRetirement.getAndSet(null)?.invoke() }
+                    }, { retiring.nativeCleanupPending }) {
                         cleanupQuarantined.set(true)
                         synchronized(failedCleanupOwners) { failedCleanupOwners += retiring }
                         mutable.update { it.withQuarantine(benchmarkLease.quarantineReason.value) }
@@ -184,12 +194,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         }
     }
 
-    private suspend fun execute(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float, workload: VoiceSpeechBenchmarkWorkload, playback: Boolean, playbackScenarios: List<VoiceSpeechPlaybackScenario>, calibrationPolicy: VoiceSpeechCalibrationPolicy, captionOffsetMs: Int, engine: VoiceSpeechBenchmarkEngine, deepDiagnostics: Boolean, kokoroBucket: MediaPipeKokoroBucket, incrementalInput: Boolean, htpPerformanceMode: String, nativeModelVariant: KokoroModelVariant, sustainedTargetAudioMs: Long, ownerLease: VoiceSpeechBenchmarkOwnership.Lease) {
+    private suspend fun execute(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float, workload: VoiceSpeechBenchmarkWorkload, playback: Boolean, playbackScenarios: List<VoiceSpeechPlaybackScenario>, calibrationPolicy: VoiceSpeechCalibrationPolicy, captionOffsetMs: Int, engine: VoiceSpeechBenchmarkEngine, deepDiagnostics: Boolean, kokoroBucket: MediaPipeKokoroBucket, incrementalInput: Boolean, htpPerformanceMode: String, nativeModelVariant: KokoroModelVariant, sustainedTargetAudioMs: Long, streamingKokoroVoice: String?, ownerLease: VoiceSpeechBenchmarkOwnership.Lease) {
         val models = KokoroModelPack.store(File(context.noBackupFilesDir, "voice-models"), variant = nativeModelVariant)
         val sdkEngine = engine.mediaPipeEngine()
         val sdkModel = sdkEngine?.let(MediaPipeSpeechCatalog::model)
         val nativeEngine = sdkEngine == null
-        val sdkVoiceId = if (engine == VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO) voice.streamingVoiceId() else sdkModel?.defaultVoice
+        val sdkVoiceId = if (sdkModel?.engine?.isKokoro == true) streamingKokoroVoice ?: voice.streamingVoiceId else sdkModel?.defaultVoice
         val started = System.currentTimeMillis()
         val previousOrder = mutable.value.history.firstOrNull()?.configuration?.backendOrderSeed
         val orderSeed = previousOrder?.takeIf { it < Long.MAX_VALUE }?.plus(1) ?: 0L
@@ -206,7 +216,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 playback = playback,
                 playbackScenarios = playbackScenarios, calibrationPolicy = calibrationPolicy, captionOffsetMs = captionOffsetMs.coerceIn(-500, 500),
                 engine = engine, engineVoiceId = sdkVoiceId ?: voice.name, deepDiagnostics = deepDiagnostics,
-                kokoroBucket = if (engine == VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO) kokoroBucket else MediaPipeKokoroBucket.AUTO,
+                kokoroBucket = if (sdkModel?.engine?.isKokoro == true) kokoroBucket else MediaPipeKokoroBucket.AUTO,
                 incrementalInput = incrementalInput,
                 htpPerformanceMode = if (nativeEngine) htpPerformanceMode else "balanced",
                 nativeModelVariant = if (nativeEngine) nativeModelVariant else KokoroModelVariant.INT8,
@@ -230,7 +240,15 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 MediaPipeVoicePhraseEngineFactory(streamingModels, checkNotNull(sdkEngine), backend, configuration.speechRate, checkNotNull(configuration.engineVoiceId), kokoroBucket = configuration.kokoroBucket, incrementalInput = configuration.incrementalInput)
             }
             when {
-                playback -> measurePlayback(models, writer, thermalStatus, sdkFactory.takeUnless { nativeEngine })
+                playback -> {
+                    val config = writer.report.configuration
+                    val pins = sdkEngine?.let { streamingModels.retainComparisonCaches(it, config.backends, config.speechRate, if (it.isKokoro) config.kokoroBucket.sdkValue else 0) }
+                    try {
+                        measurePlayback(models, writer, thermalStatus, sdkFactory.takeUnless { nativeEngine })
+                    } finally {
+                        pins?.close()
+                    }
+                }
                 nativeEngine -> measureNative(models, writer, thermalStatus)
                 else -> measureSdk(writer, thermalStatus, sdkFactory)
             }
@@ -257,28 +275,17 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         private val energy = VoiceSpeechBenchmarkEnergyTracker(batterySource::begin)
 
         fun publish(value: VoiceSpeechBenchmarkReport) {
-            val normalized = energy.attach(
-                if (value.isRunning) {
-                    value
-                } else {
-                    value.copy(
-                        results = value.results.map { result ->
-                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
-                                result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
-                            } else {
-                                result
-                            }
-                        },
-                        engineResults = value.engineResults.map { result ->
-                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN) else result
-                        }
-                    )
-                }
-            )
+            val terminal = if (value.state == VoiceSpeechBenchmarkRunState.CANCELLED) {
+                value.copy(stopOrigin = value.stopOrigin ?: stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
+            } else {
+                value
+            }
+            val normalized = energy.attach(if (terminal.isRunning) terminal else terminal.finishPendingBackends())
+            val closedWindow = normalized.configuration.playback && normalized.energyObservations.count { it.end != null } != report.energyObservations.count { it.end != null }
             report = normalized
             // Stage notifications stay in memory; disk I/O cannot inflate the first-PCM measurement.
             val progress = normalized.completedChunks + normalized.playbackResults.size
-            val persist = progress != persistedSamples || !normalized.isRunning
+            val persist = progress != persistedSamples || closedWindow || !normalized.isRunning
             val saved = if (persist) store.save(normalized) else mutable.value.saved
             if (persist) persistedSamples = progress
             mutable.update { current ->
@@ -310,16 +317,19 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         val nativeEngine = writer.report.configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
         val measurement = VoiceSpeechPlaybackBenchmark(context, models, writer.report.configuration, thermalStatus, engineFactory = sdkFactory)
         playbackRunner.set(measurement)
-        if (cancelled.get()) measurement.cancel()
-        for (backend in writer.report.configuration.plannedBackendOrder) {
+        if (cancelled.get()) measurement.cancel(stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
+        val failedBackends = mutableSetOf<VoiceSpeechBackend>()
+        for (pass in VoiceSpeechPlaybackProtocol.passes(writer.report.configuration)) {
             if (cancelled.get()) break
+            val backend = pass.backend
+            if (backend in failedBackends) continue
             if ((thermalStatus() ?: 0) >= 2) {
                 writer.report = writer.report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
                 break
             }
-            val preceding = writer.report.playbackResults.filterNot { it.requestedBackend == backend }
+            val preceding = writer.report.playbackResults
             publishPlaybackBackend(writer, backend, VoiceSpeechBenchmarkBackendState.RUNNING)
-            val observations = measurePlaybackBackend(measurement, backend, writer, preceding)
+            val (observations, passFailure) = measurePlaybackBackend(measurement, pass, writer, preceding)
             val results = if (nativeEngine) {
                 observations
             } else {
@@ -327,11 +337,13 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                     value.copy(requestedDelegate = dev.chungjungsoo.gptmobile.data.voice.requestedSpeechDelegate(backend), observedProviderStatus = "NOT_EXPOSED_BY_SDK", requestedThreads = null, effectiveThreads = null)
                 }
             }
-            val failed = results.firstOrNull { it.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) }
+            val failed = passFailure ?: results.firstOrNull { it.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) }
+            if (failed != null) failedBackends += backend
             val backendState = when {
                 failed?.state == VoiceSpeechPlaybackState.UNSUPPORTED -> VoiceSpeechBenchmarkBackendState.UNSUPPORTED
                 failed != null || measurement.thermalLimitReached -> VoiceSpeechBenchmarkBackendState.FAILED
                 cancelled.get() || results.any { it.state == VoiceSpeechPlaybackState.CANCELLED && it.cancellationTarget == null } -> VoiceSpeechBenchmarkBackendState.CANCELLED
+                !pass.completesBackend || results.isEmpty() -> VoiceSpeechBenchmarkBackendState.PARTIAL
                 else -> VoiceSpeechBenchmarkBackendState.COMPLETE
             }
             val cleanup = when {
@@ -341,7 +353,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             }
             publishPlaybackBackend(writer, backend, backendState, failed, cleanup, preceding + results)
             // Native ownership takes priority even when thermal pressure ended the work.
-            if (measurement.pendingRetirements.isNotEmpty() || measurement.nativeCleanupPending) {
+            if (results.any { it.cleanupState == "PENDING" } || measurement.pendingRetirements.isNotEmpty() || measurement.nativeCleanupPending) {
+                persistRetirement.set { writer.publish(measurement.confirmedCleanup(writer.report)) }
                 retiringPlayback.set(measurement)
                 writer.report = writer.report.copy(issue = VoiceSpeechBenchmarkIssue.NATIVE_CLEANUP_PENDING)
                 mutable.update { it.copy(nativeCleanupPending = true, notice = "Audio has stopped. Native speech cleanup is still pending; new speech work stays paused until it finishes.") }
@@ -362,21 +375,35 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         writer.publish(report.copy(state = finalState, finishedAtMillis = System.currentTimeMillis()))
     }
 
+    private data class PlaybackPassResult(val rows: List<VoiceSpeechPlaybackResult>, val failure: VoiceSpeechPlaybackResult? = null)
+
     private suspend fun measurePlaybackBackend(
         measurement: VoiceSpeechPlaybackBenchmark,
-        backend: VoiceSpeechBackend,
+        pass: VoiceSpeechPlaybackPass,
         writer: BenchmarkReportWriter,
         preceding: List<VoiceSpeechPlaybackResult>
-    ): List<VoiceSpeechPlaybackResult> = try {
-        measurement.measureSeries(backend) { rows -> writer.publish(writer.report.copy(playbackResults = preceding + rows)) }
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: LinkageError) {
-        listOf(VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.UNSUPPORTED, failure = dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.PROVIDER_LOAD))
-    } catch (error: Exception) {
-        val configuration = writer.report.configuration
-        val native = dev.chungjungsoo.gptmobile.data.voice.speechPlaybackFailureEvidence(error, backend, configuration.deviceKey, configuration.modelSha256)
-        listOf(VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.FAILED, failure = native?.classification?.code ?: dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.EXECUTION_FAILED, failureStage = native?.classification?.stage, nativeCode = native?.classification?.nativeCode))
+    ): PlaybackPassResult {
+        val backend = pass.backend
+        val failure = try {
+            val measured = measurement.measureSeries(backend, pass.plans) { rows -> writer.publish(writer.report.copy(playbackResults = preceding + rows)) }
+            return PlaybackPassResult(measured)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: LinkageError) {
+            VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.UNSUPPORTED, failure = dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.PROVIDER_LOAD)
+        } catch (error: Exception) {
+            val configuration = writer.report.configuration
+            val native = dev.chungjungsoo.gptmobile.data.voice.speechPlaybackFailureEvidence(error, backend, configuration.deviceKey, configuration.modelSha256)
+            VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.FAILED, failure = native?.classification?.code ?: dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.EXECUTION_FAILED, failureStage = native?.classification?.stage, nativeCode = native?.classification?.nativeCode)
+        }
+        val retained = writer.report.playbackResults.drop(preceding.size)
+        val plan = pass.plans.first()
+        return PlaybackPassResult(
+            retained.ifEmpty {
+                listOf(failure.copy(scenario = plan.scenario, repeat = plan.repeat, warmup = plan.warmup, expectedResident = plan.expectedResident, fixtureHash = plan.manifest.hash, cancellationTarget = plan.cancellationTarget))
+            },
+            failure
+        )
     }
 
     private fun publishPlaybackBackend(
@@ -481,18 +508,20 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
 
     fun cancel() {
         if (!mutable.value.running) return
+        stopOrigin.compareAndSet(null, VoiceSpeechStopOrigin.USER)
         cancelled.set(true)
         mutable.update { it.copy(cancelling = true) }
         runner.get()?.cancel()
         engineRunner.get()?.cancel()
-        playbackRunner.get()?.cancel()
+        playbackRunner.get()?.cancel(stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
     }
 
     override fun onCleared() {
+        stopOrigin.compareAndSet(null, VoiceSpeechStopOrigin.LIFECYCLE)
         cancelled.set(true)
         runner.get()?.cancel()
         engineRunner.get()?.cancel()
-        playbackRunner.get()?.cancel()
+        playbackRunner.get()?.cancel(stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
         super.onCleared()
     }
 

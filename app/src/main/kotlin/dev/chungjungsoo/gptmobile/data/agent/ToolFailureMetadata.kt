@@ -82,11 +82,19 @@ internal object ToolFailureMetadata {
         val unknown = hasUnknownOutcome || result.errorCode in ToolResultEnvelope.unknownOutcomeCodes
         val stage = (result.executionReceipt?.get("authority_failed_stage") as? JsonPrimitive)?.content
             ?: if (result.dispatched) "tool_execution" else "tool_precheck"
+        val gatewayChange = (result.executionReceipt?.get("dispatch_gateway_selection_change") as? JsonPrimitive)?.content
+            ?.takeIf { code == "DISPATCH_POLICY_CHANGED" }
         return ProviderEvent.Failed(
             if (unknown) {
                 "Execution authority changed while an earlier operation has an unknown outcome. Reconcile the retained receipts before any mutation; no model or tool continuation was started."
-            } else if (code == "DISPATCH_POLICY_CHANGED" && result.executionReceipt?.get("dispatch_gateway_selection_change") in setOf(JsonPrimitive("SELECTED"), JsonPrimitive("CLEARED"), JsonPrimitive("REPLACED"))) {
-                "The engineering Gateway selection changed while this task was running. Resume to check the selected Gateway and continue from the saved results."
+            } else if (stage == "delivery" && result.dispatched && !result.isError && gatewayChange == "SELECTED") {
+                "An engineering Gateway was selected after the tool completed. Its result was saved. Resume to authorize it for the remaining work."
+            } else if (gatewayChange == "SELECTED") {
+                "An engineering Gateway was selected during this task. Resume to authorize it for the remaining work and continue from the saved results."
+            } else if (gatewayChange == "CLEARED") {
+                "The engineering Gateway was deselected during this task. Resume to check which tools are available for the remaining work."
+            } else if (gatewayChange == "REPLACED") {
+                "The engineering Gateway selection changed while this task was running. Resume to check the new Gateway and continue from the saved results."
             } else if (code == dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE) {
                 "Privacy Mode blocked this tool. Choose a verified text profile to continue chatting."
             } else {

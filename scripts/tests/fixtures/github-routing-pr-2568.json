@@ -1,0 +1,75 @@
+{
+  "schema": "github.routing-replay.v1",
+  "revision": "461c0ac333f2687df169421c8a012a07c50b1f85",
+  "task": "6ddfa1263f9f9fbb6173791362db5ed9df4c6ee906125ebfc90927e534cbd1a2",
+  "runs": [
+    {
+      "policy": "read-each-range",
+      "calls": [
+        {
+          "key": 1,
+          "route": "lookup",
+          "elapsedMs": 4,
+          "result": "d1d5cb3227e6314d89908176f7fcea55d92d0dd63a505b03dd5916cb28b12ab2"
+        },
+        {
+          "key": 1,
+          "route": "lookup",
+          "elapsedMs": 4,
+          "result": "d1d5cb3227e6314d89908176f7fcea55d92d0dd63a505b03dd5916cb28b12ab2"
+        }
+      ],
+      "requirements": [
+        {
+          "key": "c9038b866084f5176635e2d8868d5025fc07659b06edc1dd76b81af4d3dd7e16",
+          "witnesses": [
+            0
+          ]
+        },
+        {
+          "key": "6a6bd68782278399629870a5ae6b2cf801330b549f28ea897502996308a9a18c",
+          "witnesses": [
+            1
+          ]
+        }
+      ],
+      "tokens": 0,
+      "elapsedMs": 9,
+      "completionVerified": true
+    },
+    {
+      "policy": "reuse-pinned-range",
+      "calls": [
+        {
+          "key": 1,
+          "route": "lookup",
+          "elapsedMs": 3,
+          "result": "d1d5cb3227e6314d89908176f7fcea55d92d0dd63a505b03dd5916cb28b12ab2"
+        },
+        {
+          "key": 1,
+          "route": "cached-range",
+          "elapsedMs": 0,
+          "result": "d1d5cb3227e6314d89908176f7fcea55d92d0dd63a505b03dd5916cb28b12ab2"
+        }
+      ],
+      "requirements": [
+        {
+          "key": "c9038b866084f5176635e2d8868d5025fc07659b06edc1dd76b81af4d3dd7e16",
+          "witnesses": [
+            0
+          ]
+        },
+        {
+          "key": "6a6bd68782278399629870a5ae6b2cf801330b549f28ea897502996308a9a18c",
+          "witnesses": [
+            1
+          ]
+        }
+      ],
+      "tokens": 0,
+      "elapsedMs": 4,
+      "completionVerified": true
+    }
+  ]
+}

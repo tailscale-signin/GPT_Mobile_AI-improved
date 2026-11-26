@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -20,6 +21,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSavedPageCapacityTest {
+    @Test fun replayDiagnosticsUseCanonicalOperationsWithoutRetainingPrivateToolNames() {
+        for ((name, operation) in listOf(
+            "github_context" to "github_context",
+            "github_context__private-route" to "github_context",
+            "read_url" to "read_url",
+            "private-unknown-tool" to null,
+            "github_context_private-route" to null
+        )) {
+            val call = ProviderEvent.ToolCall("private-call-id", name, buildJsonObject { put("query", "private source text") })
+            val details = buildJsonObject { replaySource(listOf(AgentToolExchange(listOf(call), emptyList())), call.callId) }
+            assertEquals("name=$name", operation?.let(::JsonPrimitive), details["operation"])
+            assertNotNull(details["replay_call_hash"])
+            assertFalse(details.toString().contains("private"))
+        }
+    }
+
+    @Test fun aSavedPageFailureIdentifiesItsBoundaryWithoutInventingADispatchOutcome() {
+        for (stage in listOf("planning", "provider_admission", "response_stream")) {
+            val failure = SavedPageDeliveryRound.blocked("Retained page", stage)
+            assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+            assertEquals("BLOCKED", failure.taskOutcome)
+            val details = requireNotNull(failure.failureDetails)
+            assertEquals(JsonPrimitive(stage), details["failed_stage"])
+            assertEquals(JsonPrimitive("APPLICATION"), details["failure_origin"])
+            assertEquals(JsonPrimitive(false), details["logical_continuation_allowed"])
+            assertEquals(if (stage == "response_stream") null else JsonPrimitive(false), details["dispatched"])
+        }
+    }
+
     @Test fun nativeCapacityRefusalStopsIdenticalAutomaticReadsWithoutConsumingThePage() {
         val fixture = Fixture()
         assertNull(fixture.next())
@@ -273,7 +303,11 @@ class GitHubSavedPageCapacityTest {
         }
         assertEquals(listOf(ProviderEvent.Completed), read(listOf(ProviderEvent.TextDelta("page received"), ProviderEvent.Completed)))
         // Bare cached UNKNOWN text cannot witness a physical provider read.
-        assertEquals("REPLAY_EVIDENCE_REQUIRED", (read(listOf(ProviderEvent.TextDelta("cached"), ProviderEvent.Completed), fresh = false).single() as ProviderEvent.Failed).errorCode)
+        val rejected = read(listOf(ProviderEvent.TextDelta("cached"), ProviderEvent.Completed), fresh = false).single() as ProviderEvent.Failed
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", rejected.errorCode)
+        assertEquals(JsonPrimitive("FRESH_PROVIDER_COMPLETION"), rejected.failureDetails?.get("replay_missing_record"))
+        assertEquals(JsonPrimitive("github_context"), rejected.failureDetails?.get("operation"))
+        assertNotNull(rejected.failureDetails?.get("replay_call_hash"))
         val reviewRows = mutableMapOf<String, JsonObject>()
         val review = dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint("Read the saved page", { reviewRows[it] }, { key, value -> reviewRows[key] = value })
         val reviewEvidence = dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence()
@@ -461,6 +495,22 @@ class GitHubSavedPageCapacityTest {
         val pending = state.pendingSavedPageDeliveries(listOf(exchange), ToolResultDeliveryProof.capture(listOf(projected)))
         assertEquals(setOf(call.callId), pending.keys)
         assertNull(pending.getValue(call.callId))
+        val measured = requireNotNull(original.executionReceipt).getValue("saved_view_body_bytes").jsonPrimitive.int
+        val capacity = requireNotNull(GitHubSavedReadProgress.cursor(call.arguments)).bytes
+        assertTrue(measured in 1..capacity)
+        val sufficient = (measured + 2) / 3 + 512
+        val nextPhase = AgentToolDefinition("github_issue", "inspect another issue", buildJsonObject {})
+        val authorized = fixture.tools + nextPhase
+        val catalog = ProgressiveToolCatalog(authorized, "Inspect the repository", githubMode = true)
+        catalog.stageRequiredOperations(listOf(call.name, nextPhase.name))
+        catalog.restoreCompletedPhase(call.name)
+        assertEquals(nextPhase, catalog.selected(authorized).first())
+        assertNull(state.owedPageSchema(pending, listOf(nextPhase)))
+        val owed = requireNotNull(state.owedPageSchema(pending, authorized))
+        val admitted = fitProviderToolSchemas(listOf(owed, catalog.definition), AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 218, finalResponseReserveTokens = 617), 0, 0, owedOperation = owed.name)
+        assertEquals(call.arguments, state.restoreMissingPage(pending, listOf(exchange), admitted, sufficient)?.arguments)
+        assertEquals(call.arguments, state.restoreMissingPage(pending, listOf(exchange), fixture.tools, sufficient)?.arguments)
+        assertNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools, sufficient - 1))
         assertNull(state.restoreMissingPage(pending, listOf(exchange), emptyList()))
         val restore = requireNotNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools))
         assertEquals(call.name, restore.name)
@@ -473,6 +523,31 @@ class GitHubSavedPageCapacityTest {
         assertTrue(reopened.pendingSavedPageDeliveries(history, ToolResultDeliveryProof.capture(listOf(restored))).isEmpty())
         assertNull(reopened.restoreMissingPage(pending, history, fixture.tools))
         assertTrue(state.pendingSavedPageDeliveries(listOf(AgentToolExchange(listOf(call), listOf(original))), ToolResultDeliveryProof.capture(listOf(original))).isEmpty())
+    }
+
+    @Test fun compactSequenceAdvancesOnlyAfterTheTerminalNativeSavedPage() {
+        val name = "github_context__selected"
+        val views = GitHubResultViews(pageBytes = 4096)
+        val request = buildJsonObject { put("action", "commits") }
+        val records = kotlinx.serialization.json.JsonArray((1..220).map { JsonPrimitive("commit $it " + "record ".repeat(14)) })
+        val upstream = AgentToolResult("initial", ToolResultContent.Json(buildJsonObject { put("records", records) }), false)
+        var page = views.present("scope", "github_context", name, upstream, request)
+        assertNotNull(page.retainedContent)
+        assertFalse(githubSchemaPhaseComplete(name, page, request))
+        var count = 0
+        while (true) {
+            val recipe = GitHubReplayRecovery.envelope(page.content)?.get("continuation_call") as? JsonObject ?: break
+            val arguments = recipe.getValue("arguments").jsonObject
+            page = views.read("scope", "github_context", name, arguments.getValue("view_cursor").jsonPrimitive.content, "page-${++count}")
+            assertFalse(page.isError)
+            val terminal = GitHubReplayRecovery.envelope(page.content)?.get("continuation_call") == null
+            assertEquals(terminal, githubSchemaPhaseComplete(name, page, arguments))
+            assertTrue(count < 100)
+        }
+        assertTrue(count > 0)
+        val restored = upstream.copy(sharedResult = true)
+        assertFalse(githubSchemaPhaseComplete(name, restored, request))
+        assertTrue(githubSchemaPhaseComplete(name, restored, request, restoredJournal = true))
     }
 
     @Test fun restorationPreservesTheSelectorsAdmittedWithTheOriginalPage() {

@@ -1,8 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.queue
 
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,12 +37,31 @@ class PendingPromptContinuationTest {
         assertTrue(runCatching { dao.enqueueOnce(original.copy(chatId = 8)) }.isFailure)
     }
 
+    @Test fun historicalWorkspaceRequiresOneAcceptedPayloadForTheExactMessage() = runBlocking {
+        val rows = linkedMapOf<String, PendingPrompt>()
+        val dao = MemoryDao(rows)
+        val scope = GitHubConversationContext("c", "owner", "repo", "feature", "a".repeat(40), "profile")
+        val message = MessageV2(id = 99, chatId = 7, content = "Show PR #41", platformType = null)
+        val payload = PendingPromptPayload(profileUids = listOf("profile"), tools = ChatMcpToolConfig(github = scope))
+        val row = PendingPrompt("read", 7, message.content, Json.encodeToString(payload), 1, userMessageId = 99)
+        rows[row.id] = row
+        assertEquals(scope, dao.savedGitHubWorkspace(message))
+        assertEquals(null, dao.savedGitHubWorkspace(message.copy(content = "Show PR #42")))
+        assertEquals(null, dao.savedGitHubWorkspace(message.copy(chatId = 8)))
+        rows["steering"] = row.copy(id = "steering")
+        assertEquals(null, dao.savedGitHubWorkspace(message))
+        rows.remove("steering")
+        rows[row.id] = row.copy(payload = Json.encodeToString(payload.copy(profileUids = listOf("other"))))
+        assertEquals(null, dao.savedGitHubWorkspace(message))
+    }
+
     private class MemoryDao(private val rows: MutableMap<String, PendingPrompt>) : PendingPromptDao {
         override suspend fun insert(prompt: PendingPrompt) {
             check(rows.putIfAbsent(prompt.id, prompt) == null)
         }
         override suspend fun get(id: String) = rows[id]
         override suspend fun nextPosition() = (rows.values.maxOfOrNull { it.position } ?: 0L) + 1
+        override suspend fun acceptedForMessage(chatId: Int, messageId: Int) = rows.values.filter { it.chatId == chatId && it.userMessageId == messageId }.take(2)
         override suspend fun forChat(chatId: Int) = rows.values.filter { it.chatId == chatId }
         override fun observePending(): Flow<List<PendingPrompt>> = flowOf(rows.values.filter { it.userMessageId == null })
         override suspend fun deleteUnconsumed(id: String) {

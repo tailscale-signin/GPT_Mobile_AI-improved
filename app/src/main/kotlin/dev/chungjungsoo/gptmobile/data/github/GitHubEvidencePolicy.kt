@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -25,9 +26,15 @@ internal object GitHubEvidencePolicy {
         val visited = mutableSetOf<String>()
         while (true) {
             if (source["trusted"] != JsonPrimitive(true) || source["success"] != JsonPrimitive(true) || source["verification_eligible"] == JsonPrimitive(false)) return false
-            if (source["immutable"] == JsonPrimitive(true)) return true
+            // Older receipts marked every SHA-qualified search as immutable, including live issue searches.
+            // Reclassify those originals from their arguments and cursor pages from their bound original.
+            val tool = source.string("tool")
             val arguments = source["arguments"] as? JsonObject ?: JsonObject(emptyMap())
-            if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.immutableRead(source.string("tool"), arguments)) return true
+            if (tool.githubOperationFamily() == "github_search") {
+                if ("view_cursor" !in arguments) return GitHubOperationTool.immutableRead(tool, arguments)
+            } else if (source["immutable"] == JsonPrimitive(true) || GitHubOperationTool.immutableRead(tool, arguments)) {
+                return true
+            }
             val id = source.string("source_observation_receipt_id")
             if (id.isBlank() || !visited.add(id)) return false
             val original = receipts[id] ?: return false
@@ -72,7 +79,7 @@ internal object GitHubEvidencePolicy {
     private fun semanticType(receipt: JsonObject?, path: String): Pair<String, String> {
         val tool = receipt?.string("tool")?.githubOperationFamily().orEmpty()
         val arguments = (receipt?.get("arguments") as? JsonObject) ?: JsonObject(emptyMap())
-        val nativeAction = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments)?.string("action")
+        val nativeAction = GitHubOperationTool.nativeArguments(tool, arguments)?.string("action")
         val resource = when {
             "/check_runs/" in path -> "check_run"
             "/jobs/" in path || nativeAction in setOf("get_workflow_job", "get_job_logs") -> "job"
@@ -230,13 +237,20 @@ internal object GitHubEvidencePolicy {
                     }
                 }
                 "excerpt" -> {
-                    val result = JsonObject(verifySelected(claim) + ("kind" to JsonPrimitive("excerpt"))).also { checked += it }
-                    val entry = receipts[claim.string("receipt_id")]?.let { GitHubEvidenceExcerpts.collect(it)[claim.string("pointer")] }
+                    val result = JsonObject(verifySelected(claim) + ("kind" to JsonPrimitive("excerpt")))
+                    val sourceReceipt = receipts[claim.string("receipt_id")]
+                    val pointer = claim.string("pointer")
+                    val entry = sourceReceipt?.let { GitHubEvidenceExcerpts.collect(it)[pointer] }
+                    val binding = if (sourceReceipt != null && entry != null) GitHubEvidenceExcerpts.sourceClaimBinding(sourceReceipt, pointer, result, entry) else null
+                    checked += if (binding == null) result else JsonObject(result + ("source_binding" to binding))
                     if (result.string("status") == "VERIFIED" && entry != null) {
-                        val source = safe(entry.string("resource"))
+                        val path = entry.string("resource")
+                        val url = if (sourceReceipt != null && binding != null) GitHubEvidenceLink.excerptUrl(sourceReceipt, path, binding) else null
+                        val source = if (url == null) safe(path) else "[${safe(path)}]($url)"
                         val text = entry.string("value")
                         val fence = "`".repeat(maxOf(3, (Regex("`+").findAll(text).maxOfOrNull { it.value.length } ?: 0) + 1))
-                        excerpts += "**$source** · ${safe(entry.string("revision"))} · lines ${entry.string("start_line")}–${entry.string("end_line")}\n\n${fence}text\n$text\n$fence"
+                        val sourceRef = binding?.string("call_id_sha256")?.take(16)?.let { " · source receipt `$it`" }.orEmpty()
+                        excerpts += "**$source** · ${safe(entry.string("revision"))} · lines ${entry.string("start_line")}–${binding?.string("end_line") ?: entry.string("end_line")}$sourceRef\n\n${fence}text\n$text\n$fence"
                         ""
                     } else {
                         "- **Source unavailable:** refresh the requested revision before quoting it."
@@ -827,7 +841,15 @@ internal object GitHubEvidencePolicy {
     private fun linkedValue(claim: JsonObject, receipts: Map<String, JsonObject>): String {
         val value = display(claim["observed"] ?: JsonNull)
         val receipt = receipts[claim.string("receipt_id")] ?: return value
-        val repo = receipt.string("repository").split('/').takeIf { it.size == 2 && it.all { part -> part.matches(Regex("[A-Za-z0-9_.-]+")) } } ?: return value
+        val base = if ("web_origin" in receipt) GitHubEvidenceLink.recordedRepositoryUrl(receipt) else legacyRepositoryUrl(receipt)
+        val pointer = claim.string("pointer")
+        val observed = (claim["observed"] as? JsonPrimitive)?.contentOrNull ?: return value
+        val url = base?.let { GitHubEvidenceLink.url(it, pointer, observed, receipt) } ?: return value
+        return "[$value]($url)"
+    }
+
+    private fun legacyRepositoryUrl(receipt: JsonObject): String? {
+        val repo = receipt.string("repository").split('/').takeIf { it.size == 2 && it.all { part -> part.matches(Regex("[A-Za-z0-9_.-]+")) && part !in setOf(".", "..") } } ?: return null
         fun findHtmlUrl(node: JsonElement?): String? = when (node) {
             is JsonObject -> (node["html_url"] as? JsonPrimitive)?.contentOrNull ?: node.values.firstNotNullOfOrNull(::findHtmlUrl)
             is JsonArray -> node.firstNotNullOfOrNull(::findHtmlUrl)
@@ -836,11 +858,7 @@ internal object GitHubEvidencePolicy {
         val origin = findHtmlUrl(receipt["result"])?.let { runCatching { java.net.URI(it) }.getOrNull() }
             ?.takeIf { it.scheme in setOf("https", "http") && it.host != null && it.userInfo == null }
             ?.let { "${it.scheme}://${it.rawAuthority}" } ?: "https://github.com"
-        val base = "$origin/${repo[0]}/${repo[1]}"
-        val pointer = claim.string("pointer")
-        val observed = (claim["observed"] as? JsonPrimitive)?.contentOrNull ?: return value
-        val url = GitHubEvidenceLink.url(base, pointer, observed, receipt) ?: return value
-        return "[$value]($url)"
+        return "$origin/${repo[0]}/${repo[1]}"
     }
 
     private fun label(pointer: String, receipt: JsonObject? = null): String {

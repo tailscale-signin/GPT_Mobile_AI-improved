@@ -21,7 +21,7 @@ internal enum class VoiceSpeechBenchmarkFixture(val label: String, val text: Str
 }
 
 internal enum class VoiceSpeechBenchmarkRunState { RUNNING, COMPLETE, CANCELLED, INTERRUPTED, FAILED }
-internal enum class VoiceSpeechBenchmarkBackendState { PENDING, PREPARING, RUNNING, COMPLETE, UNSUPPORTED, FAILED, CANCELLED, NOT_RUN }
+internal enum class VoiceSpeechBenchmarkBackendState { PENDING, PREPARING, RUNNING, COMPLETE, UNSUPPORTED, FAILED, CANCELLED, NOT_RUN, PARTIAL }
 internal enum class VoiceSpeechBenchmarkIssue { MODEL_UNAVAILABLE, THERMAL_LIMIT, EXECUTION_FAILED, INVALID_WORKLOAD, CANCELLED, NATIVE_CLEANUP_PENDING }
 internal enum class VoiceSpeechBenchmarkOutcome { RUNNING, QUALIFIED, PARTIAL, NO_QUALIFIED_COMPARISON, INVALID_WORKLOAD, CANCELLED, INTERRUPTED, HISTORICAL }
 
@@ -56,7 +56,8 @@ internal data class VoiceSpeechBenchmarkConfiguration(
     val incrementalInput: Boolean = true,
     val htpPerformanceMode: String = "balanced",
     val nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
-    val sustainedTargetAudioMs: Long = 300_000L
+    val sustainedTargetAudioMs: Long = 300_000L,
+    val playbackScheduleVersion: Int = 2
 ) {
     init {
         require(backends.isNotEmpty() && backends.distinct().size == backends.size && backends.all { it in engine.supportedBackends })
@@ -70,13 +71,21 @@ internal data class VoiceSpeechBenchmarkConfiguration(
         require(engineVoiceId == null || engineVoiceId.isNotBlank() && engineVoiceId.length <= 128)
         require(htpPerformanceMode in setOf("balanced", "burst", "high_performance"))
         require(sustainedTargetAudioMs in VoiceSpeechSustainedSeries.TARGETS)
+        require(playbackScheduleVersion in 1..2)
     }
 
-    val currentProtocol: Boolean get() = protocolId == VoiceSpeechWorkload.PROTOCOL && fixtureVersion == VoiceSpeechWorkload.FIXTURE_VERSION && fixtureHash == VoiceSpeechWorkload.fixtureHash(workload) && (!playback || playbackProtocolVersion == VoiceSpeechPlaybackProtocol.VERSION)
+    val currentProtocol: Boolean get() = deviceKey.isNotEmpty() && protocolId == VoiceSpeechWorkload.PROTOCOL && fixtureVersion == VoiceSpeechWorkload.FIXTURE_VERSION && fixtureHash == VoiceSpeechWorkload.fixtureHash(workload) && (!playback || playbackProtocolVersion == VoiceSpeechPlaybackProtocol.VERSION)
 
     /** A retained rotation is reproducible; successive runs can counterbalance backend order. */
     val plannedBackendOrder: List<VoiceSpeechBackend>
         get() = Math.floorMod(backendOrderSeed, backends.size.toLong()).toInt().let { offset -> backends.drop(offset) + backends.take(offset) }
+
+    val comparesColdStartsFirst: Boolean
+        get() = playback &&
+            playbackScheduleVersion >= 2 &&
+            backends.size > 1 &&
+            playbackScenarios.first() == VoiceSpeechPlaybackScenario.COLD_START &&
+            (mode != VoiceSpeechBenchmarkMode.QUICK || playbackScenarios.size > 1)
 
     companion object {
         val LOCAL_BACKENDS = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP)
@@ -368,7 +377,8 @@ internal data class VoiceSpeechBenchmarkReport(
     val activeChunk: Int? = null,
     val playbackResults: List<VoiceSpeechPlaybackResult> = emptyList(),
     val engineResults: List<VoiceSpeechEngineBenchmarkResult> = emptyList(),
-    val energyObservations: List<VoiceSpeechBenchmarkEnergyObservation> = emptyList()
+    val energyObservations: List<VoiceSpeechBenchmarkEnergyObservation> = emptyList(),
+    val stopOrigin: VoiceSpeechStopOrigin? = null
 ) {
     val completedSamples: Int get() = when {
         configuration.playback -> playbackResults.size
@@ -384,6 +394,19 @@ internal data class VoiceSpeechBenchmarkReport(
     /** Playback duration targets have a bounded sample ceiling, not a fabricated fixed iteration count. */
     val totalSamples: Int get() = configuration.backends.size * if (configuration.playback) VoiceSpeechPlaybackProtocol.maximumSamples(configuration) else VoiceSpeechBenchmarkFixture.entries.size * (configuration.mode.warmRepeats + 1)
     val isRunning: Boolean get() = state == VoiceSpeechBenchmarkRunState.RUNNING
+
+    fun finishPendingBackends(): VoiceSpeechBenchmarkReport {
+        fun settled(backend: VoiceSpeechBackend, current: VoiceSpeechBenchmarkBackendState) = when (current) {
+            VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING ->
+                if (playbackResults.any { it.requestedBackend == backend }) VoiceSpeechBenchmarkBackendState.PARTIAL else VoiceSpeechBenchmarkBackendState.NOT_RUN
+            else -> current
+        }
+        return copy(
+            results = results.map { it.copy(state = settled(it.requestedBackend, it.state)) },
+            engineResults = engineResults.map { it.copy(state = settled(it.requestedBackend, it.state)) }
+        )
+    }
+
     val outcome: VoiceSpeechBenchmarkOutcome
         get() = when {
             isRunning -> VoiceSpeechBenchmarkOutcome.RUNNING
@@ -401,6 +424,7 @@ internal data class VoiceSpeechBenchmarkReport(
     private fun playbackOutcome(): VoiceSpeechBenchmarkOutcome {
         if (playbackResults.isEmpty()) return VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON
         if (playbackResults.none { it.state == VoiceSpeechPlaybackState.COMPLETE && it.chunks > 0 || it.quality == VoiceSpeechPlaybackQuality.CANCELLATION_VALIDATED }) return VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON
+        if (results.any { it.state in setOf(VoiceSpeechBenchmarkBackendState.FAILED, VoiceSpeechBenchmarkBackendState.UNSUPPORTED, VoiceSpeechBenchmarkBackendState.PARTIAL) }) return VoiceSpeechBenchmarkOutcome.PARTIAL
         if (playbackResults.any { it.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) || it.quality in setOf(VoiceSpeechPlaybackQuality.COMPLETE_WITH_STALLS, VoiceSpeechPlaybackQuality.SLOW_START, VoiceSpeechPlaybackQuality.INCOMPLETE, VoiceSpeechPlaybackQuality.CANCELLATION_TARGET_NOT_REACHED) }) return VoiceSpeechBenchmarkOutcome.PARTIAL
         if (configuration.backends.any { playbackAudioReference(it) == VoiceSpeechAudioReferenceStatus.MISMATCH }) return VoiceSpeechBenchmarkOutcome.PARTIAL
         return if (qualifiedPlaybackBackends().size == configuration.backends.size) VoiceSpeechBenchmarkOutcome.QUALIFIED else VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON

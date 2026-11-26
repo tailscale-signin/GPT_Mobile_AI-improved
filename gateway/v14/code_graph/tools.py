@@ -1,6 +1,7 @@
 """One lazily selected graph tool, using existing gateway principal and routing boundaries."""
 import json
 from gateway_security import current_device
+from v14.capability_inventory import register_local_tool
 from v14.memory import local_model_destination
 from .service import ACTIONS
 
@@ -26,6 +27,8 @@ def install_graph_tool(runtime, service, authorized):
             'supersedes': {'type': 'string'}, 'job_id': {'type': 'string'}, 'receipt_id': {'type': 'string'},
             'targets': {'type': 'array', 'maxItems': 5, 'items': {'type': 'object', 'properties': {
                 'repository': {'type': 'string'}, 'branch': {'type': 'string'}, 'commit_sha': {'type': 'string'}}}}}}}}
+
+    register_local_tool(runtime, definition, authorized)
 
     def listing(force_refresh=False):
         rows = catalog(force_refresh)

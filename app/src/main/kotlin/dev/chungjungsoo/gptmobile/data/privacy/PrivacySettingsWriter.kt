@@ -21,6 +21,10 @@ internal sealed interface PrivacySettingChange {
         override val key = "master"
     }
 
+    data class VerifiedRetention(val required: Boolean) : PrivacySettingChange {
+        override val key = "verified_retention"
+    }
+
     data class Category(val category: PrivacyCategory, val protected: Boolean) : PrivacySettingChange {
         override val key = category.name
     }

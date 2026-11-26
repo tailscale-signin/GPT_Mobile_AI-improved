@@ -83,6 +83,32 @@ class GitHubGatewayTests(unittest.TestCase):
         self.assertTrue(seen[0]['_gateway_performance']['github_client_owned'])
         self.assertEqual(payload['tools'], seen[0]['tools'])
 
+    def test_android_inspection_lifecycle_decision_and_workspace_rounds_return_to_phone(self):
+        for tool in ('github_context_inspect', 'github_pr_inspect', 'github_repository',
+                     'github_decide', 'repository_graph', 'repository_workspace'):
+            with self.subTest(tool=tool):
+                definition = {'function': {'name': tool + '__github_api'}}
+                seen = []
+                returned = {'choices': [{'message': {'tool_calls': [definition]}}]}
+                runtime = SimpleNamespace(process_chat_payload=lambda payload, *args: (seen.append(payload) or 200, returned))
+                install_github_fast_path(runtime)
+                status, reply = runtime.process_chat_payload({'tools': [definition]})
+                self.assertEqual(200, status)
+                self.assertTrue(seen[0]['_gateway_performance']['github_client_owned'])
+                self.assertEqual(returned['choices'], reply['choices'])
+                self.assertEqual({tool: 1}, runtime.gateway_github_performance.snapshot()['returnedToolCalls'])
+
+    def test_invalid_optional_provider_metrics_cannot_discard_the_model_result(self):
+        valid = {'function': {'name': 'github_pr_inspect'}}
+        choices = [None, {'message': 'unknown'}, {'message': {'tool_calls': [1, {'function': []}, valid]}}]
+        runtime = SimpleNamespace(process_chat_payload=lambda *args: (200, {'usage': 'unknown', 'choices': choices}))
+        install_github_fast_path(runtime)
+        status, reply = runtime.process_chat_payload({'tools': [valid]})
+        self.assertEqual((200, choices), (status, reply['choices']))
+        stats = runtime.gateway_github_performance.snapshot()
+        self.assertFalse(stats['usageComplete'])
+        self.assertEqual({'github_pr_inspect': 1}, stats['returnedToolCalls'])
+
     def test_keywords_do_not_enable_native_routing_and_missing_usage_is_unknown(self):
         self.assertFalse(native_github_request({'messages': [{'content': 'github_write__github_api'}]}))
         self.assertFalse(native_github_request({'tools': [{'function': {'name': 'github_admin_unknown'}}]}))

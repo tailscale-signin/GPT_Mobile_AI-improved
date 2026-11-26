@@ -12,6 +12,10 @@ import re
 REQUIRED_WORKFLOWS = ('PR Validation', 'Build Android APK', 'Post-merge correctness', 'CodeQL Advanced', 'v0.9.50 Android acceptance')
 
 
+class IncompleteWorkflowInventory(ValueError):
+    """Another poll is required before using this workflow listing."""
+
+
 def required_workflows(manifest):
     # Full releases may omit a scoped manifest, but never the exact-commit checks.
     configured = manifest.get('requiredWorkflows', [])
@@ -45,6 +49,8 @@ def fetch_runs(repository, sha, token, *, opener=urllib.request.urlopen):
     root = f"/repos/{repository}/actions/runs"
     url = f"https://api.github.com{root}?head_sha={sha}&per_page=100"
     seen, runs = set(), []
+    run_ids = set()
+    expected_total = None
     while url:
         parts = urlsplit(url)
         query = parse_qs(parts.query)
@@ -60,15 +66,28 @@ def fetch_runs(repository, sha, token, *, opener=urllib.request.urlopen):
                 raise ValueError("Workflow page exceeds the response bound")
             document = json.loads(raw)
             page = document.get("workflow_runs")
+            total = document.get("total_count")
+            if type(total) is not int or total < 0:
+                raise ValueError("Invalid workflow inventory total")
+            if expected_total is not None and total != expected_total:
+                raise IncompleteWorkflowInventory("Workflow inventory total changed during pagination")
+            expected_total = total
             if not isinstance(page, list) or len(page) > 100:
                 raise ValueError("Invalid workflow page")
+            for run in page:
+                run_id = run.get("id") if isinstance(run, dict) else None
+                if type(run_id) is not int or run_id < 1:
+                    raise ValueError("Invalid workflow run identity")
+                if run_id in run_ids:
+                    raise IncompleteWorkflowInventory("Observed duplicate workflow run during pagination")
+                run_ids.add(run_id)
             runs.extend(page)
             matches = re.findall(r'<([^>]+)>;\s*rel="next"', response.headers.get("Link", ""))
             if len(matches) > 1:
                 raise ValueError("Ambiguous workflow pagination")
             url = matches[0] if matches else None
-            if not url and type(document.get("total_count")) is int and document["total_count"] > len(runs):
-                raise ValueError("Workflow inventory ended before its reported total")
+            if not url and len(run_ids) != expected_total:
+                raise IncompleteWorkflowInventory("Workflow inventory differs from its reported total")
     return runs
 
 
@@ -109,7 +128,15 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     end = time.monotonic() + args.timeout
     while time.monotonic() < end:
-        runs = fetch_runs(args.repository, args.sha, os.environ["GH_TOKEN"])
+        try:
+            runs = fetch_runs(args.repository, args.sha, os.environ["GH_TOKEN"])
+        except IncompleteWorkflowInventory as error:
+            document = evidence_document([], args.sha, required)
+            document["inventoryError"] = str(error)
+            args.output.write_text(json.dumps(document, indent=2) + "\n")
+            print(f"Waiting for a complete workflow inventory: {error}", flush=True)
+            time.sleep(30)
+            continue
         observed = observed_main_workflows(runs, args.sha, os.environ.get("GITHUB_WORKFLOW")) if args.all_main_checks else []
         workflows = list(dict.fromkeys([*required, *observed]))
         main_push = [*args.require_main_push, *observed]

@@ -61,7 +61,7 @@ internal class GitHubResultViews(
         }
     }
 
-    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes, sourceCorrection: JsonObject? = null): AgentToolResult {
+    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes, sourceCorrection: JsonObject? = null, capture: ((Pair<String, JsonObject>) -> Unit)? = null): AgentToolResult {
         val pageBytes = minOf(this.pageBytes, maxPageBytes.coerceAtLeast(2048))
         fun value(content: ToolResultContent): JsonElement? = when (content) {
             is ToolResultContent.Json -> content.value
@@ -80,14 +80,29 @@ internal class GitHubResultViews(
             val recipes = mutableListOf<JsonObject>()
             retainContinuations(value, "", operation, modelName, request, recipes)
             if (recipes.toString().encodeToByteArray().size <= pageBytes / 4) {
-                return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, sourcePages = true)
+                return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture, sourcePages = true)
             }
         }
-        if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
+        if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
         val summary = (value as? JsonObject)?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.from(operation, request, it) }
         val displayBody = if (display == value) body else retainContinuations(display, "", operation, modelName, request, mutableListOf())
+        if (upstream.isError &&
+            display == value &&
+            continuations.isEmpty() &&
+            (upstream.errorCode in dev.chungjungsoo.gptmobile.data.github.GitHubTransportRecovery.codes || upstream.errorCode == "OUTPUT_LIMIT")
+        ) {
+            val visible = buildJsonObject {
+                put("schema", SCHEMA)
+                put("operation", operation)
+                put("local_page_complete", true)
+                put("data", displayBody)
+            }
+            if (visible.toString().encodeToByteArray().size <= pageBytes) {
+                return upstream.copy(content = ToolResultContent.Json(visible))
+            }
+        }
         val id = UUID.randomUUID().toString()
         val sourceRecovery = immutableRecovery(operation, modelName, request, value)
         val small = buildJsonObject {
@@ -128,7 +143,7 @@ internal class GitHubResultViews(
             }
             if (lastContinuations.isNotEmpty()) buffer += buildJsonObject { put("kind", "continuation_boundary") }
         } catch (_: FragmentCapacity) {
-            return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
+            return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
         }
         val fragments = buffer.records
         if (fragments.any { it.toString().toByteArray().size > pageBytes / 3 } || fragments.isEmpty()) return overflow(upstream, operation, modelName, value, request)
@@ -137,11 +152,11 @@ internal class GitHubResultViews(
         val defaults = if (operation in setOf("github_context", "github_ci", "github_pr")) mapOf("response_detail" to JsonPrimitive("compact")) else emptyMap()
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
-        if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
+        if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
         val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()), sourceCallId = upstream.callId)
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
-            store(id, entry)
+            store(id, entry, capture)
             val visible = sourceCorrection?.let { JsonObject(small + mapOf("correction_call" to it, "recovery_action" to JsonPrimitive("RECOVER_SOURCE_EVIDENCE"))) }
                 ?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: small
             return upstream.copy(
@@ -159,7 +174,7 @@ internal class GitHubResultViews(
         }
         val first = page(id, entry, 0, modelName)
         authorize(entry, first)
-        store(id, entry)
+        store(id, entry, capture)
         // The verifier consumes the complete durable source, not each display fragment.
         // Keep its exact remote recipes outside the model-visible page. If those
         // recipes are themselves too large, preserve the existing paged fallback.
@@ -388,6 +403,8 @@ internal class GitHubResultViews(
             dispatched = false,
             executionReceipt = JsonObject(
                 sourceIdentity(entry) + savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256) + buildJsonObject {
+                    put("saved_view_body_bytes", page.toString().encodeToByteArray().size)
+                    if (entry.originalError) entry.originalErrorCode?.let { put("saved_view_original_error_code", it) }
                     if (context.isNotEmpty()) put("saved_view_selectors_hash", selectorsHash(cursor, context))
                 }
             )
@@ -404,12 +421,15 @@ internal class GitHubResultViews(
     @Synchronized
     fun checkpoint(scope: String, result: AgentToolResult): Pair<String, JsonObject>? {
         val content = (result.content as? ToolResultContent.Json)?.value as? JsonObject ?: return null
-        val recipe = content["recovery_call"] as? JsonObject ?: return null
-        val args = recipe["arguments"] as? JsonObject ?: return null
-        val cursor = (args["view_cursor"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val cursor = savedCursors(content).firstOrNull { handle ->
+            entries[handle.substringBefore(':')]?.let { it.scope == scope && handle in it.issuedCursors } == true
+        } ?: return null
         val id = cursor.substringBefore(':')
-        val entry = entries[id]?.takeIf { it.scope == scope && cursor in it.issuedCursors } ?: return null
-        return id to buildJsonObject {
+        return checkpoint(id, entries.getValue(id))
+    }
+
+    private fun checkpoint(id: String, entry: Entry): Pair<String, JsonObject> =
+        id to buildJsonObject {
             put("schema", "github.saved-view.v1")
             put("scope", entry.scope)
             put("operation", entry.operation)
@@ -431,7 +451,6 @@ internal class GitHubResultViews(
             put("issued_cursors", JsonArray(entry.issuedCursors.map(::JsonPrimitive)))
             put("failed_persistence_cursors", JsonArray(entry.failedPersistenceCursors.map(::JsonPrimitive)))
         }
-    }
 
     @Synchronized
     fun markPersistenceUnavailable(scope: String, id: String, cursors: List<JsonPrimitive>) {
@@ -485,12 +504,16 @@ internal class GitHubResultViews(
     private fun authorize(entry: Entry, page: JsonObject) {
         // Only cursors actually emitted by this view may advance it. Source evidence
         // and a guessed fragment offset never grant pagination access.
+        entry.issuedCursors.addAll(savedCursors(page))
+    }
+
+    private fun savedCursors(page: JsonObject): List<String> {
         val recipes = listOfNotNull(page["recovery_call"] as? JsonObject, page["continuation_call"] as? JsonObject, page["original_call"] as? JsonObject) +
             listOf("recovery_options", "continuation_options").flatMap { key -> (page[key] as? JsonArray).orEmpty().filterIsInstance<JsonObject>() }
         val rangeCalls = (page["range_calls"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { it["call"] as? JsonObject }
-        (recipes + rangeCalls).forEach { recipe ->
+        return (recipes + rangeCalls).mapNotNull { recipe ->
             val arguments = recipe["arguments"] as? JsonObject
-            (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(entry.issuedCursors::add)
+            (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content
         }
     }
 
@@ -536,6 +559,10 @@ internal class GitHubResultViews(
             put("schema", SCHEMA)
             put("operation", entry.operation)
             put("local_page_complete", complete)
+            if (entry.originalError) {
+                put("source_operation_failed", true)
+                entry.originalErrorCode?.let { put("source_error_code", it) }
+            }
             put("metadata", if (compact) JsonObject(emptyMap()) else metadata)
             put("fragments", JsonArray(records))
             put("fragment_offset", offset)
@@ -636,7 +663,12 @@ internal class GitHubResultViews(
 
     private fun continuationArguments(operation: String, request: JsonObject, continuation: JsonObject): JsonObject {
         val properties = (GitHubOperationTool.definition(operation).inputSchema["properties"] as JsonObject).keys
-        val values = (request - "view_cursor").toMutableMap()
+        val nextAction = continuation["action"]
+        // Pagination keeps its query. A follow-up to a different operation starts with its own
+        // selectors, so write fields or old filters cannot contaminate the next read.
+        val changesAction = nextAction != null && GitHubOperationTool.nativeArguments(operation, request)?.get("action") != nextAction
+        val inherited = if (changesAction) request.filterKeys { it in setOf("owner", "repo", "verify_live", "response_detail") } else request
+        val values = (inherited - "view_cursor").toMutableMap()
         continuation.filterKeys { it in properties && it != "action" }.forEach { (key, value) -> values[key] = value }
         if (operation == "github_context") {
             val native = (continuation["action"] as? JsonPrimitive)?.content
@@ -650,6 +682,8 @@ internal class GitHubResultViews(
                     "list_pull_requests" -> "list"
                     "get_pull_request_comments" -> "comments"
                     "pull_request_reviews" -> "reviews"
+                    "copilot_tasks" -> "copilot_tasks"
+                    "pr_threads" -> "threads"
                     else -> "context"
                 }
             )
@@ -659,6 +693,7 @@ internal class GitHubResultViews(
             val action = mapOf("list_issues" to "list", "issue_context" to "context", "issue_comments" to "comments", "issue_events" to "history")[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
         }
+        if (operation == "github_repository" && nextAction == JsonPrimitive("repository_lifecycle_status")) values["action"] = JsonPrimitive("status")
         if (operation == "github_release") {
             val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail", "get_release" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
@@ -680,11 +715,15 @@ internal class GitHubResultViews(
                     buildJsonObject {
                         put("path", continuation.getValue("path"))
                         put("start_line", start)
-                        put("end_line", continuation["end_line"] ?: JsonPrimitive(start + 199))
+                        continuation["end_line"]?.let { put("end_line", it) }
+                        continuation["max_lines"]?.let { put("max_lines", it) }
                         continuation["start_offset"]?.let { put("start_offset", it) }
                     }
                 )
             )
+        }
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.ignoresWorkspaceRef(operation, (values["action"] as? JsonPrimitive)?.content)) {
+            values.remove("ref")
         }
         return JsonObject(values.filterKeys { it in properties })
     }
@@ -743,7 +782,7 @@ internal class GitHubResultViews(
         }
 
     /** Large notes/logs stay compressed once, instead of multiplying thousands of JSON objects. */
-    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement, sourcePages: Boolean = false): AgentToolResult {
+    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement, capture: ((Pair<String, JsonObject>) -> Unit)?, sourcePages: Boolean = false): AgentToolResult {
         val source = value.toString()
         val plain = source.encodeToByteArray()
         if (plain.size > MAX_SERIALIZED_SOURCE_BYTES) return overflow(upstream, operation, modelName, value, request)
@@ -787,7 +826,7 @@ internal class GitHubResultViews(
         val rangePage = if (sourcePages && value is JsonObject) sourcePage(id, modelName, value, GitHubSourcePages.FIRST, pageBytes, continuations) else null
         val first = rangePage ?: summary?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: page(id, entry, 0, modelName)
         authorize(entry, first)
-        store(id, entry)
+        store(id, entry, capture)
         return upstream.copy(
             content = ToolResultContent.Json(first),
             retainedContent = upstream.retainedContent ?: upstream.content,
@@ -913,6 +952,7 @@ internal class GitHubResultViews(
         values["commit_sha"] = sha
         if (operation == "github_read" && "ranges" !in values) values["ranges"] = root["ranges"] ?: return null
         val args = JsonObject(values)
+        if (operation == "github_search" && !GitHubOperationTool.immutableRead(name, args)) return null
         if (args["owner"] == null || args["repo"] == null || args.toString().toByteArray().size > 4096) return null
         return buildJsonObject {
             put("tool", name)
@@ -921,13 +961,14 @@ internal class GitHubResultViews(
     }
 
     @Synchronized
-    private fun store(id: String, entry: Entry) {
+    private fun store(id: String, entry: Entry, capture: ((Pair<String, JsonObject>) -> Unit)?) {
         purge()
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + entry.bytes > capacityBytes)) {
             evict(entries.keys.first())
         }
         entries[id] = entry
         retainedBytes += entry.bytes
+        capture?.invoke(checkpoint(id, entry))
     }
 
     private fun purge() {

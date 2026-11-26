@@ -36,6 +36,37 @@ class ToolArgumentDiagnosticsTest {
         put("additionalProperties", false)
     }
 
+    @Test fun focusedLogSchemaCanSelectTheReadNeededToDiscoverAnActualJob() {
+        val tool = GitHubOperationTool.definition("github_ci", "github_ci__bound")
+        val logs = requireNotNull(GitHubActionSchema.project(tool, "logs")).inputSchema
+        for ((runId, expectedAction) in listOf(null to "runs", 73 to "jobs")) {
+            val arguments = buildJsonObject {
+                put("action", "logs")
+                put("start_line", 1)
+                put("end_line", 20)
+                runId?.let { put("run_id", it) }
+            }
+            val result = ToolArgumentValidator.rejection("logs", tool.name, arguments, logs)
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            val body = (result.content as ToolResultContent.Json).value as JsonObject
+            val correction = body.getValue("correction_call") as JsonObject
+            assertEquals(JsonPrimitive(ProgressiveToolCatalog.NAME), correction["tool"])
+            val selection = correction.getValue("arguments") as JsonObject
+            assertEquals(JsonArray(listOf(JsonPrimitive(tool.name))), selection["names"])
+            assertEquals(JsonPrimitive(expectedAction), selection["action"])
+            assertEquals(JsonPrimitive(true), selection["catalog_only"])
+            val full = ToolArgumentValidator.rejection("all-actions", tool.name, arguments, tool.inputSchema)
+            val fullBody = (full.content as ToolResultContent.Json).value as JsonObject
+            val next = fullBody.getValue("correction_call") as JsonObject
+            assertEquals(JsonPrimitive(tool.name), next["tool"])
+            val read = next.getValue("arguments") as JsonObject
+            assertEquals(JsonPrimitive(expectedAction), read["action"])
+            assertEquals(runId?.let { JsonPrimitive(it) }, read["run_id"])
+            assertFalse(read.containsKey("job_id"))
+        }
+    }
+
     @Test fun pullListCorrectsOnlyAnExplicitValidStringPageSize() {
         val schema = GitHubOperationTool.definition("github_pr").inputSchema
         for (size in listOf("1", "25", "100", "0", "101", "12.5", "private")) {

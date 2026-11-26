@@ -4,6 +4,8 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -13,6 +15,21 @@ interface PendingPromptDao {
 
     @Query("SELECT * FROM pending_prompts WHERE chatId = :chatId ORDER BY position, id")
     suspend fun forChat(chatId: Int): List<PendingPrompt>
+
+    @Query("SELECT * FROM pending_prompts WHERE chatId = :chatId AND userMessageId = :messageId LIMIT 2")
+    suspend fun acceptedForMessage(chatId: Int, messageId: Int): List<PendingPrompt>
+
+    suspend fun savedGitHubWorkspace(message: MessageV2): GitHubConversationContext? {
+        if (message.id <= 0 || message.chatId <= 0 || message.platformType != null) return null
+        val row = acceptedForMessage(message.chatId, message.id).singleOrNull() ?: return null
+        if (row.text != message.content) return null
+        val accepted = try {
+            row.details()
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        return accepted.tools.github?.takeIf { accepted.profileUids.singleOrNull() == it.mainProfileUid }
+    }
 
     @Query("SELECT COALESCE(MAX(position), 0) + 1 FROM pending_prompts")
     suspend fun nextPosition(): Long

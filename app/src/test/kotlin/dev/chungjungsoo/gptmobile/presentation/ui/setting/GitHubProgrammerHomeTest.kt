@@ -24,12 +24,14 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -39,6 +41,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardTarget
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayInventoryTool
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayToolInventory
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatInputBox
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -81,7 +86,7 @@ class GitHubProgrammerHomeTest {
         compose.setContent {
             MaterialTheme {
                 Column(Modifier.width(320.dp).height(360.dp)) {
-                    GitHubChatProgress(workspace, state)
+                    GitHubChatProgress(state)
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).testTag("github_test_messages")) {
                         items(100) { androidx.compose.material3.Text("Message $it") }
                     }
@@ -130,6 +135,85 @@ class GitHubProgrammerHomeTest {
         compose.onNodeWithText("Message 99").assertIsDisplayed()
     }
 
+    @Test fun chatActionsOnlyOfferAvailableDestinationsAndOpenTaskDetailsInPlace() {
+        var withTask by mutableStateOf(false)
+        var browsed = false
+        var inventory by mutableStateOf(false)
+        compose.setContent {
+            MaterialTheme {
+                if (inventory) GitHubToolInventorySheet(null, null, null, null, onDismiss = { inventory = false })
+                GitHubChatActions(
+                    repositoryLoaded = true,
+                    mapAvailable = false,
+                    hasChanges = false,
+                    hasTask = withTask,
+                    onBrowseFiles = { browsed = true },
+                    onOpenChecks = {},
+                    onOpenMap = {},
+                    onReviewChanges = {},
+                    onOpenInventory = { inventory = true }
+                ) { dismiss ->
+                    androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close task details") }
+                }
+            }
+        }
+
+        compose.onNodeWithContentDescription("GitHub chat actions").performClick()
+        compose.onNodeWithText("Task details").assertDoesNotExist()
+        compose.onNodeWithText("Repository map").assertDoesNotExist()
+        compose.onNodeWithText("Review changes").assertDoesNotExist()
+        compose.onNodeWithText("Checks & builds").assertIsDisplayed()
+        compose.onNodeWithText("Repository files").performClick()
+        compose.runOnIdle {
+            assertTrue(browsed)
+            withTask = true
+        }
+        compose.onNodeWithContentDescription("GitHub chat actions").performClick()
+        compose.onNodeWithText("Tools and features").performClick()
+        compose.onNodeWithTag("github_inventory_search").performTextInput("agent_merge_status")
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Pull requests")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Pull requests").performClick()
+        compose.onAllNodes(hasText("Actions · ", substring = true) and hasText("agent_merge_status", substring = true), useUnmergedTree = true).assertCountEquals(1)
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithContentDescription("GitHub chat actions").performClick()
+        compose.onNodeWithText("Task details").performClick()
+        compose.onNodeWithText("Close task details").performClick()
+        compose.onNodeWithText("Close task details").assertDoesNotExist()
+    }
+
+    @Test fun gatewayAllToolsShowsTheChosenSourceWhenAliasesRepeat() {
+        val target = GatewayDashboardTarget("profile", "Gateway", "selected.test", true, null)
+        val first = GatewayInventoryTool("shared_read", null, listOf("path"), id = "one", sourceId = "first", authorized = true, executableNow = true)
+        val second = first.copy(id = "two", sourceId = "second", authorized = false, executableNow = false, blockedReason = "Missing scope")
+        val observation = GatewayToolInventory(listOf(first, second), 2, 1, scope = "gateway")
+        compose.setContent {
+            MaterialTheme {
+                GatewayCapabilityDashboard(target, GatewayCapabilityInventory(target.identity, observation)) {}
+            }
+        }
+        compose.onNodeWithText("All tools").performClick()
+        compose.onAllNodes(hasText("shared_read")).assertCountEquals(2)
+        compose.onNodeWithTag("github_inventory_search").performTextInput("second")
+        compose.onNodeWithText("shared_read").performClick()
+        compose.onNodeWithText("Missing scope", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("first · Reported ready at observation").assertDoesNotExist()
+    }
+
+    @Test fun approvalInTheCurrentChatTakesPriorityOverBackgroundGatewayProgress() {
+        val run = AgentRun("run", 1, 2, 3, "local", "CUSTOM", "model", "RUNNING")
+        val approval = dev.chungjungsoo.gptmobile.data.permissions.ToolApproval("approval", "run", "github", "github_write", "hash")
+        var state by mutableStateOf(GitHubProgrammerState(chatId = 1, runs = listOf(run), approvals = listOf(approval)))
+        var owner by mutableStateOf("earlier-run")
+        val job = dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob("job", "owner/repo", "work", state = "RUNNING", revision = 3, createdAt = 1.0, deadline = 500.0, message = "Running background checks")
+        compose.setContent { MaterialTheme { GitHubChatProgress(state, job, engineeringRunId = owner) } }
+
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals("Needs your approval").assertIsDisplayed()
+        compose.runOnIdle { state = state.copy(approvals = emptyList()) }
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals("Preparing response")
+        compose.runOnIdle { owner = run.runId }
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals(job.message)
+    }
+
     @Test fun commandShortcutsUseTheConversationComposerAndProfileChoice() {
         var sent = ""
         compose.setContent {
@@ -164,7 +248,7 @@ class GitHubProgrammerHomeTest {
         compose.setContent {
             MaterialTheme {
                 Column(Modifier.width(320.dp)) {
-                    GitHubChatProgress(workspace, GitHubProgrammerState(), job)
+                    GitHubChatProgress(GitHubProgrammerState(), job)
                 }
             }
         }
@@ -223,11 +307,41 @@ class GitHubProgrammerHomeTest {
         assertEquals("other", selected)
     }
 
+    @Test fun everydaySwitchesWorkWithoutOpeningServicesAndAdvancedBudgetRemainsSelectable() {
+        var preferences by mutableStateOf(dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile)
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
+                    GitHubProgrammerSettings(
+                        workspace,
+                        GitHubProgrammerState(profileUid = "local", profileSettings = preferences),
+                        {},
+                        {},
+                        {},
+                        onSettings = { preferences = it }
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("github_check_gateway").assertDoesNotExist()
+        compose.onNodeWithTag("github_chat_copilot_toggle").assertDoesNotExist()
+        compose.onNodeWithText("Evidence-based progress summaries").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(false, preferences.evidenceElaboration) }
+        compose.onNodeWithText("Desktop Gateway").performScrollTo().performClick()
+        compose.onNodeWithTag("github_check_gateway").assertExists()
+        compose.onNodeWithText("Advanced settings").performScrollTo().performClick()
+        compose.onNodeWithTag("github_engineering_budget").performScrollTo().performClick()
+        compose.onNodeWithText("Fast").performClick()
+        compose.runOnIdle { assertEquals(dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK, preferences.engineeringMode) }
+    }
+
     @Test fun repositoryMapIsASettingsActionAndUsesTheExistingOpenCallback() {
         var opens = 0
         var available by mutableStateOf(true)
+        var inventory by mutableStateOf(false)
         compose.setContent {
             MaterialTheme {
+                if (inventory) GitHubToolInventorySheet(null, null, "Choose a Gateway", null, onDismiss = { inventory = false })
                 Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
                     GitHubProgrammerSettings(
                         workspace,
@@ -235,6 +349,7 @@ class GitHubProgrammerHomeTest {
                         {},
                         {},
                         {},
+                        onOpenInventory = { inventory = true },
                         onOpenRepositoryMap = if (available) {
                             { opens++ }
                         } else {
@@ -244,6 +359,11 @@ class GitHubProgrammerHomeTest {
                 }
             }
         }
+        compose.onNodeWithTag("github_tools_features").performScrollTo().performClick()
+        compose.onNodeWithText("Gateway").performClick()
+        compose.onNodeWithText("Choose a Gateway").assertIsDisplayed()
+        compose.onNodeWithText("Refresh inventory").assertDoesNotExist()
+        compose.onNodeWithText("Close").performClick()
         compose.onNodeWithTag("github_repository_map").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(1, opens)

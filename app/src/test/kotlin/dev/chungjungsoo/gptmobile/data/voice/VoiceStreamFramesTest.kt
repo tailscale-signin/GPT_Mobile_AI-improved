@@ -80,6 +80,18 @@ class VoiceStreamFramesTest {
         assertThrows(IllegalArgumentException::class.java, truncated::finish)
     }
 
+    @Test fun onlyTheOpenWordMayExtendAndItsPrefixMustBeBackedByPcm() {
+        val open = VoiceWordCue(0, 3, 0, 1, finalEnd = false)
+        for (invalid in listOf(open.copy(startByte = 1), open.copy(endByte = 4), open.copy(endFrame = 5), open.copy(provenance = VoiceWordCueProvenance.NATIVE_DURATION))) {
+            val receiver = VoiceStreamFrames("one!")
+            receiver.accept(VoicePcmChunk(floatArrayOf(.1f), wordCues = listOf(open)))
+            assertThrows(IllegalArgumentException::class.java) { receiver.accept(VoicePcmChunk(floatArrayOf(.1f), wordCues = listOf(invalid))) }
+        }
+        val receiver = VoiceStreamFrames("one")
+        receiver.accept(VoicePcmChunk(floatArrayOf(.1f), wordCues = listOf(open)))
+        assertThrows(IllegalArgumentException::class.java, receiver::finish)
+    }
+
     @Test fun firstPcmReachesTheConsumerBeforeTheProducerCompletes() {
         val engine = TestStreamEngine()
         var chunks = 0

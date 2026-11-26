@@ -39,6 +39,11 @@ data class GitHubConversationContext(
         // A long legacy binding must never lose its SHA, cut an instruction, or turn a prefix into a branch name.
         val workspace = if (owner.length + repo.length <= 160) "$owner/$repo" else "[resolve selected repository with github_context]"
         val branch = if (ref.length <= 180 && ref.none { it.isISOControl() }) ref else "[resolve selected ref with github_context]"
+        GitHubLookupRoute.from(request)?.let { lookup ->
+            return "GitHub workspace: $workspace\nBranch: $branch\nHead observed at chat binding: $commitSha.\n" +
+                "Use ${lookup.operation} action=${lookup.action} for the requested records. Follow the requested scope and returned pagination. " +
+                "Report the observed result and any coverage limit."
+        }
         if (contextTokens <= 8192 && GitHubTestChecklist.integration(request)) {
             return "GitHub workspace: $workspace at $branch, last observed head $commitSha. Verify the current head before writes or claims. " +
                 "Follow the authorized checklist and exact continuation calls. Reconcile unknown outcomes and respect budgets, approvals and cancellation. " +

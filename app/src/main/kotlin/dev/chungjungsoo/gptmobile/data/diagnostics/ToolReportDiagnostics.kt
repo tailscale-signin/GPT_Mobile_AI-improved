@@ -94,6 +94,36 @@ internal object ToolReportDiagnostics {
             result.executionReceipt?.get("requires_reconciliation") != JsonPrimitive(true) &&
             result.executionReceipt?.get("remote_acceptance") !in setOf(JsonPrimitive("YES"), JsonPrimitive("UNKNOWN"))
 
+    fun archivedSourceFailure(event: ToolEvent?, result: AgentToolResult): Boolean {
+        if (event == null ||
+            event.callId != result.callId ||
+            !result.isError ||
+            result.dispatched ||
+            !result.sharedResult ||
+            result.outputBudgetExhausted ||
+            result.toolCallBudgetExhausted ||
+            result.errorCode !in dev.chungjungsoo.gptmobile.data.github.GitHubTransportRecovery.codes &&
+            result.errorCode != "OUTPUT_LIMIT"
+        ) {
+            return false
+        }
+        val receipt = result.executionReceipt ?: return false
+        val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(event.modelToolName) ?: return false
+        val source = (receipt["saved_view_source_call_id"] as? JsonPrimitive)?.contentOrNull ?: return false
+        if (source.isBlank() ||
+            source == result.callId ||
+            receipt["saved_view_owner_operation"] != JsonPrimitive(operation) ||
+            receipt["saved_view_original_error_code"] != JsonPrimitive(result.errorCode) ||
+            receipt["saved_view_cursor_issued"] != JsonPrimitive(true) ||
+            receipt["saved_view_expired"] != JsonPrimitive(false)
+        ) {
+            return false
+        }
+        val arguments = runCatching { Json.parseToJsonElement(event.arguments) as? JsonObject }.getOrNull() ?: return false
+        val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return false
+        return receipt["saved_view_cursor_hash"] == JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("github.saved-view.cursor.v1\u0000$cursor"))
+    }
+
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
     fun reportCode(event: ToolEvent?, result: AgentToolResult): String? {
         if (verificationReserveReached(event, result)) return "GITHUB_TASK_INCOMPLETE"

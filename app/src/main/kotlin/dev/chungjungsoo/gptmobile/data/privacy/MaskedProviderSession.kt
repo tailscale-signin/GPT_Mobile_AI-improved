@@ -42,6 +42,7 @@ private suspend fun openMaskedProviderSession(
     val privacy = checkNotNull(currentCoroutineContext()[ConversationPrivacyContext]) { "Conversation privacy policy is unavailable." }
     val state = store.effectiveSnapshot(privacy.enabled)
     check(state.enabled)
+    if (state.requireVerifiedRetention) throw UnverifiedServiceTransport()
     val maskingStarted = synthetic?.let { System.nanoTime() }
     val mask = PrivateTextMask(state.categories, synthetic?.privateTerms(profile, turns) ?: store.privateTerms())
     val dispatch = PrivateDispatchContext.Builder(state.revision, state.categories)

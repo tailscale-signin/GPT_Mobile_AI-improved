@@ -16,6 +16,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from gateway_security import current_device
 from v14.actions import current_gateway_job_id, canonical_json
+from v14.capability_inventory import register_local_tool
 from v14.contracts import validate_arguments
 from v14.operations import MUTATION, operation_class
 from v14.results import bound_result
@@ -383,6 +384,8 @@ def install_batch(runtime):
                 'type': 'object', 'additionalProperties': False, 'required': ['id', 'tool', 'arguments'], 'properties': {
                     'id': {'type': 'string', 'minLength': 1, 'maxLength': 64}, 'tool': {'type': 'string'},
                     'arguments': {'type': 'object'}, 'depends_on': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': MAX_CALLS}}}}}}}}
+
+    register_local_tool(runtime, definition)
 
     def list_tools(force_refresh=False):
         definitions = catalog(force_refresh)

@@ -201,6 +201,70 @@ class GitHubFullToolVisibilityTest {
         assertFalse(events.toString(), events.providerFailures().isNotEmpty())
     }
 
+    @Test fun pausedDiscoveryCanExecuteAReadWhenOnlyPartOfTheCatalogFits() = runTest {
+        val names = listOf("github_read", "github_search", "github_pr", "github_ci", "github_issue", "github_context")
+        val operations = names.mapIndexed { index, name ->
+            val cost = if (index == 0) 777 else 778
+            val definition = schema(name)
+            definition.copy(description = "x".repeat(cost * 3 - name.length - definition.inputSchema.toString().length))
+        }
+        // Preserve a 3,005-token schema window above the compact-profile boundary.
+        // Compact native-operation staging has its own rotation and budget coverage.
+        val limits = AgentRunLimits(githubTask = true, contextTokens = 8192, initialContextTokens = 4314, initialGitHubSchemaTokens = 0L, finalResponseReserveTokens = 617, maxRounds = 5)
+        assertEquals(4667L, operations.sumOf { providerSchemaTokens(it, false) })
+        val admitted = fitProviderToolSchemas(operations, limits, 0, 0, discoveryPaused = true)
+        assertEquals(operations.take(3), admitted)
+        assertTrue(admitted.sumOf { providerSchemaTokens(it, false) } <= 3005)
+        assertTrue(runCatching { fitProviderToolSchemas(operations, limits, 0, 0) }.exceptionOrNull() is GitHubToolContextBudgetException)
+        assertTrue(runCatching { fitProviderToolSchemas(operations, limits, 0, 3000, discoveryPaused = true) }.exceptionOrNull() is GitHubToolContextBudgetException)
+
+        val directory = ProgressiveToolCatalog(emptyList(), "tools").definition
+        val candidates = listOf(directory) + operations
+        val oneOperation = 778
+        assertTrue(providerSchemaTokens(directory, false) < oneOperation)
+        assertEquals(listOf(directory), fitProviderToolSchemas(candidates, limits, 0, 0, oneOperation))
+        assertEquals(operations.take(1), fitProviderToolSchemas(candidates, limits, 0, 0, oneOperation, discoveryPaused = true))
+        val directoryOnly = providerSchemaTokens(directory, false).toInt()
+        assertEquals(listOf(directory), fitProviderToolSchemas(candidates, limits, 0, 0, directoryOnly, discoveryPaused = true))
+
+        var reads = 0
+        val github = operations.map { definition ->
+            tool(definition) {
+                assertEquals("github_read", definition.name)
+                reads++
+            }
+        }
+        val discovery = object : AgentTool {
+            override val definition = directory
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Json(buildJsonObject { put("catalog_unchanged", true) }),
+                false,
+                dispatched = false
+            )
+        }
+        var rounds = 0
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                when (++rounds) {
+                    1, 2 -> emit(ProviderEvent.ToolCall("catalog-$rounds", discovery.definition.name, buildJsonObject { put("query", "github_read") }))
+                    3 -> {
+                        assertTrue(tools.any { it.name == "github_read" })
+                        assertFalse(tools.any { it.name == discovery.definition.name })
+                        assertTrue(tools.size < operations.size)
+                        emit(ProviderEvent.ToolCall("read", "github_read", buildJsonObject {}))
+                    }
+                    else -> emit(ProviderEvent.TextDelta("Read complete."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(limits).run(provider, github + discovery).toList()
+        assertTrue(events.toString(), events.providerFailures().isEmpty())
+        assertEquals(1, reads)
+        assertEquals(4, rounds)
+    }
+
     @Test fun dynamicallyAuthorizedGithubSchemaBypassesTheProgressiveSixThousandTokenWindow() = runTest {
         var fetched = false
         var executions = 0

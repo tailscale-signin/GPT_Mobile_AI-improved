@@ -56,6 +56,31 @@ class ToolPolicyInvalidationTest {
         }
     }
 
+    @Test fun cancellationBeforePhysicalExecutionLeavesNoUncertainMutationForTheNextCall() = runTest {
+        var calls = 0
+        var cancelBeforeDispatch = false
+        val bound = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 3)).bind(
+            tool("write_fixture") { id ->
+                calls++
+                AgentToolResult(id, ToolResultContent.Text("done"), false)
+            }
+        ) as PreparableAgentTool
+        withContext(
+            RequestAuthorizationGuard("task") {
+                if (cancelBeforeDispatch) throw kotlinx.coroutines.CancellationException("cancelled while waiting")
+            }
+        ) {
+            val pending = bound.prepareExecution("waiting", args)
+            cancelBeforeDispatch = true
+            val cancelled = runCatching { pending() }.exceptionOrNull()
+            assertTrue(cancelled is kotlinx.coroutines.CancellationException)
+        }
+        assertEquals(0, calls)
+        val result = bound.execute("next", args)
+        assertFalse(result.isError)
+        assertEquals(1, calls)
+    }
+
     @Test fun preparedCallRevalidatesTheSelectedAuthorityBeforePhysicalInvocation() = runTest {
         var changed = false
         var invocations = 0

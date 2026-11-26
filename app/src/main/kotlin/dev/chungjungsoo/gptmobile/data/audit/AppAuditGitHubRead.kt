@@ -2,9 +2,12 @@ package dev.chungjungsoo.gptmobile.data.audit
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
+import dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubReadRequestBudgetExceeded
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
@@ -110,12 +113,17 @@ internal suspend fun appAuditGitHubRead(
     val responses = (receipt["read_response_observations"] as? JsonPrimitive)?.intOrNull ?: 0
     val status = (receipt["http_status"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 100..599 }
     val live = receipt["live_read_performed"] == JsonPrimitive(true) && receipt["cached_read_observations"] == JsonPrimitive(0)
+    val rejection = failure as? GitHubRequestRejected
+    val rateCode = (rejection?.evidence?.get("code") as? JsonPrimitive)?.contentOrNull
+    val rateLimited = status == 429 ||
+        failure is GitHubCooldownActive ||
+        (status == 403 && rateCode != null && GitHubFailurePolicy.isRateLimited(rateCode))
     val (outcome, reason) = when {
         changed || accountChanged -> AppAuditOutcome.BLOCKED to "CONFIGURATION_CHANGED"
         requestLimit -> AppAuditOutcome.BLOCKED to "GITHUB_AUDIT_REQUEST_LIMIT"
         policyBlocked -> AppAuditOutcome.BLOCKED to "PRIVACY_SERVICE_UNVERIFIED"
+        rateLimited -> AppAuditOutcome.BLOCKED to "GITHUB_AUDIT_RATE_LIMITED"
         status in setOf(401, 403) -> AppAuditOutcome.BLOCKED to "GITHUB_AUDIT_ACCESS_DENIED"
-        status == 429 -> AppAuditOutcome.BLOCKED to "GITHUB_AUDIT_RATE_LIMITED"
         status == 404 -> AppAuditOutcome.UNAVAILABLE to "GITHUB_AUDIT_RESOURCE_UNAVAILABLE"
         failed && requests == 0 -> AppAuditOutcome.BLOCKED to "GITHUB_AUDIT_READ_BLOCKED"
         failed && status != null && status >= 500 -> AppAuditOutcome.UNAVAILABLE to "GITHUB_AUDIT_TRANSPORT_UNAVAILABLE"
@@ -129,8 +137,8 @@ internal suspend fun appAuditGitHubRead(
         outcome == AppAuditOutcome.PASS -> null
         policyBlocked -> GitHubAuditFailure("PRIVACY_SERVICE_UNVERIFIED", "local_validation", "POLICY_BLOCKED", false)
         changed || accountChanged || requestLimit -> GitHubAuditFailure(reason, "admission", "LOCAL_VALIDATION", false)
+        rateLimited -> GitHubAuditFailure(reason, "admission", "WAITING_RECOVERY", true)
         status in setOf(401, 403) -> GitHubAuditFailure(reason, "validation", "ACCESS_DENIED", false)
-        status == 429 -> GitHubAuditFailure(reason, "admission", "WAITING_RECOVERY", true)
         status == 404 -> GitHubAuditFailure(reason, "validation", "RESOURCE_UNAVAILABLE", false)
         status != null && status >= 500 -> GitHubAuditFailure(reason, "transport", "NETWORK_UNAVAILABLE", true)
         transport != null -> transport

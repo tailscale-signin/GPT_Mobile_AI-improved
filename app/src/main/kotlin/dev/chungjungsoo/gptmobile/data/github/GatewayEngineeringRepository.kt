@@ -469,7 +469,7 @@ class GatewayEngineeringRepository @Inject constructor(
         val currentFeatures = settings.getFeatureSettings()
         check(afterPreparation != null && ConfiguredDispatchAuthority.profileRevision(afterPreparation) == ConfiguredDispatchAuthority.profileRevision(storedProfile) && currentFeatures.llamaReasoningModes[profile.uid] == featuresAtAdmission.llamaReasoningModes[profile.uid] && currentFeatures.conversationReasoning[chatId] == featuresAtAdmission.conversationReasoning[chatId]) { "The selected model or reasoning setting changed during preparation. Review the retained draft before sending it." }
         check(savedBinding != null || currentFeatures.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid == gateway.uid) { "The engineering gateway changed during model preparation." }
-        val preferences = currentFeatures.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
+        val preferences = currentFeatures.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride.newProfile
         check(savedBinding != null || preferences.contextVariant == (featuresAtAdmission.githubProfileOverrides[profile.uid]?.contextVariant ?: GitHubContextVariant.TASK)) { "The repository context choice changed during model preparation. Review the retained draft before sending it." }
         val batchMode = if (savedSnapshot != null) savedSnapshot.executionMode ?: "standard" else preferences.executionBatchMode
         val contextVariant = if (savedSnapshot != null) savedSnapshot.contextVariant ?: GitHubContextVariant.TASK else preferences.contextVariant

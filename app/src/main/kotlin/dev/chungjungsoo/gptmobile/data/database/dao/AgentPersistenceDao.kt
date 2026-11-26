@@ -1246,6 +1246,32 @@ interface AgentPersistenceDao :
         )
     }
 
+    /** A reply edit owns one row. New turns and streamed answers elsewhere in the room remain independently owned. */
+    @Transaction
+    suspend fun saveTranscriptReply(userId: Int, before: MessageV2, after: MessageV2): Boolean {
+        if (before.id != after.id || before.chatId != after.chatId || before.platformType == null || before.platformType != after.platformType) return false
+        val parent = rawRecoveryMessage(userId) ?: return false
+        if (parent.chatId != before.chatId || parent.platformType != null || before.linkedMessageId > 0 && before.linkedMessageId != userId) return false
+        val room = getChatRoom(before.chatId) ?: return false
+        if (before.id == 0) {
+            if (rawGetMessages(room.id).any { it.linkedMessageId == userId && it.platformType == before.platformType }) return false
+            insertMessage(retainSnapshotPrivacy(after.copy(linkedMessageId = userId), null, room.privacyModeLocked))
+            return true
+        }
+        val raw = rawRecoveryMessage(before.id) ?: return false
+        if (raw.chatId != room.id || raw.platformType != before.platformType || raw.ownershipFence != before.ownershipFence || raw.currentRunId != before.currentRunId) return false
+        val saved = raw.decodedArchiveText()
+        if (after == before.copy(activeRevisionIndex = after.activeRevisionIndex)) {
+            if (saved.revisions.map { it.runId to it.createdAt } != before.revisions.map { it.runId to it.createdAt }) return false
+            rawUpdateMessage(raw.copy(activeRevisionIndex = after.activeRevisionIndex))
+            return true
+        }
+        val resolved = dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, saved)
+        if (before != saved && before != resolved) return false
+        updateMessage(retainSnapshotPrivacy(after, resolved, room.privacyModeLocked))
+        return true
+    }
+
     /** A UI snapshot cannot restore or widen evidence changed by a later provider dispatch. */
     private fun retainSnapshotPrivacy(message: MessageV2, saved: MessageV2?, privacyLocked: Boolean): MessageV2 {
         fun timeline(

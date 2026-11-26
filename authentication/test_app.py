@@ -581,9 +581,13 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual(200, extended.status_code)
         additions = ["CONVERSATION_RECOVERY_DIAGNOSTICS_V1", "REQUEST_BYTE_BUDGET_V1", "CLAIM_EXTRACTION_SCHEMA_HASH_V1", "ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
                      "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1", "PRIVACY_ELIGIBILITY_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1", "RUNTIME_INCIDENT_DETAILS_V1", "SELECTED_MODEL_ADMISSION_V1", "REVIEW_CATALOG_OBSERVATION_V1", "ACTION_ONLY_TOOL_PRECHECK_V1", "TOOL_REPEAT_PRIOR_CAUSE_V1", "PROFILE_BEHAVIOR_CHANGE_V1", "APP_SEARCH_READINESS_V1", "VOICE_SILENCED_INPUT_V1", "TASK_AND_TOOL_FAILURE_DETAILS_V1", "READER_AND_RUN_FAILURE_DETAILS_V1", "REPLAY_BUDGET_EVIDENCE_V1", "GRAPH_TRANSPORT_EVIDENCE_V1", "EXECUTION_COMPLETION_EVIDENCE_V1"]
+        additions.insert(additions.index("REPLAY_BUDGET_EVIDENCE_V1") + 1, "REPLAY_SOURCE_EVIDENCE_V1")
         additions.insert(additions.index("ACCEPTANCE_OBSERVATION_CAUSES_V1") + 1, "ACCEPTANCE_EMPTY_EXPLANATION_V1")
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
         additions.insert(2, "VOICE_STREAMING_BACKEND_EVIDENCE_V1")
+        additions.insert(3, "VOICE_STREAMING_NPU_EVIDENCE_V1")
+        additions.insert(4, "VOICE_STREAMING_PACK_EVIDENCE_V1")
+        additions.insert(5, "VOICE_STREAMING_INSTALL_EVIDENCE_V1")
         additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "SAVED_PAGE_CAPACITY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
@@ -591,6 +595,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.append("CATALOG_MISSING_TOOL_IDENTITY_V1")
         additions.append("TOOL_PRECHECK_GROUP_V1")
         additions.extend(["GITHUB_POLICY_SELECTION_FIELDS_V1", "VOICE_FOCUS_RETRY_COUNT_V1", "FAILED_EVENT_OUTPUT_FIELDS_V1"])
+        additions.append("DEVICE_PRIVACY_POLICY_CHANGE_V1")
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
@@ -691,7 +696,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertIn(feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
         additions = {
             "voice_engine": ("MEDIAPIPE",),
-            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
             "voice_fallback_source": ("LITERT_KOKORO", "PHONON", "POCKET"),
         }
         for field, choices in additions.items():
@@ -707,7 +712,7 @@ class IssueReportHttpTest(unittest.TestCase):
                     self.assertEqual(200, response.status_code, response.text)
                     self.assertIn(f"| {field} | `{value}` |", self.issued[-1]["body"])
                     self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
-        self.assertEqual(8, len(self.issued))
+        self.assertEqual(sum(map(len, additions.values())), len(self.issued))
 
     def test_failed_event_output_flags_and_omissions_survive_submission_and_idempotent_replay(self):
         from authentication.test_incident_report_contract import IncidentReportContractTest

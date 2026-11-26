@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation
 import dev.chungjungsoo.gptmobile.data.rag.KnowledgeEntity
 import dev.chungjungsoo.gptmobile.data.rag.KnowledgeFact
 import dev.chungjungsoo.gptmobile.data.rag.KnowledgeRelation
@@ -14,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,6 +27,40 @@ import org.junit.runner.RunWith
 /** Exercises the packaged tokenizer/encoder and ObjectBox JNI, not a fake vector store. */
 @RunWith(AndroidJUnit4::class)
 class LocalSemanticMemoryInstrumentedTest {
+    @Test
+    fun independentGitHubQueriesReuseTheEncryptedSourceVectorAfterReopen() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = File(app.cacheDir, "source-vector-test-${UUID.randomUUID()}").apply { mkdirs() }
+        val context = object : ContextWrapper(app) {
+            override fun getNoBackupFilesDir() = directory
+        }
+        val connection = ToolConnection("selected", "GitHub", "github", "GITHUB", null, "NONE", null, null)
+        val firstChat = GitHubConversationContext("selected", "owner", "repo", "main", "a".repeat(40), "profile")
+        val nextChat = firstChat.copy(ref = "feature", commitSha = "b".repeat(40), mainProfileUid = "another-profile")
+        val records = mapOf("Parser.kt" to "Parser.kt\nblob_sha=${"c".repeat(40)} lines=1-1\nfun parse() = true")
+        val cacheDirectory = File(directory, "github-engineering-vectors-v1")
+        var memory = LocalSemanticMemory(context)
+        try {
+            val firstScope = GitHubTaskContextPreparation.semanticScope(firstChat, connection, "account")
+            assertEquals(records.keys, memory.rankEngineering("locate the parser", firstScope, records)?.keys)
+            val originalFile = cacheDirectory.listFiles().orEmpty().single()
+            val originalBytes = originalFile.readBytes()
+            memory.releaseWhenIdle(0)
+            memory = LocalSemanticMemory(context)
+            val nextScope = GitHubTaskContextPreparation.semanticScope(nextChat, connection, "account")
+            assertEquals(records.keys, memory.rankEngineering("does parsing succeed?", nextScope, records)?.keys)
+            // A fresh AES-GCM nonce changes the bytes on every write. Unchanged bytes prove an actual cache hit.
+            assertEquals(originalFile, cacheDirectory.listFiles().orEmpty().single())
+            assertArrayEquals(originalBytes, originalFile.readBytes())
+            val otherAccount = GitHubTaskContextPreparation.semanticScope(nextChat, connection, "other-account")
+            assertEquals(records.keys, memory.rankEngineering("does parsing succeed?", otherAccount, records)?.keys)
+            assertEquals(2, cacheDirectory.listFiles().orEmpty().size)
+        } finally {
+            memory.releaseWhenIdle(0)
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun nativeIndexSurvivesReopenAndHonorsScopeAndDeletion() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()

@@ -38,7 +38,17 @@ data class GitHubChatProfileOverride(
     val primaryPatchReviewConsent: String? = null,
     val nextActionPolicy: GitHubNextActionMode = GitHubNextActionMode.ACTIVE,
     val evidenceElaboration: Boolean = true
-)
+) {
+    companion object {
+        // Persisted overrides may omit fields equal to the original defaults. Use
+        // this policy only when the selected profile has no saved override.
+        val newProfile = GitHubChatProfileOverride(
+            engineeringMode = EngineeringMode.ADAPTIVE,
+            maximumContext = false,
+            quickWorkflows = GitHubQuickWorkflow.defaults.filter { it.id in setOf("review", "ci", "status") }
+        )
+    }
+}
 
 /** Rollout controls only the selection of a next action within an admitted GitHub request. */
 @Serializable
@@ -102,7 +112,7 @@ internal object GitHubCopilotAgentMergePolicy {
 /** Request-local copies: GitHub preferences never rewrite ordinary chat profiles or provider grants. */
 internal object GitHubChatPolicy {
     fun settings(features: AppFeatureSettings, uid: String, context: GitHubConversationContext?): GitHubChatProfileOverride? =
-        if (context?.mainProfileUid == uid) features.githubProfileOverrides[uid] ?: GitHubChatProfileOverride() else null
+        if (context?.mainProfileUid == uid) features.githubProfileOverrides[uid] ?: GitHubChatProfileOverride.newProfile else null
 
     fun platform(profile: PlatformV2, features: AppFeatureSettings, context: GitHubConversationContext?): PlatformV2 {
         val config = settings(features, profile.uid, context) ?: return profile
@@ -134,8 +144,12 @@ internal object GitHubChatPolicy {
             // request admission reserve output alongside the prompt and tool receipts.
             outputTokens = original.tokenBudget.outputTokens,
             totalRunTokens = if (config.engineeringMode == EngineeringMode.ULTRA_MAX) 2_097_152 else original.tokenBudget.totalRunTokens,
-            generationTimeoutMinutes = if (config.engineeringMode == EngineeringMode.ULTRA_MAX) 1440 else 240,
-            responseCharacterLimit = maxOf(original.tokenBudget.responseCharacterLimit, 1_048_576),
+            generationTimeoutMinutes = when (config.engineeringMode) {
+                EngineeringMode.ADAPTIVE -> original.tokenBudget.generationTimeoutMinutes
+                EngineeringMode.ULTRA_MAX -> 1440
+                else -> 240
+            },
+            responseCharacterLimit = if (config.engineeringMode == EngineeringMode.ADAPTIVE) original.tokenBudget.responseCharacterLimit else maxOf(original.tokenBudget.responseCharacterLimit, 1_048_576),
             repetitionGuardEnabled = true,
             adaptiveToolCatalog = true
         )
@@ -152,31 +166,25 @@ internal object GitHubChatPolicy {
         val config = settings(features, uid, original?.github) ?: return original
         val request = requireNotNull(original)
         val connection = requireNotNull(request.github).connectionUid
-        val recovery = config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE &&
-            config.recoveryExecutionConsent != null &&
+        val delegationAllowed = config.githubTools &&
             !request.allToolsDisabled &&
             request.delegation?.enabled != false &&
-            "delegate_to_model" !in request.disabledToolIds &&
-            connection !in request.disabledToolIds
-        val patchReview = config.githubTools &&
+            connection !in request.disabledToolIds &&
+            "delegate_to_model" !in request.disabledToolIds
+        val recovery = delegationAllowed &&
+            config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE &&
+            config.recoveryExecutionConsent != null
+        val patchReview = delegationAllowed &&
             config.intelligenceLevel in GitHubPrimaryPatchReview.levels &&
-            config.primaryPatchReviewConsent != null &&
-            !request.allToolsDisabled &&
-            request.delegation?.enabled != false &&
-            "delegate_to_model" !in request.disabledToolIds &&
-            connection !in request.disabledToolIds
+            config.primaryPatchReviewConsent != null
         val enabled = buildSet {
             add("github_decide")
-            if (config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE &&
-                config.engineeringTeamConsent != null &&
-                request.delegation?.enabled != false &&
-                "delegate_to_model" !in request.disabledToolIds
-            ) {
+            if (delegationAllowed && config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE && config.engineeringTeamConsent != null) {
                 add("delegate_to_model")
             }
             if (config.githubTools) add(connection)
             if (config.webSearch) addAll(setOf("web_search", "read_url"))
-        }
+        } - request.disabledToolIds
         val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document", "delegate_to_model", "local_assist_plan")
         // GitHub work cannot override an explicit chat reasoning setting or force
         // an unsupported model into reasoning mode. Null delegates to capability negotiation.
@@ -184,7 +192,7 @@ internal object GitHubChatPolicy {
             allowAllByDefault = false,
             enabledToolIds = (request.enabledToolIds - controlled) + enabled,
             disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled),
-            maxTools = maxOf(request.maxTools ?: 0, 64),
+            maxTools = request.maxTools ?: 64,
             maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)),
             reasoning = request.reasoning,
             delegation = request.delegation.takeIf { recovery || patchReview || "delegate_to_model" in enabled },

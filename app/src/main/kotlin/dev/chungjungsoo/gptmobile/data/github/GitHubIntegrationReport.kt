@@ -277,6 +277,10 @@ internal object GitHubIntegrationReport {
 
     private fun StringBuilder.appendPrerequisites(checkpoint: JsonObject) {
         val preparation = checkpoint["preparation"] as? JsonObject ?: return
+        val proposal = (preparation["fixture_approval_proposal"] as? JsonObject)?.get("arguments") as? JsonObject
+        if (proposal != null) {
+            append("\nFixture awaiting approval: `${safe(proposal.text("branch"))}` from `${safe(proposal.text("expected_head_sha"))}`. Creation and cleanup remain unverified.\n")
+        }
         val blockers = preparation.array("blockers")
         if (blockers.isEmpty()) return
         val capabilities = checkpoint.array("capabilities").associateBy { it.text("id") }

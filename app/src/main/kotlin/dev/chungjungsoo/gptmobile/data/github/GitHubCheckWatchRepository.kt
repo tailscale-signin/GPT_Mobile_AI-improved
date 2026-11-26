@@ -107,8 +107,17 @@ class GitHubCheckWatchRepository @Inject constructor(
     }
     private suspend fun api(watch: GitHubCheckWatch, background: Boolean = true): GitHubEngineeringApi {
         val room = workspace.database.chatRoomDao().getChatRoomsByIds(listOf(watch.chatId)).singleOrNull()
-        require(room != null && (!background || !room.isTemporary)) { "Conversation was removed, or background watching requires a saved conversation." }
-        val connection = requireNotNull(connections.getConnection(watch.connectionUid)) { "GitHub connection removed." }
+        if (room == null) throw GitHubReadValidation("PERMISSION_DENIED", buildJsonObject { put("message", "This conversation no longer exists.") })
+        if (background && room.isTemporary) {
+            throw GitHubReadValidation(
+                "USER_INPUT_REQUIRED",
+                buildJsonObject {
+                    put("message", "Save this conversation for background check notifications, or request an inline observation with wait_timeout_seconds between 1 and 30.")
+                }
+            )
+        }
+        val connection = connections.getConnection(watch.connectionUid)
+            ?: throw GitHubReadValidation("PERMISSION_DENIED", buildJsonObject { put("message", "Reconnect GitHub before starting a check watch.") })
         val permission = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl)
         require(connection.type == "GITHUB" && (if (watch.permissionRevision.isBlank()) connection.updatedAt == watch.connectionUpdatedAt else watch.permissionRevision == permission)) { "GitHub permissions changed; start a new watch." }
         if (watch.accountScopeHash.isNotEmpty()) {
@@ -242,7 +251,8 @@ class GitHubCheckWatchRepository @Inject constructor(
         val run = args["run_id"]?.jsonPrimitive?.longOrNull
         require(pull != null || run != null) { "Supply pr_number or run_id." }
         require((pull == null || pull > 0) && (run == null || run > 0)) { "PR and workflow run IDs must be positive." }
-        val connection = requireNotNull(connections.getConnection(connectionUid))
+        val connection = connections.getConnection(connectionUid)
+            ?: throw GitHubReadValidation("PERMISSION_DENIED", buildJsonObject { put("message", "Reconnect GitHub before starting a check watch.") })
         val allChecks = args["all_checks"] == JsonPrimitive(true)
         val requestedHead = args["commit_sha"]?.jsonPrimitive?.contentOrNull
         require(!allChecks || requestedHead?.matches(Regex("[a-fA-F0-9]{40}")) == true) { "All-check monitoring requires an exact commit_sha." }
@@ -271,7 +281,8 @@ class GitHubCheckWatchRepository @Inject constructor(
             require(run != null && expected != null && expected > 0 && attempt == expected) { "The observed workflow attempt changed. Refresh this run before subscribing." }
         }
         require(pullHead == null || runHead == null || pullHead == runHead) { "The workflow run belongs to a different PR revision." }
-        val head = requireNotNull(pullHead ?: runHead).also { require(it.matches(Regex("[a-fA-F0-9]{40}"))) }
+        val head = (pullHead ?: runHead)?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
+            ?: throw GitHubReadValidation("GITHUB_EVIDENCE_REQUIRED", buildJsonObject { put("message", "GitHub did not return the head SHA for this check watch. Refresh the pull request or workflow run.") })
         args["commit_sha"]?.jsonPrimitive?.content?.let { expected ->
             require(expected.equals(head, true)) { "The PR or run head differs from commit_sha. Refresh the exact revision before subscribing." }
         }

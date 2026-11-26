@@ -9,8 +9,8 @@ import kotlin.math.roundToLong
  * mediapipe_audio 0.4.1 native wrapper documents times from the stream's start and
  * forwards them unchanged; neither offsets nor times are relative to a PCM chunk.
  *
- * Cumulative/repeated spans are emitted once. Cues beyond the audio produced so far
- * stay pending, so truncated or invalid metadata cannot point past audible PCM.
+ * Release each word at its first available PCM, extending the same cue as more
+ * audio arrives. Never project a timestamp past the PCM actually received.
  */
 internal class MediaPipeWordCueMapper(
     text: String,
@@ -19,28 +19,29 @@ internal class MediaPipeWordCueMapper(
 ) {
     private val boundaries = VoiceIncrementalTextMap().also { it.append(text) }
     private val pending = TreeMap<Int, VoiceWordCue>()
-    private val emitted = mutableSetOf<Pair<Int, Int>>()
+    private var emittedCount = 0
     private var lastEndByte = 0
     private var lastEndFrame = 0L
+    private var openPrefix: VoiceWordCue? = null
 
     fun appendText(text: String) = boundaries.append(text)
 
     fun accept(timestamps: List<WordTimestamp>, availableFrames: Long): List<VoiceWordCue> {
-        timestamps.take(cueLimit).forEach { timestamp ->
+        for ((index, timestamp) in timestamps.withIndex()) {
+            if (index >= cueLimit) break
             val start = timestamp.startChar
             val end = timestamp.endChar
-            if (start < lastEndByte ||
+            if (start < (openPrefix?.endByte ?: lastEndByte) ||
                 end <= start ||
-                !boundaries.contains(start, end) ||
-                (start to end) in emitted
+                !boundaries.contains(start, end)
             ) {
-                return@forEach
+                continue
             }
-            if (!timestamp.startSec.isFinite() || !timestamp.endSec.isFinite() || timestamp.startSec < 0f || timestamp.endSec <= timestamp.startSec) return@forEach
+            if (!timestamp.startSec.isFinite() || !timestamp.endSec.isFinite() || timestamp.startSec < 0f || timestamp.endSec <= timestamp.startSec) continue
             val startFrame = (timestamp.startSec.toDouble() * VOICE_PCM_SAMPLE_RATE).roundToLong()
             val endFrame = (timestamp.endSec.toDouble() * VOICE_PCM_SAMPLE_RATE).roundToLong()
-            if (startFrame < lastEndFrame || endFrame <= startFrame || endFrame > frameLimit) return@forEach
-            if (pending.size + emitted.size >= cueLimit) return@forEach
+            if (startFrame < lastEndFrame || endFrame <= startFrame || endFrame > frameLimit) continue
+            if (pending.size + emittedCount >= cueLimit) continue
             pending.putIfAbsent(start, VoiceWordCue(start, end, startFrame, endFrame, VoiceWordCueProvenance.ESTIMATED))
         }
         val ready = mutableListOf<VoiceWordCue>()
@@ -51,13 +52,26 @@ internal class MediaPipeWordCueMapper(
                 entries.remove()
                 continue
             }
-            if (cue.endFrame > availableFrames) break
+            if (cue.startFrame >= availableFrames) break
+            if (cue.endFrame > availableFrames) {
+                val prefix = cue.copy(endFrame = availableFrames, finalEnd = false)
+                if (openPrefix != prefix) ready += prefix
+                openPrefix = prefix
+                break
+            }
+            openPrefix = null
             entries.remove()
-            emitted += cue.startByte to cue.endByte
+            emittedCount++
             lastEndByte = cue.endByte
             lastEndFrame = cue.endFrame
             ready += cue
         }
         return ready
+    }
+
+    /** A truncated estimate closes where the audio ended; a wholly unheard word stays unpublished. */
+    fun finish(): VoiceWordCue? = openPrefix?.copy(finalEnd = true).also {
+        openPrefix = null
+        pending.clear()
     }
 }

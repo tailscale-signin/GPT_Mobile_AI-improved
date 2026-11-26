@@ -46,8 +46,13 @@ data class ReasoningControlReceipt(
         internal fun fromPayload(payload: String, config: ProviderRequestConfig): ReasoningControlReceipt =
             fromPayload(payload, config.allowReasoning, config.reasoningMode, config.profileRevision, config.configuredProfileReasoning, config.maximizeReasoning)
 
-        internal fun fromPayload(payload: String, allowReasoning: Boolean, requestedMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO, profileRevision: String? = null, configuredProfileReasoning: Boolean? = null, maximizeReasoning: Boolean? = null): ReasoningControlReceipt {
-            val root = runCatching { Json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
+        internal fun fromRequest(root: JsonObject?, config: ProviderRequestConfig, includeSourceRanges: Boolean): ReasoningControlReceipt =
+            fromRequest(root, config.allowReasoning, config.reasoningMode, config.profileRevision, config.configuredProfileReasoning, config.maximizeReasoning, includeSourceRanges)
+
+        internal fun fromPayload(payload: String, allowReasoning: Boolean, requestedMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO, profileRevision: String? = null, configuredProfileReasoning: Boolean? = null, maximizeReasoning: Boolean? = null): ReasoningControlReceipt =
+            fromRequest(runCatching { Json.parseToJsonElement(payload) as? JsonObject }.getOrNull(), allowReasoning, requestedMode, profileRevision, configuredProfileReasoning, maximizeReasoning)
+
+        private fun fromRequest(root: JsonObject?, allowReasoning: Boolean, requestedMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode, profileRevision: String?, configuredProfileReasoning: Boolean?, maximizeReasoning: Boolean?, includeSourceRanges: Boolean = true): ReasoningControlReceipt {
             fun JsonObject?.booleanSetting(key: String) = (this?.get(key) as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             fun JsonObject?.integerSetting(key: String) = (this?.get(key) as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
             fun JsonObject?.enumSetting(key: String, allowed: Set<String>) = (this?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it in allowed }
@@ -84,7 +89,7 @@ data class ReasoningControlReceipt(
                 controls.keys == setOf("generationConfig.thinkingConfig.includeThoughts") -> "VISIBILITY_ONLY"
                 else -> "UNVERIFIED"
             }
-            return ReasoningControlReceipt(!allowReasoning || requestedMode == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, control, disables, support, profileRevision, configuredProfileReasoning, requestedMode.name, allowReasoning, maximizeReasoning, controls, SerializedToolSourceRanges.from(root))
+            return ReasoningControlReceipt(!allowReasoning || requestedMode == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, control, disables, support, profileRevision, configuredProfileReasoning, requestedMode.name, allowReasoning, maximizeReasoning, controls, if (includeSourceRanges) SerializedToolSourceRanges.from(root) else null)
         }
     }
 }

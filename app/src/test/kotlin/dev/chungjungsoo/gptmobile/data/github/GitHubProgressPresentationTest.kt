@@ -56,6 +56,13 @@ class GitHubProgressPresentationTest {
         org.junit.Assert.assertTrue(GitHubProgressPresentation.taskLabel("a".repeat(500)).length <= 120)
     }
 
+    @Test fun openingUsesTheQuestionInsideTheWorkspaceEnvelope() {
+        val task = "Explain why the build preview failed"
+        val envelope = "GitHub workspace: example/project\nBranch: topic/review\n\n$task"
+        assertEquals(task, GitHubProgressPresentation.taskLabel(envelope))
+        assertEquals(GitHubProgressPresentation.introduction(task), GitHubProgressPresentation.introduction(envelope))
+    }
+
     @Test fun differentPromptsProduceDifferentConciseOpeningsWithoutStatusScaffolding() {
         val summaries = GitHubProgressPresentation.introduction(
             "Exaine repo summaries, the updates are repetitive and should be shorter."

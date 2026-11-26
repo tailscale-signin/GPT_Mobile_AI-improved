@@ -793,6 +793,38 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test fun completedResponsesStreamKeepsItsTerminalReceiptWhenCleanupThrows() = runBlocking {
+        val stream = flow<ResponsesStreamEvent> {
+            emit(OutputTextDeltaEvent("item", 0, 0, "Complete answer"))
+            emit(ResponseCompletedEvent(ResponseObject("response", "completed")))
+            throw IllegalStateException("Connection closed during cleanup")
+        }
+        val api = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(stream)))
+        val events = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Complete answer", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+        assertEquals(1, api.responseRequests.size)
+    }
+
+    @Test fun responsesStreamThrowAfterVisibleOutputRetainsTextAndDisablesReplay() = runBlocking {
+        val stream = flow<ResponsesStreamEvent> {
+            emit(OutputTextDeltaEvent("item", 0, 0, "Partial answer"))
+            throw IllegalStateException("Interrupted after output")
+        }
+        val api = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(stream)))
+        val events = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Partial answer", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("INCOMPLETE_PROVIDER_STREAM", failure.errorCode)
+        assertEquals(JsonPrimitive("PARTIAL_TEXT_EMITTED"), failure.failureDetails?.get("stream_answer_state"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        assertFalse(events.contains(ProviderEvent.Completed))
+        assertEquals(1, api.responseRequests.size)
+    }
+
     @Test fun missingTerminalReceiptRetainsVisibleTextAndNeverBindsAReplay() = runBlocking {
         for (visible in listOf(false, true)) {
             val text = "Retained partial"

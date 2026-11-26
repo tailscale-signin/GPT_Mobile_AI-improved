@@ -145,6 +145,11 @@ class ReadOnlyGraphGitHub:
         return self.backend.api(path, method=method, text=text, read_only=True,
                                 capacity_reserve=self.SOURCE_REQUEST_RESERVE if source_read else 0)
 
+    def download_graph_artifact(self, repository, artifact_id, maximum):
+        from v14.engineering_release_checks import download_github_artifact
+        return download_github_artifact(self.backend.token(read_only=True), self.backend.github_governor,
+                                        '/repos/' + repository, artifact_id, maximum, self.backend.stopping)
+
     def paged(self, path, key=None, job=None, maximum=1000):
         # The common paginator calls this adapter's guarded GET path on every page.
         return GitHubEngineeringBackend.paged(self, path, key=key, job=job, maximum=maximum)
@@ -1125,11 +1130,12 @@ class GitHubEngineeringBackend:
             result.update(message='Completed CI checks require configuration or workflow recovery: ' + ', '.join(str(check.get('name', check.get('context', 'unknown'))) for check in blocked_checks),
                           recovery_action='REPAIR_WORKFLOW_CONFIGURATION', blocked_checks=blocked_checks)
         if passed:
-            # Approval displays the entire PR, including earlier repair commits.
-            result['changed_files'] = [entry['filename'] for entry in self.paged(self.root(job) + '/pulls/' + str(job['data']['pr']) + '/files', job=job)]
-            current = self.api(self.root(job) + '/pulls/' + str(job['data']['pr']), job=job)
-            if current['head']['sha'] != pr['headRefOid'] or current['base']['sha'] != pr['baseRefOid'] or current['base']['ref'] != job['request']['base'] or current['state'] != 'open':
-                raise ValueError('PR changed while collecting its changed files')
+            from v14.pull_file_inventory import collect
+            result['changed_files'], coverage = collect(self, job, result['pr'], result['base_sha'], result['head_sha'])
+            result['changed_file_coverage'] = coverage
+            if not coverage['complete']:
+                result.update(recovery_action='COMPLETE_PR_FILE_INVENTORY',
+                    message=f"Changed-file coverage is incomplete at this revision: {coverage['observed_unique']} of {coverage['expected']} distinct files. Check the approved repository mirror.")
         if failed_checks:
             result['failure_fingerprint'] = digest(sorted(check.get('name', check.get('context', 'unknown')) for check in failed_checks))
             result['failure_logs'] = self.failure_logs(job)

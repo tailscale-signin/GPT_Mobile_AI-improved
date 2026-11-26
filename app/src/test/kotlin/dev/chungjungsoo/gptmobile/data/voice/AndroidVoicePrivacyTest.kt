@@ -76,13 +76,22 @@ class AndroidVoicePrivacyTest {
         }
     }
 
-    @Test fun delayedRecognitionSupportRetainsItsOriginalConversationPolicy() {
+    @Test fun delayedRecognitionKeepsTheCapturedPolicyAndRechecksOnlinePermissionBeforeStarting() {
         val context = RuntimeEnvironment.getApplication()
         shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO)
-        for (privateCapture in listOf(true, false)) {
+        data class Scenario(val initialPrivate: Boolean, val currentRoom: Int, val currentPrivate: Boolean, val allowOnline: Boolean, val starts: Boolean)
+        val scenarios = listOf(
+            Scenario(true, 2, false, true, true),
+            Scenario(false, 1, false, true, true),
+            Scenario(false, 2, true, true, false),
+            Scenario(false, 2, false, true, false),
+            Scenario(false, 1, true, true, false),
+            Scenario(false, 1, false, false, false)
+        )
+        for (scenario in scenarios) {
             val service = DeferredRecognition()
             val audio = AndroidVoiceAudio(context, Executor { it.run() }, { _, _ -> mockk(relaxed = true) }, service, RecognitionStartGate { 0L })
-            val original = ConversationPrivacyContext(1, privateCapture)
+            val original = ConversationPrivacyContext(1, scenario.initialPrivate)
             var current = original
             audio.bindConversationPrivacy { current }
             audio.allowOnlineSpeech = true
@@ -103,14 +112,20 @@ class AndroidVoicePrivacyTest {
             }
             try {
                 audio.listen(listener)
-                assertEquals(listOf(privateCapture), service.modes)
-                current = ConversationPrivacyContext(2, !privateCapture)
+                assertEquals(listOf(scenario.initialPrivate), service.modes)
+                audio.allowOnlineSpeech = scenario.allowOnline
+                current = ConversationPrivacyContext(scenario.currentRoom, scenario.currentPrivate)
                 ConversationPrivacyContext.withCaptured(current) {
                     requireNotNull(service.pending)(RecognitionQualification(RecognitionSupportStatus.SUPPORTED))
                     assertSame(current, ConversationPrivacyContext.currentOrNull())
                 }
-                assertEquals(listOf(original), observed)
-                assertTrue(failures.isEmpty())
+                if (scenario.starts) {
+                    assertEquals(scenario.toString(), listOf(original), observed)
+                    assertTrue(failures.isEmpty())
+                } else {
+                    assertTrue(scenario.toString(), observed.isEmpty())
+                    assertTrue(failures.single().contains("settings changed"))
+                }
             } finally {
                 audio.close()
             }

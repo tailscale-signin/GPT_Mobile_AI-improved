@@ -73,8 +73,7 @@ def catalog(conversations, engineering, principal, ownership, cursor=None, limit
         scope = [gateway_id, principal.id, kind, state, permissions]
         if include_copilot or kind == 'copilot':
             scope.append('copilot')
-        sequence = {(row['job_kind'], row['job_id']): row['sequence'] for row in db.execute('SELECT * FROM gateway_catalog_keys')}
-        upper, anchor = max(sequence.values(), default=0), None
+        anchor = None
         if cursor:
             value = conversations.decode_cursor(db, cursor)
             if value.get('scope') != scope or type(value.get('upper')) is not int or value['upper'] < 0:
@@ -82,18 +81,31 @@ def catalog(conversations, engineering, principal, ownership, cursor=None, limit
             upper, anchor = value['upper'], value.get('anchor')
             if not isinstance(anchor, list) or len(anchor) != 3 or not isinstance(anchor[0], (int, float)) or any(not isinstance(v, str) for v in anchor[1:]):
                 raise ValueError('Invalid catalog cursor')
+        else:
+            upper = db.execute('SELECT COALESCE(MAX(sequence),0) FROM gateway_catalog_keys').fetchone()[0]
+        keys = db.execute('SELECT * FROM gateway_catalog_keys WHERE job_kind=?', (kind,)) if kind else db.execute('SELECT * FROM gateway_catalog_keys')
+        sequence = {(row['job_kind'], row['job_id']): row['sequence'] for row in keys}
         rows = []
-        generation_rows = db.execute('SELECT public_json FROM gateway_jobs').fetchall() if principal.local_admin or 'jobs' in principal.scopes else []
-        parsed = [json.loads(row[0]) for row in generation_rows]
-        for start in range(0, len(parsed), 200):
-            chunk = parsed[start:start + 200]
-            allowed = ownership.owned_job_ids([row['job_id'] for row in chunk], principal.id)
-            rows.extend(generation_summary(row, now) for row in chunk if row['job_id'] in allowed)
-        if (principal.local_admin or 'engineering' in principal.scopes) and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_jobs'").fetchone():
+        if permissions[0] and kind in {None, 'generation'}:
+            candidates = db.execute('SELECT job_id FROM gateway_jobs')
+            while batch := candidates.fetchmany(200):
+                ids = [row[0] for row in batch if sequence.get(('generation', row[0]), 0) <= upper]
+                allowed = ownership.owned_job_ids(ids, principal.id)
+                if allowed:
+                    placeholders = ','.join('?' for _ in allowed)
+                    for row in db.execute(f'SELECT job_id,public_json FROM gateway_jobs WHERE job_id IN ({placeholders})', tuple(allowed)):
+                        try:
+                            public = json.loads(row[1])
+                        except (ValueError, TypeError) as error:
+                            raise sqlite3.DatabaseError('Saved job snapshot cannot be read') from error
+                        if not isinstance(public, dict) or public.setdefault('job_id', row[0]) != row[0]:
+                            raise sqlite3.DatabaseError('Saved job identity does not match the catalog')
+                        rows.append(generation_summary(public, now))
+        if permissions[1] and kind in {None, 'engineering'} and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_jobs'").fetchone():
             for row in db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE principal=?', (principal.id,)):
                 job = dict(json.loads(row[0]), state=row[1], revision=row[2])
                 rows.append(engineering_summary(job, row[3], now))
-        if (include_copilot or kind == 'copilot') and permissions[1] and db.execute(
+        if (kind == 'copilot' or kind is None and include_copilot) and permissions[1] and db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_copilot_tasks'").fetchone():
             for record in db.execute('SELECT data FROM engineering_copilot_tasks WHERE principal=?', (principal.id,)):
                 task = json.loads(record[0])

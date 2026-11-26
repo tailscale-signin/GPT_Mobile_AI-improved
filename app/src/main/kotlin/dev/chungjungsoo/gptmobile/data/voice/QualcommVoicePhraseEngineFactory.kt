@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import android.provider.Settings
 import dev.melo.kokoro.KokoroFrontend
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
@@ -55,6 +56,16 @@ internal class QualcommVoicePhraseEngineFactory(
             ).joinToString("|").toByteArray(Charsets.UTF_8)
         ).joinToString("") { "%02x".format(it) }
     }.orEmpty()
+
+    // Public partition fingerprints also work on devices that restrict raw vendor properties.
+    // When bootimage has no fingerprint, scope reuse to this boot and the identified vendor.
+    private val partitionDigest by lazy {
+        runCatching {
+            val partitions = Build.getFingerprintedPartitions().associate { it.name to it.fingerprint }
+            val bootCount = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+            kokoroPartitionDigest(partitions, bootCount)
+        }.getOrDefault("")
+    }
     private val deviceKey = store?.deviceKey ?: "unavailable"
     override val identity = "kokoro-${backend.name}-${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}-${TimedKokoro.RUNTIME_ID}-$runtimeConfiguration-${modelVariant.modelSha256}-$deviceKey-${voice.name}-${speechRate.toBits()}-${store?.revision() ?: 0}"
 
@@ -163,7 +174,7 @@ internal class QualcommVoicePhraseEngineFactory(
             checkTicket(ticket)
             // Accelerator admission was checked before any production audio/model was opened.
             // The fixed-workload comparison is representative, not per-utterance equivalence.
-            if (selected != VoiceSpeechBackend.CPU) notify("${selected.label} matched the CPU reference workload. Individual phrases still receive native structural validation.")
+            if (selected != VoiceSpeechBackend.CPU) notify("${selected.label} matched the CPU reference for ${voice.label} at $speechRate× on this phone with the selected model and runtime. Individual phrases still receive native structural validation.")
         } catch (cancelled: CancellationException) {
             runCatching { engine?.close() }
             throw cancelled
@@ -285,7 +296,8 @@ internal class QualcommVoicePhraseEngineFactory(
             File(profileDirectory, UUID.randomUUID().toString()).absolutePath,
             contextPath,
             compiledContextIdentity,
-            htpPerformanceMode
+            htpPerformanceMode,
+            if (contextPath.isEmpty()) "" else partitionDigest
         ).also { pending.set(it) }
     }
 
@@ -454,5 +466,16 @@ internal class QualcommVoicePhraseEngineFactory(
 
 internal class UnavailableVoicePhraseEngineFactory(private val reason: String) : VoicePhraseEngineFactory {
     override val identity = "voice-unavailable-$reason"
+    override fun isReady(): Boolean = false
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine = error(reason)
+}
+
+internal fun kokoroPartitionDigest(partitions: Map<String, String>, bootCount: Int): String {
+    fun fingerprint(name: String) = partitions[name]?.takeIf { it.isNotBlank() && it != "unknown" }
+    val vendor = fingerprint("vendor") ?: return ""
+    val boot = fingerprint("bootimage")?.let { "bootimage=$it" }
+        ?: bootCount.takeIf { it >= 0 }?.let { "bootCount=$it" }
+        ?: return ""
+    return MessageDigest.getInstance("SHA-256").digest("vendor=$vendor\u0000$boot".toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 }

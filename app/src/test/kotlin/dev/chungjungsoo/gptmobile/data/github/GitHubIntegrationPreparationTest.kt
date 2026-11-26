@@ -157,6 +157,12 @@ class GitHubIntegrationPreparationTest {
         assertEquals(JsonPrimitive(false), preparation["automatic_permission_changes"])
         assertEquals(JsonPrimitive(false), preparation["owned_fixture_creation_admissible"])
         assertNull(preparation["next_owned_fixture_call"])
+        val proposal = preparation.getValue("fixture_approval_proposal").jsonObject.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("branch"), proposal["action"])
+        assertEquals(JsonPrimitive(fixture), proposal["branch"])
+        assertEquals(JsonPrimitive(sha), proposal["expected_head_sha"])
+        val reserved = GitHubTestChecklist.checkpoint(task, mapOf("source" to source()), tools, 1, preflight)
+        assertNull(reserved.getValue("preparation").jsonObject["fixture_approval_proposal"])
         val blockers = preparation.getValue("blockers").jsonArray.map { it.jsonObject }
         val approval = blockers.single { it["code"] == JsonPrimitive("FIXTURE_APPROVAL_MODE_REQUIRED") }
         assertTrue(approval.getValue("capability_ids").jsonArray.contains(JsonPrimitive("github_commit:branch")))

@@ -73,7 +73,7 @@ internal object GitHubProviderPolicy {
         return tools
     }
 
-    private fun equivalent(name: String): String? = GitHubOperationTool.operationName(name) ?: when (name.substringAfterLast("__")) {
+    internal fun equivalent(name: String): String? = GitHubOperationTool.operationName(name) ?: when (name.substringAfterLast("__")) {
         "get_file_contents", "read_code", "read_ranges" -> "github_read"
         "search_code", "search_repository", "find_symbol", "find_references", "find_tests" -> "github_search"
         "resolve_context", "repo_status", "get_repository", "index_status" -> "github_context"

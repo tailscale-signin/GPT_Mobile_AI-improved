@@ -45,7 +45,7 @@ data class GitHubProgrammerState(
     val profileUid: String? = null,
     val selectedProfileUid: String? = null,
     val profileOverrideUid: String? = null,
-    val profileSettings: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(),
+    val profileSettings: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile,
     val patchReviewerKey: String? = null,
     val patchReviewerName: String? = null,
     val engineeringTeamKey: String? = null,
@@ -262,7 +262,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                     features.isToolPluginEnabledForProfile(primary.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.MODEL_DELEGATION)
                 ) {
                     val policy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.resolve(features, primary.uid, features.conversationDelegation[session.chatId])
-                    dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult.candidates(features.githubProfileOverrides[primary.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context, primary, enabled, policy, execution)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult.candidates(features.githubProfileOverrides[primary.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile, context, primary, enabled, policy, execution)
                 } else {
                     emptyMap()
                 }
@@ -279,7 +279,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                     val review = it.reviewer?.let { reviewer -> " Reviewer: ${reviewer.name} (${reviewer.model})." }.orEmpty()
                     "$helper$review"
                 }
-                mutable.update { it.copy(patchReviewerKey = patchReviewer?.consent, patchReviewerName = patchReviewer?.profile?.let { profile -> "${profile.name} (${profile.model})" }, recoveryAdvisors = recoveryProfiles(false), recoveryExecutionProfiles = recoveryProfiles(true), engineeringTeamKey = team?.consent, engineeringTeamDescription = teamDescription, profiles = enabled, profileUid = uid, selectedProfileUid = requestedUid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                mutable.update { it.copy(patchReviewerKey = patchReviewer?.consent, patchReviewerName = patchReviewer?.profile?.let { profile -> "${profile.name} (${profile.model})" }, recoveryAdvisors = recoveryProfiles(false), recoveryExecutionProfiles = recoveryProfiles(true), engineeringTeamKey = team?.consent, engineeringTeamDescription = teamDescription, profiles = enabled, profileUid = uid, selectedProfileUid = requestedUid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()

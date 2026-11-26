@@ -1,6 +1,7 @@
 """Protocol, lease, privacy, retry and candidate tests without paid model calls."""
 import copy
 import asyncio
+from contextlib import suppress
 import io
 import inspect
 import json
@@ -1225,10 +1226,14 @@ for line in sys.stdin:
         self.runtime.stop('CANCELLED')
         for thread in self.threads:
             thread.join(2)
-        if self.runtime.process:
-            self.runtime.process.wait(timeout=2)
-            for stream in (self.runtime.process.stdin, self.runtime.process.stdout, self.runtime.process.stderr):
-                stream.close()
+        child = self.runtime.process
+        if child:
+            child.wait(timeout=2)
+            # A cancelled handshake can leave a buffered frame after the reader exits.
+            with suppress(BrokenPipeError):
+                child.stdin.close()
+            child.stdout.close()
+            child.stderr.close()
         self.temporary.cleanup()
 
     def background(self, callback):

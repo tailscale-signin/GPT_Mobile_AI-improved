@@ -55,6 +55,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatPresence
+import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -199,7 +200,8 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     val search by produceState<GitHubSearchActivity?>(null, events) {
         value = withContext(Dispatchers.Default) { gitHubSearchActivity(events) }
     }
-    val lines = remember(timeline, task, search != null, active) { gitHubActivityLines(timeline, task, searchActive = search != null, active = active) }
+    val projection = remember(timeline, task, search != null, active) { gitHubActivityProjection(timeline, task, searchActive = search != null, active = active) }
+    val lines = projection.lines
     val sourcePositions = remember(timeline) { timeline.mapIndexed { index, item -> (item.progressSequence ?: item.content) to index }.toMap() }
     fun identity(item: dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem): Any =
         item.progressId ?: "summary:${sourcePositions[item.progressSequence ?: item.content] ?: item.content}"
@@ -210,7 +212,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     SideEffect { lines.forEach { seenEntries.add(identity(it) to it.statusSummary) } }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         val visibleLines = remember(lines, visibleEntries) { gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries) }
-        val latestPreview = visibleLines.lastIndex.takeIf { active && gitHubHasActivePreview(timeline, search != null) && visibleLines.lastOrNull()?.statusSummary == false } ?: -1
+        val latestPreview = visibleLines.lastIndex.takeIf { active && projection.hasActivePreview && visibleLines.lastOrNull()?.statusSummary == false } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
         Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (visibleLines.size < lines.size) {
@@ -225,7 +227,12 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
                     if (item.statusSummary) {
                         GitHubActivitySummary(item.content, animateEntry, lineIdentity, sourceOwned = !item.modelAuthored)
                     } else {
-                        GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null }, animateEntry = animateEntry, lineIdentity = lineIdentity)
+                        val searchRow = search?.takeIf {
+                            item.progressId == "github-search-preview" ||
+                                index == latestPreview &&
+                                GitHubProgressPresentation.previewKind(item.content) == GitHubProgressPresentation.PreviewKind.WEB
+                        }
+                        GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = searchRow, animateEntry = animateEntry, lineIdentity = lineIdentity)
                     }
                 }
             }

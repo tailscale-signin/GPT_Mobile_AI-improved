@@ -719,9 +719,21 @@ def inspect_snapshot(root: dict) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("export", type=Path)
+    github = parser.add_mutually_exclusive_group()
+    github.add_argument("--github-routing", action="store_true", help="Compare measured read-only routing runs for one revision")
+    github.add_argument("--github-project", action="store_true", help="Print a redacted routing trace for offline replay")
+    parser.add_argument("--github-compare", type=Path, help="Second measured run for the same task and revision")
+    parser.add_argument("--github-revision", help="Exact source commit required for Android staged diagnostic ZIPs")
     args = parser.parse_args()
     try:
-        result = inspect_snapshot(load_snapshot(args.export))
+        if args.github_routing or args.github_project:
+            from github_routing_replay import replay
+            paths = [args.export] + ([args.github_compare] if args.github_compare else [])
+            result = replay(paths, args.github_revision, project=args.github_project)
+        elif args.github_compare or args.github_revision:
+            raise ValueError("Select --github-routing or --github-project")
+        else:
+            result = inspect_snapshot(load_snapshot(args.export))
     except (ValueError, KeyError, TypeError, OSError, zipfile.BadZipFile) as error:
         parser.exit(2, f"Cannot replay export: {error}\n")
     print(json.dumps(result, indent=2))

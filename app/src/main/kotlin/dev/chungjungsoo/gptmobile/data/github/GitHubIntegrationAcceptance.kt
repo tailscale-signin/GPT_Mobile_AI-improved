@@ -128,6 +128,13 @@ internal object GitHubIntegrationAcceptance {
                         proof = eligible.filter { !read(it) }
                         val clean = GitHubSelfTestFixtures.complete(receipts)
                         conditionalFixture = !clean && fixturePreflight?.get("state") != JsonPrimitive("READY") && GitHubSelfTestFixtures.checkpoint(receipts).isEmpty()
+                        if (conditionalFixture) {
+                            blocker = if (fixturePreflight?.get("state") == JsonPrimitive("CONDITIONAL")) {
+                                GitHubCriterionBlocker.FIXTURE_APPROVAL_MODE_REQUIRED
+                            } else {
+                                GitHubCriterionBlocker.FIXTURE_APPROVAL_STATE_UNKNOWN
+                            }
+                        }
                         clean to if (clean) {
                             "Owned disposable mutation receipts and matching cleanup verification are retained."
                         } else if (conditionalFixture) {

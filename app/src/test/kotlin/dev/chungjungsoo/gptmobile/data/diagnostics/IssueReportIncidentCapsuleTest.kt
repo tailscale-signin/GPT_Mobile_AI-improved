@@ -355,6 +355,23 @@ class IssueReportIncidentCapsuleTest {
         }
     }
 
+    @Test fun changedDevicePrivacyIsReportedAtTheObservedDeliveryBoundary() {
+        val fields = mapOf(
+            "changed_policy_fields" to listOf("devicePrivacy"),
+            "failed_stage" to "delivery",
+            "authority_failed_stage" to "delivery",
+            "resume_required" to true
+        )
+        val diagnostics = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "POLICY_STALE", fields).diagnostics)
+        assertTrue(diagnostics.isValid())
+        assertTrue(IssueReportDiagnostics.DEVICE_PRIVACY_POLICY_FEATURE in diagnostics.requiredServiceFeatures())
+        assertEquals(JsonArray(listOf(JsonPrimitive("devicePrivacy"))), diagnostics.values["changed_policy_fields"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("PRIVACY"))), diagnostics.values["dispatch_policy_sections"])
+        assertEquals(JsonPrimitive("delivery"), diagnostics.values["dispatch_policy_stage"])
+        assertEquals(JsonPrimitive("OBSERVED"), diagnostics.values["changed_policy_observation"])
+        assertEquals(JsonPrimitive(true), diagnostics.values["dispatch_policy_resume_required"])
+    }
+
     @Test fun dispatchPolicyReportRetainsClosedSectionsAndRequiresCompatibleService() {
         val context = capture(
             ReportFeature.CHAT,
@@ -498,7 +515,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(84, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(85, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,

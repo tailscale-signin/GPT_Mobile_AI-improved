@@ -248,6 +248,32 @@ class VoicePluginAudioTest {
         assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, VoiceRecognitionBackend.fromSaved("ANDROID_SPEECH_SERVICE"))
     }
 
+    @Test fun deferredOfflineFallbackKeepsTheStreamingRepliesPronunciationSnapshot() {
+        val system = SystemAudio()
+        val output = StreamingOutput()
+        val spoken = mutableListOf<String>()
+        val plugin = VoicePluginAudio(
+            system,
+            LocalInput(),
+            output,
+            captureOfflineSpeech = {
+                val snapshot = VoicePronunciationDictionary(system.pronunciations)
+                val say: VoiceOfflineSpeech = { text, _, _ -> spoken += snapshot.project(text).text }
+                say
+            },
+            releaseSystemRecognition = {}
+        ).apply { kokoroVoice = KokoroVoice.HEART }
+        plugin.configurePronunciation(mapOf("Sao" to "sow"))
+        val reply = requireNotNull(plugin.openReply({}, { error(it) }))
+        reply.enqueue("Sao spoke.")
+        plugin.configurePronunciation(mapOf("Sao" to "new name"))
+        requireNotNull(output.onError)(VoicePlaybackFailure("Start failed"), true)
+        reply.finish()
+        assertEquals(listOf("sow spoke."), spoken)
+        assertEquals(mapOf("sao" to "new name"), system.pronunciations)
+        plugin.close()
+    }
+
     @Test fun streamedUnknownPronunciationUsesOfflineSpeechOnlyBeforeKokoroAudio() {
         var kokoroFailure: ((VoicePlaybackFailure, Boolean) -> Unit)? = null
         val bufferedByKokoro = mutableListOf<String>()
@@ -457,11 +483,19 @@ class VoicePluginAudioTest {
         assertEquals(1, output.closed)
     }
 
-    @Test fun unsupportedLocaleUsesOnlyTheOfflineFallback() {
+    @Test fun recognitionLanguageDoesNotDisableReplyPlayback() {
+        local.languageTag = "fr-CA"
+        val output = LocalOutput()
+        val plugin = kokoroPlugin(output, mutableListOf())
+        plugin.speak("Hello", {}, {})
+        assertEquals(KokoroVoice.EMMA, output.voice)
+    }
+
+    @Test fun unsupportedSynthesisUsesOnlyTheOfflineFallback() {
         local.languageTag = "fr-CA"
         val output = LocalOutput()
         val fallback = mutableListOf<String>()
-        kokoroPlugin(output, fallback).speak("Bonjour", {}, {})
+        kokoroPlugin(output, fallback).apply { synthesisSupported = false }.speak("Bonjour", {}, {})
         assertEquals(null, output.voice)
         assertEquals(listOf("Bonjour"), fallback)
         assertTrue(system.spoken.isEmpty())

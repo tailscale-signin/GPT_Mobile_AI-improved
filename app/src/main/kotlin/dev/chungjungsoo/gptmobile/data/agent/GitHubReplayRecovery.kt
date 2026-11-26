@@ -13,6 +13,11 @@ import kotlinx.serialization.json.put
 /** Keep executable continuation arguments intact when replaying a large GitHub result. */
 internal object GitHubReplayRecovery {
     private const val OMITTED_SAVED_RESULT = "GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read."
+    private const val SOURCE_RESTORE_PREFIX = "saved-result-consume-source-"
+
+    fun sourceRestoreCursor(callId: String): String? =
+        callId.takeIf { it.startsWith(SOURCE_RESTORE_PREFIX) }?.removePrefix(SOURCE_RESTORE_PREFIX)?.let { GitHubSavedReadProgress.cursor(it)?.value }
+
     private data class CapacityRefusal(val page: String, val bytes: Int, val source: String, val scope: String, val recovery: JsonObject?)
 
     /** Keep recovery allowance, native reads and delivery witnesses outside the evictable provider replay. */
@@ -133,18 +138,71 @@ internal object GitHubReplayRecovery {
                 .mapValues { (_, read) -> read.deliveryDigest }
         }
 
+        /** Exact current alias of a verified saved-page obligation. No new operation is acquired. */
+        fun owedPageSchema(pending: Map<String, String?>, authorized: List<AgentToolDefinition>): AgentToolDefinition? {
+            for (id in pending.keys) {
+                val read = verifiedReads[id] ?: continue
+                if (immutablePageIdentity(read) == null) continue
+                val tool = authorized.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue
+                val action = (read.call.arguments["action"] as? JsonPrimitive)?.content ?: when (GitHubOperationTool.operationName(tool.name)) {
+                    "github_read" -> "ranges"
+                    "github_context", "github_ci", "github_release" -> "status"
+                    "github_issue", "github_pr" -> "context"
+                    else -> null
+                }
+                val projected = action?.let { GitHubActionSchema.project(tool, it) }
+                return projected?.takeIf { ToolArgumentValidator.errors(read.call.arguments, it.inputSchema).isEmpty() } ?: tool
+            }
+            return null
+        }
+
         fun restoreMissingPage(pending: Map<String, String?>, exchanges: List<AgentToolExchange>, tools: List<AgentToolDefinition>, pageBudget: Int = Int.MAX_VALUE, reopenAvailable: Boolean = false): ProviderEvent.ToolCall? {
             val bodies = exchanges.flatMap { it.results }.associateBy { it.callId }
             for ((id, digest) in pending) {
                 val read = verifiedReads[id] ?: continue
                 val identity = immutablePageIdentity(read) ?: continue
                 val capacity = GitHubSavedReadProgress.cursor(identity[1])?.bytes ?: continue
-                if ((capacity.toLong() + 2) / 3 + 512 > pageBudget) continue
+                // An issued cursor sets an upper bound. A compacted result can have a much
+                // smaller native body, so prefer the original measured size when available.
+                val execution = read.resultIdentity["execution_receipt"] as? JsonObject
+                val measuredBytes = (execution?.get("saved_view_body_bytes") as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 1..capacity }
+                val bytes = measuredBytes ?: capacity
+                if ((bytes.toLong() + 2) / 3 + 512 > pageBudget && (measuredBytes != null || digest != null)) continue
+                if (pageBudget <= 512) continue
                 val body = bodies[id]?.content
                 if (!reopenAvailable && digest != null && body != null && ToolResultDeliveryProof.digest(body) == digest) continue
                 val retryId = "saved-result-consume-restore-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(identity.joinToString("|")).take(24)
-                if (hasAttempt(retryId) || exhausted()) continue
+                if (exhausted()) continue
                 val tool = tools.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue
+                if (hasAttempt(retryId)) {
+                    val failure = bodies[retryId] ?: continue
+                    if (failure.errorCode != "SAVED_VIEW_UNAVAILABLE" || failure.dispatched || GitHubOperationTool.operationName(tool.name) != "github_read") continue
+                    val proof = failure.executionReceipt ?: continue
+                    if (proof["saved_view_source_hash"] != JsonPrimitive(identity[2]) ||
+                        proof["saved_view_scope_hash"] != JsonPrimitive(identity[3]) ||
+                        proof["saved_view_cursor_issued"] != JsonPrimitive(true) ||
+                        proof["saved_view_cursor_hash"] != JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("github.saved-view.cursor.v1\u0000${identity[1]}"))
+                    ) {
+                        continue
+                    }
+                    val sourceId = SOURCE_RESTORE_PREFIX + identity[1]
+                    if (hasAttempt(sourceId)) {
+                        val restoredId = retryId + "-recovered"
+                        if (!hasAttempt(restoredId) && bodies[sourceId]?.executionReceipt?.get("recovered_saved_view") == JsonPrimitive(true)) {
+                            return ProviderEvent.ToolCall(restoredId, tool.name, buildJsonObject { put("view_cursor", identity[1]) })
+                        }
+                        continue
+                    }
+                    val recipe = proof["source_recovery_call"] as? JsonObject ?: continue
+                    val args = recipe["arguments"] as? JsonObject ?: continue
+                    if (recipe["tool"] == JsonPrimitive(tool.name) &&
+                        GitHubOperationTool.immutableRead(tool.name, args) &&
+                        ToolArgumentValidator.errors(args, tool.inputSchema).isEmpty()
+                    ) {
+                        return ProviderEvent.ToolCall(sourceId, tool.name, args)
+                    }
+                    continue
+                }
                 val original = read.call.arguments
                 if (ToolArgumentValidator.errors(original, tool.inputSchema).isEmpty()) {
                     return ProviderEvent.ToolCall(retryId, tool.name, original)
@@ -205,6 +263,24 @@ internal object GitHubReplayRecovery {
         put("shared_result", result.sharedResult)
         put("tool_call_budget_exhausted", result.toolCallBudgetExhausted)
         put("output_budget_exhausted", result.outputBudgetExhausted)
+    }
+
+    /** A bounded admitted page is the replay payload, even when a long provider call would crowd it out of a prompt. */
+    fun checkpointPage(call: ProviderEvent.ToolCall, result: AgentToolResult): ToolResultContent.Json? {
+        val content = result.content as? ToolResultContent.Json ?: return null
+        val page = content.value as? JsonObject ?: return null
+        if (page["schema"] != JsonPrimitive("github.operation.v1") ||
+            page["replay_compacted"] == JsonPrimitive(true) ||
+            !result.sharedResult ||
+            savedPageKey(call, result) == null
+        ) {
+            return null
+        }
+        val receipt = result.executionReceipt ?: return null
+        val scope = (receipt["saved_view_scope_hash"] as? JsonPrimitive)?.content ?: return null
+        val size = (receipt["saved_view_body_bytes"] as? JsonPrimitive)?.intOrNull ?: return null
+        if (!ToolResultDeliveryProof.valid(scope) || size !in 1..8192 || page.toString().encodeToByteArray().size != size) return null
+        return content
     }
 
     // Only the native result can prove that the exact issued handle and any

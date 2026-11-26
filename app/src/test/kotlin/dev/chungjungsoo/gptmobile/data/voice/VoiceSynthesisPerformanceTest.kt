@@ -9,6 +9,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSynthesisPerformanceTest {
+    @Test fun incrementalFollowupsUsePcmHeadroomBeforeEndOfInput() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        assertEquals(6, policy.phraseWords(0))
+        policy.beginStream()
+        policy.observeStreamDelivery(350, 24000)
+        assertEquals(6, policy.phraseWords(450))
+        assertEquals(12, policy.phraseWords(900))
+        assertEquals(16, policy.phraseWords(1400))
+        policy.observeStreamDelivery(1200, 24000)
+        assertEquals(6, policy.phraseWords(1400))
+        policy.endStream(0)
+    }
+
+    @Test fun aSlowNativePhraseDoesNotHoldFiveSecondsOfReadyPcmUntilTheDeadline() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        assertNull(policy.nativeReserveExit(5_425, 5_700, 0, 0))
+        policy.observe(9_000, 5_425)
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_LATE, policy.nativeReserveExit(5_425, 5_700, 100, 0))
+        assertNull(policy.nativeReserveExit(500, 5_700, 100, 0))
+        assertNull(policy.nativeReserveExit(5_425, 5_700, 4_000, 0))
+        val exit = KokoroPcmBatches.awaitReserve(ArrayBlockingQueue(60), 144_000, { 130_200 }, { true }, { true }, { false }, { VoicePcmReserveExit.NEXT_CHUNK_LATE }) { error("unexpected poll") }
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_LATE, exit)
+        policy.beginStream()
+        assertNull(policy.nativeReserveExit(5_425, 5_700, 100, 8))
+    }
+
+    @Test fun firstAudioBudgetIncludesModelPreparationAndBothPrimingStages() {
+        assertEquals(0L, VoiceAdaptivePlayback.startupWaitMs(8_909, 3_745))
+        assertEquals(1_998L, VoiceAdaptivePlayback.startupWaitMs(3_002, 3_226))
+        assertEquals(0L, VoiceAdaptivePlayback.startupWaitMs(5_000, 60))
+        assertEquals(60L, VoiceAdaptivePlayback.startupWaitMs(1_200, 60))
+    }
+
+    @Test fun primingCountsAudioThatCanPlayDuringTheNextNativePhrase() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.BALANCED)
+        policy.observe(4_000, 3_000, spokenWords = 8)
+        // The 10-word phrase is estimated at six seconds. The existing PCM covers five of those seconds.
+        assertNull(policy.nativeReserveExit(5_000, 2_000, 0, 10))
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_COVERED, policy.nativeReserveExit(5_000, 2_000, 1_100, 10))
+        assertEquals(VoicePcmReserveExit.NEXT_CHUNK_LATE, policy.nativeReserveExit(1_000, 2_000, 0, 10))
+        assertNull(policy.nativeReserveExit(5_000, 2_000, 7_000, 10))
+        policy.beginStream()
+        assertNull(policy.nativeReserveExit(5_000, 2_000, 1_100, 10))
+    }
+
     @Test fun pcmViewsRetainEveryFrameWithoutCopyingThePhrase() {
         val samples = FloatArray(24_007) { it.toFloat() }
         val slices = mutableListOf<VoicePcmSlice>()
@@ -60,7 +105,9 @@ class VoiceSynthesisPerformanceTest {
         policy.underrun()
         assertNull("No complete phrase has been observed", policy.predictedSynthesisMs())
         assertNull(policy.ratio())
-        assertEquals("An unfinished stream still uses the six-word opening", 6, policy.phraseWords(6_000))
+        assertEquals("The slow delivery still protects limited PCM headroom", 6, policy.phraseWords(1_400))
+        assertEquals("Measured PCM headroom permits a bounded followup", 12, policy.phraseWords(2_100))
+        assertEquals("Ample PCM headroom permits followups before stream completion", 16, policy.phraseWords(6_000))
         val queue = ArrayBlockingQueue<VoicePcmSlice>(KokoroPcmBatches.QUEUE_BATCHES)
         var acceptedFrames = 2_400L
         var polls = 0

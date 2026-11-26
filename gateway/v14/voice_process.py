@@ -133,24 +133,7 @@ class SidecarCudaBackend:
     def _reader(self):
         try:
             while True:
-                line = self.process.stdout.readline(MAX_RESPONSE_BYTES + 1)
-                if not line or len(line) > MAX_RESPONSE_BYTES or not line.endswith(b'\n'):
-                    raise ValueError()
-                response = json.loads(line)
-                if not isinstance(response, dict) or '_pcm' in response:
-                    raise ValueError()
-                if '_binary_pcm_bytes' in response:
-                    count = response.pop('_binary_pcm_bytes')
-                    if type(count) is not int or not 0 < count <= MAX_AUDIO_FRAMES * 4 or count % 4 or len(line) > MAX_BODY_BYTES:
-                        raise ValueError()
-                    pcm = bytearray()
-                    while len(pcm) < count:
-                        chunk = self.process.stdout.read(min(65536, count - len(pcm)))
-                        if not chunk:
-                            raise ValueError()
-                        pcm.extend(chunk)
-                    response['_pcm'] = bytes(pcm)
-                self._responses.put(response, timeout=1)
+                self._responses.put(self._read_response(), timeout=1)
         except (OSError, ValueError, RecursionError, queue.Full):
             try:
                 self._responses.put_nowait(None)
@@ -161,6 +144,25 @@ class SidecarCudaBackend:
                     self.process.kill()
                 except OSError:
                     pass
+
+    def _read_response(self):
+        # Popen supplies a blocking BufferedReader. A short read means EOF even when
+        # the worker split a valid frame across many writes.
+        line = self.process.stdout.readline(MAX_RESPONSE_BYTES + 1)
+        if not line or len(line) > MAX_RESPONSE_BYTES or not line.endswith(b'\n'):
+            raise ValueError()
+        response = json.loads(line)
+        if not isinstance(response, dict) or '_pcm' in response:
+            raise ValueError()
+        if '_binary_pcm_bytes' in response:
+            count = response.pop('_binary_pcm_bytes')
+            if type(count) is not int or not 0 < count <= MAX_AUDIO_FRAMES * 4 or count % 4 or len(line) > MAX_BODY_BYTES:
+                raise ValueError()
+            pcm = self.process.stdout.read(count)
+            if len(pcm) != count:
+                raise ValueError()
+            response['_pcm'] = pcm
+        return response
 
     def _send(self, payload):
         frame = json.dumps(payload, separators=(',', ':'), allow_nan=False).encode('utf-8') + b'\n'

@@ -74,6 +74,21 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     @Synchronized fun predictedSynthesisMs(startup: Boolean = false): Long? =
         (if (startup) recentRecurringMs else recentSynthesisMs).maxOrNull()
 
+    /** Playing the accepted PCM gives the native producer that much additional time to finish. */
+    @Synchronized fun nativeReserveExit(readyMs: Long, remainingWaitMs: Long, producingMs: Long, words: Int): VoicePcmReserveExit? {
+        if (streamCadence.started || observations == 0 || readyMs < 1_000) return null
+        val wordCost = recentWordCostMs.maxOrNull()
+        if (wordCost != null && words > 0) {
+            val remaining = (wordCost * words * 1.2).toLong() - producingMs.coerceAtLeast(0)
+            // An overdue estimate no longer predicts the next delivery.
+            if (remaining in 1..readyMs) return VoicePcmReserveExit.NEXT_CHUNK_COVERED
+            if (productionRatio >= 1.0 && remaining - readyMs > remainingWaitMs.coerceAtLeast(0)) return VoicePcmReserveExit.NEXT_CHUNK_LATE
+            return null
+        }
+        val expected = recentSynthesisMs.lastOrNull() ?: return null
+        return VoicePcmReserveExit.NEXT_CHUNK_LATE.takeIf { productionRatio >= 1.0 && expected - producingMs.coerceAtLeast(0) > remainingWaitMs }
+    }
+
     @Synchronized fun ratio(): Double? = productionRatio.takeIf { observations > 0 }
 
     /** Wait only while an actual producer exists; an unsealed quiet stream cannot deadlock priming. */
@@ -86,22 +101,30 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
 
     @Synchronized fun phraseWords(bufferedMs: Long): Int {
         if (!mode.usesMeasuredPhraseLength) return mode.followUpWords
-        if (observations == 0) return OPENING_WORDS
+        // An incremental Kokoro stream records its whole synthesis duration only
+        // at end-of-input. Its buffered PCM and delivery intervals are available
+        // while it is speaking, including before the second text push.
+        if (observations == 0 && !streamCadence.started) return OPENING_WORDS
+        val headroom = if (streamCadence.started) bufferedMs - (streamCadence.reserveCostMs() ?: 0L) else bufferedMs
         val wordCost = recentWordCostMs.maxOrNull()
-        if (wordCost != null && bufferedMs >= 300) {
-            val continuityBudget = (bufferedMs / (wordCost * 1.2)).toInt().coerceIn(OPENING_WORDS, mode.followUpWords)
+        if (wordCost != null && headroom >= 300) {
+            val continuityBudget = (headroom / (wordCost * 1.2)).toInt().coerceIn(OPENING_WORDS, mode.followUpWords)
             return if (productionRatio >= 1.0) minOf(8, continuityBudget) else continuityBudget
         }
         return when {
-            bufferedMs < 300 -> 6
+            headroom < 300 -> OPENING_WORDS
             productionRatio >= 1.0 -> 8
-            bufferedMs < 1_000 -> 12
+            headroom < 1_000 -> 12
             else -> mode.followUpWords
         }
     }
 
     companion object {
         const val OPENING_WORDS = 6
+        const val FIRST_AUDIO_TARGET_MS = 5_000L
+
+        fun startupWaitMs(requestAgeMs: Long, proposedWaitMs: Long): Long =
+            minOf(proposedWaitMs, (FIRST_AUDIO_TARGET_MS - requestAgeMs.coerceAtLeast(0)).coerceAtLeast(0))
 
         // Use existing queue headroom for measured slow phrases and refill margin.
         // Leave one slice of duration headroom; priming also exits if phrase tails fill every queue slot.

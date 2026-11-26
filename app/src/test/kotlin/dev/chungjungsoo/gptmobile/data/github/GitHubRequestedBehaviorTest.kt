@@ -56,6 +56,18 @@ class GitHubRequestedBehaviorTest {
         assertFalse(GitHubTaskContinuity.reuse("yes", ""))
     }
 
+    @Test fun workspaceAndBranchNamesCannotTurnNeutralContinuationsIntoFixInstructions() {
+        val header = "GitHub workspace: implement-org/apply-fix\nBranch: fix/ui\n\n"
+        val task = "Review PR #42"
+        for (control in listOf("Yes please!", "finish it", "go ahead")) {
+            assertEquals(GitHubTaskContinuity.resolved(control, task), GitHubTaskContinuity.resolved(header + control, header + task))
+            assertTrue(GitHubTaskContinuity.resolved(header + control, task).startsWith("Continue "))
+        }
+        for (control in listOf("fix", "Please fix them.", "apply the fixes", "implement the fixes")) {
+            assertTrue(GitHubTaskContinuity.resolved(header + control, task).startsWith("Implement "))
+        }
+    }
+
     @Test fun workflowsProvideFiveDistinctCompletePromptsIncludingIntegration() {
         assertEquals(5, GitHubQuickWorkflow.defaults.size)
         assertEquals(5, GitHubQuickWorkflow.defaults.map { it.id }.toSet().size)

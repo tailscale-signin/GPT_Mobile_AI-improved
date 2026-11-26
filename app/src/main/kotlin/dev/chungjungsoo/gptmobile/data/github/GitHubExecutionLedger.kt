@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.JsonArray
@@ -338,7 +339,41 @@ internal object GitHubExecutionLedger {
         val graph = receipts.filterValues(::hasGraphIndexUncertainty).mapNotNull { (id, receipt) ->
             graphAttemptKey(receipt, "graph_index_attempt_hash")?.let(graphProofs::get)?.let { id to JsonPrimitive(it) }
         }.toMap()
-        return native + graph
+        val settled = native + graph
+        if (settled.isEmpty()) return settled
+        // A refused duplicate has no second execution ID. Reuse only the native proof
+        // already obtained for its exact original invocation in the same authority.
+        val originals = settled.keys.mapNotNull { id -> receipts[id]?.let { id to it } }
+            .groupBy { (_, row) -> dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("call", row.text("call_id")) }
+        val duplicates = receipts.mapNotNull { (id, row) ->
+            if (id in settled ||
+                row["trusted"] != JsonPrimitive(true) ||
+                row["verification_eligible"] == JsonPrimitive(false) ||
+                row["success"] != JsonPrimitive(false) ||
+                row["dispatched"] != JsonPrimitive(false) ||
+                row.text("error_code") != "RECONCILIATION_REQUIRED"
+            ) {
+                return@mapNotNull null
+            }
+            val execution = row["execution"] as? JsonObject ?: return@mapNotNull null
+            if (execution["failed_stage"] != JsonPrimitive("tool_precheck") ||
+                execution["dispatched"] != JsonPrimitive(false) ||
+                execution["requires_reconciliation"] != JsonPrimitive(true)
+            ) {
+                return@mapNotNull null
+            }
+            val observation = ToolReconciliationEvidence.retained("RECONCILIATION_REQUIRED", execution) ?: return@mapNotNull null
+            if (observation["reconciliation_identity_state"] != JsonPrimitive("IDENTIFIED")) return@mapNotNull null
+            val args = row["arguments"] as? JsonObject ?: return@mapNotNull null
+            val original = originals[observation.text("reconciliation_original_call_hash")].orEmpty().singleOrNull { (_, prior) ->
+                listOf("binding", "repository", "branch", "tool").all { row.text(it).isNotBlank() && row[it] == prior[it] } &&
+                    prior["arguments"] == args &&
+                    prior["error_code"] == observation["reconciliation_original_code"] &&
+                    ToolReconciliationEvidence.matchesOriginal(observation, prior.text("call_id"), row.text("tool"), args)
+            } ?: return@mapNotNull null
+            id to settled.getValue(original.first)
+        }.toMap()
+        return settled + duplicates
     }
 
     fun pendingGraphIndex(receipts: Map<String, JsonObject>): JsonObject? {

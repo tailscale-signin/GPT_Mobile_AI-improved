@@ -212,7 +212,7 @@ class GitHubBuildCatalog(
                 }.execute response@{ response ->
                     rateLimits.record(response.headers, response.status.value)
                     if (response.status.value == 304 && cached != null) {
-                        cache.put(key, cached.etag, cached.value, immutable, allowWithoutEtag = true)
+                        cache.revalidated(key, cached)
                         scheduler.recordCacheHit()
                         return@response cachedPage()
                     }

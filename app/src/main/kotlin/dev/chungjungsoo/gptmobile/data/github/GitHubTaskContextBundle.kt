@@ -24,7 +24,7 @@ data class GitHubContextSource(val path: String, val blobSha: String, val text: 
 /** Bounded, source-pinned retrieval. Documents and commands are data; this class never executes them. */
 object GitHubTaskContextBundle {
     const val SCHEMA = "repository.task_context.v1"
-    const val VERSION = 6
+    const val VERSION = 7
     const val FEATURE_MAP = "docs/architecture/feature-map.json"
     private const val MAX_MANIFEST_BYTES = 512 * 1024
     private const val MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -238,7 +238,16 @@ object GitHubTaskContextBundle {
                     in graphCandidates -> "LEXICAL_DEPENDENCY"
                     else -> "TASK_PATH_MATCH"
                 }
-                taskContextPhase(PhoneTaskContextPhase.SOURCE_RANGES) { sourceRange(source, queryTerms, query.take(6000), reason) }
+                taskContextPhase(PhoneTaskContextPhase.SOURCE_RANGES) {
+                    sourceRange(
+                        source,
+                        queryTerms,
+                        reason,
+                        requestedLine(path, boundedQuery) { name ->
+                            treeComplete && files.size <= 20_000 && files.none { it.path != path && it.path.substringAfterLast('/') == name }
+                        }
+                    )
+                }
             }
             val semanticScores = (
                 if (variant == GitHubContextVariant.SEMANTIC && localRanker != null && candidateSources.isNotEmpty()) {
@@ -421,18 +430,43 @@ object GitHubTaskContextBundle {
         return result
     }
 
-    private fun sourceRange(value: GitHubContextSource, query: Set<String>, rawQuery: String, reason: String): JsonObject {
+    /** A bare filename in a stack trace identifies a line only when that filename is unique. */
+    internal fun requestedLine(path: String, query: String, uniqueBasename: (String) -> Boolean): Int? {
+        if (':' !in query && "#L" !in query) return null
+        fun match(name: String): Int? = Regex("""(?<![\p{L}\p{N}_./\\-])(?:\./)?${Regex.escape(name)}(?::|#L)(\d+)""")
+            .find(query)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
+        val qualified = if ('/' in path) path else "./$path"
+        match(qualified)?.let { return it }
+        val basename = path.substringAfterLast('/')
+        return match(basename)?.takeIf { uniqueBasename(basename) }
+    }
+
+    private fun sourceRange(value: GitHubContextSource, query: Set<String>, reason: String, requestedLine: Int?): JsonObject {
         val lines = GitHubRepositorySession.sourceLines(value.text)
-        val location = Regex("(?:${Regex.escape(value.path)}|${Regex.escape(value.path.substringAfterLast('/'))}):(\\d+)").find(rawQuery)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 1..lines.size }
-        val parsed = PhoneRepositorySourceIndex.build(value.path, value.text)
-        val definitions = parsed.objects("definitions")
-        val best = definitions.maxByOrNull { terms(it.text("name") + " " + it.text("excerpt")).intersect(query).size }
-            ?.takeIf { terms(it.text("name") + " " + it.text("excerpt")).intersect(query).isNotEmpty() }
-        val matchedLine = lines.withIndex().asSequence().take(12_000).maxByOrNull { terms(it.value.take(1500)).intersect(query).size }
-            ?.takeIf { terms(it.value.take(1500)).intersect(query).isNotEmpty() }?.index?.plus(1)
-        val start = (location?.let { maxOf(1, it - 6) } ?: best?.number("line") ?: matchedLine ?: 1).coerceIn(1, maxOf(1, lines.size))
-        val end = minOf(lines.size, if (location != null) location + 15 else best?.number("end_line")?.takeIf { it >= start } ?: start + 40, start + 70)
-        val excerpt = GitHubRepositorySession.utf8Prefix(lines.drop(start - 1).take(end - start + 1).joinToString("\n"), 2200)
+        val location = requestedLine?.takeIf { it in 1..lines.size }
+        val byteLimit = 2200
+        val start: Int
+        val end: Int
+        if (location != null) {
+            var first = location
+            var bytes = lines[location - 1].toByteArray(Charsets.UTF_8).size
+            while (first > maxOf(1, location - 6) && bytes < byteLimit) {
+                bytes += lines[first - 2].toByteArray(Charsets.UTF_8).size + 1
+                if (bytes > byteLimit) break
+                first--
+            }
+            start = first
+            end = minOf(lines.size, location + 15)
+        } else {
+            val definitions = PhoneRepositorySourceIndex.build(value.path, value.text).objects("definitions")
+            val best = definitions.maxByOrNull { terms(it.text("name") + " " + it.text("excerpt")).intersect(query).size }
+                ?.takeIf { terms(it.text("name") + " " + it.text("excerpt")).intersect(query).isNotEmpty() }
+            start = best?.number("line") ?: lines.withIndex().asSequence().take(12_000).maxByOrNull { terms(it.value.take(1500)).intersect(query).size }
+                ?.takeIf { terms(it.value.take(1500)).intersect(query).isNotEmpty() }?.index?.plus(1) ?: 1
+            end = minOf(lines.size, best?.number("end_line")?.takeIf { it >= start } ?: start + 40, start + 70)
+        }
+        val selected = lines.subList(start - 1, end).joinToString("\n")
+        val excerpt = GitHubRepositorySession.utf8Prefix(selected, byteLimit)
         return buildJsonObject {
             put("path", value.path)
             put("blob_sha", value.blobSha)
@@ -442,7 +476,7 @@ object GitHubTaskContextBundle {
             put("excerpt", excerpt)
             put("reason", if (location == null) reason else "TASK_SOURCE_LOCATION")
             location?.let { put("matched_line", it) }
-            put("range_complete", excerpt == lines.drop(start - 1).take(end - start + 1).joinToString("\n"))
+            put("range_complete", excerpt == selected)
             put("confidence", "SOURCE_OBSERVED_RELATIONSHIP_CANDIDATE")
         }
     }

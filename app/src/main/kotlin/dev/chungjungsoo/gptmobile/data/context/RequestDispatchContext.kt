@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Bridges a physical serializer to its existing invocation owner without retaining prompt bytes. */
-internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null, private val preparedEvidence: Set<JsonObject> = emptySet(), private val researchTrace: dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace? = null) : AbstractCoroutineContextElement(Key) {
+internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null, private val preparedEvidence: Set<JsonObject> = emptySet(), private val researchTrace: dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace? = null, private val sourceTrace: dev.chungjungsoo.gptmobile.data.network.GitHubSourceDispatchTrace? = null) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<RequestDispatchContext> {
         const val MAX_RETAINED_REQUEST_SETTINGS = 64
     }
@@ -166,7 +166,13 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
         }
     }
 
-    fun serialized(payload: String, receipt: RequestAdmissionReceipt, config: dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig? = null) {
+    fun sourceDeliveryEvidence(): JsonObject? = sourceTrace?.evidence(attemptTraces::get)
+
+    fun serialized(payload: String, receipt: RequestAdmissionReceipt, config: dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig? = null, inspectGitHubSource: Boolean = false) {
+        val parsed by lazy(LazyThreadSafetyMode.NONE) { runCatching { Json.parseToJsonElement(payload) }.getOrNull() }
+        if (inspectGitHubSource && sourceTrace != null && receipt.physicalAttemptId != null) {
+            sourceTrace.record(receipt.physicalAttemptId, parsed as? JsonObject)
+        }
         val ordinal = physicalOrdinal.incrementAndGet()
         receipts += receipt
         receipt.promptBudget?.let { budget ->
@@ -180,7 +186,7 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
         if (config?.profileRevision?.matches(Regex("[a-f0-9]{64}")) == true) {
             // Capture immutable, redacted intent from this admitted request. The profile may
             // change before a later attempt; never reconstruct history from current settings.
-            val settings = dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt.fromPayload(payload, config).evidence()
+            val settings = dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt.fromRequest(parsed as? JsonObject, config, includeSourceRanges = inspectGitHubSource).evidence()
             val snapshot = kotlinx.serialization.json.buildJsonObject {
                 put("physical_attempt_id", receipt.physicalAttemptId?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
                 put("evidence_scope", JsonPrimitive("ADMITTED_REQUEST"))
@@ -220,7 +226,7 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
                 }
             }
         }
-        runCatching { Json.parseToJsonElement(payload) }.getOrNull()?.let { inspect(it, 0) }
+        if (candidates.isNotEmpty() || preparedEvidence.isNotEmpty()) parsed?.let { inspect(it, 0) }
         includedProducers += attemptIncluded
         val offered = (candidates + preparedEvidence).flatMap { metadata ->
             AssistHandoffContract.producerIds(AgentToolResult("offered", ToolResultContent.Json(JsonObject(emptyMap())), false, assistMetadata = listOf(metadata)))

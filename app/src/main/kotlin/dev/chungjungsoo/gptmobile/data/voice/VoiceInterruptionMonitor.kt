@@ -70,6 +70,7 @@ internal class VoiceInterruptionMonitor(
             worker.execute {
                 val lease = "voice-interruption:${UUID.randomUUID()}"
                 var detected: List<VoicePreRoll>? = null
+                val leadIn = ArrayDeque<VoicePreRoll>()
                 var current: LocalVoiceCapture? = null
                 var acquired = false
                 try {
@@ -84,29 +85,35 @@ internal class VoiceInterruptionMonitor(
                     current = captureFactory()
                     current.configure(40)
                     capture = current
+                    if (closed.get() || generation.get() != ticket) return@execute
                     current.start()
                     if (closed.get() || generation.get() != ticket) return@execute
                     mutableState.value = VoiceInterruptionStatus.READY
                     val detector = VoiceInterruptionDetector()
-                    val leadIn = ArrayDeque<VoicePreRoll>()
                     var frames = 0
                     while (!closed.get() && generation.get() == ticket) {
                         val samples = current.read()
                         if (samples.isEmpty()) continue
-                        val retain = samples.copyOf()
-                        current.recycle(samples)
-                        leadIn.addLast(VoicePreRoll(retain, System.nanoTime()))
-                        frames += retain.size
-                        while (frames > 16_000 && leadIn.size > 1) frames -= leadIn.removeFirst().samples.size
-                        if (detector.observe(retain, outputLevel())) {
-                            detected = leadIn.toList()
+                        leadIn.addLast(VoicePreRoll(samples, System.nanoTime()))
+                        frames += samples.size
+                        while (frames > 16_000 && leadIn.size > 1) {
+                            val expired = leadIn.removeFirst().samples
+                            frames -= expired.size
+                            current.recycle(expired)
+                        }
+                        if (detector.observe(samples, outputLevel())) {
+                            // Only the detected second of speech outlives this recorder.
+                            detected = leadIn.map { it.copy(samples = it.samples.copyOf()) }
                             break
                         }
                     }
                 } catch (_: Exception) {
                     if (generation.get() == ticket) mutableState.value = VoiceInterruptionStatus.UNAVAILABLE
                 } finally {
-                    runCatching { current?.close() }
+                    current?.let { recorder ->
+                        runCatching { for (chunk in leadIn) recorder.recycle(chunk.samples) }
+                        runCatching { recorder.close() }
+                    }
                     if (capture === current) capture = null
                     if (acquired) VoiceMicrophoneLease.release(lease)
                     val speech = detected

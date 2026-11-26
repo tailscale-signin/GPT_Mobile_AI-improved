@@ -9,6 +9,7 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.actions import ActionLedger, ActionConflict, ExternalOutcomeUnknown, current_gateway_job_id, logical_action_id
@@ -137,5 +138,53 @@ class GatewayUpgradeTests(unittest.TestCase):
             schema['unevaluatedProperties']=False
             self.assertEqual([],runtime.get_all_mcp_tools());self.assertIn('github_get_file_contents',runtime.gateway_schema_rejections)
             rejected=runtime.gateway_schema_metrics['rejected'];runtime.get_all_mcp_tools();self.assertEqual(rejected,runtime.gateway_schema_metrics['rejected'])
+
+    def test_large_catalog_shares_only_compilation_across_exact_bindings(self):
+        schema = {'type': 'object', 'properties': {'path': {'type': 'string', 'maxLength': 10}}}
+        config = {'left': {}, 'right': {}}
+        rows, metadata = [], {}
+        for index in range(2063):
+            server = 'left' if index % 2 == 0 else 'right'
+            tool = f'read_{index}'
+            name = f'{server}_{tool}'
+            rows.append({'function': {'name': name, 'parameters': schema}})
+            metadata[name] = {'server': server, 'tool': tool, 'inputSchema': schema}
+        runtime = SimpleNamespace(get_all_mcp_tools=lambda force=False: rows, load_mcp_config=lambda: config,
+                                  mcp_tool_metadata=metadata, mcp_cache_lock=threading.RLock())
+        install_exact_routing(runtime)
+        first = runtime.get_all_mcp_tools()
+        self.assertEqual(2063, len(first))
+        first[0]['function']['parameters']['properties']['path']['maxLength'] = 100
+        self.assertEqual(10, first[1]['function']['parameters']['properties']['path']['maxLength'])
+        self.assertEqual(10, runtime.get_all_mcp_tools()[0]['function']['parameters']['properties']['path']['maxLength'])
+        self.assertEqual(1, runtime.gateway_schema_metrics['compiled'])
+        self.assertEqual(2 * len(rows) - 1, runtime.gateway_schema_metrics['cacheHits'])
+
+        metadata['left_read_0']['inputSchema'] = {'type': 'object', 'maxProperties': 0}
+        del config['right']
+        updated = runtime.get_all_mcp_tools(True)
+        self.assertEqual(1032, len(updated))
+        self.assertEqual(2, runtime.gateway_schema_metrics['compiled'])
+        self.assertEqual(0, updated[0]['function']['parameters']['maxProperties'])
+        with self.assertRaises(CatalogBindingError):
+            runtime._execute_mcp_tool_single('right_read_1', {})
+        with self.assertRaises(CatalogBindingError):
+            runtime._execute_mcp_tool_single('left_read_0', {'path': 'x'})
+
+    def test_full_catalog_scan_keeps_bounded_hits_across_distinct_schemas(self):
+        rows, metadata = [], {}
+        for index in range(5):
+            name = f's_tool{index}'
+            schema = {'type': 'object', 'maxProperties': index}
+            rows.append({'function': {'name': name, 'parameters': schema}})
+            metadata[name] = {'server': 's', 'tool': f'tool{index}', 'inputSchema': schema}
+        runtime = SimpleNamespace(get_all_mcp_tools=lambda force=False: rows, load_mcp_config=lambda: {'s': {}},
+                                  mcp_tool_metadata=metadata, mcp_cache_lock=threading.RLock())
+        with patch('v14.tools._COMPILED_SCHEMA_LIMIT', 3):
+            install_exact_routing(runtime)
+            for expected_compiles in (5, 7, 9):
+                self.assertEqual(5, len(runtime.get_all_mcp_tools()))
+                self.assertEqual(expected_compiles, runtime.gateway_schema_metrics['compiled'])
+
 
 if __name__=='__main__':unittest.main()

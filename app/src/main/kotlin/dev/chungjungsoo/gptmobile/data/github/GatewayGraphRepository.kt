@@ -319,7 +319,7 @@ class GatewayGraphRepository @Inject constructor(
         val effectiveProfile = GitHubChatPolicy.platform(selected, originalFeatures, context)
         if (effectiveProfile.disableAllTools || effectiveProfile.disableRemoteTools) throw GatewayGraphAdmissionException("PERMISSION_DENIED", "Tools are disabled for the selected profile.")
         val features = GitHubChatPolicy.features(originalFeatures, selected.uid, context)
-        val preferences = features.githubProfileOverrides[selected.uid] ?: GitHubChatProfileOverride()
+        val preferences = features.githubProfileOverrides[selected.uid] ?: GitHubChatProfileOverride.newProfile
         if (!features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.GITHUB) || !features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.connection(context.connectionUid)) || !preferences.githubTools) {
             throw GatewayGraphAdmissionException("PERMISSION_DENIED", "The GitHub plugin or tools are disabled for the selected profile.")
         }

@@ -82,6 +82,7 @@ class GitHubWorkspaceClient(
     private val scheduler = scheduler ?: if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token, apiOrigins.hostIdentity) else GitHubRequestScheduler()
     private var authenticationRejected = authenticationRejected ?: if (sharedCredentialAdmission) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
     private var refAvailability = refAvailability ?: if (sharedCredentialAdmission) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
+    private val pullFileInventory = GitHubPullFileInventory()
     private val credentialLock = Any()
     private fun requestCredential() = synchronized(credentialLock) { GitHubRequestCredential(token, authenticationRejected, refAvailability) }
 
@@ -241,6 +242,7 @@ class GitHubWorkspaceClient(
             if (refreshed != token) {
                 token = refreshed
                 responseCache.clear()
+                pullFileInventory.clear()
                 refAvailability = if (sharedCredentialAdmission) GitHubSessionCaches.refsForCredential(refreshed, apiOrigins.hostIdentity) else GitHubRefAvailability()
                 authenticationRejected = if (sharedCredentialAdmission) GitHubSessionCaches.authenticationForCredential(refreshed, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
             }
@@ -588,14 +590,26 @@ class GitHubWorkspaceClient(
             "related_files" -> relatedFiles(root, ref, required("path"))
             "get_pull_request_files" -> {
                 val number = required("pull_number").toInt().also { require(it > 0) }
-                pageResult(request("$root/pulls/$number/files?$pagination"), page, perPage, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
+                val scoped = JsonObject(args + mapOf("include_files" to JsonPrimitive(true), "include_checks" to JsonPrimitive(false), "include_patches" to JsonPrimitive(true)))
+                val result = prContext(root, number, scoped, page, perPage, fullPatches = true)
+                buildJsonObject {
+                    put("items", result.getValue("files"))
+                    put("page", page)
+                    put("per_page", perPage)
+                    put("returned", result.getValue("files_returned"))
+                    for (field in listOf("has_more", "files_total", "effective_per_page", "base_sha", "head_sha", "changed_file_coverage")) result[field]?.let { put(field, it) }
+                    (result["files_continuation"] as? JsonObject)?.let {
+                        put("continuation", JsonObject(it + ("action" to JsonPrimitive("get_pull_request_files"))))
+                        put("next_page", page + 1)
+                    }
+                }
             }
             "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pull_request_reviews" -> pullRequestReviews(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pr_context" -> {
                 val number = required("pull_number").toInt().also { require(it > 0) }
                 try {
-                    prContext(root, number, args, page)
+                    prContext(root, number, args, page, perPage)
                 } catch (changed: IllegalArgumentException) {
                     // A live unpinned *read* may race with a commit during file listing.
                     // Never move a pinned review or a write to another revision.
@@ -606,7 +620,7 @@ class GitHubWorkspaceClient(
                     if (args["verify_live"] != JsonPrimitive(true) || pinned || !isConcurrentFileRead) {
                         throw changed
                     }
-                    val refreshed = prContext(root, number, args, page)
+                    val refreshed = prContext(root, number, args, page, perPage)
                     JsonObject(refreshed + ("pr_context_refresh_reason" to JsonPrimitive("HEAD_CHANGED_DURING_FILES")))
                 }
             }
@@ -622,7 +636,7 @@ class GitHubWorkspaceClient(
                 }
                 compactChecks(result, page, perPage)
             }
-            "compare_refs" -> compactCompare(request("$root/compare/${segment(required("base"))}...${segment(required("head"))}?$pagination").jsonObject)
+            "compare_refs" -> compareRefs(root, required("base"), required("head"), args, page, perPage)
             "changed_since" -> {
                 val head = field("head").ifBlank { ref.ifBlank { "HEAD" } }
                 compactCompare(request("$root/compare/${segment(required("base"))}...${segment(head)}?per_page=100").jsonObject)
@@ -914,7 +928,8 @@ class GitHubWorkspaceClient(
         val commit = request("$root/commits/${segment(target)}").jsonObject
         val sha = commit["sha"]?.jsonPrimitive?.content ?: error("Selected commit is unavailable.")
         val treeSha = commit["commit"]?.jsonObject?.get("tree")?.jsonObject?.get("sha")?.jsonPrimitive?.content ?: error("Selected tree is unavailable.")
-        return JsonObject(GitHubRepositoryIndex.compact(request("$root/git/trees/$treeSha?recursive=1").jsonObject, page) + mapOf("commit_sha" to JsonPrimitive(sha), "tree_sha" to JsonPrimitive(treeSha)))
+        val tree = request("$root/git/trees/$treeSha?recursive=1").jsonObject
+        return JsonObject(GitHubRepositoryIndex.compact(tree, page) + mapOf("commit_sha" to JsonPrimitive(sha), "tree_sha" to JsonPrimitive(treeSha)))
     }
 
     private suspend fun relatedFiles(root: String, ref: String, path: String): JsonObject {
@@ -922,8 +937,13 @@ class GitHubWorkspaceClient(
         val target = ref.ifBlank {
             request(root).jsonObject["default_branch"]?.jsonPrimitive?.content ?: "HEAD"
         }
-        val tree = request("$root/git/trees/${segment(target)}?recursive=1").jsonObject
+        val commit = request("$root/commits/${segment(target)}").jsonObject
+        val sha = commit.getValue("sha").jsonPrimitive.content
+        val treeSha = commit.getValue("commit").jsonObject.getValue("tree").jsonObject.getValue("sha").jsonPrimitive.content
+        val tree = request("$root/git/trees/${segment(treeSha)}?recursive=1").jsonObject
         return buildJsonObject {
+            put("commit_sha", sha)
+            put("tree_sha", treeSha)
             put("path", path)
             put("related", GitHubRepositoryIndex.related(tree, path))
             put("truncated", tree["truncated"] ?: JsonPrimitive(false))
@@ -1005,7 +1025,8 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private suspend fun prContext(root: String, number: Int, args: JsonObject, page: Int): JsonObject {
+    private suspend fun prContext(root: String, number: Int, args: JsonObject, page: Int, filePageSize: Int, fullPatches: Boolean = false): JsonObject {
+        val credential = requestCredential().token
         val pr = request("$root/pulls/$number").jsonObject
         val head = pr["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
         val base = pr["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
@@ -1018,16 +1039,26 @@ class GitHubWorkspaceClient(
         val includeChecks = args["include_checks"]?.jsonPrimitive?.booleanOrNull != false
         require(includeFiles || includeChecks) { "Select pull request files, checks, or both." }
         val checkPage = (args["check_page"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1).also { require(it in 1..1000) }
-        val files = if (includeFiles) request("$root/pulls/$number/files?per_page=30&page=$page").jsonArray else JsonArray(emptyList())
+        val total = (pr["changed_files"] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
+        val withinRestLimit = (page - 1) * filePageSize < GitHubPullFileInventory.REST_LIMIT
+        val files = if (includeFiles && withinRestLimit) request("$root/pulls/$number/files?per_page=$filePageSize&page=$page").jsonArray else JsonArray(emptyList())
         if (includeFiles) {
             // The files endpoint is mutable, so an expected head checked only before
             // the read cannot establish which revision supplied the returned patch.
-            val after = request("$root/pulls/$number").jsonObject
-            require(after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == head && after["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty() == base) {
+            val after = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
+            require(after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == head && after["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty() == base && after["changed_files"] == pr["changed_files"]) {
                 "Pull request head changed or its base changed while files were loading; restart the review at its new revision."
             }
         }
-        val total = pr["changed_files"]?.jsonPrimitive?.content?.toIntOrNull() ?: files.size
+        val coverage = if (includeFiles) {
+            synchronized(credentialLock) {
+                require(token == credential) { "GitHub account changed while PR files were loading. Restart the review." }
+                pullFileInventory.observe(root, number, base, head, total, filePageSize, page, files, args["verify_live"] == JsonPrimitive(true))
+            }
+        } else {
+            null
+        }
+        val more = coverage?.get("has_more") == JsonPrimitive(true)
         val checks = if (includeChecks) compactChecks(request("$root/commits/${segment(head)}/check-runs?per_page=30&page=$checkPage").jsonObject, checkPage) else null
         val patches = args["include_patches"]?.jsonPrimitive?.booleanOrNull == true
         val health = if (args["include_health"]?.jsonPrimitive?.booleanOrNull == true) {
@@ -1052,22 +1083,27 @@ class GitHubWorkspaceClient(
             (pr["body"] as? JsonPrimitive)?.takeIf { it.isString }?.let { put("body_sha256", GitHubRepositoryStateStore.digest(it.content)) }
             health?.let { put("merge_health", json.encodeToJsonElement(GitHubPullRequestHealth.serializer(), it)) }
             put("expected_head", head)
-            put("files_total", total)
+            put("base_sha", base)
+            put("head_sha", head)
+            total?.let { put("files_total", it) }
+            coverage?.let { put("changed_file_coverage", it) }
             put("files_included", includeFiles)
             put("checks_included", includeChecks)
             if (includeFiles) {
                 put("files_returned", files.size)
                 put("page", page)
-                put("files_truncated", page * 30 < total)
-                put("has_more", page * 30 < total)
+                put("effective_per_page", filePageSize)
+                put("files_truncated", coverage?.get("complete") != JsonPrimitive(true))
+                put("has_more", more)
             }
-            if (includeFiles && page * 30 < total) {
+            if (includeFiles && more) {
                 put(
                     "files_continuation",
                     buildJsonObject {
                         put("action", "pr_context")
                         put("pull_number", number)
                         put("page", page + 1)
+                        put("per_page", filePageSize)
                         put("expected_head", head)
                         if (base.isNotBlank()) put("expected_base_sha", base)
                         put("include_patches", patches)
@@ -1086,8 +1122,8 @@ class GitHubWorkspaceClient(
                                 project(item, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename").forEach { (key, value) -> put(key, value) }
                                 if (patches) {
                                     val patch = item["patch"]?.jsonPrimitive?.content
-                                    patch?.let { put("patch", GitHubRepositorySession.utf8Prefix(it, 2000)) }
-                                    put("patch_truncated", patch == null || patch.encodeToByteArray().size > 2000)
+                                    patch?.let { put("patch", if (fullPatches) it else GitHubRepositorySession.utf8Prefix(it, 2000)) }
+                                    put("patch_truncated", patch == null || !fullPatches && patch.encodeToByteArray().size > 2000)
                                 }
                             }
                         }
@@ -1202,6 +1238,56 @@ class GitHubWorkspaceClient(
         }
     }
 
+    private suspend fun compareRefs(root: String, base: String, head: String, args: JsonObject, page: Int, perPage: Int): JsonObject {
+        val requestedPull = (args["pull_number"] as? JsonPrimitive)?.intOrNull
+        val exact = Regex("[0-9a-fA-F]{40}")
+        val pinnedPrPage = requestedPull != null && page > 1 && exact.matches(base) && exact.matches(head)
+        val compare = if (pinnedPrPage) JsonObject(emptyMap()) else compactCompare(request("$root/compare/${segment(base)}...${segment(head)}?per_page=$perPage&page=$page").jsonObject)
+        if (requestedPull == null && compare["files_truncated"] != JsonPrimitive(true)) return compare
+        if (!exact.matches(base) || !exact.matches(head)) {
+            // Atomically bind subsequent PR pages to immutable commits; re-run the
+            // bounded comparison at that pair if either input was a moving ref.
+            suspend fun pin(ref: String): String? {
+                if (exact.matches(ref)) return ref
+                if (':' in ref) return null
+                return request("$root/commits/${segment(ref)}").jsonObject["sha"]?.jsonPrimitive?.content?.takeIf(exact::matches)
+            }
+            val pinnedBase = pin(base) ?: return compare
+            val pinnedHead = pin(head) ?: return compare
+            return compareRefs(root, pinnedBase, pinnedHead, args, page, perPage)
+        }
+        // GitHub's commit pages do not paginate the comparison's capped file list.
+        // An associated PR is an alternative only when both pinned revisions match.
+        val number = requestedPull ?: request("$root/commits/$head/pulls?per_page=100").jsonArray
+            .mapNotNull { it as? JsonObject }
+            .firstOrNull {
+                it["head"]?.jsonObject?.get("sha") == JsonPrimitive(head) &&
+                    it["base"]?.jsonObject?.get("sha") == JsonPrimitive(base)
+            }?.get("number")?.jsonPrimitive?.intOrNull ?: return compare
+        require(number > 0)
+        val scoped = JsonObject(args + mapOf("expected_head" to JsonPrimitive(head), "expected_base_sha" to JsonPrimitive(base), "include_files" to JsonPrimitive(true), "include_checks" to JsonPrimitive(false)))
+        val inventory = prContext(root, number, scoped, page, perPage)
+        val coverage = inventory.getValue("changed_file_coverage").jsonObject
+        return buildJsonObject {
+            compare.filterKeys { it !in setOf("files", "files_returned", "files_truncated", "file_inventory_complete", "missing_files_in_projection", "missing_files_at_least", "recovery", "file_scope") }.forEach { (key, value) -> put(key, value) }
+            for (field in listOf("files", "files_total", "files_returned", "files_truncated", "effective_per_page", "head_sha", "base_sha", "has_more", "page", "changed_file_coverage")) inventory[field]?.let { put(field, it) }
+            put("file_inventory_complete", coverage.getValue("complete"))
+            if (inventory["has_more"] == JsonPrimitive(true)) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "compare_refs")
+                        put("pull_number", number)
+                        put("base", base)
+                        put("head", head)
+                        put("page", page + 1)
+                        put("per_page", perPage)
+                    }
+                )
+            }
+        }
+    }
+
     private fun compactCompare(result: JsonObject): JsonObject = buildJsonObject {
         listOf("status", "ahead_by", "behind_by", "total_commits", "html_url").forEach { key -> result[key]?.let { put(key, it) } }
         val files = result["files"]?.jsonArray.orEmpty()
@@ -1214,7 +1300,16 @@ class GitHubWorkspaceClient(
             }
         )
         put("files_returned", minOf(files.size, 100))
-        put("files_truncated", files.size > 100)
+        val fileInventory = result["files"] is JsonArray
+        val remoteLimit = files.size >= 300
+        put("files_truncated", !fileInventory || files.size > 100)
+        put("file_inventory_complete", fileInventory && files.size <= 100)
+        put("compare_files_observed", files.size)
+        if (fileInventory) put(if (remoteLimit) "missing_files_at_least" else "missing_files_in_projection", (files.size - 100).coerceAtLeast(0))
+        if (!fileInventory || files.size > 100) {
+            put("file_scope", if (remoteLimit) "GitHub compare reached its 300-file ceiling." else "This projection does not contain every changed file.")
+            put("recovery", "Read github_pr action=context with the PR number, include_files=true and include_checks=false, and follow its revision-pinned file continuations.")
+        }
     }
 
     private fun compactPullRequests(items: JsonArray): JsonArray = buildJsonArray {
@@ -2216,18 +2311,25 @@ class GitHubWorkspaceClient(
         val resolvedJobId = requireNotNull(jobId).also { require(it > 0) }
         if (job == null) job = request("$root/actions/jobs/$jobId").jsonObject
         val resolvedJob = requireNotNull(job)
+        require(resolvedJob["id"]?.jsonPrimitive?.longOrNull == resolvedJobId) { "CI job identity changed." }
         val actualRun = resolvedJob["run_id"]?.jsonPrimitive?.content?.toLongOrNull()
         require(runId == null || actualRun == null || actualRun == runId) { "Job belongs to another workflow run." }
         runId = runId ?: actualRun
         val jobAttempt = resolvedJob["run_attempt"]?.jsonPrimitive?.content?.toIntOrNull()
-        val verifiedAttempt = runAttempt ?: requestedAttempt ?: jobAttempt
-        require(jobAttempt == null || verifiedAttempt == jobAttempt) { "CI job belongs to another workflow attempt." }
+        // A job selected from an attempt-specific jobs page belongs to that attempt.
+        // A standalone job without its own attempt cannot be attributed to the latest rerun.
+        val verifiedAttempt = jobAttempt ?: runAttempt?.takeIf { args["job_id"] == null }
+        require(requestedAttempt == null || requestedAttempt == verifiedAttempt) { "CI job attempt could not be verified." }
+        require(runAttempt == null || verifiedAttempt == null || runAttempt == verifiedAttempt) { "CI job belongs to another workflow attempt." }
         if (run == null && runId != null) run = request("$root/actions/runs/$runId" + (verifiedAttempt?.let { "/attempts/$it" } ?: "")).jsonObject
+        require(run?.get("id")?.jsonPrimitive?.longOrNull?.let { it == runId } != false) { "CI run identity changed." }
+        require(verifiedAttempt == null || run?.get("run_attempt")?.jsonPrimitive?.intOrNull?.let { it == verifiedAttempt } != false) { "CI workflow attempt changed." }
         val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expectedHead == null || expectedHead.equals(head, true)) { "CI evidence belongs to a different commit." }
         require(resolvedJob["head_sha"]?.jsonPrimitive?.content?.let { it.equals(head, true) } != false) { "CI job belongs to a different commit." }
         val credential = requestCredential()
-        val log = GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
+        val logReader = GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins)
+        val log = logReader.read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
         val safeLog = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (credential.token.isNotBlank()) it.replace(credential.token, "[REDACTED]") else it }
         val lines = safeLog.split('\n')
         val failure = Regex("error|failed|failure|exception|fatal|traceback|exit code", RegexOption.IGNORE_CASE)
@@ -2268,9 +2370,69 @@ class GitHubWorkspaceClient(
         } catch (_: Exception) {
             emptySet()
         }
+        val webRoot = "${apiOrigins.authorization}/${root.removePrefix("/repos/")}"
+        val identity = buildJsonObject {
+            put("repository", root.removePrefix("/repos/"))
+            put("head_sha", head)
+            runId?.let { put("run_id", it) }
+            verifiedAttempt?.let { put("run_attempt", it) }
+            put("job_id", resolvedJobId)
+            runId?.let { put("job_url", "$webRoot/actions/runs/$it/job/$resolvedJobId") }
+        }
+        fun redact(value: String): String = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(value).let {
+            if (credential.token.isBlank()) it else it.replace(credential.token, "[REDACTED]")
+        }
+        suspend fun optionalEvidence(read: suspend () -> Pair<String, List<JsonObject>>): Pair<String, List<JsonObject>> = try {
+            read()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (failure.isLocalPrivacyPolicyRejection()) throw failure
+            "UNAVAILABLE" to emptyList()
+        }
+        val bound = verifiedAttempt != null && runId != null && actualRun == runId && head.matches(Regex("[a-fA-F0-9]{40}"))
+        val checkPrefix = "${apiOrigins.rest}$root/check-runs/"
+        val checkId = (resolvedJob["check_run_url"] as? JsonPrimitive)?.content?.takeIf { it.startsWith(checkPrefix) }
+            ?.removePrefix(checkPrefix)?.toLongOrNull()?.takeIf { it > 0 }
+        val annotations = if (bound && checkId != null) {
+            optionalEvidence {
+                val check = request("$root/check-runs/$checkId").jsonObject
+                require(check["id"]?.jsonPrimitive?.longOrNull == checkId) { "Check run identity changed." }
+                val checkSha = (check["head_sha"] as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
+                val rows = request("$root/check-runs/$checkId/annotations?per_page=100&page=1").jsonArray
+                (if (rows.size >= 100 || rows.count { (it as? JsonObject)?.get("annotation_level") == JsonPrimitive("failure") } > 30) "PARTIAL_ANNOTATION_PAGE" else "ANNOTATIONS_READ") to
+                    GitHubCiDiagnosis.annotations(rows, if (checkSha.equals(head, true)) changedPaths else emptySet(), identity, checkId, checkSha, ::redact)
+            }
+        } else {
+            "NO_BOUND_CHECK_RUN" to emptyList()
+        }
+        val junit = if (bound) {
+            optionalEvidence {
+                GitHubCiTestEvidence.read(
+                    lines,
+                    identity,
+                    changedPaths,
+                    GitHubCiLogReader.MAX_LOG_BYTES,
+                    metadata = { request("$root/actions/artifacts/$it").jsonObject },
+                    archive = { id, hash -> logReader.read("$root/actions/artifacts/$id/zip", true, GitHubCiTestEvidence.ENTRY, hash).text },
+                    redact = ::redact
+                )
+            }
+        } else {
+            "ATTEMPT_UNVERIFIED" to emptyList()
+        }
+        val located = (annotations.second + junit.second).map { row ->
+            val path = (row["source_path"] as? JsonPrimitive)?.content
+            val sourceSha = ((row["tested_sha"] ?: row["check_head_sha"]) as? JsonPrimitive)?.content
+            if (path == null || sourceSha == null) return@map row
+            val url = GitHubEvidenceLink.sourceUrl(webRoot, path, sourceSha, (row["start_line"] as? JsonPrimitive)?.intOrNull, (row["end_line"] as? JsonPrimitive)?.intOrNull) ?: return@map row
+            JsonObject(row + ("source_url" to JsonPrimitive(url)))
+        }
         return buildJsonObject {
             sizeGate?.let { put("apk_size_failure", it) }
-            put("diagnosis", GitHubCiDiagnosis.group(excerpts, changedPaths))
+            put("diagnosis", JsonArray(located + GitHubCiDiagnosis.group(excerpts, changedPaths, identity)))
+            put("annotation_evidence", annotations.first)
+            put("junit_evidence", junit.first)
             put("changed_file_scope", "First page of the exact commit's changed files; absence of a match is not proof of no relationship")
             put("status", "available")
             put("run_id", runId)
@@ -2304,13 +2466,14 @@ class GitHubWorkspaceClient(
                 )
             )
             put("excerpts", JsonArray(excerpts))
-            put("evidence_id", GitHubRepositoryStateStore.digest(root + jobId + head + log.text))
+            put("evidence_id", GitHubRepositoryStateStore.digest(identity.toString() + log.text + annotations + junit))
             put(
                 "expand_with",
                 buildJsonObject {
                     put("action", "ci_failure_digest")
                     put("job_id", jobId)
                     put("run_id", runId)
+                    verifiedAttempt?.let { put("run_attempt", it) }
                     put("expected_head_sha", head)
                     put("start_line", positions.lastOrNull()?.plus(1) ?: 1)
                 }
@@ -2321,6 +2484,7 @@ class GitHubWorkspaceClient(
                     put("action", "get_job_logs")
                     put("job_id", jobId)
                     put("run_id", runId)
+                    verifiedAttempt?.let { put("run_attempt", it) }
                     put("expected_head_sha", head)
                     put("start_line", 1)
                 }
@@ -2912,7 +3076,7 @@ class GitHubWorkspaceClient(
                 }
                 if (response.status.value == 304 && cached != null) {
                     GitHubDispatchAccounting.freshness(path, GitHubReadFreshness.CONDITIONAL_BODY_UNCHANGED, cached.storedAtMillis)
-                    responseCache.put(cacheKey, cached.etag, cached.value)
+                    responseCache.revalidated(cacheKey, cached)
                     scheduler.recordCacheHit()
                     return@execute cached.value
                 }
@@ -2979,6 +3143,7 @@ class GitHubWorkspaceClient(
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+                if (method == HttpMethod.Get) GitHubRepositoryIndex.checkPinnedTreeResponse(path, parsed)
                 if (method == HttpMethod.Get &&
                     cached != null &&
                     cached.etag.isNotBlank() &&
@@ -2989,13 +3154,11 @@ class GitHubWorkspaceClient(
                 }
                 if (method == HttpMethod.Get) credential.refAvailability.succeeded(path)
                 if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
-                if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
+                if (cacheable) responseCache.putResponse(cacheKey, response.headers[HttpHeaders.ETag], parsed, GitHubResponseCache.isImmutableRequest(path), text.length)
                 parsed
             }
         }
     }
-
-    private fun immutablePath(path: String): Boolean = Regex("/(?:git/(?:blobs|trees)|commits)/[a-fA-F0-9]{40,64}(?:[/?]|$)").containsMatchIn(path) && !path.contains("check-runs") && !path.substringBefore('?').endsWith("/status") || Regex("[?&]ref=[a-fA-F0-9]{40,64}(?:&|$)").containsMatchIn(path)
 
     private suspend fun accountedRequest(url: String, observationId: String?, mutation: Boolean, block: HttpRequestBuilder.() -> Unit): GitHubBoundedResponse = try {
         client.githubRequest(url, block)

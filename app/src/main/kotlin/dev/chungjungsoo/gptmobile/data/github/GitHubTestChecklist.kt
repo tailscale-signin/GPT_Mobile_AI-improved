@@ -425,7 +425,8 @@ internal object GitHubTestChecklist {
     fun schedule(task: String, authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null): GitHubChecklistSchedule.Plan {
         val tools = authorized.ifEmpty { advertised }
         val planned = nextCall(task, advertised, receipts, remainingToolCalls, fixturePreflight)
-        val candidates = listOfNotNull(nextCall(task, tools, receipts, remainingToolCalls, fixturePreflight)) +
+        val authorizedNext = if (tools == advertised) planned else nextCall(task, tools, receipts, remainingToolCalls, fixturePreflight)
+        val candidates = listOfNotNull(authorizedNext) +
             GitHubSelfTestReads.available(tools, trusted(receipts))
         return GitHubChecklistSchedule.select(
             tools,

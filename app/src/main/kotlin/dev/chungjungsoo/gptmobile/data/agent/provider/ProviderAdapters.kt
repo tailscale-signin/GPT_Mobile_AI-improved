@@ -305,13 +305,19 @@ class OpenAIResponsesAdapter @Inject constructor(
                         }
                         .catch { error ->
                             if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
+                            // Stream cleanup may fail after the provider already issued its terminal result.
+                            if (terminalReceived) return@catch
                             roundFailed = true
-                            terminalReceived = false
                             failedTransportComplete = false
                             localCircuitRejection = providerCircuitRejection(error, responseObserved)
                             lastFailedMessage = providerFailureMessage(error, "OpenAI stream request failed")
                             lastFailedCode = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).errorCode
-                            canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.isRotatableError(error)
+                            if (visibleText) {
+                                val partial = missingStreamTerminal(lastFailedMessage.orEmpty(), visible = true)
+                                lastFailedCode = lastFailedCode?.takeUnless { it == "UNKNOWN" } ?: partial.errorCode
+                                failureDetails = JsonObject(partial.failureDetails.orEmpty() + failureDetails.orEmpty())
+                            }
+                            canRotate = !responseObserved && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { event ->
                             if (event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent && event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent) responseObserved = true

@@ -185,6 +185,17 @@ int main() {
   Require(cache.Size() == 0 && cache.Bytes() == 0);
   Require(cache.Evictions() == 4);
 
+  const int64_t gib = 1024LL * 1024 * 1024;
+  auto fp32 = kokoro_runtime::AdmitShapeCache(true, 4 * gib, gib, gib, true);
+  kokoro_runtime::ShapeCache<Session> fp32_cache(1, gib);
+  fp32_cache.Configure(fp32);
+  fp32_cache.Insert(25, gib, std::make_unique<Session>(25));
+  fp32_cache.Insert(93, gib, std::make_unique<Session>(93));
+  Require(fp32_cache.Find(25) && fp32_cache.Find(93) && fp32_cache.Evictions() == 0);
+  fp32_cache.Configure(kokoro_runtime::AdmitShapeCache(true, gib / 2, 2 * gib, gib, true));
+  Require(fp32_cache.Size() == 1);
+  Require(kokoro_runtime::AdmitShapeCache(true, 4 * gib, gib, gib).budget < 2 * gib);
+
   // The reported 25/93-token HTP pair exceeds the old 640 MiB budget. With
   // observed free headroom both exact sessions survive alternating hits.
   constexpr int64_t mib = 1024 * 1024;

@@ -1,12 +1,17 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 import android.Manifest
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import java.time.Duration
 import java.util.concurrent.Executor
 import org.junit.Assert.assertEquals
@@ -21,6 +26,7 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
+import org.mockito.Mockito.`when`
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -37,6 +43,9 @@ class AndroidRecognitionRecoveryTest {
         var throwOnAvailability = false
         var creations = 0
         var qualifications = 0
+        var deferSupport = false
+        var qualification = RecognitionQualification(RecognitionSupportStatus.SUPPORTED)
+        lateinit var confirmSupport: () -> Unit
         val modes = mutableListOf<Boolean>()
         override fun available(onDevice: Boolean): Boolean {
             modes += onDevice
@@ -49,7 +58,8 @@ class AndroidRecognitionRecoveryTest {
         }
         override fun checkSupport(recognizer: SpeechRecognizer, intent: Intent, onDevice: Boolean, result: (RecognitionQualification) -> Unit) {
             qualifications++
-            result(RecognitionQualification(RecognitionSupportStatus.SUPPORTED))
+            confirmSupport = { result(qualification) }
+            if (!deferSupport) confirmSupport()
         }
         fun listener(): RecognitionListener {
             val captor = ArgumentCaptor.forClass(RecognitionListener::class.java)
@@ -156,7 +166,38 @@ class AndroidRecognitionRecoveryTest {
             assertTrue(listener.failures.single().contains("request or connection limit"))
             assertEquals(0, listener.retryable)
             assertEquals(15000L, audio.retryAfterMillis())
+            val cause = listener.causes.single() as AndroidRecognitionFailure
+            assertEquals(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, cause.platformError)
+            assertEquals(AndroidRecognitionFailure.Stage.STARTING, cause.stage)
+            assertTrue(cause.dispatched)
+            assertEquals("capture_start", cause.reportFields(false)["failed_stage"])
             verify(service.engine).destroy()
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun supportRateLimitRetainsItsUndispatchedAttemptAndCannotRestartCapture() {
+        val service = Service().apply {
+            qualification = RecognitionQualification(RecognitionSupportStatus.FAILED, SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+        }
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val cause = listener.causes.single() as AndroidRecognitionFailure
+            assertEquals(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, cause.platformError)
+            assertEquals(AndroidRecognitionFailure.Stage.SUPPORT_CHECK, cause.stage)
+            assertFalse(cause.dispatched)
+            assertEquals("precheck", cause.reportFields(false)["failed_stage"])
+            assertEquals(listOf("VOICE_RECOGNIZER_RATE_LIMITED"), listener.codes)
+            assertEquals(listOf(VoiceRecoveryAction.SPEECH_SERVICE), listener.repairs)
+            assertEquals(0, listener.retryable)
+            assertEquals(15_000L, audio.retryAfterMillis())
+            audio.listen(Listener())
+            verify(service.engine, never()).startListening(any(Intent::class.java))
+            verify(service.engine).destroy()
+            assertEquals(1, service.qualifications)
         } finally {
             audio.close()
         }
@@ -232,6 +273,107 @@ class AndroidRecognitionRecoveryTest {
         } finally {
             audio.close()
             VoiceMicrophoneLease.release("finished-deadline-test")
+        }
+    }
+
+    @Test fun routeAdmissionRollsBackRejectedChangesAndReleasesOnlyOwnedRoutes() {
+        val manager = mock(AudioManager::class.java)
+        val device = mock(AudioDeviceInfo::class.java)
+        `when`(device.id).thenReturn(71)
+        `when`(manager.availableCommunicationDevices).thenReturn(listOf(device))
+        `when`(manager.mode).thenReturn(AudioManager.MODE_NORMAL)
+        val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
+            override fun getSystemService(name: String): Any? = if (name == Context.AUDIO_SERVICE) manager else super.getSystemService(name)
+        }
+        fun owner() = AndroidVoiceAudio(context, Executor { it.run() }, { _, _ -> mock(TextToSpeech::class.java) }, Service(), RecognitionStartGate { 0L })
+        val rejected = owner()
+        var resets = 0
+        rejected.routeChanged = { resets++ }
+        try {
+            assertFalse(rejected.selectRoute(17))
+            assertEquals(0, resets)
+            assertFalse(rejected.selectRoute(71))
+            assertEquals(1, resets)
+            verify(manager).mode = AudioManager.MODE_NORMAL
+        } finally {
+            rejected.close()
+        }
+        verify(manager, never()).clearCommunicationDevice()
+        val accepted = owner()
+        accepted.routeChanged = { resets++ }
+        try {
+            `when`(manager.setCommunicationDevice(device)).thenReturn(true)
+            assertTrue(accepted.selectRoute(71))
+            assertEquals(2, resets)
+            `when`(manager.communicationDevice).thenReturn(device)
+            assertTrue(accepted.selectRoute(71))
+            assertEquals(2, resets)
+        } finally {
+            accepted.close()
+        }
+        verify(manager).clearCommunicationDevice()
+        verify(manager, times(2)).mode = AudioManager.MODE_NORMAL
+    }
+
+    @Test fun doneSpeakingDuringQualificationNeverStartsALateMicrophone() {
+        val service = Service().apply { deferSupport = true }
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener().apply { final = "waiting" }
+        try {
+            audio.listen(listener)
+            audio.finishListening()
+            assertEquals("", listener.final)
+            assertTrue(VoiceMicrophoneLease.acquire("finished-before-support"))
+            service.confirmSupport()
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+            verify(service.engine, never()).startListening(any(Intent::class.java))
+            verify(service.engine, never()).stopListening()
+            verify(service.engine).destroy()
+            assertTrue(listener.failures.isEmpty())
+        } finally {
+            audio.close()
+            VoiceMicrophoneLease.release("finished-before-support")
+        }
+    }
+
+    @Test fun permissionRevokedDuringQualificationReleasesTheMicrophoneBeforeDispatch() {
+        val service = Service().apply { deferSupport = true }
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.RECORD_AUDIO)
+            service.confirmSupport()
+            verify(service.engine, never()).startListening(any(Intent::class.java))
+            verify(service.engine).destroy()
+            assertEquals(listOf(VoiceRecoveryAction.MICROPHONE_PERMISSION), listener.repairs)
+            assertTrue(VoiceMicrophoneLease.acquire("permission-changed"))
+        } finally {
+            audio.close()
+            VoiceMicrophoneLease.release("permission-changed")
+        }
+    }
+
+    @Test fun changedRoomPrivacyPreventsPendingOnlineRecognition() {
+        val service = Service().apply { deferSupport = true }
+        val audio = audio(service, RecognitionStartGate { 0L })
+        var privacy = ConversationPrivacyContext(7, false)
+        audio.bindConversationPrivacy { privacy }
+        audio.allowOnlineSpeech = true
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            privacy = ConversationPrivacyContext(7, true)
+            service.confirmSupport()
+            assertEquals(listOf(false), service.modes)
+            verify(service.engine, never()).startListening(any(Intent::class.java))
+            verify(service.engine).destroy()
+            assertEquals(1, listener.failures.size)
+            assertEquals(0, listener.retryable)
+            assertTrue(VoiceMicrophoneLease.acquire("privacy-changed"))
+        } finally {
+            audio.close()
+            VoiceMicrophoneLease.release("privacy-changed")
         }
     }
 
@@ -367,6 +509,10 @@ class AndroidRecognitionRecoveryTest {
             assertEquals(0, listener.retryable)
             assertTrue(listener.failures.single().contains("Automatic retries are paused"))
             assertEquals(15000L, audio.retryAfterMillis())
+            val cause = listener.causes.single() as AndroidRecognitionFailure
+            assertEquals(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, cause.platformError)
+            assertEquals(AndroidRecognitionFailure.Stage.RECOGNITION, cause.stage)
+            assertTrue(cause.dispatched)
             verify(service.engine).cancel()
             verify(service.engine).destroy()
             // A retired binder cannot extend the cooldown or trigger another retry.

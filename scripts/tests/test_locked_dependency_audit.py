@@ -13,16 +13,16 @@ class LockedDependencyAuditTest(unittest.TestCase):
         names = {name for _, name, _ in packages}
         self.assertTrue({'androidx.sqlite:sqlite-android', 'com.android.tools.build:gradle', 'androidx.room:room-compiler'} <= names)
 
-    def test_voice_smoke_pins_reach_the_advisory_query(self):
+    def test_speech_runtime_and_smoke_pins_reach_the_advisory_query(self):
         root = Path(__file__).resolve().parents[2]
-        declarations = (root / 'scripts/requirements-voice-mediapipe-smoke.txt').read_text().splitlines()
         expected = set()
-        for line in declarations:
-            if not line.strip() or line.lstrip().startswith('#'):
-                continue
-            name, version = line.split()[0].split('==')
-            expected.add(('PyPI', name, version))
-        self.assertTrue({'mediapipe', 'pillow'} <= {name for _, name, _ in expected})
+        for path in ('scripts/requirements-voice-mediapipe-smoke.txt', 'gateway/requirements-voice.txt'):
+            for line in (root / path).read_text().splitlines():
+                if line and line[0].isalnum():
+                    name, version = line.split()[0].split('==')
+                    expected.add(('PyPI', name, version))
+        self.assertTrue({'mediapipe', 'pillow', 'onnxruntime-gpu'} <= {name for _, name, _ in expected})
+        self.assertGreaterEqual(len({version for _, name, version in expected if name == 'numpy'}), 2)
         pillow = next(package for package in expected if package[1] == 'pillow')
         for verified in (False, True):
             with self.subTest(verified_inventory=verified):
@@ -37,7 +37,7 @@ class LockedDependencyAuditTest(unittest.TestCase):
                     return results
 
                 matches = scan(inventory(root, verified_inventory=verified), query)
-                self.assertTrue(expected <= queried, f'Speech smoke pins were not queried: {sorted(expected - queried)}')
+                self.assertTrue(expected <= queried, f'Speech pins were not queried: {sorted(expected - queried)}')
                 self.assertEqual([(*pillow, 'TEST-SPEECH-PIN')], matches)
 
     def test_pagination_retains_package_identity(self):

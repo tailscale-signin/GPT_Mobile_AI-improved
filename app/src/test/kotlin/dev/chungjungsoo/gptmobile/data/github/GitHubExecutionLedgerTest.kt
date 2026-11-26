@@ -209,6 +209,62 @@ class GitHubExecutionLedgerTest {
         }
     }
 
+    @Test fun unsentHandoffDuplicateUsesOnlyTheVerifiedOriginalGraphAttempt() {
+        val hash = "a".repeat(64)
+        val tool = "repository_graph"
+        val args = buildJsonObject { put("action", "index") }
+        val call = ProviderEvent.ToolCall("original", tool, args)
+        val unknown = AgentToolResult(call.callId, ToolResultContent.Text("interrupted"), true, errorCode = "TOOL_OUTCOME_UNKNOWN", dispatched = true)
+        val correlation = dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.observation(call, unknown)
+        val blocked = dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.blocked("duplicate", correlation)
+        val scope = buildJsonObject {
+            put("binding", "task")
+            put("repository", "o/r")
+            put("branch", "main")
+            put("tool", tool)
+            put("trusted", true)
+            put("arguments", args)
+        }
+        fun graph(id: String, done: Boolean) = JsonObject(
+            scope + buildJsonObject {
+                put("call_id", id)
+                put("success", done)
+                put("dispatched", true)
+                if (!done) put("error_code", unknown.errorCode)
+                put(
+                    "execution",
+                    buildJsonObject {
+                        put("schema", "gptmobile.repository-graph.v1")
+                        put("call_id", id)
+                        put("action", "index")
+                        put("phase", if (done) "COMPLETED" else "UNKNOWN_OUTCOME")
+                        if (done) {
+                            put("confirmed_index_attempt_hash", hash)
+                        } else {
+                            put("index_outcome_unknown", true)
+                            put("graph_index_attempt_hash", hash)
+                        }
+                    }
+                )
+            }
+        )
+        val duplicate = JsonObject(
+            scope + buildJsonObject {
+                put("call_id", "duplicate")
+                put("success", false)
+                put("dispatched", false)
+                put("error_code", blocked.errorCode)
+                put("execution", requireNotNull(blocked.executionReceipt))
+            }
+        )
+        val before = mapOf("original" to graph("original", false), "duplicate" to duplicate)
+        assertTrue(GitHubExecutionLedger.reconciledReceiptIds(before).isEmpty())
+        val proven = before + ("proof" to graph("proof", true))
+        assertEquals(setOf("original", "duplicate"), GitHubExecutionLedger.reconciledReceiptIds(proven))
+        val other = JsonObject(duplicate + ("branch" to JsonPrimitive("other")))
+        assertEquals(setOf("original"), GitHubExecutionLedger.reconciledReceiptIds(proven + ("duplicate" to other)))
+    }
+
     @Test fun restoredUnknownCommitClearsOnlyAfterMatchingNativeRemoteProof() = runTest {
         val saved = linkedMapOf<String, JsonObject>()
         fun book() = GitHubEvidenceBook(

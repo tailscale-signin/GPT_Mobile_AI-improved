@@ -44,7 +44,7 @@ internal data class GitHubEngineeringStrategy(val level: GitHubIntelligenceLevel
             val request = GitHubTaskContinuity.request(task)
             val operations = GitHubOperationTool.taskTools(request)
             val complexity = when {
-                GitHubStatusRequest.matches(request) -> GitHubTaskComplexity.LOOKUP
+                GitHubStatusRequest.matches(request) || GitHubLookupRoute.from(request) != null -> GitHubTaskComplexity.LOOKUP
                 GitHubTestChecklist.integration(request) ||
                     GitHubTaskCoverage.matches(request) ||
                     operations.any { it in setOf("github_stage_patch", "github_write", "github_release") } &&

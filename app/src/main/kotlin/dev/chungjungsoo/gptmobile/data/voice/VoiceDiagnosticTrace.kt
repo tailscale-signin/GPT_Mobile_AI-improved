@@ -207,7 +207,7 @@ class VoiceDiagnosticTrace internal constructor(
                 else -> null
             }
             val engine = provider ?: when (raw) {
-                "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested" -> "MEDIAPIPE_KOKORO"
+                "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested", "mediapipe-kokoro-npu-requested" -> "MEDIAPIPE_KOKORO"
                 "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON"
                 "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET"
                 else -> null
@@ -231,7 +231,7 @@ class VoiceDiagnosticTrace internal constructor(
                 "qnn-gpu" -> "QNN_GPU"
                 "qnn-htp" -> "QNN_HTP"
                 "gateway-cuda" -> "GATEWAY_CUDA"
-                "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested" -> "LITERT_KOKORO"
+                "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested", "mediapipe-kokoro-npu-requested" -> "LITERT_KOKORO"
                 "mediapipe-phonon-cpu-requested" -> "PHONON"
                 "mediapipe-pocket-cpu-requested" -> "POCKET"
                 else -> "KOKORO"

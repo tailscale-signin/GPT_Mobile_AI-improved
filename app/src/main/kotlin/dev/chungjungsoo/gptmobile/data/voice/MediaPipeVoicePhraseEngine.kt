@@ -9,11 +9,15 @@ import java.util.concurrent.atomic.AtomicReference
 internal class MediaPipeVoicePhraseEngine(
     private val task: MediaPipeSpeechTask,
     private val modelLease: AutoCloseable,
-    backend: VoiceSpeechBackend,
+    val configuredBackend: VoiceSpeechBackend,
     private val speakingRate: Float,
     private var voiceId: String,
-    override val supportsIncrementalInput: Boolean = true
+    override val supportsIncrementalInput: Boolean = true,
+    availableVoices: Set<String>? = null,
+    private val allowDelegateRecovery: Boolean = false
 ) : VoicePhraseEngine {
+    @Volatile var onValidatedSynthesis: ((String, VoiceSpeechBackend) -> Unit)? = null
+    private val voices by lazy { availableVoices ?: task.voiceIds() }
     private val operationLock = Any()
     private val stateLock = Any()
     private var activeStream: MediaPipeSpeechStream? = null
@@ -25,26 +29,45 @@ internal class MediaPipeVoicePhraseEngine(
     private var closing = false
     private var closed = false
     private var retirementFailed = false
+    private var attemptId = 0L
+    private var attemptStarted = 0L
+    private var readSequence = 0L
+    private var readStarted: Long? = null
+    private var readStopRequested: Long? = null
+    private var readStopLatency: Long? = null
+    override val sdkCancelToReadReturnMs: Long? get() = synchronized(stateLock) { readStopLatency }
+
+    override val executionProgress: VoiceSpeechProgress?
+        get() = synchronized(stateLock) {
+            readStarted?.let { start ->
+                val now = System.nanoTime()
+                VoiceSpeechProgress(VoiceSpeechStage.SDK_STREAM_CALL, attemptId, readSequence, (now - start).coerceAtLeast(0) / 1_000_000, (now - attemptStarted).coerceAtLeast(0) / 1_000_000, cancellationRequested)
+            }
+        }
 
     override val supportsStreaming: Boolean = true
 
     // A requested delegate is not evidence of actual kernel placement. The SDK provides
     // no such evidence or public thread-count control, so neither is manufactured here.
-    override val executionProvider: String = when (backend) {
+    override val executionProvider: String = when (configuredBackend) {
         VoiceSpeechBackend.LITERT_KOKORO_CPU -> "mediapipe-kokoro-cpu-requested"
-        VoiceSpeechBackend.LITERT_KOKORO_GPU -> "mediapipe-kokoro-gpu-requested"
+        VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_GPU -> "mediapipe-kokoro-gpu-requested"
+        VoiceSpeechBackend.LITERT_KOKORO_SM8750, VoiceSpeechBackend.LITERT_KOKORO_NPU -> "mediapipe-kokoro-npu-requested"
         VoiceSpeechBackend.PHONON_CPU -> "mediapipe-phonon-cpu-requested"
         VoiceSpeechBackend.POCKET_CPU -> "mediapipe-pocket-cpu-requested"
         else -> error("Unsupported MediaPipe speech backend")
     }
 
-    override fun selectVoice(voiceId: String) {
+    override fun selectVoice(voiceId: String) = selectVoice(voiceId, sameLanguageFallback = false)
+
+    fun selectVoice(voiceId: String, sameLanguageFallback: Boolean) {
         synchronized(operationLock) {
             synchronized(stateLock) {
                 check(!closing && !closed && !retirementFailed && owner == null) { "Speech engine is not idle." }
             }
-            require(voiceId in task.voiceIds()) { "The selected voice is unavailable in this model." }
-            this.voiceId = voiceId
+            this.voiceId = requireNotNull(SpeechLanguages.availableVoice(voiceId, voices, sameLanguageFallback)) {
+                "The selected voice is unavailable in this model."
+            }
         }
     }
 
@@ -58,7 +81,12 @@ internal class MediaPipeVoicePhraseEngine(
         produce("", nextText, speed, emit)
     }
 
-    private fun produce(text: String, nextText: (() -> String?)?, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+    override fun warmFirstInference(speaker: Int, speed: Float): Boolean {
+        produce(VoiceSilentWarmup.PHRASE, null, speed, { true }, publishEvidence = false)
+        return true
+    }
+
+    private fun produce(text: String, nextText: (() -> String?)?, speed: Float, emit: (VoicePcmChunk) -> Boolean, publishEvidence: Boolean = true) {
         require(speed.toBits() == speakingRate.toBits()) { "Speech rate changed; prepare a new SDK engine." }
         synchronized(operationLock) {
             synchronized(stateLock) {
@@ -66,6 +94,9 @@ internal class MediaPipeVoicePhraseEngine(
                 checkCancellation()
                 owner = Thread.currentThread()
                 opening = true
+                attemptId++
+                attemptStarted = System.nanoTime()
+                readSequence = 0
             }
             var stream: MediaPipeSpeechStream? = null
             var feeder: Thread? = null
@@ -77,7 +108,7 @@ internal class MediaPipeVoicePhraseEngine(
             var completed = false
             try {
                 val cues = MediaPipeWordCueMapper(text, frameLimit, cueLimit)
-                stream = if (nextText == null) task.openStream(text, voiceId) else task.openIncrementalStream(voiceId)
+                stream = nativeStreamCall { if (nextText == null) task.openStream(text, voiceId) else task.openIncrementalStream(voiceId) }
                 val opened = stream
                 synchronized(stateLock) {
                     activeStream = opened
@@ -99,11 +130,11 @@ internal class MediaPipeVoicePhraseEngine(
                                     // Publish byte boundaries before native synthesis can emit their cues.
                                     // appendText enforces the whole reply's input-byte ceiling without truncation.
                                     cues.appendText(delta)
-                                    opened.pushText(delta)
+                                    nativeStreamCall { opened.pushText(delta) }
                                 }
                                 synchronized(stateLock) { checkCancellation() }
                                 inputFinished.set(true)
-                                opened.finishInput()
+                                nativeStreamCall { opened.finishInput() }
                             } catch (failure: Throwable) {
                                 inputFailure.compareAndSet(null, failure)
                                 synchronized(stateLock) { runCatching { activeStream?.cancel() } }
@@ -123,26 +154,41 @@ internal class MediaPipeVoicePhraseEngine(
                 while (true) {
                     synchronized(stateLock) { checkCancellation() }
                     inputFailure.get()?.let { throw it }
-                    val chunk = opened.readNext() ?: break
+                    // Only the SDK read is observable. Callback backpressure and text arrival are outside this interval.
+                    synchronized(stateLock) {
+                        checkCancellation()
+                        readSequence++
+                        readStarted = System.nanoTime()
+                    }
+                    val chunk = try {
+                        nativeStreamCall { opened.readNext() }
+                    } finally {
+                        val returned = System.nanoTime()
+                        synchronized(stateLock) {
+                            readStopRequested?.let { readStopLatency = (returned - it).coerceAtLeast(0) / 1_000_000 }
+                            readStarted = null
+                        }
+                    } ?: break
                     synchronized(stateLock) { checkCancellation() }
                     inputFailure.get()?.let { throw it }
                     require(!finalSeen) { "Speech SDK returned audio after its final chunk." }
                     require(++packets <= packetLimit) { "Speech stream packet limit exceeded." }
-                    require(chunk.sampleRateHz == VOICE_PCM_SAMPLE_RATE) { "Speech SDK must return 24 kHz mono PCM." }
+                    nativeStreamCall { require(chunk.sampleRateHz == VOICE_PCM_SAMPLE_RATE) { "Speech SDK must return 24 kHz mono PCM." } }
                     require(frames + chunk.samples.size <= frameLimit) { "Speech stream frame limit exceeded." }
-                    require(chunk.samples.all(Float::isFinite)) { "Speech SDK returned invalid PCM." }
+                    nativeStreamCall { require(chunk.samples.all(Float::isFinite)) { "Speech SDK returned invalid PCM." } }
                     nonSilent = nonSilent || chunk.samples.any { kotlin.math.abs(it) >= 1e-5f }
-                    frames += chunk.samples.size
-                    val readyCues = cues.accept(chunk.wordTimestamps, frames)
                     if (chunk.samples.isEmpty()) {
+                        val readyCues = cues.accept(chunk.wordTimestamps, frames)
                         if (readyCues.isNotEmpty()) emitChecked(VoicePcmChunk(FloatArray(0), wordCues = readyCues), emit)
                     } else {
                         var offset = 0
                         while (offset < chunk.samples.size) {
                             val end = minOf(offset + VOICE_PCM_SAMPLE_RATE, chunk.samples.size)
+                            frames += end - offset
+                            val readyCues = cues.accept(if (offset == 0) chunk.wordTimestamps else emptyList(), frames)
                             // The native SDK owns its array. Queue slices get independent ownership.
                             emitChecked(
-                                VoicePcmChunk(chunk.samples.copyOfRange(offset, end), wordCues = if (offset == 0) readyCues else emptyList()),
+                                VoicePcmChunk(chunk.samples.copyOfRange(offset, end), wordCues = readyCues),
                                 emit
                             )
                             offset = end
@@ -152,8 +198,11 @@ internal class MediaPipeVoicePhraseEngine(
                 }
                 synchronized(stateLock) { checkCancellation() }
                 inputFailure.get()?.let { throw it }
-                require(inputFinished.get()) { "Speech SDK ended before incremental text input finished." }
-                require(frames > 0 && nonSilent) { "Speech SDK returned no audible PCM." }
+                nativeStreamCall {
+                    require(inputFinished.get()) { "Speech SDK ended before incremental text input finished." }
+                    require(frames > 0 && nonSilent) { "Speech SDK returned no audible PCM." }
+                }
+                cues.finish()?.let { end -> emitChecked(VoicePcmChunk(FloatArray(0), wordCues = listOf(end)), emit) }
                 completed = true
             } catch (failure: Throwable) {
                 synchronized(stateLock) {
@@ -201,6 +250,19 @@ internal class MediaPipeVoicePhraseEngine(
                     synchronized(stateLock) { owner = null }
                 }
             }
+            if (publishEvidence) runCatching { onValidatedSynthesis?.invoke(voiceId, configuredBackend) }
+        }
+    }
+
+    private inline fun <T> nativeStreamCall(operation: () -> T): T {
+        try {
+            return operation()
+        } catch (failure: Exception) {
+            if (!allowDelegateRecovery || failure is CancellationException || failure is InterruptedException) throw failure
+            throw MediaPipeDelegateFailure(failure)
+        } catch (failure: LinkageError) {
+            if (!allowDelegateRecovery) throw failure
+            throw MediaPipeDelegateFailure(failure)
         }
     }
 
@@ -232,12 +294,15 @@ internal class MediaPipeVoicePhraseEngine(
         synchronized(stateLock) {
             check(!closing && !closed && !retirementFailed && owner == null) { "Speech synthesis must retire before it is reset." }
             cancellationRequested = false
+            readStopRequested = null
+            readStopLatency = null
         }
     }
 
     override fun cancel() {
         synchronized(stateLock) {
             if (closed) return
+            if (readStarted != null && readStopRequested == null) readStopRequested = System.nanoTime()
             cancellationRequested = true
             inputOwner?.interrupt()
             cancelNative()

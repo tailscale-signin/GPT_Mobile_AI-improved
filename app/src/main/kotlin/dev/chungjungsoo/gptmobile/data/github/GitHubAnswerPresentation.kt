@@ -43,36 +43,59 @@ internal object GitHubAnswerPresentation {
         put("advertised_tool_families", JsonArray(families(advertised)))
     }
 
-    fun resourceNotice(resources: JsonObject): String = buildString {
+    private val capabilityRequest = Regex("""(?i)\b(?:which|what|available|authorized|list|show) (?:github |repository |available |authorized )*(?:tools|operations|permissions|capabilities)\b""")
+
+    fun resourceNotice(task: String, resources: JsonObject): String = buildString {
         val remaining = (resources["remaining_calls"] as? JsonPrimitive)?.intOrNull
         val limit = (resources["effective_call_limit"] as? JsonPrimitive)?.intOrNull
-        val available = (resources["advertised_tool_families"] as? JsonArray).orEmpty()
-        val catalog = (resources["authorized_tool_families"] as? JsonArray).orEmpty()
+        val request = GitHubTaskContinuity.request(task)
+        val showCatalog = runtimeClaim(request) || capabilityRequest.containsMatchIn(request)
+        // The full catalog stays in the execution ledger for the details view.
+        if (!showCatalog && remaining != 0) return@buildString
         if (remaining != null) {
             append("\n\nTool calls remaining: ").append(remaining)
             if (limit != null) append(" of ").append(limit)
             append('.')
         }
+        if (!showCatalog) return@buildString
+        val available = (resources["advertised_tool_families"] as? JsonArray).orEmpty()
+        val catalog = (resources["authorized_tool_families"] as? JsonArray).orEmpty()
         fun names(values: List<kotlinx.serialization.json.JsonElement>) = values.joinToString(", ") { (it as JsonPrimitive).content }
         if (available.isNotEmpty()) append("\n\nTools offered in this round: ").append(names(available)).append('.')
         val discoverable = catalog.filterNot { it in available }
         if (discoverable.isNotEmpty()) append("\n\nOther tools in the authorized catalog: ").append(names(discoverable)).append('.')
     }
 
+    private val reviewRequest = Regex("""(?i)\b(?:review|audit|compare)\b""")
+    private val investigationRequest = Regex("""(?i)\b(?:how|why|explain|investigate|diagnose|analy[sz]e|error|issue)\b""")
+
     fun title(task: String): String {
-        val text = task.lowercase()
-        return when {
-            GitHubStatusRequest.matches(task) -> "Repository status"
-            GitHubTaskCoverage.matches(task) -> "GitHub verification report"
-            listOf("review", "pull request", " pr ").any { it in text } -> "Repository review"
-            listOf("fix", "implement", "add", "change", "build").any { it in text } -> "Implementation update"
-            listOf("why", "explain", "investigate", "issue", "error", "analy").any { it in text } -> "Investigation findings"
-            else -> "Repository update"
+        val request = GitHubTaskContinuity.request(task)
+        return when (GitHubLookupRoute.from(request)) {
+            GitHubLookupRoute.ISSUES -> "Issues"
+            GitHubLookupRoute.ISSUE -> "Issue details"
+            GitHubLookupRoute.PULL_REQUESTS -> "Pull requests"
+            GitHubLookupRoute.PULL_REQUEST -> "Pull request details"
+            GitHubLookupRoute.BRANCHES -> "Branches"
+            GitHubLookupRoute.COMMITS -> "Commit history"
+            GitHubLookupRoute.WORKFLOWS -> "Workflows"
+            GitHubLookupRoute.RUNS -> "Workflow runs"
+            GitHubLookupRoute.RELEASES -> "Releases"
+            GitHubLookupRoute.TAGS -> "Tags"
+            null -> when {
+                GitHubStatusRequest.matches(request) -> "Repository status"
+                GitHubTaskCoverage.matches(request) -> "GitHub verification report"
+                !GitHubRequestCompletion.informational(request) && GitHubRequestCompletion.requiresRepositoryEvidence(request) -> "Implementation update"
+                reviewRequest.containsMatchIn(request) -> "Repository review"
+                investigationRequest.containsMatchIn(request) -> "Investigation findings"
+                else -> "Repository update"
+            }
         }
     }
 
     fun render(task: String, facts: List<String>, notes: List<String>, excerpts: List<String>, questions: List<String>): String = buildString {
-        append("# ").append(title(task)).append("\n\n")
+        val heading = title(task)
+        append("# ").append(heading).append("\n\n")
         // Explanations appear before supporting details. Do not turn the API's object structure into the answer.
         val interpretations = notes.filter { it.startsWith("- **Interpretation:") }.distinct()
         val recommendations = notes.filter { it.startsWith("- **Recommendation (inference):") }.distinct()
@@ -80,12 +103,13 @@ internal object GitHubAnswerPresentation {
         if (interpretations.isNotEmpty()) {
             append(interpretations.first().removePrefix("- ")).append('\n')
             if (interpretations.size > 1) append("\n## Findings\n\n").append(interpretations.drop(1).joinToString("\n\n")).append('\n')
-        } else if (facts.isEmpty() && excerpts.isEmpty() && recommendations.isEmpty() && limits.isEmpty()) {
+        }
+        val usefulFacts = if (heading == "Investigation findings" && excerpts.isNotEmpty()) facts.filterNot { it.substringBefore(" |", "").endsWith(" · Path") || it.contains(" · Path |") } else facts
+        if (interpretations.isEmpty() && usefulFacts.isEmpty() && excerpts.isEmpty() && recommendations.isEmpty() && limits.isEmpty()) {
             append("The available evidence does not yet establish the requested result.\n")
         }
-        val usefulFacts = if (title(task) == "Investigation findings") facts.filterNot { it.substringBefore(" |", "").endsWith(" · Path") || it.contains(" · Path |") } else facts
         if (usefulFacts.isNotEmpty()) {
-            val sections = if (GitHubStatusRequest.matches(task)) {
+            val sections = if (heading == "Repository status") {
                 usefulFacts.distinct().groupBy { row ->
                     val label = row.substringAfter("| ").substringBefore(" |")
                     when {

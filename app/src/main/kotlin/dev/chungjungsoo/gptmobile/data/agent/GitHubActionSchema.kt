@@ -24,7 +24,7 @@ internal object GitHubActionSchema {
             "changes" -> "base_sha ref branch commit_sha include_patches page per_page"
             "branches", "commits" -> "branch ref commit_sha page per_page"
             "branch" -> "branch ref"
-            "branch_dependencies" -> "branch fixture_plan engineering_task_id"
+            "branch_dependencies" -> "branch fixture_plan engineering_task_id page"
             "commit", "checks" -> "commit_sha ref include_patches page per_page"
             "commit_search", "repositories" -> "query page per_page"
             "recovery" -> "stage_id engineering_task_id fixture_plan branch base_sha commit_sha page"
@@ -33,9 +33,9 @@ internal object GitHubActionSchema {
         "github_ci" -> when (action) {
             "workflows", "definitions" -> "workflow_id ref branch commit_sha page per_page index_cursor"
             "runs" -> "workflow_id branch ref commit_sha head_sha status actor event created page per_page"
-            "failure" -> "workflow_id branch ref head_sha run_id expected_head_sha status actor event created page per_page"
+            "failure" -> "workflow_id branch ref head_sha run_id run_attempt expected_head_sha status actor event created page per_page"
             "run", "artifacts" -> "run_id run_attempt expected_head_sha page per_page"
-            "status" -> "run_id job_id ref branch commit_sha head_sha expected_head_sha"
+            "status" -> "run_id job_id ref branch commit_sha head_sha expected_head_sha page"
             "jobs" -> "run_id job_id run_attempt expected_head_sha page per_page"
             "job" -> "job_id run_id run_attempt expected_head_sha"
             "logs" -> "job_id run_id run_attempt expected_head_sha start_line end_line start_offset"
@@ -46,7 +46,8 @@ internal object GitHubActionSchema {
         "github_pr", "github_issue" -> when (action) {
             "list" -> if (operation == "github_issue") "state sort direction page per_page after" else "state head base sort direction page per_page"
             "headers", "context" -> "pull_number issue_number expected_head_sha expected_base_sha include_health include_files include_checks include_patches check_page page per_page"
-            "comments", "reviews", "history", "threads" -> "pull_number issue_number page per_page after"
+            "comments", "reviews", "history" -> "pull_number issue_number page per_page after"
+            "threads" -> "pull_number issue_number page per_page after expected_head_sha"
             "agent_merge_status" -> "pull_number"
             "agent_merge_enable", "agent_merge_update" -> "pull_number expected_head_sha allowed_actions"
             "agent_merge_disable" -> "pull_number expected_head_sha"
@@ -75,7 +76,8 @@ internal object GitHubActionSchema {
         "github_release" -> when (action) {
             "status" -> "tag_name ref workflow_id workflow_run_id execution_id"
             "tags", "list" -> "page per_page"
-            "tag", "detail" -> "tag_name"
+            "tag" -> "tag_name"
+            "detail" -> "tag_name release_id"
             "create_tag" -> "tag_name target_commitish expected_head_sha body execution_id"
             "publish" -> "tag_name target_commitish name body workflow_id workflow_run_id expected_head_sha ref inputs release_strategy draft prerelease execution_id"
             else -> null

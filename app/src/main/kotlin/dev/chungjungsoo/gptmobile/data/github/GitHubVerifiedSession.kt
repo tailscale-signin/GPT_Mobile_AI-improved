@@ -57,7 +57,10 @@ internal class GitHubVerifiedSession(
     private val resumeClaimExtraction: Boolean = false,
     private val verificationOnlyRequested: Boolean = false,
     private val awaitOwnedDescendants: suspend (Long) -> Boolean = { true },
-    private val independentPatchReview: (suspend (JsonObject) -> AgentProviderSession?)? = null
+    private val independentPatchReview: (suspend (JsonObject) -> AgentProviderSession?)? = null,
+    measuredRoutingTokens: suspend () -> Int? = { null },
+    private val workspaceHead: String? = null,
+    private val sourceDeliveryRecords: suspend () -> List<String> = { emptyList() }
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
         GitHubTaskContinuity.reportOnly(currentRequest) ||
@@ -71,6 +74,9 @@ internal class GitHubVerifiedSession(
     private var replannedReader: AgentProviderSession? = null
     private var replanBoundary: String? = null
     private var completedDecisionMillis = 0L
+    private val capabilityRequest = GitHubCapabilityRequest.from(currentRequest)
+    private val lookup = GitHubLookupRoute.request(task)
+    private var initialLookupIssued = false
     private var executionCorrectionAttempted = false
     private var correctionProgress: Set<String> = emptySet()
     private var progressCorrections = 0
@@ -81,6 +87,7 @@ internal class GitHubVerifiedSession(
     private var observedAdvertisedToolCount: Int? = null
     private var issueWork: GitHubIssueRemediation.Context? = null
     private var verificationOnlyAttempted = false
+    private val evidenceRoutes = GitHubEvidenceRoutePolicy(measuredRunTokens = measuredRoutingTokens)
     private var lastReusedProof: Pair<String, Long>? = null
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
@@ -126,7 +133,7 @@ internal class GitHubVerifiedSession(
             when {
                 denied != null -> emit(denied)
                 handlesToolResultRecovery || verificationOnlyRequested || delegate.handlesToolsInternally || tools.isNotEmpty() ->
-                    emit(ProviderEvent.Failed("This session cannot admit a private saved-page read.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                    emit(dev.chungjungsoo.gptmobile.data.agent.SavedPageDeliveryRound.blocked("This session cannot admit a private saved-page read.", "provider_admission"))
                 else -> emitAll(delegate.streamRound(emptyList(), exchanges))
             }
             return@flow
@@ -217,6 +224,35 @@ internal class GitHubVerifiedSession(
                     verificationRestart = MAX_VERIFICATION_RESTARTS
                 )
             )
+            return@flow
+        }
+        capabilityRequest?.let { request ->
+            validatePublication()
+            val receipts = evidence.snapshot().first
+            val contracts = authorizedTools.ifEmpty { tools }
+            val catalog = tools.filter { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible && evidence.trustsTool(it.name) }
+            if (request.scope != GitHubCapabilityRequest.Scope.FEATURES &&
+                !delegate.handlesToolsInternally &&
+                !resumeClaimExtraction &&
+                catalog.isNotEmpty() &&
+                remainingToolCalls()?.let { it > 0 } == true
+            ) {
+                GitHubAuthorizedCatalog.next(catalog, receipts, contracts)?.takeUnless { next ->
+                    exchanges.any { exchange -> exchange.calls.any { it.callId == next.callId && it.name == next.name } }
+                }?.let { page ->
+                    // A blank discovery can fetch cold MCP schemas. Interface questions read the local catalog only.
+                    val local = if (page.arguments.isEmpty()) page.copy(arguments = buildJsonObject { put("catalog_only", true) }) else page
+                    if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(local.arguments, catalog.first().inputSchema).isEmpty()) {
+                        emit(local)
+                        emit(ProviderEvent.Completed)
+                        return@flow
+                    }
+                }
+            }
+            val snapshot = GitHubAuthorizedCatalog.snapshot(receipts, contracts)
+            val answer = GitHubCapabilityAnswer.render(request, tools, contracts, snapshot)
+            emit(ProviderEvent.TextDelta(answer, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
+            emit(ProviderEvent.Completed)
             return@flow
         }
         if (isGatewayIntegrationTask(task)) {
@@ -345,6 +381,12 @@ internal class GitHubVerifiedSession(
                 }
             }
         }
+        runRepositoryWorkflow(tools, exchanges)
+    }.catch { error ->
+        handleCheckpointFailure(error)
+    }
+
+    private suspend fun FlowCollector<ProviderEvent>.runRepositoryWorkflow(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         if (ciDiagnosis) {
             val (receipts, epoch) = evidence.snapshot()
             val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
@@ -363,7 +405,7 @@ internal class GitHubVerifiedSession(
                             progress("Locating the active workflow at the observed commit")
                             emit(ProviderEvent.ToolCall(id, lookup.name, args))
                             emit(ProviderEvent.Completed)
-                            return@flow
+                            return
                         }
                     }
                 }
@@ -388,14 +430,14 @@ internal class GitHubVerifiedSession(
                             progress("Registering background monitoring for all checks at the observed commit")
                             emit(ProviderEvent.ToolCall(id, watch.name, args))
                             emit(ProviderEvent.Completed)
-                            return@flow
+                            return
                         }
                     }
                 }
                 // Complete this bounded factual diagnosis directly from retained
                 // evidence; another model request cannot discover a missing failure.
                 emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION, continuationTools = tools, continuationExchanges = exchanges))
-                return@flow
+                return
             }
         }
         if (GitHubTestChecklist.integration(task)) {
@@ -452,7 +494,7 @@ internal class GitHubVerifiedSession(
                                 )
                             )
                         )
-                        return@flow
+                        return
                     }
                     transportWaited = true
                     progress("Waiting for GitHub transport before resuming the saved check")
@@ -462,7 +504,7 @@ internal class GitHubVerifiedSession(
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next.copy(callId = next.callId + "-${receipts.size}"))
                 emit(ProviderEvent.Completed)
-                return@flow
+                return
             }
             // The host may have finished while the independent audit ran. One
             // final read can unlock its source queries before saving a partial
@@ -474,7 +516,7 @@ internal class GitHubVerifiedSession(
                     progress("Checking whether saved indexing finished during the GitHub audit")
                     emit(call)
                     emit(ProviderEvent.Completed)
-                    return@flow
+                    return
                 }
             }
             // Coverage fields come exclusively from the cumulative ledger. No model draft
@@ -521,7 +563,17 @@ internal class GitHubVerifiedSession(
                     )
                 )
             }
-            return@flow
+            return
+        }
+        if (lookup != null && !delegate.handlesToolsInternally && !resumeClaimExtraction && !initialLookupIssued) {
+            firstRepositoryObservation(tools, exchanges)?.let { next ->
+                validatePublication()
+                initialLookupIssued = true
+                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                emit(next)
+                emit(ProviderEvent.Completed)
+                return
+            }
         }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
             val (receipts, epoch) = evidence.snapshot()
@@ -531,11 +583,11 @@ internal class GitHubVerifiedSession(
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next)
                 emit(ProviderEvent.Completed)
-                return@flow
+                return
             }
             if (receipts.isNotEmpty()) {
                 emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.STATUS_COLLECTION))
-                return@flow
+                return
             }
         }
         if (GitHubStatusRequest.matches(task)) {
@@ -545,14 +597,14 @@ internal class GitHubVerifiedSession(
             }
             if (hasStatusSnapshot) {
                 emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.STATUS_SNAPSHOT))
-                return@flow
+                return
             }
         }
         if (tools.isEmpty() && GitHubTaskCoverage.matches(task) && evidence.snapshot().first.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
             // Tool coverage is computed from receipts; another prose review cannot
             // establish test execution that the receipts do not contain.
             emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.COVERAGE_CHECKPOINT))
-            return@flow
+            return
         }
         if (GitHubReviewComparison.matches(task)) {
             val comparisonTools = if (remainingToolCalls()?.let { it > 0 } != false) tools else emptyList()
@@ -571,7 +623,7 @@ internal class GitHubVerifiedSession(
                 )
                 emit(next)
                 emit(ProviderEvent.Completed)
-                return@flow
+                return
             }
             if (comparison != null && comparison.checkpoint["comparison_verified"] != JsonPrimitive(true)) {
                 // A missing baseline is a prerequisite, not permission for the model
@@ -586,15 +638,30 @@ internal class GitHubVerifiedSession(
                         originalFailure = blocked
                     )
                 )
-                return@flow
+                return
             }
         }
+        runEvidenceRound(tools, exchanges)
+    }
+
+    private suspend fun FlowCollector<ProviderEvent>.runEvidenceRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         val reserve = GitHubChecklistBudget.ordinaryVerificationReserve(executionCallLimit)
         if (!GitHubChecklistBudget.acquisitionAllowed(evidence.snapshot().first, remainingToolCalls(), reserve)) {
             val savedDraft = (evidence.retainedClaimExtraction()?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
             if (savedDraft != null) {
                 emitAll(publish(savedDraft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
-                return@flow
+                return
+            }
+            if (GitHubRequestCompletion.informational(task) && remainingToolCalls()?.let { it > 0 } == true && evidence.remainingTaskMillis() != 0L) {
+                val receipts = evidence.snapshot().first
+                val candidate = withContext(computationDispatcher) { GitHubPartialReport.fromReceipts(receipts) }
+                if (candidate.isNotBlank() &&
+                    GitHubPendingApproval.snapshot(receipts).isEmpty() &&
+                    receipts.values.none { GitHubExecutionLedger.receiptState(it) == GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME }
+                ) {
+                    emitAll(publish(candidate, GitHubAcceptancePublicationEvidence.Entry.RETAINED_OBSERVATIONS))
+                    return
+                }
             }
             // The normal provider path must honor the same reserve as the checklist.
             // Publish the immutable receipt snapshot while verification capacity remains.
@@ -606,28 +673,85 @@ internal class GitHubVerifiedSession(
                     failureCode = "VERIFICATION_RESERVE_REACHED"
                 )
             )
-            return@flow
+            return
         }
+        val latest = exchanges.lastOrNull()
+        val patchCall = latest?.calls?.lastOrNull { it.name.substringBefore("__") == "github_stage_patch" }
+        var selectedReviewer: AgentProviderSession? = null
+        var reviewerConsidered = false
         if (evidence.nextActionMode == GitHubNextActionMode.ACTIVE) {
             val report = evidence.diagnostic()
             val decision = dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.activeDecision(report)
-            if (decision?.get("action") == JsonPrimitive("REUSE_EVIDENCE")) {
-                val key = (decision["decision_key"] as? JsonPrimitive)?.content
+            val selected = dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.selectedCriterion(GitHubAcceptanceWork.outstanding(report), decision)
+            if (report != null &&
+                selected != null &&
+                decision?.get("action") in setOf(JsonPrimitive("REUSE_EVIDENCE"), JsonPrimitive("ACQUIRE")) &&
+                !GitHubAcceptanceWork.deferred(selected)
+            ) {
                 val (receipts, epoch) = evidence.snapshot()
-                val selected = dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.selectedCriterion(GitHubAcceptanceWork.outstanding(report), decision)
-                val retainedIds = (selected?.get("receipt_ids") as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>()
-                if (key != null && (key to epoch) != lastReusedProof && retainedIds.any { receipts[it.content]?.get("verification_eligible") == JsonPrimitive(true) }) {
+                val key = (decision?.get("decision_key") as? JsonPrimitive)?.content
+                val linked = (selected["receipt_ids"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>().map { it.content }
+                val producer = ((selected["criterion_contract"] as? JsonObject)?.get("evidence_producer") as? JsonPrimitive)?.content
+                val reuse = key != null && (key to epoch) != lastReusedProof && decision?.get("action") == JsonPrimitive("REUSE_EVIDENCE")
+                if (producer in setOf("SOURCE_OBSERVATION", "DEFECT_ANALYSIS", "DIFF_REVIEW")) {
+                    val criterion = (selected["id"] as? JsonPrimitive)?.content.orEmpty()
+                    val head = evidence.recoveryReadHead(workspaceHead.orEmpty())
+                    val allowed = authorizedTools.filter { it.modelVisible }.mapTo(mutableSetOf()) { it.name }
+                    val cached = if (reuse && linked.any { GitHubEvidenceRoutePolicy.cachedRange(receipts[it], epoch, head, allowed) }) {
+                        (evidence.retainedClaimExtraction()?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
+                    } else {
+                        null
+                    }
+                    val stale = GitHubExecutionContinuation.staleReceiptIds(report).filter { id ->
+                        val receipt = receipts[id]
+                        val name = (receipt?.get("tool") as? JsonPrimitive)?.content
+                        val args = receipt?.get("arguments") as? JsonObject
+                        val native = if (id in linked && name != null && args != null) GitHubOperationTool.nativeArguments(name, args) else null
+                        GitHubEvidenceRoutePolicy.relevantLookup(requireNotNull(producer), (native?.get("action") as? JsonPrimitive)?.content)
+                    }
+                    val live = GitHubExecutionContinuation.staleRead(stale, tools, receipts, resumeRequestKey)
+                        ?: evidence.nextPinnedSearchRead(linked, tools, authorizedTools)
+                    val stage = patchCall?.let { call -> receipts.values.singleOrNull { it["call_id"] == JsonPrimitive(call.callId) } }
+                    val routes = buildSet {
+                        if (cached != null) add(GitHubEvidenceRoutePolicy.Route.CACHED_RANGE)
+                        if (live != null) add(GitHubEvidenceRoutePolicy.Route.LIVE_LOOKUP)
+                        if (stage != null && independentPatchReview != null && tools.isNotEmpty()) add(GitHubEvidenceRoutePolicy.Route.REVIEWER)
+                    }
+                    reviewerConsidered = true
+                    for (route in evidenceRoutes.choose(requireNotNull(producer), routes)) {
+                        validatePublication()
+                        when (route) {
+                            GitHubEvidenceRoutePolicy.Route.CACHED_RANGE -> {
+                                lastReusedProof = requireNotNull(key) to epoch
+                                evidenceRoutes.started(producer, route, criterion)
+                                emitAll(publish(requireNotNull(cached), GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
+                                return
+                            }
+                            GitHubEvidenceRoutePolicy.Route.LIVE_LOOKUP -> {
+                                evidenceRoutes.started(producer, route, criterion)
+                                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                                emit(requireNotNull(live))
+                                emit(ProviderEvent.Completed)
+                                return
+                            }
+                            GitHubEvidenceRoutePolicy.Route.REVIEWER -> {
+                                selectedReviewer = evidenceRoutes.review(producer, criterion) { independentPatchReview?.invoke(requireNotNull(stage)) } ?: continue
+                                break
+                            }
+                        }
+                    }
+                } else if (reuse && linked.any { receipts[it]?.get("verification_eligible") == JsonPrimitive(true) }) {
                     val savedDraft = (evidence.retainedClaimExtraction()?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
                     if (savedDraft != null) {
-                        lastReusedProof = key to epoch
+                        lastReusedProof = requireNotNull(key) to epoch
                         emitAll(publish(savedDraft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
-                        return@flow
+                        return
                     }
                 }
             }
         }
-        val latest = exchanges.lastOrNull()
-        if (latest != null &&
+        if (selectedReviewer == null &&
+            latest != null &&
             GitHubExecutionContinuation.requestsInstructionRead(task) &&
             latest.calls.any { it.name.githubOperationFamily() == "github_search" || it.callId.startsWith("pinned-source-schema-") }
         ) {
@@ -646,10 +770,10 @@ internal class GitHubVerifiedSession(
                 progress(if (candidate.name == GitHubAuthorizedCatalog.TOOL) "Loading the source reader for the repository instructions" else "Reading the repository instructions at the commit returned by search")
                 emit(candidate)
                 emit(ProviderEvent.Completed)
-                return@flow
+                return
             }
         }
-        if (openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
+        if (selectedReviewer == null && openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
             val saved = evidence.snapshot().first
             val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic()) +
                 "\n" + GitHubExecutionContinuation.replanInstruction(task, currentRequest)
@@ -657,8 +781,7 @@ internal class GitHubVerifiedSession(
             replannedReader = openExecutionContinuation.invoke(prompt)
             replanBoundary = latest.calls.first().callId
         }
-        val patchCall = latest?.calls?.lastOrNull { it.name.substringBefore("__") == "github_stage_patch" }
-        val patchSession = if (independentPatchReview != null && patchCall != null && tools.isNotEmpty()) {
+        val patchSession = selectedReviewer ?: if (!reviewerConsidered && independentPatchReview != null && patchCall != null && tools.isNotEmpty()) {
             val stage = evidence.snapshot().first.values.singleOrNull { it["call_id"] == JsonPrimitive(patchCall.callId) }
             stage?.let { independentPatchReview.invoke(it) }
         } else {
@@ -686,7 +809,7 @@ internal class GitHubVerifiedSession(
                 validatePublication()
                 evidence.taskAdmissionFailure()?.let { denied ->
                     emit(denied)
-                    return@flow
+                    return
                 }
             }
             executionCorrectionAttempted = true
@@ -697,34 +820,44 @@ internal class GitHubVerifiedSession(
             if (!round.calls && round.completed && !round.failed) {
                 // If neither attempt started work, establish the selected repository through its
                 // ordinary read tool. The next provider round receives the real tool result.
-                val contexts = tools.filter { it.modelVisible && evidence.trustsTool(it.name) && GitHubOperationTool.operationName(it.name) == "github_context" }
-                if (contexts.isNotEmpty() &&
-                    contexts.all { it.name.githubReadFacadeMatches(contexts.first().name) } &&
-                    exchanges.isEmpty() &&
-                    evidence.snapshot().first.isEmpty() &&
-                    remainingToolCalls()?.let { it > reserve } == true &&
-                    evidence.remainingTaskMillis() != 0L &&
-                    GitHubRepositoryLifecycle.intent(task) == null
-                ) {
-                    val repository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
-                    if (!repository.isNullOrBlank()) {
-                        GitHubStatusRequest.nextCall(contexts, emptyMap(), now(), acceptedRepository = repository)?.let { next ->
-                            lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
-                            emit(next)
-                            emit(ProviderEvent.Completed)
-                            return@flow
-                        }
-                    }
+                firstRepositoryObservation(tools, exchanges)?.let { next ->
+                    if (lookup != null) initialLookupIssued = true
+                    lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                    emit(next)
+                    emit(ProviderEvent.Completed)
+                    return
                 }
                 // A correction can resume operations, but its raw prose has not passed
                 // the selected review pipeline. Publish only the application ledger.
                 emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.PROSE_ONLY_CORRECTION, failureCode = "GITHUB_TASK_INCOMPLETE"))
-                return@flow
+                return
             }
         }
         deliverDraftRound(round, tools, exchanges)
-    }.catch { error ->
-        handleCheckpointFailure(error)
+    }
+
+    private suspend fun firstRepositoryObservation(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): ProviderEvent.ToolCall? {
+        if (exchanges.any { exchange -> exchange.calls.any { it.name != GitHubAuthorizedCatalog.TOOL } } ||
+            evidence.snapshot().first.isNotEmpty() ||
+            remainingToolCalls()?.let { it > GitHubChecklistBudget.ordinaryVerificationReserve(executionCallLimit) } != true ||
+            evidence.remainingTaskMillis() == 0L ||
+            GitHubRepositoryLifecycle.intent(task) != null ||
+            evidence.taskAdmissionFailure() != null
+        ) {
+            return null
+        }
+        val contract = evidence.acceptedPromptContract() ?: return null
+        val repository = (contract["repository"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+        val trusted = tools.filter { it.modelVisible && evidence.trustsTool(it.name) }
+        if (lookup != null) {
+            val accepted = evidence.acceptedTaskRequest() ?: return null
+            val request = GitHubTaskContinuity.request(task)
+            if (initialLookupIssued || delegate.handlesToolsInternally || resumeClaimExtraction || GitHubTaskContinuity.request(accepted) != request || GitHubTaskContinuity.request(currentRequest) != request) return null
+            return lookup.firstRead(trusted, repository, (contract["accepted_branch"] as? JsonPrimitive)?.contentOrNull)
+        }
+        val contexts = trusted.filter { GitHubOperationTool.operationName(it.name) == "github_context" }
+        if (contexts.isEmpty() || contexts.any { !it.name.githubReadFacadeMatches(contexts.first().name) }) return null
+        return GitHubStatusRequest.nextCall(contexts, emptyMap(), now(), acceptedRepository = repository)
     }
 
     private suspend fun FlowCollector<ProviderEvent>.refreshStaleClaim(draft: String, report: JsonObject, receipts: Map<String, JsonObject>, staleIds: List<String>, tools: List<AgentToolDefinition>): Boolean {
@@ -1195,7 +1328,7 @@ internal class GitHubVerifiedSession(
                     }
                 )
             } else {
-                rendered
+                withContext(computationDispatcher) { GitHubClaimSourceDelivery.attach(rendered, sourceDeliveryRecords) }
             }
             val (checklist, progressDigest) = withContext(computationDispatcher) {
                 val checklist = (report["test_checklist"] as? JsonObject)?.let { recorded ->
@@ -1406,7 +1539,7 @@ internal class GitHubVerifiedSession(
                 ""
             }
             Publication(
-                cause + reconciliationNotice + approvalNotice + GitHubEffectiveRecovery.publicationText(text, effectiveReport, publicationReceipts) + packagingEvidence + resources?.let(GitHubAnswerPresentation::resourceNotice).orEmpty() + failures + retentionNotice,
+                cause + reconciliationNotice + approvalNotice + GitHubEffectiveRecovery.publicationText(text, effectiveReport, publicationReceipts) + packagingEvidence + resources?.let { GitHubAnswerPresentation.resourceNotice(task, it) }.orEmpty() + failures + retentionNotice,
                 effectivePartial,
                 effectiveReport,
                 publicationEpoch,
@@ -1465,6 +1598,7 @@ internal class GitHubVerifiedSession(
         val (text, partial, report) = publication
         val retained = evidence.snapshot().first
         val internalFault = report["verification_internal_error"] == JsonPrimitive(true)
+        if (!internalFault) evidenceRoutes.observed(report)
         suspend fun advancedInternalFault(responseDelivered: Boolean): ProviderEvent.Failed {
             val (currentReceipts, currentEpoch) = evidence.snapshot()
             val failure = requireNotNull(publication.extractionFailure)
@@ -1496,6 +1630,29 @@ internal class GitHubVerifiedSession(
             refreshStaleClaim(draft, report, retained, staleReceiptIds, continuationTools)
         ) {
             return@flow
+        }
+        // The verifier can discover a missing proof after the model has already finished its first draft.
+        if (partial &&
+            entry == GitHubAcceptancePublicationEvidence.Entry.COMPLETED_DRAFT &&
+            draft != null &&
+            originalFailure == null &&
+            publication.extractionFailure == null &&
+            !delegate.handlesToolsInternally &&
+            !executionCorrectionAttempted &&
+            progressCorrections == 0 &&
+            retained.isEmpty() &&
+            GitHubExecutionContinuation.canResume(report, retained, remainingToolCalls(), evidence.remainingTaskMillis(), initialRead = true)
+        ) {
+            firstRepositoryObservation(continuationTools, continuationExchanges)?.let { next ->
+                validatePublication()
+                evidence.retainVerdict(JsonObject(report + ("response_delivered" to JsonPrimitive(false))))
+                if (lookup != null) initialLookupIssued = true
+                executionCorrectionAttempted = true
+                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                emit(next)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
         }
         val newEvidenceProgress = (currentProgress - correctionProgress).isNotEmpty()
         // A new explicit continuation starts with the saved receipts already in correctionProgress.

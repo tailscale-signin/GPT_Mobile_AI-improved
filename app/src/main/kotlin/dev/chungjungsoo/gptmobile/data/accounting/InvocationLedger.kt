@@ -103,6 +103,13 @@ interface InvocationDao {
     @Query("SELECT * FROM model_invocations WHERE turnKey = :turnKey ORDER BY startedAt, id")
     suspend fun forRootBudget(turnKey: String): List<ModelInvocation>
 
+    @Query(
+        """SELECT usageEvidenceJson FROM model_invocations
+        WHERE turnKey = :turnKey AND parentRunId = :runId AND usageEvidenceJson IS NOT NULL
+        AND instr(usageEvidenceJson, '"github_source_delivery":') > 0 ORDER BY startedAt DESC, id DESC LIMIT :limit"""
+    )
+    suspend fun sourceDeliveryForRun(turnKey: String, runId: String, limit: Int): List<String>
+
     @Query("SELECT executionPolicyJson FROM model_invocations WHERE turnKey = :turnKey AND executionPolicyJson IS NOT NULL ORDER BY startedAt LIMIT 1")
     suspend fun rootExecutionPolicy(turnKey: String): String?
 
@@ -142,6 +149,18 @@ class InvocationLedger @Inject constructor(
         if (ids.isEmpty()) return emptyList()
         val saved = ids.toList().chunked(500).flatMap { dao.byIds(it) }
         return (saved.associateBy { it.id } + active.value.filterKeys { it in ids }).values.toList()
+    }
+
+    internal suspend fun sourceDeliveryForRun(turnKey: String, runId: String): List<String> {
+        if (!LocalDiagnosticsPolicy.enabled ||
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.Key] != null
+        ) {
+            return emptyList()
+        }
+        val limit = dev.chungjungsoo.gptmobile.data.github.GitHubClaimSourceDelivery.INVOCATIONS + 1
+        val live = active.value.values.asSequence().filter { it.turnKey == turnKey && it.parentRunId == runId }
+            .mapNotNull { it.usageEvidenceJson }.filter { "\"github_source_delivery\":" in it }.take(limit).toList()
+        return live + dao.sourceDeliveryForRun(turnKey, runId, limit)
     }
 
     internal suspend fun measuredRunUsage(turnKey: String, runId: String): RunTokenUsage? {
@@ -235,7 +254,16 @@ class InvocationLedger @Inject constructor(
                 }
                 return@flow
             }
-            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id, preparedAssistEvidence, researchTrace)
+            val invocationContext = kotlinx.coroutines.currentCoroutineContext()
+            val sourceTrace = if (LocalDiagnosticsPolicy.enabled &&
+                invocationContext[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.Key] == null &&
+                invocationContext[dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext] == null
+            ) {
+                dev.chungjungsoo.gptmobile.data.network.GitHubSourceDispatchTrace.capture(exchanges)
+            } else {
+                null
+            }
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id, preparedAssistEvidence, researchTrace, sourceTrace)
             val combinedAccounting = combined?.let {
                 CombinedInvocationAccounting(it, requireNotNull(combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()) { "Combined budget store is unavailable; no dispatch is allowed." }, price, dao, record, totalLimit, spend)
             }

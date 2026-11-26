@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -39,14 +40,18 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import kotlinx.serialization.json.jsonPrimitive
 
 /** Persisted host jobs are shown in the ordinary conversation, including notification deep links. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2?, debugMode: Boolean = false, model: GatewayEngineeringViewModel = hiltViewModel()) {
     GatewayEngineeringObservation(model, chatId)
     val state by model.state.collectAsStateWithLifecycle()
     var page by remember(chatId) { androidx.compose.runtime.mutableIntStateOf(0) }
-    val bindings = state.bindings.filter { it.chatId == chatId }
-    val lastPage = (bindings.size - 1).coerceAtLeast(0) / 20
-    val visible = bindings.asReversed().drop(page.coerceAtMost(lastPage) * 20).take(20)
+    val jobs = remember(state.bindings, chatId) { gatewayChatJobs(state.bindings, chatId) }
+    var historyOpen by androidx.compose.runtime.saveable.rememberSaveable(chatId) { mutableStateOf(false) }
+    val displayed = if (historyOpen) jobs.current + jobs.history else jobs.current
+    val lastPage = (displayed.size - 1).coerceAtLeast(0) / 20
+    val currentPage = page.coerceAtMost(lastPage)
+    val visible = displayed.drop(currentPage * 20).take(20)
     var details by remember(chatId) { mutableStateOf<GatewayEngineeringBinding?>(null) }
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     var wantedRequest by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
@@ -61,11 +66,17 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
     val uri = LocalUriHandler.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        if (bindings.isNotEmpty()) Text("Saved engineering work", style = MaterialTheme.typography.titleSmall)
+        if (displayed.isNotEmpty()) Text("Saved engineering work", style = MaterialTheme.typography.titleSmall)
+        if (jobs.history.isNotEmpty()) {
+            TextButton(onClick = {
+                historyOpen = !historyOpen
+                page = 0
+            }) { Text(if (historyOpen) "Hide earlier jobs" else "Show earlier jobs (${jobs.history.size})") }
+        }
         if (lastPage > 0) {
             Row {
-                TextButton(onClick = { page-- }, enabled = page > 0) { Text("Newer jobs") }
-                TextButton(onClick = { page++ }, enabled = page < lastPage) { Text("Earlier jobs") }
+                TextButton(onClick = { page = currentPage - 1 }, enabled = currentPage > 0) { Text("Newer jobs") }
+                TextButton(onClick = { page = currentPage + 1 }, enabled = currentPage < lastPage) { Text("Earlier jobs") }
             }
         }
         visible.forEach { binding ->
@@ -76,9 +87,11 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("${binding.request.repository} · ${job?.branch ?: binding.request.branch}", style = MaterialTheme.typography.titleSmall)
                         job?.let { Text(it.ownershipLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
-                        Text("Stage: ${recovery.stage} · Profile: ${recovery.profileUid}", style = MaterialTheme.typography.bodySmall)
-                        Text("Requested model: ${recovery.requestedModel}\nObserved model: ${recovery.observedModel}", style = MaterialTheme.typography.bodySmall)
-                        GatewayEngineeringBudgetStatus(binding)
+                        Text(binding.request.objective, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if (job == null || debugMode) {
+                            Text("Profile · ${recovery.profileUid}\nRequested model · ${recovery.requestedModel}", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (job == null || recovery.reason != null || debugMode) GatewayEngineeringBudgetStatus(binding)
                         job?.batchProgress?.let { progress ->
                             Text(
                                 progress.readableLabel,
@@ -103,8 +116,8 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                             if (recovery.canReconcileRequest) TextButton(onClick = { model.reconnect(binding) }, enabled = !state.busy) { Text("Reconcile saved request") }
                         } else {
                             if (LocalChatProgressInHeader.current) Text(job.message, style = MaterialTheme.typography.bodyMedium) else EngineeringJobProgress(job)
-                            Text(recovery.nextAction, style = MaterialTheme.typography.bodySmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (recovery.reason != null || job.state == "NEEDS_INPUT") Text(recovery.nextAction, style = MaterialTheme.typography.bodySmall)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = {
                                     details = binding
                                     model.openWorkspace(binding)
@@ -165,6 +178,11 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                             }
                         }
                         "Changes" -> {
+                            current.job?.changedFileCoverage?.let { coverage ->
+                                val observed = coverage["observed_unique"]?.jsonPrimitive?.content
+                                val expected = coverage["expected"]?.jsonPrimitive?.content
+                                if (observed != null && expected != null) Text("Changed files verified: $observed of $expected")
+                            }
                             val changed = current.job?.changedFiles.orEmpty()
                             if (changed.isEmpty()) Text("No changed files recorded yet.")
                             changed.forEach { Text(it) }
@@ -199,6 +217,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                             }
                             Text("Job ${current.job?.id ?: current.request.requestId}", style = MaterialTheme.typography.bodySmall)
                             Text("Owner: ${current.principalId ?: "Not recorded"}\nProfile: ${recovery.profileUid}\nRepository: ${current.request.repository}\nHead: ${current.job?.headSha ?: "Not observed"}", style = MaterialTheme.typography.bodySmall)
+                            Text("Stage: ${recovery.stage}\nRequested model: ${recovery.requestedModel}\nObserved model: ${recovery.observedModel}", style = MaterialTheme.typography.bodySmall)
                             Text("Execution identity: ${recovery.executionIdentity}\nHardware: ${recovery.hardware}", style = MaterialTheme.typography.bodySmall)
                             GatewayEngineeringBudgetStatus(current)
                             Text("Check saved job retrieves retained progress on the original route. Confirmed operations and partial output are preserved.")
@@ -324,7 +343,7 @@ internal fun EngineeringJobProgress(job: GatewayEngineeringJob, textSizeIncrease
 internal fun GatewayMergeInteractions(chatId: Int, model: GatewayEngineeringViewModel = hiltViewModel()) {
     GatewayEngineeringObservation(model, chatId)
     val state by model.state.collectAsStateWithLifecycle()
-    state.bindings.filter { it.request.chatId == chatId && it.job?.mergeReady == true }.forEach { binding ->
+    state.bindings.filter { it.chatId == chatId && it.job?.mergeReady == true }.forEach { binding ->
         val job = requireNotNull(binding.job)
         androidx.compose.runtime.key(job.id, job.revision, job.headSha) {
             GitHubPendingPrompt {

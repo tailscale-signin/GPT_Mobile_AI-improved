@@ -264,7 +264,7 @@ class ApiStateFlowExtensionsTest {
         assertEquals(3, summaries.mapNotNull { it.progressSequence }.distinct().size)
         assertEquals(3, summaries.mapNotNull { it.progressId }.distinct().size)
         assertTrue(summaries.all { it.outputLineage == OutputLineage(OutputOrigin.MODEL_TEXT, "primary") })
-        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Track the issue", active = true).filter { it.statusSummary })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityProjection(timeline, "Track the issue", active = true).lines.filter { it.statusSummary })
     }
 
     @Test fun identicalSummaryTextKeepsSeparateAuthorshipAndSuppressesOnlyUnchangedReplay() = runBlocking {
@@ -291,7 +291,7 @@ class ApiStateFlowExtensionsTest {
         val summaries = timeline.filter { it.statusSummary }
         assertEquals(listOf(open.text, closed.text, open.text), summaries.map { it.content })
         assertTrue(summaries.all { !it.modelAuthored && it.outputLineage == null })
-        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Track the issue", active = true).filter { it.statusSummary })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityProjection(timeline, "Track the issue", active = true).lines.filter { it.statusSummary })
     }
 
     @Test fun capturedSourcePublicationsKeepIdenticalTextAndInvocationThroughCollectorAndDisplay() = runBlocking {
@@ -339,7 +339,7 @@ class ApiStateFlowExtensionsTest {
         assertEquals(publications.map { it.publicationId }, summaries.map { it.progressId })
         assertEquals(2, summaries.mapNotNull { it.progressSequence }.distinct().size)
         assertTrue(summaries.all { it.outputLineage == OutputLineage(OutputOrigin.MODEL_TEXT, "same-invocation") })
-        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Review cancellation", active = true).filter { it.statusSummary && it.modelAuthored })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityProjection(timeline, "Review cancellation", active = true).lines.filter { it.statusSummary && it.modelAuthored })
     }
 
     @Test fun separateProgressControllersKeepDistinctPublicationsWithoutChangingTheirInput() = runBlocking {
@@ -368,7 +368,7 @@ class ApiStateFlowExtensionsTest {
         assertEquals(original, prose)
         assertEquals(listOf(1L, 2L), summaries.map { it.progressSequence })
         assertTrue(summaries.all { it.outputLineage == OutputLineage(OutputOrigin.MODEL_TEXT, "same-invocation") })
-        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Review cancellation", active = true).filter { it.statusSummary })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityProjection(timeline, "Review cancellation", active = true).lines.filter { it.statusSummary })
     }
 
     private fun observeCapturedProgressSource(progress: dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress, id: String, commit: String) {

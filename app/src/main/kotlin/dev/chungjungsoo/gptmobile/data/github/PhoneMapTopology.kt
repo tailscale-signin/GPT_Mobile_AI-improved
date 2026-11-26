@@ -41,6 +41,7 @@ internal data class PhoneMapTopology(val nodes: List<JsonObject>, val edges: Lis
             val identity = buildString {
                 appendLine(context.connectionUid)
                 appendLine(context.treeSha)
+                appendLine(GITHUB_TREE_CACHE_VERSION)
                 appendLine(PhoneRepositoryGraph.PARSER_VERSION)
                 appendLine(paths.orEmpty().filterIsInstance<JsonPrimitive>().take(8).distinct().sortedBy { it.toString() })
                 for ((path, source) in cached.toSortedMap()) {

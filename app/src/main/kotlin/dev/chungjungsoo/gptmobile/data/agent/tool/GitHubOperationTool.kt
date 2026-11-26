@@ -28,6 +28,7 @@ internal class GitHubOperationTool(
     private val views: GitHubResultViews = GitHubResultViews.shared,
     private val loadSavedView: suspend (String) -> JsonObject? = { null },
     private val saveSavedView: (suspend (String, JsonObject) -> Unit)? = null,
+    private val restorePinnedSource: (suspend (String, JsonObject, JsonObject, (JsonArray?, Int) -> JsonObject?) -> Boolean)? = null,
     private val validateSavedViewAccess: suspend () -> Unit = {}
 ) : AgentTool {
     override val managesExecutionBudget get() = backend.managesExecutionBudget
@@ -343,7 +344,9 @@ internal class GitHubOperationTool(
                 return argumentPrecheck(callId, "Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context.", "SAVED_VIEW_CURSOR_MALFORMED")
             }
             val context = JsonObject(arguments - "view_cursor")
-            var saved = views.read(scope, operation, definition.name, cursor, callId, context)
+            var checkpoint: Pair<String, JsonObject>? = null
+            fun readPage() = views.read(scope, operation, definition.name, cursor, callId, context).also { checkpoint = views.checkpoint(scope, it) }
+            var saved = synchronized(views) { readPage() }
             if (saved.errorCode == "SAVED_VIEW_UNAVAILABLE") {
                 var restoreState = "NOT_FOUND"
                 var restoreErrorHash: String? = null
@@ -353,6 +356,48 @@ internal class GitHubOperationTool(
                     throw cancelled
                 } catch (missing: dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore.MissingSavedView) {
                     restoreState = missing.reason
+                    // Reopening an immutable source is a separate authorized read. A lost
+                    // page from a mutation or a live issue/CI observation offers no replay.
+                    val pin = if (operation == "github_read" && context.isEmpty()) missing.pinnedSource(scope, definition.name, cursor) else null
+                    val args = pin?.recipe?.get("arguments") as? JsonObject
+                    if (pin != null &&
+                        args != null &&
+                        ToolArgumentValidator.errors(args, definition.inputSchema).isEmpty() &&
+                        GitHubOperationArguments.errors(operation, args).isEmpty()
+                    ) {
+                        val original = (saved.content as? ToolResultContent.Json)?.value as? JsonObject ?: JsonObject(emptyMap())
+                        val correction = buildJsonObject {
+                            put("recovery_action", "REOPEN_ORIGINAL_SOURCE")
+                            put("source_recovery_call", pin.recipe)
+                            put("recovery_call", pin.recipe)
+                            put("message", "The saved page is unavailable. Read the recorded file ranges at their original commit with source_recovery_call.")
+                        }
+                        saved = saved.copy(
+                            content = ToolResultContent.Json(JsonObject(original + correction)),
+                            executionReceipt = JsonObject(
+                                saved.executionReceipt.orEmpty() + buildJsonObject {
+                                    put("saved_view_owner_operation", operation)
+                                    put("saved_view_cursor_issued", true)
+                                    put("saved_view_source_hash", pin.sourceDigest)
+                                    put("source_recovery_call", pin.recipe)
+                                }
+                            )
+                        )
+                    }
+                    if (operation in setOf("github_pr", "github_issue", "github_ci", "github_release", "github_watch_checks") && context.isEmpty()) {
+                        val original = (saved.content as? ToolResultContent.Json)?.value as? JsonObject ?: JsonObject(emptyMap())
+                        saved = saved.copy(
+                            content = ToolResultContent.Json(
+                                JsonObject(
+                                    original + buildJsonObject {
+                                        put("recovery_action", "READ_CURRENT_STATE")
+                                        put("mutation_replay_allowed", false)
+                                        put("message", "The original GitHub observation is unavailable. A separately authorized read can report current state. A previously submitted change must be reconciled without repeating it.")
+                                    }
+                                )
+                            )
+                        )
+                    }
                     null
                 } catch (error: Exception) {
                     restoreState = "LOAD_FAILED"
@@ -360,11 +405,13 @@ internal class GitHubOperationTool(
                     null
                 }
                 if (snapshot != null) {
-                    if (views.restore(scope, operation, definition.name, cursor, snapshot)) {
-                        restoreState = "RESTORED"
-                        saved = views.read(scope, operation, definition.name, cursor, callId, context)
-                    } else {
-                        restoreState = "IDENTITY_REJECTED"
+                    synchronized(views) {
+                        if (views.restore(scope, operation, definition.name, cursor, snapshot)) {
+                            restoreState = "RESTORED"
+                            saved = readPage()
+                        } else {
+                            restoreState = "IDENTITY_REJECTED"
+                        }
                     }
                 }
                 saved = saved.copy(
@@ -376,7 +423,7 @@ internal class GitHubOperationTool(
                     )
                 )
             }
-            val retained = retainSavedView(saved, cursor)
+            val retained = retainSavedView(saved, checkpoint, cursor)
             savedViewAuthorizationFailure(callId)?.let { return it }
             return retained
         }
@@ -784,7 +831,14 @@ internal class GitHubOperationTool(
         } else {
             null
         }
-        val savedPage = views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection)
+        // Capture the body and its issued handles while the view is inserted. Other
+        // concurrent tool calls may evict it before this coroutine reaches storage.
+        var checkpoint: Pair<String, JsonObject>? = null
+        val originalSource = if (operation == "github_read") dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(presented.retainedContent ?: presented.content) as? JsonObject else null
+        val coverage = (originalSource?.get("source_coverage") as? JsonArray)?.takeIf { it.toString().encodeToByteArray().size <= 64 * 1024 }
+        val savedPage = views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection) { captured ->
+            checkpoint = if (coverage == null) captured else captured.first to JsonObject(captured.second + ("captured_source_coverage" to coverage))
+        }
         val pageBody = (savedPage.content as? ToolResultContent.Json)?.value as? JsonObject
         val sourceRead = body?.get("source_read_call") as? JsonObject
         val pageWithRead = if (!savedPage.isError && pageBody != null && sourceRead != null) JsonObject(pageBody + ("source_read_call" to sourceRead)) else null
@@ -799,7 +853,30 @@ internal class GitHubOperationTool(
         } else {
             null
         }
-        return retainSavedView(if (frontier == null) saved else saved.copy(executionReceipt = JsonObject(saved.executionReceipt.orEmpty() + ("search_frontier" to frontier))))
+        val retained = retainSavedView(if (frontier == null) saved else saved.copy(executionReceipt = JsonObject(saved.executionReceipt.orEmpty() + ("search_frontier" to frontier))), checkpoint)
+        val cursor = dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.sourceRestoreCursor(callId)
+        val captured = checkpoint?.second
+        if (cursor == null || captured == null || retained.isError || !immutableRead(definition.name, arguments) || restorePinnedSource == null) return retained
+        savedViewAuthorizationFailure(callId)?.let { return it.copy(dispatched = retained.dispatched, executionReceipt = retained.executionReceipt) }
+        val restored = try {
+            restorePinnedSource.invoke(cursor, arguments, captured) { previous, size ->
+                originalSource?.takeIf { previous == null || it["source_coverage"] is JsonArray }?.let {
+                    val historical = if (previous == null) it else JsonObject(it + ("source_coverage" to previous))
+                    val display = dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project(operation, effectiveArguments, historical, historical)
+                    val history = presented.copy(content = ToolResultContent.Json(display), retainedContent = ToolResultContent.Json(historical))
+                    var snapshot: JsonObject? = null
+                    views.present(scope, operation, definition.name, history, effectiveArguments, maxPageBytes = size) { (_, old) ->
+                        snapshot = if (previous == null) old else JsonObject(old + ("captured_source_coverage" to previous))
+                    }
+                    snapshot
+                }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        return retained.copy(executionReceipt = JsonObject(retained.executionReceipt.orEmpty() + ("recovered_saved_view" to JsonPrimitive(restored))))
     }
 
     private fun argumentPrecheck(callId: String, message: String, reason: String) = AgentToolResult(
@@ -853,8 +930,8 @@ internal class GitHubOperationTool(
         return result.copy(content = ToolResultContent.Json(data), retainedContent = evidence?.let { ToolResultContent.Json(it) } ?: retained)
     }
 
-    private suspend fun retainSavedView(result: AgentToolResult, requestedCursor: String? = null): AgentToolResult {
-        val (id, checkpoint) = views.checkpoint(scope, result) ?: return result
+    private suspend fun retainSavedView(result: AgentToolResult, captured: Pair<String, JsonObject>?, requestedCursor: String? = null): AgentToolResult {
+        val (id, checkpoint) = captured ?: return result
         val body = (result.content as? ToolResultContent.Json)?.value as? JsonObject
         fun cursor(key: String): JsonPrimitive? = (((body?.get(key) as? JsonObject)?.get("arguments") as? JsonObject)?.get("view_cursor") as? JsonPrimitive)
         val issued = (checkpoint["issued_cursors"] as? JsonArray).orEmpty().toSet()
@@ -968,12 +1045,21 @@ internal class GitHubOperationTool(
     companion object {
         val names = setOf("github_context_inspect", "github_pr_inspect", "github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue", "github_repository")
         fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }?.githubOperationFamily()
+        private fun searchAction(arguments: JsonObject): String {
+            val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty()
+            return if (dev.chungjungsoo.gptmobile.data.github.GitHubInspection.issueSearchQualifier.containsMatchIn(query)) "search_issues" else "search_repository"
+        }
+
         fun immutableRead(name: String, arguments: JsonObject): Boolean {
             if ("view_cursor" in arguments) return false
             fun pinned(key: String) = (arguments[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true
             return when (operationName(name)) {
-                "github_read", "github_search" -> pinned("commit_sha")
+                "github_read" -> pinned("commit_sha")
+                // A selected revision binds source blobs. Issue and PR search use the live search index.
+                "github_search" -> pinned("commit_sha") &&
+                    !(arguments["query"] as? JsonPrimitive)?.content.isNullOrBlank() &&
+                    searchAction(arguments) == "search_repository"
                 // Only the comparison's exact pair is immutable. Context status,
                 // PR metadata and checks may change even when their head is pinned.
                 "github_context" -> arguments["action"] == JsonPrimitive("changes") && pinned("base_sha") && pinned("commit_sha")
@@ -1015,7 +1101,7 @@ internal class GitHubOperationTool(
                     "recovery" -> "recovery_context"
                     else -> return null
                 }
-                "github_search" -> if (dev.chungjungsoo.gptmobile.data.github.GitHubInspection.issueSearchQualifier.containsMatchIn((args["query"] as? JsonPrimitive)?.content.orEmpty())) "search_issues" else "search_repository"
+                "github_search" -> searchAction(args)
                 "github_read" -> "read_ranges"
                 "github_stage_patch" -> "stage_patch"
                 "github_watch_checks" -> "watch_checks"
@@ -1109,6 +1195,7 @@ internal class GitHubOperationTool(
         }
 
         fun taskTools(task: String): Set<String> {
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubCodeResearch.matches(task)) return dev.chungjungsoo.gptmobile.data.agent.RepositoryToolHint.readOperations
             if (dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task)) return linkedSetOf("github_context", "github_pr", "github_ci", "github_search", "github_read", "github_watch_checks")
             if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)) return dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
             val text = task.lowercase(java.util.Locale.ROOT).replace("github_pull_request", "github_pr")
@@ -1122,11 +1209,11 @@ internal class GitHubOperationTool(
             selected += explicitlyNamed
             if (Regex("\\b(pr|pull request|review|merge)\\b").containsMatchIn(text)) selected += "github_pr"
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
-            if (Regex("\\b(fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|patch(?:es|ed|ing)?|edit(?:s|ed|ing)?|changes?|implement(?:ation|ed|ing)?)\\b").containsMatchIn(text)) selected += "github_stage_patch"
+            if (Regex("\\b(fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|patch(?:es|ed|ing)?|edit(?:s|ed|ing)?|changes?|implement(?:ation|ed|ing)?|rebuild|redesign|rewrite|upgrade)\\b").containsMatchIn(text)) selected += "github_stage_patch"
             if (Regex("\\b(commit|committing|push|pushing|branch)\\b").containsMatchIn(text)) selected += "github_commit"
-            if (Regex("\\b(write|writing|create files?|edit(?:s|ed|ing)?|modify|changes?|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|add(?:ed|ing)?|updat(?:e|ed|ing)|delet(?:e|ed|ing)|remove files?|commit|committing|push|pushing|patch(?:es|ed|ing)?|implement(?:ation|ed|ing)?|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
+            if (Regex("\\b(write|writing|create files?|edit(?:s|ed|ing)?|modify|changes?|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|add(?:ed|ing)?|updat(?:e|ed|ing)|delet(?:e|ed|ing)|remove files?|commit|committing|push|pushing|patch(?:es|ed|ing)?|implement(?:ation|ed|ing)?|rebuild|redesign|rewrite|upgrade|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
             if (Regex("\\bissues?\\b").containsMatchIn(text) || issueRequest) selected += "github_issue"
-            if ("release" in text || "tag" in text) selected += "github_release"
+            if (Regex("""\b(?:(?:pre-?)?releases?|tags?|tagging|tagged)\b""").containsMatchIn(text)) selected += "github_release"
             if (Regex("\\b(watch|monitor|subscribe|ci|checks)\\b").containsMatchIn(text)) selected += "github_watch_checks"
             return selected
         }
@@ -1136,9 +1223,9 @@ internal class GitHubOperationTool(
                 val canonical = operation.removeSuffix("_inspect")
                 val full = definition(canonical, modelName)
                 val fields = if (canonical == "github_pr") {
-                    setOf("owner", "repo", "action", "pull_number", "state", "head", "base", "page", "per_page", "include_health", "expected_head_sha", "expected_base_sha", "include_files", "include_checks", "include_patches", "check_page", "verify_live", "view_cursor", "response_detail")
+                    setOf("owner", "repo", "action", "pull_number", "state", "head", "base", "sort", "direction", "page", "per_page", "include_health", "expected_head_sha", "expected_base_sha", "include_files", "include_checks", "include_patches", "check_page", "verify_live", "view_cursor", "response_detail")
                 } else {
-                    setOf("owner", "repo", "action", "ref", "branch", "commit_sha", "page", "per_page", "verify_live", "view_cursor", "response_detail")
+                    setOf("owner", "repo", "action", "ref", "branch", "commit_sha", "page", "per_page", "include_patches", "verify_live", "view_cursor", "response_detail")
                 }
                 val actions = if (canonical == "github_pr") listOf("list", "headers", "context") else listOf("resolve", "status", "branches", "branch", "commits", "commit", "checks", "repository")
                 val properties = (full.inputSchema["properties"] as JsonObject).filterKeys { it in fields }.mapValues { (field, value) ->
@@ -1625,7 +1712,7 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Search pinned repository. mode=paths matches filenames/* patterns. Read source_read_call next; follow exact continuation_call."
+                "github_search" -> "Search pinned source (mode=paths for filenames) or live is:issue/is:pr. Follow source_read_call for source."
                 "github_read" -> "Read bounded ranges: end_line or max_lines. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select its saved version. If the branch advanced, use restore_stage_id, branch and the new expected_head_sha to revalidate unchanged files without publishing. Review the returned stage ID before committing."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
@@ -1637,12 +1724,12 @@ internal class GitHubOperationTool(
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
                 "github_read", "github_search" ->
-                    " New read: owner+repo together or both omitted."
+                    " Supply both owner/repo or neither."
                 "github_context", "github_ci", "github_pr", "github_issue" ->
                     " Saved-view continuation: copy the returned continuation_call with only view_cursor; do not carry over action, owner, repo, branch, ref, page, per_page, search_id or other fields. For a new remote read, owner and repo must be supplied together or both omitted."
                 else -> " Follow the exact continuation_call. For new calls, supply owner and repo together."
             } + if (operation in setOf("github_read", "github_search", "github_context", "github_ci", "github_pr", "github_issue")) {
-                " continuation_call advances unread content; recovery_call/recovery_options reread the retained offset only for undelivered pages or explicit rereads."
+                " Advance with continuation_call. Use recovery_call/recovery_options only for undelivered pages or explicit rereads."
             } else {
                 ""
             }
@@ -1653,9 +1740,6 @@ internal class GitHubOperationTool(
                     put("type", "object")
                     put("properties", JsonObject(properties))
                     put("additionalProperties", false)
-                    if (operation == "github_write") {
-                        put("required", JsonArray(listOf("branch", "expected_head_sha", "message", "files").map(::JsonPrimitive)))
-                    }
                     GitHubOperationArguments.schemaAlternatives(operation)?.let { put("anyOf", it) }
                     // Prevent the provider from producing a local cursor mixed with
                     // fresh-read filters. The old anyOf still describes action prerequisites.

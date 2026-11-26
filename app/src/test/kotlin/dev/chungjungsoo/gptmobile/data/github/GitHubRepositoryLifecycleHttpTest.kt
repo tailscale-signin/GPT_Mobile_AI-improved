@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -206,15 +207,11 @@ class GitHubRepositoryLifecycleHttpTest {
             val pending = client.execute("fork_repository", args).jsonObject
             assertEquals(JsonPrimitive("PENDING"), pending["status"])
             assertFalse(pending["remote_state_verified"] == JsonPrimitive(true))
-            val status = client.execute(
-                "repository_lifecycle_status",
-                JsonObject(
-                    args + buildJsonObject {
-                        put("operation", "fork_repository")
-                        put("expected_repository_id", 92)
-                    }
-                )
-            ).jsonObject
+            val continuation = pending.getValue("continuation").jsonObject
+            assertEquals(JsonPrimitive("repository_lifecycle_status"), continuation["action"])
+            val publicStatus = JsonObject(continuation + ("action" to JsonPrimitive("status")))
+            assertTrue(GitHubOperationArguments.errors("github_repository", publicStatus).isEmpty())
+            val status = client.execute("repository_lifecycle_status", continuation).jsonObject
             assertEquals(JsonPrimitive("VERIFIED"), status["status"])
             assertEquals(JsonPrimitive(92), status["repository_id"])
             assertEquals(1, creates)

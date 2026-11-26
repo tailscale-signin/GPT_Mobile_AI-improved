@@ -93,7 +93,10 @@ internal object ConfiguredDispatchAuthority {
             val currentFeatures = settings.getFeatureSettings()
             val currentFields = policyFields(currentFeatures, platform.uid, chatId)
             val changed = (capturedFields.keys + currentFields.keys).filter { capturedFields[it] != currentFields[it] }.filterNot {
-                it == "budget" && allowsAcceptedTokenPlan(capturedFeatures.tokenBudget, currentFeatures.tokenBudget, platform.uid)
+                it == "budget" &&
+                    allowsAcceptedTokenPlan(capturedFeatures.tokenBudget, currentFeatures.tokenBudget, platform.uid) ||
+                    it == "githubProfileOverride" &&
+                    allowsAcceptedIntelligenceLevel(capturedFields, currentFields)
             }.sorted()
             if (changed.isNotEmpty()) {
                 val details = githubOverrideChanges(capturedFields, currentFields) + profileBehaviorChanges(capturedFields, currentFields)
@@ -105,6 +108,19 @@ internal object ConfiguredDispatchAuthority {
     }
 
     /** Fixed subfield names diagnose a policy stop without exporting either setting value. */
+    private fun allowsAcceptedIntelligenceLevel(before: JsonObject, after: JsonObject): Boolean {
+        val previous = before["githubProfileOverride"] as? JsonObject ?: return false
+        val current = after["githubProfileOverride"] as? JsonObject ?: return false
+        if (previous - "intelligenceLevel" != current - "intelligenceLevel") return false
+        fun level(value: JsonObject): dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel? {
+            val encoded = value["intelligenceLevel"] ?: return GitHubChatProfileOverride.newProfile.intelligenceLevel
+            return dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.entries.firstOrNull { encoded == JsonPrimitive(it.name) }
+        }
+        val accepted = level(previous) ?: return false
+        val configured = level(current) ?: return false
+        return accepted < configured
+    }
+
     internal fun githubOverrideChanges(before: JsonObject, after: JsonObject): List<String> {
         val previous = (before["githubProfileOverride"] as? JsonObject).orEmpty()
         val current = (after["githubProfileOverride"] as? JsonObject).orEmpty()
@@ -215,7 +231,7 @@ internal object ConfiguredDispatchAuthority {
             if (github != null) {
                 put("githubProfileSelection", github.mainProfileUid)
                 if (github.mainProfileUid == uid) {
-                    val override = Json.encodeToJsonElement(features.githubProfileOverrides[uid] ?: GitHubChatProfileOverride()) as JsonObject
+                    val override = Json.encodeToJsonElement(features.githubProfileOverrides[uid] ?: GitHubChatProfileOverride.newProfile) as JsonObject
                     // Quick workflows populate the composer. A submitted task already owns its prompt.
                     put("githubProfileOverride", if (legacy) override else JsonObject(override - "quickWorkflows"))
                 }
@@ -226,7 +242,7 @@ internal object ConfiguredDispatchAuthority {
 }
 
 /** Safe field names only; never include settings values, prompts or credentials. */
-internal class DispatchPolicyChangedException(val fields: List<String>, val gatewaySelectionChange: String? = null) :
+internal class DispatchPolicyChangedException(val fields: List<String>, val gatewaySelectionChange: String? = null, val blockedStage: String? = null) :
     IllegalStateException(
         "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
             "Resume the unfinished task to revalidate saved results under the current settings; no stale request was sent."

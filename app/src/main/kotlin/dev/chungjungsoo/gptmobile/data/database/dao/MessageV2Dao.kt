@@ -51,6 +51,52 @@ interface MessageV2Dao : CombinedDocumentDao {
     @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId AND message_id >= COALESCE((SELECT message_id FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL ORDER BY message_id DESC LIMIT 1 OFFSET :offset), 0) ORDER BY created_at, message_id")
     fun rawObserveWindow(chatId: Int, offset: Int): Flow<List<MessageV2>>
 
+    @Query(
+        """SELECT CASE WHEN m.platform_type IS NULL THEN m.message_id WHEN m.linked_message_id > 0 THEN
+               (SELECT p.message_id FROM messages_v2 p WHERE p.chat_id = m.chat_id AND p.platform_type IS NULL AND p.message_id = m.linked_message_id)
+           ELSE (SELECT p.message_id FROM messages_v2 p WHERE p.chat_id = m.chat_id AND p.platform_type IS NULL
+               AND (p.created_at, p.message_id) <= (m.created_at, m.message_id) ORDER BY p.created_at DESC, p.message_id DESC LIMIT 1)
+           END FROM messages_v2 m WHERE m.chat_id = :chatId AND m.message_id = :messageId"""
+    )
+    suspend fun parentUserId(chatId: Int, messageId: Int): Int?
+
+    @Query("SELECT message_id FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL AND message_id > :afterId ORDER BY message_id LIMIT 1 OFFSET :offset")
+    suspend fun userAfter(chatId: Int, afterId: Int, offset: Int): Int?
+
+    @Transaction
+    suspend fun centeredWindowEnd(chatId: Int, messageId: Int, turns: Int): Int? {
+        val parent = parentUserId(chatId, messageId) ?: return null
+        val centered = userAfter(chatId, parent, turns / 2 - 1) ?: return null
+        val firstPage = userAfter(chatId, 0, turns - 1) ?: return null
+        val end = maxOf(centered, firstPage)
+        return end.takeIf { userAfter(chatId, it, 0) != null }
+    }
+
+    @Transaction
+    suspend fun newerWindowEnd(chatId: Int, end: Int, turns: Int): Int? {
+        val next = userAfter(chatId, end, turns - 1) ?: return null
+        return next.takeIf { userAfter(chatId, it, 0) != null }
+    }
+
+    @Query(
+        """WITH page AS (
+               SELECT message_id FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL
+               AND message_id <= :end ORDER BY message_id DESC LIMIT :turns
+           )
+           SELECT m.* FROM messages_v2 m WHERE m.chat_id = :chatId AND (
+               m.message_id IN (SELECT message_id FROM page)
+               OR (m.platform_type IS NOT NULL AND m.linked_message_id IN (SELECT message_id FROM page))
+               OR (m.platform_type IS NOT NULL AND m.linked_message_id <= 0 AND (
+                   SELECT p.message_id FROM messages_v2 p WHERE p.chat_id = m.chat_id AND p.platform_type IS NULL
+                   AND (p.created_at, p.message_id) <= (m.created_at, m.message_id) ORDER BY p.created_at DESC, p.message_id DESC LIMIT 1
+               ) IN (SELECT message_id FROM page))
+           ) ORDER BY m.created_at, m.message_id"""
+    )
+    fun rawObserveWindowThrough(chatId: Int, end: Int, turns: Int): Flow<List<MessageV2>>
+
+    @Query("SELECT COUNT(*) FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL AND message_id <= :end")
+    fun observeTurnCountThrough(chatId: Int, end: Int): Flow<Int>
+
     @Query("SELECT COUNT(*) FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL")
     fun observeTurnCount(chatId: Int): Flow<Int>
 
@@ -107,6 +153,8 @@ interface MessageV2Dao : CombinedDocumentDao {
     fun observeMessages(chatId: Int): Flow<List<MessageV2>> = rawObserveMessages(chatId).map { messages -> messages.map { it.decodedArchiveText() } }
 
     fun observeWindow(chatId: Int, offset: Int): Flow<List<MessageV2>> = rawObserveWindow(chatId, offset).map { messages -> messages.map { it.decodedArchiveText() } }
+
+    fun observeWindowThrough(chatId: Int, end: Int, turns: Int): Flow<List<MessageV2>> = rawObserveWindowThrough(chatId, end, turns).map { messages -> messages.map { it.decodedArchiveText() } }
 
     fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>> = rawObserveFavoriteAssistantMessages().map { messages -> messages.map { it.decodedArchiveText() } }
 }

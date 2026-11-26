@@ -45,6 +45,28 @@ class GitHubBoundRepositoryToolTest {
         }
     }
 
+    @Test fun numberedFollowUpCannotDispatchWritesOrRetargetThroughPreparedCalls() = runTest {
+        val delegate = RecordingTool("github_pr__account")
+        val target = GitHubReadReference(43, GitHubLookupRoute.PULL_REQUEST)
+        val bound = GitHubBoundRepositoryTool(delegate, selected, readSources = setOf("outside/other"), readOnly = true, readReference = target)
+        val valid = buildJsonObject {
+            put("action", "context")
+            put("pull_number", 43)
+        }
+        assertFalse(bound.execute("read", valid).isError)
+        assertEquals(JsonPrimitive(selected.owner), delegate.executed.single()["owner"])
+        assertEquals(JsonPrimitive(selected.repo), delegate.executed.single()["repo"])
+        val foreign = JsonObject(valid + mapOf("owner" to JsonPrimitive("outside"), "repo" to JsonPrimitive("other")))
+        assertEquals("GITHUB_REPOSITORY_TARGET_MISMATCH", bound.execute("foreign", foreign).errorCode)
+        assertFalse(bound.prepareExecution("foreign", foreign).invoke().dispatched)
+        for (invalid in listOf(valid + ("action" to JsonPrimitive("merge")), valid + ("pull_number" to JsonPrimitive(42)), valid + ("view_cursor" to JsonPrimitive("other")))) {
+            assertFalse(bound.execute("blocked", JsonObject(invalid)).dispatched)
+            assertFalse(bound.prepareExecution("blocked", JsonObject(invalid)).invoke().dispatched)
+        }
+        assertEquals(1, delegate.executed.size)
+        assertEquals(0, delegate.prepared)
+    }
+
     @Test fun explicitForeignRepositoryAndUrlAliasesCannotDispatchOrPrepare() = runTest {
         for ((name, action) in listOf("github__account" to "resolve_context", "github__account" to "repo_status", "github__account" to "update_file", "github_context__account" to "resolve", "github_write__account" to "commit", "github_pr__account" to "merge")) {
             for (target in listOf("other/repository", "https://github.com/other/repository.git")) {

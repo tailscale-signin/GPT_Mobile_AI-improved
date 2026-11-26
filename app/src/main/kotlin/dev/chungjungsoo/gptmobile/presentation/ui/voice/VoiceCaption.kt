@@ -74,10 +74,6 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
     }
 }
 
-internal fun captionLineScale(offset: Int): Float = captionLineScale(offset.toFloat())
-
-internal fun captionLineAlpha(offset: Int): Float = captionLineAlpha(offset.toFloat())
-
 /** Holds a fractional line while browsing. Scrolling to the end resumes the playback cursor. */
 internal data class VoiceCaptionReader(private val manualLine: Float? = null) {
     val following get() = manualLine == null

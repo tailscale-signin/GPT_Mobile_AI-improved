@@ -255,7 +255,7 @@ class GitHubImplementationMilestoneIntegrationTest {
                         }
                         respond("""{"sha":"$revision","commit":{"tree":{"sha":"${if (revision == published) resultTree else baseTree}"}}}""")
                     }
-                    "/git/trees/" in path -> respond(tree(if (path.endsWith(resultTree)) after else before).toString())
+                    "/git/trees/" in path -> respond(tree(path.substringAfterLast('/'), if (path.endsWith(resultTree)) after else before).toString())
                     "/git/blobs/" in path -> {
                         val sha = path.substringAfterLast('/')
                         val text = (before.values + after.values).single { GitHubCommitReconciliation.blobSha(it) == sha }
@@ -307,7 +307,8 @@ class GitHubImplementationMilestoneIntegrationTest {
             put("object", buildJsonObject { put("sha", revision) })
         }
 
-        private fun tree(files: Map<String, String>) = buildJsonObject {
+        private fun tree(sha: String, files: Map<String, String>) = buildJsonObject {
+            put("sha", sha)
             put("truncated", false)
             put(
                 "tree",

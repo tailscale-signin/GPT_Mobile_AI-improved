@@ -65,9 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
-import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
@@ -93,7 +94,8 @@ internal data class VoiceConversationUiState(
     val inputLevel: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceInputLevel>? = null,
     val captionCursor: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor>? = null,
     val handsFreeInterruption: Boolean = false,
-    val interruptionState: kotlinx.coroutines.flow.StateFlow<VoiceInterruptionStatus>? = null
+    val interruptionState: kotlinx.coroutines.flow.StateFlow<VoiceInterruptionStatus>? = null,
+    val recognitionBackend: VoiceRecognitionBackend = SpeechLanguages.recognitionBackend(language)
 )
 
 internal class VoiceConversationActions(
@@ -259,9 +261,10 @@ private fun VoiceConversationSetup(state: VoiceConversationUiState, actions: Voi
     }
     if (!state.recognitionReady) {
         Spacer(Modifier.height(16.dp))
-        LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, {})
-        if (!LocalVoiceModelStore.supportsLanguage(state.language)) {
-            Text("Moonshine recognizes English. Choose your region in Voice settings.", Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (state.recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
+            LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, {})
+        } else {
+            Text("Android offline recognition is unavailable on this phone. Choose English and the Moonshine engine to use the bundled recognizer.", Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = actions.showSettings) { Text("Choose speech language") }
         }
     }

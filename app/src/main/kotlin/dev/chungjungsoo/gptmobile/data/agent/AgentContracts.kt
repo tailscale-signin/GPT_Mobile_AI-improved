@@ -120,7 +120,9 @@ data class AgentToolDefinition(
     val dependsOn: Set<String> = emptySet(),
     val workflowLinks: List<AgentToolWorkflowLink> = emptyList(),
     val contractVersion: AgentContractVersion = AgentContractVersion(),
-    val schemaProjection: AgentToolSchemaProjection? = null
+    val schemaProjection: AgentToolSchemaProjection? = null,
+    /** App-assigned discovery metadata from the installed preset or native producer. */
+    val discoveryPresetId: String? = null
 ) {
     /** A later schema replacement invalidates the projection instead of hiding a real contract change. */
     val contractSchema: JsonObject get() = schemaProjection?.takeIf { it.wire == inputSchema }?.contract ?: inputSchema

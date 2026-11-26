@@ -112,7 +112,8 @@ class GitHubContinuityUpgradeTest {
         assertEquals(2, groups.size)
         val test = groups.first().jsonObject
         assertEquals(JsonPrimitive(2), test["occurrences_in_retained_excerpt"])
-        assertEquals(JsonArray(listOf(JsonPrimitive("app/FooTest.kt"))), test["matching_changed_paths"])
+        assertEquals(JsonArray(emptyList()), test["matching_changed_paths"])
+        assertEquals(JsonPrimitive("BASENAME_ONLY"), test["location_status"])
         assertEquals(JsonPrimitive("LOG_PATTERN_HYPOTHESIS_NOT_CONFIRMED_ROOT_CAUSE"), test["confidence"])
         assertEquals(JsonPrimitive("INFRASTRUCTURE"), groups.last().jsonObject["category"])
     }

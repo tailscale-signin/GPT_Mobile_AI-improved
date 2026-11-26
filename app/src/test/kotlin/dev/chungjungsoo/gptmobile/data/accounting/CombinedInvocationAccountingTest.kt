@@ -104,6 +104,8 @@ class CombinedInvocationAccountingTest {
         override suspend fun turnCost(turnKey: String, currency: String): Long = rows.values.filter { it.turnKey == turnKey && it.currency == currency }.sumOf { it.costMicros ?: 0 }
         override suspend fun dailyCost(start: Long, currency: String): Long = rows.values.filter { it.startedAt >= start && it.currency == currency }.sumOf { it.costMicros ?: 0 }
         override suspend fun forRootBudget(turnKey: String): List<ModelInvocation> = rows.values.filter { it.turnKey == turnKey }
+        override suspend fun sourceDeliveryForRun(turnKey: String, runId: String, limit: Int): List<String> =
+            forRootBudget(turnKey).filter { it.parentRunId == runId }.sortedByDescending { it.startedAt }.mapNotNull { it.usageEvidenceJson }.filter { "\"github_source_delivery\":" in it }.take(limit)
         override suspend fun rootExecutionPolicy(turnKey: String): String? = forRootBudget(turnKey).firstNotNullOfOrNull { it.executionPolicyJson }
     }
 }

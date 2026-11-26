@@ -2,7 +2,7 @@
 """Run the actual native Model/JNI/Sherpa profile lifecycle on a QNN host emulator.
 
 Requires the verified Kokoro model, local CMake dependency archives, JDK21,
-ORT1.28.2 host headers/library and explicitly versioned QNN host libraries.
+ORT1.31.0 host headers/library and explicitly versioned QNN host libraries.
 The historical default is QNN2.7.0/QAIRT2.51; use --qnn-version 2.8.0 for
 the audited QNN2.8/QAIRT2.52 package. Host and application versions must match.
 Nothing is downloaded.

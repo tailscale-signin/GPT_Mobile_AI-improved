@@ -32,8 +32,26 @@ class VoiceSpeechBenchmarkStreamingEngineTest {
         assertTrue(receipt.validated())
         assertEquals(1, receipt.callCount())
         assertEquals(60L, receipt.streamWallMs())
+        assertEquals(10L, receipt.firstPcmMs())
+        assertEquals(1L, receipt.signalSnapshot()?.samples)
+        assertEquals(0L, receipt.signalSnapshot()?.clipped)
         assertNull(bridge.executionEvidence)
         assertEquals("mediapipe-phonon-cpu-requested", bridge.executionProvider)
+    }
+
+    @Test fun rawPlaybackSignalIncludesBothClippingPolaritiesAndRetainsNoWaveform() {
+        val receipt = VoiceSpeechEnginePlaybackObservation()
+        assertNull(receipt.signalSnapshot())
+        val bridge = VoiceSpeechBenchmarkStreamingEngine(
+            engine { emit ->
+                emit(VoicePcmChunk(floatArrayOf(-1f, 0f)))
+                emit(VoicePcmChunk(floatArrayOf(.5f, 1f)))
+            },
+            { null },
+            { receipt }
+        )
+        bridge.stream("word", 0, 1f) { true }
+        assertEquals(VoicePcmSignal(4, .75, 1.0, 2, 3), receipt.signalSnapshot())
     }
 
     @Test fun consumerCancellationCannotBecomeStructurallyCompleteEvenIfProducerIgnoresItsReturn() {

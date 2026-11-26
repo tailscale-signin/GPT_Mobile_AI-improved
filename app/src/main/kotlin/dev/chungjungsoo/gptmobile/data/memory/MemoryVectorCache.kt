@@ -14,6 +14,12 @@ internal class MemoryVectorCache(private val directory: File, private val cipher
     fun key(id: String, scope: String, fingerprint: String): String = MessageDigest.getInstance("SHA-256")
         .digest(MemoryCipherContext(modelVersion, id, 1, "$scope:$fingerprint").bytes()).joinToString("") { "%02x".format(it) }
 
+    fun getOrEmbed(id: String, scope: String, text: String, embed: (String) -> FloatArray): FloatArray {
+        val fingerprint = MessageDigest.getInstance("SHA-256").digest(text.encodeToByteArray()).toHexString()
+        val key = key(id, scope, fingerprint)
+        return read(key) ?: embed(text).also { write(key, it) }
+    }
+
     fun read(key: String): FloatArray? {
         val file = File(directory, key)
         if (!file.isFile) return null

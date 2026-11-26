@@ -33,7 +33,7 @@ internal val LocalChatProgressInHeader = staticCompositionLocalOf { false }
 
 /** Generic header progress does not activate GitHub-only answer withholding. */
 internal val LocalUniversalProgressInHeader = staticCompositionLocalOf { false }
-internal val LocalGitHubApprovalPending = staticCompositionLocalOf { false }
+internal val LocalGitHubTurnApproval = staticCompositionLocalOf<GitHubTurnApproval?> { null }
 
 /** One presentation and activity resolver for chat bubbles and the pinned GitHub header. */
 @Composable

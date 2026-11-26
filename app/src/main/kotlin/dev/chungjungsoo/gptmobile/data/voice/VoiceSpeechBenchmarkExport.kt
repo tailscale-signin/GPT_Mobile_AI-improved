@@ -43,7 +43,7 @@ internal fun writeVoiceSpeechBenchmarkExport(report: VoiceSpeechBenchmarkReport,
                 "engineResults" to {
                     array(report.engineResults) { result ->
                         objectValue(
-                            speechEngineBenchmarkJson(result, includeSamples = false),
+                            speechEngineBenchmarkJson(result, includeSamples = false, playback = report.configuration.playback),
                             mapOf("samples" to { array(result.samples) { element(engineSampleJson(it)) } })
                         )
                     }
@@ -55,7 +55,7 @@ internal fun writeVoiceSpeechBenchmarkExport(report: VoiceSpeechBenchmarkReport,
 }
 
 internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Boolean = false, includeRecords: Boolean = true): JsonObject = buildJsonObject {
-    put("schemaVersion", 6)
+    put("schemaVersion", 7)
     val nativeEngine = report.configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
     put("fixtureVersion", report.configuration.fixtureVersion)
     nullable("playbackFixture", "PER_SAMPLE_MANIFEST".takeIf { report.configuration.playback })
@@ -83,6 +83,10 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put("crossEngineQuality", "NOT_MEASURED_INTELLIGIBILITY_AND_PERCEPTUAL_REVIEW_REQUIRED")
     put("engineComparisonScope", "fixed_spoken_fixture_actual_engine_voice_rate_model_and_runtime_recorded_no_automatic_cross_engine_winner")
     put("cacheBudgetScope", if (nativeEngine) "memory_admitted_residency_estimate_retention_ceiling_not_allocator_limit_active_shape_may_exceed" else "NOT_EXPOSED_BY_SDK")
+    if (report.configuration.playback && !nativeEngine) {
+        put("idleComparisonCacheBudgetBytes", VoiceSpeechPlaybackProtocol.COMPARISON_CACHE_BYTES)
+        put("sdkCacheEvidenceScope", "DIRECTORY_EXISTENCE_AT_ENTRY_AND_EVICTIONS_DURING_ACQUISITION_COMPILED_ARTIFACT_REUSE_UNKNOWN")
+    }
     put("synthesisCancellationScope", if (nativeEngine) "request_phase_and_native_retirement_distinct_preparation_cannot_be_interrupted_by_run_options" else "request_native_call_return_and_handle_close_are_distinct_sdk_preparation_may_not_be_interruptible")
     put(
         "audioReferenceLimits",
@@ -103,11 +107,11 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put("percentileConvention", "nearest_rank_minimum_20_samples")
     put("minimumPercentileSamples", VoiceSpeechBenchmarkBackendResult.MIN_PERCENTILE_SAMPLES)
     put("playbackCancellationBasis", "audio_stop_acknowledgement_before_native_retirement")
-    put("captionValidationScope", "independent_fixed_fixture_ranges_plus_clock_consistency_not_acoustic_alignment")
+    put("captionValidationScope", if (report.configuration.playbackProtocolVersion >= 6) "independent_source_ranges_crossed_on_calibrated_presentation_clock_render_callbacks_counted_separately" else "independent_source_ranges_and_observed_render_callbacks")
     if (!report.configuration.playback) {
         put("fixtureOrder", if (report.configuration.workload == VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES) "INTERLEAVED_LENGTHS" else "GROUPED_REPEATS")
     }
-    put("orderingProtocol", "recorded_cyclic_rotation_across_runs_not_randomized_within_run")
+    put("orderingProtocol", if (report.configuration.comparesColdStartsFirst) "one_cold_trial_per_backend_then_remaining_trials_in_recorded_rotation" else "recorded_cyclic_rotation_across_runs_not_randomized_within_run")
     put("plannedBackendOrder", buildJsonArray { report.configuration.plannedBackendOrder.forEach { add(JsonPrimitive(it.name)) } })
     put("playbackLatencyMs", JsonNull)
     put("acousticLatencyMs", JsonNull)
@@ -129,7 +133,15 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             put("acousticCaptionAlignment", "NOT_TESTED")
             put("semanticCorrectness", "NOT_MEASURED")
             put("intelligibility", "NOT_MEASURED")
-            put("cancellation", if (report.configuration.playback && VoiceSpeechPlaybackScenario.CANCELLATION in report.configuration.playbackScenarios) "SEE_TARGET_OBSERVATIONS" else "NOT_TESTED")
+            put(
+                "cancellation",
+                when {
+                    report.playbackResults.any { it.cancellationTargetReached == true } -> "TARGET_OBSERVED"
+                    report.playbackResults.any { it.cancellationTarget != null } -> "ATTEMPTED_WITHOUT_OBSERVATION"
+                    report.configuration.playback && VoiceSpeechPlaybackScenario.CANCELLATION in report.configuration.playbackScenarios -> "PLANNED_NOT_ATTEMPTED"
+                    else -> "NOT_TESTED"
+                }
+            )
         }
     )
     put(
@@ -151,7 +163,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put(
         "playbackManifest",
         buildJsonArray {
-            if (report.configuration.playback && report.configuration.playbackProtocolVersion == VoiceSpeechPlaybackProtocol.VERSION) {
+            if (report.configuration.playback && report.configuration.playbackProtocolVersion >= 6) {
                 VoiceSpeechPlaybackProtocol.plans(report.configuration).forEach { plan ->
                     add(
                         buildJsonObject {
@@ -164,6 +176,8 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
                             put("expectedResident", plan.expectedResident)
                             put("arrivalIntervalMs", plan.arrivalIntervalMs)
                             nullable("cancellationTarget", plan.cancellationTarget?.name)
+                            nullable("prewarmMode", plan.prewarmMode?.name)
+                            nullable("recoveryAfter", plan.recoveryAfter?.name)
                         }
                     )
                 }
@@ -174,21 +188,18 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
         "backendStates",
         buildJsonArray {
             if (report.configuration.playback) {
-                report.results.forEach { result ->
-                    add(
-                        buildJsonObject {
-                            put("requestedBackend", result.requestedBackend.name)
-                            put("state", result.state.name)
-                            nullable("failure", result.failure?.name)
-                            nullable("failureStage", result.failureStage?.name)
-                            put("measurementScope", "PLAYBACK_LIFECYCLE_ONLY")
-                            put("audioReferenceStatus", report.playbackAudioReference(result.requestedBackend).name)
-                        }
-                    )
+                val states = report.results.associateBy { it.requestedBackend }
+                val engines = report.engineResults.associateBy { it.requestedBackend }
+                report.configuration.backends.forEach { backend ->
+                    val result = states[backend]
+                    val state = result?.state ?: engines[backend]?.state ?: VoiceSpeechBenchmarkBackendState.NOT_RUN
+                    val rows = report.playbackResults.filter { it.requestedBackend == backend }
+                    add(playbackBackendJson(report, backend, state, result, rows))
                 }
             }
         }
     )
+    nullable("runStopOrigin", report.stopOrigin?.name)
     put("startedAtMillis", report.startedAtMillis)
     nullable("finishedAtMillis", report.finishedAtMillis)
     put("state", report.state.name)
@@ -218,7 +229,19 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
                 }
             )
             put("htpPerformanceMode", c.htpPerformanceMode)
-            put("nativeModelVariant", c.nativeModelVariant.name)
+            if (nativeEngine) put("nativeModelVariant", c.nativeModelVariant.name)
+            put(
+                "modelWeightFormat",
+                when {
+                    nativeEngine -> c.nativeModelVariant.name
+                    c.engine.mediaPipeEngine()?.isKokoro == true -> "INT8_FP16"
+                    else -> "INT8"
+                }
+            )
+            if (nativeEngine && c.runtimeId.endsWith("-gpufp32v1") && c.nativeModelVariant == KokoroModelVariant.ORIGINAL_FP32) {
+                put("nativeGpuGraphPrecisionRequest", "FP32_WHEN_ADRENO_IS_SELECTED")
+            }
+            put("acceleratorArithmeticPrecision", "UNOBSERVED")
             put(
                 "deadlines",
                 c.deadlines?.let { limits ->
@@ -245,6 +268,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             nullable("sourceCommit", c.sourceCommit)
             put("playback", c.playback)
             put("playbackProtocolVersion", c.playbackProtocolVersion)
+            put("playbackScheduleVersion", c.playbackScheduleVersion)
             put("playbackScenarios", buildJsonArray { c.playbackScenarios.forEach { add(JsonPrimitive(it.name)) } })
             put("sustainedTargetAudioMs", c.sustainedTargetAudioMs)
             put("calibrationPolicy", c.calibrationPolicy.name)
@@ -263,7 +287,60 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
         }
     )
     put("playbackResults", buildJsonArray { report.playbackResults.takeIf { includeRecords }.orEmpty().forEach { add(playbackJson(it)) } })
-    put("engineResults", buildJsonArray { report.engineResults.takeIf { includeRecords }.orEmpty().forEach { add(speechEngineBenchmarkJson(it)) } })
+    put("engineResults", buildJsonArray { report.engineResults.takeIf { includeRecords }.orEmpty().forEach { add(speechEngineBenchmarkJson(it, playback = report.configuration.playback)) } })
+}
+
+private fun playbackBackendJson(report: VoiceSpeechBenchmarkReport, backend: VoiceSpeechBackend, state: VoiceSpeechBenchmarkBackendState, result: VoiceSpeechBenchmarkBackendResult?, rows: List<VoiceSpeechPlaybackResult>) = buildJsonObject {
+    put("requestedBackend", backend.name)
+    put("state", state.name)
+    nullable("failure", result?.failure?.name)
+    nullable("failureStage", result?.failureStage?.name)
+    put("measurementScope", "PLAYBACK_LIFECYCLE_ONLY")
+    put("audioReferenceStatus", report.playbackAudioReference(backend).name)
+    put("recordedTrials", rows.size)
+    val completed = rows.filter { it.state == VoiceSpeechPlaybackState.COMPLETE && it.chunks > 0 }
+    put("completedPlaybackTrials", completed.size)
+    put("cancelledTrials", rows.count { it.state == VoiceSpeechPlaybackState.CANCELLED })
+    put("failedTrials", rows.count { it.state == VoiceSpeechPlaybackState.FAILED || it.state == VoiceSpeechPlaybackState.UNSUPPORTED })
+    nullable("totalObservedAudioMs", rows.takeIf { it.any { row -> row.chunks > 0 } }?.sumOf { it.totalAudioMs })
+    val cold = completed.filter { it.scenario == VoiceSpeechPlaybackScenario.COLD_START }
+    val warm = completed.filter { it.scenario == VoiceSpeechPlaybackScenario.RESIDENT_WARM && it.engineReused == true && it.prewarmMode == null && !it.warmup }
+    fun median(times: List<Long>) = VoiceSpeechBenchmarkBackendResult.median(times.map(Long::toDouble))
+    put("coldFirstPcmMedianMs", number(median(cold.mapNotNull { it.firstPcmMs })))
+    put("coldFirstPresentedMedianMs", number(median(cold.mapNotNull { it.firstPresentedAudioMs })))
+    put("residentFirstPcmMedianMs", number(median(warm.mapNotNull { it.firstPcmMs })))
+    put("residentFirstPresentedMedianMs", number(median(warm.mapNotNull { it.firstPresentedAudioMs })))
+    val scheduled = VoiceSpeechPlaybackScenario.CANCELLATION in report.configuration.playbackScenarios
+    val targets = VoiceSpeechPlaybackProtocol.cancellationTargets(report.configuration)
+    put(
+        "cancellationTargets",
+        buildJsonArray {
+            VoiceSpeechCancellationTarget.entries.forEach { target ->
+                val probe = rows.firstOrNull { it.cancellationTarget == target }
+                val followUp = rows.firstOrNull { it.recoveryAfter == target }
+                add(
+                    buildJsonObject {
+                        put("target", target.name)
+                        put(
+                            "status",
+                            when {
+                                target == VoiceSpeechCancellationTarget.INFERENCE && backend.isStreamingLocal -> "UNAVAILABLE"
+                                target == VoiceSpeechCancellationTarget.SDK_STREAM_CALL && !backend.isStreamingLocal -> "UNAVAILABLE"
+                                probe?.cancellationTargetReached == true -> "OBSERVED"
+                                probe != null -> "ATTEMPTED"
+                                scheduled && target in targets -> "PLANNED"
+                                else -> "NOT_SCHEDULED"
+                            }
+                        )
+                        nullable("stopAcknowledgementMs", probe?.cancellationMs)
+                        nullable("stopToRetirementMs", probe?.nativeRetirementMs)
+                        nullable("sdkCancelToReadReturnMs", probe?.sdkCancelToReadReturnMs)
+                        nullable("subsequentPlaybackSucceeded", followUp?.let { it.state == VoiceSpeechPlaybackState.COMPLETE && it.chunks > 0 && it.cleanupState == "RETIRED" })
+                    }
+                )
+            }
+        }
+    )
 }
 
 private fun speechBenchmarkResultJson(report: VoiceSpeechBenchmarkReport, r: VoiceSpeechBenchmarkBackendResult, includeRecords: Boolean = true): JsonObject = buildJsonObject {
@@ -636,6 +713,35 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
     put("bufferRestarts", r.bufferRestarts)
     put("longestRefillMs", r.longestRefillMs)
     nullable("cancellationMs", r.cancellationMs)
+    nullable("nativeRetirementMs", r.nativeRetirementMs)
+    nullable("stopOrigin", r.stopOrigin?.name)
+    nullable("sdkCancelToReadReturnMs", r.sdkCancelToReadReturnMs)
+    nullable("prewarmMode", r.prewarmMode?.name)
+    nullable("prewarmCompleted", r.prewarmCompleted)
+    nullable("prewarmElapsedMs", r.prewarmElapsedMs)
+    nullable("recoveryAfter", r.recoveryAfter?.name)
+    nullable("prewarmStartToFirstPresentedMs", r.prewarmElapsedMs?.let { elapsed -> r.firstPresentedAudioMs?.plus(elapsed) })
+    nullable("firstSdkPcmAfterStreamStartMs", r.firstSdkPcmAfterStreamStartMs)
+    nullable("cacheDirectoryPresentAtEntry", r.cacheDirectoryPresent)
+    nullable("cacheDirectoriesEvictedOnAcquire", r.cacheDirectoriesEvicted)
+    put(
+        "sdkPcmSignal",
+        r.sdkPcm?.let { signal ->
+            buildJsonObject {
+                put("samples", signal.samples)
+                put("rms", signal.rms)
+                put("peak", signal.peak)
+                put("clipped", signal.clipped)
+                put("nonSilent", signal.nonSilent)
+                put("scope", "RAW_SDK_CALLBACKS_BEFORE_PLAYBACK_TRIMMING")
+            }
+        } ?: JsonNull
+    )
+    nullable("warmFirstPcmTargetMet", r.firstPcmMs?.takeIf { r.expectedResident && r.engineReused == true }?.let { it < VoiceSpeechBenchmarkTargets.WARM_FIRST_PCM_MS })
+    nullable("prepareToFirstPcmTargetMet", r.firstPcmMs?.takeIf { r.engineReused == false }?.let { it < VoiceSpeechBenchmarkTargets.PREPARE_TO_FIRST_PCM_MS })
+    nullable("firstPresentedTargetMet", r.firstPresentedAudioMs?.let { it <= VoiceSpeechPlaybackProtocol.FIRST_AUDIO_TARGET_MS })
+    nullable("zeroClippingTargetMet", r.sdkPcm?.let { it.clipped <= VoiceSpeechBenchmarkTargets.CLIPPED_SAMPLES })
+    nullable("renderedManifestWords", r.renderedManifestWords)
     put("captionObservations", r.captionObservations)
     put("captionClockRegressions", r.captionClockRegressions)
     put("captionTimingViolations", r.captionTimingViolations)
@@ -644,7 +750,7 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
     put("effectiveProvider", provider(r.effectiveProvider))
     put("acceleratorExecutionObserved", r.acceleratorExecutionObserved)
     nullable("streamedAudioValidated", r.streamedAudioValidated)
-    nullable("requestedDelegate", r.requestedDelegate?.takeIf { it in setOf("CPU", "GPU") })
+    nullable("requestedDelegate", r.requestedDelegate?.takeIf { it in setOf("CPU", "GPU", "NPU") })
     nullable("observedProviderStatus", r.observedProviderStatus?.takeIf { it == "NOT_EXPOSED_BY_SDK" })
     nullable("engineStreamCalls", r.engineStreamCalls)
     nullable("engineStreamWallMs", r.engineStreamWallMs)
@@ -677,7 +783,7 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
     nullable("startupUnderruns", r.startupUnderruns)
     nullable("drainUnderruns", r.drainUnderruns)
     put("underrunsByPhase", buildJsonObject { r.underrunsByPhase.filterKeys { it in UNDERRUN_PHASES }.forEach { (key, count) -> put(key, count) } })
-    put("preparationPhases", buildJsonObject { r.preparationPhases.filterKeys { it in PREPARATION_PHASES }.forEach { (key, elapsed) -> put(key, elapsed) } })
+    put("preparationPhases", buildJsonObject { r.preparationPhases.filterKeys { it in SPEECH_PREPARATION_PHASES }.forEach { (key, elapsed) -> put(key, elapsed) } })
     nullable("pipelineFailureCode", r.pipelineFailureCode?.takeIf { it.matches(SAFE_CODE) })
     nullable("nativeCode", r.nativeCode)
     nullable("failedChunk", r.failedChunk)
@@ -800,7 +906,7 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
 
 /** Legacy runs remain readable, but carry their old protocol and cannot qualify current settings. */
 internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchmarkReport? = runCatching {
-    val schema = value.getValue("schemaVersion").jsonPrimitive.int.also { require(it in 1..6) }
+    val schema = value.getValue("schemaVersion").jsonPrimitive.int.also { require(it in 1..7) }
     val fixtureVersion = value.getValue("fixtureVersion").jsonPrimitive.int.also { require(it in 1..1000) }
     val c = value.getValue("configuration").jsonObject
     val configuration = VoiceSpeechBenchmarkConfiguration(
@@ -813,12 +919,14 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         runtimeId = c.string("runtimeId").also { require(it.matches(IDENTITY)) },
         appBuild = c.getValue("appBuild").jsonPrimitive.int.also { require(it > 0) },
         sdk = c.getValue("sdk").jsonPrimitive.int.also { require(it in 1..100) },
-        deviceKey = c.string("localDeviceKey").also { require(it.matches(SHA256)) },
+        // Shareable reports omit device identity and remain historical when reopened.
+        deviceKey = c.optionalString("localDeviceKey")?.also { require(it.matches(SHA256)) }.orEmpty(),
         workload = if (schema == 1) VoiceSpeechBenchmarkWorkload.NATIVE_PHRASE else VoiceSpeechBenchmarkWorkload.valueOf(c.string("workload")),
         protocolId = if (schema == 1) "legacy-fixtures-v1" else c.string("protocolId"),
         fixtureVersion = fixtureVersion,
         fixtureHash = if (schema == 1) null else c.optionalString("fixtureHash"),
         backendOrderSeed = c.optionalLong("backendOrderSeed") ?: 0,
+        playbackScheduleVersion = c.optionalBoundedLong("playbackScheduleVersion", 2)?.toInt() ?: 1,
         sourceCommit = c.optionalString("sourceCommit"),
         playback = c.optionalBoolean("playback") ?: false,
         playbackProtocolVersion = if (schema < 3) 0 else c.optionalBoundedLong("playbackProtocolVersion", VoiceSpeechPlaybackProtocol.VERSION.toLong())?.toInt() ?: 0,
@@ -838,7 +946,10 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         }
     )
     val nativeEngine = configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
-    val results = value.getValue(if (schema >= 3 && configuration.playback) "backendStates" else "results").jsonArray.also { require(it.size == if (nativeEngine) configuration.backends.size else 0) }.map { raw ->
+    val stateRows = value.getValue(if (schema >= 3 && configuration.playback) "backendStates" else "results").jsonArray
+    val sdkPlaybackSummary = schema >= 7 && configuration.playback && !nativeEngine
+    require(stateRows.size == if (nativeEngine || sdkPlaybackSummary) configuration.backends.size else 0)
+    val results = stateRows.filterNot { sdkPlaybackSummary }.map { raw ->
         val r = raw.jsonObject
         VoiceSpeechBenchmarkBackendResult(
             requestedBackend = VoiceSpeechBackend.valueOf(r.string("requestedBackend")),
@@ -923,8 +1034,23 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
     val engines = value["engineResults"]?.jsonArray.orEmpty().also { require(it.size == if (nativeEngine) 0 else configuration.backends.size) }
         .map { readSpeechEngineBenchmark(it.jsonObject, configuration) }
     require(nativeEngine || engines.map { it.requestedBackend } == configuration.backends)
-    val energy = value["batteryCounterObservations"]?.jsonArray.orEmpty().also { require(it.size <= configuration.backends.size) }.map { readSpeechBenchmarkEnergy(it.jsonObject) }
-    require(energy.map { it.requestedBackend }.distinct().size == energy.size && energy.all { it.requestedBackend in configuration.backends })
+    if (sdkPlaybackSummary) {
+        require(
+            stateRows.zip(engines).all { (row, engine) ->
+                row.jsonObject.string("requestedBackend") == engine.requestedBackend.name && row.jsonObject.string("state") == engine.state.name
+            }
+        )
+    }
+    val windowsPerBackend = if (configuration.comparesColdStartsFirst) 2 else 1
+    val energy = value["batteryCounterObservations"]?.jsonArray.orEmpty().also { require(it.size <= configuration.backends.size * windowsPerBackend) }.map { readSpeechBenchmarkEnergy(it.jsonObject) }
+    require(
+        energy.groupBy { it.requestedBackend }.all { (backend, windows) ->
+            backend in configuration.backends &&
+                windows.size <= windowsPerBackend &&
+                windows.map { it.window } == (1..windows.size).toList() &&
+                windows.dropLast(1).all { it.end != null }
+        }
+    )
     VoiceSpeechBenchmarkReport(
         startedAtMillis = value.getValue("startedAtMillis").jsonPrimitive.long.also { require(it >= 0) },
         configuration = configuration,
@@ -934,7 +1060,8 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         issue = value.optionalString("issue")?.let(VoiceSpeechBenchmarkIssue::valueOf),
         playbackResults = playback,
         engineResults = engines,
-        energyObservations = energy
+        energyObservations = energy,
+        stopOrigin = value.optionalString("runStopOrigin")?.let(VoiceSpeechStopOrigin::valueOf)
     )
 }.getOrNull()
 
@@ -976,7 +1103,7 @@ private fun JsonObject.readChunks(key: String): List<VoiceSpeechBenchmarkChunk> 
         contextCacheStatus = c.optionalString("contextCacheStatus")?.also { require(safeSpeechContextCacheStatus(it) != null) },
         contextLoadMs = c.optionalBoundedLong("contextLoadMs"),
         contextStoreMs = c.optionalBoundedLong("contextStoreMs"),
-        contextBytes = c.optionalBoundedLong("contextBytes", 256L * 1024 * 1024),
+        contextBytes = c.optionalBoundedLong("contextBytes", 512L * 1024 * 1024),
         contextCacheEvictions = c.optionalBoundedLong("contextCacheEvictions", Long.MAX_VALUE),
         contextFallback = c.optionalBoolean("contextFallback"),
         htpPerformanceMode = c.optionalString("htpPerformanceMode")?.also { require(safeSpeechHtpPerformanceMode(it) != null) }
@@ -993,12 +1120,27 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     elapsedMs = r.boundedLong("elapsedMs"), totalSynthesisMs = r.boundedLong("totalSynthesisMs"), totalAudioMs = r.boundedLong("totalAudioMs"),
     chunks = r.boundedLong("chunks", if (r.optionalString("requestedDelegate") == null) 1000 else 16_384).toInt(), underruns = r.optionalBoundedLong("underruns")?.toInt(),
     bufferRestarts = r.boundedLong("bufferRestarts").toInt(), longestRefillMs = r.boundedLong("longestRefillMs"), cancellationMs = r.optionalBoundedLong("cancellationMs"),
+    sdkCancelToReadReturnMs = r.optionalBoundedLong("sdkCancelToReadReturnMs"),
+    stopOrigin = r.optionalString("stopOrigin")?.let(VoiceSpeechStopOrigin::valueOf),
+    prewarmMode = r.optionalString("prewarmMode")?.let(VoiceSpeechPrewarmMode::valueOf),
+    prewarmCompleted = r.optionalBoolean("prewarmCompleted"), prewarmElapsedMs = r.optionalBoundedLong("prewarmElapsedMs"),
+    recoveryAfter = r.optionalString("recoveryAfter")?.let(VoiceSpeechCancellationTarget::valueOf),
+    firstSdkPcmAfterStreamStartMs = r.optionalBoundedLong("firstSdkPcmAfterStreamStartMs"),
+    cacheDirectoryPresent = r.optionalBoolean("cacheDirectoryPresentAtEntry"),
+    cacheDirectoriesEvicted = r.optionalBoundedLong("cacheDirectoriesEvictedOnAcquire", Int.MAX_VALUE.toLong())?.toInt(),
+    sdkPcm = r["sdkPcmSignal"]?.takeUnless { it == JsonNull }?.jsonObject?.let { pcm ->
+        val samples = pcm.boundedLong("samples", 1_000_000_000).also { require(it > 0) }
+        val peak = requireNotNull(pcm.optionalDouble("peak", Float.MAX_VALUE.toDouble()))
+        val rms = requireNotNull(pcm.optionalDouble("rms", peak + maxOf(1e-12, peak * 1e-12)))
+        VoicePcmSignal(samples, rms, peak, pcm.boundedLong("clipped", samples), pcm.boundedLong("nonSilent", samples))
+    },
+    nativeRetirementMs = r.optionalBoundedLong("nativeRetirementMs"), renderedManifestWords = r.optionalBoundedLong("renderedManifestWords", VoiceSpeechCaptionManifest.MAX_WORDS.toLong())?.toInt(),
     captionObservations = r.boundedLong("captionObservations").toInt(), captionClockRegressions = r.boundedLong("captionClockRegressions").toInt(), captionTimingViolations = r.boundedLong("captionTimingViolations").toInt(),
     clockBasis = r.optionalString("clockBasis")?.also { require(it in CLOCKS) }, route = r.optionalString("route")?.also { require(it in ROUTES) },
     effectiveProvider = r.optionalProvider("effectiveProvider"), acceleratorExecutionObserved = r.getValue("acceleratorExecutionObserved").jsonPrimitive.boolean,
     thermalBefore = r.thermal("thermalBefore"), thermalAfter = r.thermal("thermalAfter"),
     streamedAudioValidated = r.optionalBoolean("streamedAudioValidated"),
-    requestedDelegate = r.optionalString("requestedDelegate")?.also { require(it in setOf("CPU", "GPU")) },
+    requestedDelegate = r.optionalString("requestedDelegate")?.also { require(it in setOf("CPU", "GPU", "NPU")) },
     observedProviderStatus = r.optionalString("observedProviderStatus")?.also { require(it == "NOT_EXPOSED_BY_SDK") },
     engineStreamCalls = r.optionalBoundedLong("engineStreamCalls", 1000)?.toInt(),
     engineStreamWallMs = r.optionalBoundedLong("engineStreamWallMs", 86_400_000),
@@ -1031,7 +1173,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     sustainedCompletedRepeats = r.optionalBoundedLong("sustainedCompletedRepeats", VoiceSpeechSustainedSeries.MAX_REPLIES.toLong())?.toInt(),
     sustainedQualification = r.optionalString("sustainedQualification")?.also { require(safeSpeechSustainedQualification(it) != null) },
     underrunsByPhase = r["underrunsByPhase"]?.jsonObject.orEmpty().also { require(it.keys.all { key -> key in UNDERRUN_PHASES }) }.mapValues { it.value.jsonPrimitive.int.also { count -> require(count in 0..1_000_000) } },
-    preparationPhases = r["preparationPhases"]?.jsonObject.orEmpty().also { require(it.keys.all { key -> key in PREPARATION_PHASES }) }.mapValues { it.value.jsonPrimitive.long.also { time -> require(time in 0..3_600_000) } },
+    preparationPhases = r["preparationPhases"]?.jsonObject.orEmpty().also { require(it.keys.all { key -> key in SPEECH_PREPARATION_PHASES }) }.mapValues { it.value.jsonPrimitive.long.also { time -> require(time in 0..3_600_000) } },
     chunkRecords = r["chunkRecords"]?.jsonArray.orEmpty().also { require(it.size <= VoiceSpeechPlaybackProtocol.MAX_CHUNKS_PER_SAMPLE) }.mapIndexed { index, raw ->
         val chunk = raw.jsonObject
         VoiceSpeechPlaybackChunk(
@@ -1083,7 +1225,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     } else {
         require(result.requestedDelegate == null && result.observedProviderStatus == null && result.streamedAudioValidated == null && result.engineStreamCalls == null && result.engineStreamWallMs == null && result.omittedPcmRecords == 0)
     }
-    if (result.protocolVersion == VoiceSpeechPlaybackProtocol.VERSION) {
+    if (result.protocolVersion >= 6) {
         require(result.chunkRecords.size + result.omittedPcmRecords == result.chunks)
         if (streaming && result.omittedPcmRecords > 0) {
             require(result.chunkRecords.sumOf { it.generationMs } <= result.totalSynthesisMs)
@@ -1093,13 +1235,14 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
             require(result.chunkRecords.sumOf { it.audioMs } == result.totalAudioMs)
         }
         require(result.validatedChunks == result.chunkRecords.count { it.verifiedAudio })
+        require(result.renderedManifestWords == null || result.manifestWordsObserved?.let { result.renderedManifestWords <= it } == true)
         require(result.manifestWordsObserved == null || result.manifestWordsExpected?.let { result.manifestWordsObserved <= it } == true)
     }
 }
 
 private val SAFE_CODE = Regex("[A-Za-z0-9_]{1,80}")
 private val UNDERRUN_PHASES = setOf("startup", "active", "refill", "draining", "paused", "cancelled")
-private val PREPARATION_PHASES = setOf("GATE_WAIT", "MODEL_LOAD")
+internal val SPEECH_PREPARATION_PHASES = setOf("GATE_WAIT", "MODEL_LOAD", "MODEL_LEASE", "DELEGATE_SETUP", "SDK_TASK_OPEN", "VOICE_ENUMERATION")
 private val CLEANUP_STATES = setOf("NOT_OBSERVED", "PENDING", "RETIRED", "FAILED")
 private val SHA256 = Regex("[0-9a-f]{64}")
 private val IDENTITY = Regex("[A-Za-z0-9._-]{1,120}")

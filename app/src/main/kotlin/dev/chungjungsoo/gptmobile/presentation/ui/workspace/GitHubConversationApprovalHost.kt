@@ -18,8 +18,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubNativeDecisions
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubTurnApproval
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.pendingGitHubTurnApproval
 
 internal data class GitHubConversationApprovalState(
     val chatId: Int,
@@ -42,6 +43,7 @@ internal fun GitHubConversationApprovalHost(
 ) {
     val observed by model.conversationApproval.collectAsStateWithLifecycle()
     val receipts by model.decisionReceipts.collectAsStateWithLifecycle()
+    val progress by model.nativeApprovalProgress.collectAsStateWithLifecycle()
     val state = observed?.takeIf { it.chatId == chatId }
     val pending = state?.awaitingApproval == true
     LaunchedEffect(chatId, availableConnectionUids, requestedTaskId) {
@@ -52,7 +54,7 @@ internal fun GitHubConversationApprovalHost(
         onDispose { onApprovalPendingChanged(false) }
     }
     CompositionLocalProvider(
-        LocalGitHubApprovalPending provides pending,
+        LocalGitHubTurnApproval provides pendingGitHubTurnApproval(chatId, state?.taskId, pending, progress),
         LocalGitHubNativeDecisions provides receipts.filter { it.chatId == chatId }
     ) {
         content { GitHubConversationApprovalContent(model, state, onReviewEvidenceAccess) }

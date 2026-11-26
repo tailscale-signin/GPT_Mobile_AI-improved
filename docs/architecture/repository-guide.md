@@ -69,6 +69,12 @@ file; Repomix accepts one selected range per path inside its existing sandbox.
 
 ## GitHub engineering intelligence
 
+GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The chat header keeps the branch visible alongside live progress, and its actions open repository files, checks, the map, task details or staged changes as they become available.
+
+Fresh profiles use adaptive budgeting and task context, with evidence-based progress and next-action selection enabled. Saved overrides retain their settings. Direct requests for issues, pull requests, branches, commits, workflows, runs, releases and tags start with the matching read. Compound tasks use the broader engineering planner. Source caching and sharing with another model follow the connection and profile settings.
+
+Numbered follow-ups use the current workspace and the immediately preceding admitted read to resolve issue or pull-request references. Ambiguous numbers prompt for the record type. Requests for a previous report retain its original evidence scope. Source citations use the selected connection’s web origin, the checked revision, and the quoted line range.
+
 Choose the strategy in the selected AI profile's GitHub programmer settings.
 Existing profiles start with Intelligent. The primary profile retains responsibility
 for tool authorization, changes, verification and the final answer.
@@ -97,11 +103,13 @@ Fixed sampling preserves semantic intent planning. When a plan is malformed the
 primary can continue from the admitted request. Compaction prioritizes the
 pending handoff and named proof for outstanding criteria and their prerequisites.
 A profile with 2,048–8,191 context tokens can use a previously retained,
-authorized tree to locate up to four paths. When source caching is enabled and
-the highest-ranked path has a small retained blob, the prompt can include one
-bounded, line-numbered source window. A missing tree or source does not trigger
-a full rebuild. The runner can issue a targeted authorized read. Diagnostics
+authorized tree to locate up to four paths. When source caching is enabled, the
+phone checks those paths in rank order and includes the first usable, bounded
+source window. Other paths remain unread pointers. The runner can issue a
+targeted authorized read when the tree or source is missing. Diagnostics
 distinguish a reused tree, a reused full packet, a deadline and an access change.
+The model receives the pinned excerpts, relevant reference and test candidates,
+and coverage limits. Cache metrics and read-progress accounting stay in diagnostics.
 
 For independent review of the primary's code, select a distinct named reviewer
 in Model Delegation and enable **Independent patch review** in Deep Engineering
@@ -159,13 +167,25 @@ Each feature's `terms` select relevant work. Its `routing` record identifies the
 owner's production entry point, role, expected proof, live admission condition,
 decline behavior, and two test cases for normal and adverse outcomes. Generation
 checks that every stable built-in plugin has a classification and every referenced
-case exists. The Android catalog uses its compiled subset to prioritize matching
-tools among the schemas already admitted for a conversation. Explicit exclusions
+case exists. GitHub chat and ordinary chat use the reviewed feature routes to prioritize
+matching tools among the schemas already admitted for a conversation. Explicit exclusions
 deprioritize the matching automatic routes. External MCP and marketplace tools
 retain their runtime identities and schema versions. The Gateway inventory joins
 discovered tools to the external connections feature and withholds revoked sources.
 GitHub source preparation can prioritize the entry point and expose the expected
 proof only when all feature references match the selected tree.
+
+In GitHub chat, open **Tools and features** or ask “What tools can you use in
+this chat?” to inspect the available schemas. “List all tools and features”
+also includes documented tools, app settings, integrated plugins and connection
+presets. “List features matching voice” narrows the results. For a task that
+names a product such as Ticketmaster, discovery can rank schemas associated
+with that product’s configured integration. The panel labels
+the latest chat observation and the selected Gateway connection separately.
+Selecting a catalog entry does not enable the feature or grant access. The
+executor checks the selected repository, profile and permissions when an action
+runs. A matching code-search line leads to a bounded source read at the pinned
+revision before the answer cites it.
 
 Reference commands are suggestions. Runtime retrieval validates referenced blob
 identities and excludes stale claims. It does not execute these commands or treat
@@ -235,7 +255,7 @@ comparison does not establish universal model superiority.
 <!-- BEGIN GENERATED BUILD FACTS -->
 Generated by `python3 scripts/sync_agent_metadata.py`. Edit build/schema sources first.
 
-- **App version**: 0.9.66.16 (versionCode 150)
+- **App version**: 0.9.66.17 (versionCode 151)
 - **Min SDK**: 31
 - **Compile SDK**: 37
 - **Target SDK**: 37

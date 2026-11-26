@@ -13,6 +13,21 @@ class GitHubResponseCache(
     private val maxEntries: Int = 128,
     private val maxCharacters: Int = 3 * 1024 * 1024
 ) {
+    internal companion object {
+        private const val OBJECT_ID = "(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})"
+        private val gitObject = Regex("/repos/[^/?]+/[^/?]+/(?:git/(?:blobs|trees|commits)|commits)/$OBJECT_ID")
+        private val contents = Regex("/repos/[^/?]+/[^/?]+/contents(?:/.*)?")
+        private val pinnedRef = Regex("ref=$OBJECT_ID")
+
+        fun isImmutableRequest(path: String): Boolean {
+            val endpoint = path.substringBefore('?')
+            if (gitObject.matches(endpoint)) return true
+            if (!contents.matches(endpoint)) return false
+            val refs = path.substringAfter('?', "").split('&').filter { it.startsWith("ref=") }
+            return refs.singleOrNull()?.matches(pinnedRef) == true
+        }
+    }
+
     data class Entry(
         val etag: String,
         val value: JsonElement,
@@ -30,19 +45,32 @@ class GitHubResponseCache(
 
     @Synchronized fun get(key: String): Entry? = entries[key]
 
+    @Synchronized internal fun revalidated(key: String, previous: Entry) {
+        if (entries[key] === previous) entries[key] = previous.copy(storedAtMillis = System.currentTimeMillis())
+    }
+
     @Synchronized internal fun invalidatedByMutation(key: String): Boolean = key in mutationInvalidations
 
-    @Synchronized fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false, allowWithoutEtag: Boolean = false) {
-        if (etag.isNullOrBlank() && !immutable && !allowWithoutEtag) return
-        val size = value.toString().length
-        if (size > maxCharacters) return
+    fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false, allowWithoutEtag: Boolean = false) {
+        val size = if (etag.isNullOrBlank() && !immutable && !allowWithoutEtag) null else value.toString().length
+        storeResponse(key, etag, value, immutable, size)
+    }
+
+    /** The HTTP reader already measured the response. Avoid re-encoding large trees while holding the cache lock. */
+    internal fun putResponse(key: String, etag: String?, value: JsonElement, immutable: Boolean, bodyCharacters: Int) {
+        storeResponse(key, etag, value, immutable, bodyCharacters.takeIf { immutable || !etag.isNullOrBlank() })
+    }
+
+    @Synchronized private fun storeResponse(key: String, etag: String?, value: JsonElement, immutable: Boolean, size: Int?) {
+        if (size == null || size !in 0..maxCharacters) {
+            removeEntry(key)
+            return
+        }
         entryCharacters += size - (entrySizes.put(key, size) ?: 0)
         entries[key] = Entry(etag.orEmpty(), value, immutable = immutable)
         mutationInvalidations.remove(key)
         while (entries.size > maxEntries.coerceAtLeast(1) || entryCharacters > maxCharacters) {
-            val oldest = entries.keys.first()
-            entries.remove(oldest)
-            entryCharacters -= entrySizes.remove(oldest) ?: 0
+            removeEntry(entries.keys.first())
         }
     }
 
@@ -61,11 +89,15 @@ class GitHubResponseCache(
     @Synchronized fun invalidateMutable(repositoryPrefix: String = "") {
         val remove = entries.filter { (key, entry) -> !entry.immutable && (repositoryPrefix.isBlank() || repositoryPrefix in key) }.keys
         for (key in remove) {
-            entries.remove(key)
-            entryCharacters -= entrySizes.remove(key) ?: 0
+            removeEntry(key)
             mutationInvalidations.add(key)
         }
         while (mutationInvalidations.size > maxEntries.coerceAtLeast(1)) mutationInvalidations.remove(mutationInvalidations.first())
+    }
+
+    private fun removeEntry(key: String) {
+        entries.remove(key)
+        entryCharacters -= entrySizes.remove(key) ?: 0
     }
 
     @Synchronized fun clear() {

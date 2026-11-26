@@ -50,7 +50,7 @@ internal object GitHubTransportRecovery {
         .maxOrNull()
 
     fun nextRead(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? {
-        for (receipt in receipts) {
+        for ((index, receipt) in receipts.withIndex()) {
             if (!retryable(receipt) || receipt["remote_mutation"] == JsonPrimitive(true)) continue
             val arguments = receipt["arguments"] as? JsonObject ?: continue
             val name = receipt.text("tool")
@@ -63,7 +63,15 @@ internal object GitHubTransportRecovery {
             }
             val tool = tools.singleOrNull { it.name == name && it.modelVisible } ?: continue
             if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
-            if (receipts.any { it != receipt && GitHubActionIdentity.matches(name, arguments, it) }) continue
+            val superseded = receipts.withIndex().any { (otherIndex, other) ->
+                otherIndex != index &&
+                    (otherIndex > index || other.text("call_id").startsWith("transport-read-")) &&
+                    other["binding"] == receipt["binding"] &&
+                    other["repository"] == receipt["repository"] &&
+                    other["branch"] == receipt["branch"] &&
+                    GitHubActionIdentity.matches(name, arguments, other)
+            }
+            if (receipt.text("call_id").startsWith("transport-read-") || superseded) continue
             val id = receipt.text("receipt_id").takeIf { it.isNotBlank() } ?: continue
             return ProviderEvent.ToolCall("transport-read-" + GitHubEvidenceBook.digest(id).take(24), tool.name, arguments)
         }

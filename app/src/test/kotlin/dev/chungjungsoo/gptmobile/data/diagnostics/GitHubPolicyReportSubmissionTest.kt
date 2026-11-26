@@ -38,7 +38,7 @@ class GitHubPolicyReportSubmissionTest {
 
     @Test fun clippedPolicyCardinalityNegotiatesWhenNewNamesAreNotInTheSample() {
         for (count in 82..84) {
-            val approved = reportFor(IssueReportIncidentCapsule.policyFieldNames.sorted().take(count))
+            val approved = reportFor((IssueReportIncidentCapsule.policyFieldNames - "devicePrivacy").sorted().take(count))
             val snapshot = requireNotNull(approved.context?.diagnostics)
             val retained = requireNotNull(snapshot.values["changed_policy_fields"] as? JsonArray)
             assertEquals(8, retained.size)
@@ -51,13 +51,26 @@ class GitHubPolicyReportSubmissionTest {
     }
 
     @Test fun legacyPolicyEvidenceStillUsesExistingReporterCapabilities() {
-        val legacyNames = IssueReportIncidentCapsule.policyFieldNames - newNames
+        val legacyNames = IssueReportIncidentCapsule.policyFieldNames - newNames - "devicePrivacy"
         assertEquals(81, legacyNames.size)
         for (names in listOf(listOf("githubProfileOverride.sampling"), legacyNames.sorted())) {
             val approved = reportFor(names)
             val snapshot = requireNotNull(approved.context?.diagnostics)
             assertFalse(feature in snapshot.requiredServiceFeatures())
             assertNegotiation(approved, needsUpdate = false)
+        }
+    }
+
+    @Test fun devicePrivacyRequiresItsOwnReporterCapabilityInBothSingleAndClippedReports() {
+        val privacyFeature = IssueReportDiagnostics.DEVICE_PRIVACY_POLICY_FEATURE
+        for (names in listOf(listOf("devicePrivacy"), IssueReportIncidentCapsule.policyFieldNames.sorted())) {
+            val approved = reportFor(names)
+            val snapshot = requireNotNull(approved.context?.diagnostics)
+            assertTrue(privacyFeature in snapshot.requiredServiceFeatures())
+            val retained = requireNotNull(snapshot.values["changed_policy_fields"] as? JsonArray)
+            assertTrue(JsonPrimitive("devicePrivacy") in retained)
+            assertEquals(names.size.coerceAtMost(8), retained.size)
+            assertNegotiation(approved, needsUpdate = true, capability = privacyFeature)
         }
     }
 
@@ -68,10 +81,10 @@ class GitHubPolicyReportSubmissionTest {
         return report.copy(context = context)
     }
 
-    private fun assertNegotiation(approved: IssueReport, needsUpdate: Boolean) {
+    private fun assertNegotiation(approved: IssueReport, needsUpdate: Boolean, capability: String = feature) {
         val payload = approved.approvedPayload()
         val required = requireNotNull(approved.context?.diagnostics).requiredServiceFeatures()
-        assertEquals(needsUpdate, feature in required)
+        assertEquals(needsUpdate, capability in required)
         assertTrue("CHANGED_POLICY_FIELDS_V1" in required)
         var compatible = false
         var dispatched = 0
@@ -86,7 +99,7 @@ class GitHubPolicyReportSubmissionTest {
                     put("service", "gpt-mobile-issue-reporter")
                     put("version", 2)
                     put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
-                    put("reportDiagnosticFeatures", JsonArray((if (compatible) required else required - feature).map(::JsonPrimitive)))
+                    put("reportDiagnosticFeatures", JsonArray((if (compatible) required else required - capability).map(::JsonPrimitive)))
                 }.toString()
             } else {
                 assertEquals("POST", request.method)

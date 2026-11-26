@@ -2,6 +2,7 @@
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -28,6 +29,31 @@ class NativeBridgeTest(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_failed_native_smoke_retains_evidence_before_install_cleanup_and_still_fails(self):
+        from desktop import smoke_windows
+        output = self.root / 'retained-native-evidence'
+        failure = subprocess.CalledProcessError(1, ['synthetic-native-smoke'])
+        message = 'Phase: reference capture\nSynthetic exception: requested=1904,1000\n  at CaptureReference()'
+        with tempfile.TemporaryDirectory() as installed:
+            root = Path(installed)
+            (root / 'native-ui-failure.txt').write_text(message, encoding='utf-8')
+            (root / 'native-jobs.png').write_bytes(b'partial-synthetic-capture')
+            atomic_json(root / 'native-ui-smoke.json', {'passed': False})
+            with patch.object(smoke_windows.subprocess, 'run', side_effect=failure), patch('sys.stdout', new_callable=io.StringIO) as log:
+                with self.assertRaises(subprocess.CalledProcessError) as observed:
+                    smoke_windows.run_native_smoke(root / 'Gateway.exe', root, output)
+                self.assertIs(failure, observed.exception)
+                self.assertIn(message, log.getvalue())
+        self.assertFalse(root.exists())
+        self.assertEqual(message, (output / 'native-ui-failure.txt').read_text(encoding='utf-8'))
+        self.assertEqual(b'partial-synthetic-capture', (output / 'native-jobs.png').read_bytes())
+        self.assertEqual({'passed': False}, json.loads((output / 'native-ui-smoke.json').read_text()))
+        summary = json.loads((output / 'smoke-failure.json').read_text())
+        self.assertEqual('native-ui', summary['phase'])
+        self.assertEqual(1, summary['returnCode'])
+        self.assertCountEqual(['native-ui-failure.txt', 'native-jobs.png', 'native-ui-smoke.json'], summary['evidence'])
+        self.assertEqual([], summary['retentionErrors'])
 
     @staticmethod
     def command():

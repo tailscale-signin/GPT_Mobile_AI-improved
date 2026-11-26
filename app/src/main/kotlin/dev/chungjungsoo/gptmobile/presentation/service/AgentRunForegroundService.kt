@@ -290,18 +290,8 @@ class AgentRunForegroundService : Service() {
         val platformName = lastActiveProfileUid?.let { uid ->
             settingRepository.fetchPlatformV2s().firstOrNull { it.uid == uid }?.name
         }
-        val room = chatId?.takeIf { it > 0 }?.let { id ->
-            (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2())
-                .firstOrNull { it.id == id }
-        }
-        val completedMessage = if (chatId != null && chatId > 0) {
-            chatRepository.fetchMessagesV2(chatId)
-                .firstOrNull { it.id == targetMessageId }
-                ?: chatRepository.fetchMessagesV2(chatId)
-                    .lastOrNull { it.platformType != null && it.content.isNotBlank() }
-        } else {
-            null
-        }
+        val room = chatId?.takeIf { it > 0 }?.let { chatRepository.fetchChatRoom(it) }
+        val completedMessage = chatId?.takeIf { it > 0 }?.let { chatRepository.completionMessage(it, targetMessageId) }
 
         val title = room?.title?.takeIf { it.isNotBlank() }
             ?: platformName?.takeIf { it.isNotBlank() }

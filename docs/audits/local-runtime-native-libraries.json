@@ -7,6 +7,11 @@
       "bytes": 642088,
       "source": "LiteRT 26895c9fbcc25c43faa8c1a98cd1fd28951602c3 (LiteRT-LM 0.18.0 pin), built against QAIRT 2.52.0.261104 headers with Android NDK 29.0.14206865"
     },
+    "lib/arm64-v8a/libkokoro_qnn_gpu_fp32.so": {
+      "source": "scripts/build_kokoro_gpu_fp32.py with QAIRT 2.52.0.261104 headers and NDK 29.0.14206865",
+      "bytes": 5992,
+      "sha256": "fea04d075fb8a9a6602e95f4c1aac3106422572d37168dba24d25697e8179f66"
+    },
     "lib/arm64-v8a/libQnnGpu.so": {
       "source": "com.qualcomm.qti:qnn-runtime:2.52.0",
       "bytes": 13124696,

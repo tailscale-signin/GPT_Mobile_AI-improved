@@ -44,6 +44,88 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun completeToolInventoryRequestOnlyInvokesLocalCatalogDiscovery() = runBlocking {
+        val task = "List all tools and features"
+        val write = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_write", "github_write__selected")
+        val catalog = ProgressiveToolCatalog(listOf(write), task, acquireCold = { _, _ -> error("Interface questions cannot call external discovery") }, githubMode = true)
+        val tools = listOf(write, catalog.definition)
+        val book = GitHubEvidenceBook("capability-discovery", "owner/repo", "main", tools.mapTo(mutableSetOf()) { it.name })
+        book.retainTaskContract(task, 1, tools, 16)
+        val gate = GitHubVerifiedSession(answer("Unsupported inference"), book, task, { 8192 }, { error("Local discovery") }, {}, {}, authorizedTools = tools, remainingToolCalls = { 16 })
+        val events = gate.streamRound(tools, emptyList()).toList()
+        val call = events.filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(ProgressiveToolCatalog.NAME, call.name)
+        assertEquals(buildJsonObject { put("catalog_only", true) }, call.arguments)
+        assertFalse(catalog.execute(call.callId, call.arguments).isError)
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+    }
+
+    @Test fun capabilityQuestionsDescribeTheLiveSchemaWithoutInvokingTheListedAction() = runBlocking {
+        val task = "Can you inspect my PRs?"
+        val pr = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr_inspect", "github_pr_inspect__selected")
+        val book = GitHubEvidenceBook("capability", "owner/repo", "main", setOf(pr.name))
+        book.retainTaskContract(task, 1, listOf(pr), 16)
+        val gate = GitHubVerifiedSession(answer("Unsupported inference"), book, task, { 8192 }, { error("Local capability report") }, {}, {}, authorizedTools = listOf(pr))
+        val events = gate.streamRound(listOf(pr), emptyList()).toList()
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(pr.name in answer && "headers" in answer)
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertFalse("Unsupported inference" in answer)
+    }
+
+    @Test fun issueOnlyCatalogGroundsTheFirstRoundInTheRequestedIssueWithoutModelDiscovery() = runBlocking {
+        val task = "Show issue #42"
+        val issue = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_issue", "github_issue__mobile")
+        val book = GitHubEvidenceBook("issue-read", "owner/project", "topic", setOf(issue.name))
+        book.retainTaskContract(task, 1, listOf(issue), 24)
+        val model = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
+                error("The first observation already has an authorized reader")
+        }
+        var admissions = 0
+        val gate = GitHubVerifiedSession(model, book, task, { 8192 }, { error("No claim yet") }, { admissions++ }, {}, remainingToolCalls = { 24 }, executionCallLimit = 24)
+        val events = gate.streamRound(listOf(issue), emptyList()).toList()
+        val call = events.filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(issue.name, call.name)
+        assertEquals(JsonPrimitive(42), call.arguments["issue_number"])
+        assertEquals(JsonPrimitive("project"), call.arguments["repo"])
+        assertTrue(admissions > 0)
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        assertTrue(book.snapshot().first.isEmpty())
+    }
+
+    @Test fun activeEvidenceRouteEmitsOnlyTheSelectedRequirementsAuthorizedLiveRead() = runBlocking {
+        val binding = "binding"
+        val criterion = "diff-criterion"
+        val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_context")
+        var checkpoint: JsonObject? = null
+        val book = GitHubEvidenceBook(
+            binding,
+            "o/r",
+            "main",
+            setOf(definition.name),
+            latestVerdict = { checkpoint },
+            chooseNextAction = { report -> dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.decide(report) { name, _ -> name == definition.name } }
+        )
+        val args = buildJsonObject {
+            put("action", "changes")
+            put("base_sha", "a".repeat(40))
+        }
+        val source = ProviderEvent.ToolCall("previous-read", definition.name, args)
+        book.observe(source, AgentToolResult(source.callId, ToolResultContent.Json(buildJsonObject { put("branch", "main") }), false))
+        val receipt = book.snapshot().first.keys.single()
+        checkpoint = Json.parseToJsonElement(
+            """{"binding":"$binding","next_action_decision":{},"acceptance_ledger":{"requirements":[{"id":"$criterion","required":true,"state":"BLOCKED","criterion_contract":{"evidence_producer":"DIFF_REVIEW"},"receipt_ids":["$receipt"]}]},"unresolved_claims":[{"receipt_id":"$receipt","status":"STALE"}]}"""
+        ).jsonObject
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The application has the exact scoped read")
+        }
+        val session = GitHubVerifiedSession(delegate, book, "Inspect the changes in the repository", { 8192 }, { error("No draft") }, {}, {}, authorizedTools = listOf(definition), remainingToolCalls = { 20 })
+        val calls = session.streamRound(listOf(definition), emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>()
+        assertEquals(definition.name, calls.single().name)
+        assertEquals(JsonObject(args + ("verify_live" to JsonPrimitive(true))), calls.single().arguments)
+    }
+
     @Test fun immutableCheckpointConflictKeepsItsApplicationFailureClassification() = runBlocking {
         val conflict = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED")
         val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { _, _ -> throw conflict })

@@ -40,7 +40,7 @@ internal fun LocalVoiceSetupCard(
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Speech on this phone", style = MaterialTheme.typography.titleMedium)
             Text("Moonshine Tiny Streaming · English", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            if (!compact) Text("Recognize English speech on this phone. For another language, select an available Android speech service in Voice settings.", style = MaterialTheme.typography.bodySmall)
+            if (!compact) Text("Recognize English speech on this phone. Choose a different recognition language in Voice settings to use Android’s offline recognizer.", style = MaterialTheme.typography.bodySmall)
             when (state.status) {
                 LocalVoiceModelStatus.CHECKING -> {
                     LinearProgressIndicator(Modifier.fillMaxWidth())

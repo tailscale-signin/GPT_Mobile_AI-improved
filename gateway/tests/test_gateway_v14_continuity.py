@@ -123,7 +123,7 @@ class ConversationTests(unittest.TestCase):
 
     def test_catalog_monotonic_cursor_survives_restart_and_excludes_backdated_admission(self):
         jobs = [self.create('page-' + str(index)) for index in range(5)]
-        self.store.tx(lambda db: db.execute('CREATE TABLE IF NOT EXISTS gateway_jobs(public_json TEXT)'))
+        self.store.tx(lambda db: db.execute('CREATE TABLE IF NOT EXISTS gateway_jobs(job_id TEXT PRIMARY KEY,public_json TEXT NOT NULL)'))
         principal = SimpleNamespace(id='owner', scopes={'engineering'}, local_admin=False)
         owner = SimpleNamespace(owned_job_ids=lambda ids, principal: set())
         first = catalog(self.store.conversations, self.service, principal, owner, limit=2)

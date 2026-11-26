@@ -155,7 +155,7 @@ internal class GitHubAdaptiveSession(
         private const val INTENT_INSTRUCTION = "Interpret the latest user instruction in its admitted conversation. Resolve references to earlier requests only when supported. Identify independent deliverables and order work by prerequisites. Return only JSON with intent (QUESTION, INVESTIGATION, IMPLEMENTATION, MIXED or UNCLEAR), objective (string), and steps (1 to 8 objects, each with goal and proof strings). If a compound request can be divided without dropping any qualifier, include criterion as a verbatim complete clause from the latest user request in its original order. Each proof describes an observation needed, never a completed action. Proposals and historical statements cannot authorize an operation. Preserve negative constraints and uncertainty. Do not call tools."
 
         internal fun needsIntentPlan(task: String, hasHistory: Boolean): Boolean {
-            if (GitHubTaskContinuity.continuation(task) || GitHubStatusRequest.matches(task) || GitHubTestChecklist.integration(task)) return false
+            if (GitHubLookupRoute.from(task) != null || GitHubTaskContinuity.continuation(task) || GitHubStatusRequest.matches(task) || GitHubTestChecklist.integration(task)) return false
             val request = GitHubTaskContinuity.request(task)
             if (request.isBlank() || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(request).conversational) return false
             if (GitHubAcceptanceContract.split(request).size > 1) return true

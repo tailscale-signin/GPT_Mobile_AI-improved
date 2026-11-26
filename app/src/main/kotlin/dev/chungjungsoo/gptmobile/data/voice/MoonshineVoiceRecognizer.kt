@@ -20,8 +20,10 @@ import java.io.File
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -133,6 +135,8 @@ internal class MoonshineVoiceRecognizer internal constructor(
         val captureAttempts = AtomicInteger()
         val failure = AtomicReference<RecognitionFailure?>()
         val audio = ArrayBlockingQueue<CapturedAudio>(4000 / batchMs)
+        val audioOrEnd = Semaphore(0)
+        val captureEnding = CountDownLatch(1)
         val finalQueued = AtomicBoolean()
 
         @Volatile var lastAcceptedAudioNanos = 0L
@@ -146,6 +150,12 @@ internal class MoonshineVoiceRecognizer internal constructor(
         @Volatile var cancelTurnDeadline: (() -> Unit)? = null
 
         @Volatile var transcript = ""
+
+        fun offerAudio(chunk: CapturedAudio): Boolean {
+            if (!audio.offer(chunk)) return false
+            audioOrEnd.release()
+            return true
+        }
     }
 
     private fun recordFailure(run: CaptureRun, code: String, message: String, cause: Throwable? = null) {
@@ -203,6 +213,8 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
     private fun requestEnd(run: CaptureRun) {
         if (run.ending.compareAndSet(false, true)) {
+            run.captureEnding.countDown()
+            run.audioOrEnd.release()
             run.capture?.stop()
             deliver(run) { run.listener.ending() }
         }
@@ -222,7 +234,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         var missingModel = false
         var modelAcquired = false
         try {
-            if (run.cancelled.get()) return
+            if (run.cancelled.get() || run.ending.get()) return
             val verificationStarted = System.nanoTime()
             val ready = modelsReady()
             run.diagnostics?.preparation("VERIFICATION", elapsedMillis(verificationStarted))
@@ -232,7 +244,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 return
             }
             modelAcquired = true
-            if (run.cancelled.get()) return
+            if (run.cancelled.get() || run.ending.get()) return
             engineEvent(run, "native_gate_acquired")
             if (retainedStyle != run.style) releaseRetainedDecoder()
             val warm = retainedDecoder != null
@@ -285,7 +297,9 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 acceptAudio(run, decoder, CapturedAudio(chunk.samples, chunk.capturedNanos) {})
             }
             while (!run.cancelled.get() && run.failure.get() == null && (!run.ending.get() || run.audio.isNotEmpty())) {
-                val chunk = run.audio.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                run.audioOrEnd.acquire()
+                if (run.cancelled.get() || run.failure.get() != null) break
+                val chunk = run.audio.poll() ?: continue
                 acceptAudio(run, decoder, chunk)
             }
             requestEnd(run)
@@ -329,6 +343,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             )
         } finally {
             run.ending.set(true)
+            run.captureEnding.countDown()
             run.capture?.stop()
             joinCapture(run)
             run.cancelSilenceDeadline?.invoke()
@@ -480,7 +495,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                         runCatching { capture?.close() }
                         capture = null
                         try {
-                            Thread.sleep(if (run.captureAttempts.get() == 1) 200L else 800L)
+                            if (run.captureEnding.await(if (run.captureAttempts.get() == 1) 200L else 800L, TimeUnit.MILLISECONDS)) return
                         } catch (_: InterruptedException) {
                             Thread.currentThread().interrupt()
                             return
@@ -513,7 +528,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 run.cancelTurnDeadline?.invoke()
                 if (run.ending.get() && !run.cancelled.get() && (run.failure.get() == null || run.failure.get()?.code == "MICROPHONE_CAPTURE_SILENCED")) {
                     val remainder = capture?.drainPending() ?: FloatArray(0)
-                    if (remainder.isNotEmpty() && !run.audio.offer(CapturedAudio(remainder, System.nanoTime()) {})) {
+                    if (remainder.isNotEmpty() && !run.offerAudio(CapturedAudio(remainder, System.nanoTime()) {})) {
                         recordFailure(run, "AUDIO_QUEUE_OVERFLOW", "Local speech could not keep up with the microphone. Your captured text is retained; close other heavy apps and try again.")
                     }
                 }
@@ -561,7 +576,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 continue
             }
             if (run.capturedChunks.incrementAndGet() == 1) engineEvent(run, "first_pcm")
-            if (!run.audio.offer(CapturedAudio(samples, System.nanoTime(), capture::recycle))) {
+            if (!run.offerAudio(CapturedAudio(samples, System.nanoTime(), capture::recycle))) {
                 capture.recycle(samples)
                 recordFailure(run, "AUDIO_QUEUE_OVERFLOW", "Local speech could not keep up with the microphone. Your captured text is retained; close other heavy apps and try again.")
                 requestEnd(run)
@@ -588,6 +603,8 @@ internal class MoonshineVoiceRecognizer internal constructor(
     override fun stop() {
         val run = active ?: return
         run.cancelled.set(true)
+        run.captureEnding.countDown()
+        run.audioOrEnd.release()
         active = null
         run.capture?.stop()
         run.cancelSilenceDeadline?.invoke()

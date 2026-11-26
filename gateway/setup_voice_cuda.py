@@ -16,9 +16,18 @@ def install(root, model_directory, interpreter, model='model.onnx', voices='voic
     if not (root / 'current.json').is_file() or not (root / 'data').is_dir():
         raise ValueError('Choose the installed Gateway configuration root containing current.json and data')
     if not interpreter.is_file():
-        raise ValueError('Choose a full path to a regular Python 3.12 interpreter')
+        raise ValueError('Choose a full path to a supported CPython interpreter')
     prefix = root / 'addons' / 'voice-cuda' / 'venv'
     python = prefix / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+    # Check the interpreter pip will use, including an existing installation.
+    runtime_check = """
+import sys, sysconfig
+windows_wheel = sysconfig.get_platform() == "win-amd64" and not sysconfig.get_config_var("Py_GIL_DISABLED")
+if (sys.implementation.name != "cpython" or sys.maxsize <= 2**32 or
+        not (3, 11) <= sys.version_info[:2] <= (3, 14) or (sys.platform == "win32" and not windows_wheel)):
+    sys.exit("Gateway CUDA speech requires 64-bit CPython 3.11 through 3.14 (standard x64 builds on Windows).")
+"""
+    subprocess.run([str(python if python.is_file() else interpreter), '-I', '-c', runtime_check], check=True)
     if not python.is_file():
         subprocess.run([str(interpreter), '-m', 'venv', str(prefix)], check=True)
     requirements = Path(__file__).resolve().with_name('requirements-voice.txt')

@@ -152,6 +152,7 @@ class GitHubIntegrationV2Test {
                 respond(
                     """
                     {
+                      "sha": "${"b".repeat(40)}",
                       "truncated": false,
                       "tree": [
                         {"path":"src/App.kt","type":"blob","mode":"100644","sha":"a","size":100},
@@ -269,7 +270,10 @@ class GitHubIntegrationV2Test {
     @Test
     fun pull_request_file_projection_keeps_patch_for_workspace() = runTest {
         val http = HttpClient(
-            MockEngine {
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("/pulls/7")) {
+                    return@MockEngine respond("""{"number":7,"changed_files":1,"head":{"sha":"${"a".repeat(40)}"},"base":{"sha":"${"b".repeat(40)}"}}""")
+                }
                 respond(
                     """
                     [

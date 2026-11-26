@@ -9,7 +9,7 @@ internal data class VoicePcmSlice(val samples: FloatArray, val offset: Int, val 
     }
 }
 
-internal enum class VoicePcmReserveExit { TARGET, QUEUE_FULL, DEADLINE, PRODUCER_IDLE, STOPPED }
+internal enum class VoicePcmReserveExit { TARGET, QUEUE_FULL, NEXT_CHUNK_COVERED, NEXT_CHUNK_LATE, DEADLINE, PRODUCER_IDLE, STOPPED }
 
 /** Bounds queued audio by time as well as count; one native callback may contain seconds of PCM. */
 internal object KokoroPcmBatches {
@@ -25,6 +25,7 @@ internal object KokoroPcmBatches {
         canWait: () -> Boolean,
         producerPending: () -> Boolean,
         deadlineReached: () -> Boolean,
+        nativeReserveExit: () -> VoicePcmReserveExit? = { null },
         poll: () -> Unit
     ): VoicePcmReserveExit {
         while (canWait()) {
@@ -33,10 +34,23 @@ internal object KokoroPcmBatches {
             if (acceptedFrames() >= targetFrames) return VoicePcmReserveExit.TARGET
             if (queue.remainingCapacity() == 0) return VoicePcmReserveExit.QUEUE_FULL
             if (deadlineReached()) return VoicePcmReserveExit.DEADLINE
+            nativeReserveExit()?.let { return it }
             if (!producerPending()) return VoicePcmReserveExit.PRODUCER_IDLE
             poll()
         }
         return VoicePcmReserveExit.STOPPED
+    }
+
+    /** Once the reserve releases, prime the hardware with the audio already available. */
+    fun primeReady(queue: BlockingQueue<VoicePcmSlice>, first: VoicePcmSlice, targetFrames: Int): List<VoicePcmSlice> {
+        val batches = mutableListOf(first)
+        var frames = first.size
+        while (frames < targetFrames) {
+            val next = queue.poll() ?: break
+            batches += next
+            frames += next.size
+        }
+        return batches
     }
 
     fun slices(samples: FloatArray, sampleRate: Int, offer: (VoicePcmSlice) -> Boolean): Boolean {

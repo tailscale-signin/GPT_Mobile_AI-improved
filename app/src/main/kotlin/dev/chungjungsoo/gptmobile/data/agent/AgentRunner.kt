@@ -67,7 +67,9 @@ data class AgentRunLimits(
     val githubMode: Boolean = false,
     /** Optional objective for reading a saved batch; this is not an end-to-end recovery target. */
     val checkpointRestoreObjective: CheckpointRestoreObjective? = null,
-    val combined: CombinedExecutionContext? = null
+    val combined: CombinedExecutionContext? = null,
+    /** Schemas actually charged in initialContextTokens, before later selection or recovery. */
+    val initialGitHubSchemaTokens: Long? = null
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
@@ -302,7 +304,7 @@ class AgentRunner(
             return
         }
         prepareToolSelection?.invoke()
-        val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
+        val initialSchemaTokens = limits.initialGitHubSchemaTokens ?: selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
         val ciInvestigation = GitHubCiInvestigationRecovery(limits.githubTaskRequest)
         val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome, diagnosticRunId, limits.githubTaskRequest.orEmpty())
@@ -313,6 +315,9 @@ class AgentRunner(
         if (!restoreCompletedExchanges(recovery, toolByName, exchanges, state)) return
         state.savedResultRecovery.observeDelivered(exchanges, state.deliveredResultDigests, replayRenderCache)
         exchanges.forEach(ciInvestigation::observe)
+        val completedOperations = linkedSetOf<String>()
+        exchanges.forEach { recordCompletedGitHubOperations(it, completedOperations, restoredJournal = true) }
+        completedOperations.forEach { healthCatalog?.restoreCompletedPhase(it) }
         state.replayTokens = prepareReplay(exchanges, effectiveReplayTokens, limits.maxReplayResultTokens, state.consumedCallIds, state.deliveredResultDigests).compactedTokens.toLong()
 
         var admittedReplayLimit = effectiveReplayTokens
@@ -326,17 +331,21 @@ class AgentRunner(
                 // downstream collector errors must leave the run without retrying or emitting.
                 val searchContext = searchRoundContext(toolByName, executableToolByName, exchanges)
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
+                val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
+                val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
+                val owedSchema = if ((limits.githubMode || limits.githubTask) && limits.contextTokens <= 4096 && pendingSavedPages.isNotEmpty()) {
+                    automaticRecovery?.owedPageSchema(pendingSavedPages, exposedDefinitions.filter { it.name in executableToolByName })
+                } else {
+                    null
+                }
                 val roundDefinitions = try {
-                    val available = fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens + SavedPageReading.reservation(savedPageReading, false))
-                    retrySchemaNames?.let { names -> available.filter { it.name in names } } ?: available
+                    fitRoundDefinitions(state, selectDefinitions, initialSchemaTokens, completedOperations, owedSchema)
                 } catch (capacity: GitHubToolContextBudgetException) {
                     emit(AgentRunEvent.Provider(capacity.providerFailure()))
                     return
                 }
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
-                val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
-                val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
                 val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pendingSavedPages)
                 val preparedRound = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
@@ -351,7 +360,13 @@ class AgentRunner(
                     if (latest != null && latest.savedPageReading != savedPageReading) {
                         val knownCalls = SavedPageReading.fingerprints(savedPageReading) + exchanges.flatMap { it.calls }.associate { it.callId to ToolHandoffReceipt.fingerprint(it) }
                         if (!SavedPageReading.canRefresh(savedPageReading, latest.savedPageReading, knownCalls)) {
-                            emit(AgentRunEvent.Provider(ProviderEvent.Failed("Another runner changed the saved reading context outside the current source history. Resume from the authorized checkpoint.", errorCode = "REPLAY_EVIDENCE_REQUIRED", taskOutcome = "BLOCKED")))
+                            emit(
+                                AgentRunEvent.Provider(
+                                    SavedPageDeliveryRound.blocked("Another runner changed the saved reading context outside the current source history. Resume from the authorized checkpoint.", "planning") {
+                                        put("replay_missing_record", "CHECKPOINT_IDENTITY")
+                                    }
+                                )
+                            )
                             return
                         }
                         restoreReadingState(latest)
@@ -360,7 +375,15 @@ class AgentRunner(
                     val pending = pendingSavedPages.filterKeys { it in preparedRound.unacknowledgedSavedPages }
                     val restore = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pending, reopenAvailable = true)
                     if (restore == null) {
-                        emit(AgentRunEvent.Provider(ProviderEvent.Failed("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", errorCode = "REPLAY_EVIDENCE_REQUIRED", taskOutcome = "BLOCKED")))
+                        emit(
+                            AgentRunEvent.Provider(
+                                SavedPageDeliveryRound.blocked("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", "planning") {
+                                    put("replay_missing_record", "AUTHORIZED_REOPEN")
+                                    val missing = pending.entries.firstOrNull()
+                                    replaySource(exchanges, missing?.key, missing?.value)
+                                }
+                            )
+                        )
                         return
                     }
                     emit(AgentRunEvent.Notice(restore.notice, persistent = false))
@@ -469,13 +492,7 @@ class AgentRunner(
                     finalizationToolRepairAttempted = true
                 }
                 savedResultRecovery.observeDelivered(exchanges, deliveredResultDigests, replayRenderCache)
-                val resolvedCalls = round.calls.map { call ->
-                    // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
-                    val identified = if (restoringBatch) call else call.captureProviderInvocation()
-                    val resolved = resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
-                    val canonical = resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
-                    if (restoringBatch) canonical else GitHubRecoveryCalls.repairSourceRead(canonical, executableToolByName[canonical.name])
-                }
+                val resolvedCalls = resolveRoundCalls(round.calls, restoringBatch, exchanges, executableToolByName)
                 resolvedCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
                 savedResultRecovery.record(calls)
@@ -498,52 +515,114 @@ class AgentRunner(
                     if (finalResponseRequested) executableToolByName = emptyMap()
                     continue
                 }
-                val roundLimitReached = limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds
+                if (!executeToolRound(session, calls, toolByName, roundDefinitions, restoringBatch, exchanges, state, dynamicTools, selectDefinitions, initialSchemaTokens, executionToolCallLimit, automaticRecovery, ciInvestigation, admittedReplayLimit, completedOperations)) return
+            }
+        }
+    }
 
-                val remainingCalls = if (executionToolCallLimit == Int.MAX_VALUE) {
-                    calls.size
+    private fun fitRoundDefinitions(
+        state: LoopState,
+        selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
+        initialSchemaTokens: Long,
+        completedOperations: Set<String>,
+        owedSchema: AgentToolDefinition?
+    ): List<AgentToolDefinition> = with(state) {
+        val selected = selectedForRound(exposedDefinitions, selectDefinitions)
+        val candidates = if (owedSchema == null) selected else listOf(owedSchema) + selected.filterNot { ProgressiveToolCatalog.isGitHubTool(it) }
+
+        val available = fitProviderToolSchemas(
+            candidates,
+            limits,
+            initialSchemaTokens,
+            replayTokens + SavedPageReading.reservation(savedPageReading, false),
+            discoveryPaused = unproductiveDiscoveryRounds >= 2 && retrySchemaNames == null,
+            completedOperations = completedOperations.toList(),
+            focusedOperation = healthCatalog?.focusedOperation(candidates),
+            owedOperation = owedSchema?.name
+        )
+        val fitted = retrySchemaNames?.let { names -> available.filter { it.name in names || it.name == owedSchema?.name } } ?: available
+        afterRepeatedGitHubDiscovery(fitted, unproductiveDiscoveryRounds >= 2)
+    }
+
+    private fun resolveRoundCalls(
+        calls: List<ProviderEvent.ToolCall>,
+        restoringBatch: Boolean,
+        exchanges: List<AgentToolExchange>,
+        executableToolByName: Map<String, AgentTool>
+    ): List<ProviderEvent.ToolCall> = calls.map { call ->
+        // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
+        val identified = if (restoringBatch) call else call.captureProviderInvocation()
+        val resolved = resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
+        val canonical = resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
+        if (restoringBatch) canonical else GitHubRecoveryCalls.repairSourceRead(canonical, executableToolByName[canonical.name])
+    }
+
+    /** Keep batch dispatch and its ordered state updates out of the loop's DEX method. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.executeToolRound(
+        session: AgentProviderSession,
+        calls: List<ProviderEvent.ToolCall>,
+        toolByName: Map<String, AgentTool>,
+        roundDefinitions: List<AgentToolDefinition>,
+        restoringBatch: Boolean,
+        exchanges: MutableList<AgentToolExchange>,
+        state: LoopState,
+        dynamicTools: () -> List<AgentTool>,
+        selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
+        initialSchemaTokens: Long,
+        executionToolCallLimit: Int,
+        automaticRecovery: GitHubReplayRecovery.State?,
+        ciInvestigation: GitHubCiInvestigationRecovery,
+        admittedReplayLimit: Int,
+        completedOperations: MutableSet<String>
+    ): Boolean {
+        with(state) {
+            val roundLimitReached = limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds
+
+            val remainingCalls = if (executionToolCallLimit == Int.MAX_VALUE) {
+                calls.size
+            } else {
+                ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
+            }
+            val completed = processToolCalls(
+                calls, toolByName, executableToolByName, exposedDefinitions, roundDefinitions, restoringBatch, exchanges, dynamicTools, selectDefinitions,
+                initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
+                remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
+                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
+                admittedReplayLimit, consumedCallIds, deliveredResultDigests
+            ) ?: return false
+            exchanges.lastOrNull()?.let { recordCompletedGitHubOperations(it, completedOperations) }
+            executableToolByName = completed.tools
+            exposedDefinitions = completed.definitions
+            toolCallCount = completed.toolCallCount
+            restoredDispatched = emptySet()
+            restoredRetained = emptySet()
+            restoredCompleted = emptyMap()
+            toolMayHaveExecuted = toolMayHaveExecuted || completed.executedAny
+            suppressedReadRounds = completed.suppressedReadRounds
+            replayTokens = completed.batch.replayTokens
+            unproductiveDiscoveryRounds = completed.batch.discoveryRounds
+            finalResponseRequested = completed.batch.finalResponseRequested
+            unsuccessfulGitHubRounds = if (limits.githubTask && !completed.batch.hasSuccessfulResult) unsuccessfulGitHubRounds + 1 else 0
+            val stalled = if (limits.githubTask) exchanges.lastOrNull()?.let(investigation::observe) else null
+            if ((unsuccessfulGitHubRounds >= 3 || stalled != null) && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
+                val replan = if (automaticRecovery != null && !session.handlesToolsInternally && !retainedUnknownOutcome && unknownOutcomes.isEmpty()) {
+                    resumeGitHubInvestigation(investigation, ciInvestigation, exposedDefinitions.filter { it.name in executableToolByName }, exchanges, consumedCallIds)
                 } else {
-                    ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
+                    null
                 }
-                val completed = processToolCalls(
-                    calls, toolByName, executableToolByName, exposedDefinitions, roundDefinitions, exchanges, dynamicTools, selectDefinitions,
-                    initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
-                    remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
-                    retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
-                    admittedReplayLimit, consumedCallIds, deliveredResultDigests
-                ) ?: return
-                executableToolByName = completed.tools
-                exposedDefinitions = completed.definitions
-                toolCallCount = completed.toolCallCount
-                restoredDispatched = emptySet()
-                restoredRetained = emptySet()
-                restoredCompleted = emptyMap()
-                toolMayHaveExecuted = toolMayHaveExecuted || completed.executedAny
-                suppressedReadRounds = completed.suppressedReadRounds
-                replayTokens = completed.batch.replayTokens
-                unproductiveDiscoveryRounds = completed.batch.discoveryRounds
-                finalResponseRequested = completed.batch.finalResponseRequested
-                unsuccessfulGitHubRounds = if (limits.githubTask && !completed.batch.hasSuccessfulResult) unsuccessfulGitHubRounds + 1 else 0
-                val stalled = if (limits.githubTask) exchanges.lastOrNull()?.let(investigation::observe) else null
-                if ((unsuccessfulGitHubRounds >= 3 || stalled != null) && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
-                    val replan = if (automaticRecovery != null && !session.handlesToolsInternally && !retainedUnknownOutcome && unknownOutcomes.isEmpty()) {
-                        resumeGitHubInvestigation(investigation, ciInvestigation, exposedDefinitions.filter { it.name in executableToolByName }, exchanges, consumedCallIds)
-                    } else {
-                        null
-                    }
-                    if (replan != null) {
-                        unsuccessfulGitHubRounds = 0
-                        emit(AgentRunEvent.Notice(replan, persistent = false))
-                    } else {
-                        finalResponseRequested = true
-                        exposedDefinitions = emptyList()
-                        executableToolByName = emptyMap()
-                        instructFinalResponse(exchanges, consumedCallIds)
-                        emit(AgentRunEvent.Notice(stalled ?: "GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
-                    }
+                if (replan != null) {
+                    unsuccessfulGitHubRounds = 0
+                    emit(AgentRunEvent.Notice(replan, persistent = false))
+                } else {
+                    finalResponseRequested = true
+                    exposedDefinitions = emptyList()
+                    executableToolByName = emptyMap()
+                    instructFinalResponse(exchanges, consumedCallIds)
+                    emit(AgentRunEvent.Notice(stalled ?: "GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
                 }
             }
         }
+        return true
     }
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.replanRejectedPayload(
@@ -736,7 +815,10 @@ class AgentRunner(
                 if (!remoteAllowed || ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) <= 0) return null
                 val pageBudget = minOf(replayLimit, limits.maxRetainedEvidenceTokens.coerceIn(1024, 262_144))
                 val restore = savedResultRecovery.restoreMissingPage(pendingSavedPages, exchanges, definitions.filter { it.name in executableToolByName }, pageBudget, reopenAvailable)
-                return restore?.let { AutomaticRead(it, "Restoring the exact saved page from the authorized local view.") }
+                return restore?.let {
+                    val status = if ("view_cursor" in it.arguments) "Restoring the exact saved page from the authorized local view." else "Reading the original file ranges at their pinned commit to recover the saved page."
+                    AutomaticRead(it, status)
+                }
             }
             val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
             if (remoteAllowed && definitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }) {
@@ -1329,6 +1411,7 @@ class AgentRunner(
         initialTools: Map<String, AgentTool>,
         initialDefinitions: List<AgentToolDefinition>,
         roundDefinitions: List<AgentToolDefinition>,
+        restoringBatch: Boolean,
         exchanges: MutableList<AgentToolExchange>,
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
@@ -1366,7 +1449,19 @@ class AgentRunner(
         // A choice and a mutation in the same model batch must not race. Replan
         // dependent actions after the answer has been returned to the model.
         val decisionCalls = calls.filter { it.name in questionNames }
-        val toolsForBatch = if (decisionCalls.isNotEmpty()) executableToolByName.filterKeys { it in questionNames } else executableToolByName
+        // Queued calls restore their original checkpoint. Fresh model calls can use
+        // only the native GitHub operation actually exposed in this compact round.
+        val roundTools = if (!restoringBatch && (limits.githubMode || limits.githubTask) && limits.contextTokens <= 4096) {
+            val names = roundDefinitions.mapTo(hashSetOf()) { it.name }
+            executableToolByName.filterKeys { it in names || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it) == null }
+        } else {
+            executableToolByName
+        }
+        val toolsForBatch = when {
+            decisionCalls.isNotEmpty() -> roundTools.filterKeys { it in questionNames }
+            unproductiveDiscoveryRounds >= 2 && roundDefinitions.none { it.name == ProgressiveToolCatalog.NAME } -> roundTools - ProgressiveToolCatalog.NAME
+            else -> roundTools
+        }
         val batchAllowance = when {
             decisionCalls.any { it.callId in restoredCompleted } -> 0
             decisionCalls.isNotEmpty() -> minOf(1, remainingCalls)
@@ -1530,10 +1625,6 @@ class AgentRunner(
         if (finalResponseRequested) {
             exposedDefinitions = emptyList()
             executableToolByName = emptyMap()
-        } else if (completedBatch.suppressDiscovery) {
-            // Stop the repeated directory operation while retaining useful authorized work.
-            exposedDefinitions = exposedDefinitions.filterNot { it.name == ProgressiveToolCatalog.NAME }
-            executableToolByName = executableToolByName - ProgressiveToolCatalog.NAME
         }
         return ToolRoundCompletion(executableToolByName, exposedDefinitions, toolCallCount, executedResults.any { it.dispatched }, suppressedReadRounds, completedBatch)
     }
@@ -1732,6 +1823,18 @@ class AgentRunner(
 
     private data class ToolCatalogUpdate(val tools: Map<String, AgentTool>, val definitions: List<AgentToolDefinition>)
 
+    private fun recordCompletedGitHubOperations(exchange: AgentToolExchange, completed: MutableSet<String>, restoredJournal: Boolean = false) {
+        if (!(limits.githubMode || limits.githubTask) || limits.contextTokens > 4096) return
+        val results = exchange.results.associateBy { it.callId }
+        for (call in exchange.calls) {
+            val result = results[call.callId] ?: continue
+            if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name) != null && githubSchemaPhaseComplete(call.name, result, call.arguments, restoredJournal)) {
+                completed.remove(call.name)
+                completed.add(call.name)
+            }
+        }
+    }
+
     private fun selectedForRound(definitions: List<AgentToolDefinition>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): List<AgentToolDefinition> {
         val selected = selectDefinitions(definitions)
         if (!limits.githubMode) return selected
@@ -1787,7 +1890,7 @@ class AgentRunner(
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
-    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean, val suppressDiscovery: Boolean)
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean)
 
     /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
@@ -1958,8 +2061,8 @@ class AgentRunner(
             allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "This exact read produced no new evidence and remains suppressed. Follow its issued remote continuation, or use a different required action or unread range. Other authorized tools remain available within the current task budget. Workflow definitions do not establish executed checks or repository health.")
             emit(AgentRunEvent.Notice("Repeated reads were skipped. Continuing with remaining checks and unread pages.", persistent = false))
         } else if (suppressDiscovery && allResults.isNotEmpty()) {
-            allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "Repeated discovery returned no new schemas. Discovery is paused for this response. The attached authorized GitHub tools remain available; use their exact schemas to continue the requested work. Do not repeat discovery or claim that GitHub tools are unavailable.")
-            emit(AgentRunEvent.Notice("Repeated discovery is paused. Continuing with the available GitHub tools.", persistent = false))
+            allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "Repeated discovery returned no new schemas. Use an attached GitHub operation next. If only discovery fits, select one exact tool and action. Do not repeat the unchanged request.")
+            emit(AgentRunEvent.Notice("Repeated discovery is paused when a GitHub operation fits. Continuing with the available tools.", persistent = false))
         } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
             val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance, combined = limits.combined != null)
             allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
@@ -1986,7 +2089,7 @@ class AgentRunner(
         ).exchanges
         exchanges.clear()
         exchanges.addAll(retained)
-        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError }, suppressDiscovery)
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError })
     }
 
     private data class RoundResult(
@@ -2138,28 +2241,75 @@ class AgentRunner(
                 // inject restored plaintext notes after their masking/serialized-request boundary.
                 dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
             }
-            val reservedReadingTokens = SavedPageReading.reservation(savedPageReading, mayStage)
-            val sourceAllowance = (replayLimit - reservedReadingTokens).coerceAtLeast(0)
-            if (sourceAllowance == 0 && (savedPageReading != null || mayStage)) {
-                emit(ProviderEvent.Failed("Mandatory saved-page reading context does not fit this request. Saved pages and prior notes remain intact.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+            // Only reserve a new private note after full-page delivery actually fails.
+            var sourceAllowance = (replayLimit - SavedPageReading.reservation(savedPageReading, false)).coerceAtLeast(0)
+            if (sourceAllowance == 0 && savedPageReading != null) {
+                emit(
+                    ProviderEvent.Failed(
+                        "Mandatory saved-page reading context does not fit this request. Saved pages and prior notes remain intact.",
+                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "planning")
+                            put("failure_origin", "APPLICATION")
+                            put("dispatched", false)
+                            put("replay_budget_state", "NO_CONTINUATION_ALLOWANCE")
+                            put("replay_allowance", replayLimit)
+                            put("source_allowance", sourceAllowance)
+                            put("pending_saved_page_count", requiredSavedPageDigests.size)
+                        }
+                    )
+                )
                 return@flow
             }
-            suspend fun project(required: Map<String, String?>) = prepareReplay(exchanges, sourceAllowance, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests, required)
+            suspend fun project(required: Map<String, String?>, candidates: List<AgentToolExchange> = exchanges) = prepareReplay(candidates, sourceAllowance, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests, required)
             fun delivered(projection: ReplayProjection) = projection.exchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }
             var replay = project(requiredSavedPageDigests)
             var exact = delivered(replay)
             deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
             if (mayStage && requiredSavedPageDigests.any { (id, digest) -> deliveredBodies[id] != digest }) {
-                // A private note must match the durable projection. A page containing a
-                // later wrap-up instruction can still be read in the ordinary final round.
+                // Spend a private reading stage's allowance only on complete pairs
+                // whose exact bytes this journal can acknowledge. A decorated final
+                // page remains in the ordinary history, but cannot crowd out these reads.
                 val eligible = checkpoint?.eligibleReadingSources(exchanges.flatMap { it.calls }.associateBy { it.callId }, requiredSavedPageDigests)
                     ?: requiredSavedPageDigests.keys
+                val privateCandidates = if (eligible.size < requiredSavedPageDigests.size) {
+                    exchanges.mapNotNull { exchange ->
+                        val calls = exchange.calls.filter { it.callId in eligible }
+                        calls.takeIf { it.isNotEmpty() }?.let { AgentToolExchange(it, exchange.results.filter { result -> result.callId in eligible }) }
+                    }
+                } else {
+                    exchanges
+                }
+                sourceAllowance = (replayLimit - SavedPageReading.reservation(savedPageReading, true)).coerceAtLeast(0)
+                if (sourceAllowance > 0) {
+                    replay = project(requiredSavedPageDigests, privateCandidates)
+                    exact = delivered(replay)
+                    deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
+                } else {
+                    emit(
+                        ProviderEvent.Failed(
+                            "The saved reading context leaves no space for another page.",
+                            errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "planning")
+                                put("failure_origin", "APPLICATION")
+                                put("dispatched", false)
+                                put("replay_budget_state", "SAVED_PAGE_EXCEEDS_ALLOWANCE")
+                                put("replay_missing_record", "BODY_ALLOWANCE")
+                                put("source_allowance", 0)
+                                put("replay_allowance", replayLimit)
+                                put("pending_saved_page_count", requiredSavedPageDigests.size)
+                            }
+                        )
+                    )
+                    return@flow
+                }
                 if (eligible.none { deliveredBodies[it] == requiredSavedPageDigests[it] }) {
                     val first = eligible.mapNotNull(originalResults::get)
                         .filter { ToolResultDeliveryProof.digest(it.content, replayRenderCache) == requiredSavedPageDigests[it.callId] }
                         .minByOrNull { replayRenderCache.measure(it.content).tokens }
                     if (first != null) {
-                        replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]))
+                        replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]), privateCandidates)
                         exact = delivered(replay)
                         deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
                     }
@@ -2198,7 +2348,16 @@ class AgentRunner(
                 }
                 val pageIds = owed.keys.take(3).filter { it.matches(Regex("[A-Za-z0-9_.:-]{1,96}")) }.joinToString(", ")
                 val recovery = when (state) {
-                    "SAVED_PAGE_BODY_UNAVAILABLE" -> "The original saved page body is unavailable. Reopen the same page from its authorized checkpoint."
+                    "SAVED_PAGE_BODY_UNAVAILABLE" -> {
+                        val liveObservation = exchanges.any { exchange ->
+                            exchange.calls.any { it.callId in owed && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in setOf("github_pr", "github_issue", "github_ci", "github_release", "github_watch_checks") }
+                        }
+                        if (liveObservation) {
+                            "The original GitHub observation is unavailable. A separately authorized read can report current state. Reconcile any previously submitted change without repeating it."
+                        } else {
+                            "The original saved page body is unavailable. Its pinned source could not be verified against the authorized checkpoint."
+                        }
+                    }
                     "SAVED_PAGE_EXCEEDS_ALLOWANCE" -> "The smallest outstanding page needs at least $smallest estimated body tokens and the source allowance is $sourceAllowance. Narrow the requested range or authorize more context."
                     else -> "The delivered saved page does not match its expected body. Restore the exact page from the saved checkpoint before continuing."
                 }
@@ -2213,6 +2372,17 @@ class AgentRunner(
                             put("logical_continuation_allowed", false)
                             put("failure_origin", "APPLICATION")
                             put("replay_budget_state", state)
+                            val missing = owed.entries.firstOrNull { (id, digest) -> digest == null || originalResults[id] == null } ?: owed.entries.first()
+                            put(
+                                "replay_missing_record",
+                                when {
+                                    missing.value == null -> "EXPECTED_BODY_DIGEST"
+                                    originalResults[missing.key] == null -> "SAVED_PAGE_BODY"
+                                    state == "SAVED_PAGE_EXCEEDS_ALLOWANCE" -> "BODY_ALLOWANCE"
+                                    else -> "PROJECTION_MATCH"
+                                }
+                            )
+                            replaySource(exchanges, missing.key, missing.value)
                             put("pending_saved_page_count", owed.size)
                             smallest?.let { put("minimum_page_body_tokens", it) }
                             put("source_allowance", sourceAllowance)
@@ -2262,22 +2432,42 @@ class AgentRunner(
             val readingSources = if (deliveryOnly) SavedPageReading.sources(exchanges, deliveredBodies) else null
             val noteBytes = readingSources?.let { SavedPageReading.noteAllowance(savedPageReading, it, replayLimit) }
             if (noteBytes != null && noteBytes == 0) {
-                emit(ProviderEvent.Failed("No bounded space remains for the next saved-page reading note. Prior notes and pending source pages remain checkpointed.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                emit(
+                    SavedPageDeliveryRound.blocked("No bounded space remains for the next saved-page reading note. Prior notes and pending source pages remain checkpointed.", "planning") {
+                        put("replay_budget_state", "NO_CONTINUATION_ALLOWANCE")
+                        put("pending_saved_page_count", requiredSavedPageDigests.size)
+                        put("replay_allowance", replayLimit)
+                    }
+                )
                 return@flow
             }
-            val preparedExchanges = SavedPageReading.project(
-                replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) },
-                savedPageReading,
-                noteBytes
-            )
-            if (SavedPageReading.projectionTokens(preparedExchanges, replayRenderCache) > replayLimit) {
-                emit(ProviderEvent.Failed("The saved-page bodies and mandatory reading context exceed this request's replay allowance. No page was acknowledged.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+            val (preparedExchanges, projectedTokens) = SavedPageReading.providerProjection(replayExchanges, savedPageReading, noteBytes, replayLimit, replayRenderCache) {
+                dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it)
+            }
+            if (projectedTokens > replayLimit) {
+                emit(
+                    SavedPageDeliveryRound.blocked("The saved-page bodies and mandatory reading context exceed this request's replay allowance. No page was acknowledged.", "planning") {
+                        put("replay_budget_state", "SAVED_PAGE_EXCEEDS_ALLOWANCE")
+                        put("pending_saved_page_count", requiredSavedPageDigests.size)
+                        put("replay_allowance", replayLimit)
+                        put("replay_tokens", projectedTokens)
+                    }
+                )
                 return@flow
             }
             if (requiredSavedPageDigests.isNotEmpty()) {
                 val onWire = ToolResultDeliveryProof.capture(preparedExchanges.flatMap { it.results }, replayRenderCache)
-                if (requiredSavedPageDigests.keys.any { it in deliveredBodies && onWire[it] != deliveredBodies[it] }) {
-                    emit(ProviderEvent.Failed("The final provider projection changed a required saved page. Its original receipt is available for recovery.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                val mismatch = requiredSavedPageDigests.keys.firstOrNull { it in deliveredBodies && onWire[it] != deliveredBodies[it] }
+                if (mismatch != null) {
+                    emit(
+                        SavedPageDeliveryRound.blocked("The final provider projection changed a required saved page. Its original receipt is available for recovery.", "planning") {
+                            put("replay_budget_state", "SAVED_PAGE_DELIVERY_MISMATCH")
+                            put("replay_missing_record", "PROJECTION_MATCH")
+                            replaySource(exchanges, mismatch, requiredSavedPageDigests[mismatch])
+                            put("pending_saved_page_count", requiredSavedPageDigests.size)
+                            put("replay_allowance", replayLimit)
+                        }
+                    )
                     return@flow
                 }
             }

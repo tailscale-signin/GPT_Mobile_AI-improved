@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import tempfile
 
 from v14.voice import FRONTEND, FRONTEND_SYMBOLS_SHA256, FRAMES_PER_DURATION, PROTOCOL, SAMPLE_RATE, frontend_symbols, load_pack
 
@@ -40,11 +41,15 @@ def prepare(directory, model='model.onnx', voices='voices.bin'):
                     voices=voices, voices_sha256=checksum(artifact(voices, 256 * 1024 * 1024)),
                     warmup_token_ids=tokens, warmup_word_tokens=[1, len(tokens) - 1])
     target = directory / 'voice-manifest.json'
-    temporary = target.with_suffix('.tmp')
-    temporary.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
-    temporary.replace(target)
-    # Verify the same parser the service uses before accepting this manifest.
-    load_pack(directory)
+    load_pack(directory, candidate=manifest)
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=directory, delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            output.write(json.dumps(manifest, indent=2) + '\n')
+            output.close()
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
     return manifest
 
 

@@ -138,6 +138,10 @@ interface ChatRepository {
     ): Flow<ApiState>
     fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>>
     fun observeMessageWindow(chatId: Int, turns: Int): Flow<List<MessageV2>> = observeMessagesV2(chatId)
+    suspend fun centeredWindowEnd(chatId: Int, messageId: Int, turns: Int): Int?
+    suspend fun newerWindowEnd(chatId: Int, end: Int, turns: Int): Int?
+    fun observeMessageWindowThrough(chatId: Int, end: Int, turns: Int): Flow<List<MessageV2>>
+    fun observeTurnCountThrough(chatId: Int, end: Int): Flow<Int>
     fun observeReplyCount(chatId: Int): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun observeTurnCount(chatId: Int): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>>
@@ -147,10 +151,12 @@ interface ChatRepository {
     fun observeProviderWaitDeadlines(chatId: Int): Flow<List<ProviderWaitDeadline>>
     fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>>
     suspend fun fetchChatListV2(): List<ChatRoomV2>
+    suspend fun fetchChatRoom(chatId: Int): ChatRoomV2?
+    suspend fun completionMessage(chatId: Int, targetMessageId: Int?): MessageV2?
 
     /** Null is an unavailable owner, never permission for an unprotected request. */
     suspend fun conversationPrivacyLocked(chatId: Int): Boolean? =
-        (fetchChatListV2() + fetchArchivedChatListV2()).firstOrNull { it.id == chatId }?.privacyModeLocked
+        fetchChatRoom(chatId)?.privacyModeLocked
     suspend fun fetchArchivedChatListV2(): List<ChatRoomV2>
     suspend fun setChatArchived(chatId: Int, isArchived: Boolean)
     suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean)
@@ -219,6 +225,7 @@ interface ChatRepository {
     /** Persist a configured empty conversation before its first request. */
     suspend fun createDraftChat(profileUids: List<String>, conversationMode: String, title: String, primaryProfileUid: String? = null, firstMessage: String? = null, privacyModeLocked: Boolean = false): ChatRoomV2 =
         error("Creating empty chats is not available in this repository implementation")
+    suspend fun saveTranscriptReply(userId: Int, before: MessageV2, after: MessageV2): Boolean
     suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2
     suspend fun createEvidenceFreeRetry(sourceChatId: Int, question: String, profile: PlatformV2): ChatRoomV2 = error("Fresh evidence recovery is unavailable")
     suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2

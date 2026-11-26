@@ -230,11 +230,14 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val pageNumber = page(args)
         val total = (result["files_total"] as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it >= 0 }
         val files = result["files"] as? JsonArray
-        val expectedRows = total?.let { (it.toLong() - (pageNumber.toLong() - 1L) * 30L).coerceIn(0L, 30L).toInt() }
+        val coverage = result["changed_file_coverage"] as? JsonObject
+        val size = (result["effective_per_page"] as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it in 1..100 } ?: 30
+        val expectedRows = total?.let { (it.toLong() - (pageNumber.toLong() - 1L) * size).coerceIn(0L, size.toLong()).toInt() }
         val claimedRows = (result["files_returned"] as? JsonPrimitive)?.content?.toIntOrNull()
-        val expectedMore = total?.let { pageNumber.toLong() * 30L < it }
+        val expectedMore = total?.let { pageNumber.toLong() * size < it }
         if (pageNumber > 0 &&
             expectedRows != null &&
+            coverage?.get("reason") == null &&
             files?.size == expectedRows &&
             claimedRows == expectedRows &&
             result["has_more"] == JsonPrimitive(expectedMore == true)
@@ -247,7 +250,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             put("remote_page", pageNumber)
             put("remote_pages_observed", JsonArray(listOf(JsonPrimitive(pageNumber))))
             put("upstream_rows_returned", files?.size ?: 0)
-            put("unique_records_observed", files?.size ?: 0)
+            put("unique_records_observed", coverage?.get("observed_unique") ?: JsonPrimitive(files?.size ?: 0))
             total?.let { put("reported_total", it) }
             put("contiguous_from_first_page", pageNumber == 1)
             put("complete", false)
@@ -263,7 +266,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                     put("complete", false)
                     put("traversal_state", "INCOMPLETE")
                     put("pagination_progress", progress)
-                    put("message", "Requested PR files did not match files_total for this page. Refresh page 1 with verify_live=true and include_files=true at the observed PR head; do not accept incomplete file coverage.")
+                    val gap = coverage?.get("missing")
+                    put("message", if (coverage?.get("reason") == JsonPrimitive("GITHUB_PR_FILE_LIMIT")) "GitHub caps PR file lists at 3000. Missing $gap distinct filenames. Use the authorized Gateway mirror at this PR base and head." else "Requested PR file coverage is incomplete. Refresh page 1 with verify_live=true and follow its pinned file continuations.")
                 }
             ),
             "GITHUB_PAGINATION_INCOMPLETE"
@@ -286,6 +290,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         }
         if (observation != null && dispatched == null) return superseded(args, observation)
         if (observation != null) dispatched?.pending?.remove(observation.id)
+        val searchIncomplete = args["action"] in SEARCH_ACTIONS && result["incomplete_results"] != JsonPrimitive(false)
         val collections = rows(operation, args, result)
         if (collections.isEmpty()) {
             // A successful envelope with no record collection cannot establish
@@ -295,6 +300,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             // A zero-result first page is a complete empty collection. A
             // later zero-result page cannot erase previously observed records.
             if (!(operation == "github_pr" && args["action"] == JsonPrimitive("copilot_tasks")) &&
+                !searchIncomplete &&
                 reportedTotal == 0 &&
                 result["has_more"] == JsonPrimitive(false) &&
                 page(args) == 1 &&
@@ -364,7 +370,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         state.pending.entries.removeAll { now() - it.value.at !in 0..300_000_000_000L }
         val number = page(args)
         val branchList = operation == "github_context" && args["action"] == JsonPrimitive("list_branches")
-        val identities = collections.flatMap { (collection, values) -> values.map { identity(collection, it, branchList) } }.toSet()
+        val rowIds = collections.mapValues { (collection, values) -> values.map { identity(collection, it, branchList) } }
+        val identities = rowIds.values.flatMapTo(mutableSetOf()) { it }
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
@@ -372,7 +379,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val total = reportedTotal(operation, args, result)
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
-        state.inconsistent = state.inconsistent || result["pagination_inconsistent"] == JsonPrimitive(true) || result["tree_complete"] == JsonPrimitive(false)
+        state.inconsistent = state.inconsistent || searchIncomplete || result["pagination_inconsistent"] == JsonPrimitive(true) || result["tree_complete"] == JsonPrimitive(false)
         val upstreamMore = if (comparisonLimited) result["upstream_has_more"] ?: result["has_more"] else result["has_more"]
         state.pages[number] = Page(identities, now(), upstreamMore == JsonPrimitive(false))
         while (traversals.size > 128) reset(traversals.keys.first())
@@ -447,8 +454,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 if (name !in collections || value !is JsonArray || "upstream_record_ids" in collections) {
                     value
                 } else {
-                    val seen = earlier.toMutableSet()
-                    JsonArray(value.filter { seen.add(identity(name, it, branchList)) })
+                    val seen = mutableSetOf<String>()
+                    val ids = rowIds.getValue(name)
+                    JsonArray(value.filterIndexed { index, _ -> ids[index] !in earlier && seen.add(ids[index]) })
                 }
             }
         }
@@ -515,6 +523,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     }
 
     companion object {
+        private val SEARCH_ACTIONS = setOf("search_issues", "search_commits", "search_repositories").map(::JsonPrimitive).toSet()
         private val COLLECTIONS = setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits", "comments", "reviews", "threads", "files", "releases", "tags")
     }
 }

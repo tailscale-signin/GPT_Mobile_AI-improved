@@ -188,7 +188,7 @@ class GitHubEngineeringControllerIntegrationTest {
                     path == "/user" -> """{"id":42,"login":"fixture"}"""
                     path.endsWith("/git/ref/heads/fix%2Fworkflow") -> JSONObject().put("object", JSONObject().put("sha", remote)).toString()
                     path.endsWith("/git/commits/$base") -> JSONObject().put("tree", JSONObject().put("sha", baseTree)).toString()
-                    path.endsWith("/git/trees/$baseTree?recursive=1") -> JSONObject().put("truncated", false).put("tree", JSONArray().put(JSONObject().put("path", "A.kt").put("type", "blob").put("mode", "100644").put("sha", blob("before")))).toString()
+                    path.endsWith("/git/trees/$baseTree?recursive=1") -> JSONObject().put("sha", baseTree).put("truncated", false).put("tree", JSONArray().put(JSONObject().put("path", "A.kt").put("type", "blob").put("mode", "100644").put("sha", blob("before")))).toString()
                     method == "POST" && path.endsWith("/git/blobs") -> {
                         assertFalse(delete)
                         JSONObject().put("sha", blob(requireNotNull(body).getString("content"))).toString()

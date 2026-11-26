@@ -2,10 +2,12 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultDeliveryProof
 import dev.chungjungsoo.gptmobile.data.github.GitHubAuthorizationIdentity
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
@@ -39,6 +41,170 @@ class GitHubSavedViewRecoveryTest {
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
             calls++
             return AgentToolResult(callId, ToolResultContent.Json(JsonPrimitive(payload)), false)
+        }
+    }
+
+    @Test fun completeVisibleFailuresCarryTheOriginalCodeWithoutAnUnusableSavedPage() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        for (code in listOf("GITHUB_TRANSIENT_SERVER", "GITHUB_CIRCUIT_OPEN", "OUTPUT_LIMIT")) {
+            val result = AgentToolResult("original", ToolResultContent.Text("Service returned an error"), true, errorCode = code)
+            val page = views.present("conversation", "github_search", "github_search__bound", result)
+            assertTrue(page.isError)
+            assertEquals(code, page.errorCode)
+            assertEquals(JsonPrimitive("Service returned an error"), body(page)["data"])
+            assertEquals(JsonPrimitive(true), body(page)["local_page_complete"])
+            assertFalse(body(page).containsKey("continuation_call"))
+            assertFalse(body(page).containsKey("recovery_call"))
+            assertFalse(body(page).containsKey("recovery_options"))
+        }
+    }
+
+    @Test fun reopenedFailureKeepsItsFailedReceiptWithoutFilingTheOriginalIncidentAgain() {
+        val views = GitHubResultViews(pageBytes = 4096)
+        val operation = "github_search"
+        val model = "github_search__native"
+        val result = AgentToolResult("archive-source", ToolResultContent.Text("earlier failure ".repeat(2600)), true, errorCode = "GITHUB_TRANSIENT_SERVER")
+        val first = views.present("conversation", operation, model, result)
+        val arguments = body(first).getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
+        val cursor = arguments.getValue("view_cursor").jsonPrimitive.content
+        val page = views.read("conversation", operation, model, cursor, "local-read")
+        val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 1, page.callId, null, null, operation, model, arguments.toString(), null, null, "FAILED")
+        val diagnostics = dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
+        assertTrue(page.isError)
+        assertEquals(result.errorCode, page.errorCode)
+        assertTrue(diagnostics.archivedSourceFailure(event, page))
+        assertFalse(diagnostics.archivedSourceFailure(event, page.copy(dispatched = true)))
+        assertFalse(diagnostics.archivedSourceFailure(event.copy(arguments = "{}"), page))
+        assertFalse(diagnostics.archivedSourceFailure(event, page.copy(outputBudgetExhausted = true)))
+        assertFalse(diagnostics.archivedSourceFailure(event, result))
+    }
+
+    @Test fun captureSurvivesConcurrentViewEvictionBeforeDurableSave() = runBlocking {
+        val store = GitHubSavedViewStore(GitHubRepositoryStateStore(), "storage")
+        val views = GitHubResultViews(pageBytes = 2048)
+        val backend = Backend()
+        var captured: Pair<String, JsonObject>? = null
+        val source = AgentToolResult("initial", ToolResultContent.Json(JsonPrimitive(backend.payload)), false)
+        val first = views.present("scope", "github_commit", "github_commit", source) { captured = it }
+        repeat(33) { views.present("parallel-$it", "github_commit", "github_commit", source) }
+        assertEquals(null, views.checkpoint("scope", first))
+        val (id, snapshot) = requireNotNull(captured)
+        store.save(id, snapshot)
+        val tool = GitHubOperationTool("github_commit", backend, "scope", views = GitHubResultViews(pageBytes = 2048), loadSavedView = store::loadWithDiagnostics)
+        val reopened = tool.execute("reopen", continuation(first))
+        assertFalse(reopened.isError)
+        assertFalse(reopened.dispatched)
+        assertEquals(0, backend.calls)
+    }
+
+    @Test fun lostBodyReopensOnlyTheIssuedAuthorizedImmutableRangesAfterRestart() = runBlocking {
+        val directory = Files.createTempDirectory("saved-source-recovery").toFile()
+        try {
+            val store = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), "storage")
+            val request = json("""{"owner":"o","repo":"r","ranges":[{"path":"A.kt","start_line":1,"end_line":20}]}""")
+            val pinnedRequest = JsonObject(request + ("commit_sha" to JsonPrimitive(sha)))
+            var requests = 0
+            var correct = true
+            var readCoverage: JsonObject? = null
+            val blobIdentity = json("""{"owner":"o","repo":"r","path":"A.kt","total_lines":20,"blob_sha":"${"b".repeat(40)}","commit_sha":"$sha"}""")
+            val item = json("""{"start_line":1,"end_line":20,"captured_start_line":1,"captured_end_line":20,"range_complete":true}""")
+            val backend = object : AgentTool {
+                override val definition = AgentToolDefinition("github", "Backend", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    requests++
+                    readCoverage = dev.chungjungsoo.gptmobile.data.github.GitHubSourceReadCoverage.merge(readCoverage, blobIdentity, "source-id", listOf(item))
+                    return AgentToolResult(
+                        callId,
+                        ToolResultContent.Json(
+                            buildJsonObject {
+                                put("commit_sha", sha)
+                                put("source_coverage", kotlinx.serialization.json.JsonArray(listOf(requireNotNull(readCoverage))))
+                                put(
+                                    "items",
+                                    kotlinx.serialization.json.JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                put("path", "A.kt")
+                                                put("sha", "b".repeat(40))
+                                                put("start_line", 1)
+                                                put("content", (if (correct) "source text " else "other text ").repeat(1300))
+                                            }
+                                        )
+                                    )
+                                )
+                            }
+                        ),
+                        false
+                    )
+                }
+            }
+            fun tool(store: GitHubSavedViewStore, scope: String, permitted: Boolean = true, operation: String = "github_read") =
+                GitHubOperationTool(
+                    operation,
+                    backend,
+                    scope,
+                    views = GitHubResultViews(pageBytes = 2048),
+                    loadSavedView = store::loadWithDiagnostics,
+                    saveSavedView = store::save,
+                    restorePinnedSource = store::restorePinnedSource,
+                    validateSavedViewAccess = { check(permitted) }
+                )
+            val live = tool(store, "scope")
+            val first = live.execute("source", request)
+            assertEquals(JsonPrimitive(false), readCoverage?.get("already_read"))
+            val args = body(first).getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
+            val id = args.getValue("view_cursor").jsonPrimitive.content.substringBefore(':')
+            val originalCall = ProviderEvent.ToolCall("original-page", "github_read", args)
+            val page = live.execute(originalCall.callId, args)
+            assertFalse(page.isError)
+            val projected = page.copy(content = requireNotNull(GitHubReplayRecovery.compact(page.content, 128)))
+            val history = mutableListOf(AgentToolExchange(listOf(originalCall), listOf(projected)))
+            val file = java.io.File(directory, "saved-results/" + GitHubRepositoryStateStore.digest("storage:saved-view-body:$id") + ".record")
+            check(file.delete())
+            val restart = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), "storage")
+            val authorized = tool(restart, "scope")
+            fun next(): ProviderEvent.ToolCall? {
+                val state = GitHubReplayRecovery.State(history.flatMap { it.calls }, history.flatMap { it.results })
+                return state.restoreMissingPage(state.pendingSavedPageDeliveries(history, emptyMap()), history, listOf(authorized.definition), 4096)
+            }
+            suspend fun execute(call: ProviderEvent.ToolCall): AgentToolResult {
+                val result = authorized.execute(call.callId, call.arguments)
+                history += AgentToolExchange(listOf(call), listOf(result))
+                return result
+            }
+            val unavailable = execute(requireNotNull(next()))
+            assertEquals("SAVED_VIEW_UNAVAILABLE", unavailable.errorCode)
+            assertFalse(unavailable.dispatched)
+            val recipe = body(unavailable).getValue("source_recovery_call").jsonObject
+            assertEquals(pinnedRequest, recipe.getValue("arguments"))
+            assertEquals(JsonPrimitive(false), body(unavailable)["mutation_replay_allowed"])
+            assertFalse("source_recovery_call" in body(tool(restart, "other").execute("foreign", args)))
+            assertFalse("source_recovery_call" in body(tool(restart, "scope", operation = "github_commit").execute("write", args)))
+            assertFalse("source_recovery_call" in body(authorized.execute("forged", json("""{"view_cursor":"$id:9999:2048"}"""))))
+            assertEquals("SAVED_VIEW_AUTHORIZATION_CHANGED", tool(restart, "scope", false).execute("revoked", args).errorCode)
+            assertEquals(1, requests)
+            val fresh = requireNotNull(next())
+            assertEquals(pinnedRequest, fresh.arguments)
+            correct = false
+            val changed = execute(fresh)
+            assertEquals(JsonPrimitive(false), changed.executionReceipt?.get("recovered_saved_view"))
+            assertEquals(null, next())
+            // Independent positive-case replay from the same interrupted checkpoint.
+            history.removeAt(history.lastIndex)
+            correct = true
+            val recovered = execute(requireNotNull(next()))
+            assertEquals(JsonPrimitive(true), readCoverage?.get("already_read"))
+            assertTrue(recovered.dispatched)
+            assertEquals(JsonPrimitive(true), recovered.executionReceipt?.get("recovered_saved_view"))
+            val local = execute(requireNotNull(next()))
+            assertFalse(local.dispatched)
+            assertEquals(page.content, local.content)
+            assertEquals(page.executionReceipt?.get("saved_view_source_call_id"), local.executionReceipt?.get("saved_view_source_call_id"))
+            assertEquals(3, requests)
+            val finished = GitHubReplayRecovery.State(history.flatMap { it.calls }, history.flatMap { it.results })
+            assertTrue(finished.pendingSavedPageDeliveries(history, ToolResultDeliveryProof.capture(listOf(local))).isEmpty())
+        } finally {
+            directory.deleteRecursively()
         }
     }
 
@@ -126,7 +292,7 @@ class GitHubSavedViewRecoveryTest {
         assertFalse(details.toString().contains("IllegalStateException"))
     }
 
-    @Test fun missingJobsBodyAndInvalidViewIdRequireFreshScopedReadsEvenInReplay() = runBlocking {
+    @Test fun missingLiveCiBodyAndInvalidViewIdRequireCurrentScopedReadsEvenInReplay() = runBlocking {
         val store = GitHubSavedViewStore(GitHubRepositoryStateStore(), "account")
         val backend = Backend()
         val tool = GitHubOperationTool("github_ci", backend, "scope", views = GitHubResultViews(), loadSavedView = store::loadWithDiagnostics)
@@ -137,7 +303,7 @@ class GitHubSavedViewRecoveryTest {
             assertEquals(JsonPrimitive(reason), result.executionReceipt?.get("saved_view_restore_state"))
             val replay = requireNotNull(GitHubReplayRecovery.compact(result.content, 1500))
             for (response in listOf(body(result), requireNotNull(GitHubReplayRecovery.envelope(replay)))) {
-                assertEquals(JsonPrimitive("START_FRESH_SCOPED_READ"), response["recovery_action"])
+                assertEquals(JsonPrimitive("READ_CURRENT_STATE"), response["recovery_action"])
                 assertEquals(JsonPrimitive(false), response["mutation_replay_allowed"])
                 assertTrue(response.keys.none { it.endsWith("_call") })
                 assertFalse(response.toString().contains(id))

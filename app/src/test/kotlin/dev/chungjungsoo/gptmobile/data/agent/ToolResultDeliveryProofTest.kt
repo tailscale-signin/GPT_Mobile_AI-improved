@@ -27,6 +27,30 @@ class ToolResultDeliveryProofTest {
         assertEquals(2, cache.retainedMeasurements())
     }
 
+    @Test fun optionalAssistUsesOnlyTheRoomLeftAfterAnExactPageAndItsReadingNotes() = kotlinx.coroutines.test.runTest {
+        val cache = ToolExchangeCompactor.RenderCache()
+        val call = ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap()))
+        val source = AgentToolResult(call.callId, ToolResultContent.Text("exact source"), false, optionalAssistKey = "annotation")
+        val exchanges = listOf(AgentToolExchange(listOf(call), listOf(source)))
+        val metadata = listOf(buildJsonObject { put("note", "extra context ".repeat(100)) })
+        for (noteBytes in listOf(null, 128)) {
+            val raw = SavedPageReading.project(exchanges, null, noteBytes)
+            val budget = SavedPageReading.projectionTokens(raw, cache)
+            val (tight, tokens) = SavedPageReading.providerProjection(exchanges, null, noteBytes, budget, cache) { it.copy(assistMetadata = metadata) }
+            assertEquals(budget, tokens)
+            assertEquals(raw, tight)
+            val (ample, annotatedTokens) = SavedPageReading.providerProjection(exchanges, null, noteBytes, budget + 4096, cache) { it.copy(assistMetadata = metadata) }
+            assertTrue(annotatedTokens > budget)
+            val delivered = ample.single().results.single()
+            assertEquals(metadata, delivered.assistMetadata)
+            assertEquals(source.content, delivered.content)
+            assertEquals(raw.single().results.single().savedPageReading, delivered.savedPageReading)
+            val (resumed, resumedTokens) = SavedPageReading.providerProjection(ample, null, noteBytes, budget, cache) { it }
+            assertEquals(raw, resumed)
+            assertEquals(budget, resumedTokens)
+        }
+    }
+
     @Test fun proofBindsOnlyTheDeliveredBodyAndRejectsFailedOrDifferentProjections() {
         val source = AgentToolResult("page", ToolResultContent.Text("delivered"), false, retainedContent = ToolResultContent.Text("unread original"))
         val proof = ToolResultDeliveryProof.capture(listOf(source))

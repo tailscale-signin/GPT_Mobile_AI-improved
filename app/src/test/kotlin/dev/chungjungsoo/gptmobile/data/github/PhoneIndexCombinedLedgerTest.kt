@@ -292,6 +292,7 @@ class PhoneIndexCombinedLedgerTest {
                         put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", "b".repeat(40)) }) })
                     }
                     "/git/trees/" in path -> buildJsonObject {
+                        put("sha", path.substringAfterLast('/'))
                         put("truncated", false)
                         put(
                             "tree",

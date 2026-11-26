@@ -163,6 +163,7 @@ FIELD_NAMES = {
 
 # Counts cover supplied array entries; omitted counts distinct known names beyond the retained eight.
 POLICY_FIELD_NAMES = {
+    'devicePrivacy',
     'profileBehavior.delegationEnabled', 'profileBehavior.delegationCloudPermission', 'profileBehavior.crawlersEnabled', 'profileBehavior.crawlerToolIds', 'profileBehavior.maxCrawlPages', 'profileBehavior.toolPluginStates', 'profileBehavior.researchDepthOverride', 'profileBehavior.researchEnabledOverride', 'profileBehavior.academicSourcesAllowed',
     'assist',
     'assistPolicy',
@@ -366,7 +367,7 @@ VOICE_PLAYBACK_FAILURES = {
     'PRONUNCIATION_UNAVAILABLE', 'LEXICON_UNAVAILABLE',
 }
 VOICE_EXECUTION_ENUMS = {
-    'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO_CPU', 'LITERT_KOKORO_GPU', 'PHONON_CPU', 'POCKET_CPU'},
+    'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO_CPU', 'LITERT_KOKORO_GPU', 'LITERT_KOKORO_NPU', 'LITERT_KOKORO_GPU_OPTIMIZED', 'LITERT_KOKORO_SM8750', 'PHONON_CPU', 'POCKET_CPU'},
     'voice_effective_provider': {'SYSTEM', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
     'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO', 'PHONON', 'POCKET'},
     'voice_fallback_target': {'SYSTEM', 'KOKORO_CPU'},
@@ -559,7 +560,7 @@ ENUMS = {
     'app_search_readiness': {'CHAT_TOOLS_DISABLED', 'PROFILE_TOOLS_DISABLED', 'PROFILE_REMOTE_DISABLED', 'NO_ENGINE_RESOLVED', 'ROUTED_ENGINE_MISSING', 'BOUND_ENGINE_MISSING', 'AGGREGATE_NOT_CREATED'},
     'review_comparison_state': {'HEAD_REQUIRED', 'BASELINE_REQUIRED', 'BASE_REF_REQUIRED', 'BASE_REF_BLOCKED', 'PR_BASE_LOOKUP', 'PR_BASE_UNVERIFIED', 'BASE_SHA_REQUIRED', 'COMPARISON_PAGES_PENDING', 'READ_CHANGED_SOURCE', 'COMPARE_REQUIRED'},
     'review_comparison_policy': {'UNRESOLVED', 'EXPLICIT_BASE_SHA', 'EXPLICIT_BASE_REF', 'OBSERVED_PR_BASE', 'DEFAULT_BRANCH_HEAD'},
-    'acceptance_publication_entry': {'EVIDENCE_RETENTION_INCOMPLETE', 'TASK_DEADLINE', 'APPROVAL_CHECKPOINT', 'SAVED_CLAIM_EXTRACTION', 'CI_OBSERVATION', 'INTEGRATION_COOLDOWN', 'INTEGRATION_CHECKPOINT', 'INTEGRATION_BLOCKED', 'STATUS_COLLECTION', 'STATUS_SNAPSHOT', 'COVERAGE_CHECKPOINT', 'REVIEW_COMPARISON_BLOCKED', 'PROSE_ONLY_CORRECTION', 'COMPLETED_DRAFT', 'RETAINED_REPORT_UNAVAILABLE', 'RETAINED_FAILURE'},
+    'acceptance_publication_entry': {'EVIDENCE_RETENTION_INCOMPLETE', 'TASK_DEADLINE', 'APPROVAL_CHECKPOINT', 'SAVED_CLAIM_EXTRACTION', 'CI_OBSERVATION', 'INTEGRATION_COOLDOWN', 'INTEGRATION_CHECKPOINT', 'INTEGRATION_BLOCKED', 'STATUS_COLLECTION', 'STATUS_SNAPSHOT', 'COVERAGE_CHECKPOINT', 'REVIEW_COMPARISON_BLOCKED', 'PROSE_ONLY_CORRECTION', 'COMPLETED_DRAFT', 'RETAINED_REPORT_UNAVAILABLE', 'RETAINED_OBSERVATIONS', 'RETAINED_FAILURE'},
     'chat_delivery_terminal': {'DONE'},
     'chat_delivery_answer_state': {'EMPTY_CONTENT', 'NO_ANSWER_CONTENT', 'GITHUB_ANSWER_PENDING'},
     'handoff_checkpoint_state': {'TOOL_HANDOFF', 'TOOL_RESULTS_READY'},
@@ -663,7 +664,7 @@ ENUM_LISTS = {
     'semantic_ci_rules': {'BRANCH_NAME', 'COMMIT_SHA', 'POSITIVE_ID', 'WORKFLOW_SELECTOR', 'MISSING_SELECTOR', 'UNUSED_FIELD', 'LOG_START', 'LOG_ORDER', 'LOG_SPAN'},
     'search_validation_field_names': {'fuzzy_threshold', 'context_lines', 'max_new_blobs', 'batch_size'},
     'dependency_admission_reasons': {'TOOL_UNAVAILABLE', 'REPEATED_FAILURE', 'REPEAT_LIMIT', 'CALL_ALLOWANCE', 'DECISION_REQUIRED', 'PREREQUISITE_DEFERRED'},
-    'dispatch_policy_sections': {'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
+    'dispatch_policy_sections': {'PRIVACY', 'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
     'changed_policy_fields': POLICY_FIELD_NAMES,
     'privacy_blockers': {'MODEL_NOT_IN_ZDR_CATALOG', 'PROVIDER_ALLOWLIST', 'PROVIDER_DENYLIST', 'FALLBACK_ORDER'},
     'github_error_resources': {'PullRequest', 'Repository', 'Milestone', 'Label', 'Reference', 'Search', 'Release', 'Issue', 'Review', 'Commit'},

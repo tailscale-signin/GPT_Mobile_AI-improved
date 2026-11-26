@@ -353,6 +353,8 @@ private fun ChatScreenContent(
     val maximumUserChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp) * 0.8F
     val maximumOpponentChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp)
     val hasOlderHistory by chatViewModel.olderHistoryAvailable.collectAsStateWithLifecycle()
+    val hasNewerHistory by chatViewModel.newerHistoryAvailable.collectAsStateWithLifecycle()
+    val latestHistoryJump by chatViewModel.latestHistoryJump.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
     val invocationDiagnostics by chatViewModel.invocationDiagnostics.collectAsStateWithLifecycle()
@@ -529,7 +531,7 @@ private fun ChatScreenContent(
         agentRunsById = agentRunsById,
         activeRunIds = activeAgentRuns.keys,
         isIdle = isIdle,
-        approvalPending = LocalGitHubApprovalPending.current,
+        nativeApproval = LocalGitHubTurnApproval.current,
         approvals = approvals,
         inputRequests = inputRequests,
         visibleDecisions = visibleGitHubDecisions,
@@ -554,7 +556,7 @@ private fun ChatScreenContent(
     val promptAnchor = remember(chatRoom.id, touchSlop) { GitHubPromptAnchor(touchSlop, githubScrollMode) }
     LaunchedEffect(isLoaded, newestPromptKey, chatToolConfig.github != null) {
         if (!isLoaded) return@LaunchedEffect
-        if (chatToolConfig.github != null && promptTrackingReady && newestPromptKey != null && newestPromptKey != observedPromptKey) {
+        if (!hasNewerHistory && chatToolConfig.github != null && promptTrackingReady && newestPromptKey != null && newestPromptKey != observedPromptKey) {
             anchoredPromptKey = newestPromptKey
             promptAnchor.followBottom()
             githubScrollMode = promptAnchor.mode
@@ -623,6 +625,7 @@ private fun ChatScreenContent(
     }
     if (showTopBar) androidx.activity.compose.BackHandler(onBack = onBackFromChat)
     var previousMessageCount by rememberSaveable { mutableIntStateOf(groupedMessages.userMessages.size) }
+    var previousLastUserId by rememberSaveable { mutableStateOf(groupedMessages.userMessages.lastOrNull()?.id) }
     var requestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterLocalNetworkPermission by rememberSaveable { mutableStateOf(false) }
@@ -784,11 +787,13 @@ private fun ChatScreenContent(
 
     LaunchedEffect(groupedMessages.userMessages.size) {
         val currentCount = groupedMessages.userMessages.size
-        if (currentCount > previousMessageCount && entryPositioned && chatToolConfig.github == null) {
+        val lastUserId = groupedMessages.userMessages.lastOrNull()?.id
+        if (!hasNewerHistory && lastUserId != previousLastUserId && currentCount > previousMessageCount && entryPositioned && chatToolConfig.github == null) {
             isHoldingEntryCenter = false
             isModelTabPositionLocked = false
             isFollowingBottom = true
         }
+        previousLastUserId = lastUserId
         previousMessageCount = currentCount
     }
 
@@ -801,6 +806,20 @@ private fun ChatScreenContent(
         promptAnchor.followBottom()
         githubScrollMode = promptAnchor.mode
         promptAnchorRevision++
+    }
+    fun browseHistory(load: () -> Unit) {
+        isHoldingEntryCenter = false
+        isFollowingBottom = false
+        promptAnchor.detach()
+        githubScrollMode = promptAnchor.mode
+        load()
+    }
+    LaunchedEffect(latestHistoryJump) {
+        if (latestHistoryJump > 0) {
+            followChatBottom()
+            androidx.compose.runtime.withFrameNanos { }
+            listState.scrollToConversationEntry()
+        }
     }
     val scrollInput = rememberChatScrollInput(
         listState = listState,
@@ -831,7 +850,7 @@ private fun ChatScreenContent(
     var completionCue by remember(chatRoom.id, newestPromptKey) { mutableIntStateOf(0) }
     val completionGlow = remember(chatRoom.id, newestPromptKey) { Animatable(0f) }
     LaunchedEffect(newestPromptKey, githubPromptMode, awaitingGitHubTurn, completedGitHubAnswer) {
-        if (!githubPromptMode || newestPromptKey == null) return@LaunchedEffect
+        if (!githubPromptMode || hasNewerHistory || newestPromptKey == null) return@LaunchedEffect
         if (awaitingGitHubTurn) sawLiveGitHubTurn = true
         if (
             shouldBeginGitHubFinalReveal(
@@ -891,7 +910,7 @@ private fun ChatScreenContent(
 
     GitHubScrollMotion(
         listState = listState,
-        enabled = entryPositioned && !isModelTabPositionLocked,
+        enabled = entryPositioned && !hasNewerHistory && !isModelTabPositionLocked,
         mode = universalChatScrollMode(githubPromptMode, githubScrollMode, isFollowingBottom),
         dragging = scrollInput.dragging || isUserDragging,
         renderedLines = renderedLines,
@@ -1031,7 +1050,12 @@ private fun ChatScreenContent(
                 state = listState,
                 contentPadding = PaddingValues(top = innerPadding.calculateTopPadding() + embeddedHeaderHeight, bottom = composerHeight + 16.dp)
             ) {
-                if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier messages") } }
+                if (chatToolConfig.github != null && isLoaded && canUseChat && isIdle && groupedMessages.userMessages.isEmpty() && pendingPrompts.isEmpty() && !hasOlderHistory && !hasNewerHistory) {
+                    item(key = "github-start") {
+                        GitHubChatStarters(chatViewModel.question)
+                    }
+                }
+                if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = { browseHistory(chatViewModel::loadOlderMessages) }) { Text("Load earlier messages") } }
                 if (hiddenTurnCount > 0) {
                     item(key = "archived-history-header") {
                         ArchivedHistoryHeader(
@@ -1220,6 +1244,14 @@ private fun ChatScreenContent(
                         )
                     }
                 }
+                if (hasNewerHistory) {
+                    item(key = "load-newer-messages") {
+                        Row {
+                            TextButton(onClick = { browseHistory(chatViewModel::loadNewerMessages) }) { Text("Load newer messages") }
+                            TextButton(onClick = chatViewModel::returnToLatest) { Text("Return to latest") }
+                        }
+                    }
+                }
                 if (recoveryBlock != null && blockedResponse != null) {
                     item(key = "research-recovery-access") {
                         androidx.compose.material3.Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -1297,7 +1329,7 @@ private fun ChatScreenContent(
                 }
                 ChatBottomIndicator(
                     listState = listState,
-                    following = !isModelTabPositionLocked && if (githubPromptMode) githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM else isFollowingBottom,
+                    following = !hasNewerHistory && !isModelTabPositionLocked && if (githubPromptMode) githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM else isFollowingBottom,
                     generating = entryPositioned &&
                         if (githubPromptMode && chatRoom.conversationMode != ConversationMode.COMBINED) {
                             awaitingGitHubTurn && !pendingGitHubInput && (activeGitHubResponse || githubResponseStarting)
@@ -1307,7 +1339,7 @@ private fun ChatScreenContent(
                     animate = featureSettings.responseAnimation,
                     scrollInput = scrollInput,
                     showAnchorDots = entryPositioned && groupedMessages.userMessages.isNotEmpty(),
-                    onFollow = ::followChatBottom
+                    onFollow = { if (hasNewerHistory) chatViewModel.returnToLatest() else followChatBottom() }
                 )
             }
 
@@ -1425,7 +1457,7 @@ private fun ChatScreenContent(
                         diagnostics = composerDiagnostics,
                         workflows = chatToolConfig.github?.let { github ->
                             featureSettings.githubProfileOverrides[github.mainProfileUid]?.quickWorkflows
-                                ?: dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults
+                                ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile.quickWorkflows
                         }.orEmpty(),
                         chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
@@ -1662,7 +1694,7 @@ private fun ChatScreenContent(
                 title = { Text("Table of contents") },
                 text = {
                     LazyColumn {
-                        if (hasOlderHistory) item { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier turns") } }
+                        if (hasOlderHistory) item { TextButton(onClick = { browseHistory(chatViewModel::loadOlderMessages) }) { Text("Load earlier turns") } }
                         itemsIndexed(groupedMessages.userMessages, key = { index, message -> chatMessagePairKey(message, index) }) { index, message ->
                             TextButton(onClick = {
                                 isFollowingBottom = false
@@ -1679,6 +1711,15 @@ private fun ChatScreenContent(
                                 }
                             }
                         }
+                        if (hasNewerHistory) item { TextButton(onClick = { browseHistory(chatViewModel::loadNewerMessages) }) { Text("Load newer turns") } }
+                    }
+                },
+                dismissButton = {
+                    if (hasNewerHistory) {
+                        TextButton(onClick = {
+                            showOutline = false
+                            chatViewModel.returnToLatest()
+                        }) { Text("Return to latest") }
                     }
                 },
                 confirmButton = { TextButton(onClick = { showOutline = false }) { Text(stringResource(R.string.close)) } }
@@ -2032,7 +2073,7 @@ internal fun ChatMessagePair(
     val githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs }
     val savedFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
     val nativeDecisions = LocalGitHubNativeDecisions.current
-    val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
+    val approvalCardOrReceipt = LocalGitHubTurnApproval.current?.appliesTo(message) == true || nativeDecisions.any { it.chatId == message.chatId && it.sourceMessageId == message.id }
     val awaitingGitHubDelivery = awaitingGitHubTurn || githubTask != null && gitHubApprovalRetryBlock(savedFailure, approvalCardOrReceipt) != null
     val readAssistantActionText: suspend () -> String = {
         when {

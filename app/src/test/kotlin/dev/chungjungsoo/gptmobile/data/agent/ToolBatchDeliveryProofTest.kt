@@ -60,6 +60,29 @@ class ToolBatchDeliveryProofTest {
         return journal
     }
 
+    @Test fun restartPreservesExactBoundedPageWhenProviderEnvelopeWouldCrowdItOut() = runBlocking {
+        val fixture = GitHubSavedPageCapacityTest.Fixture()
+        val native = requireNotNull(fixture.next(tokens = 3000))
+        val original = ProviderToolInvocation(native.name, buildJsonObject { put("legacy_argument", "x".repeat(24_000)) })
+        val call = native.copy(originalInvocation = original, originalInvocationFingerprint = original.fingerprint(native.callId))
+        val page = fixture.read(call)
+        assertFalse(page.isError)
+        val directory = java.nio.file.Files.createTempDirectory("exact-page-checkpoint").toFile()
+        try {
+            val file = File(directory, "turn.json")
+            val checkpoint = ToolBatchCheckpoint(file, "original-scope")
+            checkpoint.enqueue(listOf(call))
+            checkpoint.execute(call) { page }
+            val restarted = ToolBatchCheckpoint(file, "original-scope")
+            val restored = restarted.execute(call) { error("Saved page must reopen without another dispatch") }
+            assertEquals(page.content, restored.content)
+            assertEquals(ToolResultDeliveryProof.digest(page.content), ToolResultDeliveryProof.digest(restored.content))
+            assertTrue(runCatching { ToolBatchCheckpoint(file, "other-scope").recoverySnapshot() }.isFailure)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun oversizedSavedBatchIsDeliveredAcrossRoundsAndTheCheckpointKeepsEveryPageProof() = runBlocking {
         val file = File.createTempFile("saved-pages-in-parts", ".json").apply { delete() }
         try {
@@ -123,17 +146,25 @@ class ToolBatchDeliveryProofTest {
         }
         val group = AgentToolExchange(history.flatMap { it.calls }, history.flatMap { it.results })
         val proofs = ToolResultDeliveryProof.capture(group.results)
-        val budget = (1200..9000 step 40).last { tokens ->
-            val allowance = tokens - SavedPageReading.reservation(null, true)
+        // Admission tries the entire group before it reserves space for private notes.
+        // Exercise a budget where that ordinary request genuinely needs staging.
+        val rawTokens = ToolExchangeCompactor.estimateTokens(listOf(group))
+        val reservation = SavedPageReading.reservation(null, true)
+        val budget = ((rawTokens - 1) downTo 1200 step 8).first { tokens ->
+            val allowance = tokens - reservation
             val perPage = GitHubReplayRecovery.savedPageResultAllowances(listOf(group), emptySet(), allowance, 512)
             val replay = ToolExchangeCompactor.compact(listOf(group), allowance, 512, resultTokenAllowances = perPage, requiredSavedPageDigests = proofs)
             val seen = ToolResultDeliveryProof.capture(replay.flatMap { it.results })
-            proofs.count { (id, digest) -> seen[id] == digest } == 2
+            proofs.count { (id, digest) -> seen[id] == digest } in 1..2
         }
         val journal = ToolBatchCheckpoint(null, "same-profile")
+        var toolExecutions = 0
         val reader = object : AgentTool {
             override val definition = fixtures.first().tools.single()
-            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = group.results.single { it.callId == callId }
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                toolExecutions++
+                return group.results.single { it.callId == callId }
+            }
         }
         var privateReads = 0
         var ordinaryReads = 0
@@ -163,13 +194,65 @@ class ToolBatchDeliveryProofTest {
         }
         val limits = AgentRunLimits(githubTask = true, maxToolCalls = 4, maxRounds = 12, maxReplayTokens = budget, maxReplayResultTokens = 512)
         val events = AgentRunner(limits, journal).run(model, listOf(ToolExecutionBudget(limits).bind(reader))).toList()
-        assertTrue("A private round must read the original journal bodies first", privateReads > 0)
         val failures = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { it.event as? ProviderEvent.Failed }
+        val receipts = events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.result.callId to it.result.errorCode }
+        assertTrue("Expected a private read before ordinary delivery: budget=$budget, raw=$rawTokens, receipts=$receipts, failures=$failures", privateReads > 0)
         assertEquals("Replay allowance $budget, private rounds $privateReads, failures $failures", 1, ordinaryReads)
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().none { it.event is ProviderEvent.Failed })
-        val reading = requireNotNull(journal.recoverySnapshot().savedPageReading)
+        assertEquals(group.calls.size, toolExecutions)
+        val recovered = journal.recoverySnapshot()
+        val reading = requireNotNull(recovered.savedPageReading)
         assertFalse("page-2" in SavedPageReading.fingerprints(reading))
         assertFalse(facts.last() in reading.toString())
+        assertEquals(proofs["page-2"], ToolResultDeliveryProof.digest(recovered.completedExchanges.flatMap { it.results }.single { it.callId == "page-2" }.content))
+    }
+
+    @Test fun insufficientPrivateReadingAllowanceRetainsExactPagesWithoutAcknowledgementOrReexecution() = runBlocking {
+        val facts = (0..2).map { "CAPACITY_PAGE_FACT_$it" }
+        val fixtures = facts.map { GitHubSavedPageCapacityTest.Fixture(it) }
+        val history = fixtures.mapIndexed { i, fixture ->
+            val source = fixture.history.first { exchange ->
+                val result = exchange.results.single()
+                "view_cursor" in exchange.calls.single().arguments && !result.isError && facts[i] in ToolHandoffReceipt.payload(result.content)
+            }
+            val call = source.calls.single().copy(callId = "page-$i")
+            AgentToolExchange(listOf(call), listOf(fixture.read(call)))
+        }
+        val group = AgentToolExchange(history.flatMap { it.calls }, history.flatMap { it.results })
+        val proofs = ToolResultDeliveryProof.capture(group.results)
+        val journal = ToolBatchCheckpoint(null, "same-profile")
+        var toolExecutions = 0
+        val reader = object : AgentTool {
+            override val definition = fixtures.first().tools.single()
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                toolExecutions++
+                return group.results.single { it.callId == callId }
+            }
+        }
+        var providerRounds = 0
+        val model = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                providerRounds++
+                assertTrue("No saved-page body fits after the mandatory private-reading reservation", exchanges.isEmpty())
+                group.calls.forEach { emit(it) }
+                emit(ProviderEvent.Completed)
+            }.let { SavedPageDeliveryRound.providerRound(exchanges, it) }
+        }
+        val budget = SavedPageReading.reservation(null, true)
+        val limits = AgentRunLimits(githubTask = true, maxToolCalls = 4, maxRounds = 12, maxReplayTokens = budget, maxReplayResultTokens = 512)
+        val events = AgentRunner(limits, journal).run(model, listOf(ToolExecutionBudget(limits).bind(reader))).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { it.event as? ProviderEvent.Failed }.single()
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+        assertEquals(JsonPrimitive("SAVED_PAGE_EXCEEDS_ALLOWANCE"), failure.failureDetails?.get("replay_budget_state"))
+        assertEquals(JsonPrimitive("BODY_ALLOWANCE"), failure.failureDetails?.get("replay_missing_record"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals(1, providerRounds)
+        assertEquals(group.calls.size, toolExecutions)
+        val recovered = journal.recoverySnapshot()
+        assertEquals(null, recovered.savedPageReading)
+        assertTrue(recovered.deliveredResultDigests.isEmpty())
+        assertEquals(proofs, ToolResultDeliveryProof.capture(recovered.completedExchanges.flatMap { it.results }))
+        assertTrue(recovered.unsettledCalls.isEmpty())
     }
 
     @Test fun ingressCompactionCannotPromoteSummaryDeliveryToTheOriginalIntervalAfterRestart() = runBlocking {

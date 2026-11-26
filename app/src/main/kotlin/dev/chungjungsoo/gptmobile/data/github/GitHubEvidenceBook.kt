@@ -44,7 +44,8 @@ internal class GitHubEvidenceBook(
     private val authorizeTaskContinuation: suspend () -> Boolean = { true },
     private val requireAcceptedContract: Boolean = false,
     internal val nextActionMode: GitHubNextActionMode = GitHubNextActionMode.ACTIVE,
-    private val chooseNextAction: ((JsonObject) -> dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.Decision)? = null
+    private val chooseNextAction: ((JsonObject) -> dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.Decision)? = null,
+    private val toolWebOrigins: Map<String, String> = emptyMap()
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -220,6 +221,7 @@ internal class GitHubEvidenceBook(
         val current = JsonObject(
             saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason", GitHubPolicyReadRecovery.REVALIDATED) } + buildJsonObject {
                 put("verification_eligible", exclusion == null && saved["trusted"] == JsonPrimitive(true))
+                if (name.githubOperationFamily() == "github_search") put("immutable", GitHubEvidencePolicy.immutable(saved, records))
                 exclusion?.let { put("exclusion_reason", it) }
             }
         )
@@ -325,6 +327,7 @@ internal class GitHubEvidenceBook(
             put("tool", call.name)
             sourceRunId?.let { put("source_run_id", it) }
             put("repository", evidenceRepository)
+            if (trustedTarget) toolWebOrigins[call.name]?.let { put("web_origin", it) }
             put(
                 "repository_role",
                 if (lifecycleRepository != null) {

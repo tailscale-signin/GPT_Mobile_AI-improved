@@ -324,7 +324,7 @@ class EngineeringBackendTests(unittest.TestCase):
         if '/files?' in path:
             return [{'filename': 'earlier_fix.kt'}, {'filename': 'current_fix.kt'}]
         if path.endswith('/pulls/7'):
-            return {'head': {'sha': self.pr['headRefOid']}, 'base': {'sha': self.pr['baseRefOid'], 'ref': self.pr['baseRefName']}, 'state': 'open'}
+            return {'head': {'sha': self.pr['headRefOid']}, 'base': {'sha': self.pr['baseRefOid'], 'ref': self.pr['baseRefName']}, 'state': 'open', 'changed_files': 2}
         raise AssertionError(path)
 
     def test_shared_android_gateway_check_contract(self):

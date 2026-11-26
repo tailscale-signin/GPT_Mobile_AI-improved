@@ -10,6 +10,12 @@ internal class VoiceSpeechEnginePlaybackObservation(private val nanoTime: () -> 
     private var startedAt: Long? = null
     private var completedWallMs = 0L
     private var callbacks = 0
+    private val signal = VoicePcmSignalMeasurement()
+    private var firstPcmAfterStreamStartMs: Long? = null
+
+    @Synchronized fun signalSnapshot(): VoicePcmSignal? = signal.snapshot()
+
+    @Synchronized fun firstPcmMs(): Long? = firstPcmAfterStreamStartMs
 
     @Synchronized fun started() {
         check(startedAt == null)
@@ -30,6 +36,8 @@ internal class VoiceSpeechEnginePlaybackObservation(private val nanoTime: () -> 
     @Synchronized fun accepted(pcm: VoicePcmChunk) {
         if (pcm.samples.isNotEmpty()) {
             require(callbacks < VoiceSpeechEnginePcmMeasurement.MAX_PCM_CALLBACKS) { "BENCHMARK_PCM_CALLBACK_LIMIT" }
+            if (firstPcmAfterStreamStartMs == null) firstPcmAfterStreamStartMs = startedAt?.let { (nanoTime() - it).coerceAtLeast(0) / 1_000_000 }
+            signal.accept(pcm.samples)
             callbacks++
         }
     }

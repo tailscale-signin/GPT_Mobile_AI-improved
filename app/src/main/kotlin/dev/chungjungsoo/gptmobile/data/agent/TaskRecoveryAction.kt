@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
+import dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity
 import java.util.Locale
 
 @kotlinx.serialization.Serializable
@@ -66,24 +68,39 @@ internal data class ResolvedTaskRecovery(val action: TaskRecoveryAction, val sou
         }
 }
 
+private fun substantive(message: MessageV2) = message.content.isNotBlank() && TaskRecoveryAction.fromText(message.content) == null && !GitHubTaskContinuity.continuation(message.content)
+
 /** Reconstruct from persisted user turns, including chains of controls after process restart. */
-internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecovery? {
+internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecovery? = resolveTaskRecovery(messages) { prior, latest ->
+    GitHubTaskContinuity.sharesLookupWorkspace(prior.content, latest.content)
+}
+
+internal inline fun resolveTaskRecovery(messages: List<MessageV2>, sharesLookupWorkspace: (MessageV2, MessageV2) -> Boolean?): ResolvedTaskRecovery? {
     val latest = messages.lastOrNull() ?: return null
     val current = latest.content
     val previous = messages.dropLast(1).filter { it.chatId == latest.chatId && it.platformType == null }
-    fun substantive(message: MessageV2) = message.content.isNotBlank() && TaskRecoveryAction.fromText(message.content) == null && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(message.content)
-    var sourceIndex = previous.indexOfLast(::substantive)
+    var sourceIndex = previous.indexOfLast { substantive(it) }
     if (sourceIndex < 0) return null
     val priorTask = previous[sourceIndex]
+    val explicitAction = TaskRecoveryAction.fromText(current)
+    val lookupReport = if ((GitHubTaskContinuity.reportOnly(current) || GitHubTaskContinuity.diagnostic(current)) && GitHubLookupRoute.from(priorTask.content) != null) {
+        when (sharesLookupWorkspace(priorTask, latest)) {
+            true -> true
+            false -> return null
+            null -> if (explicitAction == null) return null else false
+        }
+    } else {
+        false
+    }
     val equivalent = dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(current) && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(current, priorTask.content)
     val repositoryFollowUp = requiresNativeGitHubAcceptance(priorTask.content, true) &&
         dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(current)
-    val action = TaskRecoveryAction.fromText(current) ?: if (equivalent || repositoryFollowUp) TaskRecoveryAction.CONTINUE_RUN else return null
+    val action = explicitAction ?: if (lookupReport || equivalent || repositoryFollowUp) TaskRecoveryAction.CONTINUE_RUN else return null
     // Walk the persisted intent chain, skipping controls and diagnostic questions. Never
     // cross an unrelated substantive request or derive identity from matching text alone.
     if (dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(priorTask.content)) {
         while (sourceIndex > 0) {
-            val older = previous.take(sourceIndex).indexOfLast(::substantive)
+            val older = previous.take(sourceIndex).indexOfLast { substantive(it) }
             if (older < 0 || !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(previous[sourceIndex].content, previous[older].content)) break
             sourceIndex = older
         }

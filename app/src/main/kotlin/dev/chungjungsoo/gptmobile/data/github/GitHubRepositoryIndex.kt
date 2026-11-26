@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -8,6 +9,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+
+/** Older inventories stamped the requested SHA onto incomplete or mismatched transport responses. */
+internal const val GITHUB_TREE_CACHE_VERSION = 2
 
 /**
  * Compact repository-tree projection used by AI tools. Large raw recursive
@@ -19,6 +23,30 @@ object GitHubRepositoryIndex {
         "toml", "properties", "py", "js", "ts", "tsx", "jsx", "c", "cc",
         "cpp", "h", "hpp", "rs", "go", "sh"
     )
+
+    private val pinnedTreeEndpoint = Regex("""/repos/[^/]+/[^/]+/git/trees/([a-fA-F0-9]{40}|[a-fA-F0-9]{64})(?:[?].*)?""")
+
+    /** Validate the real GitHub response before the HTTP cache can retain it under an immutable identity. */
+    internal fun checkPinnedTreeResponse(path: String, body: JsonElement) {
+        if ("/git/trees/" !in path) return
+        val expected = pinnedTreeEndpoint.matchEntire(path)?.groupValues?.get(1) ?: return
+        val response = body as? JsonObject
+        if (response == null || "sha" !in response) {
+            throw GitHubReadValidation("EVIDENCE_REVISION_MISMATCH", buildJsonObject { put("message", "GitHub did not identify the requested tree.") })
+        }
+        checkedTree(response, expected)
+    }
+
+    /** A failed or misdirected tree response must never become an empty inventory at the requested SHA. */
+    internal fun checkedTree(response: JsonObject, expectedTreeSha: String? = null): JsonObject {
+        if (expectedTreeSha != null && "sha" in response && !(response["sha"] as? JsonPrimitive)?.content.equals(expectedTreeSha, ignoreCase = true)) {
+            throw GitHubReadValidation("EVIDENCE_REVISION_MISMATCH", buildJsonObject { put("message", "Returned tree identity differs from the selected tree.") })
+        }
+        if (response["tree"] !is JsonArray) {
+            throw GitHubReadValidation("GITHUB_TREE_UNAVAILABLE", buildJsonObject { put("message", "GitHub did not return the requested tree listing.") })
+        }
+        return response
+    }
 
     /** Documentation discovery keeps blob provenance and reports incomplete GitHub trees. */
     fun documentation(treeResponse: JsonObject, page: Int, pageSize: Int = 30): JsonObject {

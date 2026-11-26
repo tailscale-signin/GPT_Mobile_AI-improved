@@ -43,6 +43,7 @@ class GitHubSourceReadRecoveryIntegrationTest {
                         if (revokeAfterTree) revoked = true
                         respond(
                             buildJsonObject {
+                                put("sha", tree)
                                 put("truncated", false)
                                 put(
                                     "tree",

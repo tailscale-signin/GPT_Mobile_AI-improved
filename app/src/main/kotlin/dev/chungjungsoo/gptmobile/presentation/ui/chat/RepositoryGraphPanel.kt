@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
@@ -107,6 +108,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
     var showTools by remember(context, profile, state.mapSource) { mutableStateOf(false) }
     var query by remember(context, profile, state.mapSource) { mutableStateOf("") }
     var target by remember(context, profile, state.mapSource) { mutableStateOf("") }
+    var baseRevision by remember(context, profile, state.mapSource) { mutableStateOf("") }
     var selected by remember(context, profile, state.mapSource) { mutableStateOf<JsonObject?>(null) }
     val result = state.result ?: JsonObject(emptyMap())
     val metadata = result["graph"] as? JsonObject
@@ -193,6 +195,13 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                             TextButton(onClick = { model.request("node", symbol = query) }, enabled = canInspect && query.isNotBlank()) { Text("Inspect") }
                             TextButton(onClick = { model.request("impact", symbol = query) }, enabled = canInspect && query.isNotBlank()) { Text(if (state.onPhone) "Possible impact" else "Impact & tests") }
                         }
+                        if (!state.onPhone) {
+                            OutlinedTextField(value = baseRevision, onValueChange = { baseRevision = it.take(40) }, modifier = Modifier.fillMaxWidth(), label = { Text("Indexed base commit for comparison") }, singleLine = true)
+                            TextButton(
+                                onClick = { model.request("diff", options = buildJsonObject { put("base_sha", baseRevision) }) },
+                                enabled = canInspect && baseRevision.matches(Regex("[0-9a-f]{40}"))
+                            ) { Text("Compare caller and test paths") }
+                        }
                         OutlinedTextField(value = target, onValueChange = { target = it.take(2000) }, modifier = Modifier.fillMaxWidth(), label = { Text("Target symbol for a dependency path") }, singleLine = true)
                         TextButton(onClick = {
                             model.request(
@@ -248,6 +257,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                             }
                         }
                     }
+                    (result["compiler_impact"] as? JsonObject)?.let { compilerImpact(it) }
                     items(result.objects("tests")) { test -> Text("${test.text("path")} · ${test.text("reason")} · ${test.text("execution_status")}") }
                     items(result.objects("paths")) { path -> TextButton(onClick = { model.request("node", symbol = path.text("path")) }, enabled = canInspect) { Text("${path.text("path")} · ${path.text("distance")} hop(s)") } }
                     items(result.objects("notes")) { note ->
@@ -284,3 +294,28 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
 
 private fun JsonObject.text(name: String, default: String = ""): String = (get(name) as? JsonPrimitive)?.contentOrNull ?: default
 private fun JsonObject.objects(name: String): List<JsonObject> = (get(name) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+
+private fun LazyListScope.compilerImpact(impact: JsonObject) {
+    item {
+        Text("Compiler impact", style = MaterialTheme.typography.titleSmall)
+        val status = when (impact.text("status")) {
+            "COMPILER_BACKED" -> "${impact.text("selected_methods")} compiled method(s) · workflow ${impact.text("run_id")}, attempt ${impact.text("run_attempt")}"
+            "NO_CHANGED_HEAD_METHODS" -> "Compared bytecode matches for all remaining methods."
+            else -> "Source candidates · ${impact.text("reason").lowercase().replace('_', ' ')}"
+        }
+        Text(status, style = MaterialTheme.typography.bodySmall)
+        impact.text("qualification").takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+    items(impact.objects("methods")) { method ->
+        Text("${method.text("symbol")} · ${method.text("path")}:${method.text("line")}", style = MaterialTheme.typography.bodySmall)
+    }
+    listOf("tests" to "Test candidate", "callers" to "Caller", "base_tests" to "Test at base", "base_callers" to "Caller at base").forEach { (field, label) ->
+        items(impact.objects(field)) { row ->
+            val chain = (row["chain"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            Text("$label · ${row.text("path")}:${row.text("line")}\n${chain.joinToString(" → ") { it.substringBefore('(').substringAfterLast('/') }}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (impact.text("removed_method_count", "0") != "0") {
+        item { Text("${impact.text("removed_method_count")} method(s) removed since the base revision.") }
+    }
+}

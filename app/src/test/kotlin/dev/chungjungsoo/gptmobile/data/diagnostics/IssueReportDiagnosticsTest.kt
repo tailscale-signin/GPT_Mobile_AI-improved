@@ -49,7 +49,7 @@ class IssueReportDiagnosticsTest {
         val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
         val additions = mapOf(
             "voice_engine" to setOf("MEDIAPIPE"),
-            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
             "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
         )
         for ((field, choices) in additions) {
@@ -57,6 +57,7 @@ class IssueReportDiagnosticsTest {
                 val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
                 assertEquals(JsonPrimitive(value), snapshot.values[field])
                 assertTrue(feature in snapshot.requiredServiceFeatures())
+                assertEquals(value == "LITERT_KOKORO_NPU", VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE in snapshot.requiredServiceFeatures())
                 val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), snapshot)))
                 assertEquals(snapshot, restored)
                 val context = IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = 1_000L).withDiagnostics(restored)
@@ -391,6 +392,11 @@ class IssueReportDiagnosticsTest {
         assertFalse("voice_install_http_status" in snapshot.values)
         assertFalse("voice_install_failure_kind" in snapshot.values)
         assertTrue("VOICE_INSTALL_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+        assertFalse(IssueReportDiagnostics.VOICE_STREAMING_INSTALL_FEATURE in snapshot.requiredServiceFeatures())
+        for (observation in listOf("voice_install_streaming_status" to "DOWNLOADING", "voice_install_pack" to "LITERT_KOKORO")) {
+            val streaming = capture("VOICE", mapOf(observation))
+            assertTrue(IssueReportDiagnostics.VOICE_STREAMING_INSTALL_FEATURE in streaming.requiredServiceFeatures())
+        }
         val approved = report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(snapshot)).approvedPayload()
         assertEquals(approved, IssueReport.json.decodeFromString(IssueReport.serializer(), approved).approvedPayload())
         for ((key, value) in listOf(

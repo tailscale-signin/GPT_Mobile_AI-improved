@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import dev.melo.kokoro.TimedKokoro
 import java.util.concurrent.CancellationException
 
-internal enum class VoiceSpeechStage { FRONTEND, PREPARING, SYNTHESIS, VALIDATING, READY, CPU_FALLBACK }
+internal enum class VoiceSpeechStage { FRONTEND, PREPARING, SYNTHESIS, VALIDATING, READY, CPU_FALLBACK, SDK_STREAM_CALL }
 
 internal enum class VoiceSpeechFailureCode {
     FRONTEND_INPUT_EMPTY,
@@ -217,7 +217,7 @@ internal fun safeSpeechContextCacheStatus(value: String?): String? = value?.take
     it in setOf(
         "DISABLED", "MISS", "HIT", "STORED", "INVALIDATED", "UNAVAILABLE", "PENDING", "WRITE_FAILED", "TOO_LARGE", "BUSY", "NOT_ACCESSED",
         "INVALID_CONFIGURATION", "IDENTITY_UNAVAILABLE", "FIRMWARE_UNAVAILABLE", "DIRECTORY_UNAVAILABLE",
-        "LOCK_UNAVAILABLE", "INVENTORY_UNAVAILABLE", "SPACE_QUERY_FAILED", "INSUFFICIENT_STORAGE", "HIT_PREVIOUS_PROCESS"
+        "LOCK_UNAVAILABLE", "INVENTORY_UNAVAILABLE", "SPACE_QUERY_FAILED", "INSUFFICIENT_STORAGE", "HIT_PREVIOUS_PROCESS", "VENDOR_FINGERPRINT_UNAVAILABLE", "BOOT_FINGERPRINT_UNAVAILABLE"
     )
 }
 

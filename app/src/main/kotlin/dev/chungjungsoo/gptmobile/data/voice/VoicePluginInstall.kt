@@ -43,9 +43,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal object VoicePluginInstall {
     private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(VoiceInstallState())
@@ -137,11 +140,12 @@ internal object VoicePluginInstall {
         }, androidx.core.content.ContextCompat.getMainExecutor(context))
     }
 
-    fun captureReportObservation(recognition: LocalVoiceModelStatus, playback: LocalVoiceModelStatus) {
+    fun captureReportObservation(recognition: LocalVoiceModelStatus, playback: LocalVoiceModelStatus, streaming: LocalVoiceModelStatus) {
         val scheduler = if (Build.VERSION.SDK_INT >= 34) "JOB_SCHEDULER" else "WORK_MANAGER"
         val fields = state.value.diagnosticFields(scheduler) + mapOf(
             "voice_install_recognition_status" to recognition.name,
-            "voice_install_playback_status" to playback.name
+            "voice_install_playback_status" to playback.name,
+            "voice_install_streaming_status" to streaming.name
         )
         dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.fromFields("MANUAL_REPORT", fields, System.currentTimeMillis())
             ?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
@@ -186,6 +190,8 @@ internal object VoicePluginInstall {
     const val JOB_ID = 40071
     const val ATTEMPT = "voice_install_attempt"
     const val CANCEL_ACTION = "dev.chungjungsoo.gptmobile.voice.CANCEL_INSTALL"
+    const val NATIVE_VARIANT = "voice_install_native_variant"
+    private const val FIRST_LAUNCH = "started_streaming_bundle"
     private const val ATTEMPT_TAG = "voice-install-attempt:"
     private const val CHANNEL = "voice-plugin-install"
 
@@ -199,8 +205,25 @@ internal object VoicePluginInstall {
         observe("QUEUED", progress = null, transfer = null)
     }
 
+    suspend fun onFirstVoiceLaunch(context: Context, variant: KokoroModelVariant, installed: Boolean): Unit = withContext(Dispatchers.IO) {
+        synchronized(this@VoicePluginInstall) {
+            val preferences = context.getSharedPreferences(WORK, Context.MODE_PRIVATE)
+            if (!preferences.getBoolean(FIRST_LAUNCH, false)) {
+                if (installed) markFirstLaunchHandled(context) else start(context, variant)
+            }
+        }
+    }
+
+    private fun markFirstLaunchHandled(context: Context) {
+        context.getSharedPreferences(WORK, Context.MODE_PRIVATE).edit().putBoolean(FIRST_LAUNCH, true).apply()
+    }
+
+    internal fun nativeVariant(value: String?): KokoroModelVariant =
+        KokoroModelVariant.entries.firstOrNull { it.name == value } ?: KokoroModelVariant.INT8
+
     @Synchronized
-    fun start(context: Context) {
+    fun start(context: Context, variant: KokoroModelVariant = KokoroModelVariant.INT8) {
+        markFirstLaunchHandled(context)
         if (scheduling) return
         if (state.value.pending) {
             refresh(context)
@@ -210,7 +233,7 @@ internal object VoicePluginInstall {
         scheduling = true
         try {
             if (Build.VERSION.SDK_INT >= 34) {
-                if (context.getSystemService(JobScheduler::class.java).getPendingJob(JOB_ID) == null) startTransfer(context, beginAttempt())
+                if (context.getSystemService(JobScheduler::class.java).getPendingJob(JOB_ID) == null) startTransfer(context, beginAttempt(), variant)
                 scheduling = false
                 refresh(context)
                 return
@@ -236,7 +259,7 @@ internal object VoicePluginInstall {
                         val owner = beginAttempt()
                         val request = OneTimeWorkRequestBuilder<VoicePluginInstallWorker>()
                             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                            .setInputData(workDataOf(ATTEMPT to owner))
+                            .setInputData(workDataOf(ATTEMPT to owner, NATIVE_VARIANT to variant.name))
                             .addTag(ATTEMPT_TAG + owner)
                             .build()
                         activeWorkId = request.id
@@ -262,7 +285,7 @@ internal object VoicePluginInstall {
     }
 
     @RequiresApi(34)
-    private fun startTransfer(context: Context, owner: String) {
+    private fun startTransfer(context: Context, owner: String, variant: KokoroModelVariant) {
         val scheduler = context.getSystemService(JobScheduler::class.java)
         if (scheduler.getPendingJob(JOB_ID) != null) return
         val job = JobInfo.Builder(JOB_ID, ComponentName(context, VoicePluginTransferService::class.java))
@@ -274,9 +297,14 @@ internal object VoicePluginInstall {
                     .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                     .build()
             )
-            .setEstimatedNetworkBytes(LocalVoiceModelStore.TOTAL_BYTES + KokoroModelPack.DOWNLOAD_BYTES, 0)
+            .setEstimatedNetworkBytes(LocalVoiceModelStore.TOTAL_BYTES + variant.downloadBytes + MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).downloadBytes, 0)
             .setUserInitiated(true)
-            .setExtras(PersistableBundle().apply { putString(ATTEMPT, owner) })
+            .setExtras(
+                PersistableBundle().apply {
+                    putString(ATTEMPT, owner)
+                    putString(NATIVE_VARIANT, variant.name)
+                }
+            )
             .build()
         if (scheduler.schedule(job) != JobScheduler.RESULT_SUCCESS) observe("FAILED", "SCHEDULE_REJECTED")
     }
@@ -284,6 +312,7 @@ internal object VoicePluginInstall {
     @Synchronized
     fun cancel(context: Context, owner: String? = null) {
         attempt.runIfCurrent(owner) {
+            markFirstLaunchHandled(context)
             scheduleGeneration++
             attempt.cancel()
             scheduling = false
@@ -324,6 +353,7 @@ internal object VoicePluginInstall {
     suspend fun install(
         context: Context,
         owner: String,
+        variant: KokoroModelVariant,
         sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() },
         progress: (Long, Long) -> Unit
     ): Boolean = coroutineScope {
@@ -331,11 +361,12 @@ internal object VoicePluginInstall {
         observe("RUNNING", owner = owner)
         val directory = File(context.noBackupFilesDir, "voice-models")
         val moonshine = LocalVoiceModelStore(directory, sourceFactory)
-        val kokoro = KokoroModelPack.store(directory, sourceFactory)
+        val kokoro = KokoroModelPack.store(directory, sourceFactory, variant)
+        val streaming = MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).localStore(directory, sourceFactory)
         if (!attempt.acquireTransfer(owner)) return@coroutineScope false
         val observer = launch {
-            combine(moonshine.state, kokoro.state) { recognition, playback ->
-                Triple(recognition.downloadedBytes + playback.downloadedBytes, recognition.totalBytes + playback.totalBytes, transferObservation(recognition, playback))
+            combine(moonshine.state, kokoro.state, streaming.state) { recognition, playback, stream ->
+                Triple(recognition.downloadedBytes + playback.downloadedBytes + stream.downloadedBytes, recognition.totalBytes + playback.totalBytes + stream.totalBytes, transferObservation(recognition, playback, stream))
             }.collect { (bytes, total, transfer) ->
                 attempt.runIfCurrent(owner) {
                     observe("RUNNING", progress = (bytes * 100 / total.coerceAtLeast(1)).toInt(), transfer = transfer, owner = owner)
@@ -344,16 +375,22 @@ internal object VoicePluginInstall {
             }
         }
         try {
-            moonshine.refresh()
-            kokoro.refresh()
-            moonshine.install()
-            if (moonshine.isInstalled()) kokoro.install()
-            val ready = moonshine.isInstalled() && kokoro.isInstalled()
+            val models = listOf(moonshine, streaming, kokoro)
+            for (model in models) {
+                if (!attempt.owns(owner)) return@coroutineScope false
+                model.install(waitForOwner = true)
+            }
+            val ready = models.all { it.isInstalled() }
             observer.cancel()
-            observe(if (ready) "COMPLETED" else "FAILED", if (ready) null else "ASSET_FAILURE", transfer = transferObservation(moonshine.state.value, kokoro.state.value), owner = owner)
+            observe(if (ready) "COMPLETED" else "FAILED", if (ready) null else "ASSET_FAILURE", transfer = transferObservation(moonshine.state.value, kokoro.state.value, streaming.state.value), owner = owner)
             ready
         } catch (cancelled: CancellationException) {
-            throw cancelled
+            // A model-specific cancel may retire only the transfer child. Complete the
+            // owning scheduler job in that case, but propagate Android stopping this job.
+            currentCoroutineContext().ensureActive()
+            observer.cancel()
+            observe("CANCELLED", owner = owner)
+            false
         } catch (failure: Exception) {
             observer.cancel()
             observe("FAILED", "WORKER_EXCEPTION", owner = owner)
@@ -364,8 +401,8 @@ internal object VoicePluginInstall {
         }
     }
 
-    internal fun transferObservation(recognition: LocalVoiceModelState, playback: LocalVoiceModelState): VoiceInstallTransfer? {
-        val models = listOf("MOONSHINE" to recognition, "KOKORO" to playback)
+    internal fun transferObservation(recognition: LocalVoiceModelState, playback: LocalVoiceModelState, streaming: LocalVoiceModelState): VoiceInstallTransfer? {
+        val models = listOf("MOONSHINE" to recognition, "LITERT_KOKORO" to streaming, "KOKORO" to playback)
         val selected = models.firstOrNull { it.second.status == LocalVoiceModelStatus.FAILED }
             ?: models.firstOrNull { it.second.status == LocalVoiceModelStatus.DOWNLOADING }
             ?: models.firstOrNull { it.second.status == LocalVoiceModelStatus.CHECKING }
@@ -374,8 +411,8 @@ internal object VoicePluginInstall {
         return VoiceInstallTransfer(
             selected.first,
             selected.second.transferStage,
-            recognition.downloadedBytes + playback.downloadedBytes,
-            recognition.totalBytes + playback.totalBytes,
+            models.sumOf { it.second.downloadedBytes },
+            models.sumOf { it.second.totalBytes },
             selected.second.failureKind,
             selected.second.httpStatus
         )
@@ -393,7 +430,8 @@ class VoicePluginInstallWorker(context: Context, parameters: WorkerParameters) :
         val notificationId = id.hashCode()
         return try {
             setForeground(ForegroundInfo(notificationId, VoicePluginInstall.notification(context, cancel = cancel), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC))
-            val installed = VoicePluginInstall.install(context, owner) { bytes, total ->
+            val variant = VoicePluginInstall.nativeVariant(inputData.getString(VoicePluginInstall.NATIVE_VARIANT))
+            val installed = VoicePluginInstall.install(context, owner, variant) { bytes, total ->
                 notifications.notify(notificationId, VoicePluginInstall.notification(context, bytes, total, cancel))
             }
             if (installed) Result.success() else Result.failure()
@@ -451,7 +489,8 @@ class VoicePluginTransferService : JobService() {
                 val sourceFactory = {
                     HttpsVoiceAssetSource { url -> assignedNetwork.get().openConnection(url) }
                 }
-                VoicePluginInstall.install(this@VoicePluginTransferService, owner, sourceFactory) { bytes, total ->
+                val variant = VoicePluginInstall.nativeVariant(params.extras.getString(VoicePluginInstall.NATIVE_VARIANT))
+                VoicePluginInstall.install(this@VoicePluginTransferService, owner, variant, sourceFactory) { bytes, total ->
                     notifications.notify(VoicePluginInstall.JOB_ID, VoicePluginInstall.notification(this@VoicePluginTransferService, bytes, total, cancel))
                 }
                 if (VoicePluginInstall.ownsAttempt(owner)) jobFinished(params, false)

@@ -19,7 +19,7 @@ internal object GitHubProgressPresentation {
     fun previewKind(text: String): PreviewKind = previewKinds.firstOrNull { it.second.containsMatchIn(text.take(4000)) }?.first ?: PreviewKind.ACTIVITY
 
     fun taskLabel(task: String): String {
-        val firstLine = task.lineSequence().map(String::trim).firstOrNull(String::isNotBlank).orEmpty()
+        val firstLine = GitHubTaskContinuity.request(task).lineSequence().map(String::trim).firstOrNull(String::isNotBlank).orEmpty()
         val redacted = dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(firstLine)) as kotlinx.serialization.json.JsonPrimitive
         return redacted.content.replace(Regex("[\\p{Cntrl}<>`*#\\[\\]]"), " ").replace(Regex("\\s+"), " ")
             .trim().take(120).dropLastWhile(Char::isHighSurrogate).trimEnd().ifBlank { "your repository request" }
@@ -36,7 +36,8 @@ internal object GitHubProgressPresentation {
             .ifBlank { "your repository request" }
     }
 
-    fun introduction(task: String): String {
+    fun introduction(rawTask: String): String {
+        val task = GitHubTaskContinuity.request(rawTask)
         if (Regex("""(?i)^\s*(?:what|which)\b.*\b(?:this session|this conversation|so far)\b""").containsMatchIn(task)) {
             return "I’ll review the findings and blockers recorded in this conversation and explain what they prevented."
         }

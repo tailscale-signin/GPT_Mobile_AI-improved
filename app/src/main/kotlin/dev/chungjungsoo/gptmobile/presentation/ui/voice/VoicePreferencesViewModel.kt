@@ -10,11 +10,18 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
+import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
+import dev.chungjungsoo.gptmobile.data.voice.localStore
 import java.io.File
 import javax.inject.Inject
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -25,13 +32,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal const val STANDARD_SPEECH_RATE = 1f
+
 internal data class VoicePreferences(
-    val language: String = java.util.Locale.getDefault().toLanguageTag(),
+    val language: String = SpeechLanguages.recognitionDefault(),
     val online: Boolean = false,
     val captions: Boolean = true,
     val review: Boolean = false,
     val automatic: Boolean = true,
-    val rate: Float = 1.1f,
+    val rate: Float = STANDARD_SPEECH_RATE,
     val voice: String = "",
     val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
     val kokoroVoice: KokoroVoice? = null,
@@ -44,16 +53,23 @@ internal data class VoicePreferences(
     val kokoroBucket: MediaPipeKokoroBucket = MediaPipeKokoroBucket.AUTO,
     val incrementalSpeech: Boolean = true,
     val nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
-    val tuning: VoiceTuningPreferences = VoiceTuningPreferences()
+    val tuning: VoiceTuningPreferences = VoiceTuningPreferences(),
+    val synthesis: VoiceSynthesisPreferences = VoiceSynthesisPreferences()
 )
 
-internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val kokoro: LocalVoiceModelStore, val kokoroVariant: KokoroModelVariant = KokoroModelVariant.INT8)
+internal data class VoiceModelStores(
+    val moonshine: LocalVoiceModelStore,
+    val kokoro: LocalVoiceModelStore,
+    val streamingKokoro: LocalVoiceModelStore,
+    val kokoroVariant: KokoroModelVariant
+)
 
 /** No preference open/read/write may block composition or microphone startup. */
 @HiltViewModel
 internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext private val context: Context, private val store: VoicePreferenceStore) : ViewModel() {
     private val _modelStores = MutableStateFlow<VoiceModelStores?>(null)
     val modelStores = _modelStores.asStateFlow()
+    private val refreshedNativeModels = CompletableDeferred<Unit>()
     private var modelInstall: Job? = null
     private val kokoroInstalls = mutableMapOf<KokoroModelVariant, Job>()
     private var kokoroStores: Map<KokoroModelVariant, LocalVoiceModelStore> = emptyMap()
@@ -69,14 +85,26 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                 val directory = File(context.noBackupFilesDir, "voice-models")
                 val variants = KokoroModelVariant.entries.associateWith { KokoroModelPack.store(directory, variant = it) }
                 kokoroStores = variants
-                VoiceModelStores(LocalVoiceModelStore(directory), variants.getValue(selected), selected)
+                VoiceModelStores(LocalVoiceModelStore(directory), variants.getValue(selected), MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).localStore(directory), selected)
             }
             _modelStores.value = stores
             coroutineScope {
                 launch { stores.moonshine.refresh(forceVerification = false) }
                 launch { stores.kokoro.refresh(forceVerification = false) }
             }
+            refreshedNativeModels.complete(Unit)
         }
+    }
+
+    suspend fun onVoiceLaunch() {
+        val streaming = modelStores.filterNotNull().first().streamingKokoro
+        streaming.refresh(forceVerification = false)
+        // A missing standard pack already requires setup. Its download can start while
+        // the installed native pack is still undergoing its first digest check.
+        if (streaming.isInstalled()) refreshedNativeModels.await()
+        val stores = modelStores.filterNotNull().first()
+        val installed = streaming.isInstalled() && stores.moonshine.isInstalled() && stores.kokoro.isInstalled()
+        VoicePluginInstall.onFirstVoiceLaunch(context, stores.kokoroVariant, installed)
     }
 
     fun save(value: VoicePreferences) = store.save(value)
@@ -88,11 +116,13 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     }
 
     fun cancelLocalModelInstall() {
+        VoicePluginInstall.cancel(context)
         _modelStores.value?.moonshine?.cancelInstall()
         modelInstall?.cancel()
     }
 
     fun removeLocalModel() {
+        VoicePluginInstall.cancel(context)
         viewModelScope.launch { _modelStores.value?.moonshine?.remove() }
     }
 
@@ -103,12 +133,14 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     }
 
     fun cancelKokoroInstall() {
+        VoicePluginInstall.cancel(context)
         val selected = _modelStores.value ?: return
         selected.kokoro.cancelInstall()
         kokoroInstalls[selected.kokoroVariant]?.cancel()
     }
 
     fun removeKokoroModel() {
+        VoicePluginInstall.cancel(context)
         val selected = _modelStores.value?.kokoro ?: return
         viewModelScope.launch { selected.remove() }
     }

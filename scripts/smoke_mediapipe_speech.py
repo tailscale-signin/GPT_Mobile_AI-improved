@@ -24,6 +24,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -42,6 +43,7 @@ SAMPLE_RATE = 24_000
 MAX_FRAMES = SAMPLE_RATE * 30
 FIXTURE = "Café is ready. The quick brown fox jumps over the lazy dog."
 INCREMENTAL_PARTS = ("Café is ready. ", "The quick brown fox jumps over the lazy dog.")
+PRONUNCIATION_CORPUS = "Dr. Chen read the report yesterday. The lead pipe weighs 3.5 kilograms. The U.S. team met J. R. Tolkien. Café is ready."
 CANCEL_FIXTURE = "This next sentence checks cancellation before the entire request finishes. " * 12
 
 # Keep these immutable publisher identities in sync with MediaPipeSpeechCatalog.kt.
@@ -52,6 +54,15 @@ MODELS = {
         "file_name": "kokoro_int8_fp16.litertlm",
         "bytes": 294_783_298,
         "sha256": "e7b931ee5d4b7104012a838c9eee240d19ea69cb3ca269041a3274f83dbb7fa1",
+        "voice": "af_heart",
+        "required_voices": ["af_heart", "am_adam", "bf_emma"],
+    },
+    "kokoro-gpu": {
+        "repository": "litert-community/Kokoro-82M",
+        "revision": "bf1c2405642aa310bd210205c22d3ae1abc253fb",
+        "file_name": "kokoro_int8_gpu_fp16.litertlm",
+        "bytes": 294_750_530,
+        "sha256": "1ef178b127ec48c737daf17eabb4cea5f6b3ffbc510aced270fe5c267bbeac52",
         "voice": "af_heart",
         "required_voices": ["af_heart", "am_adam", "bf_emma"],
     },
@@ -176,7 +187,7 @@ def input_chunks(task, text: str, *, incremental: bool, evidence: dict):
         require(evidence["first_pcm_before_finish_input"] and evidence["text_delta_count"] == 2 and evidence["finish_input_calls"] == 1, "Incremental input never completed after its first PCM")
 
 
-def consume(task, text: str, np, *, incremental: bool = False) -> dict:
+def consume(task, text: str, np, *, incremental: bool = False, include_word_cues: bool = False) -> dict:
     start = time.monotonic()
     first_pcm = None
     frames = 0
@@ -184,6 +195,7 @@ def consume(task, text: str, np, *, incremental: bool = False) -> dict:
     pcm_chunks = 0
     nonzero = 0
     energy = 0.0
+    clipped = 0
     peak = 0.0
     final_seen = False
     digest = hashlib.sha256()
@@ -209,6 +221,7 @@ def consume(task, text: str, np, *, incremental: bool = False) -> dict:
                     first_pcm = (time.monotonic() - start) * 1000
                 nonzero += int(np.count_nonzero(np.abs(samples) >= 1e-5))
                 energy += float(np.dot(samples.astype(np.float64), samples.astype(np.float64)))
+                clipped += int(np.count_nonzero(np.abs(samples) >= 1.0))
                 peak = max(peak, float(np.max(np.abs(samples))))
                 digest.update(samples.astype("<f4", copy=False).tobytes())
             for word in chunk.word_timestamps:
@@ -234,6 +247,9 @@ def consume(task, text: str, np, *, incremental: bool = False) -> dict:
         "non_silent_frames": nonzero, "rms": math.sqrt(energy / frames), "peak": peak,
         "pcm_sha256": digest.hexdigest(), "first_pcm_ms": first_pcm,
         "stream_wall_ms": (time.monotonic() - start) * 1000,
+        "clipped_frames": clipped,
+        **({"word_cues": [{"utf8_start": begin, "utf8_end": end, "start_s": start, "end_s": stop}
+                         for (begin, end), (start, stop) in sorted(words.items())]} if include_word_cues else {}),
         "estimated_word_spans": len(words), "estimated_overlaps": overlaps,
         "zero_duration_estimates": ties,
         "input_mode": "incremental" if incremental else "single_input",
@@ -268,6 +284,51 @@ def cancellation_probe(task, after_first_chunk: bool, *, incremental: bool = Fal
     return {"point": "after_first_chunk" if after_first_chunk else "before_first_read", "input_mode": "incremental" if incremental else "single_input", "input_open_at_cancel": incremental, "finish_input_calls": 0, "outcome": outcome, "cancel_and_close_ms": (time.monotonic() - cancelled_at) * 1000, "total_ms": (time.monotonic() - started) * 1000}
 
 
+def compare_corpus(reference: dict, candidate: dict) -> dict:
+    require(reference["input_sha256"] == candidate["input_sha256"] and
+            reference["sample_rate_hz"] == candidate["sample_rate_hz"], "Corpus identities differ")
+    cpu_spans = {(cue["utf8_start"], cue["utf8_end"]) for cue in reference["word_cues"]}
+    gpu_spans = {(cue["utf8_start"], cue["utf8_end"]) for cue in candidate["word_cues"]}
+    require(cpu_spans and gpu_spans, "No corpus word cues available for comparison")
+    duration_ratio = candidate["frames"] / reference["frames"]
+    rms_ratio = candidate["rms"] / reference["rms"]
+    clipped_increase = candidate["clipped_frames"] / candidate["frames"] - reference["clipped_frames"] / reference["frames"]
+    return {"duration_ratio": duration_ratio, "rms_ratio": rms_ratio, "clipped_fraction_increase": clipped_increase,
+            "same_source_word_spans": cpu_spans == gpu_spans,
+            "consistent": .8 <= duration_ratio <= 1.25 and .5 <= rms_ratio <= 2.0 and clipped_increase <= .01 and cpu_spans == gpu_spans}
+
+
+def gpu_unavailable(message: str) -> bool:
+    return any(fragment in message.lower() for fragment in (
+        "gpu accelerator could not be loaded and registered", "gpu accelerator is not registered",
+        "gpu delegate is not supported", "gpu support is not enabled", "no gpu accelerator",
+        "no registered accelerator for the requested hardware", "no opencl platform", "cl_platform_not_found_khr",
+    ))
+
+
+def read_worker_output(output, tail, evidence):
+    """Count PoCL kernel events created and completed during the measured speech stream only."""
+    measuring = False
+    pending = set()
+    for line in iter(lambda: output.readline(8192), b""):
+        tail.append(line)
+        if line.rstrip() == b"KOKORO_CORPUS_BEGIN":
+            measuring = True
+        elif line.rstrip() == b"KOKORO_CORPUS_END":
+            measuring = False
+            pending.clear()
+        elif measuring:
+            created = re.search(rb"Created event (\d+) \([^)]*\) Command ndrange_kernel\b", line)
+            completed = re.search(rb"Command complete, event (\d+)\b", line)
+            if created and len(pending) < 65536:
+                pending.add(created[1])
+            elif completed and completed[1] in pending:
+                pending.remove(completed[1])
+                evidence["pocl_completed_corpus_kernels"] += 1
+        if not evidence["runtime_reported_gpu_unavailable"] and gpu_unavailable(line.decode("utf-8", errors="replace")):
+            evidence["runtime_reported_gpu_unavailable"] = True
+
+
 def worker(args, model: dict, model_file: Path, base: dict) -> int:
     import numpy as np
     from mediapipe.tasks.python.audio.text_to_speech import TextToSpeech, TextToSpeechOptions
@@ -278,13 +339,33 @@ def worker(args, model: dict, model_file: Path, base: dict) -> int:
     cache = model_file.parent / (args.engine + "-runtime-cache")
     cache.mkdir(exist_ok=True)
     started = time.monotonic()
-    with TextToSpeech.create_from_options(TextToSpeechOptions(
-        base_options=BaseOptions(model_asset_path=str(model_file), delegate=BaseOptions.Delegate.CPU),
-        default_voice_id=model["voice"], speaking_rate=1.0, target_bucket=0, cache_dir=str(cache)
-    )) as task:
+    delegate = BaseOptions.Delegate.GPU if args.engine == "kokoro-gpu" else BaseOptions.Delegate.CPU
+    options = TextToSpeechOptions(base_options=BaseOptions(model_asset_path=str(model_file), delegate=delegate),
+                                  default_voice_id=model["voice"], speaking_rate=1.0, target_bucket=0, cache_dir=str(cache))
+    try:
+        task = TextToSpeech.create_from_options(options)
+    except (RuntimeError, ValueError) as exc:
+        if delegate != BaseOptions.Delegate.GPU:
+            raise
+        write_json(args.output, base | {"status": "gpu_initialization_failed", "error": str(exc)[:4096]})
+        return 77
+    with task:
         opened_ms = (time.monotonic() - started) * 1000
         voices = {voice.voice_id for voice in task.list_voices()}
         require(set(model["required_voices"]) <= voices, "Pinned model does not expose the app's selectable voices")
+        corpus_result = {}
+        if args.engine in ("kokoro", "kokoro-gpu"):
+            print("KOKORO_CORPUS_BEGIN", flush=True)
+            corpus = consume(task, PRONUNCIATION_CORPUS, np, include_word_cues=True)
+            print("KOKORO_CORPUS_END", flush=True)
+            require(corpus["word_cues"], "The pronunciation corpus produced no source word cues")
+            corpus_result = {"pronunciation_input": PRONUNCIATION_CORPUS, "pronunciation_corpus": corpus}
+            if args.cpu_reference:
+                reference = json.loads(args.cpu_reference.read_text())
+                require(reference["status"] == "passed" and reference["engine"] == "kokoro" and
+                        reference["model"] == MODELS["kokoro"] and reference["host"]["native_sha256"] == host["native_sha256"] and
+                        reference["requested_delegate"] == "CPU" and reference["speaking_rate"] == 1.0, "Invalid Kokoro CPU reference")
+                corpus_result["cpu_reference"] = compare_corpus(reference["pronunciation_corpus"], corpus)
         initial = consume(task, FIXTURE, np)
         before = cancellation_probe(task, False)
         after = cancellation_probe(task, True)
@@ -293,21 +374,19 @@ def worker(args, model: dict, model_file: Path, base: dict) -> int:
         incremental_before = cancellation_probe(task, False, incremental=True)
         incremental_after = cancellation_probe(task, True, incremental=True)
         incremental_recovered = consume(task, FIXTURE, np, incremental=True)
-    write_json(args.output, base | {"status": "passed", "host": host, "requested_delegate": "CPU", "prepare_ms": opened_ms, "available_voice_ids": sorted(voices), "stream": initial, "cancellation": [before, after], "stream_after_cancellation": recovered, "incremental_stream": incremental, "incremental_cancellation": [incremental_before, incremental_after], "incremental_stream_after_cancellation": incremental_recovered})
+    write_json(args.output, base | {"status": "passed", "host": host, **corpus_result, "requested_delegate": delegate.name, "speaking_rate": 1.0, "prepare_ms": opened_ms, "available_voice_ids": sorted(voices), "stream": initial, "cancellation": [before, after], "stream_after_cancellation": recovered, "incremental_stream": incremental, "incremental_cancellation": [incremental_before, incremental_after], "incremental_stream_after_cancellation": incremental_recovered})
     return 0
 
 
 def run_worker(args, model_file: Path, base: dict) -> int:
     command = [sys.executable, str(Path(__file__).resolve()), "--engine", args.engine, "--output", str(args.output), "--model-dir", str(model_file.parent), "--timeout", str(args.timeout), "--worker"]
+    if args.cpu_reference:
+        command.extend(["--cpu-reference", str(args.cpu_reference)])
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
-    tail = collections.deque(maxlen=16)
-
-    def drain() -> None:
-        assert process.stdout is not None
-        while block := process.stdout.read(4096):
-            tail.append(block)
-
-    reader = threading.Thread(target=drain, daemon=True)
+    tail = collections.deque(maxlen=128)
+    evidence = {"pocl_completed_corpus_kernels": 0, "runtime_reported_gpu_unavailable": False}
+    assert process.stdout is not None
+    reader = threading.Thread(target=read_worker_output, args=(process.stdout, tail, evidence), daemon=True)
     reader.start()
     timed_out = False
     try:
@@ -319,11 +398,31 @@ def run_worker(args, model_file: Path, base: dict) -> int:
     reader.join(timeout=5)
     log = b"".join(tail).decode("utf-8", errors="replace")
     args.output.with_suffix(".log").write_text(log, encoding="utf-8")
+    if args.engine == "kokoro-gpu" and code == 77 and not timed_out and args.output.is_file():
+        result = json.loads(args.output.read_text())
+        if result.get("status") == "gpu_initialization_failed" and (evidence["runtime_reported_gpu_unavailable"] or gpu_unavailable(result["error"])):
+            write_json(args.output, result | {"status": "gpu_unavailable", "gpu_dispatch": "none", "driver_evidence": evidence, "diagnostic_tail": log[-8192:]})
+            print("GPU delegate unavailable on this host. See the recorded initialization error and native diagnostics.")
+            return 77
     if code != 0 or timed_out:
         write_json(args.output, base | {"status": "failed", "native_process_exit": code, "timed_out": timed_out, "diagnostic_tail": log[-8192:]})
         return 1
     result = json.loads(args.output.read_text(encoding="utf-8"))
     require(result.get("status") == "passed", "Worker exited without successful real-checkpoint evidence")
+    if args.engine == "kokoro-gpu":
+        # The SDK exposes no per-op delegate counters. A successful PCM stream cannot identify its device.
+        result["gpu_dispatch"] = "unreported_by_task"
+        if evidence["pocl_completed_corpus_kernels"]:
+            result["gpu_dispatch"] = "pocl_opencl_kernels_executed"
+        elif evidence["runtime_reported_gpu_unavailable"]:
+            result["gpu_dispatch"] = "unavailable_with_successful_pcm"
+        result["driver_evidence"] = evidence
+        result["diagnostic_tail"] = log[-8192:]
+        if result.get("cpu_reference", {}).get("consistent") is False:
+            result["status"] = "cpu_reference_mismatch"
+            write_json(args.output, result)
+            return 1
+        write_json(args.output, result)
     return 0
 
 
@@ -332,6 +431,7 @@ def main() -> int:
     parser.add_argument("--engine", required=True, choices=MODELS)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model-dir", type=Path)
+    parser.add_argument("--cpu-reference", type=Path, help="Compare the GPU checkpoint with the verified standard Kokoro run on this host")
     parser.add_argument("--download-only", action="store_true", help="Verify/provision the pinned model; does not run or pass inference")
     parser.add_argument("--timeout", type=int, default=300, help="Bound native worker wall time in seconds (30..900)")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
@@ -340,8 +440,10 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     # A native process exit must never inherit a prior invocation's successful receipt.
     args.output.unlink(missing_ok=True)
+    if args.cpu_reference and args.engine != "kokoro-gpu":
+        parser.error("--cpu-reference requires --engine kokoro-gpu")
     model = MODELS[args.engine]
-    base = {"schema": "mediapipe-speech-checkpoint-smoke-v1", "engine": args.engine, "runtime_version": RUNTIME_VERSION, "runtime_wheel_sha256": RUNTIME_WHEEL_SHA256, "model": model, "fixture_sha256": hashlib.sha256(FIXTURE.encode("utf-8")).hexdigest(), "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(), "scope": "linux_host_runtime_checkpoint_smoke"}
+    base = {"schema": "mediapipe-speech-checkpoint-smoke-v1", "engine": args.engine, "runtime_version": RUNTIME_VERSION, "runtime_wheel_sha256": RUNTIME_WHEEL_SHA256, "model": model, "fixture_sha256": hashlib.sha256(FIXTURE.encode("utf-8")).hexdigest(), "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(), "scope": "linux_host_runtime_checkpoint_smoke", "requested_delegate": "GPU" if args.engine == "kokoro-gpu" else "CPU", "speaking_rate": 1.0}
     try:
         require(30 <= args.timeout <= 900, "Native timeout must be between 30 and 900 seconds")
         verify_catalog(model)

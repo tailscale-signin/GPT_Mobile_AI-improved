@@ -63,9 +63,9 @@ class AndroidVoiceAudio internal constructor(
     private var playbackStarted: (() -> Unit)? = null
     private var spokenRange: ((Int, String, IntRange) -> Unit)? = null
 
-    @Volatile private var pronunciations: Map<String, String> = emptyMap()
+    @Volatile private var pronunciations = VoicePronunciationDictionary.EMPTY
     override fun configurePronunciation(overrides: Map<String, String>) {
-        pronunciations = VoicePronunciationOverrides.clean(overrides)
+        pronunciations = VoicePronunciationDictionary(overrides)
     }
     override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
         spokenRange = spoken
@@ -140,7 +140,7 @@ class AndroidVoiceAudio internal constructor(
     private val mutableVoiceCatalog = kotlinx.coroutines.flow.MutableStateFlow(SpeechVoiceCatalogState.UNINITIALIZED)
     internal val voiceCatalogState: kotlinx.coroutines.flow.StateFlow<SpeechVoiceCatalogState> = mutableVoiceCatalog
     private var voiceQueryInFlight: Long? = null
-    private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = languageTag, online: Boolean = allowOnlineSpeech && conversationPrivacy()?.enabled != true) = voices
+    private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = synthesisLanguageTag ?: languageTag, online: Boolean = allowOnlineSpeech && conversationPrivacy()?.enabled != true) = voices
         .filter { (online || !it.isNetworkConnectionRequired) && it.locale.language == Locale.forLanguageTag(language).language && "notInstalled" !in it.features.orEmpty() }
         .sortedWith(compareByDescending<android.speech.tts.Voice> { it.quality }.thenByDescending { it.locale.toLanguageTag() == language }.thenBy { it.latency }.thenBy { it.name })
     fun voices(): List<Pair<String, String>> = eligibleVoices(installedVoices).take(12).mapIndexed { index, voice ->
@@ -199,6 +199,7 @@ class AndroidVoiceAudio internal constructor(
     }
     private var watchdog: Runnable? = null
     private var requestRecognitionFinish: (() -> Unit)? = null
+    var synthesisLanguageTag: String? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
     var allowOnlineSpeech: Boolean = false
     var speechRate: Float = 1f
@@ -207,11 +208,23 @@ class AndroidVoiceAudio internal constructor(
     fun routeName(): String = runCatching { audioManager?.communicationDevice?.productName?.toString() }.getOrNull() ?: "System audio route"
     fun routes(): List<Pair<Int, String>> = audioManager?.availableCommunicationDevices.orEmpty().map { it.id to it.productName.toString() }
     fun selectRoute(id: Int): Boolean = runCatching {
+        if (closed) return@runCatching false
+        val manager = audioManager ?: return@runCatching false
+        val device = manager.availableCommunicationDevices.firstOrNull { it.id == id } ?: return@runCatching false
+        if (routeMode != null && manager.communicationDevice?.id == id) return@runCatching true
+        val previousMode = manager.mode
         stop()
-        val device = audioManager?.availableCommunicationDevices?.firstOrNull { it.id == id } ?: return@runCatching false
-        if (routeMode == null) routeMode = audioManager.mode
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        audioManager.setCommunicationDevice(device)
+        var selected = false
+        try {
+            manager.mode = AudioManager.MODE_IN_COMMUNICATION
+            selected = manager.setCommunicationDevice(device)
+            if (selected && routeMode == null) routeMode = previousMode
+            selected
+        } finally {
+            if (!selected) runCatching { manager.mode = previousMode }
+            // Changing the selected device can leave the device inventory unchanged.
+            routeChanged?.invoke()
+        }
     }.getOrDefault(false)
     override fun retryAfterMillis(): Long = recognitionGate.remainingMillis()
     private fun armWatchdog(timeout: Long, fail: () -> Unit) {
@@ -235,14 +248,17 @@ class AndroidVoiceAudio internal constructor(
             recognitionGate.release(sessionId)
             return
         }
-        val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        observations?.permission(permitted)
-        if (!permitted) {
-            recognitionGate.release(sessionId)
-            recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
-            listener.failure("Microphone permission is needed for voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION)
-            return
+        fun microphonePermitted(): Boolean {
+            val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            observations?.permission(permitted)
+            if (!permitted) {
+                recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
+                stop()
+                listener.failure("Microphone permission is needed for voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION)
+            }
+            return permitted
         }
+        if (!microphonePermitted()) return
         if (!VoiceMicrophoneLease.acquire(sessionId)) {
             recognitionGate.release(sessionId)
             listener.failure("Another voice session is using the microphone. Pause it before trying again.", "VOICE_MICROPHONE_BUSY", 500)
@@ -314,6 +330,13 @@ class AndroidVoiceAudio internal constructor(
                 if (!active() || finalizing) return
                 finalizeCapture()
                 if (!active()) return
+                if (!dispatched) {
+                    // A delayed qualification must never start capture after Done speaking.
+                    terminal("finished_before_start")
+                    stop()
+                    listener.final("")
+                    return
+                }
                 try {
                     engine.stopListening()
                 } catch (failure: Exception) {
@@ -437,7 +460,18 @@ class AndroidVoiceAudio internal constructor(
                         reportCode,
                         recognitionGate.remainingMillis(),
                         retryable = repair == null && error in setOf(SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT),
-                        recoveryAction = repair
+                        recoveryAction = repair,
+                        cause = AndroidRecognitionFailure(
+                            platformError = error,
+                            stage = when {
+                                !dispatched -> AndroidRecognitionFailure.Stage.SUPPORT_CHECK
+                                becameReady -> AndroidRecognitionFailure.Stage.RECOGNITION
+                                else -> AndroidRecognitionFailure.Stage.STARTING
+                            },
+                            dispatched = dispatched,
+                            attemptId = "voice:$sessionId:$ticket",
+                            localBackoffMillis = recognitionGate.remainingMillis()
+                        )
                     )
                 }
             })
@@ -489,9 +523,25 @@ class AndroidVoiceAudio internal constructor(
                             else -> "VOICE_RECOGNIZER_UNAVAILABLE"
                         },
                         recognitionGate.remainingMillis(),
-                        recoveryAction = repair
+                        recoveryAction = repair,
+                        cause = AndroidRecognitionFailure(
+                            platformError = support.errorCode,
+                            stage = AndroidRecognitionFailure.Stage.SUPPORT_CHECK,
+                            dispatched = false,
+                            attemptId = "voice:$sessionId:$ticket",
+                            localBackoffMillis = recognitionGate.remainingMillis()
+                        )
                     )
                     return@supportResult
+                }
+                if (!microphonePermitted()) return@supportResult
+                if (!onDevice) {
+                    val currentPrivacy = conversationPrivacy()
+                    if (!allowOnlineSpeech || currentPrivacy?.enabled == true || currentPrivacy?.chatId != privacy?.chatId) {
+                        stop()
+                        listener.failure("Voice settings changed before recording started. Tap the microphone to start with the current settings.", "VOICE_RECOGNIZER_UNAVAILABLE")
+                        return@supportResult
+                    }
                 }
                 cachedRecognitionSupport = intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE).orEmpty() to support
                 try {
@@ -535,10 +585,12 @@ class AndroidVoiceAudio internal constructor(
     override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) =
         speak(text, allowOnlineSpeech, complete, error)
 
-    internal fun speakOffline(text: String, complete: () -> Unit, error: (String) -> Unit) =
-        speak(text, false, complete, error)
+    internal fun captureOfflineSpeech(): VoiceOfflineSpeech {
+        val dictionary = pronunciations
+        return { text, complete, error -> speak(text, false, complete, error, dictionary) }
+    }
 
-    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit) {
+    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit, pronunciation: VoicePronunciationDictionary = pronunciations) {
         val privacy = conversationPrivacy()
         stop()
         if (closed) return
@@ -546,7 +598,6 @@ class AndroidVoiceAudio internal constructor(
         val observations = diagnosticProbe
         val audioStarted = playbackStarted
         val rangeObserver = spokenRange
-        val pronunciation = pronunciations
         var reportedStart = false
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         val wasWarm = speechReady
@@ -591,7 +642,7 @@ class AndroidVoiceAudio internal constructor(
                 }
             }
         }
-        val config = SpeechConfiguration(languageTag, selectedVoice, online && privacy?.enabled != true, speechRate.coerceIn(.5f, 2f), routeMode != null)
+        val config = SpeechConfiguration(synthesisLanguageTag ?: languageTag, selectedVoice, online && privacy?.enabled != true, speechRate.coerceIn(.5f, 2f), routeMode != null)
         val play: () -> Unit = play@{
             val engine = tts?.takeIf { speechReady } ?: return@play
             if (!closed && ticket == generation) observations?.engineReady(wasWarm)
@@ -657,7 +708,7 @@ class AndroidVoiceAudio internal constructor(
                     if (closed || ticket != generation) return@work
                     val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
                     val spoken = text.substring(0, end) + if (text.length > 12000) " ${VoiceSpeechText.LIMIT_NOTICE}" else ""
-                    val projection = VoicePronunciationOverrides.project(spoken, pronunciation)
+                    val projection = pronunciation.project(spoken, englishFallback = Locale.forLanguageTag(config.language).language == "en")
                     val chunks = speechChunks(projection.text, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
                     var chunkOffset = 0
                     val chunkStarts = chunks.map { chunk -> chunkOffset.also { chunkOffset += chunk.length } }
@@ -1013,10 +1064,11 @@ class AndroidVoiceAudio internal constructor(
         terminal("disposed")
         releaseRecognition()
         closed = true
-        audioManager?.unregisterAudioDeviceCallback(routeCallback)
-        if (routeMode != null) {
-            audioManager?.clearCommunicationDevice()
-            routeMode?.let { audioManager?.mode = it }
+        runCatching { audioManager?.unregisterAudioDeviceCallback(routeCallback) }
+        routeMode?.let { previousMode ->
+            runCatching { audioManager?.clearCommunicationDevice() }
+            runCatching { audioManager?.mode = previousMode }
+            routeMode = null
         }
         releaseSpeech()
         (speechWork as? java.util.concurrent.ExecutorService)?.shutdown()

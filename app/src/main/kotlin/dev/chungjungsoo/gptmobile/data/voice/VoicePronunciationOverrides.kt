@@ -4,9 +4,27 @@ import java.text.BreakIterator
 import java.text.Normalizer
 import java.util.Locale
 
-internal data class VoicePronunciationProjection(val text: String, val sourceCharacters: List<IntRange>) {
+internal data class VoicePronunciationProjection(val text: String, val sourceCharacters: List<IntRange>, val replacements: Set<IntRange> = emptySet()) {
     fun sourceRange(start: Int, end: Int): IntRange? =
         if (start in 0 until end && end <= sourceCharacters.size) sourceCharacters[start].first..sourceCharacters[end - 1].last else null
+}
+
+/** Indexed once per settings change. Each speech operation keeps its own immutable dictionary. */
+internal class VoicePronunciationDictionary(overrides: Map<String, String>) {
+    private val personal = VoicePronunciationOverrides.clean(overrides)
+    private fun index(entries: Map<String, String>) = entries.entries.sortedByDescending { it.key.length }.groupBy { it.key.first() }
+    private val personalIndex = index(personal)
+
+    // Alternative English text engines cannot consume Kokoro phoneme IDs. Share only
+    // the unambiguous text readings, with saved whole-term corrections taking precedence.
+    private val englishIndex by lazy { index(KokoroEnglishReadings.englishTextReadings + personal) }
+
+    fun project(input: String, englishFallback: Boolean = false): VoicePronunciationProjection =
+        VoicePronunciationOverrides.projectIndexed(input, if (englishFallback) englishIndex else personalIndex)
+
+    companion object {
+        val EMPTY = VoicePronunciationDictionary(emptyMap())
+    }
 }
 
 /** Bounded spoken-English substitutions; pronunciation never enters diagnostic output. */
@@ -45,24 +63,31 @@ internal object VoicePronunciationOverrides {
      * Every spoken character points to its original display character or corrected term.
      * No correction, matched term or generated pronunciation is logged or retained globally.
      */
-    fun project(input: String, overrides: Map<String, String>): VoicePronunciationProjection {
-        val entries = clean(overrides)
-        if (entries.isEmpty() && '_' !in input && '#' !in input) return VoicePronunciationProjection(input, input.indices.map { it..it })
-        val canonical = StringBuilder()
+    fun project(input: String, overrides: Map<String, String>): VoicePronunciationProjection = VoicePronunciationDictionary(overrides).project(input)
+
+    internal fun projectIndexed(input: String, candidates: Map<Char, List<Map.Entry<String, String>>>): VoicePronunciationProjection {
+        if (candidates.isEmpty() && '_' !in input && '#' !in input) return VoicePronunciationProjection(input, input.indices.map { it..it })
+        // ASCII case folding preserves UTF-16 offsets. Unicode terms need per-grapheme
+        // origins because a canonical key may occupy a different number of characters.
         val originalRanges = mutableListOf<IntRange>()
-        val characters = BreakIterator.getCharacterInstance(Locale.ROOT)
-        characters.setText(input)
-        var start = characters.first()
-        var end = characters.next()
-        while (end != BreakIterator.DONE) {
-            val normalized = key(input.substring(start, end))
-            canonical.append(normalized)
-            repeat(normalized.length) { originalRanges += start until end }
-            start = end
-            end = characters.next()
+        val normalized = if (input.all { it.code < 128 }) {
+            input.lowercase(Locale.ROOT)
+        } else {
+            val characters = BreakIterator.getCharacterInstance(Locale.ROOT)
+            characters.setText(input)
+            buildString {
+                var start = characters.first()
+                var end = characters.next()
+                while (end != BreakIterator.DONE) {
+                    val folded = key(input.substring(start, end))
+                    append(folded)
+                    repeat(folded.length) { originalRanges += start until end }
+                    start = end
+                    end = characters.next()
+                }
+            }
         }
-        val normalized = canonical.toString()
-        val candidates = entries.entries.sortedByDescending { it.key.length }.groupBy { it.key.first() }
+        val replacements = mutableSetOf<IntRange>()
         val spoken = StringBuilder()
         val positions = mutableListOf<IntRange>()
         var cursor = 0
@@ -105,15 +130,16 @@ internal object VoicePronunciationOverrides {
                 continue
             }
             val last = index + replacement.key.length - 1
-            val source = originalRanges[index].first..originalRanges[last].last
+            val source = if (originalRanges.isEmpty()) index..last else originalRanges[index].first..originalRanges[last].last
             original(source.first)
+            replacements += source
             spoken.append(replacement.value)
             repeat(replacement.value.length) { positions += source }
             cursor = source.last + 1
             index = last + 1
         }
         original(input.length)
-        return VoicePronunciationProjection(spoken.toString(), positions)
+        return VoicePronunciationProjection(spoken.toString(), positions, replacements)
     }
 
     private fun boundaryBefore(text: String, index: Int): Boolean {
@@ -139,4 +165,30 @@ internal object VoicePronunciationOverrides {
             value == '#'.code
 
     private val markTypes = setOf(Character.NON_SPACING_MARK.toInt(), Character.COMBINING_SPACING_MARK.toInt(), Character.ENCLOSING_MARK.toInt())
+}
+
+/** English readings shared with the vocabulary-checked native Kokoro frontend. */
+internal object KokoroEnglishReadings {
+    val initialisms = setOf("AI", "API", "APK", "AAR", "ABI", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "PDF", "NPU", "ASR", "JVM", "PCM", "IP", "USD", "CAD", "EUR", "GBP", "GPT", "GLM", "QNN", "ONNX", "JNI", "JDK", "JRE", "GL", "TLS", "SSL", "TCP", "UDP", "RPC", "SSE", "JWT", "BPE", "UTF", "LSTM", "CNN", "RNN", "SSD", "HDD", "DDR", "HDMI", "PCI", "PCIE", "FPS", "RGB", "RGBA", "FP", "NVFP", "GCC", "GDB", "RTX", "GTX")
+
+    // These keys are technical names even when an answer writes them in lowercase. Ordinary
+    // words such as RAM, ARM, US and IT must never become automatic lowercase initialisms.
+    val technicalInitialisms = setOf("ai", "api", "apk", "aar", "abi", "cpu", "gpu", "npu", "html", "http", "https", "llm", "mcp", "sdk", "sql", "ssh", "tts", "url", "xml", "usb", "dns", "vpn", "cli", "ide", "pdf", "asr", "jvm", "pcm", "gpt", "glm", "qnn", "onnx", "jni", "jdk", "jre", "tls", "ssl", "tcp", "udp", "rpc", "sse", "jwt", "bpe", "lstm", "cnn", "rnn", "ssd", "hdd", "ddr", "hdmi", "fps", "rgb", "rgba", "nvfp", "gcc", "gdb", "utf", "rtx", "gtx")
+    val technicalNames = mapOf(
+        "github" to "git hub", "gitlab" to "git lab", "chatgpt" to "chat GPT", "openai" to "open AI",
+        "opengl" to "open GL", "webgpu" to "web GPU", "typescript" to "type script", "javascript" to "java script",
+        "json" to "jason", "c++" to "c plus plus", "c#" to "c sharp", "f#" to "f sharp", ".net" to "dot net", "pcie" to "PCI e"
+    )
+    val abbreviations = mapOf(
+        "e.g." to "for example", "e.g" to "for example", "i.e." to "that is", "i.e" to "that is", "etc." to "et cetera", "vs." to "versus",
+        "dr." to "doctor", "mr." to "mister", "mrs." to "missus", "ms." to "miz", "prof." to "professor",
+        "sr." to "senior", "jr." to "junior", "approx." to "approximately"
+    )
+    val englishTextReadings: Map<String, String> by lazy {
+        fun spokenInitialisms(text: String) = text.split(' ').joinToString(" ") { word ->
+            if (word in initialisms) word.toList().joinToString(" ") else word
+        }
+        abbreviations + technicalInitialisms.associateWith { spokenInitialisms(it.uppercase(Locale.ROOT)) } +
+            technicalNames.mapValues { (_, text) -> spokenInitialisms(text) }
+    }
 }

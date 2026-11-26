@@ -123,8 +123,8 @@ class GitHubWorkspaceClientTest {
                     when (request.url.encodedPath) {
                         "/repos/o/r/commits/feature%2Freview" -> """{"sha":"$selectedSha","commit":{"tree":{"sha":"$selectedTree"}}}"""
                         "/repos/o/r/commits/main", "/repos/o/r/commits/v1.2.3%2Bbuild7" -> """{"sha":"$baselineSha","commit":{"tree":{"sha":"$baselineTree"}},"files":[]}"""
-                        "/repos/o/r/git/trees/$selectedTree" -> """{"truncated":false,"tree":[{"path":"src/current.kt","type":"blob","size":${content.length},"sha":"$blobSha"}]}"""
-                        "/repos/o/r/git/trees/$baselineTree" -> """{"truncated":false,"tree":[]}"""
+                        "/repos/o/r/git/trees/$selectedTree" -> """{"sha":"$selectedTree","truncated":false,"tree":[{"path":"src/current.kt","type":"blob","size":${content.length},"sha":"$blobSha"}]}"""
+                        "/repos/o/r/git/trees/$baselineTree" -> """{"sha":"$baselineTree","truncated":false,"tree":[]}"""
                         "/repos/o/r/git/blobs/$blobSha" -> """{"sha":"$blobSha","encoding":"base64","content":"${Base64.getEncoder().encodeToString(content.toByteArray())}"}"""
                         else -> error("Unexpected baseline context request: ${request.url}")
                     }

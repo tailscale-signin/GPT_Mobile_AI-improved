@@ -42,6 +42,21 @@ class MediaPipeVoicePhraseEngineTest {
         engine.close()
     }
 
+    @Test fun silentFirstInferenceUsesThePublicPhraseWithoutPublishingPlaybackEvidence() {
+        var receipts = 0
+        val task = TestTask {
+            var read = false
+            TestStream { if (read) null else AudioChunk(floatArrayOf(.2f), isFinal = true).also { read = true } }
+        }
+        engine(task).use { engine ->
+            engine.onValidatedSynthesis = { _, _ -> receipts++ }
+            assertTrue(engine.warmFirstInference(0, 1f))
+            assertEquals(0, receipts)
+            engine.stream("word", 0, 1f) { true }
+            assertEquals(1, receipts)
+        }
+    }
+
     @Test fun nativeClausesAreSplitIntoBoundedSlicesWithoutDuplicatingCues() {
         val native = AudioChunk(
             FloatArray(VOICE_PCM_SAMPLE_RATE * 7) { .1f },
@@ -59,6 +74,39 @@ class MediaPipeVoicePhraseEngineTest {
         assertTrue(chunks.all { it.samples.size == VOICE_PCM_SAMPLE_RATE })
         assertEquals(1, chunks.sumOf { it.wordCues.size })
         assertEquals(VoiceWordCueProvenance.ESTIMATED, chunks.first().wordCues.single().provenance)
+        engine.close()
+    }
+
+    @Test fun playbackCrossesALongWordBeforeTheNextSdkPacketAndClearsOnTheLastAudibleFrame() {
+        val captions = VoicePcmCaptions()
+        var reads = 0
+        val engine = engine(
+            TestTask {
+                TestStream {
+                    when (++reads) {
+                        1 -> AudioChunk(FloatArray(6_000) { .1f }, wordTimestamps = listOf(WordTimestamp("word", 0, 4, 0f, 1f)))
+                        2 -> {
+                            // The SDK may spend longer synthesizing the tail than the audio already queued.
+                            assertEquals(0..3, captions.consumed(1_200)?.range)
+                            assertEquals(6_000L, captions.active()?.endFrame)
+                            AudioChunk(FloatArray(3_000) { .1f }, chunkIndex = 1, isFinal = true)
+                        }
+                        else -> null
+                    }
+                }
+            }
+        )
+        val source = VoiceStreamFrames("word", cueLimit = 1)
+        val stream = VoiceStreamPause(source, VoiceQuietLimiter(VOICE_PCM_SAMPLE_RATE, 100))
+        engine.stream("word", 0, 1f) { chunk ->
+            val packet = stream.accept(chunk)
+            captions.appendStream(0, "word", 0, packet.cues, packet.samples.size)
+            true
+        }
+        stream.finish()
+        assertEquals(0..3, captions.consumed(8_999)?.range)
+        assertEquals(9_000L, captions.active()?.endFrame)
+        assertEquals(IntRange.EMPTY, captions.consumed(9_000)?.range)
         engine.close()
     }
 
@@ -94,8 +142,11 @@ class MediaPipeVoicePhraseEngineTest {
         try {
             val operation = worker.submit<Throwable?> { runCatching { engine.stream("test", 0, 1f) { true } }.exceptionOrNull() }
             assertTrue(entered.await(3, TimeUnit.SECONDS))
+            assertEquals(VoiceSpeechStage.SDK_STREAM_CALL, engine.executionProgress?.stage)
             engine.cancel()
             assertTrue(operation.get(3, TimeUnit.SECONDS) is CancellationException)
+            assertEquals(null, engine.executionProgress)
+            assertTrue(engine.sdkCancelToReadReturnMs != null)
             engine.close()
         } finally {
             cancelled.countDown()
@@ -127,6 +178,7 @@ class MediaPipeVoicePhraseEngineTest {
                 }.exceptionOrNull()
             }
             assertTrue(entered.await(3, TimeUnit.SECONDS))
+            assertEquals(null, engine.executionProgress)
             val closing = workers.submit { engine.close() }
             assertTrue(cancelCalled.await(3, TimeUnit.SECONDS))
             assertFalse(task.closed.get())
@@ -143,6 +195,19 @@ class MediaPipeVoicePhraseEngineTest {
         }
     }
 
+    @Test fun evidenceNamesTheVoiceAndConfiguredDelegateOnlyAfterSuccessfulSynthesis() {
+        val ids = mutableListOf<Pair<String, VoiceSpeechBackend>>()
+        var delivered = false
+        val stream = TestStream { if (delivered) null else AudioChunk(floatArrayOf(.1f)).also { delivered = true } }
+        val engine = engine(TestTask { stream })
+        engine.onValidatedSynthesis = { id, configured -> ids += id to configured }
+        assertTrue(ids.isEmpty())
+        engine.stream("test", 0, 1f) { true }
+        assertEquals(listOf("freya" to VoiceSpeechBackend.PHONON_CPU), ids)
+        assertNull(engine.executionEvidence)
+        engine.close()
+    }
+
     @Test fun invalidAudioAndEmptyStreamsFailWithoutLeakingNativeStreams() {
         val cases = listOf(
             AudioChunk(floatArrayOf(Float.NaN)),
@@ -155,8 +220,11 @@ class MediaPipeVoicePhraseEngineTest {
             var delivered = false
             val stream = TestStream { if (delivered) null else invalid.also { delivered = true } }
             val engine = engine(TestTask { stream })
+            var reported = false
+            engine.onValidatedSynthesis = { _, _ -> reported = true }
             assertThrows(IllegalArgumentException::class.java) { engine.stream("test", 0, 1f) { true } }
             assertEquals(1, stream.closes.get())
+            assertFalse(reported)
             engine.close()
         }
     }

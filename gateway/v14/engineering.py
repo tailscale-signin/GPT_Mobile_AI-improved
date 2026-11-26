@@ -966,6 +966,7 @@ class EngineeringSupervisor:
     @staticmethod
     def readiness(evidence):
         return (isinstance(evidence, dict) and evidence.get('head_sha') and SHA.fullmatch(evidence['head_sha']) is not None
+                and (evidence.get('changed_file_coverage') or {}).get('complete') is not False
                 and evidence.get('checks_passed') is True and evidence.get('policy_verified') is True
                 and evidence.get('mergeable') is True and evidence.get('reviews_satisfied') is True
                 and evidence.get('draft') is False and evidence.get('state') == 'OPEN')
@@ -1410,7 +1411,7 @@ class EngineeringService:
                     else:
                         job['message'] = 'The working branch changed outside this job. Review the new head before continuing.'
                         phase = 'NEEDS_INPUT'
-                elif output.get('checks_blocked'):
+                elif output.get('checks_blocked') or (output.get('changed_file_coverage') or {}).get('complete') is False:
                     job['data']['ci'] = output
                     job['message'] = output.get('message', 'A completed CI check needs attention')
                     phase = 'NEEDS_INPUT'
@@ -1868,6 +1869,7 @@ def public_job(job):
             'milestones_completed': completed, 'milestones_total': 2 if accepted_scope(job['request']) != 'implement' else len(PHASES) - 2,
             'repair_attempts': sum(job['repairs'].values()), 'pr': data.get('pr'), 'pr_url': data.get('pr_url'),
             'head_sha': data.get('head_sha'), 'changed_files': readiness.get('changed_files', data.get('changed_paths', [change['path'] for change in data.get('changes', [])])),
+            **({'changed_file_coverage': readiness['changed_file_coverage']} if 'changed_file_coverage' in readiness else {}),
             'tests': readiness.get('checks', []), 'checks_passed': readiness.get('checks_passed', False),
             'ci_observation': {'revision': readiness.get('head_sha'), 'verdict': readiness.get('ci_verdict'),
                                'pr': readiness.get('pr')} if readiness.get('checks') else None,

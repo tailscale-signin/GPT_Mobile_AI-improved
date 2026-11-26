@@ -84,6 +84,21 @@ class AppAuditGitHubReadTest {
         }
     }
 
+    @Test fun forbiddenResponsesDistinguishRateLimitsFromDeniedAccess() = runTest {
+        for ((headers, limited) in listOf(headersOf("X-RateLimit-Remaining", "0") to true, headersOf("Retry-After", "60") to true, headersOf() to false)) {
+            val http = HttpClient(MockEngine { respond("{}", HttpStatusCode.Forbidden, headers) })
+            try {
+                val result = readAccount(GitHubWorkspaceClient("fixture-403", http, persistentState = false))
+                assertEquals(403, result.httpStatus)
+                assertEquals(if (limited) "GITHUB_AUDIT_RATE_LIMITED" else "GITHUB_AUDIT_ACCESS_DENIED", result.reasonCode)
+                assertEquals(if (limited) "WAITING_RECOVERY" else "ACCESS_DENIED", result.failureCategory)
+                assertEquals(limited, result.retryable)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
     @Test fun physicalRequestCapStopsBeforeTheFourthHttpCallAndIsNotRetried() = runTest {
         var requests = 0
         val http = HttpClient(

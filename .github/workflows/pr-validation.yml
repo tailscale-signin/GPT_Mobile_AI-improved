@@ -56,6 +56,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
 
       - uses: ./.github/actions/setup-android
 
@@ -132,12 +134,22 @@ jobs:
           python3 scripts/gradle_retry.py -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --console=plain --max-workers=1 "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/unit-production-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee unit-production.log
 
       - name: Compile unit tests in a separate process
+        id: compiled_index
+        env:
+          JVM_CALL_INDEX_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         timeout-minutes: 25
         shell: bash
         run: |
           set -o pipefail
           python3 scripts/check_android_unit_compile_memory.py | tee unit-test-memory.log
-          python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --console=plain "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/unit-test-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee unit-compile.log
+          python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac :app:writeJvmCallIndex --no-daemon --console=plain "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/unit-test-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee unit-compile.log
+
+      - name: Verify compiled overload and test paths
+        env:
+          JVM_GRAPH_ASM: ${{ steps.compiled_index.outputs.asm }}
+        run: |
+          test -f "$JVM_GRAPH_ASM"
+          python3 -m unittest discover -s scripts/tests -p test_jvm_call_index.py -v
 
       - name: Run Unit Tests & JaCoCo Coverage Report
         id: unit_tests
@@ -162,6 +174,37 @@ jobs:
           --started-at-file app-audit-test-started.txt
           --coverage app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
           --output app-audit-source-qualification.json
+          --ci-failure-output build/reports/ci-junit.json
+
+      - name: Publish attempt-specific CI diagnosis evidence
+        if: failure() && steps.unit_tests.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-junit-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: build/reports/ci-junit.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Check changed behavior against line coverage and named regressions
+        if: always()
+        env:
+          COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || inputs.change_base_sha || github.event.before }}
+        run: >-
+          python3 scripts/changed_behavior_coverage.py --base "$COVERAGE_BASE"
+          --coverage app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
+          --junit-dir app/build/test-results/testDebugUnitTest
+          --junit-dir core-domain/build/test-results/jvmTest
+          --started-at-file app-audit-test-started.txt
+          --output build/reports/changed-behavior.json --enforce
+
+      - name: Upload changed behavior evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: changed-behavior-${{ github.sha }}
+          path: build/reports/changed-behavior.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Reconcile v2 cases against exact named JVM regressions (no status promotion)
         if: always()
@@ -267,6 +310,14 @@ jobs:
           name: chat-method-sizes-validation-${{ github.sha }}
           path: build/reports/chat-method-size/*.json
           if-no-files-found: warn
+
+      - name: Publish compiled caller and test index
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: jvm-call-index-${{ steps.compiled_index.outputs.source_sha }}
+          path: app/build/reports/jvm-call-index.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload review APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -460,17 +511,10 @@ jobs:
           python3 -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-ci.txt
       - name: Repository contracts and workflow policy
         run: |
-          python3 scripts/check_ci_policy.py
-          python3 scripts/sync_agent_metadata.py --check
-          python3 scripts/generate_architecture_index.py --check
+          bash scripts/validate-local.sh fast
           python3 scripts/check_unified_reliability_v2.py
-          python3 scripts/check_android_regex.py
-          python3 scripts/check_dependency_catalog.py
-          python3 -m unittest discover -s scripts/tests
           python3 scripts/test_gguf_prefill_governor.py
-          bash scripts/validate.sh resources
           python3 scripts/check_change_size.py --base "$CHANGE_BASE"
-          python3 scripts/scan_secrets.py
       - name: Scan reachable Git history for credentials
         run: bash scripts/scan_secret_history.sh --verify-integrity
       - name: Review newly introduced dependency vulnerabilities

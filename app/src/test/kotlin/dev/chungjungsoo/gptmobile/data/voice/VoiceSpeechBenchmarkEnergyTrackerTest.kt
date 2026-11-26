@@ -56,6 +56,28 @@ class VoiceSpeechBenchmarkEnergyTrackerTest {
         tracker.close()
     }
 
+    @Test fun coldRoundClosesBeforeAnotherProcessorAndSecondPassRetainsSeparateEndpoints() {
+        val started = mutableListOf<Window>()
+        val tracker = VoiceSpeechBenchmarkEnergyTracker { Window(it).also(started::add) }
+        val seed = report()
+        var current = seed.copy(configuration = seed.configuration.copy(playback = true, mode = VoiceSpeechBenchmarkMode.FULL))
+        fun publish(index: Int, state: VoiceSpeechBenchmarkBackendState) {
+            current = tracker.attach(current.copy(results = current.results.mapIndexed { i, row -> if (i == index) row.copy(state = state) else row }))
+        }
+        for (endState in listOf(VoiceSpeechBenchmarkBackendState.PARTIAL, VoiceSpeechBenchmarkBackendState.COMPLETE)) {
+            for (index in 0..1) {
+                publish(index, VoiceSpeechBenchmarkBackendState.RUNNING)
+                assertTrue(started.dropLast(1).all { it.finishes == 1 })
+                publish(index, endState)
+            }
+        }
+        assertEquals(listOf(1, 2, 1, 2), current.energyObservations.map { it.window })
+        assertTrue(started.all { it.finishes == 1 })
+        assertEquals(current, speechBenchmarkReportFromJson(speechBenchmarkJson(current, local = true)))
+        val duplicate = current.copy(energyObservations = current.energyObservations.map { it.copy(window = 1) })
+        assertEquals(null, speechBenchmarkReportFromJson(speechBenchmarkJson(duplicate, local = true)))
+    }
+
     @Test fun failedMonitorFinalizationRetainsUnknownEvidenceAndCloseDoesNotDoubleFinish() {
         var finishes = 0
         val tracker = VoiceSpeechBenchmarkEnergyTracker { backend ->

@@ -96,7 +96,8 @@ internal object GitHubChecklistSchedule {
         val cleanup = ready.firstOrNull {
             it.name.githubOperationFamily() == "github_commit" && it.arguments["action"] in setOf(JsonPrimitive("delete_branch"), JsonPrimitive("delete_fixture_branch"))
         }
-        val next = cleanup ?: catalog?.takeIf { acquisitionAllowed && executable(it) } ?: ready.firstOrNull() ?: discover
+        val cleanupPrerequisite = admittedPlanned?.takeIf { it in ready && it.callId.startsWith("fixture-") && GitHubChecklistBudget.cleanupReserve(receipts) > 0 }
+        val next = cleanup ?: cleanupPrerequisite ?: catalog?.takeIf { acquisitionAllowed && executable(it) } ?: ready.firstOrNull() ?: discover
         val snapshot = buildJsonObject {
             put("schema", "github.checklist-schedule.v1")
             put("receipt_set_digest", receiptSetDigest(receipts))

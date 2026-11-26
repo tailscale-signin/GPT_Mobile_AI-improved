@@ -375,6 +375,9 @@ def demo(root, path):
 
 def _dispatch(root, action, args):
     """Small native JSONL action boundary; never dispatch a product generation."""
+    if action == 'source-qa':
+        from benchmarks.source_qa import evaluate
+        return evaluate(_engine().read_json(_file(args.get('path'))))
     if action == 'templates':
         return templates(root, args.get('path'))
     if action == 'keys':

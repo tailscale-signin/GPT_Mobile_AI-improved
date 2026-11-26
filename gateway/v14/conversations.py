@@ -19,7 +19,7 @@ import uuid
 admission_context = contextvars.ContextVar('gateway_conversation_admission', default=None)
 TERMINAL = {'completed', 'failed', 'cancelled', 'canceled', 'interrupted', 'COMPLETED', 'CANCELLED', 'FAILED'}
 FEATURES = {'job_catalog_v1': True, 'conversation_sync_v1': True, 'conversation_message_parts_v1': True, 'durable_detach_v1': True, 'command_outcomes_v1': True, 'conversation_metadata_v1': True, 'saved_messages_v1': True}
-SCHEMA_VERSION = '4'
+SCHEMA_VERSION = '5'
 MESSAGE_PAGE_BYTES = 1_900_000
 MESSAGE_PART_BYTES = 256 * 1024
 
@@ -39,7 +39,14 @@ class CommandIdentityConflict(ConversationConflict):
 
 
 class QueueFull(ValueError):
-    pass
+    def __init__(self, message, dimension='outcome_history', occupied=None, capacity=None, recovery='Wait for retained command outcomes to expire.'):
+        super().__init__(message)
+        self.pressure = {'dimension': dimension, 'occupied': occupied, 'capacity': capacity,
+                         'recovery': recovery}
+
+    def payload(self):
+        return {'code': 'queue_full', 'retryable': True, 'message': str(self), 'pressure': self.pressure}
+
 
 
 class CursorExpired(ValueError):
@@ -136,7 +143,7 @@ class Conversations:
         metadata_schema(db)
         migrate(db, Conversations.identity(db))
         version = db.execute("SELECT value FROM gateway_installation WHERE key='conversation_schema'").fetchone()
-        if version is None or version[0] not in {'3', SCHEMA_VERSION}:
+        if version is None or version[0] not in {'3', '4', SCHEMA_VERSION}:
             db.execute('INSERT OR IGNORE INTO gateway_conversation_catalog(conversation_id) SELECT id FROM gateway_conversations ORDER BY created_at,id')
             db.execute('INSERT OR IGNORE INTO gateway_message_publications SELECT conversation_id,id,revision FROM gateway_messages')
             for row in db.execute('SELECT id,revision,content FROM gateway_messages'):
@@ -155,7 +162,30 @@ class Conversations:
         if version is None or version[0] != SCHEMA_VERSION:
             if columns(db, 'engineering_copilot_tasks'):
                 db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'copilot',id FROM engineering_copilot_tasks ORDER BY rowid")
+        # State-only covering indexes are maintained by the source transactions.
+        # Snapshot bodies and engineering transcripts stay out of the Jobs scan.
+        if 'public_json' in columns(db, 'gateway_jobs'):
+            db.execute("CREATE INDEX IF NOT EXISTS gateway_catalog_generation_state ON gateway_jobs(job_id,CASE WHEN json_valid(public_json) THEN json_extract(public_json,'$.status') ELSE '_INVALID_SNAPSHOT' END,CASE WHEN json_valid(public_json) THEN json_extract(public_json,'$.scheduling_state') ELSE NULL END)")
+        if {'principal', 'id', 'state', 'lease', 'data'} <= set(columns(db, 'engineering_jobs')):
+            db.execute("CREATE INDEX IF NOT EXISTS gateway_catalog_engineering_state ON engineering_jobs(principal,id,state,lease,json_extract(data,'$.provider_wait.retry_at'))")
+        if {'principal', 'id', 'state'} <= set(columns(db, 'engineering_copilot_tasks')):
+            db.execute("CREATE INDEX IF NOT EXISTS gateway_catalog_copilot_state ON engineering_copilot_tasks(principal,id,state)")
+        db.execute("CREATE TABLE IF NOT EXISTS gateway_queue_count (dimension TEXT PRIMARY KEY, occupied INTEGER NOT NULL)")
+        if not db.execute("SELECT 1 FROM gateway_queue_count WHERE dimension='pending_generations'").fetchone():
+            db.execute("INSERT INTO gateway_queue_count SELECT 'pending_generations',COUNT(*) FROM gateway_generation_admissions WHERE dispatch_state='queued'")
+        for event, delta in (('INSERT', "(NEW.dispatch_state='queued')"), ('DELETE', "-(OLD.dispatch_state='queued')"),
+                             ('UPDATE OF dispatch_state', "(NEW.dispatch_state='queued')-(OLD.dispatch_state='queued')")):
+            trigger = 'gateway_generation_count_' + event.split()[0].lower()
+            db.execute(f"CREATE TRIGGER IF NOT EXISTS {trigger} AFTER {event} ON gateway_generation_admissions "
+                       f"BEGIN UPDATE gateway_queue_count SET occupied=occupied+({delta}) WHERE dimension='pending_generations'; END")
         db.execute("INSERT INTO gateway_installation VALUES('conversation_schema',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE value!=excluded.value", (SCHEMA_VERSION,))
+
+    def check_generation_capacity(self, db):
+        occupied = db.execute("SELECT occupied FROM gateway_queue_count WHERE dimension='pending_generations'").fetchone()[0]
+        capacity = getattr(self.runtime, 'gateway_max_queued', 64)
+        if occupied >= capacity:
+            raise QueueFull('Gateway pending queue is full', 'pending_generations', occupied, capacity,
+                            'Wait for a queued job to start, or cancel one of your queued jobs in Jobs.')
 
     def tx(self, operation):
         if not self.runtime.GATEWAY_DURABLE_JOBS:
@@ -418,8 +448,7 @@ class Conversations:
             receipt = self.admission(db, context['principal'], command, 'generation', public['job_id'],
                                      dict(request, **{k: metadata[k] for k in ('conversation_id', 'client_conversation_id', 'expected_revision') if k in metadata}), binding, visible,
                                      now=public.get('created_at') or self.now())
-            if db.execute("SELECT COUNT(*) FROM gateway_generation_admissions WHERE dispatch_state='queued'").fetchone()[0] >= getattr(self.runtime, 'gateway_max_queued', 64):
-                raise QueueFull('Gateway pending queue is full')
+            self.check_generation_capacity(db)
             seconds = ((metadata.get('budget') or {}).get('totalDeadlineMs', 900000)) / 1000
             route_fingerprint = fingerprint([getattr(self.runtime, 'LLAMA_BASE', None), public.get('model')])
             db.execute('INSERT INTO gateway_generation_admissions VALUES(?,?,?,?,?,?,?)', (public['job_id'], context['principal'], json.dumps(request), 'queued', receipt['accepted_at'], receipt['accepted_at'] + seconds, route_fingerprint))
@@ -443,8 +472,8 @@ class Conversations:
             pending = db.execute('SELECT dispatch_state FROM gateway_generation_admissions WHERE job_id=?', (public['job_id'],)).fetchone()
             if not pending:
                 raise ConversationConflict('The continuation lost its durable admission')
-            if pending[0] != 'queued' and db.execute("SELECT COUNT(*) FROM gateway_generation_admissions WHERE dispatch_state='queued'").fetchone()[0] >= getattr(self.runtime, 'gateway_max_queued', 64):
-                raise QueueFull('Gateway pending queue is full')
+            if pending[0] != 'queued':
+                self.check_generation_capacity(db)
             now = self.now()
             segment_command = metadata.get('command_id') or context['command_id']
             if segment_command != public['command_id']:
@@ -756,8 +785,10 @@ class Conversations:
             state = db.execute('SELECT state FROM engineering_jobs WHERE id=?', (row['active_job'],)).fetchone()
             if state is None or state[0] in {'CANCELLING', 'NEEDS_INPUT', 'MERGE_READY'}:
                 raise self.active_conflict(db, row)
-            if db.execute("SELECT COUNT(*) FROM gateway_pending_instructions WHERE conversation_id=? AND status='pending'", (conversation_id,)).fetchone()[0] >= 32:
-                raise QueueFull('Conversation instruction queue is full')
+            occupied = db.execute("SELECT COUNT(*) FROM gateway_pending_instructions WHERE conversation_id=? AND status='pending'", (conversation_id,)).fetchone()[0]
+            if occupied >= 32:
+                raise QueueFull('Conversation instruction queue is full', 'pending_instructions', occupied, 32,
+                                'Retry when the worker acknowledges a pending instruction.')
             now = self.now()
             db.execute('INSERT INTO gateway_pending_instructions VALUES(?,?,?,?,?)', (command, conversation_id, content, 'pending', now))
             self.message(db, conversation_id, command, 'user', content, 'pending', command + ':user', now)

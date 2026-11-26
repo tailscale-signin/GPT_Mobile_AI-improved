@@ -265,8 +265,8 @@ async def chat(request: Request):
         return response
     except ExecutionBindingError as error:
         return rejected(error.code, str(error), error.status)
-    except QueueFull:
-        return JSONResponse({'error': {'code': 'queue_full', 'retryable': True, 'dispatch_state': 'not_dispatched'}}, status_code=429)
+    except QueueFull as error:
+        return JSONResponse({'error': dict(error.payload(), dispatch_state='not_dispatched')}, status_code=429)
     except ConversationConflict as error:
         return JSONResponse({'error': error.error_payload()}, status_code=409)
     except DurableCommitError:

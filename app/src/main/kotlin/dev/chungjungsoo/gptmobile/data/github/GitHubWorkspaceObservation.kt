@@ -128,6 +128,8 @@ internal fun directCodingObservation(
         if (copilot) {
             put("task_id", requireNotNull(result).getValue("task_id"))
             result["status"]?.let { put("task_status", it) }
+            result["task_url"]?.let { put("task_url", it) }
+            result["purpose"]?.let { put("purpose", it) }
         }
     }
 }

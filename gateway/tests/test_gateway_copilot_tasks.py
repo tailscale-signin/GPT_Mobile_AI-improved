@@ -290,7 +290,7 @@ class CopilotTaskTests(unittest.TestCase):
         self.assertEqual([], self.backend.posts())
 
     def test_head_branch_sha_is_checked_and_never_sent_as_an_invented_precondition(self):
-        created = self.tasks.submit('owner', dict(self.payload, head_ref='feature/work', expected_head_sha='a' * 40))
+        created = self.tasks.submit('owner', dict(self.payload, head_ref='feature/work', expected_head_sha='a' * 40, create_pull_request=False))
         self.tasks.tick(created['id'])
         self.assertIn(('GET', '/repos/owner/repo/git/ref/heads/feature%2Fwork'), [(call[0], call[1]) for call in self.backend.calls])
         body = self.backend.posts()[0][2]

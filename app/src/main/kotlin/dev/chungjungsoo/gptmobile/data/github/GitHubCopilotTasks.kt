@@ -33,20 +33,35 @@ internal class GitHubCopilotTasks(
 
         fun creationBody(args: JsonObject): JsonObject = buildJsonObject {
             val prompt = text(args, "prompt")
-            require(prompt.isNotBlank() && prompt.length <= 30_000) { "prompt must contain 1 to 30000 characters." }
+            require(prompt.isNotBlank() && prompt.codePointCount(0, prompt.length) <= 24_000 && '\u0000' !in prompt && Charsets.UTF_8.newEncoder().canEncode(prompt)) {
+                "The prompt must contain 1 to 24000 Unicode characters."
+            }
             put("prompt", prompt)
-            put("base_ref", normalizeGitHubBranch(text(args, "base_ref")))
+            val base = copilotBranch(text(args, "base_ref"))
+            put("base_ref", base)
             listOf("head_ref", "model", "custom_agent").forEach { key ->
                 if (key in args) {
                     val value = text(args, key)
-                    require(value.isNotBlank() && value.length <= 256 && value.none(Char::isISOControl)) { "$key must be a bounded nonblank string." }
-                    put(key, if (key == "head_ref") normalizeGitHubBranch(value) else value)
+                    if (key == "head_ref") {
+                        val head = copilotBranch(value)
+                        require(head != base) { "The head and base must be distinct branches." }
+                        put(key, head)
+                    } else {
+                        require(value.matches(Regex("[A-Za-z0-9_.:/-]{1,128}"))) { "Use a supported $key identifier." }
+                        put(key, value)
+                    }
                 }
             }
             val createPr = args["create_pull_request"] ?: JsonPrimitive(false)
             require(createPr == JsonPrimitive(true) || createPr == JsonPrimitive(false)) { "create_pull_request must be boolean." }
             require("head_ref" !in args || createPr != JsonPrimitive(true)) { "An existing head_ref cannot request a new pull request; use the existing branch/PR context." }
             put("create_pull_request", createPr)
+        }
+
+        private fun copilotBranch(value: String): String = normalizeGitHubBranch(value).also { ref ->
+            require(ref.matches(Regex("[A-Za-z0-9][A-Za-z0-9_./@-]{0,199}")) && ".." !in ref && !ref.endsWith('.') && ref.split('/').all { it.isNotEmpty() && it != "." && !it.endsWith(".lock") }) {
+                "Use an exact Copilot branch name."
+            }
         }
 
         private fun text(args: JsonObject, key: String) = (args[key] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
@@ -105,6 +120,8 @@ internal class GitHubCopilotTasks(
                     metadata {
                         put("request_id", requestId)
                         put("task_id", task.getValue("id"))
+                        put("task_url", "https://github.com/${root.removePrefix("/repos/")}/copilot/tasks/${GitHubWorkspaceClient.segment(text(task, "id"))}")
+                        put("purpose", "Implement the submitted repository task")
                         put("task", task)
                         put("status", "REMOTE_ACCEPTED")
                         put("remote_continues_without_app", true)
@@ -165,12 +182,15 @@ internal class GitHubCopilotTasks(
         val state = text(task, "state")
         return metadata {
             put("task_id", id)
+            put("task_url", "https://github.com/${root.removePrefix("/repos/")}/copilot/tasks/${GitHubWorkspaceClient.segment(id)}")
+            put("purpose", "Observe the submitted repository task")
             requestId.takeIf(String::isNotBlank)?.let { put("request_id", it) }
             put("task", task)
             put(
                 "status",
                 when (state) {
-                    "queued", "in_progress" -> "REMOTE_RUNNING"
+                    "queued" -> "REMOTE_QUEUED"
+                    "in_progress" -> "REMOTE_RUNNING"
                     "completed" -> "REMOTE_COMPLETED"
                     "idle", "waiting_for_user" -> "HUMAN_ACTION_REQUIRED"
                     "failed", "timed_out", "cancelled" -> "REMOTE_FAILED"

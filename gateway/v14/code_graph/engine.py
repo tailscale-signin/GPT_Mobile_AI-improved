@@ -73,9 +73,9 @@ class GraphStore:
     @staticmethod
     def _save_summary(db, namespace, snapshot, updated):
         snapshot = dict(snapshot, fragments={p: f for p, f in snapshot['fragments'].items() if f.get('version') == EXTRACTOR_VERSION})
-        remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
+        cursor = index_cursor(namespace, snapshot)
         value = {'extractor_version': EXTRACTOR_VERSION, 'snapshot_fingerprint': snapshot_fingerprint(snapshot), 'graph': snapshot_metadata(snapshot),
-                 'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
+                 'has_more': bool(cursor), 'index_cursor': cursor,
                  'sync_index_receipts': snapshot.get('sync_index_receipts', []),
                  'issues': [{'path': p, 'status': f['status'], 'warnings': f['warnings']} for p, f in snapshot['fragments'].items() if f['status'] != 'indexed'][:50]}
         payload = EngineeringCipher.encrypt(db, 'graph-summary:' + namespace + ':' + snapshot['sha'], encoded(value))
@@ -176,11 +176,21 @@ class GraphStore:
 def snapshot_metadata(snapshot):
     counts = collections.Counter(f['status'] for f in snapshot['fragments'].values())
     pending = max(0, len(snapshot['manifest']) - len(snapshot['fragments']))
-    complete = not pending and not any(counts[k] for k in ('partial', 'failed', 'unsupported'))
+    discovered = not snapshot.get('tree_frontier') and not snapshot.get('session_subset')
+    complete = discovered and not pending and not any(counts[k] for k in ('partial', 'failed', 'unsupported'))
+    languages, directories = {}, {}
+    for path in snapshot['manifest']:
+        for groups, key in ((languages, path.rsplit('.', 1)[-1].lower()), (directories, path.split('/', 1)[0] if '/' in path else '.')):
+            values = groups.setdefault(key, [0, 0])
+            values[0] += 1
+            values[1] += int(path in snapshot['fragments'])
     return {'schema_version': SCHEMA_VERSION, 'repository': snapshot['repository'], 'branch': snapshot['branch'],
             'commit_sha': snapshot['sha'], 'expected_files': len(snapshot['manifest']),
             'processed_files': len(snapshot['fragments']), 'file_statuses': dict(counts), 'pending_files': pending,
-            'complete': complete, 'processing_complete': not pending, 'coverage_complete': complete,
+            'complete': complete, 'processing_complete': discovered and not pending, 'coverage_complete': complete,
+            'tree_complete': discovered, 'pending_directories': len(snapshot.get('tree_frontier', [])),
+            'coverage_groups': {'columns': ['discovered', 'processed'], 'extension': dict(sorted(languages.items())[:32]),
+                                'directory': dict(sorted(directories.items())[:16]), 'directory_groups': len(directories)},
             'retryable_files': sum(f['status'] == 'failed' or f.get('retryable') is True for f in snapshot['fragments'].values()),
             'retryable_unsupported_files': sum(f['status'] == 'unsupported' and f.get('retryable') is True for f in snapshot['fragments'].values()),
             'excluded_files': snapshot.get('excluded_files', 0), 'nodes': None, 'edges': None,
@@ -193,9 +203,16 @@ def snapshot_metadata(snapshot):
 
 
 def snapshot_fingerprint(snapshot):
-    return identity(snapshot['sha'], EXTRACTOR_VERSION,
+    return identity(snapshot['sha'], EXTRACTOR_VERSION, snapshot.get('tree_frontier', []),
                     [(p, snapshot['manifest'][p]['sha'], f.get('version'), f['status'], len(f['nodes']), len(f['references']))
                      for p, f in sorted(snapshot['fragments'].items())])
+
+
+def index_cursor(namespace, snapshot):
+    remaining = sorted(snapshot['manifest'].keys() - snapshot['fragments'].keys())
+    frontier = snapshot.get('tree_frontier', [])
+    return identity(namespace, snapshot['sha'], *remaining, frontier) if frontier else (
+        identity(namespace, snapshot['sha'], *remaining) if remaining else None)
 
 
 def search_terms(text):
@@ -286,6 +303,25 @@ class Graph:
                 if not source:
                     continue
                 target_name = ref['name'].rsplit('.', 1)[-1]
+                if ref['relation'] in {'invokes_bridge', 'binds_handler'}:
+                    if ref['relation'] == 'invokes_bridge':
+                        candidates = [n for n in by_name.get(target_name, []) if n['kind'] == 'bridge_command'
+                                      and n['path'].endswith('/native_bridge.py')]
+                        if not candidates:
+                            candidates = [n for n in self.nodes.values() if n['kind'] == 'bridge_prefix'
+                                          and n['path'].endswith('/native_bridge.py') and target_name.startswith(n['name'])]
+                    else:
+                        candidates = [n for n in by_name.get(target_name, []) if n['kind'] == 'function'
+                                      and n['path'].endswith('.cs') and
+                                      (snapshot['fragments'][n['path']].get('package', '') + '.' +
+                                       n['qualified'].rpartition('.')[0]).strip('.') == fragment.get('code_behind')]
+                    if len(candidates) == 1:
+                        self.edges.append(dict(source=ref['source'], target=candidates[0]['id'], relation=ref['relation'],
+                                               confidence='INFERRED', path=path, line=ref['line'], method='unique_literal_binding'))
+                    else:
+                        self.unresolved.append(dict(ref, confidence='AMBIGUOUS' if candidates else 'UNRESOLVED',
+                                                    candidates=[n['id'] for n in candidates[:12]]))
+                    continue
                 aliases = [i for i in fragment['imports'] if i.get('alias') == target_name and i.get('symbol') not in {None, '*'}]
                 names = {i['symbol'] for i in aliases} or {target_name}
                 candidates = [n for name in names for n in by_name.get(name, []) if n['kind'] in {'function', 'class', 'interface'}]

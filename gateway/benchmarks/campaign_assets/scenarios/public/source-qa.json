@@ -1,0 +1,159 @@
+{
+  "schema": "github.source-qa.v1",
+  "distribution": "PUBLIC_QUESTIONS",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "source_sha": "76745e48ee7b5d9dae625dc319c0855f4da64ed0",
+  "budget_bytes": 12000,
+  "cases": [
+    {
+      "id": "kotlin-01",
+      "family": "Kotlin",
+      "question": "Where does Android reject a repository tree returned for another revision?"
+    },
+    {
+      "id": "kotlin-02",
+      "family": "Kotlin",
+      "question": "What evidence stops a malformed response from becoming an empty inventory?"
+    },
+    {
+      "id": "kotlin-03",
+      "family": "Kotlin",
+      "question": "Can the phone correct a missing source path when two candidates match?"
+    },
+    {
+      "id": "kotlin-04",
+      "family": "Kotlin",
+      "question": "Which context condition prevents path correction after an incomplete inventory?"
+    },
+    {
+      "id": "kotlin-05",
+      "family": "Kotlin",
+      "question": "What prevents rewriting a mixed group of source-range requests to one path?"
+    },
+    {
+      "id": "kotlin-06",
+      "family": "Kotlin",
+      "question": "What limit stops unchanged failed reads from consuming a new preparation budget?"
+    },
+    {
+      "id": "kotlin-07",
+      "family": "Kotlin",
+      "question": "What is retained for a later retry after a phone source-loading deadline?"
+    },
+    {
+      "id": "kotlin-08",
+      "family": "Kotlin",
+      "question": "How is the retained source excerpt bounded for quick mobile answers?"
+    },
+    {
+      "id": "kotlin-09",
+      "family": "Kotlin",
+      "question": "Which cached blobs may be inspected when preparing a quick mobile answer?"
+    },
+    {
+      "id": "kotlin-10",
+      "family": "Kotlin",
+      "question": "Should the phone immediately repeat the identical unresolved path lookup?"
+    },
+    {
+      "id": "python-01",
+      "family": "Python",
+      "question": "At what scale does a pull request need an inventory source beyond the standard GitHub files endpoint?"
+    },
+    {
+      "id": "python-02",
+      "family": "Python",
+      "question": "What prevents a mirrored PR inventory from treating duplicate file entries as complete?"
+    },
+    {
+      "id": "python-03",
+      "family": "Python",
+      "question": "How are container memberships weighted relative to more informative code dependencies?"
+    },
+    {
+      "id": "python-04",
+      "family": "Python",
+      "question": "How many propagation rounds does dependency-aware task selection execute?"
+    },
+    {
+      "id": "python-05",
+      "family": "Python",
+      "question": "Which check stops source bytes from being attributed to the wrong Git blob?"
+    },
+    {
+      "id": "python-06",
+      "family": "Python",
+      "question": "Where is the total byte budget for retained workspace source enforced?"
+    },
+    {
+      "id": "python-07",
+      "family": "Python",
+      "question": "What range of backend parallelism can the inference scheduler qualify?"
+    },
+    {
+      "id": "python-08",
+      "family": "Python",
+      "question": "When does the scheduler refuse to rely on unmeasured memory availability?"
+    },
+    {
+      "id": "python-09",
+      "family": "Python",
+      "question": "Where is an invalid cloud-task account identity rejected on the host?"
+    },
+    {
+      "id": "python-10",
+      "family": "Python",
+      "question": "Does a submitted Copilot task establish that its result passed CI?"
+    },
+    {
+      "id": "csharp-01",
+      "family": "C#",
+      "question": "What stops the Windows Jobs window from following a repeating continuation?"
+    },
+    {
+      "id": "csharp-02",
+      "family": "C#",
+      "question": "What prevents a late Jobs response from an older connection replacing the active view?"
+    },
+    {
+      "id": "csharp-03",
+      "family": "C#",
+      "question": "How does Windows describe a cancellation whose response was lost?"
+    },
+    {
+      "id": "csharp-04",
+      "family": "C#",
+      "question": "Which Windows action retrieves prior grading receipts after an interruption?"
+    },
+    {
+      "id": "csharp-05",
+      "family": "C#",
+      "question": "How does the Windows campaign editor bound a locally edited definition?"
+    },
+    {
+      "id": "csharp-06",
+      "family": "C#",
+      "question": "What should the Windows bridge report when the worker exits before acknowledging an operation?"
+    },
+    {
+      "id": "csharp-07",
+      "family": "C#",
+      "question": "What happens to the native bridge child process error stream?"
+    },
+    {
+      "id": "csharp-08",
+      "family": "C#",
+      "question": "Where does Windows show the time zone used to interpret upcoming jobs?"
+    },
+    {
+      "id": "csharp-09",
+      "family": "C#",
+      "question": "Which Windows collection control lets me switch from conversations to bookmarks?"
+    },
+    {
+      "id": "csharp-10",
+      "family": "C#",
+      "question": "How does Windows check a saved diagnostic export before reading it?"
+    }
+  ]
+}

@@ -6,6 +6,9 @@ This release implements the sixteen findings from the November 26 build-151 runt
 
 ## Changes
 
+- GitHub mode preserves pinned source lines through prompt preparation and records exact citation links. Windows bridge commands, XAML handlers and current-session source are available to structural search. Oversized repository trees can be continued.
+- Jobs projects only the visible page of full records and shows shared pending capacity. Copilot uses the same prompt and branch constraints on Android and Gateway. Windows Native products can grade 30 independently labeled source questions across Kotlin, Python and C#.
+
 - Embed matched native-product benchmark campaigns in the Windows Gateway app, with editable preregistered controls, original capture imports, independent supplied-answer grading, original-request recovery and unknown-preserving scoreboards.
 
 - Voice settings now have one **Run full voice benchmark** button and one JSON export. It measures microphone input, recognition accuracy, multilingual pronunciation and word timing, native and LiteRT processor routes, offline Android voices, and a selected CUDA Gateway. The run includes warm and cold synthesis, interruptions, Auto CPU thread calibration, and 1-, 5- and 10-minute playback tests. Completed and interrupted measurements survive reopening the app.
@@ -57,3 +60,5 @@ Publication requires successful validation of the final PR head, main revision a
 - Full voice benchmark measurements depend on the installed models, Android speech services, physical output route and device thermal state. Synthetic speech recognition and waveform measurements cannot rate human-perceived pronunciation.
 
 Published tags remain immutable, and a passing earlier revision does not qualify a later commit.
+
+- Source retrieval measurements and host fixtures do not establish handset performance, an upstream Copilot entitlement, or an installed-product quality score.

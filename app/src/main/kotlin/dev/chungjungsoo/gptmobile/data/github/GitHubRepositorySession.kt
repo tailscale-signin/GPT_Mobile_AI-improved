@@ -179,6 +179,34 @@ internal class GitHubRepositorySession(
         return bounded
     }
 
+    private suspend fun withRequestedPaths(context: GitHubTaskSnapshot, retained: JsonObject, requested: List<String>): JsonObject {
+        if (retained["truncated"] != JsonPrimitive(true) || requested.isEmpty()) return retained
+        val rows = retained.getValue("tree").jsonArray
+        val known = rows.mapTo(mutableSetOf()) { it.jsonObject.s("path") }
+        val directories = mutableMapOf<String, List<JsonObject>>()
+        val found = mutableListOf<JsonObject>()
+        for (path in requested.distinct().take(8)) {
+            val parts = path.split('/')
+            if (path in known || path.length > 2048 || parts.size > 32 || parts.any { it.isBlank() || it in setOf(".", "..", ".git") || '\\' in it || it.any(Char::isISOControl) }) continue
+            var sha = context.treeSha
+            for ((index, component) in parts.withIndex()) {
+                val entries = directories[sha] ?: run {
+                    if (directories.size >= 32) return@run emptyList()
+                    val tree = GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/$sha").jsonObject, sha)
+                    require(tree.s("sha") == sha) { "The directory identity differs from the pinned tree." }
+                    tree.getValue("tree").jsonArray.map { it.jsonObject }.also { directories[sha] = it }
+                }
+                val entry = entries.singleOrNull { it.s("path") == component } ?: break
+                if (index == parts.lastIndex && entry.s("type") == "blob" && entry.s("mode") in setOf("100644", "100755") && entry.s("sha").sha()) {
+                    found += JsonObject(entry + ("path" to JsonPrimitive(path)))
+                }
+                if (entry.s("type") != "tree" || entry.s("mode") != "040000" || !entry.s("sha").sha()) break
+                sha = entry.s("sha")
+            }
+        }
+        return if (found.isEmpty()) retained else JsonObject(retained + ("tree" to JsonArray(found + rows)))
+    }
+
     private data class BlobRead(val content: JsonObject, val cacheHit: Boolean)
 
     private suspend fun blob(context: GitHubTaskSnapshot, item: JsonObject): JsonObject = readBlob(context, item).content
@@ -521,7 +549,14 @@ internal class GitHubRepositorySession(
             }
         }
         val tree = budget.run {
-            if (action == "task_context_bundle") taskContextPhase(PhoneTaskContextPhase.TREE_SELECTION) { tree(context) } else tree(context)
+            if (action == "task_context_bundle") {
+                taskContextPhase(PhoneTaskContextPhase.TREE_SELECTION) {
+                    val named = Regex("""[\w.-]+(?:/[\w.-]+)+""").findAll(args.s("query").take(6000)).map { it.value.removePrefix("./") }.take(8).toList()
+                    withRequestedPaths(context, tree(context), named)
+                }
+            } else {
+                tree(context)
+            }
         } ?: throw readBudgetExpired(context, "phone_index_tree")
         if (action == "task_context_bundle") return@withContext taskContextBundle(context, tree, args)
         val entries = tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
@@ -1704,7 +1739,7 @@ internal class GitHubRepositorySession(
     private suspend fun read(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val ranges = args["ranges"] as? JsonArray ?: JsonArray(listOf(args))
         require(ranges.size in 1..8) { "Read between one and eight ranges." }
-        val pinnedTree = tree(context)
+        val pinnedTree = withRequestedPaths(context, tree(context), ranges.mapNotNull { (it as? JsonObject)?.s("path") })
         val entries = pinnedTree["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
         val treeComplete = pinnedTree["truncated"]?.jsonPrimitive?.booleanOrNull != true
         val resolvedRanges = mutableListOf<JsonObject>()

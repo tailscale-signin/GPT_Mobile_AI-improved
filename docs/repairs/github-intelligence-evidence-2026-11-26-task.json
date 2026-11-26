@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "github-intelligence-evidence-2026-11-26",
+  "parentPullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "0e625e250117475446b8f216df2501ddbef168f2",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "integrationBaseSha": "e4a632059afdb4be020bd34826ccc4abc23b192b",
+  "intent": "Implement the November 26 intelligence audit, retain concurrent work, qualify the draft and main revisions, and verify release assets.",
+  "state": "DRAFT_VALIDATION",
+  "checkpoints": [
+    {
+      "state": "INSPECTED",
+      "sourceSha": "e4a632059afdb4be020bd34826ccc4abc23b192b",
+      "details": "Integration head includes the five voice changes made after the audited revision. The second open PR is already an ancestor."
+    },
+    {
+      "state": "INTEGRATED",
+      "sourceSha": "76745e48ee7b5d9dae625dc319c0855f4da64ed0",
+      "details": "Retained both newer voice commits. Added bounded GitHub retrieval, ephemeral graphs, Jobs projections and pressure, Copilot parity, observed verdicts and independently labeled source QA."
+    },
+    {
+      "state": "REBASED",
+      "sourceSha": "cb6518738c3d9cf6c6315b1a9d379811ca924dc7",
+      "details": "Preserved incoming microphone routing and regenerated both Android inventory files from the combined tree."
+    }
+  ],
+  "verification": {
+    "focusedGatewayRegressionCases": 9,
+    "qualifiedHostFixture": "PASS",
+    "catalogRows": 10000,
+    "catalogPage": 30,
+    "fullProjections": 30,
+    "sourcePacketBudgetBytes": 12000,
+    "frozenQaSource": "76745e48ee7b5d9dae625dc319c0855f4da64ed0",
+    "qaTrialsPerArm": 30,
+    "exactPreparedLineHits": {
+      "baseline": {
+        "Kotlin": 2,
+        "Python": 2,
+        "C#": 0
+      },
+      "candidate": {
+        "Kotlin": 2,
+        "Python": 3,
+        "C#": 2
+      }
+    },
+    "candidateOwnerTopFive": {
+      "Kotlin": 3,
+      "Python": 4,
+      "C#": 3
+    },
+    "qaConditions": "One first attempt per arm per question, fixed Gateway/desktop/Android component corpus, identical immutable source and 12000-byte budget. No product model invoked. Candidate implementation indexed C# and XAML.",
+    "installedProductScore": null,
+    "generationCost": null,
+    "auditGraphAnchorOnly": {
+      "source": "803c740faee1979c619c5ebdadb7487c0482d518",
+      "before": 0,
+      "after": 6,
+      "total": 6,
+      "packetBytes": 12000
+    }
+  }
+}

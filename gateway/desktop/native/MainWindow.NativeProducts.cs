@@ -508,6 +508,13 @@ public partial class MainWindow
         scoreboard.Children.Insert(3, Ui.Text("Grading submits captured answers to the configured independent sandbox. Recover checks original receipts; it does not repeat uncertain submissions. Neither action generates a product answer.", 13, "MutedBrush"));
         scoreboard.Children.Insert(4, Ui.Card(operationPanel));
         trial.Children.Add(Ui.Button("Review scoreboard and grading", () => Show("Scoreboard")));
+        scoreboard.Children.Add(Ui.Button("Grade source retrieval trace", () => Work("Checking frozen source ranges…", async () =>
+        {
+            var file = PickFile("Select a frozen source QA capture", "Source QA capture|*.json");
+            if (file is null) return;
+            var result = await Call("benchmark-campaign-source-qa", new JsonObject { ["path"] = file });
+            ShowDetails("Source retrieval measurements", result);
+        })));
         scoreboard.Children.Add(Ui.Button("Export readable scoreboard", () => Work("Exporting measured results and evidence boundaries…", async () =>
         {
             var args = CampaignArgs();

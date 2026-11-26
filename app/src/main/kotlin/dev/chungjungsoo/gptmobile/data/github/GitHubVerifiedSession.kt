@@ -1728,10 +1728,11 @@ internal class GitHubVerifiedSession(
             Publication(fallback.text, true, fallback.report, epoch, saved.keys, fallback.failure)
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.
-        val (text, partial, report) = publication
+        val (text, partial, rawReport) = publication
         val retained = evidence.snapshot().first
-        val internalFault = report["verification_internal_error"] == JsonPrimitive(true)
-        if (!internalFault) evidenceRoutes.observed(report)
+        val internalFault = rawReport["verification_internal_error"] == JsonPrimitive(true)
+        if (!internalFault) evidenceRoutes.observed(rawReport)
+        val report = if (internalFault) rawReport else JsonObject(rawReport + ("evidence_route_observations" to evidenceRoutes.diagnostics()))
         suspend fun advancedInternalFault(responseDelivered: Boolean): ProviderEvent.Failed {
             val (currentReceipts, currentEpoch) = evidence.snapshot()
             val failure = requireNotNull(publication.extractionFailure)

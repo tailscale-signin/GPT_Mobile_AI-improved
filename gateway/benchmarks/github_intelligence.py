@@ -7,7 +7,8 @@ from v14.batch import digest as workspace_digest
 from v14.engineering_defaults import effective_execution_budget
 
 VERSION = 'gateway.github-intelligence.v1'
-CASE_CONTRACT_SCHEMA = 'gateway.github-intelligence-case.v3'
+CASE_CONTRACT_SCHEMA = 'gateway.github-intelligence-case.v4'
+SUPPORTED_CASE_SCHEMAS = {CASE_CONTRACT_SCHEMA, 'gateway.github-intelligence-case.v3'}
 CONVERSATION_CONTEXT_SCHEMA = 'gateway.engineering-conversation-context.v1'
 USER_INSTRUCTIONS_SCHEMA = 'gateway.engineering-user-instructions.v1'
 # Each dimension identifies the real jobs on which its observation is meaningful.
@@ -27,20 +28,38 @@ RUBRIC = {
 def public_failure_matches(scenario, data, report):
     """Grade the displayed claim independently of the text producer."""
     text = report.get('summary')
-    if (not isinstance(text, str) or report.get('benchmark_status') != 'NOT_MEASURED'
+    if (not isinstance(text, str) or len(text) > 1000 or report.get('benchmark_status') != 'NOT_MEASURED'
             or report.get('device_performance') != 'NOT_MEASURED'):
         return False
-    if scenario == 'post_merge_failure':
-        match = re.fullmatch(r'Post-merge verification failed at ([0-9a-f]{12})\. Review the checks and release evidence for this merge\.', text)
-        merge = data.get('merge_sha')
-        return bool(match and isinstance(merge, str) and match[1] == merge[:12])
+    post_merge = scenario == 'post_merge_failure'
+    head = data.get('merge_sha' if post_merge else 'head_sha')
+    if not isinstance(head, str) or not re.fullmatch(r'[a-f0-9]{40}', head):
+        return False
+    claim = text.lower().strip()
+    revisions = re.findall(r'\b[0-9a-f]{7,64}\b', claim)
+    if not revisions or any(len(value) < 12 or not head.startswith(value) for value in revisions):
+        return False
+    # Only two evidence-bearing clauses are supported. Additional assertions do
+    # not silently qualify the answer, even when the first sentence is correct.
+    parts = re.split(r'[.;!\n]+\s*', claim.rstrip('.!'))
+    if len(parts) != 2 or not re.match(r'(?:please\s+)?(?:review|inspect|check|examine|open|read|see|look at)\b', parts[1]):
+        return False
+    if not re.search(r'\b(?:checks?|results?|logs?|evidence|workflow)\b', parts[1]):
+        return False
+    if re.search(r"\b(not|never|no|passed|passing|green|succeeded|successful|published|deployed|released|built|probably|possibly|might|may|if|unless|despite|but|although)\b|n['’]t\b", claim):
+        return False
+    failed = bool(re.search(r'\b(failed|failing|failure|unsuccessful)\b', parts[0]))
+    blocked = bool(re.search(r'\b(blocked|blocking)\b', parts[0]))
+    if failed == blocked or not re.search(r'\b(?:ci|checks?|verification|workflow|build)\b', parts[0]):
+        return False
+    prs = re.findall(r'(?:\bpr\s*#?|\bpull.request\s*#?|#)(\d+)\b', claim)
+    if post_merge:
+        return failed and not prs and bool(re.search(r'\bpost[- ]merge\b|\bafter (?:the )?merge\b', parts[0]))
     ci = data.get('ci') or {}
-    match = re.fullmatch(r'CI (failed|is blocked) on PR #(\d+) at ([0-9a-f]{12})\. Review the check results for this revision\.', text)
-    head = data.get('head_sha')
-    return bool(match and isinstance(head, str) and match[3] == head[:12] and ci.get('head_sha') == head
-                and type(data.get('pr')) is int and str(data['pr']) == match[2] and ci.get('pr') == data['pr']
-                and ci.get('ci_verdict') == {'failed': 'FAILED', 'is blocked': 'BLOCKED'}[match[1]]
-                and ci.get('checks_failed' if match[1] == 'failed' else 'checks_blocked') is True and ci.get('checks'))
+    return bool(scenario == 'terminal_ci_blocker' and ci.get('head_sha') == head and type(data.get('pr')) is int
+                and prs and all(pr == str(data['pr']) for pr in prs) and ci.get('pr') == data['pr']
+                and ci.get('ci_verdict') == ('FAILED' if failed else 'BLOCKED')
+                and ci.get('checks_failed' if failed else 'checks_blocked') is True and ci.get('checks'))
 
 
 def case_observations(job, scenario, signal, completed):
@@ -165,14 +184,16 @@ def score(report):
     expected = {scenario for _, scenarios in RUBRIC.values() for scenario in scenarios}
     by_case = {r['scenario']: r for r in rows}
     jobs = [row.get('job_id') for row in rows]
-    bound = (report.get('schema') == 'gateway.production-qualification.v1' and
+    schemas = {r.get('intelligence', {}).get('caseContractSchema') for r in rows}
+    case_schema = next(iter(schemas)) if len(schemas) == 1 else None
+    bound = (case_schema in SUPPORTED_CASE_SCHEMAS and report.get('schema') == 'gateway.production-qualification.v1' and
              report.get('execution_scope') == 'PRODUCTION_JOBS' and report.get('fixture_results_included') is False and
              report.get('comparisonEligible') is True and route_valid and len(rows) == len(expected) and set(by_case) == expected and
              all(jobs) and len(set(jobs)) == len(jobs) and all(
                  r.get('selected_route_verified') is True and r.get('comparison_route') == route and
                  r.get('measurement_complete') is True and r.get('repository') == report.get('test_repository') and
                  r.get('source_sha') == route.get('base_sha') and
-                 r.get('intelligence', {}).get('caseContractSchema') == CASE_CONTRACT_SCHEMA and
+                 r.get('intelligence', {}).get('caseContractSchema') == case_schema and
                  re.fullmatch(r'[0-9a-f]{64}', str(r.get('intelligence', {}).get('caseContract')))
                  for r in rows))
     dims = {}
@@ -182,8 +203,8 @@ def score(report):
         dims[name] = {'weight': weight, 'observed': len(valid), 'planned': len(values),
                       'points': weight * sum(valid) / len(values) if bound and len(valid) == len(values) else None}
     total = sum(d['points'] for d in dims.values()) if all(d['points'] is not None for d in dims.values()) else None
-    identity = digest({s: by_case[s]['intelligence']['caseContract'] for s in sorted(expected)}) if bound else None
-    return {'schema': VERSION, 'dimensions': dims, 'pointsOutOf100': total, 'taskSetDigest': identity}
+    identity = digest([case_schema, {s: by_case[s]['intelligence']['caseContract'] for s in sorted(expected)}]) if bound else None
+    return {'schema': VERSION, 'caseContractSchema': case_schema, 'dimensions': dims, 'pointsOutOf100': total, 'taskSetDigest': identity}
 
 
 def compare(left, right):

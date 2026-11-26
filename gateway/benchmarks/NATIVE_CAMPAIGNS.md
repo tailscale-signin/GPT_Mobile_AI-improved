@@ -187,3 +187,11 @@ unknown, partial and synthetic displays. Windows installer CI runs campaign
 contracts, the .NET native contract program, WPF compilation and the existing
 frozen installer smoke workflow. A source check or portable contract pass does
 not establish a Windows install, live product result or comparative quality.
+
+## Repository source questions
+
+Export setup templates from Native products. Give each participant only `scenarios/public/source-qa.json` and read access to the frozen repository revision. Keep `scenarios/controller/source-qa.json` with the grader. The 30 questions cover Android, Gateway and Windows source. Each controller label records the Git blob, line number and line-content digest.
+
+Use **Grade source retrieval trace** for an original JSON capture. Set `schema` to `github.source-qa-capture.v1` and copy `repository` and `source_sha` from the questions. Under `controls`, record `product`, `build`, `model`, `capabilities_digest`, `memory_mode`, `index_state` and `budget_bytes` (12000). Both arms must use these controls. In `trials`, each row identifies its public question ID, arm (`baseline` or `candidate`) and one-based attempt. Keep first attempts separate from repeats.
+
+Supply `candidate` as ordered path/blob_sha pairs. Supply `prepared`, `dispatched` and `cited` as arrays of path, blob_sha, start_line and end_line from that stage. Omit an unobserved stage. An observed empty array records a miss. Optional measurements are `first_source_ms`, `index_ms`, `bytes` and `cost`. The report includes observed denominators, file recall among the first five candidates, exact-line inclusion and paired differences by language and attempt. The existing signed product comparison and production-job score have their own evidence requirements.

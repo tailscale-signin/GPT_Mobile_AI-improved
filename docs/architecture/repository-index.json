@@ -1098,6 +1098,7 @@
         ".github/workflows/speech-engine-smoke.yml",
         ".github/workflows/ui-review-apk.yml",
         ".github/workflows/unsigned-release-build.yml",
+        ".github/workflows/voice-opening-assets.yml",
         ".github/workflows/workflow-health.yml"
       ]
     }

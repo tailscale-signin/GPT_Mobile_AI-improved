@@ -893,6 +893,9 @@ internal class GitHubChatProgress(
                     else -> Operation("Inspecting build and test results", "build and test inspection", "separate observed failures from pending or skipped checks and identify the next relevant diagnostic")
                 }
                 "github_pr" -> when (action) {
+                    "copilot_create_task" -> Operation("Submitting a GitHub Copilot task", "Copilot task submission", "confirm the submission receipt for the requested implementation", true)
+                    "copilot_task_status" -> Operation("Checking GitHub Copilot progress", "Copilot task status", "read the selected task's confirmed state and linked result")
+                    "copilot_tasks" -> Operation("Finding GitHub Copilot tasks", "Copilot task inventory", "locate the original task and its latest reported state")
                     "reviews" -> Operation("Reading PR reviews", "pull request reviews", "identify unresolved review requirements and compare them with the current changes")
                     "comments" -> Operation("Reading PR discussion", "pull request discussion", "connect outstanding questions to the affected source and existing validation evidence")
                     "list" -> Operation("Checking pull requests", "pull request inventory", "identify the pull request associated with the requested branch and inspect its changes")

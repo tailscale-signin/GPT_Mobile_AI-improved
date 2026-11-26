@@ -10,6 +10,7 @@ import json
 import math
 import re
 import time
+from collections import Counter
 
 from v14.execution_binding import canonical, fingerprint
 from v14.engineering_workspace import SourceInspectionUnavailable
@@ -82,11 +83,15 @@ def _features(value, tree):
             row[field] = valid
         declared = value.get('file_blobs', {})
         references = row['paths'] + row['tests'] + row['documents']
-        observed = [declared[path].get('blob_sha') == tree[path]['sha'] for path in references
-                    if isinstance(declared, dict) and isinstance(declared.get(path), dict)]
+        observed = []
+        for path in references:
+            if isinstance(declared, dict) and path in declared:
+                entry = declared[path]
+                sha = entry.get('blob_sha') if isinstance(entry, dict) else entry
+                observed.append(sha == tree[path]['sha'])
         row['freshness'] = ('STALE_REFERENCES' if missing_references or observed and not all(observed) else
                             'VERIFIED_REFERENCES' if observed and len(observed) == len(references) else 'REFERENCES_NOT_DECLARED')
-        if row['freshness'] == 'STALE_REFERENCES':
+        if row['freshness'] != 'VERIFIED_REFERENCES':
             row['invariants'] = []
         route = item.get('routing')
         if (row['freshness'] == 'VERIFIED_REFERENCES' and isinstance(route, dict)
@@ -97,6 +102,33 @@ def _features(value, tree):
         # Commands intentionally do not enter execution or readiness authority.
         rows.append(row)
     return rows
+
+
+def observed_body_rank(query_terms, files, tree):
+    """BM25 over bounded, already-observed, blob-verified text. No additional reads."""
+    documents = {}
+    budget = 2 * 1024 * 1024
+    for path in list(reversed(files))[:256]:
+        item = files[path]
+        if not regular(tree, path) or not isinstance(item, dict) or item.get('sha') != tree[path]['sha']:
+            continue
+        content = item.get('content')
+        if not isinstance(content, str) or len(content) > min(budget, MAX_SOURCE_BYTES):
+            continue
+        raw = content.encode()
+        if len(raw) > budget or hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() != item['sha']:
+            continue
+        budget -= len(raw)
+        words = re.findall(r'[^\W_]+', re.sub(r'([a-z])([A-Z])', r'\1 \2', content).casefold())
+        documents[path] = (len(words), Counter(word for word in words if word in query_terms))
+    mean = sum(length for length, _ in documents.values()) / max(1, len(documents)) or 1
+    frequency = Counter(term for _, counts in documents.values() for term in counts)
+    ranks = {}
+    for path, (length, counts) in documents.items():
+        if counts:
+            ranks[path] = sum(math.log1p((len(documents) - frequency[t] + .5) / (frequency[t] + .5))
+                              * count * 2.2 / (count + 1.2 * (.25 + .75 * length / mean)) for t, count in counts.items())
+    return sorted(ranks, key=lambda path: (-ranks[path], path))
 
 
 def _ranges(path, source, query_terms, anchors, reason):
@@ -119,9 +151,9 @@ def _ranges(path, source, query_terms, anchors, reason):
                 begin = max(first, match - 8) if last - first > 60 else first
                 windows.append((score + 2 * heading_score, begin, min(last, begin + 60), lines[first].strip()[:200]))
     else:
-        for first, last in anchors:
+        for priority, (first, last) in enumerate(anchors):
             if 1 <= first <= len(lines):
-                windows.append((100, max(0, first - 3), min(len(lines), max(first, min(last, first + 70)) + 2), None))
+                windows.append((1000 - priority, first - 1, min(len(lines), max(first, min(last, first + 12))), None))
         matches = [(len(query_terms & terms(line)), i) for i, line in enumerate(lines)]
         for score, index in sorted(matches, key=lambda row: (-row[0], row[1]))[:8]:
             if score:
@@ -142,6 +174,8 @@ def _ranges(path, source, query_terms, anchors, reason):
                          'content': content, 'reason': reason, 'heading': heading,
                          'total_lines': len(lines), 'file_complete': first == 0 and last == len(lines),
                          'content_sha256': hashlib.sha256(content.encode()).hexdigest()})
+        if any(start == first + 1 for start, _ in anchors):
+            selected[-1]['anchor_line'] = first + 1
         if len(selected) == 2:
             break
     return selected
@@ -149,7 +183,7 @@ def _ranges(path, source, query_terms, anchors, reason):
 
 def build_bundle(*, repository, source_sha, tree, load_source, query, variant='TASK', paths=None,
                  graph=None, max_bytes=12000, cancel=None, semantic_scores=None, count_tokens=None,
-                 source_identity_kind='GIT_COMMIT'):
+                 source_identity_kind='GIT_COMMIT', observed_files=None):
     """Pure selection API shared by production and public-fixture benchmarks.
 
     load_source(path) returns {sha,content,cache_hit?}. No unobserved path or blob
@@ -219,6 +253,11 @@ def build_bundle(*, repository, source_sha, tree, load_source, query, variant='T
             offer(path, 90, 'task_path')
         for path in tree:
             if regular(tree, path):
+                if path in query:
+                    location = re.search(re.escape(path) + r'(?::|#L)([1-9]\d{0,7})\b', query)
+                    if location:
+                        line = int(location[1])
+                        anchors[path] = [(line, line)]
                 matches = query_terms & terms(path)
                 if matches:
                     offer(path, 12 * len(matches) + (100 if path in query else 0), 'query_path')
@@ -254,7 +293,18 @@ def build_bundle(*, repository, source_sha, tree, load_source, query, variant='T
         result['index_digest'] = fingerprint(valid_nodes)
         for path in ('docs/architecture/repository-guide.md', 'AGENTS.md', 'README.md'):
             offer(path, 15, 'repository_reference')
-        candidates = sorted(scores, key=lambda path: (-scores[path], path))
+        lexical = sorted(scores, key=lambda path: (-scores[path], path))
+        body = observed_body_rank(query_terms, observed_files or {}, tree)
+        symbols = list(dict.fromkeys(node['path'] for node in valid_nodes if node['path'] in anchors))
+        fused = Counter()
+        for ranking in (lexical, body, symbols):
+            for index, path in enumerate(ranking):
+                fused[path] += 1 / (60 + index + 1)
+        for path in body:
+            reasons.setdefault(path, 'observed_body')
+        candidates = sorted(fused, key=lambda path: (-fused[path], path))
+        priority = list(dict.fromkeys(requested + [p for p in lexical if p in query] + symbols[:2] + body[:1]))
+        candidates = list(dict.fromkeys(priority + candidates))
         if chosen == 'REFERENCE':
             candidates = [path for path in candidates if path.lower().endswith(('.md', '.mdx'))]
         # Reserve slots for tests and reference sections before a large code
@@ -262,6 +312,19 @@ def build_bundle(*, repository, source_sha, tree, load_source, query, variant='T
         documents = [p for p in candidates if p.lower().endswith(('.md', '.mdx'))][:3]
         tests = [p for p in candidates if re.search(r'(^|[/_.-])tests?([/_.-]|$)|Test\.', p)][:2]
         ordered = list(dict.fromkeys(candidates[:6] + documents + tests + candidates))[:MAX_FILES]
+        if chosen != 'REFERENCE':
+            # Reserve one read only when a selected implementation has a new,
+            # observed test neighbor with the same module basename.
+            stems = {p.rsplit('/', 1)[-1].split('.')[0].lower() for p in ordered[:3]}
+            extra = next((p for p in sorted(tree) if p not in ordered and regular(tree, p) and
+                          re.sub(r'^test_|_test$|test$', '', p.rsplit('/', 1)[-1].split('.')[0].lower()) in stems
+                          and re.search(r'(^|[/_.-])tests?([/_.-]|$)|Test\.', p)), None)
+            if extra:
+                ordered = ordered[:MAX_FILES - 1] + [extra]
+                reasons[extra] = 'related_test'
+                candidates.append(extra)
+                tests.append(extra)
+        result['candidate_paths'] = ordered[:5]
         sections = []
         for path in ordered:
             try:
@@ -283,15 +346,31 @@ def build_bundle(*, repository, source_sha, tree, load_source, query, variant='T
                         all(type(v) in (int, float) and math.isfinite(v) for v in ranking.values())):
                     sections.sort(key=lambda row: -ranking.get(fingerprint([row['blob_sha'], row['start_line'], row['end_line']]), -1))
                     result['retrieval'] = 'LOCAL_SEMANTIC_AND_LEXICAL'
+        # Semantic ranking can reorder other ranges, but cannot displace the
+        # first supplied task path or immutable symbol anchor at admission.
+        sections.sort(key=lambda r: (0 if 'anchor_line' in r or r['path'] in requested else 1,
+                                     candidates.index(r['path']) if 'anchor_line' in r or r['path'] in requested else 0,
+                                     'anchor_line' not in r))
         for row in sections:
             field = 'documents' if row['path'].lower().endswith(('.md', '.mdx')) else 'selected_ranges'
             result[field].append(row)
             # Reserve space for coverage, measurement and explicit omissions.
-            if len(canonical(result).encode()) > max_bytes - 1600:
+            allowance = max_bytes - min(1600, max_bytes // 3)
+            if row.get('anchor_line') and len(canonical(result).encode()) > allowance:
+                lines = row['content'].splitlines(True)
+                while len(lines) > 1 and len(canonical(result).encode()) > allowance:
+                    lines = lines[:max(1, len(lines) // 2)]
+                    row.update(content=''.join(lines), end_line=row['start_line'] + len(lines) - 1, file_complete=False)
+                    row['content_sha256'] = hashlib.sha256(row['content'].encode()).hexdigest()
+            if len(canonical(result).encode()) > allowance:
                 result[field].pop()
+                if row.get('anchor_line') and 'next_read' not in result:
+                    result['next_read'] = {k: row[k] for k in ('path', 'blob_sha', 'start_line', 'end_line')}
                 if len(omitted) < 12:
                     omitted.append({'path': row['path'], 'blob_sha': row['blob_sha'],
                                     'start_line': row['start_line'], 'end_line': row['end_line'], 'reason': 'OUTPUT_BUDGET'})
+            elif field == 'selected_ranges' and 'first_source_ms' not in result:
+                result['first_source_ms'] = round((time.monotonic() - started) * 1000, 3)
         admitted = {row['path'] for row in result['selected_ranges']}
         result['test_candidates'] = [{'path': p, 'blob_sha': tree[p]['sha'], 'status': 'NOT_RUN'} for p in tests if p in admitted]
     stopping()
@@ -305,8 +384,8 @@ def build_bundle(*, repository, source_sha, tree, load_source, query, variant='T
     result['bytes'] = 0
     for _ in range(3):
         result['bytes'] = len(canonical(result).encode())
-    while result['bytes'] > max_bytes and (result['features'] or result['omissions']):
-        (result['features'] or result['omissions']).pop()
+    while result['bytes'] > max_bytes and (result['features'] or result['omissions'] or result.get('candidate_paths')):
+        (result['features'] or result['omissions'] or result['candidate_paths']).pop()
         result['coverage']['selection_complete'] = False
         result['bytes'] = len(canonical(result).encode())
     actual_text = canonical({key: result[key] for key in ('features', 'selected_ranges', 'documents')})
@@ -337,13 +416,17 @@ def prepare(backend, job, role, evidence, graph, *, chosen=None, max_bytes=12000
         scores = lambda q, rows: memory(job, q, rows)
     bundle = build_bundle(repository=job['request']['repository'], source_sha=job['data']['head_sha'],
                           tree=job['data']['tree'], load_source=load, query=query, variant=name,
-                          paths=paths, graph=graph, max_bytes=max_bytes, cancel=backend.cancellation(job), semantic_scores=scores)
+                          paths=paths, graph=graph, max_bytes=max_bytes, cancel=backend.cancellation(job), semantic_scores=scores,
+                          observed_files=job['data'].get('files'))
     # Public diagnostics retain counts/digests only. Full immutable sections are
     # supplied directly to the already-bound model input, not a second memory.
     job['data']['task_context_receipt'] = {key: bundle[key] for key in
         ('schema', 'source_sha', 'variant', 'retrieval', 'reference_digest', 'index_digest', 'coverage', 'cache', 'bytes',
          'preparation_ms', 'token_count', 'token_count_status', 'token_estimate', 'token_estimate_method')}
     job['data']['task_context_receipt']['delivery_status'] = 'PREPARED'
+    for key in ('candidate_paths', 'next_read', 'first_source_ms'):
+        if key in bundle:
+            job['data']['task_context_receipt'][key] = bundle[key]
     for field in ('selected_ranges', 'documents', 'test_candidates'):
         job['data']['task_context_receipt'][field] = [{key: row[key] for key in
             ('path', 'blob_sha', 'start_line', 'end_line', 'reason', 'heading', 'status') if key in row}
@@ -358,14 +441,14 @@ def workspace_receipt(data):
         return None
     view = {key: saved[key] for key in ('schema', 'source_sha', 'variant', 'retrieval', 'reference_digest', 'index_digest',
             'coverage', 'cache', 'bytes', 'preparation_ms', 'token_count', 'token_count_status', 'token_estimate', 'token_estimate_method',
-            'delivery_status') if key in saved}
+            'delivery_status', 'candidate_paths', 'next_read', 'first_source_ms') if key in saved}
     for field in ('selected_ranges', 'documents', 'test_candidates'):
         view[field] = [{key: row[key] for key in ('path', 'blob_sha', 'start_line', 'end_line', 'reason', 'heading', 'status') if key in row}
                        for row in saved.get(field, [])[:24] if isinstance(row, dict)]
     admission = saved.get('admission')
     if isinstance(admission, dict):
         view['admission'] = {key: admission[key] for key in ('state', 'source_sha', 'view_sha256', 'bytes', 'complete',
-                             'token_count', 'token_count_status') if key in admission}
+                             'token_count', 'token_count_status', 'citation_status', 'cited_ranges') if key in admission}
         for field in ('selected_ranges', 'documents'):
             view['admission'][field] = [{key: row[key] for key in ('path', 'blob_sha', 'start_line', 'end_line') if key in row}
                                        for row in admission.get(field, [])[:24] if isinstance(row, dict)]
@@ -375,7 +458,7 @@ def workspace_receipt(data):
     return view
 
 
-def admitted_receipt(prepared, request, *, state='ADMITTED'):
+def admitted_receipt(prepared, request, *, state='ADMITTED', response=None):
     """Describe the actual envelope, never infer use from a prepared selection.
 
     DISPATCH_INTENT means the fenced transport is about to send; only a verified
@@ -401,6 +484,24 @@ def admitted_receipt(prepared, request, *, state='ADMITTED'):
         rows = bundle.get(field, [])
         admission[field] = [{key: row[key] for key in ('path', 'blob_sha', 'start_line', 'end_line') if key in row}
                             for row in rows[:24] if isinstance(row, dict) and isinstance(row.get('content'), str)] if isinstance(rows, list) else []
+    admission['citation_status'] = 'UNMEASURED'
+    if state == 'VERIFIED_RESPONSE' and isinstance(response, dict):
+        choices = response.get('choices')
+        first = choices[0] if isinstance(choices, list) and choices else None
+        message = first.get('message') if isinstance(first, dict) else None
+        answer = message.get('content') if isinstance(message, dict) else None
+        if isinstance(answer, str) and len(answer) <= 256_000:
+            from urllib.parse import quote
+            root = 'https://github.com/' + str(bundle.get('repository', '')) + '/blob/' + bundle['source_sha'] + '/'
+            cited = []
+            for row in admission['selected_ranges'] + admission['documents']:
+                prefix = root + quote(row['path'], safe='/') + '#L'
+                for match in re.finditer(re.escape(prefix) + r'(\d{1,9})(?:-L(\d{1,9}))?(?![\w-])', answer):
+                    start, end = int(match[1]), int(match[2] or match[1])
+                    if row['start_line'] <= start <= end <= row['end_line']:
+                        cited.append(dict(row, start_line=start, end_line=end))
+                        break
+            admission.update(citation_status='EXACT_LINKS_INSPECTED', cited_ranges=cited)
     result.update(delivery_status=state, admission=admission)
     return result
 
@@ -410,7 +511,7 @@ def project_bundle(bundle, maximum):
     if not isinstance(bundle, dict):
         return bundle
     view = {key: bundle[key] for key in ('schema', 'repository', 'source_sha', 'variant', 'source_identity_kind',
-            'freshness', 'retrieval') if key in bundle}
+            'freshness', 'retrieval', 'next_read') if key in bundle}
     view.update(selected_ranges=[], documents=[], test_candidates=[], view_complete=True,
                 retained_digest=fingerprint(bundle), omitted_ranges=0, source_level_only=True,
                 completion_authority=False, token_count=None, token_count_status='NOT_MEASURED_PROJECTED_VIEW')

@@ -31,6 +31,7 @@ class ExecutionBindingError(ValueError):
             result.update(failed_stage=stage, dispatch_state='not_dispatched', inference_attempted=False)
         observed = getattr(self, 'observation', None) or {}
         fields = {'reasonCode', 'failureCategory', 'dependency', 'upstreamStatus',
+                  'queueDimension', 'queueOccupied', 'queueCapacity', 'queueRequested',
                   'modelAdvertised', 'modelLoaded', 'modelState', 'observedAtMillis',
                   'observationAgeMs', 'upstreamCode', 'upstreamErrorType',
                   'upstreamMessageCode', 'upstreamErrorBodyState'}

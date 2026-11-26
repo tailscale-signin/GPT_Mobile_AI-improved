@@ -79,6 +79,10 @@ def validate_request(value):
             raise CopilotTaskError('COPILOT_REQUEST_INVALID', 'Use a supported model or custom agent identifier.', 400)
     if type(result.get('create_pull_request', False)) is not bool:
         raise CopilotTaskError('COPILOT_REQUEST_INVALID', 'Choose whether Copilot may create a pull request.', 400)
+    if result.get('create_pull_request') and 'head_ref' in result:
+        raise CopilotTaskError('COPILOT_REF_INVALID', 'An existing head branch cannot request a new pull request.', 400)
+    if any(0xD800 <= ord(char) <= 0xDFFF for char in result['prompt']):
+        raise CopilotTaskError('COPILOT_REQUEST_INVALID', 'The prompt must contain valid Unicode text.', 400)
     result['create_pull_request'] = result.get('create_pull_request', False)
     return result
 
@@ -166,6 +170,7 @@ class CopilotTasks:
                       gateway_id=self.store.conversations.gateway_id() if durable else None, principal_id=principal,
                       api_version=API_VERSION, execution_owner='GITHUB_CLOUD', orchestration_owner='GATEWAY',
                       requires_explicit_consent=True, remote_cancel_supported=False, automatic_merge=False,
+                      task_entitlement='UNVERIFIED_UNTIL_UPSTREAM_RESPONSE',
                       sha_verification='PREFLIGHT_ONLY')
         if not enabled:
             return dict(result, reason='COPILOT_DISABLED' if durable else 'DURABLE_STORAGE_REQUIRED')
@@ -253,7 +258,7 @@ class CopilotTasks:
                       gateway_id=task['gateway_id'], principal_id=task['principal'], github_actor_id=request['expected_actor_id'],
                       execution_owner='GITHUB_CLOUD', orchestration_owner='GATEWAY', detached=True,
                       accepted_at=task['accepted_at'], updated_at=task['updated_at'], last_checked_at=task['last_checked_at'],
-                      base_ref=request['base_ref'], expected_base_sha=request['expected_base_sha'],
+                      purpose='Implement the submitted repository task', base_ref=request['base_ref'], expected_base_sha=request['expected_base_sha'],
                       create_pull_request=request['create_pull_request'], error_code=task['error_code'],
                       merge_authorized=False, ci_verified=False, head_sha_verified=False,
                       sha_verification='PREFLIGHT_ONLY', remote_cancel_supported=False)

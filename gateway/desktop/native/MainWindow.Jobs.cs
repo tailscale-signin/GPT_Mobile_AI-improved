@@ -51,6 +51,7 @@ public partial class MainWindow
     private readonly Dictionary<string, JobRow> knownJobs = [];
     private readonly HashSet<string> selectedJobs = [];
     private JsonObject jobCounts = [];
+    private string queuePressure = "";
     private DateTime catalogAttempt, catalogObserved;
     private bool catalogBusy, catalogMore, catalogOffline, syncingSelection;
     private int catalogPages = 1;
@@ -67,7 +68,7 @@ public partial class MainWindow
         if (FullyVisibleRows(jobsTable).FirstOrDefault()?.Item is JobRow first)
             tablePositions[TablePositionKey(tab)]=(first.Id,Ui.Descendants<ScrollViewer>(jobsTable).FirstOrDefault()?.HorizontalOffset??0);
     }
-    private static readonly string[] JobStates = ["All","running","queued","needs_attention","completed","failed","cancelled","Pinned","Host receipts"];
+    private static readonly string[] JobStates = ["All","Active","running","queued","needs_attention","completed","failed","cancelled","Pinned","Host receipts"];
 
     private async Task RefreshCatalog()
     {
@@ -91,6 +92,10 @@ public partial class MainWindow
             catalogMore = cursor is not null; catalogOffline = false;
             catalogObserved = DateTime.UtcNow;
             jobCounts = first?.Flag("counts_complete") == true ? first.Object("state_counts") : [];
+            var pressure = first?.Object("queue_pressure");
+            queuePressure = pressure?.Flag("saturated") == true
+                ? $" · Pending generations {pressure.Text("occupied")}/{pressure.Text("capacity")}. Cancel an owned queued job or wait for a worker."
+                : "";
             SyncJobs(rows);
         }
         catch (Exception error) { catalogOffline = true; if (selectedPage == "Jobs") status.Text = error.Message; }
@@ -213,7 +218,7 @@ public partial class MainWindow
         if (preferences.Flag("comfortable")) table.FontSize=14;
         var view = CollectionViewSource.GetDefaultView(jobs);
         bool Visible(JobRow j) => (approvals ? j.Allows("approve") : jobsFilter=="Host receipts" ? j.Kind=="host receipt" : jobsFilter=="Pinned" ? pins.Contains(j.Id) :
-            j.Kind!="host receipt" && (jobsFilter=="All" || j.State==jobsFilter))
+            j.Kind!="host receipt" && (jobsFilter=="All" || j.State==jobsFilter || jobsFilter=="Active" && (j.State is "queued" or "running" or "needs_attention")))
             && (jobsQuery.Length==0 || new[]{j.Title,j.Id,j.State,j.Repository,j.Model,j.Stage}.Any(x=>x.Contains(jobsQuery,StringComparison.OrdinalIgnoreCase)));
         view.Filter = obj => obj is JobRow j && Visible(j); table.ItemsSource = view;
         var mark = new FrameworkElementFactory(typeof(CheckBox));
@@ -244,7 +249,7 @@ public partial class MainWindow
         void Footer()
         {
             int visible=FullyVisibleRows(table).Length;
-            catalogNote.Text=$"{visible} fully visible · {table.Items.Count} matching · {selectedJobs.Count} selected · {CatalogAge}";
+            catalogNote.Text=$"{visible} fully visible · {table.Items.Count} matching · {selectedJobs.Count} selected · {CatalogAge}{queuePressure}";
             more.IsEnabled=catalogMore && !catalogBusy;
         }
         updateJobFooter=Footer;

@@ -1,0 +1,17 @@
+{
+  "schema": "github.intelligence-client-cases.v1",
+  "promptCases": [
+    {"character": "a", "count": 24000, "accepted": true},
+    {"character": "a", "count": 24001, "accepted": false},
+    {"character": "a", "count": 30000, "accepted": false},
+    {"character": "🚀", "count": 24000, "accepted": true},
+    {"character": "🚀", "count": 24001, "accepted": false}
+  ],
+  "bindingCases": [
+    {"kind": "absent", "authoritative": false},
+    {"kind": "malformed", "authoritative": false},
+    {"kind": "stale", "authoritative": false},
+    {"kind": "string", "authoritative": true},
+    {"kind": "object", "authoritative": true}
+  ]
+}

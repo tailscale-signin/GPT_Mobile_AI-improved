@@ -46,7 +46,23 @@ internal object GitHubCompactTaskContext {
             put("source_sha", hints.getValue("source_sha"))
             put("tree_reused", tree != null)
             put("source_read_candidates", if (window == null) paths else JsonArray(paths.filter { it != window["path"] }))
-            window?.let { put("source_window", it) }
+            if (window != null) {
+                put("source_window", window)
+            } else {
+                val first = candidates.firstOrNull()?.let { entries[JsonPrimitive(it)] }
+                if (first != null) {
+                    put(
+                        "next_read",
+                        buildJsonObject {
+                            put("path", first.getValue("path"))
+                            put("blob_sha", first.getValue("sha"))
+                            put("commit_sha", context.commitSha)
+                            val path = (first["path"] as JsonPrimitive).content
+                            GitHubTaskContextBundle.requestedLine(path, query) { false }?.let { put("start_line", it) }
+                        }
+                    )
+                }
+            }
         }
     }
 

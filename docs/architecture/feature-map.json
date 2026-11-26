@@ -3094,9 +3094,9 @@
       "sha256": "9dba1c88cb50eb9aac40e7abff01fcb365f9b68095b4e7f36ea1bfa03b3541bd"
     },
     ".github/workflows/speech-engine-smoke.yml": {
-      "blob_sha": "d58f1bb8b90346d2b83ff5abf6950e931b48fd4c",
-      "bytes": 11002,
-      "sha256": "6ca95edafbdfebd5db3a4e6b3a7532f0d69e9368613082b0199a79d0233f6675"
+      "blob_sha": "0db1c6225cf4c44b6696819364880273307937db",
+      "bytes": 10081,
+      "sha256": "460b3f8113365c1fe07c1426d7f6b792f90625a9d8f85478c00a892b1f5e5c4c"
     },
     ".gitleaks.toml": {
       "blob_sha": "5def26758827193627b0263eaf561ddae55898a8",
@@ -6754,9 +6754,9 @@
       "sha256": "11e8309a920ad344493cd7d6c220b893d2139dab2c0b18a1fcaf0ca7c1bac12c"
     },
     "docs/repairs/github-mode-intelligence-2026-11-26.md": {
-      "blob_sha": "2a411ca89cc5efd29bc8a4b90f7d36b08acd2ed0",
-      "bytes": 14811,
-      "sha256": "208558bebdc2b6837a0325db0dc5f4dbd16aea10756952d3b89fd553275120fe"
+      "blob_sha": "2c1884a236603412489f7181ed6075e77313541d",
+      "bytes": 15202,
+      "sha256": "4bf315eda7a8cf66468478515fc276ecba5aee143b750300abc9da8b172e7c38"
     },
     "docs/repairs/github-progress-source-identity-2026-11-24-task.json": {
       "blob_sha": "416586638daafdfd3d121ca7920598d545479a5c",

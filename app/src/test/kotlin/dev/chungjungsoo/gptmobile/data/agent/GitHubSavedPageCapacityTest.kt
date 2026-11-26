@@ -29,7 +29,7 @@ class GitHubSavedPageCapacityTest {
             "private-unknown-tool" to null,
             "github_context_private-route" to null
         )) {
-            val call = AgentToolCall("private-call-id", name, buildJsonObject { put("query", "private source text") })
+            val call = ProviderEvent.ToolCall("private-call-id", name, buildJsonObject { put("query", "private source text") })
             val details = buildJsonObject { replaySource(listOf(AgentToolExchange(listOf(call), emptyList())), call.callId) }
             assertEquals("name=$name", operation?.let(::JsonPrimitive), details["operation"])
             assertNotNull(details["replay_call_hash"])

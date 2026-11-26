@@ -4582,9 +4582,9 @@
       "sha256": "857dd9dd98f0b78a9feeae219c53cc6f7378d34ae41d93abb30d70bdbf3dd13b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt": {
-      "blob_sha": "5ec94d05a8edac98dde3703f4355df01fcd3d141",
-      "bytes": 42848,
-      "sha256": "6afe9b43be80607815fd0e5c2ef42e2c8615f1a6fa1a89d4e1213e2e8dd33d2c"
+      "blob_sha": "d38bedb875b1e61413660c8d4a85439a3c24a5b9",
+      "bytes": 42857,
+      "sha256": "7909aa8b36bf516225a6d8e2c58c1252acf77aa0aa0859d8182415abf1ea71aa"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubStatusCatalogTest.kt": {
       "blob_sha": "bfc0dd34bb46b9fdda56bd5573050cc525756e6c",

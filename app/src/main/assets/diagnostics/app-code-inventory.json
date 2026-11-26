@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "61b9a67325c616b0228328890e80a88f11d6479bf0da643b841f054f3da915ba",
+  "source_digest": "66403f957061b4fd37ff1d461ea080b1b4985f7fd0e0fed39ae93e23e1a858ae",
   "file_count": 3168,
-  "indexed_line_count": 541821,
+  "indexed_line_count": 541862,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 262,
-      "indexed_line_count": 47192
+      "indexed_line_count": 47233
     },
     {
       "id": "agent_tools",
@@ -823,8 +823,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "ab6b5a7413584d6e75b21932667a9b824652873d3bfe400fa294c941c74063bb",
-      "indexed_lines": 3056
+      "sha256": "737312cd2f3d5af1c800c104d2cff0e8e69a737850d820860cde45296b1222db",
+      "indexed_lines": 3097
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",

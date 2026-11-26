@@ -1,3 +1,9 @@
+## Unreleased GitHub and gateway repairs
+
+A repository request in ordinary plugin chat now uses the same target, tool selection and verification policy as GitHub mode. Verified gateways enable engineering by default for new and restored owner connections. The app reserves space for tool results, wakes a sleeping model on its selected route and pauses repeated dispatch after a provider quota denial.
+
+The repository and gateway regressions include simulated transports. Physical handset execution and live side-by-side model quality have not been measured for these changes. Provider quota and explicit reasoning-off support depend on the selected backend.
+
 # Android 0.9.66.17 — repository intelligence, private dispatch and voice
 
 Android build **151** and Windows Gateway **18.1.4** use the Gateway 18 contract.

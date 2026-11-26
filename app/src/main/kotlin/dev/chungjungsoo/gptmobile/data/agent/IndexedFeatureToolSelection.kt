@@ -16,9 +16,11 @@ internal class IndexedFeatureToolSelection(query: String, original: String = que
         val request = normalize(query)
         val task = if (query == original) request else normalize(original)
         for ((id, labels) in productLabels) {
-            if (labels.any { label -> declinedPhrases.any { prefix -> "$prefix$label " in task || "$prefix$label " in request } }) {
+            val mentioned = labels.filter { " $it " in request || (task !== request && " $it " in task) }
+            if (mentioned.isEmpty()) continue
+            if (mentioned.any { label -> declinedPhrases.any { prefix -> "$prefix$label " in task || "$prefix$label " in request } }) {
                 excluded += id
-            } else if (labels.any { label ->
+            } else if (mentioned.any { label ->
                     " $label " in request && (label !in ambiguousNames || invocationPhrases.any { "$it$label " in request } || " $label plugin " in request)
                 }
             ) {

@@ -128,15 +128,16 @@ class ProgressiveToolCatalog(
             // Keep the first round scoped to the requested reads and preserve authorized discovery.
             window(taskRequired)
         } else if (githubUpfront) {
+            val rankedTask = ranked(task)
             window(
-                implementationTools + candidates.values.filter {
+                implementationTools + rankedTask.filter {
                     !codeResearch &&
                         !integrationPreset &&
                         (initialNames == null || it.name in initialNames) &&
                         (namedProducts?.selects(it) == true || taskFeatureSelection.route(it.name) != null) &&
                         !taskFeatureSelection.declined(it) &&
                         namedProducts?.excludes(it) != true
-                } + taskRequired + ranked(task).filter {
+                } + taskRequired + rankedTask.filter {
                     (initialNames == null || it.name in initialNames) &&
                         !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name))
                 } + if (!codeResearch && taskRequired.none(::isGitHubTool)) {
@@ -1024,7 +1025,12 @@ class ProgressiveToolCatalog(
         val words = Regex("[\\p{L}\\p{N}]+").findAll(needle).map { it.value }.filter { it.length > 2 && it !in STOP_WORDS }.toSet()
         val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query) + if (githubMode && repositoryHint != null) RepositoryToolHint.readOperations else emptySet()
         val features = if (query == taskText) taskFeatureSelection else ReviewedFeatureSelection(query, taskText)
-        val products = if (!githubMode || query == taskText) namedProducts else IndexedFeatureToolSelection(query, taskText)
+        val products = when {
+            !githubMode || scopedRead || integrationPreset -> null
+            query == taskText -> namedProducts
+            GitHubLookupRoute.from(query) != null || dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(query) -> null
+            else -> IndexedFeatureToolSelection(query, taskText)
+        }
         val sourceOnly = githubMode && (codeResearch || repositoryHint != null || dev.chungjungsoo.gptmobile.data.github.GitHubCodeResearch.matches(query))
         return candidates.values.map { tool ->
             val name = tool.name.lowercase(java.util.Locale.ROOT)

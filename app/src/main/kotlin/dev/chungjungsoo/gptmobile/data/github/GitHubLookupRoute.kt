@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+
 /** One read can answer these requests. Discovery remains available for follow-up evidence. */
 internal enum class GitHubLookupRoute(val operation: String, val action: String, val step: String, target: String) {
     ISSUES("github_issue", "list", "list_issues", """(?:(?:open|closed) )?issues"""),
@@ -14,6 +18,20 @@ internal enum class GitHubLookupRoute(val operation: String, val action: String,
     TAGS("github_release", "tags", "list_tags", "tags");
 
     private val targetPattern = Regex(target)
+
+    /** Match an admitted facade or the exact selected read published by an official MCP connection. */
+    fun matchesTool(tool: AgentToolDefinition): Boolean {
+        if (!tool.modelVisible) return false
+        if (GitHubOperationTool.operationName(tool.name) == operation) return true
+        if (AgentToolCapability.GITHUB !in tool.capabilities) return false
+        val remote = tool.name.substringAfterLast("__")
+        if (!GitHubMcpRepositoryTool.isReadOnlyOperation(remote)) return false
+        return when (this) {
+            ISSUE -> remote in setOf("get_issue", "issue_read")
+            PULL_REQUEST -> remote in setOf("get_pull_request", "pull_request_read")
+            else -> remote == step
+        }
+    }
 
     data class Request(
         val route: GitHubLookupRoute,

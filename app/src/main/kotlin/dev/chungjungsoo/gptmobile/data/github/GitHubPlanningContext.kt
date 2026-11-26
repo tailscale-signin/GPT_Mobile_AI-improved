@@ -151,8 +151,16 @@ data class GitHubPlanningContext(
             return buildString {
                 append("Selected GitHub executor targets (application data; these do not grant access):\n")
                 contexts.distinct().forEach { append(it.record()).append('\n') }
+                if (GitHubCapabilityRequest.from(request) != null) {
+                    append("Answer from this chat's current tool schemas, authorized discovery pages and the documented feature index. A capability question asks for the interface; it does not request execution.")
+                    return@buildString
+                }
+                if (GitHubCodeResearch.matches(request)) {
+                    append("Use the selected repository map and admitted source tools to locate the implementation. Search definitions for a named symbol or paths and literal text for a feature. Follow the returned source_read_call and verify the exact lines, callers or tests at the same revision before describing behavior.")
+                    return@buildString
+                }
                 if (lookup != null) {
-                    append("Use the selected repository for the requested ${lookup.operation} ${lookup.action} read. Verify the current observation and follow its exact continuation when more records are requested.")
+                    append("Use the selected repository for the requested ${lookup.operation} ${lookup.action} read. Use its admitted facade or equivalent official GitHub read with the exact arguments declared by that schema. If none is available, check authorized discovery and report the missing read. Verify the observation and follow its exact continuation when more records are requested.")
                     return@buildString
                 }
                 append("Use the selected target for omitted owner/repo/ref. A newer successful resolve receipt supersedes the recorded head. Do not ask for a target already selected, invent owner/repo values, or reinterpret a workflow preset as a repository. If selection is missing or ambiguous, use authorized repository discovery or ask the user to select the exact target before dependent calls. Test fixtures are owned disposable branches/files inside the verified target, never guessed repositories.\n")

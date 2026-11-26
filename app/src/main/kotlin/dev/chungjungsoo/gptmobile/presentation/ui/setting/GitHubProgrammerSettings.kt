@@ -73,7 +73,7 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}, onBatchModes: suspend (String, String) -> Set<String> = { _, _ -> emptySet() }, onAdmissionSetting: (suspend (String, String, GatewayAdmissionSetting?) -> GatewayAdmissionSetting)? = null) {
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}, onBatchModes: suspend (String, String) -> Set<String> = { _, _ -> emptySet() }, onAdmissionSetting: (suspend (String, String, GatewayAdmissionSetting?) -> GatewayAdmissionSetting)? = null, onOpenInventory: (() -> Unit)? = null) {
     var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var controlGateway by remember { mutableStateOf<String?>(null) }
     controlGateway?.let { uid -> GatewayControlSettingsDialog(onDismiss = { controlGateway = null }, initialProfileUid = uid) }
@@ -83,6 +83,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubProfilePicker(state.profiles, state.selectedProfileUid ?: state.profileUid ?: state.profileOverrideUid, onProfile)
         OutlinedButton(onClick = { state.profileUid?.let { inspection = it to false } }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test AI connection") }
+        onOpenInventory?.let { open ->
+            OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_tools_features")) { Text("Tools and features") }
+        }
         onOpenRepositoryMap?.let { open ->
             OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_repository_map")) { Text("Repository map") }
         }

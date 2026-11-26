@@ -59,6 +59,7 @@ object NativeMarketplaceCatalog {
         operations[entry.provider].orEmpty().map { (operation, fields) ->
             AgentToolDefinition(
                 name = "${entry.preset.alias}__$operation",
+                discoveryPresetId = entry.id,
                 description = "${entry.preset.name}: read ${operation.replace('_', ' ')}. " +
                     "One bounded provider request. Use supplied coordinates or location; do not guess the user's location. " +
                     "Missing accessibility, fee and opening information is unknown. ${entry.serviceNotice}",

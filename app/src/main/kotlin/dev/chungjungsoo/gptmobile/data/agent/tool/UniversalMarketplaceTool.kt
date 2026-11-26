@@ -35,7 +35,8 @@ class UniversalMarketplaceTool(
         fun definition() = AgentToolDefinition(
             MarketplaceContract.TOOL,
             "Prepare user-opened Facebook Marketplace, eBay, Craigslist and Kijiji searches locally. Returns search_actions and source statuses; no listings, prices or inventory are retrieved. Filters marked pending must be set on the site. Never claim that these actions are retrieved products. Omitted preferences use visible Marketplace settings.",
-            MarketplaceContract.inputSchema
+            MarketplaceContract.inputSchema,
+            discoveryPresetId = "optional-universal-marketplace"
         )
     }
 }

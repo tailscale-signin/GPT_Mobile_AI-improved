@@ -168,8 +168,21 @@ async def dashboard_snapshot():
 
 @app.get("/gateway/dashboard")
 @app.get("/v1/gateway/dashboard")
-async def mobile_dashboard_snapshot(request: Request):
-    return await asyncio.to_thread(client_snapshot, runtime, service, activity, request.state.principal, device_store)
+async def mobile_dashboard_snapshot(request: Request, inventory_page_size: int | None = None, inventory_cursor: str | None = None, inventory_preview: bool = False):
+    principal = request.state.principal
+    if inventory_page_size is not None or inventory_cursor is not None:
+        if 'tools' not in principal.scopes:
+            raise HTTPException(403, 'Tool discovery requires the tools scope.')
+        from v14.capability_inventory import capability_inventory, InventoryChanged
+        try:
+            page = await asyncio.to_thread(capability_inventory, runtime, activity, principal.id,
+                                           page_size=inventory_page_size, cursor=inventory_cursor)
+        except InventoryChanged as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        return {'capabilityInventory': page}
+    return await asyncio.to_thread(client_snapshot, runtime, service, activity, principal, device_store, inventory_preview=inventory_preview)
 
 
 @app.post("/v1/chat/completions")

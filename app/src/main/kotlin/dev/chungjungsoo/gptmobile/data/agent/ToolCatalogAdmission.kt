@@ -178,7 +178,8 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     var remaining = minOf(budget.available, maxSchemaTokens?.toLong() ?: Long.MAX_VALUE)
     // The native status plan needs every admitted status/health read even when
     // replay grows. Other engineering operations remain staged on demand.
-    val scopedOperations = limits.githubTaskRequest?.let(GitHubLookupRoute::from)?.let { setOf(it.operation) } ?: limits.githubTaskRequest?.takeIf {
+    val lookup = limits.githubTaskRequest?.let(GitHubLookupRoute::from)
+    val scopedOperations = lookup?.let { setOf(it.operation) } ?: limits.githubTaskRequest?.takeIf {
         dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(it) &&
             it.lineSequence().none { line -> line.trim() == "[github-workflow-preset:test_integration]" }
     }?.let(dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest::requiredOperations).orEmpty()
@@ -189,7 +190,8 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     }
     val required = visible.filter { tool ->
         val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
-        val requiredForGitHub = (limits.githubMode || limits.githubTask) && (tool.name == "read_recovery_context" || tool.name == owedOperation || operation in scopedOperations)
+        val requiredForGitHub = (limits.githubMode || limits.githubTask) &&
+            (tool.name == "read_recovery_context" || tool.name == owedOperation || operation in scopedOperations || lookup?.matchesTool(tool) == true)
         val requested = tool.name in explicitlyRequired || operation in explicitlyRequired
         val requiredForRetry = maxSchemaTokens != null && (requested || AgentToolCapability.USER_DECISION in tool.capabilities)
         requiredForGitHub || requiredForRetry
@@ -255,7 +257,8 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
         }
     }
     ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
-    if ((limits.githubMode || limits.githubTask) && !discoveryFits && nextOperation == null && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
+    val lookupAdmitted = lookup != null && required.any(lookup::matchesTool)
+    if ((limits.githubMode || limits.githubTask) && !discoveryFits && nextOperation == null && !lookupAdmitted && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
         val needed = visible.filter { ProgressiveToolCatalog.isGitHubTool(it) || it.name in requiredNames }
         throw GitHubToolContextBudgetException(needed.sumOf { providerSchemaTokens(it, limits.githubMode) }, budget.available, budget).withRequiredSchemas(needed, limits.githubMode)
     }
@@ -323,7 +326,7 @@ internal fun planAuthorizedToolContext(
     }
     val requiredGitHubSchemas = when {
         !requireToolExecution -> emptyList()
-        lookup != null -> advertised.filter { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == lookup.operation }
+        lookup != null -> advertised.filter(lookup::matchesTool)
         scopedGitHubStatus -> advertised.filter {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
         }

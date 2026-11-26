@@ -1,5 +1,6 @@
 """Exact catalog-bound dispatch; display labels and alias prefixes are not owners."""
 import collections
+import copy
 import hashlib
 import json
 import re
@@ -7,9 +8,12 @@ import uuid
 import threading
 from gateway_security import current_device
 from v14.actions import ActionLedger, ActionReplay, ExternalOutcomeUnknown, current_gateway_job_id, current_gateway_tool_call_id, logical_action_id
-from v14.contracts import SchemaValidationError, validate_arguments, validate_schema, compile_schema, model_schema
+from v14.contracts import SchemaValidationError, validate_arguments, compile_schema, model_schema
 from v14.github import ImmutableGitHubReads
 from v14.operations import IMMUTABLE_READ, MUTATION, MUTABLE_READ, operation_class, select_equivalent
+
+
+_COMPILED_SCHEMA_LIMIT = 2048
 
 
 class CatalogBindingError(ValueError):
@@ -22,7 +26,7 @@ def install_exact_routing(runtime):
     immutable_reads = ImmutableGitHubReads()
     runtime.gateway_github_reads = immutable_reads
     original_catalog = runtime.get_all_mcp_tools
-    compiled = {}
+    compiled = collections.OrderedDict()
     state_lock = threading.RLock()
     runtime.gateway_schema_rejections = {}
     runtime.gateway_schema_metrics = {'compiled': 0, 'cacheHits': 0, 'rejected': 0}
@@ -45,6 +49,9 @@ def install_exact_routing(runtime):
         config_revision = revision(servers)
         next_admitted = {}
         with state_lock:
+            # Finish reading the old cache before rotating entries. A full scan of
+            # a catalog just over capacity still hits its previously retained schemas.
+            pending = collections.OrderedDict()
             for item in definitions:
                 if not isinstance(item, dict) or not isinstance(item.get('function'), dict):
                     continue
@@ -58,26 +65,41 @@ def install_exact_routing(runtime):
                 schema = meta.get('inputSchema', fn.get('parameters', {}))
                 if not isinstance(schema, dict):
                     continue
-                key = (config_revision, name, hashlib.sha256(json.dumps(schema,sort_keys=True,separators=(',',':')).encode()).hexdigest())
-                if key not in compiled:
+                # Compilation depends only on the schema. Bind each admitted alias
+                # to its live source, metadata and configuration revision below.
+                key = hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(',', ':')).encode()).digest()
+                if key in compiled:
+                    result = compiled[key]
+                    compiled.move_to_end(key)
+                    runtime.gateway_schema_metrics['cacheHits'] += 1
+                elif key in pending:
+                    result = pending[key]
+                    pending.move_to_end(key)
+                    runtime.gateway_schema_metrics['cacheHits'] += 1
+                else:
                     try:
-                        compiled[key] = (compile_schema(schema), model_schema(schema), None)
+                        result = (compile_schema(schema), model_schema(schema), None)
                         runtime.gateway_schema_metrics['compiled'] += 1
                     except SchemaValidationError as exc:
-                        compiled[key] = (None,None,str(exc))
+                        result = (None, None, str(exc))
                         runtime.gateway_schema_metrics['rejected'] += 1
-                    while len(compiled) > 2048: compiled.pop(next(iter(compiled)))
-                else: runtime.gateway_schema_metrics['cacheHits'] += 1
-                execution, presentation, rejection = compiled[key]
+                    if len(pending) == _COMPILED_SCHEMA_LIMIT:
+                        pending.popitem(last=False)
+                    pending[key] = result
+                execution, presentation, rejection = result
                 if rejection:
                     runtime.gateway_schema_rejections[name] = {'revision':config_revision,'reason':rejection}
                     continue
                 runtime.gateway_schema_rejections.pop(name,None)
                 next_admitted[name] = (execution,config_revision,dict(meta))
-                valid.append(dict(item, function=dict(fn, description=str(fn.get('description',''))[:240], parameters=presentation)))
+                valid.append(dict(item, function=dict(fn, description=str(fn.get('description',''))[:240], parameters=copy.deepcopy(presentation))))
             valid = select_equivalent(valid,runtime.mcp_tool_metadata)
             if revision(runtime.load_mcp_config()) != config_revision:
                 raise CatalogBindingError('Connection revision changed during catalogue compilation')
+            for key, result in pending.items():
+                if len(compiled) == _COMPILED_SCHEMA_LIMIT:
+                    compiled.popitem(last=False)
+                compiled[key] = result
         with runtime.mcp_cache_lock:
             scoped = getattr(getattr(runtime, 'gateway_catalogue', None), 'has_discovery_scope', None)
             if not callable(scoped) or not scoped():

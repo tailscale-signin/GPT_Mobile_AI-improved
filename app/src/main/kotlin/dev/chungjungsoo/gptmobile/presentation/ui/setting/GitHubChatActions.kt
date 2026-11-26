@@ -32,6 +32,7 @@ internal fun GitHubChatActions(
     onOpenChecks: () -> Unit,
     onOpenMap: () -> Unit,
     onReviewChanges: () -> Unit,
+    onOpenInventory: (() -> Unit)? = null,
     taskDetails: @Composable (() -> Unit) -> Unit
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -43,7 +44,7 @@ internal fun GitHubChatActions(
             }
         }
     }
-    if (!repositoryLoaded && !mapAvailable && !hasChanges && !hasTask) return
+    if (!repositoryLoaded && !mapAvailable && !hasChanges && !hasTask && onOpenInventory == null) return
     Box {
         IconButton(onClick = { menuOpen = true }) {
             ThemeIcon(Icons.Rounded.MoreVert, "GitHub chat actions")
@@ -53,6 +54,7 @@ internal fun GitHubChatActions(
                 if (hasChanges) add("Review changes" to onReviewChanges)
                 if (hasTask) add("Task details" to { detailsOpen = true })
                 if (mapAvailable) add("Repository map" to onOpenMap)
+                onOpenInventory?.let { add("Tools and features" to it) }
                 if (repositoryLoaded) {
                     add("Repository files" to onBrowseFiles)
                     add("Checks & builds" to onOpenChecks)

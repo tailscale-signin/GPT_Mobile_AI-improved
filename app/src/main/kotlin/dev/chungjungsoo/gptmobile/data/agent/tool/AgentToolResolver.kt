@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.IndexedFeatureToolSelection
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
 import dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient
@@ -14,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityRequest
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
@@ -505,19 +507,28 @@ class AgentToolResolver @Inject constructor(
             val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             val discoveryTask = query.ifBlank { catalogTask }
             val githubDiscovery = isGitHubTask(discoveryTask)
+            val products = if (chatToolConfig?.github != null) IndexedFeatureToolSelection(discoveryTask, catalogTask) else null
             val words = Regex("[\\p{L}\\p{N}]+").findAll(discoveryTask.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (githubDiscovery) setOf("github", "git") else emptySet()
             // Recheck the same provenance decision before network discovery as well as
             // before execution. Repeating a tool name cannot reveal a policy-hidden tool.
             val targets = coldBindings.filter { it in currentBindings && pluginEnabledForBinding(live, profileUid, it) && discoveryAllowed(it) }
                 .groupBy { it.binding.connectionUid }
                 .values.filter { group ->
-                    !githubDiscovery ||
-                        group.any { item ->
-                            item.binding.toolName in names ||
-                                names.any { it.endsWith("__" + item.binding.toolName) } ||
-                                GitHubOperationTool.operationName(item.binding.toolName) != null ||
-                                Regex("(?i)github|gitmcp").containsMatchIn(item.binding.toolName + " " + item.connection?.name)
-                        }
+                    val presetId = group.first().connection?.takeIf { it.marketplaceOrigin == "MARKETPLACE" }?.marketplaceProviderId
+                    products?.excludesPreset(presetId) != true &&
+                        (
+                            products?.selectsPreset(presetId) == true ||
+                                (!githubDiscovery && products?.hasNamedProduct != true) ||
+                                group.any { item ->
+                                    item.binding.toolName in names ||
+                                        names.any { it.endsWith("__" + item.binding.toolName) } ||
+                                        githubDiscovery &&
+                                        (
+                                            GitHubOperationTool.operationName(item.binding.toolName) != null ||
+                                                Regex("(?i)github|gitmcp").containsMatchIn(item.binding.toolName + " " + item.connection?.name)
+                                            )
+                                }
+                            )
                 }.filter { group ->
                     val uid = requireNotNull(group.first().connection).connectionUid
                     // A background producer may finish after the interactive wait.
@@ -526,8 +537,10 @@ class AgentToolResolver @Inject constructor(
                     attemptedConnections[uid] != mcpClientManager.catalogueDiscovery(uid).revision
                 }
                 .sortedByDescending { group ->
-                    group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
-                        words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
+                    val connection = group.first().connection
+                    val namedProduct = connection?.marketplaceOrigin == "MARKETPLACE" && products?.selectsPreset(connection.marketplaceProviderId) == true
+                    group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 1_000 +
+                        (if (namedProduct) 500 else 0) + words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
                 }.take(4)
             val loaded = coroutineScope {
                 targets.map { group ->
@@ -559,6 +572,7 @@ class AgentToolResolver @Inject constructor(
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
                 discovered[next.modelToolName] = next
             }
+            dev.chungjungsoo.gptmobile.data.agent.GitHubToolInventory.recordDiscovered(userMessage?.chatId, chatToolConfig?.github, admitted)
             aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
         }, acquisitionState = acquisitionState, githubMode = chatToolConfig?.github != null)
         return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
@@ -1743,13 +1757,14 @@ class AgentToolResolver @Inject constructor(
         if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(message.content).conversational) return message
         // The workspace prompt includes general engineering tool names. It must not
         // turn the current user's bounded status request into a source/write task.
-        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(message.content) || GitHubLookupRoute.from(message.content) != null) return message
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(message.content) || GitHubLookupRoute.from(message.content) != null || GitHubCapabilityRequest.preserveCatalogQuery(message.content) || IndexedFeatureToolSelection(message.content).hasNamedProduct) return message
         return message.copy(content = context.promptContext(message.content) + "\n\n" + message.content)
     }
 
     private suspend fun githubCatalogTask(profileUid: String, userMessage: MessageV2?, selectedRepository: Boolean): String {
         val task = userMessage?.content.orEmpty()
         if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(task).intent != "SUBSTANTIVE") return task
+        if (GitHubCapabilityRequest.from(task) != null || selectedRepository && IndexedFeatureToolSelection(task).hasNamedProduct) return task.trim().take(4096)
         val store = gitHubRepositoryState
         val scope = "intent:$profileUid:${userMessage?.chatId ?: 0}"
         val temporary = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == true } == true
@@ -1769,7 +1784,7 @@ class AgentToolResolver @Inject constructor(
         val capabilities = GitHubOperationTool.taskTools(selectedTask)
         // Capability prefixes preserve long engineering tasks, but would hide a
         // short status intent from the catalogue's request-start matcher.
-        val selected = if (capabilities.isEmpty() || dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(selectedTask) || GitHubLookupRoute.from(selectedTask) != null) {
+        val selected = if (capabilities.isEmpty() || dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(selectedTask) || GitHubLookupRoute.from(selectedTask) != null || GitHubCapabilityRequest.preserveCatalogQuery(selectedTask)) {
             selectedTask.take(4096)
         } else {
             (capabilities.joinToString(" ") + "\n" + selectedTask).take(4096)
@@ -1863,11 +1878,12 @@ class AgentToolResolver @Inject constructor(
         workspaceContext: GitHubConversationContext? = null
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
+        val inventoryOnly = workspaceContext != null && GitHubCapabilityRequest.from(userMessage?.content.orEmpty()) != null
         val remoteTools = GitHubProviderPolicy.acquireCatalog(
             connection,
             selectedNames,
-            workspaceContext != null,
-            cachedOnly,
+            githubMode = workspaceContext != null && !inventoryOnly,
+            cachedOnly = cachedOnly || inventoryOnly,
             cached = { mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() },
             discover = { awaitCompletion -> discoverMcpTools(connection, awaitCompletion = awaitCompletion, passiveBackoff = !awaitCompletion) }
         )
@@ -1899,7 +1915,9 @@ class AgentToolResolver @Inject constructor(
                     remoteTool.name in connection.approvedReadTools.lines().map(String::trim)
                 }
                 val tool = McpAgentTool(
-                    definition = GitHubProviderPolicy.definition(connection, mcpToolDefinition(connection.alias, remoteTool)),
+                    definition = GitHubProviderPolicy.definition(connection, mcpToolDefinition(connection.alias, remoteTool)).copy(
+                        discoveryPresetId = connection.marketplaceProviderId.takeIf { connection.marketplaceOrigin == "MARKETPLACE" }
+                    ),
                     authType = connection.authType,
                     connectionUid = connection.connectionUid,
                     config = { forceRefresh, rejectedHeader ->

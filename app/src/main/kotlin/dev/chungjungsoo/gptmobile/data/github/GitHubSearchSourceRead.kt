@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Search receipts identify source paths; their ev_ IDs are not native source-store handles. */
@@ -17,7 +18,9 @@ internal object GitHubSearchSourceRead {
     private val sha = Regex("[a-fA-F0-9]{40}")
 
     /** A bounded next read uses only paths actually returned at the search's immutable commit. */
-    fun recipe(readTool: String, arguments: JsonObject, result: JsonObject): JsonObject? {
+    fun recipe(readTool: String, arguments: JsonObject, result: JsonObject): JsonObject? = recipe(readTool, arguments, result, useHitLines = true)
+
+    private fun recipe(readTool: String, arguments: JsonObject, result: JsonObject, useHitLines: Boolean): JsonObject? {
         val owner = arguments.text("owner").takeIf(String::isNotBlank) ?: return null
         val repo = arguments.text("repo").takeIf(String::isNotBlank) ?: return null
         val source = GitHubSemanticSummary.data(result)
@@ -25,6 +28,24 @@ internal object GitHubSearchSourceRead {
         if ("commit_sha" in arguments && !arguments.text("commit_sha").equals(commit, true)) return null
         val paths = observedPaths(source) ?: return null
         if (paths.isEmpty()) return null
+        val rangesByPath = paths.entries.take(8).map { (path, observation) ->
+            val starts = mutableListOf<Int>()
+            if (useHitLines) {
+                for (line in observation.lines.sorted()) {
+                    if (starts.isEmpty() || line.toLong() - starts.last() >= MATCH_WINDOW_LINES) starts += line
+                }
+            }
+            val count = if (starts.isEmpty()) 200 else MATCH_WINDOW_LINES
+            starts.ifEmpty { listOf(1) }.map { start ->
+                buildJsonObject {
+                    put("path", path)
+                    put("start_line", start)
+                    put("max_lines", count)
+                }
+            }
+        }
+        // Cover one observation per file before assigning spare slots to distant hits.
+        val ranges = rangesByPath.map { it.first() } + rangesByPath.flatMap { it.drop(1) }
         return buildJsonObject {
             put("tool", readTool)
             put(
@@ -33,18 +54,7 @@ internal object GitHubSearchSourceRead {
                     put("owner", owner)
                     put("repo", repo)
                     put("commit_sha", commit)
-                    put(
-                        "ranges",
-                        JsonArray(
-                            paths.keys.take(8).map { path ->
-                                buildJsonObject {
-                                    put("path", path)
-                                    put("start_line", 1)
-                                    put("max_lines", 200)
-                                }
-                            }
-                        )
-                    )
+                    put("ranges", JsonArray(ranges.take(8)))
                 }
             )
         }
@@ -86,7 +96,9 @@ internal object GitHubSearchSourceRead {
             return null
         }
         val bound = JsonObject(original + mapOf("owner" to JsonPrimitive(owner), "repo" to JsonPrimitive(repo)))
-        if (issued != recipe(readName, bound, source) || GitHubOperationArguments.errors("github_read", args).isNotEmpty()) return null
+        // Previously saved search receipts issued a first-page read even for a line hit.
+        if (issued != recipe(readName, bound, source) && issued != recipe(readName, bound, source, useHitLines = false)) return null
+        if (GitHubOperationArguments.errors("github_read", args).isNotEmpty()) return null
         val reader = tools.singleOrNull { it.name == readName && it.modelVisible }
         val definition = reader ?: authorized.singleOrNull { it.name == readName && it.modelVisible } ?: return null
         if (ToolArgumentValidator.errors(args, definition.inputSchema).isNotEmpty()) return null
@@ -159,16 +171,23 @@ internal object GitHubSearchSourceRead {
         return original.copy(arguments = corrected)
     }
 
-    private fun observedPaths(source: JsonObject): Map<String, String>? {
+    private const val MATCH_WINDOW_LINES = 32
+    private data class SearchFile(val blob: String, val lines: MutableSet<Int> = linkedSetOf())
+
+    private fun observedPaths(source: JsonObject): Map<String, SearchFile>? {
         val items = source["items"] as? JsonArray ?: return null
-        val paths = linkedMapOf<String, String>()
+        val paths = linkedMapOf<String, SearchFile>()
         for (item in items) {
             val row = item as? JsonObject ?: continue
             val path = row.text("path")
             val blob = row.text("sha")
             if (!sha.matches(blob) || path.isBlank() || path.startsWith('/') || '\\' in path || '\u0000' in path || path.split('/').any { it in setOf("", ".", "..") }) continue
-            val previous = paths.put(path, blob)
-            if (previous != null && previous != blob) return null
+            val file = paths.getOrPut(path) { SearchFile(blob) }
+            if (file.blob != blob) return null
+            for (match in (row["matches"] as? JsonArray).orEmpty().take(10)) {
+                val line = ((match as? JsonObject)?.get("line") as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                if (line != null && line > 0 && file.lines.size < 10) file.lines += line
+            }
         }
         return paths
     }

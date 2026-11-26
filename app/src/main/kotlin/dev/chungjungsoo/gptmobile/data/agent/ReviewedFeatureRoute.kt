@@ -21,8 +21,11 @@ internal class ReviewedFeatureSelection(request: String, originalRequest: String
         for (route in reviewedFeatureRoutes) {
             if (route.exclusions.any { " $it " in original || " $it " in query }) {
                 declined.addAll(route.tools)
-            } else if (route.triggers.any { " $it " in query }) {
-                for (tool in route.tools) selected[tool] = route
+            } else {
+                val feature = indexedRoutes[route.id] ?: continue
+                if (route.triggers.any { " $it " in query } || normalize(feature.title) in query) {
+                    for (tool in feature.tools) if (tool in route.tools) selected[tool] = route
+                }
             }
         }
     }
@@ -36,6 +39,7 @@ internal class ReviewedFeatureSelection(request: String, originalRequest: String
             AgentToolCapability.PAGE_READER in tool.capabilities
 
     private companion object {
+        val indexedRoutes = reviewedAppFeatures.filter { it.tools.isNotEmpty() }.associateBy { it.id }
         val separator = Regex("[^\\p{L}\\p{N}]+")
         fun normalize(value: String): String = " " + separator.replace(value.take(8000).lowercase(Locale.ROOT), " ").trim() + " "
     }

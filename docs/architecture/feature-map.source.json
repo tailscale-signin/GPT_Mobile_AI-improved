@@ -45,7 +45,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCache.kt",
         "gateway/v14/code_graph/jvm_impact.py",
         "scripts/jvm/CompilerCalls.java",
-        "scripts/build_jvm_call_index.py"
+        "scripts/build_jvm_call_index.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLink.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceRead.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt",
@@ -72,7 +74,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphLocalFailureTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCacheTest.kt",
-        "gateway/tests/test_gateway_jvm_impact.py"
+        "gateway/tests/test_gateway_jvm_impact.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceReadTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -1982,7 +1986,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPrimaryPatchReviewTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt",
         "gateway/tests/test_gateway_v14_code_graph.py",
-        "gateway/tests/test_gateway_v14_engineering_backend.py"
+        "gateway/tests/test_gateway_v14_engineering_backend.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubStatusCatalogTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
@@ -2641,11 +2648,21 @@
         "external connection"
       ],
       "paths": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModel.kt",
+        "gateway/v14/capability_inventory.py",
+        "gateway/v14/tools.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IndexedFeatureToolSelection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceCatalog.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapperTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardClientTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModelTest.kt",
+        "gateway/tests/test_gateway_dashboard.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IndexedFeatureToolSelectionTest.kt"
       ],
       "commands": [],
       "documents": [],
@@ -2751,7 +2768,13 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/TaskRecoveryAction.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptDao.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptDao.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityRequest.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityAnswer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubInventoryPresentation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubToolInventorySheet.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventory.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspacePickerTest.kt",
@@ -2766,7 +2789,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/TaskRecoveryActionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestedBehaviorTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryToolTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptContinuationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptContinuationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityRequestTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubInventoryPresentationTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md"

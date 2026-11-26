@@ -167,13 +167,25 @@ Each feature's `terms` select relevant work. Its `routing` record identifies the
 owner's production entry point, role, expected proof, live admission condition,
 decline behavior, and two test cases for normal and adverse outcomes. Generation
 checks that every stable built-in plugin has a classification and every referenced
-case exists. The Android catalog uses its compiled subset to prioritize matching
-tools among the schemas already admitted for a conversation. Explicit exclusions
+case exists. GitHub chat and ordinary chat use the reviewed feature routes to prioritize
+matching tools among the schemas already admitted for a conversation. Explicit exclusions
 deprioritize the matching automatic routes. External MCP and marketplace tools
 retain their runtime identities and schema versions. The Gateway inventory joins
 discovered tools to the external connections feature and withholds revoked sources.
 GitHub source preparation can prioritize the entry point and expose the expected
 proof only when all feature references match the selected tree.
+
+In GitHub chat, open **Tools and features** or ask “What tools can you use in
+this chat?” to inspect the available schemas. “List all tools and features”
+also includes documented tools, app settings, integrated plugins and connection
+presets. “List features matching voice” narrows the results. For a task that
+names a product such as Ticketmaster, discovery can rank schemas associated
+with that product’s configured integration. The panel labels
+the latest chat observation and the selected Gateway connection separately.
+Selecting a catalog entry does not enable the feature or grant access. The
+executor checks the selected repository, profile and permissions when an action
+runs. A matching code-search line leads to a bounded source read at the pinned
+revision before the answer cites it.
 
 Reference commands are suggestions. Runtime retrieval validates referenced blob
 identities and excludes stale claims. It does not execute these commands or treat

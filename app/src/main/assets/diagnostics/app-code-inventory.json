@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "01ea56b6b8485766814708f2819183944c6c72fba74b63ebef3b5ca7904125b5",
+  "source_digest": "f7757bb3a0f3f2e4dbb88714f20d13ef45143f08730fd4790160a1433240912a",
   "file_count": 3205,
-  "indexed_line_count": 549785,
+  "indexed_line_count": 549820,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -125,7 +125,7 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 111,
-      "indexed_line_count": 15225
+      "indexed_line_count": 15243
     },
     {
       "id": "diagnostics_and_export",
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 153,
-      "indexed_line_count": 26943
+      "indexed_line_count": 26960
     },
     {
       "id": "portable_domain",
@@ -12247,8 +12247,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "8e4a2f6c9fd6e665a0c12b1a9f6e8356234c47f724b137cfdd823eafcb0f30e1",
-      "indexed_lines": 200
+      "sha256": "e9bce47ada242d806f18cfa5353b6a432a7ddb4969c32dd606893e01652f0c60",
+      "indexed_lines": 218
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AttachmentUploadCoordinator.kt",
@@ -13542,8 +13542,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "5c5f373c353f223ab1c7350154f9bd93072d783370f50ecdcf888b2dc7d0bfb7",
-      "indexed_lines": 951
+      "sha256": "d3e9ba5fc6495c5a70b2bb268437cbec3affb0cc88a0211fef0239e7b1ff55a9",
+      "indexed_lines": 968
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",

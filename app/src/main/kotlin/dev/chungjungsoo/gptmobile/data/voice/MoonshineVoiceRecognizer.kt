@@ -756,6 +756,7 @@ internal class AndroidVoiceCapture(
     override fun recycle(samples: FloatArray) = pool.release(samples)
     private var filled = 0
     private var capturedSamples = 0L
+    private var waitedForInputRoute = false
 
     @Volatile private var stopped = false
 
@@ -836,14 +837,14 @@ internal class AndroidVoiceCapture(
         }
         if (stopped) return@synchronized
         if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw captureFailure(record, "MICROPHONE_NOT_RECORDING", "capture_start", "The microphone did not start recording. Check microphone access.", retryable = true)
-        requireCaptureNotSilenced(record, "capture_start")
+        requireCaptureNotSilenced(record, "capture_start", beforeRead = true)
     }
 
     override fun read(): FloatArray {
         if (focusLost) throw focusLostFailure()
         if (stopped) return FloatArray(0)
         val record = synchronized(lock) { recorder } ?: return FloatArray(0)
-        requireCaptureNotSilenced(record, "capture_read")
+        requireCaptureNotSilenced(record, "capture_read", beforeRead = true)
         if (stopped) return FloatArray(0)
         val count = record.read(buffer, filled, buffer.size - filled, AudioRecord.READ_NON_BLOCKING)
         val observedCount = count.coerceIn(0, buffer.size - filled)
@@ -879,11 +880,27 @@ internal class AndroidVoiceCapture(
         return FloatArray(count) { index -> buffer[index] / 32768f }
     }
 
-    private fun requireCaptureNotSilenced(record: AudioRecord, phase: String) {
+    private fun requireCaptureNotSilenced(record: AudioRecord, phase: String, beforeRead: Boolean = false) {
         // A missing configuration is unknown, not evidence of permission or silencing.
         val silenced = record.activeRecordingConfiguration?.isClientSilenced
         if (!stopped && silenced != null) diagnosticProbe?.inputSilenced(silenced)
         if (silenced != true || stopped) return
+        // Android can briefly silence a newly opened input while it transfers the normal
+        // recording route. Keep the same recorder and wait once, before reading any PCM.
+        if (beforeRead && !waitedForInputRoute && capturedSamples == 0L &&
+            manager?.mode == AudioManager.MODE_NORMAL && !manager.isMicrophoneMute
+        ) {
+            waitedForInputRoute = true
+            repeat(8) {
+                if (stopped) return
+                Thread.sleep(25)
+                if (stopped) return
+                if (record.activeRecordingConfiguration?.isClientSilenced == false) {
+                    diagnosticProbe?.inputSilenced(false)
+                    return
+                }
+            }
+        }
         diagnosticProbe?.captureSilenced(
             phase.uppercase(java.util.Locale.ROOT),
             runCatching { manager?.isMicrophoneMute }.getOrNull(),

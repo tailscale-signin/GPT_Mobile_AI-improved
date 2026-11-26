@@ -4,8 +4,11 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.SearchTransportFailure
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes
+import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -110,13 +113,19 @@ internal object AppAssistedSearch {
         }
         val call = ProviderEvent.ToolCall("$runId:app-search", search.modelToolName, arguments)
         emit(ApiState.Notice("Search assisted by app · checking this profile's authorized engines.", true))
-        emit(ApiState.ToolCall(trace.start(call).sequence))
+        val started = trace.start(call)
+        emit(ApiState.ToolCall(started.sequence))
         val result = try {
             search.tool.execute(call.callId, arguments)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            AgentToolResult(call.callId, ToolResultContent.Text(error.message ?: "Search unavailable"), true)
+            val failure = SearchTransportFailure.from(error)
+            if (IssueReportCodes.toolResult(failure.code) == "DNS_RESOLUTION_FAILED") {
+                AgentToolResult(call.callId, ToolResultContent.Text(failure.message), true, errorCode = failure.code, dispatched = false)
+            } else {
+                AgentToolResult(call.callId, ToolResultContent.Text(error.message ?: "Search unavailable"), true)
+            }
         }
         trace.finish(call, result)?.let { emit(it) }
         val sources = (((result.content as? ToolResultContent.Json)?.value as? JsonObject)?.get("results") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
@@ -124,14 +133,23 @@ internal object AppAssistedSearch {
         state?.sourceCount = usable.size
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Search", "APP_SEARCH_OUTCOME · run=$runId · dispatched=${result.dispatched} · sources=${usable.size} · task=${if (usable.isEmpty()) "UNAVAILABLE" else "EVIDENCE_ACQUIRED"}")
         if (usable.isEmpty()) {
+            val code = if (result.isError) IssueReportCodes.known(ToolReportDiagnostics.reportCode(started, result)) else null
+            val dns = code == "DNS_RESOLUTION_FAILED"
             emit(
                 ApiState.Error(
-                    "Web search returned no usable sources. Check the search result for engine errors before retrying.",
-                    errorCode = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.known(result.errorCode) ?: "SOURCE_UNAVAILABLE",
+                    if (dns) "The search service hostname could not be resolved. Retry when the connection is available." else "Web search returned no usable sources. Check the search result for engine errors before retrying.",
+                    errorCode = code ?: "SOURCE_UNAVAILABLE",
                     failureDetails = buildJsonObject {
-                        put("failed_stage", if (result.dispatched) "tool_execution" else "tool_precheck")
+                        val stage = when {
+                            dns && result.errorCode == "DNS_RECOVERY" -> "connection_preflight"
+                            dns -> "dns_resolution"
+                            result.dispatched -> "tool_execution"
+                            else -> "tool_precheck"
+                        }
+                        put("failed_stage", stage)
                         put("operation", "web_search")
                         if (!result.dispatched) put("dispatched", false)
+                        if (dns) put("retryable", true)
                     }
                 )
             )

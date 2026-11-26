@@ -274,6 +274,36 @@ class AndroidVoiceCaptureTest {
         verify(fixture.record).release()
     }
 
+    @Test fun inputRouteCanRecoverBeforeTheFirstReadWithoutRecreatingTheRecorder() {
+        val fixture = Fixture(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        try {
+            fixture.capture.start()
+            var observations = 0
+            fixture.observeSilence = { ++observations == 1 }
+            assertArrayEquals(FloatArray(1600) { .5f }, fixture.capture.read(), 0f)
+            assertEquals(1, fixture.recorderCreations)
+            verify(fixture.record, never()).stop()
+        } finally {
+            fixture.capture.close()
+        }
+    }
+
+    @Test fun stoppingWhileTheInputRouteIsSettlingDoesNotReadAudio() {
+        val fixture = Fixture(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        try {
+            fixture.capture.start()
+            var observations = 0
+            fixture.observeSilence = {
+                if (++observations == 2) fixture.capture.stop()
+                true
+            }
+            assertTrue(fixture.capture.read().isEmpty())
+            verify(fixture.record, never()).read(any(ShortArray::class.java), anyInt(), anyInt(), anyInt())
+        } finally {
+            fixture.capture.close()
+        }
+    }
+
     @Test fun inputSilencedDuringReadNeverReachesTheSpeechDecoder() {
         val fixture = Fixture()
         val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
@@ -347,6 +377,7 @@ class AndroidVoiceCaptureTest {
         private val configuration = mock(AudioRecordingConfiguration::class.java)
         var recorderCreations = 0
         var silenced = false
+        var observeSilence: (() -> Boolean)? = null
         var beforeRead: (() -> Unit)? = null
         private var recording = false
         val capture = AndroidVoiceCapture(context, manager, { 3200 }) {
@@ -361,7 +392,7 @@ class AndroidVoiceCaptureTest {
             `when`(record.state).thenReturn(AudioRecord.STATE_INITIALIZED)
             `when`(record.recordingState).thenAnswer { if (recording) AudioRecord.RECORDSTATE_RECORDING else AudioRecord.RECORDSTATE_STOPPED }
             `when`(record.activeRecordingConfiguration).thenReturn(configuration)
-            `when`(configuration.isClientSilenced).thenAnswer { silenced }
+            `when`(configuration.isClientSilenced).thenAnswer { observeSilence?.invoke() ?: silenced }
             doAnswer {
                 recording = true
                 null

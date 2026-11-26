@@ -135,6 +135,32 @@ class AppAssistedSearchTest {
         assertFalse(events.any { it is ApiState.Error })
     }
 
+    @Test fun dnsFailureAndConnectivityPrecheckRetainTheToolCauseAtTheChatBoundary() = runBlocking {
+        for ((code, phase) in listOf("DNS_FAILED" to "dns_resolution", "DNS_RECOVERY" to "connection_preflight", "THROWN" to "dns_resolution")) {
+            val tool = mockk<dev.chungjungsoo.gptmobile.data.agent.AgentTool>()
+            io.mockk.coEvery { tool.execute(any(), any()) } coAnswers {
+                if (code == "THROWN") throw java.net.UnknownHostException("Search service unavailable")
+                dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(firstArg(), code, "Search unavailable")
+            }
+            val trace = mockk<ToolTraceSession>()
+            val started = mockk<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent>(relaxed = true)
+            io.mockk.every { started.callId } returns "run:app-search"
+            io.mockk.every { started.modelToolName } returns "web_search"
+            io.mockk.coEvery { trace.start(any()) } returns started
+            io.mockk.coEvery { trace.finish(any(), any()) } returns ApiState.ToolCall(0)
+            val events = mutableListOf<ApiState>()
+            val resolved = dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(tool, null, "Search", "web_search", "web_search")
+            val result = AppAssistedSearch.prepare(listOf(MessageV2(content = "Search online for Orion", platformType = null)), listOf(resolved), trace, "run", 2200, events::add)
+            val failure = events.filterIsInstance<ApiState.Error>().single()
+            assertEquals(null, result)
+            assertEquals("DNS_RESOLUTION_FAILED", failure.errorCode)
+            assertEquals(JsonPrimitive(phase), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+            assertEquals(JsonPrimitive(true), failure.failureDetails?.get("retryable"))
+            io.mockk.coVerify(exactly = 1) { tool.execute(any(), any()) }
+        }
+    }
+
     @Test fun compactPacketPreservesWholeUrlsAndMarksSnippetsUntrusted() {
         val sources = (1..20).map {
             buildJsonObject {

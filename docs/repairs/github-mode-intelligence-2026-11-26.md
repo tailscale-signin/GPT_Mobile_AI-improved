@@ -169,3 +169,12 @@ the local-owner snapshot once, then measured `ControlStore.schema` and
 `ControlStore._snapshot` together on the same connection using `set_trace_callback`
 and the `total_changes` delta. These counts cover the store work underlying
 `GET /gateway/settings`. HTTP authentication and model inference run separately.
+
+## Handset reports from build 152
+
+| Reports | Action and verification |
+| --- | --- |
+| #2652, #2656 | Verified that an OpenAI quota error inside an HTTP 200 stream and the subsequent account precheck retain the affected profile's billing recovery action. The application preserves other replies and tools. Restoring the provider allowance requires an account or configuration change. |
+| #2653–#2655 | Each foreground capture had permission and audio focus, reported a normal audio route and an unmuted system microphone, and received zero samples. Allow the initially silenced input up to 200 ms to settle on the same recorder before reading. Cancellation stops the wait. Audio blocked during a read is discarded, and persistent Android input silencing keeps its recovery message. |
+| #2657 | Verified authorized saved-page reopening and the missing-checkpoint path. A matching source can be reopened under the current tool authorization. When the page cannot be recovered, the runner preserves previous work and identifies the missing call and expected body by digest. The report contains no recoverable source body. |
+| #2658–#2661 | Matched each search tool failure with its chat error by run identity. The chat now uses the tool's public DNS cause for both lookup failure and a connectivity precheck. The message gives network recovery guidance and preserves the observed dispatch state. A failed lookup supplies no source evidence. |

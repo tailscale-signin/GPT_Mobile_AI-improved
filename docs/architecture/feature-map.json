@@ -2958,9 +2958,9 @@
       "sha256": "1ca107fddb4acf44eb12e6981fe24dc2a40c25516b0691dc1de102bb3e8ec64d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": {
-      "blob_sha": "2bf50be5cb95ef680244dbfb94693839b4d6619c",
-      "bytes": 70599,
-      "sha256": "234ca3c609ceaa3ef643c14fcdae875496644cacf8e97184ea6c44e4c10f8cce"
+      "blob_sha": "fb147afb950a6597a450ce4bd4166bf18e888def",
+      "bytes": 70686,
+      "sha256": "cb6b63e8ef4c27351eeaeaa45f70545a271147ae9d65c44de1bc5f092b561dc7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitSchedulingResult.kt": {
       "blob_sha": "7e728ba0093826a0d42a695ad02cdc95bef14beb",
@@ -3313,9 +3313,9 @@
       "sha256": "88f585189b817db7e391eaeda7ec413c0fab95ff19277f1eea836723ff2464d8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityRequest.kt": {
-      "blob_sha": "8f508129da75ee7dcbe395ebe9873bc30d18d2dc",
-      "bytes": 5120,
-      "sha256": "e5ebf22e1a35f7fdf7c21676bbcdee6958f4f428db9102c488b26751372f11c4"
+      "blob_sha": "ccbbdebacbd8d70d430115e5350f1083bd08e773",
+      "bytes": 5174,
+      "sha256": "c7f6207c78608c97698d143002883eb4c5c91cfe2dab9ece31002af1b4e91bf0"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatPolicy.kt": {
       "blob_sha": "7b346fe023a600053149c6e1d4c8cfe701362f73",
@@ -4583,9 +4583,9 @@
       "sha256": "91f9f37584f70e0c1d7815fe86ffc92f9dd2af05dee0d319b812eb524719adfb"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IndexedFeatureToolSelectionTest.kt": {
-      "blob_sha": "26c7739e6144cdfe0cdd76cadfd1795a0f416e75",
-      "bytes": 4626,
-      "sha256": "757f4f9f01b5e8194d0293dec03b927c57d359307edc2f80aa16d387118f064f"
+      "blob_sha": "3c39cd2617ca8986de6fd6f2933d585d74432e17",
+      "bytes": 5179,
+      "sha256": "2cc9571698e59c95715484c7a75ce84d3a45e8399ac8b6d00e59094df7af52b4"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt": {
       "blob_sha": "b994cdb7f6485b04c374f1d16648d913dd8ff703",

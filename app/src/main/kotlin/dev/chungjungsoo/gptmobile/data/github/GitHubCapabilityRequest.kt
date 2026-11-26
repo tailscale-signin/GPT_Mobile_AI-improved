@@ -54,7 +54,7 @@ internal data class GitHubCapabilityRequest(
 }
 
 internal object GitHubCodeResearch {
-    private val inquiry = Regex("""(?i)^(?:(?:please |can you |could you |show me |tell me )?)(?:where (?:is|are|does)|how (?:does|do|is|are)|which (?:files?|functions?|classes?|methods?|symbols?)|(?:find|locate|trace) (?:the )?(?:implementation|definition|callers?|references?|call sites?|source code))\b""")
+    private val inquiry = Regex("""(?i)^(?:(?:please |can you |could you |show me |tell me )?)(?:where (?:in (?:this|the|our) (?:repository|repo|codebase) )?(?:is|are|does)|how (?:does|do|is|are)|which (?:files?|functions?|classes?|methods?|symbols?)|(?:find|locate|trace) (?:the )?(?:implementation|definition|callers?|references?|call sites?|source code))\b""")
     private val source = Regex("""(?i)\b(?:implemented|defined|declared|implementation|definition|callers?|call sites?|source code|codebase|wired|wiring|classes?|methods?|functions?|files?|symbols?)\b""")
     private val additionalTask = Regex("""(?i)(?:[?!.;,]\s*|\b(?:and|then|also|before|after)\s+)(?:(?:please|then|now|can you|could you|would you|will you)\s+)*(?:add|create|fix|implement|edit|update|run|build|test|commit|deploy|release|publish|push|merge|delete|change|rename|replace|remove|patch|repair|refactor|search the web|look online)\b""")
 

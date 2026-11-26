@@ -894,8 +894,9 @@ class ProgressiveToolCatalog(
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
         explicitSelections.addAll(explicit.map { it.name })
         val retained = ranked(taskText).filter { it.name in active }
-        val selected = window(explicit + implementationTools + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))
-            .distinctBy { it.name }
+        val eligible = (explicit + implementationTools + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))
+            .filterNot { selectedProducts?.excludes(it) == true }
+        val selected = window(eligible).distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
         explicitSelections.retainAll(active)

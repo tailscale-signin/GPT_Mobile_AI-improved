@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "95fc9d43902ec2efc02d89f4f15f0786b9b6d90b6168e6ce62c57a2327faa158",
+  "source_digest": "97b0832e95d5f2a8ead27584d21e643c2705f0d1117c7b77a0715c765ee3f179",
   "file_count": 3163,
-  "indexed_line_count": 539996,
+  "indexed_line_count": 539997,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 262,
-      "indexed_line_count": 46907
+      "indexed_line_count": 46908
     },
     {
       "id": "agent_tools",
@@ -1866,8 +1866,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "234ca3c609ceaa3ef643c14fcdae875496644cacf8e97184ea6c44e4c10f8cce",
-      "indexed_lines": 1121
+      "sha256": "cb6b63e8ef4c27351eeaeaa45f70545a271147ae9d65c44de1bc5f092b561dc7",
+      "indexed_lines": 1122
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderLimitResumeWorker.kt",
@@ -7298,7 +7298,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityRequest.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e5ebf22e1a35f7fdf7c21676bbcdee6958f4f428db9102c488b26751372f11c4",
+      "sha256": "c7f6207c78608c97698d143002883eb4c5c91cfe2dab9ece31002af1b4e91bf0",
       "indexed_lines": 65
     },
     {

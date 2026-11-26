@@ -52,6 +52,10 @@ class IndexedFeatureToolSelectionTest {
         assertFalse(tickets.name in available(catalog.execute("tickets", buildJsonObject { put("query", "Find Ticketmaster Events") })))
         val exact = available(catalog.execute("exact", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(pretending.name)))) }))
         assertEquals(listOf(pretending.name), exact)
+        val previouslySelected = ProgressiveToolCatalog(all, "Find events with Ticketmaster", githubMode = true)
+        assertTrue(tickets.name in previouslySelected.names(all))
+        previouslySelected.execute("exclude", buildJsonObject { put("query", "Use Mapbox without Ticketmaster") })
+        assertFalse(tickets.name in previouslySelected.names(all))
     }
 
     @Test fun localPluginsMatchExplicitRequestsAndSettingsAndSourceLookupsKeepTheirScope() {
@@ -61,10 +65,10 @@ class IndexedFeatureToolSelectionTest {
         val tickets = native("ticketmaster").single()
         val definitions = listOf(calculator, file, context, tickets)
         assertTrue(IndexedFeatureToolSelection("Use Calculator to check my total").selects(calculator))
-        assertFalse(IndexedFeatureToolSelection("Which files contain this code?").selects(file))
-        assertFalse(IndexedFeatureToolSelection("Change backup and restore settings").hasNamedProduct)
-        assertFalse(IndexedFeatureToolSelection("Read Ticketmaster Events, offline only").selects(tickets))
+        assertFalse("Ordinary file references must not select the Files plugin", IndexedFeatureToolSelection("Which files contain this code?").selects(file))
+        assertFalse("Settings have no tool owner", IndexedFeatureToolSelection("Change backup and restore settings").hasNamedProduct)
+        assertFalse("Offline-only tasks exclude network products", IndexedFeatureToolSelection("Read Ticketmaster Events, offline only").selects(tickets))
         val lookup = ProgressiveToolCatalog(definitions, "Where in this repository is Ticketmaster implemented?", githubMode = true)
-        assertFalse(tickets.name in lookup.names(definitions))
+        assertFalse("Repository code questions retain source discovery", tickets.name in lookup.names(definitions))
     }
 }

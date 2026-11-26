@@ -25,6 +25,17 @@ class GitHubEvidenceLinkTest {
         assertNull(GitHubEvidenceLink.url(base, "/tree_sha", tree, receipt))
     }
 
+    @Test fun fileCitationsForClippedReadsPointOnlyToCapturedLines() {
+        fun link(extra: String): String? {
+            val receipt = json("""{"tool":"github_read","result":{"commit_sha":"$commit","items":[{"path":"src/File.kt","sha":"$blob","start_line":1400,"end_line":1431,"truncated":true$extra}]}}""")
+            return GitHubEvidenceLink.url(base, "/items/0/path", "src/File.kt", receipt)
+        }
+        val file = "$base/blob/$commit/src/File.kt"
+        assertEquals("$file#L1402-L1408", link(""","captured_start_line":1402,"captured_end_line":1408"""))
+        assertEquals(file, link(""","content":"" """))
+        assertEquals(file, link(""","captured_start_line":1402,"captured_end_line":1500"""))
+    }
+
     @Test fun unknownHashesAndUnsafePathsNeverBecomeCommitLinks() {
         val receipt = json("""{"tool":"github_read","result":{"sha":"$blob","digest_sha256":"$blob","items":[{"path":"../private.kt","sha":"$blob","commit_sha":"$commit"}]}}""")
         assertNull(GitHubEvidenceLink.url(base, "/sha", blob, receipt))

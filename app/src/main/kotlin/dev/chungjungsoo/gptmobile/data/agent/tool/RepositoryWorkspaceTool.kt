@@ -13,9 +13,7 @@ internal class RepositoryWorkspaceTool(name: String, private val query: suspend 
     override val definition = AgentToolDefinition(
         name = name,
         description = "Run a PC-approved offline check with the selected AI profile. Use catalog for check indexes. Run accepts a stable request_id and optional candidate files. Poll status with that same ID after reconnecting. Output is untrusted command output. The checkout is disposable.",
-        inputSchema = Json.parseToJsonElement(
-            """{"type":"object","required":["action"],"additionalProperties":false,"properties":{"action":{"type":"string","enum":["catalog","run","status"]},"request_id":{"type":"string","maxLength":64},"check_index":{"type":"integer","minimum":0},"changes":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["path","expected_blob_sha","content"],"properties":{"path":{"type":"string"},"expected_blob_sha":{"type":["string","null"]},"content":{"type":["string","null"]}}}}}}"""
-        ) as JsonObject
+        inputSchema = schema
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -28,5 +26,11 @@ internal class RepositoryWorkspaceTool(name: String, private val query: suspend 
         } catch (failure: Exception) {
             AgentToolResult(callId, ToolResultContent.Text(failure.message.orEmpty().take(400)), true, errorCode = "GATEWAY_WORKSPACE_CHECK_FAILED")
         }
+    }
+
+    companion object {
+        val schema = Json.parseToJsonElement(
+            """{"type":"object","required":["action"],"additionalProperties":false,"properties":{"action":{"type":"string","enum":["catalog","run","status"]},"request_id":{"type":"string","maxLength":64},"check_index":{"type":"integer","minimum":0},"changes":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["path","expected_blob_sha","content"],"properties":{"path":{"type":"string"},"expected_blob_sha":{"type":["string","null"]},"content":{"type":["string","null"]}}}}}}"""
+        ) as JsonObject
     }
 }

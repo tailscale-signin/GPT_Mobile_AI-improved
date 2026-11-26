@@ -26,6 +26,13 @@ class RepositoryReferenceTests(unittest.TestCase):
         for path, content in {'example.kt': 'fun example() = 1\n', 'ExampleTest.kt': '@Test fun allowed() {}\n@Test fun denied() {}\n',
                               'guide.md': '# Example\nExplanation\n'}.items():
             (self.root / path).write_text(content)
+        audit = self.root / reference.TOOL_AUDIT
+        audit.parent.mkdir(parents=True)
+        audit.write_text(json.dumps({'producers': [{'source': 'example.kt'}]}))
+        for name in [reference.BUILTIN_SOURCE, *reference.ADDITIONAL_TOOL_SOURCES]:
+            source = self.root / name
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('// fixture source')
         self.write_source()
 
     def write_source(self):
@@ -63,6 +70,44 @@ class RepositoryReferenceTests(unittest.TestCase):
         second = json.loads((self.root / reference.TARGET).read_text())
         self.assertNotEqual(first['file_blobs']['example.kt'], second['file_blobs']['example.kt'])
         self.assertEqual(first['features'], second['features'])
+
+    def test_android_inventory_keeps_non_tool_features_and_detects_projection_drift(self):
+        self.feature['routing'].update(role='user_control', tools=[])
+        self.feature['title'] = 'Settings $1'
+        self.write_source()
+        reference.synchronize(self.root)
+        inventory = self.root / reference.INVENTORY_TARGET
+        expected = inventory.read_text()
+        self.assertIn('AppFeature("example-feature", "Settings \\$1", "Controls", "Bound profile"', expected)
+        self.assertIn('listOf("example"), emptyList(), listOf("example")', expected)
+        self.assertNotIn('ExampleTest.kt', expected)
+        self.assertNotIn('touch ', expected)
+        inventory.write_text(expected.replace('Controls', 'Edited'))
+        self.assertTrue(reference.synchronize(self.root, check=True))
+        reference.synchronize(self.root)
+        self.assertEqual(expected, inventory.read_text())
+
+    def test_tool_inventory_includes_fixed_names_and_retains_dynamic_provenance_only(self):
+        (self.root / 'example.kt').write_text(
+            'const val NAME = "fixed_tool"\n'
+            'override val definition = AgentToolDefinition(NAME, "title", schema)\n'
+            'override val definition = AgentToolDefinition(name = BuiltInAgentTool.FILE, "title", schema)\n'
+            'override val definition = AgentToolDefinition(name = remote.name, "title", schema)\n')
+        (self.root / reference.BUILTIN_SOURCE).write_text('const val FILE = "read_file_slice"')
+        generated = reference.compiled_tool_sources(self.root)
+        self.assertIn('"fixed_tool" to listOf("example.kt")', generated)
+        self.assertIn('"read_file_slice" to listOf("example.kt")', generated)
+        self.assertNotIn('remote.name', generated)
+        reference.synchronize(self.root)
+        (self.root / reference.TOOL_TARGET).write_text('stale')
+        self.assertTrue(reference.synchronize(self.root, check=True))
+
+    def test_new_producer_outside_the_core_tools_package_requires_classification(self):
+        candidate = self.root / reference.SOURCE_DIR / 'newfeature/ResearchTool.kt'
+        candidate.parent.mkdir(parents=True)
+        candidate.write_text('override val definition = AgentToolDefinition("new_feature_tool", "description", schema)')
+        with self.assertRaisesRegex(ValueError, 'Classify the new app tool definition producers'):
+            reference.compiled_tool_sources(self.root)
 
     def test_new_plugin_and_unbound_proofs_cannot_ship_without_classification(self):
         plugin = self.root / reference.PLUGIN_SOURCE

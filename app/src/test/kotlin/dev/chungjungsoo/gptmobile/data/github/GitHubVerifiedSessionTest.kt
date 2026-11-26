@@ -44,6 +44,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun completeToolInventoryRequestOnlyInvokesLocalCatalogDiscovery() = runBlocking {
+        val task = "List all tools and features"
+        val write = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_write", "github_write__selected")
+        val catalog = ProgressiveToolCatalog(listOf(write), task, acquireCold = { _, _ -> error("Interface questions cannot call external discovery") }, githubMode = true)
+        val tools = listOf(write, catalog.definition)
+        val book = GitHubEvidenceBook("capability-discovery", "owner/repo", "main", tools.mapTo(mutableSetOf()) { it.name })
+        book.retainTaskContract(task, 1, tools, 16)
+        val gate = GitHubVerifiedSession(answer("Unsupported inference"), book, task, { 8192 }, { error("Local discovery") }, {}, {}, authorizedTools = tools, remainingToolCalls = { 16 })
+        val events = gate.streamRound(tools, emptyList()).toList()
+        val call = events.filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(ProgressiveToolCatalog.NAME, call.name)
+        assertEquals(buildJsonObject { put("catalog_only", true) }, call.arguments)
+        assertFalse(catalog.execute(call.callId, call.arguments).isError)
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+    }
+
+    @Test fun capabilityQuestionsDescribeTheLiveSchemaWithoutInvokingTheListedAction() = runBlocking {
+        val task = "Can you inspect my PRs?"
+        val pr = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr_inspect", "github_pr_inspect__selected")
+        val book = GitHubEvidenceBook("capability", "owner/repo", "main", setOf(pr.name))
+        book.retainTaskContract(task, 1, listOf(pr), 16)
+        val gate = GitHubVerifiedSession(answer("Unsupported inference"), book, task, { 8192 }, { error("Local capability report") }, {}, {}, authorizedTools = listOf(pr))
+        val events = gate.streamRound(listOf(pr), emptyList()).toList()
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(pr.name in answer && "headers" in answer)
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertFalse("Unsupported inference" in answer)
+    }
+
     @Test fun issueOnlyCatalogGroundsTheFirstRoundInTheRequestedIssueWithoutModelDiscovery() = runBlocking {
         val task = "Show issue #42"
         val issue = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_issue", "github_issue__mobile")

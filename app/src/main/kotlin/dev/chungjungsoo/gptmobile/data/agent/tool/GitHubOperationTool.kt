@@ -1118,6 +1118,7 @@ internal class GitHubOperationTool(
         }
 
         fun taskTools(task: String): Set<String> {
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubCodeResearch.matches(task)) return dev.chungjungsoo.gptmobile.data.agent.RepositoryToolHint.readOperations
             if (dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task)) return linkedSetOf("github_context", "github_pr", "github_ci", "github_search", "github_read", "github_watch_checks")
             if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)) return dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
             val text = task.lowercase(java.util.Locale.ROOT).replace("github_pull_request", "github_pr")

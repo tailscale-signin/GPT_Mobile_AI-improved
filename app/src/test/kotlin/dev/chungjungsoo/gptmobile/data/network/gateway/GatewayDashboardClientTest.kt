@@ -52,6 +52,36 @@ class GatewayDashboardClientTest {
         assertNull(inventory.tools.single().executableNow)
     }
 
+    @Test fun refreshAssemblesAllPagesAndRestartsOnChangedCatalogWithoutReturningRemovedTools() = runTest {
+        val cursors = mutableListOf<String?>()
+        val old = "a".repeat(64)
+        val fresh = "b".repeat(64)
+        fun page(offset: Int, name: String, id: Char, lineage: String): String {
+            val next = if (offset == 0) """"$lineage:1"""" else "null"
+            return """{"capabilityInventory":{"schema":"gptmobile.gateway.capability-inventory.v1","schemaVersion":1,"status":"PARTIAL","catalogStatus":"COMPLETE","scope":"selected_gateway_authorized_mcp","visibleCount":1,"authorizedCount":2,"hasMore":${offset == 0},"cursorLineage":"$lineage","pageOffset":$offset,"nextCursor":$next,"tools":[{"id":"${id.toString().repeat(64)}","name":"$name","sourceId":"local","authorized":true,"enabled":true}]}}"""
+        }
+        http(
+            MockEngine { request ->
+                assertEquals("128", request.url.parameters["inventory_page_size"])
+                cursors.add(request.url.parameters["inventory_cursor"])
+                when (cursors.size) {
+                    1 -> respond(page(0, "removed", '0', old))
+                    2 -> respond("", HttpStatusCode.Conflict)
+                    3 -> respond(page(0, "one", '1', fresh))
+                    4 -> respond(page(1, "two", '2', fresh))
+                    else -> error("Unexpected request")
+                }
+            }
+        ).use { http ->
+            val inventory = requireNotNull(GatewayDashboardClient(http).readToolInventory(config))
+            assertEquals(listOf(null, "$old:1", null, "$fresh:1"), cursors)
+            assertEquals(listOf("one", "two"), inventory.tools.map { it.name })
+            assertEquals("COMPLETE", inventory.status)
+            assertEquals(2, inventory.declaredCount)
+            assertFalse(inventory.hasMore)
+        }
+    }
+
     @Test fun inventoryRejectsIncompleteOrDuplicateEvidence() {
         val tool = """{"type":"function","function":{"name":"github_read","parameters":{"properties":{"ref":{},"unsafe\nfield":{}}}}}"""
         fun parse(body: String) = parseGatewayToolInventory(Json.parseToJsonElement(body) as JsonObject, 123L)

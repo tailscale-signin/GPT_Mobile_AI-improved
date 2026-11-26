@@ -74,6 +74,7 @@ internal class GitHubVerifiedSession(
     private var replannedReader: AgentProviderSession? = null
     private var replanBoundary: String? = null
     private var completedDecisionMillis = 0L
+    private val capabilityRequest = GitHubCapabilityRequest.from(currentRequest)
     private val lookup = GitHubLookupRoute.request(task)
     private var initialLookupIssued = false
     private var executionCorrectionAttempted = false
@@ -223,6 +224,35 @@ internal class GitHubVerifiedSession(
                     verificationRestart = MAX_VERIFICATION_RESTARTS
                 )
             )
+            return@flow
+        }
+        capabilityRequest?.let { request ->
+            validatePublication()
+            val receipts = evidence.snapshot().first
+            val contracts = authorizedTools.ifEmpty { tools }
+            val catalog = tools.filter { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible && evidence.trustsTool(it.name) }
+            if (request.scope != GitHubCapabilityRequest.Scope.FEATURES &&
+                !delegate.handlesToolsInternally &&
+                !resumeClaimExtraction &&
+                catalog.isNotEmpty() &&
+                remainingToolCalls()?.let { it > 0 } == true
+            ) {
+                GitHubAuthorizedCatalog.next(catalog, receipts, contracts)?.takeUnless { next ->
+                    exchanges.any { exchange -> exchange.calls.any { it.callId == next.callId && it.name == next.name } }
+                }?.let { page ->
+                    // A blank discovery can fetch cold MCP schemas. Interface questions read the local catalog only.
+                    val local = if (page.arguments.isEmpty()) page.copy(arguments = buildJsonObject { put("catalog_only", true) }) else page
+                    if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(local.arguments, catalog.first().inputSchema).isEmpty()) {
+                        emit(local)
+                        emit(ProviderEvent.Completed)
+                        return@flow
+                    }
+                }
+            }
+            val snapshot = GitHubAuthorizedCatalog.snapshot(receipts, contracts)
+            val answer = GitHubCapabilityAnswer.render(request, tools, contracts, snapshot)
+            emit(ProviderEvent.TextDelta(answer, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
+            emit(ProviderEvent.Completed)
             return@flow
         }
         if (isGatewayIntegrationTask(task)) {

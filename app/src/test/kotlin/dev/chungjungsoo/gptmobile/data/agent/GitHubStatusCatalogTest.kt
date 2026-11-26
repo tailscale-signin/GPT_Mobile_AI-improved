@@ -22,6 +22,62 @@ class GitHubStatusCatalogTest {
     private val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it, it + "__github_api") }
     private val initialNames = setOf("github_context_inspect__github_api", "github_pr_inspect__github_api", ProgressiveToolCatalog.NAME)
 
+    @Test fun gitHubChatRoutesExplicitFeatureRequestsWhileSourceQuestionsAndExclusionsStayScoped() = runTest {
+        val clock = AgentToolDefinition("current_date", "Local clock", buildJsonObject {})
+        val search = AgentToolDefinition("web_search", "Search the web", buildJsonObject {}, capabilities = setOf(AgentToolCapability.WEB_SEARCH))
+        val supplied = definitions + clock + search
+        fun selected(task: String): List<String> {
+            val catalog = ProgressiveToolCatalog(supplied, task, githubMode = true)
+            return catalog.selected(supplied + catalog.definition).map { it.name }
+        }
+        assertTrue("current_date" in selected("Use the current time and date to explain the GitHub run timestamp"))
+        assertFalse("web_search" in selected("Where is the search the web function defined in this repository?"))
+        assertFalse("web_search" in selected("Use only the attached file, without web search, to inspect the GitHub repo"))
+        val catalog = ProgressiveToolCatalog(supplied, "Inspect the repository", githubMode = true)
+        val found = catalog.execute("clock", buildJsonObject { put("query", "current time and date") })
+        assertFalse(found.isError)
+        assertTrue("current_date" in catalog.selected(supplied + catalog.definition).map { it.name })
+        assertFalse("current_date" in catalog.selected(definitions + catalog.definition).map { it.name })
+    }
+
+    @Test fun repositorySourceTasksRankAuthorizedOfficialReadsInSmallAndMixedCatalogs() = runTest {
+        fun official(operation: String) = AgentToolDefinition("mcp__work__$operation", operation, buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB))
+        val search = official("search_code")
+        val read = official("get_file_contents")
+        val write = official("push_files")
+        val lookalike = search.copy(name = "mcp__unknown__search_code", capabilities = emptySet())
+        val question = "Where is search implemented in the repository?"
+        val native = definitions.single { it.name == "github_search__github_api" }
+        for (extra in listOf(emptyList(), listOf(native))) {
+            val supplied = listOf(search, read, write, lookalike) + extra
+            val catalog = requireNotNull(ProgressiveToolCatalog.create(supplied, question, githubMode = true))
+            val allowed = supplied + catalog.definition
+            val initial = catalog.selected(allowed).map { it.name }
+            assertTrue(search.name in initial && read.name in initial)
+            assertFalse(write.name in initial || lookalike.name in initial)
+            assertFalse(catalog.execute("find-source", buildJsonObject { put("query", question) }).isError)
+            val discovered = catalog.selected(allowed).map { it.name }
+            assertTrue(search.name in discovered && read.name in discovered)
+            assertFalse(write.name in discovered || lookalike.name in discovered)
+        }
+    }
+
+    @Test fun directPullRequestLookupsOfferOnlyMatchingOfficialReads() {
+        fun official(operation: String) = AgentToolDefinition("mcp__work__$operation", operation, buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB))
+        val read = official("get_pull_request")
+        val list = official("list_pull_requests")
+        val merge = official("merge_pull_request")
+        val untrusted = read.copy(name = "mcp__unknown__get_pull_request", capabilities = emptySet())
+        val supplied = listOf(read, list, merge, untrusted)
+        fun selected(task: String, tools: List<AgentToolDefinition>): Set<String> {
+            val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, task, githubMode = true))
+            return catalog.selected(tools + catalog.definition).mapTo(hashSetOf()) { it.name }
+        }
+        assertEquals(setOf(read.name, ProgressiveToolCatalog.NAME), selected("Can you inspect PR #42?", supplied))
+        assertEquals(setOf(list.name, ProgressiveToolCatalog.NAME), selected("List all open PRs", supplied))
+        assertEquals(setOf(ProgressiveToolCatalog.NAME), selected("Inspect PR #42", supplied - read))
+    }
+
     @Test fun explicitStatusUsesTwoSchemasAndDiscoveryWithoutDiscardingAuthorization() = runTest {
         val task = "Inspect the GitHub repository status and open PRs"
         val catalog = ProgressiveToolCatalog(definitions, task, githubMode = true)

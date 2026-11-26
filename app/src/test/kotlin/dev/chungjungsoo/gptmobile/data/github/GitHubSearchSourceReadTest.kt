@@ -153,6 +153,37 @@ class GitHubSearchSourceReadTest {
         assertFalse("content" in source.getValue("items").jsonArray.single().jsonObject)
     }
 
+    @Test fun definitionHitsHydrateTheirOwnLinesAcrossFilesAndPreserveSavedFirstPageRecipes() {
+        fun hit(path: String, lines: List<Int>) = buildJsonObject {
+            put("path", path)
+            put("sha", blob)
+            put("matches", JsonArray(lines.map { line -> buildJsonObject { put("line", line) } }))
+        }
+        val searched = JsonObject(
+            source + ("items" to JsonArray(listOf(hit("src/A.kt", listOf(1420, 1425, 1984)), hit("src/B.kt", listOf(512)))))
+        )
+        val reader = AgentToolDefinition("github_read__selected", "read", JsonObject(emptyMap()))
+        val issued = requireNotNull(GitHubSearchSourceRead.recipe(reader.name, sourceArguments, searched))
+        val ranges = issued.getValue("arguments").jsonObject.getValue("ranges").jsonArray.map { it.jsonObject }
+        assertEquals(listOf("src/A.kt", "src/B.kt", "src/A.kt").map(::JsonPrimitive), ranges.map { it["path"] })
+        assertEquals(listOf(1420, 512, 1984).map(::JsonPrimitive), ranges.map { it["start_line"] })
+        assertEquals(listOf(32, 32, 32).map(::JsonPrimitive), ranges.map { it["max_lines"] })
+        fun follow(selector: JsonObject) = GitHubSearchSourceRead.next(
+            id,
+            receipt(JsonObject(searched + ("source_read_call" to selector))),
+            "task",
+            listOf(reader),
+            listOf(reader),
+            emptyList()
+        )
+        assertEquals(issued["arguments"], follow(issued)?.arguments)
+        val oldPaths = JsonObject(source + ("items" to JsonArray(listOf(hit("src/A.kt", emptyList()), hit("src/B.kt", emptyList())))))
+        val legacy = requireNotNull(GitHubSearchSourceRead.recipe(reader.name, sourceArguments, oldPaths))
+        assertEquals(legacy["arguments"], follow(legacy)?.arguments)
+        val wrongLines = JsonObject(source + ("items" to JsonArray(listOf(hit("src/A.kt", listOf(1300)), hit("src/B.kt", listOf(512))))))
+        assertNull(follow(requireNotNull(GitHubSearchSourceRead.recipe(reader.name, sourceArguments, wrongLines))))
+    }
+
     @Test fun expiredSearchWithoutLiveSelectorDiscoversThenReadsOnlyTheIssuedPinnedRange() {
         val reader = AgentToolDefinition("github_read__selected", "read", JsonObject(emptyMap()))
         val discovery = AgentToolDefinition(GitHubAuthorizedCatalog.TOOL, "discover", JsonObject(emptyMap()))

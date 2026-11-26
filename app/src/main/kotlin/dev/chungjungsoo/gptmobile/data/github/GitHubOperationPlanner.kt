@@ -11,6 +11,18 @@ import kotlinx.serialization.json.put
  */
 object GitHubOperationPlanner {
     fun plan(goal: String): JsonArray {
+        GitHubCapabilityRequest.from(goal)?.let {
+            return buildJsonArray {
+                add(step("capability_inventory", "Inspect the feature index and this chat's authorized tool inventory. Follow discovery pages for coverage. Answer without invoking the operations being described."))
+            }
+        }
+        if (GitHubCodeResearch.matches(goal)) {
+            return buildJsonArray {
+                add(step("resolve_context", "Identify the selected repository and source revision. Reuse matching repository map evidence."))
+                add(step("search_repository", "Find the named symbol or feature in the selected source using an admitted definition, reference or path search."))
+                add(step("read_ranges", "Read the returned source ranges and the relevant callers or tests at the same revision. Cite the file and lines that establish the answer."))
+            }
+        }
         GitHubLookupRoute.from(goal)?.let { route ->
             return buildJsonArray {
                 add(

@@ -3832,9 +3832,9 @@
       "sha256": "b2d23a0f4219abce80bf26db0fb42c8ac06b837ac63e471760ba62c28360d039"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": {
-      "blob_sha": "d33ca487bf7179151fe640da27e6cb87fc930dfa",
-      "bytes": 641570,
-      "sha256": "6102c750280f87c01f0e8b5b7091210237d0c3bb0bee7dac422caed747a2cdb3"
+      "blob_sha": "dc8cc30b39b3c8144d3ddb75f271b5eaac22545e",
+      "bytes": 642705,
+      "sha256": "4c8d926b280d3bcaaa9bd4a30bbec4249046d8d68480a4f29c972cee8c618f8f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparation.kt": {
       "blob_sha": "f61e90d5e8bcde5583d1e7384a520401f8e82d9f",
@@ -5982,9 +5982,9 @@
       "sha256": "378e7fa6a41a056e37fa8a6cb802c669093db796a01c24c03dd64a5567a0d1c6"
     },
     "docs/architecture/repository-guide.md": {
-      "blob_sha": "b72c59a24a8e0d754f596f054d8207657560c121",
-      "bytes": 17915,
-      "sha256": "f1009fd646d2f19b3392ccbbc6093431d6a41120d86531e3150d6877031d9144"
+      "blob_sha": "5ab4b1f5e83f8c532ae31f12113ba2a471d73077",
+      "bytes": 18426,
+      "sha256": "27e81cde640d0990583b215117e6b7cbbc2e0b1b1aa656627ed69973bd21a48d"
     },
     "docs/architecture/voice-streaming.md": {
       "blob_sha": "4e1a5bef1f09bd038c121bb8b657d4ceab796f63",

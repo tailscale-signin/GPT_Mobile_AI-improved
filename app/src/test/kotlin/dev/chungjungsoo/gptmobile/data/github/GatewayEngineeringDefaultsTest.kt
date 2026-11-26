@@ -51,6 +51,15 @@ class GatewayEngineeringDefaultsTest {
         coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
     }
 
+    @Test fun disablingGitHubDuringDiscoveryPreservesTheUpdatedPreference() = runTest {
+        coEvery { client.capabilities(any(), false) } answers {
+            features = AppFeatureSettings(githubProfileOverrides = mapOf("pc" to GitHubChatProfileOverride.newProfile.copy(githubTools = false)))
+            capability
+        }
+        defaults.discover(profile)
+        assertNull(features.githubProfileOverrides.getValue("pc").engineeringGatewayProfileUid)
+    }
+
     @Test fun changedEndpointAndDifferentSavedRouteWinDuringDiscovery() = runTest {
         coEvery { settings.fetchPlatformV2s() } returns listOf(profile.copy(apiUrl = "http://10.0.0.2:8090/v1"))
         defaults.discover(profile)

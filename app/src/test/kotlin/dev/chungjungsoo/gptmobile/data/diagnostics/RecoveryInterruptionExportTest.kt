@@ -117,8 +117,8 @@ class RecoveryInterruptionExportTest {
         assertEquals(JsonPrimitive("final_synthesis"), summary["failed_stage"])
         assertEquals(JsonPrimitive(false), summary["retryable"])
         assertEquals(JsonNull, summary["invocation_id"])
-        assertEquals(ProviderRecoveryFailure.retainedInterruptions(wrapper())?.get("original_interruption"), summary["original_interruption"])
-        assertEquals(ProviderRecoveryFailure.retainedInterruptions(wrapper())?.get("latest_interruption"), summary["latest_interruption"])
+        assertEquals(ProviderRecoveryFailure.retainedInterruption(wrapper()["original_interruption"] as JsonObject), summary["original_interruption"])
+        assertEquals(ProviderRecoveryFailure.retainedInterruption(wrapper()["latest_interruption"] as JsonObject), summary["latest_interruption"])
         assertFalse(summary.toString().contains("private-message-body"))
         assertFalse(summary.toString().contains("private-authorization"))
     }

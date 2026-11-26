@@ -90,6 +90,14 @@ verification ledger use tools bound to the app's GitHub executor.
 | Execute | The progressive tool catalog selects schemas from the authorized inventory. The runner checks each call against its bound repository, available budget and approvals. A connected gateway can host the engineering job and retain its identity across reconnects. |
 | Verify and answer | The evidence book records tool results and outstanding acceptance criteria. Its next-action policy guides the next read or recovery. The final answer identifies what ran and which observations or prerequisites are still missing. |
 
+Gateway engineering is selected automatically when the saved private gateway
+confirms support for durable engineering jobs. The host admits new jobs by
+default for verified owners, including owners migrated from the old implicit
+off setting. An explicit host maintenance pause still controls new jobs, and
+revocation still removes access. Either side can reconnect to an accepted job
+using its saved identity. Android checks the selected model before dispatch
+and can wake a sleeping model on that same route.
+
 Fresh profiles use adaptive budgeting and task context, with evidence-based progress and next-action selection enabled. Saved overrides retain their settings. Direct requests for issues, pull requests, branches, commits, workflows, runs, releases and tags start with the matching read. Compound tasks use the broader engineering planner. Source caching and sharing with another model follow the connection and profile settings.
 
 Numbered follow-ups use the current workspace and the immediately preceding admitted read to resolve issue or pull-request references. Ambiguous numbers prompt for the record type. Requests for a previous report retain its original evidence scope. Source citations use the selected connection’s web origin, the checked revision, and the quoted line range.

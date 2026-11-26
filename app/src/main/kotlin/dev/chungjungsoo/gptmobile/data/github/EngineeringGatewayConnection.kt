@@ -63,6 +63,6 @@ internal suspend fun SettingRepository.selectVerifiedEngineeringGateway(profile:
 
 internal fun AppFeatureSettings.withVerifiedEngineeringGateway(uid: String): AppFeatureSettings {
     val saved = githubProfileOverrides[uid] ?: GitHubChatProfileOverride.newProfile
-    if (saved.engineeringGatewayProfileUid != null) return this
+    if (!saved.githubTools || saved.engineeringGatewayProfileUid != null) return this
     return copy(githubProfileOverrides = githubProfileOverrides + (uid to saved.copy(engineeringGatewayProfileUid = uid, engineeringGatewayDefaultApplied = true)))
 }

@@ -637,7 +637,7 @@ private fun VoiceChatSessionScreen(
             runtimeOwner.pause(runtime)
         }
     }
-    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, speakingNotification, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled, benchmarkRunning) {
+    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, speakingNotification?.token, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled, benchmarkRunning) {
         session.holdAudio(benchmarkOwnership.value != null)
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         if (!runtimeOwner.background.playingElsewhere(runtime) && benchmarkOwnership.value == null && enabled && voiceReady && preferencesApplied && recognitionReady && listeningEnabled && !settingsOpen && !routeOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
@@ -668,7 +668,7 @@ private fun VoiceChatSessionScreen(
         if (canOfferOpening) voiceOpeningPlan(admission, state.transcript, chatView, room.id, selectedProfile.uid, messages, runs, toolEvents, synthesis.language) else null
     }
     val dueOpening = rememberDueVoiceOpening(openingPlan)
-    LaunchedEffect(loaded, roomReady, messages, runs, admission, dueOpening, enabled, backend.loaded, spokenReplies, speakWhileGenerating, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning, approvals.isEmpty(), inputs.isEmpty(), consent, chatView) {
+    LaunchedEffect(loaded, roomReady, messages, runs, admission, dueOpening, speakingNotification?.token, enabled, backend.loaded, spokenReplies, speakWhileGenerating, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning, approvals.isEmpty(), inputs.isEmpty(), consent, chatView) {
         if (!loaded || !roomReady || benchmarkOwnership.value != null) return@LaunchedEffect
         // Restoration publishes messages before loaded=true. Read the current flow snapshot so
         // separate Compose collectors cannot accidentally prime from an empty history.
@@ -676,7 +676,7 @@ private fun VoiceChatSessionScreen(
         val runSnapshot = model.agentRunsById.value
         val replies = replyProjection.update(messageSnapshot.assistantMessages, runSnapshot) { runSnapshot[it]?.status }
         val foregroundOutput = enabled && preferencesApplied && backend.loaded && lifecycleState == Lifecycle.State.RESUMED && !settingsOpen && !routeOpen
-        playback.observe(replies, autoplay = spokenReplies && foregroundOutput && !refreshMutedBaseline)
+        playback.observe(replies, autoplay = spokenReplies && foregroundOutput && !refreshMutedBaseline && session.automaticAudioAvailable())
         playbackPrimed = playback.initialized
         if (!foregroundOutput) return@LaunchedEffect
         refreshMutedBaseline = false
@@ -833,17 +833,19 @@ private fun VoiceChatSessionScreen(
     val latestReadDetails = rememberUpdatedState<(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, String) -> Unit> { message, text ->
         readResponse(message.voiceIdentity(), text, includeDetails = true)
     }
+    // On a fresh navigation entry the service can still own the original runtime for this room.
+    val serviceReply = speakingNotification?.takeIf { it.roomId == room.id && it.message != null && !runtimeOwner.background.owns(runtime) }
     val latestStop = rememberUpdatedState(::stopMessage)
     val latestPauseCapture = rememberUpdatedState(::pauseCapture)
     val outputAvailable = !benchmarkRunning && enabled && preferencesApplied && loaded && roomReady && backend.speechModelReady(kokoroModel)
     // Meter ticks do not replace controls or invalidate every transcript message.
-    val messageControls = remember(activeMessage, state.phase, outputAvailable) {
+    val messageControls = remember(activeMessage, state.phase, outputAvailable, serviceReply) {
         VoiceMessageControls(
-            active = activeMessage,
-            phase = state.phase,
+            active = serviceReply?.message ?: activeMessage,
+            phase = serviceReply?.phase ?: state.phase,
             available = outputAvailable,
             read = { message, text -> latestRead.value(message, text) },
-            stop = { latestStop.value() },
+            stop = { if (serviceReply != null) runtimeOwner.background.stop(serviceReply.token) else latestStop.value() },
             pauseCapture = { latestPauseCapture.value() },
             readDetails = { message, text -> latestReadDetails.value(message, text) }
         )

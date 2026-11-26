@@ -34,6 +34,19 @@ class VoiceSpeechBufferTest {
         assertNull(number.nextFlushDelayMs(null))
     }
 
+    @Test fun frenchPunctuationSpacingDoesNotRepeatAHeardCueOrSwallowRealWords() {
+        for (gap in listOf(" ", "\u00a0", "\u202f")) {
+            val buffer = VoiceSpeechBuffer().apply { heardOpening = "Un instant." }
+            val source = "Un instant$gap! La réponse est prête."
+            val spoken = buildList {
+                for (end in 1..source.length) addAll(requireNotNull(buffer.append(source.take(end), false, earlyStart = true)))
+                addAll(requireNotNull(buffer.append(source, true)))
+            }
+            assertEquals("La réponse est prête.", spoken.joinToString(""))
+            assertEquals("Un instant de silence.", VoiceSpokenLead.afterCue("Un instant de silence.", "Un instant.", true))
+        }
+    }
+
     @Test fun theHeardFrenchCueIsSkippedOnceAndOrdinaryAnswerTextKeepsItsWording() {
         val buffer = VoiceSpeechBuffer().apply { heardOpening = "Un instant." }
         val text = "Un instant. La réponse est prête."

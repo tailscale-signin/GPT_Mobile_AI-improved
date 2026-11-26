@@ -23,11 +23,12 @@ class VoiceCpuSchedulingPolicyTest {
     }
 
     @Test fun autoCapsCalibratedThreadsWithoutIncreasingASlowerSelectedCount() {
-        assertEquals(4, VoiceCpuSchedulingPolicy.threads(2, 4, true, false, false))
-        assertEquals(2, VoiceCpuSchedulingPolicy.threads(4, 4, true, true, false))
+        val processors = Runtime.getRuntime().availableProcessors()
+        assertEquals(minOf(4, processors), VoiceCpuSchedulingPolicy.threads(2, 4, true, false, false))
+        assertEquals(minOf(2, processors), VoiceCpuSchedulingPolicy.threads(4, 4, true, true, false))
         assertEquals(1, VoiceCpuSchedulingPolicy.threads(4, 1, true, true, false))
         assertEquals(1, VoiceCpuSchedulingPolicy.threads(4, 4, true, false, true))
-        assertEquals(2, VoiceCpuSchedulingPolicy.threads(4, null, true, false, false))
+        assertEquals(minOf(2, processors), VoiceCpuSchedulingPolicy.threads(4, null, true, false, false))
     }
 
     @Test fun cpuHintTargetsUseTheAvailableReserveWithinBoundedPresentationBudgets() {

@@ -124,7 +124,7 @@ class DeferredKokoroOutputTest {
         output.prewarm(KokoroVoice.ADAM)
 
         assertEquals(1, constructions)
-        assertEquals(4, delegate.threads)
+        assertEquals(minOf(4, Runtime.getRuntime().availableProcessors()), delegate.threads)
         assertEquals(listOf(KokoroVoice.HEART, KokoroVoice.ADAM), delegate.prewarmed)
         output.close()
         assertTrue(delegate.closed)

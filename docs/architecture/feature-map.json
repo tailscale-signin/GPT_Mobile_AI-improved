@@ -5924,9 +5924,9 @@
       "sha256": "cc517acc45277aab14e202b063dac2ce1f2580fc614d0af3f213512e6432620b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/DeferredKokoroOutputTest.kt": {
-      "blob_sha": "1702e825513230ce08f1de4bc597a7d04784ec40",
-      "bytes": 16814,
-      "sha256": "5a8cc9475a4754b45bb2b721419e3b3f9adb1fc99e3dbcd653d254a825085394"
+      "blob_sha": "083e5090aecdf5b13156569662039d099b56d7c1",
+      "bytes": 16865,
+      "sha256": "cdd5b29166995ce8df82cb9f80c2aa9e9a544bab138fc036e3957d48554a739c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/GatewayVoicePcmStreamTest.kt": {
       "blob_sha": "0da96b10542d6b7afc1358008e3509e64a04a93a",
@@ -6044,9 +6044,9 @@
       "sha256": "0be3cf1187d0fa945d2a287f9e8a306b46ffde2562cc676d6c6de132fc9ec32d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicyTest.kt": {
-      "blob_sha": "2e7bdc53e7d001aabadab7729d006c6b3c207414",
-      "bytes": 1995,
-      "sha256": "5721c3d7518709a20217800509eaf5d716424387148fe7d342f0c98a4dd6c771"
+      "blob_sha": "0772381f126465b79713b20bfe908a92e1f2fc1e",
+      "bytes": 2120,
+      "sha256": "47c17c0716e4e977012abc7ae72f8dea9ab00b25bec641689461024046ef0d21"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt": {
       "blob_sha": "987311710e156c07fcfa8431b09e776b7318b42b",
@@ -6264,9 +6264,9 @@
       "sha256": "496c0a94d897ffeb4230dbde1ae84c547574147b25143afc740132f9088dd57b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt": {
-      "blob_sha": "00bdc5b66f5655e909ee42e5e23357ae0eaf4060",
-      "bytes": 18597,
-      "sha256": "48d503918013ea8a62203564ab369502be712b2033b62c56c305f18e9be57ec1"
+      "blob_sha": "e69544e1ac75937985ef5d3bb6a467f679f1d209",
+      "bytes": 18714,
+      "sha256": "7e62470045e2e380a656ba5dd78f093ac84360dd8ad3fa55c92630ce5439fcb8"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduleAdmissionTest.kt": {
       "blob_sha": "eb631b7c7c3e28ed54c05bb6fbbabe0fa1c5214a",

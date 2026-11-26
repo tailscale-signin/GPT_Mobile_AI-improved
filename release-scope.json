@@ -66,6 +66,7 @@
     ".github/workflows/gateway-windows-installer.yml",
     ".github/workflows/native-memory-smoke.yml",
     ".github/workflows/speech-engine-smoke.yml",
+    ".github/workflows/voice-opening-assets.yml",
     ".gitleaks.toml",
     "AGENTS.md",
     "AI-Memory.md",

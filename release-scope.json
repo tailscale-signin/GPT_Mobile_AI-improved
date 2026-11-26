@@ -30,7 +30,8 @@
     "Start each selected speech processor with a fresh playback trial before longer comparisons. Preserve partial results and separate battery observations, limit optional buffering against the first-audio budget, and account for queued speech while the next native phrase is being generated.",
     "Measure LiteRT task preparation, PCM signal levels and cancellation source and timing. Compare open-only and silent first-inference prewarm using matched workloads, retain selected delegate caches during comparisons, and restore legacy playback reports.",
     "Resolve standalone issue and PR numbers in the current repository context. Retain typed missing replay records and content-free source references across saved-page planning, response delivery and approved diagnostics.",
-    "Stage GitHub tools for compact models, preserve checkpoint-bound saved pages, retrieve complete pull-request file inventories on mobile and Gateway, diagnose CI from observed jobs and log evidence, and revalidate local semantic-memory cache entries."
+    "Stage GitHub tools for compact models, preserve checkpoint-bound saved pages, retrieve complete pull-request file inventories on mobile and Gateway, diagnose CI from observed jobs and log evidence, and revalidate local semantic-memory cache entries.",
+    "Preserve interrupted Responses output and its replay boundary for unclassified transport failures, request extended reporter capabilities for device privacy changes, and verify saved-page delivery and delayed microphone authorization."
   ],
   "limitations": [
     "The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.",
@@ -349,6 +350,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubReadTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthorityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestDispatchContextTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GitHubPolicyReportSubmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAdmissionEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
@@ -404,6 +407,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptContinuationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImplTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoicePrivacyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/GatewayVoicePcmStreamTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVocoderPatchTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStoreTest.kt",

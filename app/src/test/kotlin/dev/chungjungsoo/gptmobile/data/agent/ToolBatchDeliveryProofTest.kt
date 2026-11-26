@@ -146,12 +146,16 @@ class ToolBatchDeliveryProofTest {
         }
         val group = AgentToolExchange(history.flatMap { it.calls }, history.flatMap { it.results })
         val proofs = ToolResultDeliveryProof.capture(group.results)
-        val budget = (1200..9000 step 40).last { tokens ->
-            val allowance = tokens - SavedPageReading.reservation(null, true)
+        // Admission tries the entire group before it reserves space for private notes.
+        // Exercise a budget where that ordinary request genuinely needs staging.
+        val rawTokens = ToolExchangeCompactor.estimateTokens(listOf(group))
+        val reservation = SavedPageReading.reservation(null, true)
+        val budget = ((rawTokens - 1) downTo 1200 step 8).first { tokens ->
+            val allowance = tokens - reservation
             val perPage = GitHubReplayRecovery.savedPageResultAllowances(listOf(group), emptySet(), allowance, 512)
             val replay = ToolExchangeCompactor.compact(listOf(group), allowance, 512, resultTokenAllowances = perPage, requiredSavedPageDigests = proofs)
             val seen = ToolResultDeliveryProof.capture(replay.flatMap { it.results })
-            proofs.count { (id, digest) -> seen[id] == digest } == 2
+            proofs.count { (id, digest) -> seen[id] == digest } in 1..2
         }
         val journal = ToolBatchCheckpoint(null, "same-profile")
         val reader = object : AgentTool {
@@ -186,8 +190,9 @@ class ToolBatchDeliveryProofTest {
         }
         val limits = AgentRunLimits(githubTask = true, maxToolCalls = 4, maxRounds = 12, maxReplayTokens = budget, maxReplayResultTokens = 512)
         val events = AgentRunner(limits, journal).run(model, listOf(ToolExecutionBudget(limits).bind(reader))).toList()
-        assertTrue("A private round must read the original journal bodies first", privateReads > 0)
         val failures = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { it.event as? ProviderEvent.Failed }
+        val receipts = events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.result.callId to it.result.errorCode }
+        assertTrue("Expected a private read before ordinary delivery: budget=$budget, raw=$rawTokens, receipts=$receipts, failures=$failures", privateReads > 0)
         assertEquals("Replay allowance $budget, private rounds $privateReads, failures $failures", 1, ordinaryReads)
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().none { it.event is ProviderEvent.Failed })
         val reading = requireNotNull(journal.recoverySnapshot().savedPageReading)

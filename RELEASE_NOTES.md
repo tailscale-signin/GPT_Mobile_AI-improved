@@ -11,6 +11,8 @@ Rebuild GitHub chat setup, task routing, context selection and progress around t
 
 Follow-up questions can refer to an issue or pull request by number. GitHub mode checks the preceding read and workspace before resolving a bare number. Verified source quotations link to the exact lines on the configured GitHub host, and an approval waiting on an older turn no longer holds a later answer open.
 
+Interrupted OpenAI Responses keep visible text and disable replay when the stream closes before its completion receipt. Device-privacy reports now verify service support before submission.
+
 ## Repository intelligence, privacy and independent speech languages
 
 - Separate the visible transcript from the history used for sends, retries and Combined recovery. Ordinary chat opens page the latest 40 turns and message links retain their anchor.

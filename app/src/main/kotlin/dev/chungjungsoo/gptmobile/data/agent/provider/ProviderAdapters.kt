@@ -314,7 +314,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                             lastFailedCode = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).errorCode
                             if (visibleText) {
                                 val partial = missingStreamTerminal(lastFailedMessage.orEmpty(), visible = true)
-                                lastFailedCode = lastFailedCode ?: partial.errorCode
+                                lastFailedCode = lastFailedCode?.takeUnless { it == "UNKNOWN" } ?: partial.errorCode
                                 failureDetails = JsonObject(partial.failureDetails.orEmpty() + failureDetails.orEmpty())
                             }
                             canRotate = !responseObserved && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.isRotatableError(error)

@@ -531,9 +531,9 @@ class VoiceFailureReportingTest {
 
     @Test
     fun androidRateLimitRetainsItsOriginalAttemptPhaseAndLocalCooldownWithoutExportingIdentity() {
-        LocalDiagnosticsPolicy.setEnabled(true)
         for (stage in AndroidRecognitionFailure.Stage.entries) {
-            IssueReportIncidents.clearRecent()
+            reset()
+            LocalDiagnosticsPolicy.setEnabled(true)
             lateinit var capture: VoiceAudio.Listener
             val audio = object : VoiceAudio {
                 override fun listen(listener: VoiceAudio.Listener) {

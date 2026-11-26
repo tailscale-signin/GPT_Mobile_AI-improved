@@ -135,8 +135,8 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
 /** Chooses from actual warm, repeated measurements; never infers a speedup from core count. */
 internal object VoiceCpuCalibration {
     fun select(samples: Map<Int, List<Long>>, fallback: Int = 2): Int {
-        val qualified = samples.filter { (threads, times) -> threads in 1..4 && times.size >= 3 && times.all { it > 0 } }
-        if (qualified.isEmpty()) return fallback.coerceIn(1, 4)
+        val qualified = samples.filter { (threads, times) -> threads in VoiceCpuSchedulingPolicy.supported && times.size >= 3 && times.all { it > 0 } }
+        if (qualified.isEmpty()) return fallback.coerceIn(VoiceCpuSchedulingPolicy.supported)
         fun score(times: List<Long>): Long = times.sorted()[(times.size * .95).toInt().coerceAtMost(times.lastIndex)]
         val best = qualified.minWith(compareBy<Map.Entry<Int, List<Long>>> { score(it.value) }.thenBy { it.key }).key
         val baseline = qualified[fallback] ?: return best

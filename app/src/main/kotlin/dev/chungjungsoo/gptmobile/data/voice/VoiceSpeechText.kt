@@ -137,7 +137,7 @@ internal object VoiceSpeechText {
 
     private fun project(text: String, final: Boolean, depth: Int, notices: Notices, completed: Boolean = final, includeDetails: Boolean = false, literalTags: Boolean = false): String {
         if (depth > 4) return ""
-        val stableEnd = if (final) text.length else text.indexOfLast(Char::isWhitespace) + 1
+        val stableEnd = if (final) text.length else text.indexOfLast { it.isWhitespace() || it in "。！？।॥" } + 1
         val spoken = StringBuilder()
         var index = 0
         fun codeNotice() {
@@ -363,7 +363,7 @@ internal object VoiceSpeechText {
                     }
                 }
                 character == '#' && text.getOrNull(index + 1)?.isDigit() == true -> {
-                    spoken.append("number ")
+                    spoken.append(if (notices.preserveLiteralTerms) "#" else "number ")
                     index++
                 }
                 character in "≤≥≠=×÷" -> {

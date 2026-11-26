@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -50,6 +51,21 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoicePreferenceStoreTest {
+    @Test fun restoreAndEditDictionariesIndependentlyAcrossLanguages() {
+        val tuning = readVoiceTuningPreferences(
+            mapOf(
+                "pronunciation_overrides" to """{"Paris":"pair iss"}""",
+                "localized_pronunciations" to """{"fr":{"Paris":"pa ri","Québec":"ké-bèk"},"es":{"Sr.":"señor"}}"""
+            )
+        )
+        assertEquals("pair iss", tuning.dictionary("en")["Paris"])
+        assertEquals("ké-bèk", tuning.dictionary("fr")["Québec"])
+        val edited = tuning.withDictionary("fr", emptyMap())
+        assertEquals(emptyMap<String, String>(), edited.dictionary("fr"))
+        assertEquals("señor", edited.dictionary("es")["Sr."])
+        assertEquals(tuning.pronunciation, edited.pronunciation)
+    }
+
     @Test fun originalWeightsAreTheFreshNativeDefaultAndOlderPreferencesKeepTheirPack() {
         assertEquals(KokoroModelVariant.ORIGINAL_FP32, readVoicePreferences(emptyMap<String, Any>()).nativeModelVariant)
         assertEquals(KokoroModelVariant.INT8, readVoicePreferences(mapOf("captions" to true)).nativeModelVariant)
@@ -301,7 +317,7 @@ class VoicePreferenceStoreTest {
     @Test fun singleThreadCalibrationChoiceSurvivesPreferenceRestore() {
         assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 1)).kokoroThreads)
         assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 0)).kokoroThreads)
-        assertEquals(4, readVoicePreferences(mapOf("kokoro_threads" to 99)).kokoroThreads)
+        assertEquals(VoiceCpuSchedulingPolicy.deviceLimit(), readVoicePreferences(mapOf("kokoro_threads" to 99)).kokoroThreads)
     }
 
     @Test fun malformedFieldsDoNotDiscardValidChoicesOrGrantOnlineSpeech() {
@@ -323,7 +339,7 @@ class VoicePreferenceStoreTest {
         assertEquals(MediaPipeKokoroBucket.AUTO, value.kokoroBucket)
         assertTrue(value.incrementalSpeech)
         assertEquals(KokoroModelVariant.INT8, value.nativeModelVariant)
-        assertEquals(2, value.kokoroThreads)
+        assertEquals(VoiceCpuSchedulingPolicy.AUTO, value.kokoroThreads)
         assertEquals("en-CA", value.language)
         assertEquals("", value.voice)
         assertEquals(VoiceRecognitionBackend.LOCAL_MOONSHINE, value.recognitionBackend)

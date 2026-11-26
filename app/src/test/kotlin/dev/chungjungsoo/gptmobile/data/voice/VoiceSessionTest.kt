@@ -821,6 +821,30 @@ class VoiceSessionTest {
         return capture
     }
 
+    @Test fun foregroundServiceKeepsOneStreamingReplyAndNeverReopensTheMicrophoneInBackground() {
+        audio.streamsReplies = true
+        start()
+        audio.listeners.last().final("Bonjour")
+        assertTrue(session.beginMessage("one"))
+        val first = "Bonjour tout le monde. "
+        session.streamReply("one", first)
+        assertEquals(1, audio.opened)
+        session.backgroundPlayback = true
+        val stops = audio.stopped
+        session.access(true, true, false)
+        session.resume()
+        assertEquals(stops, audio.stopped)
+        assertFalse(session.beginMessage("different"))
+        val final = first + "La réponse continue en arrière-plan."
+        session.reply("one", final)
+        session.streamReply("one", first)
+        assertEquals(final, audio.spoken.joinToString(""))
+        assertEquals(1, audio.sealed)
+        requireNotNull(audio.done).invoke()
+        assertEquals(1, audio.listeners.size)
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+    }
+
     @Test fun `background stops playback and ignores late completion`() {
         start()
         audio.listeners.last().final("Hello")

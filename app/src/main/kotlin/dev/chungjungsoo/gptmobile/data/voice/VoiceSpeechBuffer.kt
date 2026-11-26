@@ -5,11 +5,13 @@ internal class VoiceSpeechBuffer(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val includeDetails: Boolean = false,
     private val preserveLiteralTerms: Boolean = false,
-    private val skipPreamble: Boolean = false
+    private val skipPreamble: Boolean = false,
+    private val dictionary: VoicePronunciationDictionary = VoicePronunciationDictionary.EMPTY
 ) {
     constructor(clock: () -> Long) : this(clock, false)
     private var previous = ""
     private var previousSpeech = ""
+    private var finalText = false
     private var boundaryBase = 0
     private var boundaries = VoicePhraseBoundaries("")
     private var consumed = 0
@@ -40,6 +42,7 @@ internal class VoiceSpeechBuffer(
             boundaryBase = consumed
             boundaries = VoicePhraseBoundaries(visible.substring(boundaryBase), streaming = !final)
         }
+        finalText = final
         previous = boundedText
         previousSpeech = visible
         val speechEnd = visible.length
@@ -85,7 +88,7 @@ internal class VoiceSpeechBuffer(
                 firstPendingAt = if (consumed < speechEnd) now() else null
             }
             if (final && consumed < speechEnd) {
-                chunks += speechChunks(visible.substring(consumed))
+                chunks += speechChunks(visible.substring(consumed), dictionary = dictionary)
                 consumed = speechEnd
             }
             return chunks.filter(String::isNotBlank)
@@ -98,7 +101,7 @@ internal class VoiceSpeechBuffer(
                 sentenceEnd.findAll(visible, consumed).lastOrNull { permitsBoundary(it.range.last + 1) }?.range?.last?.plus(1) ?: 0
             )
         }
-        val chunks = speechChunks(visible.substring(consumed, stableEnd)).filter(String::isNotBlank)
+        val chunks = speechChunks(visible.substring(consumed, stableEnd), dictionary = dictionary).filter(String::isNotBlank)
         consumed = stableEnd
         return chunks
     }
@@ -111,7 +114,7 @@ internal class VoiceSpeechBuffer(
         return (arrivalBudgetMs(feedback) - (now() - since)).coerceAtLeast(0)
     }
 
-    private fun permitsBoundary(end: Int) = end >= boundaryBase && boundaries.permits(end - boundaryBase)
+    private fun permitsBoundary(end: Int) = end >= boundaryBase && boundaries.permits(end - boundaryBase) && dictionary.permitsSplit(previousSpeech, end, finalText)
 
     private fun arrivalBudgetMs(feedback: VoiceSynthesisFeedback?): Long {
         if (!startedSpeech) return 120L
@@ -123,9 +126,9 @@ internal class VoiceSpeechBuffer(
     private companion object {
         const val ADAPTIVE_CHARACTERS = 128
         const val QUOTE_AND_SPACE = """["'”’»)}\]]*\s+"""
-        val sentenceEnd = Regex("[.!?…。！？]$QUOTE_AND_SPACE")
-        val clauseEnd = Regex("[.!?…。！？,;:]$QUOTE_AND_SPACE|\\n")
-        val phraseEnd = Regex("[.!?…。！？;:]$QUOTE_AND_SPACE|\\n")
+        val sentenceEnd = Regex("[.!?…]$QUOTE_AND_SPACE|[。！？।॥]\\s*")
+        val clauseEnd = Regex("[.!?…,;:]$QUOTE_AND_SPACE|[。！？।॥]\\s*|\\n")
+        val phraseEnd = Regex("[.!?…;:]$QUOTE_AND_SPACE|[。！？।॥]\\s*|\\n")
         val completeWord = Regex("\\S+\\s+")
     }
 }

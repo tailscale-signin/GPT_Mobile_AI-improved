@@ -83,6 +83,7 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
@@ -278,6 +279,7 @@ private fun VoiceChatSessionScreen(
     var retainedReview by rememberSaveable { mutableStateOf(false) }
     var retainedSubmittedRequestId by rememberSaveable { mutableStateOf<String?>(null) }
     var retainedMuted by rememberSaveable { mutableStateOf(false) }
+    val speakingNotification by runtimeOwner.background.notification.collectAsStateWithLifecycle()
     val runtime = remember(model, stores, runtimeOwner) {
         runtimeOwner.acquire(model, stores) { session ->
             session.restore(retainedTranscript, retainedReply, retainedReview, pending = false, pendingRequestId = retainedSubmittedRequestId)
@@ -326,7 +328,7 @@ private fun VoiceChatSessionScreen(
     var recognitionBackend by rememberSaveable { mutableStateOf(VoiceRecognitionBackend.LOCAL_MOONSHINE) }
     var synthesis by remember { mutableStateOf(VoiceSynthesisPreferences()) }
     var kokoroVoice by rememberSaveable { mutableStateOf<KokoroVoice?>(null) }
-    var kokoroThreads by rememberSaveable { mutableIntStateOf(2) }
+    var kokoroThreads by rememberSaveable { mutableIntStateOf(VoiceCpuSchedulingPolicy.AUTO) }
     var editBeforeSend by rememberSaveable { mutableStateOf(false) }
     var spokenReplies by rememberSaveable { mutableStateOf(true) }
     var buttonSounds by rememberSaveable { mutableStateOf(false) }
@@ -391,7 +393,7 @@ private fun VoiceChatSessionScreen(
             }
             audio.recognitionBackend = recognitionBackend
             localRecognition.languageTag = language
-            tuningConfiguration.apply(tuning)
+            tuningConfiguration.apply(tuning, synthesis.profile.dictionaryLanguage)
             audio.kokoroVoice = kokoroVoice
             kokoroOutput?.configureThreads(kokoroThreads)
             kokoroOutput?.configurePacing(pause, performance)
@@ -400,6 +402,7 @@ private fun VoiceChatSessionScreen(
             if (session.states.value.speaker != spokenReplies) session.speaker()
             // Configure before permitting the first listen, including after restoring the screen.
             systemAudio.synthesisLanguageTag = synthesis.language
+            model.voiceReplyLanguage = synthesis.profile.tag
             systemAudio.languageTag = language
             systemAudio.allowOnlineSpeech = false
             systemAudio.speechRate = rate
@@ -426,8 +429,9 @@ private fun VoiceChatSessionScreen(
         audio.synthesisSupported = backend.backend.forSynthesis(synthesis) == backend.backend
         audio.recognitionBackend = recognitionBackend
         localRecognition.languageTag = language
-        tuningConfiguration.apply(tuning)
+        tuningConfiguration.apply(tuning, synthesis.profile.dictionaryLanguage)
         systemAudio.synthesisLanguageTag = synthesis.language
+        model.voiceReplyLanguage = synthesis.profile.tag
         systemAudio.languageTag = language
         systemAudio.allowOnlineSpeech = onlineAllowed
         systemAudio.speechRate = rate
@@ -521,7 +525,7 @@ private fun VoiceChatSessionScreen(
     LaunchedEffect(settingsOpen, routeOpen, recognitionReady, preferencesApplied, listeningEnabled, benchmarkRunning) {
         if (!preferencesApplied || benchmarkOwnership.value != null) return@LaunchedEffect
         applyAudioConfiguration()
-        if (voiceReady && recognitionReady && !settingsOpen && !routeOpen && listeningEnabled && started && !state.muted && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED) {
+        if (!runtimeOwner.background.playingElsewhere(runtime) && voiceReady && recognitionReady && !settingsOpen && !routeOpen && listeningEnabled && started && !state.muted && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED) {
             if (state.phase == VoicePhase.PAUSED) session.resume()
         }
     }
@@ -534,6 +538,10 @@ private fun VoiceChatSessionScreen(
     fun listen(manual: Boolean = false) {
         session.holdAudio(benchmarkOwnership.value != null)
         if (benchmarkOwnership.value != null || !enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
+        if (runtimeOwner.background.playingElsewhere(runtime)) {
+            if (!manual) return
+            runtimeOwner.background.stopCurrent()
+        }
         applyAudioConfiguration()
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
@@ -575,7 +583,7 @@ private fun VoiceChatSessionScreen(
     }
     fun leaveTranscript() {
         if (preferencesApplied) savePreferences()
-        session.close()
+        if (room.isTemporary || !runtimeOwner.background.owns(runtime)) session.close()
         model.leaveConversation(onEnd)
     }
     fun pauseCapture() {
@@ -599,6 +607,8 @@ private fun VoiceChatSessionScreen(
             closeSettings()
         } else if (chatView) {
             leaveTranscript()
+        } else if (runtimeOwner.background.owns(runtime)) {
+            leaveTranscript()
         } else {
             end()
         }
@@ -617,7 +627,7 @@ private fun VoiceChatSessionScreen(
                     refreshMutedBaseline = true
                     kokoroOutput?.cancelPrewarm()
                     session.access(currentEnabled, permission, false)
-                    systemAudio.releaseRecognition()
+                    systemAudio.releaseRecognition(preservePlayback = session.backgroundPlayback)
                     runtimeOwner.pause(runtime)
                 }
                 else -> Unit
@@ -630,14 +640,14 @@ private fun VoiceChatSessionScreen(
             refreshMutedBaseline = true
             kokoroOutput?.cancelPrewarm()
             session.access(currentEnabled, permission, false)
-            systemAudio.releaseRecognition()
+            systemAudio.releaseRecognition(preservePlayback = session.backgroundPlayback)
             runtimeOwner.pause(runtime)
         }
     }
-    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled, benchmarkRunning) {
+    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, speakingNotification, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled, benchmarkRunning) {
         session.holdAudio(benchmarkOwnership.value != null)
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (benchmarkOwnership.value == null && enabled && voiceReady && preferencesApplied && recognitionReady && listeningEnabled && !settingsOpen && !routeOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
+        if (!runtimeOwner.background.playingElsewhere(runtime) && benchmarkOwnership.value == null && enabled && voiceReady && preferencesApplied && recognitionReady && listeningEnabled && !settingsOpen && !routeOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
             started = true
             resumeWhenReady = false
             listen()
@@ -1074,7 +1084,8 @@ private fun VoiceChatSessionScreen(
                                 tuning = tuning.copy(captionOffsetMs = milliseconds)
                                 savePreferences()
                             },
-                            supportsCpuThreads = !backend.backend.isStreamingLocal
+                            language = synthesis.profile,
+                            supportsCpuThreads = backend.backend.supportsCpuThreadCalibration
                         )
                     }
                 }

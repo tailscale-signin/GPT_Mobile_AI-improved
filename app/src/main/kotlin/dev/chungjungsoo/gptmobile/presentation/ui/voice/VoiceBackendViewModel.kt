@@ -68,8 +68,14 @@ internal val VoiceSpeechBackend.usesKokoroVoices: Boolean get() = !isStreamingLo
 internal fun VoiceSynthesisPreferences.nativeVoice(previous: KokoroVoice?): KokoroVoice =
     KokoroVoice.fromStreamingId(voiceId) ?: previous ?: KokoroVoice.HEART
 
-internal fun VoiceSpeechBackend.forSynthesis(synthesis: VoiceSynthesisPreferences): VoiceSpeechBackend =
-    if (!synthesis.language.startsWith("en-") && streamingEngine()?.isKokoro != true) VoiceSpeechBackend.LITERT_KOKORO_CPU else this
+internal fun VoiceSpeechBackend.forSynthesis(synthesis: VoiceSynthesisPreferences): VoiceSpeechBackend {
+    if (synthesis.profile.tag.startsWith("en-") || isLiteRtKokoro) return this
+    return when (this) {
+        VoiceSpeechBackend.QNN_GPU -> VoiceSpeechBackend.LITERT_KOKORO_GPU
+        VoiceSpeechBackend.QNN_HTP -> VoiceSpeechBackend.LITERT_KOKORO_NPU
+        else -> VoiceSpeechBackend.LITERT_KOKORO_CPU
+    }
+}
 
 /** Main-thread orchestration; only credential and preference I/O leaves the owning dispatcher. */
 @HiltViewModel
@@ -363,7 +369,7 @@ internal class VoiceBackendViewModel internal constructor(
             }
             val accelerated = engine.isKokoro && value.backend != VoiceSpeechBackend.LITERT_KOKORO_CPU
             val status = if (accelerated) {
-                "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If the delegate fails, playback can recover on standard Kokoro CPU."
+                "Kokoro requests the selected accelerator for its vocoder. The runtime does not report which processor ran it. If an optimized vocoder cannot open, playback can try the standard pack on the same accelerator. CPU recovery is available before audio is delivered."
             } else {
                 "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
             }
@@ -371,7 +377,7 @@ internal class VoiceBackendViewModel internal constructor(
             val evidence = runCatching { SpeechVoiceEvidence(context) }.getOrNull()
             fun modelUsed(configured: VoiceSpeechBackend) = MediaPipeSpeechCatalog.model(requireNotNull(configured.streamingEngine()))
             fun evidenceStatus(configured: VoiceSpeechBackend, usedId: String = selectedId): String {
-                val message = if (configured == value.backend) status else "${value.backend.label} was unavailable during playback. Using standard Kokoro CPU."
+                val message = if (configured == value.backend) status else "${value.backend.label} was unavailable during playback. Using ${configured.label}."
                 val voiceNotice = if (usedId != selectedId) "$selectedId is unavailable in this pack. Using $usedId for the same language. " else ""
                 return if (evidence?.has(modelUsed(configured), configured, usedId) == true) {
                     "$message $voiceNotice$usedId produced valid, non-silent audio samples on this phone with ${configured.label} configured."
@@ -407,7 +413,7 @@ internal class VoiceBackendViewModel internal constructor(
 
     private fun publishStatus() {
         val fallback = saved?.value?.backend?.takeIf { it != mutable.value.backend }?.let {
-            "Using standard Kokoro CPU for ${synthesis.profile.label}. ${it.label} supports English."
+            "Using ${mutable.value.backend.label} for ${synthesis.profile.label}."
         }
         mutable.value = mutable.value.copy(status = listOfNotNull(saved?.error, catalogError, fallback, backendStatus).joinToString(" "))
     }

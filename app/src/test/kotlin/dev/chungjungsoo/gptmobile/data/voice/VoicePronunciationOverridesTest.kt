@@ -7,6 +7,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePronunciationOverridesTest {
+    @Test fun savedPhrasesSurviveAProviderPauseAndUnspacedTextKeepsItsLanguage() {
+        val french = VoicePronunciationDictionary(mapOf("Saint-Jean sur Richelieu" to "sain jean"), "fr")
+        assertFalse(french.permitsSplit("Voici Saint-Jean ", 17, final = false))
+        assertTrue(french.permitsSplit("Voici Saint-Jean ", 17, final = true))
+        assertFalse(french.permitsSplit("Voici Saint-Jean sur Richelieu", 21, final = true))
+        val japanese = VoicePronunciationDictionary(mapOf("東京" to "とうきょう"), "ja")
+        assertEquals("私はとうきょうにいます。", japanese.project("私は東京にいます。").text)
+        val buffer = VoiceSpeechBuffer()
+        assertEquals(listOf("こんにちは。"), buffer.append("こんにちは。次は", final = false))
+        assertEquals(listOf("次はこちらです。"), buffer.append("こんにちは。次はこちらです。", final = true))
+    }
+
+    @Test fun frenchReadingsAndPersonalPhrasesKeepOriginalCaptionOffsets() {
+        val input = "Mme Élise attend l’ONU à Saint-Jean sur Richelieu, dossier #42."
+        val dictionary = VoicePronunciationDictionary(mapOf("ONU" to "onu", "Saint-Jean sur Richelieu" to "sain jean"), "fr-CA")
+        val projection = dictionary.project(VoiceSpeechText.forPlayback(input))
+        assertEquals("madame Élise attend l’onu à sain jean, dossier numéro 42.", projection.text)
+        val start = projection.text.indexOf("sain jean")
+        assertEquals(input.indexOf("Saint-Jean") until input.indexOf(','), projection.sourceRange(start, start + 9))
+        assertEquals("Mme", VoicePronunciationDictionary(emptyMap(), "es").project("Mme").text)
+        assertEquals("madame", dictionary.project("Mme", englishFallback = true).text)
+    }
+
+    @Test fun nonLatinAndAccentedSpokenSpellingsAreValidAndPersonalReadingsWin() {
+        val terms = mapOf("Mme" to "ma chère amie", "École du Nord" to "é-kol", "दिल्ली" to "दिल्ली", "東京" to "とうきょう")
+        assertEquals(4, VoicePronunciationOverrides.clean(terms).size)
+        assertEquals("ma chère amie", VoicePronunciationDictionary(terms, "fr").project("Mme").text)
+        assertEquals("por ejemplo", VoicePronunciationDictionary(emptyMap(), "es").project("p. ej.").text)
+    }
+
     @Test fun streamingKokoroReceivesNaturalTextWhileEnglishAlternativesShareItsExplicitReadings() {
         val original = "Élodie uses JSON, a GPU and MyTool."
         val configured = mutableMapOf("MyTool" to "json")
@@ -75,7 +105,7 @@ class VoicePronunciationOverridesTest {
     }
 
     @Test fun invalidOrExcessiveCorrectionsNeverEnterSpeech() {
-        val invalid = mapOf("<secret>" to "exposed", "name" to "<script>", "two words" to "phrase", "ok" to "a ".repeat(9).trim(), "x".repeat(49) to "long")
+        val invalid = mapOf("<secret>" to "exposed", "name" to "<script>", "one two three four five six seven" to "phrase", "ok" to "a ".repeat(9).trim(), "x".repeat(49) to "long")
         assertTrue(VoicePronunciationOverrides.clean(invalid).isEmpty())
         val input = "<secret> name two words ok"
         assertEquals(input, VoicePronunciationOverrides.project(input, invalid).text)

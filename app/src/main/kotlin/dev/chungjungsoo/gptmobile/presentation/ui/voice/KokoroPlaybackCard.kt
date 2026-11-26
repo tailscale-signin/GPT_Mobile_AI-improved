@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -19,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 
 @Composable
 internal fun KokoroPlaybackCard(
@@ -61,12 +61,12 @@ internal fun KokoroPlaybackCard(
             if (ready && !setup) {
                 if (!english) Text("Set the speech language to English to use Kokoro.", style = MaterialTheme.typography.bodySmall)
                 if (voice != null && showThreads) {
-                    Text("Synthesis threads", style = MaterialTheme.typography.labelMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (1..4).forEach { count ->
-                            FilterChip(selected = threads == count, onClick = { selectThreads(count) }, label = { Text(count.toString()) })
-                        }
-                    }
+                    VoiceChoice(
+                        "Native CPU threads",
+                        threads.toString(),
+                        listOf("0" to "Auto · calibrated") + (1..VoiceCpuSchedulingPolicy.deviceLimit()).map { it.toString() to it.toString() },
+                        { selectThreads(it.toInt()) }
+                    )
                 }
                 Row {
                     voice?.let { selected ->

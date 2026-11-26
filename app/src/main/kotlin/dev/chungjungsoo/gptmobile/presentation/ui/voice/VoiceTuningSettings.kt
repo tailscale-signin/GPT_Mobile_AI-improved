@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceListeningStyle
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceHistory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisFeedback
@@ -32,6 +33,7 @@ internal fun VoiceTuningSettings(
     feedback: StateFlow<VoiceSynthesisFeedback>?,
     benchmark: (((String) -> Unit) -> Unit)?,
     adjustCaptionOffset: (Int) -> Unit,
+    language: SpeechLanguage,
     supportsCpuThreads: Boolean = true
 ) {
     VoiceSettingsSection("Listening response")
@@ -41,7 +43,7 @@ internal fun VoiceTuningSettings(
     VoiceSettingSwitch("Interrupt replies by speaking", value.handsFreeInterruption) { change(value.copy(handsFreeInterruption = it)) }
     Text("Hands-free interruption uses echo cancellation when the active audio route supports it.", style = MaterialTheme.typography.bodySmall)
     VoiceSettingsSection("Pronunciation")
-    VoicePronunciationEditor(value.pronunciation) { change(value.copy(pronunciation = it)) }
+    VoicePronunciationEditor(language.label, value.dictionary(language.dictionaryLanguage)) { change(value.withDictionary(language.dictionaryLanguage, it)) }
     VoiceSettingsSection("Caption alignment")
     VoiceCaptionAdjustment(value.captionOffsetMs, feedback, adjustCaptionOffset)
     VoiceSettingsSection("Performance")
@@ -65,8 +67,8 @@ private fun VoiceCaptionAdjustment(defaultOffset: Int, feedback: StateFlow<Voice
 }
 
 @Composable
-private fun VoicePronunciationEditor(value: Map<String, String>, save: (Map<String, String>) -> Unit) {
-    var editor by remember(value) { mutableStateOf(value.entries.joinToString("\n") { "${it.key} = ${it.value}" }) }
+private fun VoicePronunciationEditor(language: String, value: Map<String, String>, save: (Map<String, String>) -> Unit) {
+    var editor by remember(language, value) { mutableStateOf(value.entries.joinToString("\n") { "${it.key} = ${it.value}" }) }
     val parsed = remember(editor) { parsePronunciationEditor(editor) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(
@@ -74,7 +76,7 @@ private fun VoicePronunciationEditor(value: Map<String, String>, save: (Map<Stri
             onValueChange = { if (it.length <= 32_000) editor = it },
             modifier = Modifier.fillMaxWidth().testTag("voice_pronunciation_editor"),
             label = { Text("Word or term = spoken pronunciation") },
-            supportingText = { Text("One entry per line, up to 100. Names and terms work too: Melo = mellow, C++ = see plus plus. Write the pronunciation in English words.") },
+            supportingText = { Text("Write one term = spoken spelling per line in $language. You can save up to 100 names, phrases or abbreviations.") },
             minLines = 2,
             maxLines = 6,
             isError = parsed == null
@@ -97,7 +99,7 @@ private fun VoiceCalibrationControl(benchmark: (((String) -> Unit) -> Unit)?) {
     }, enabled = benchmark != null && !running, modifier = Modifier.testTag("voice_cpu_benchmark")) {
         Text(if (running) "Measuring…" else "Measure CPU setting for Auto")
     }
-    Text("Auto performance uses the measured CPU choice and adapts to device heat.", style = MaterialTheme.typography.bodySmall)
+    Text("Auto threads use the measured count and reduce it when the phone warms up.", style = MaterialTheme.typography.bodySmall)
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 

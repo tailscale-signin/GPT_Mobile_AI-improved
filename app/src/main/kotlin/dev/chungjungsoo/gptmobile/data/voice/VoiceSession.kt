@@ -39,7 +39,7 @@ interface VoiceAudio {
     fun listen(listener: Listener)
     fun finishListening() = Unit
     fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) = Unit
-    fun configurePronunciation(overrides: Map<String, String>) = Unit
+    fun configurePronunciation(overrides: Map<String, String>, language: String = "en") = Unit
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
 
     /** Older backends keep their message-only contract; typed producers retain their actual cause. */
@@ -148,7 +148,8 @@ class VoiceSession(
     private var streamId: String? = null
     private var streamDiagnosticId: String? = null
     private var skipPreamble = false
-    private var speechBuffer = VoiceSpeechBuffer(now, preserveLiteralTerms = true)
+    internal var pronunciationDictionary = VoicePronunciationDictionary.EMPTY
+    private var speechBuffer = VoiceSpeechBuffer(now, dictionary = pronunciationDictionary, preserveLiteralTerms = true)
     private val queuedSpeech = ArrayDeque<String>()
     private var chunkPlaying = false
     private enum class LookupSpeech { AVAILABLE, PREPARING, AUDIBLE, FINISHED }
@@ -166,7 +167,7 @@ class VoiceSession(
         streamId = null
         streamDiagnosticId = null
         lookupSpeech = LookupSpeech.AVAILABLE
-        speechBuffer = VoiceSpeechBuffer(now, preserveLiteralTerms = true, skipPreamble = skipPreamble)
+        speechBuffer = VoiceSpeechBuffer(now, dictionary = pronunciationDictionary, preserveLiteralTerms = true, skipPreamble = skipPreamble)
         includeSpeechDetails = false
         queuedSpeech.clear()
         chunkPlaying = false
@@ -185,7 +186,10 @@ class VoiceSession(
     fun configureInterruption(enabled: Boolean) {
         if (interruptionEnabled == enabled) return
         interruptionEnabled = enabled
-        audio.configureInterruption(enabled) { if (accessAllowed() && state.phase == VoicePhase.SPEAKING) interrupt() }
+        syncInterruption()
+    }
+    private fun syncInterruption() {
+        audio.configureInterruption(interruptionEnabled == true && foreground) { if (accessAllowed() && state.phase == VoicePhase.SPEAKING) interrupt() }
     }
     var speakWhileGenerating = true
     internal var performanceMode = VoicePerformanceMode.BALANCED
@@ -203,7 +207,7 @@ class VoiceSession(
     private fun continueTurn() {
         diagnosticTrace.retain()
         if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) update(state.copy(phase = VoicePhase.PAUSED))
-        if (autoContinue) resume() else pause()
+        if (foreground && autoContinue) resume() else pause()
     }
     fun tick() {
         if (state.phase != VoicePhase.CLOSED && state.retryAtMillis > 0 && now() >= state.retryAtMillis) {
@@ -339,7 +343,7 @@ class VoiceSession(
         resetStream()
         manualPlayback = manual
         includeSpeechDetails = manual && includeDetails
-        speechBuffer = VoiceSpeechBuffer(now, includeDetails = includeSpeechDetails, preserveLiteralTerms = true)
+        speechBuffer = VoiceSpeechBuffer(now, dictionary = pronunciationDictionary, includeDetails = includeSpeechDetails, preserveLiteralTerms = true)
         waiting = true
         lastReply = null
         engaged = true
@@ -408,8 +412,15 @@ class VoiceSession(
         audio.bindDiagnostics(diagnosticProbe)
     }
     private fun accessAllowed() = enabled && foreground && !audioHeld && state.phase != VoicePhase.CLOSED
-    private fun playbackAllowed() = engaged && accessAllowed()
-    private fun captureAllowed() = playbackAllowed() && permission && !state.muted
+
+    // Only an already admitted utterance can outlive the visible screen.
+    internal var backgroundPlayback = false
+    internal val canStartPlaybackService: Boolean get() = foreground && engaged && streamAudio && !audioHeld
+    internal val activeSpeechKey: String? get() = streamId
+    internal val retainsReply: Boolean get() = engaged && streamAudio && waiting && !streamComplete && state.phase == VoicePhase.THINKING
+
+    private fun playbackAllowed() = engaged && enabled && !audioHeld && state.phase != VoicePhase.CLOSED && (foreground || backgroundPlayback)
+    private fun captureAllowed() = foreground && playbackAllowed() && permission && !state.muted
 
     /** Release only when the external worker has finished, never when cancellation is requested. */
     internal fun holdAudio(held: Boolean) {
@@ -423,8 +434,11 @@ class VoiceSession(
     fun access(enabled: Boolean, permission: Boolean, foreground: Boolean) {
         this.enabled = enabled
         this.permission = permission
+        val visibilityChanged = this.foreground != foreground
         this.foreground = foreground
+        if (visibilityChanged && interruptionEnabled == true) syncInterruption()
         diagnosticProbe.access(permission, foreground, state.muted)
+        if (!foreground && backgroundPlayback && playbackAllowed()) return
         if ((!accessAllowed() || !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) && state.phase != VoicePhase.CLOSED) {
             pause(
                 if (!foreground) {
@@ -630,17 +644,17 @@ class VoiceSession(
 
     /** Stable words may meet the adaptive time budget while the provider pauses between chunks. */
     internal fun nextSpeechFlushDelayMs(): Long? {
-        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return null
+        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !playbackAllowed()) return null
         return speechBuffer.nextFlushDelayMs(synthesisFeedback())
     }
 
     fun flushSpeech() {
-        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return
+        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !playbackAllowed()) return
         streamId?.let { streamReply(it, state.reply) }
     }
 
     fun streamReply(id: String, text: String, complete: Boolean = false) {
-        if (!waiting || state.phase == VoicePhase.CLOSED || (streamId != null && streamId != id)) return
+        if (!waiting || streamComplete && !complete || state.phase == VoicePhase.CLOSED || (streamId != null && streamId != id)) return
         if (text.isNotBlank()) diagnosticProbe.responseText()
         if (streamId == null) {
             streamId = id
@@ -907,7 +921,7 @@ class VoiceSession(
             continueTurn()
             return
         }
-        val spoken = VoiceSpeechBuffer(includeDetails = includeSpeechDetails, preserveLiteralTerms = true, skipPreamble = skipPreamble).append(text, final = true).orEmpty().joinToString(" ").trim()
+        val spoken = VoiceSpeechBuffer(dictionary = pronunciationDictionary, includeDetails = includeSpeechDetails, preserveLiteralTerms = true, skipPreamble = skipPreamble).append(text, final = true).orEmpty().joinToString(" ").trim()
         if (spoken.isEmpty()) {
             continueTurn()
             return
@@ -984,7 +998,9 @@ class VoiceSession(
 }
 
 /** Keep speech queues below Android engine limits without splitting surrogate pairs. */
-internal fun speechChunks(text: String, limit: Int = 3000): List<String> {
+internal fun speechChunks(text: String, limit: Int = 3000): List<String> = speechChunks(text, limit, VoicePronunciationDictionary.EMPTY)
+
+internal fun speechChunks(text: String, limit: Int = 3000, dictionary: VoicePronunciationDictionary): List<String> {
     require(limit >= 2)
     val chunks = mutableListOf<String>()
     val boundaries = if (text.length > limit) VoicePhraseBoundaries(text) else null
@@ -993,7 +1009,7 @@ internal fun speechChunks(text: String, limit: Int = 3000): List<String> {
         var end = start + minOf(limit, text.length - start)
         if (end < text.length) {
             // Prefer a nearby word break while keeping long unbroken tokens bounded.
-            val boundary = (end - 1 downTo start + limit / 2).firstOrNull { text[it].isWhitespace() && boundaries?.permits(it + 1) == true }
+            val boundary = (end - 1 downTo start + limit / 2).firstOrNull { text[it].isWhitespace() && boundaries?.permits(it + 1) == true && dictionary.permitsSplit(text, it + 1, final = true) }
             if (boundary != null) end = boundary + 1
             if (text[end - 1].isHighSurrogate()) end--
         }

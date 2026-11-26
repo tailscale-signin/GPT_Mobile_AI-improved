@@ -70,7 +70,7 @@ class VoicePluginAudioTest {
 
     private class SystemAudio : VoiceAudio {
         var pronunciations: Map<String, String> = emptyMap()
-        override fun configurePronunciation(overrides: Map<String, String>) {
+        override fun configurePronunciation(overrides: Map<String, String>, language: String) {
             pronunciations = overrides
         }
         var starts = 0
@@ -115,7 +115,7 @@ class VoicePluginAudioTest {
 
     private class LocalOutput : KokoroOutput {
         var pronunciations: Map<String, String> = emptyMap()
-        override fun configurePronunciation(overrides: Map<String, String>) {
+        override fun configurePronunciation(overrides: Map<String, String>, language: String) {
             pronunciations = overrides
         }
         var voice: KokoroVoice? = null

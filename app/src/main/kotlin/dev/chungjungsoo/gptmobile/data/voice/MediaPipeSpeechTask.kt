@@ -22,6 +22,9 @@ internal data class MediaPipeSpeechTaskConfiguration(
     }
 }
 
+/** The SDK selects the phonemizer independently of the speaker embedding. */
+internal fun streamSynthesisOptions(voiceId: String) = SynthesisOptions(voiceId = voiceId, locale = SpeechLanguages.forVoice(voiceId)?.tag)
+
 /** The production implementation calls the pinned SDK directly; tests replace only this boundary. */
 internal interface MediaPipeSpeechTask : AutoCloseable {
     fun voiceIds(): Set<String>
@@ -54,11 +57,11 @@ internal class AndroidMediaPipeSpeechTask(configuration: MediaPipeSpeechTaskConf
     override fun voiceIds(): Set<String> = task.listVoices().mapTo(mutableSetOf()) { it.voiceId }
 
     override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream = AndroidMediaPipeSpeechStream(
-        task.openStream(initialText = text, options = SynthesisOptions(voiceId = voiceId), finishInput = true)
+        task.openStream(initialText = text, options = streamSynthesisOptions(voiceId), finishInput = true)
     )
 
     override fun openIncrementalStream(voiceId: String): MediaPipeSpeechStream = AndroidMediaPipeSpeechStream(
-        task.openStream(initialText = "", options = SynthesisOptions(voiceId = voiceId), finishInput = false)
+        task.openStream(initialText = "", options = streamSynthesisOptions(voiceId), finishInput = false)
     )
 
     override fun cancel() = task.cancel()

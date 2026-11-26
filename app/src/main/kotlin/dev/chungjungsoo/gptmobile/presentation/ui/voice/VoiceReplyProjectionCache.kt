@@ -43,5 +43,7 @@ internal class VoiceReplyProjectionCache {
         return result
     }
 
+    fun fenceFor(identity: VoiceMessageIdentity): Long? = entries[identity.messageId]?.takeIf { it.reply.identity == identity }?.source?.ownershipFence
+
     fun pendingTerminal(id: Int): Entry? = entries[id]?.takeIf { it.reply.complete && !it.terminalPublished }
 }

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceListeningStyle
 import dev.chungjungsoo.gptmobile.data.voice.VoicePronunciationOverrides
 import org.json.JSONObject
@@ -9,25 +10,40 @@ internal data class VoiceTuningPreferences(
     val captureBatchMs: Int = 40,
     val handsFreeInterruption: Boolean = false,
     val pronunciation: Map<String, String> = emptyMap(),
-    val captionOffsetMs: Int = 0
-)
+    val captionOffsetMs: Int = 0,
+    val localizedPronunciations: Map<String, Map<String, String>> = emptyMap()
+) {
+    fun dictionary(language: String) = if (language == "en") pronunciation else localizedPronunciations[language].orEmpty()
+
+    fun withDictionary(language: String, entries: Map<String, String>) = when {
+        language == "en" -> copy(pronunciation = entries)
+        entries.isEmpty() -> copy(localizedPronunciations = localizedPronunciations - language)
+        else -> copy(localizedPronunciations = localizedPronunciations + (language to entries))
+    }
+}
 
 internal fun readVoiceTuningPreferences(saved: Map<String, *>): VoiceTuningPreferences {
-    val pronunciation = runCatching {
-        val raw = (saved["pronunciation_overrides"] as? String)?.takeIf { it.length <= 32_000 } ?: "{}"
-        val json = JSONObject(raw)
-        buildMap {
-            json.keys().asSequence().take(100).forEach { key ->
-                val value = json.optString(key)
-                if (validPronunciation(key, value)) put(key, value)
-            }
+    fun entries(json: JSONObject?) = buildMap {
+        json?.keys()?.asSequence()?.take(100)?.forEach { key ->
+            val value = json.opt(key) as? String
+            if (value != null && validPronunciation(key, value)) put(key, value)
         }
-    }.getOrDefault(emptyMap())
+    }
+    fun read(key: String, limit: Int): JSONObject? = (saved[key] as? String)?.takeIf { it.length <= limit }?.let {
+        runCatching { JSONObject(it) }.getOrNull()
+    }
+    val pronunciation = entries(read("pronunciation_overrides", 32_000))
+    val localized = read("localized_pronunciations", 256_000)
     return VoiceTuningPreferences(
         listeningStyle = VoiceListeningStyle.entries.firstOrNull { it.name == saved["listening_style"] } ?: VoiceListeningStyle.NATURAL,
         captureBatchMs = (saved["capture_batch_ms"] as? Int)?.takeIf { it in setOf(20, 40, 80, 100) } ?: 40,
         handsFreeInterruption = saved["hands_free_interruption"] as? Boolean ?: false,
         pronunciation = pronunciation,
+        localizedPronunciations = buildMap {
+            SpeechLanguages.synthesis.map { it.dictionaryLanguage }.distinct().filter { it != "en" }.forEach { language ->
+                entries(localized?.optJSONObject(language)).takeIf { it.isNotEmpty() }?.let { put(language, it) }
+            }
+        },
         captionOffsetMs = (saved["caption_offset_ms"] as? Int)?.coerceIn(-500, 500) ?: 0
     )
 }

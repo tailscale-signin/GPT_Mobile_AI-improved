@@ -59,7 +59,7 @@ internal class DeferredKokoroOutput(
     private val lock = Any()
     private var attempted = false
     private var closed = false
-    private var threads = 2
+    private var threads = VoiceCpuSchedulingPolicy.AUTO
     private var pause = VoicePauseDuration.SHORT
     private var performance = VoicePerformanceMode.BALANCED
     private var replyId: String? = null
@@ -71,6 +71,7 @@ internal class DeferredKokoroOutput(
     private var retiring: KokoroOutput? = null
     private var closeFailed = false
     private var pronunciations: Map<String, String> = emptyMap()
+    private var pronunciationLanguage = "en"
     private var captionOffset = 0
     private var speechFactory: VoicePhraseEngineFactory = TimedKokoroPhraseEngineFactory
 
@@ -109,7 +110,7 @@ internal class DeferredKokoroOutput(
             delegate = factory()?.also { output ->
                 output.configureThreads(threads)
                 output.configurePacing(pause, performance)
-                output.configurePronunciation(pronunciations)
+                output.configurePronunciation(pronunciations, pronunciationLanguage)
                 output.configureCaptionOffset(captionOffset)
                 output.configureEngine(speechFactory)
                 replyId?.let(output::bindReply)
@@ -145,7 +146,7 @@ internal class DeferredKokoroOutput(
         output()?.openReplyWithFailure(voice, complete, error)
 
     override fun configureThreads(value: Int) {
-        val bounded = value.coerceIn(1, 4)
+        val bounded = VoiceCpuSchedulingPolicy.choice(value)
         synchronized(lock) { threads = bounded }
         existing()?.configureThreads(bounded)
     }
@@ -158,10 +159,11 @@ internal class DeferredKokoroOutput(
         }
     }
 
-    override fun configurePronunciation(overrides: Map<String, String>) {
+    override fun configurePronunciation(overrides: Map<String, String>, language: String) {
         synchronized(lock) {
             pronunciations = VoicePronunciationOverrides.clean(overrides)
-            delegate?.configurePronunciation(pronunciations)
+            pronunciationLanguage = language
+            delegate?.configurePronunciation(pronunciations, language)
         }
     }
 
@@ -292,7 +294,8 @@ internal class KokoroVoiceOutput(
 
     private val silentWarmup = VoiceSilentWarmup()
 
-    private var threadCount = 2
+    private var threadChoice = VoiceCpuSchedulingPolicy.AUTO
+    private val threadCount get() = VoiceCpuSchedulingPolicy.initial(threadChoice)
     private var pause = VoicePauseDuration.SHORT
     private var performance = VoicePerformanceMode.BALANCED
 
@@ -327,14 +330,14 @@ internal class KokoroVoiceOutput(
     }
 
     override fun configureThreads(value: Int) {
-        val bounded = value.coerceIn(1, 4)
-        if (threadCount == bounded) return
-        threadCount = bounded
+        val bounded = VoiceCpuSchedulingPolicy.choice(value)
+        if (threadChoice == bounded) return
+        threadChoice = bounded
         releaseWarmModel()
     }
 
-    override fun configurePronunciation(overrides: Map<String, String>) {
-        pronunciations = VoicePronunciationDictionary(overrides)
+    override fun configurePronunciation(overrides: Map<String, String>, language: String) {
+        pronunciations = VoicePronunciationDictionary(overrides, language)
     }
 
     override fun configureCaptionOffset(milliseconds: Int) {
@@ -376,7 +379,7 @@ internal class KokoroVoiceOutput(
     private fun calibrationKey(voice: KokoroVoice, speed: Float) = VoiceCpuCalibrationProtocol.key(speechFactory.cpuCalibrationFactory.identity, voice, speed)
 
     private fun effectiveThreads(voice: KokoroVoice, speed: Float): Int {
-        val adaptive = performance == VoicePerformanceMode.AUTO && speechFactory.selectedBackend.supportsCpuThreadCalibration
+        val adaptive = threadChoice == VoiceCpuSchedulingPolicy.AUTO && speechFactory.selectedBackend.supportsCpuThreadCalibration
         val hardware = if (adaptive) DeviceHardwareGovernor.inspectHardwareState(application) else null
         return VoiceCpuSchedulingPolicy.threads(
             threadCount,
@@ -405,7 +408,9 @@ internal class KokoroVoiceOutput(
             try {
                 ConversationPrivacyContext.withCaptured(capturedPrivacy) {
                     val seed = calibration.getInt(VoiceCpuCalibrationProtocol.ORDER_KEY, 0)
-                    calibration.edit().putInt(VoiceCpuCalibrationProtocol.ORDER_KEY, (Math.floorMod(seed, 8) + 1) % 8).apply()
+                    val processors = VoiceCpuSchedulingPolicy.deviceLimit()
+                    val cycle = VoiceCpuCalibrationProtocol.candidates(processors).size * 2
+                    calibration.edit().putInt(VoiceCpuCalibrationProtocol.ORDER_KEY, (Math.floorMod(seed, cycle) + 1) % cycle).apply()
                     val samples = VoiceNativeEngineGate.exclusive {
                         var candidate: VoicePhraseEngine? = null
                         VoiceCpuCalibrationProtocol.measure(
@@ -421,7 +426,8 @@ internal class KokoroVoiceOutput(
                                 require(audio.samples.isNotEmpty() && audio.samples.all(Float::isFinite) && audio.samples.any { it != 0f })
                                 kokoroWordFrames(audio.durations, audio.wordTokens, audio.wordTokens.size / 2, audio.samples.size)
                             },
-                            nanoTime = SystemClock::elapsedRealtimeNanos
+                            nanoTime = SystemClock::elapsedRealtimeNanos,
+                            processors = processors
                         )
                     }
                     if (!closed && calibrationTicket == ticket && active == null && speechFactory.identity == selectionIdentity && powerManager?.currentThermalStatus in 0..1) {

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-multilingual-playback-2026-11-26",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+  "workingBranch": "fix/unified-github-gateway",
+  "startingHead": "ddae4af81aa9613e0b48914381a220ec9c520e30",
+  "pullRequest": 2646,
+  "intent": "Carry the selected reply language and dictionary through playback, retain accelerator selection, expand native CPU scheduling and keep an active reply playing across navigation and app backgrounding.",
+  "integratedParent": "5905eb75d5ef727dcbb7c6af69ac971499ff512b",
+  "verification": {
+    "host": "Canonical fast gate passed with 843 passing Python tests, one skipped, resource preflight and generated reference checks.",
+    "speech": "216 focused JVM tests passed for pronunciation, locale/voice selection, CPU scheduling, accelerator fallback, phrase buffering and playback state.",
+    "background": "Three Robolectric tests passed on simulated API 34: screen release through audio completion, durable reply continuation, and stale notification Stop isolation.",
+    "database": "Room KSP generated the playback DAO. The query ran against schema v54 with matching, superseded, wrong-room and wrong-fence cases.",
+    "native": "Host native speech contracts passed for validation, cancellation, finalization and compiled-context handling.",
+    "device": "Physical French audio, uninterrupted handset playback and accelerator performance require a compatible handset."
+  }
+}

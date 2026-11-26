@@ -157,7 +157,22 @@ class MediaPipeSpeechNativeSmokeTest {
             val incrementalAfter = cancelWaitingInput(engine, task)
             engine.resetCancellation()
             val incrementalRecovered = consumeIncremental(engine, task)
+            val frenchFrames = if (kind.isKokoro) {
+                val french = SpeechLanguages.forLocale("fr-CA")!!
+                engine.selectVoice(french.voices.first())
+                val sample = VoiceStreamFrames(french.preview)
+                engine.stream(french.preview, 0, 1f) {
+                    sample.accept(it)
+                    true
+                }
+                sample.finish()
+                assertTrue(sample.frames in 1..VOICE_PCM_SAMPLE_RATE * 30L)
+                sample.frames
+            } else {
+                null
+            }
             evidence = JSONObject()
+                .put("french_preview_frames", frenchFrames ?: JSONObject.NULL)
                 .put("schema", "mediapipe-android-jni-smoke-v2")
                 .put("scope", "android_jni_checkpoint_smoke")
                 .put("status", "passed")

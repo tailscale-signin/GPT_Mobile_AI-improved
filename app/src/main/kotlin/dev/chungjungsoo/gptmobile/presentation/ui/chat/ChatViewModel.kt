@@ -557,9 +557,12 @@ class ChatViewModel @Inject constructor(
         savedStateHandle["voiceAdmission"] = kotlinx.serialization.json.Json.encodeToString(VoiceTurnAdmission.serializer(), value)
     }
 
+    internal var voiceReplyLanguage: String? = null
+    private fun selectedVoicePolicy() = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.forLanguage(voiceReplyLanguage)
+
     private fun voiceTrace(request: VoiceTurnAdmission, text: String) = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(
         requestId = request.requestId,
-        voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.RESPONSIVE,
+        voiceResponsePolicy = selectedVoicePolicy(),
         onOutcome = { reason ->
             if (_voiceAdmission.value?.requestId == request.requestId) {
                 updateVoiceAdmission(
@@ -884,7 +887,7 @@ class ChatViewModel @Inject constructor(
     fun askQuestion() = submitComposer(null)
 
     /** Typed input in a voice conversation uses the same durable admission as the normal composer. */
-    fun askVoiceQuestion() = submitComposer(dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.RESPONSIVE)
+    fun askVoiceQuestion() = submitComposer(selectedVoicePolicy())
 
     private fun submitComposer(voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy?) {
         // The first tap owns its frozen draft and resumes after admission.

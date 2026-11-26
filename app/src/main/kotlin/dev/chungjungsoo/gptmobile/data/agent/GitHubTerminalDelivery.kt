@@ -10,7 +10,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** A terminal delivery boundary, after recovery; it never invokes a model or a tool. */
-internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): Flow<AgentRunEvent> {
+internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean, retainedResponse: ((ProviderEvent.Failed) -> Flow<ProviderEvent>)? = null): Flow<AgentRunEvent> {
     if (!enabled) return this
     val upstream = this
     return flow {
@@ -19,8 +19,30 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
         var restoredResults = 0
         val receipts = linkedSetOf<String>()
         val observations = linkedMapOf<String, kotlinx.serialization.json.JsonObject>()
-        suspend fun finish(failure: ProviderEvent.Failed) {
+        suspend fun finish(originalFailure: ProviderEvent.Failed) {
             if (terminal) return
+            var failure = originalFailure
+            if (!visible && failure.providerLimit?.mayWait != true && retainedResponse != null) {
+                // Raw runner exits (including failed connectivity waits) still have
+                // the accepted session's authorized saved report available. Ask that
+                // receipt-only boundary before replacing it with a generic message.
+                retainedResponse(failure).collect { event ->
+                    when (event) {
+                        is ProviderEvent.TextDelta -> {
+                            visible = visible || event.text.isNotBlank()
+                            emit(AgentRunEvent.Provider(event))
+                        }
+                        is ProviderEvent.Failed -> failure = event
+                        is ProviderEvent.Completed -> if (visible) {
+                            terminal = true
+                            emit(AgentRunEvent.Provider(event))
+                        }
+                        is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Terminal retained delivery cannot dispatch operations")
+                        else -> emit(AgentRunEvent.Provider(event))
+                    }
+                }
+                if (terminal) return
+            }
             // A typed rejection can be saved for the existing provider wait. Do not
             // turn a no-output attempt into an answer before its durable safety check.
             if (!visible && failure.providerLimit?.mayWait != true) {

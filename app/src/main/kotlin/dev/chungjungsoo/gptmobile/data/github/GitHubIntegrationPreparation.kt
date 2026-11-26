@@ -14,13 +14,14 @@ import kotlinx.serialization.json.put
 internal object GitHubIntegrationPreparation {
     /** Inform before acquisition; the existing task-bound decision and exact approval card remain authoritative. */
     fun preflightSummary(task: String, approval: JsonObject?): String {
-        if (GitHubChecklistScope.readOnly(task)) return "Existing-fixture inspection is read-only; mutation coverage stays out of scope."
+        val scope = "Qualification scope: ${GitHubQualificationSummary.scopeLabel(task)}."
+        if (GitHubChecklistScope.readOnly(task)) return "$scope Existing-fixture inspection is read-only; mutation coverage stays out of scope."
         val fixture = when (approval?.text("state")) {
             "READY" -> "The saved fixture approval applies only to the task-owned disposable fixture; creation still needs current repository authorization and a verified cleanup plan."
             "CONDITIONAL" -> "Fixture writes need this task's existing exact approval interaction when its concrete fixture plan is ready. Continue preserves the saved approval decision; general tool auto-approval does not grant fixture authority."
             else -> "Fixture writes are blocked until the effective task-bound approval decision can be verified."
         }
-        return "$fixture Independent authorized reads can proceed. Test execution needs actual run/job receipts at the selected SHA; catalog discovery and saved pages are separate evidence."
+        return "$scope $fixture Independent authorized reads can proceed. Test execution needs actual run/job receipts at the selected SHA; catalog discovery and saved pages are separate evidence."
     }
 
     fun snapshot(
@@ -62,6 +63,7 @@ internal object GitHubIntegrationPreparation {
             put("schema", "github.integration-preparation.v1")
             put("request_digest", GitHubEvidenceBook.digest(task))
             put("execution_verified", false)
+            put("qualification", GitHubQualificationSummary.snapshot(task, capabilities))
             put("pre_execution_notice", preflightSummary(task, approval))
             put(
                 "status",

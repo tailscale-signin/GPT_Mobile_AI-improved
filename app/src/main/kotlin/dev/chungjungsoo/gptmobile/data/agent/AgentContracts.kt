@@ -240,6 +240,13 @@ interface AgentProviderSession {
         exchanges: List<AgentToolExchange>
     ): Flow<ProviderEvent>
 
+    /**
+     * A receipt-only terminal response, checked before replay or another provider request.
+     * Implementations must revalidate authority and use retained source proofs. They must
+     * not dispatch tools, invoke a model, or acknowledge source delivery to a model.
+     */
+    suspend fun completeFromReceipts(exchanges: List<AgentToolExchange>): Flow<ProviderEvent>? = null
+
     /** A bounded logical continuation gate; never dispatches a model request or replays a tool. */
     suspend fun awaitRecoveryReady(maxWaitMillis: Long): Boolean = true
 

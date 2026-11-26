@@ -25,9 +25,9 @@ internal object GitHubCiObservationReport {
     fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? =
         render(task, receipts, now, epoch, checkSnapshotOnly = false)
 
-    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long, checkSnapshotOnly: Boolean): Pair<String, JsonObject>? {
+    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long, checkSnapshotOnly: Boolean, acceptedHeadSha: String? = null, acceptedRepository: String? = null): Pair<String, JsonObject>? {
         if (!matches(task)) return null
-        val eligible = GitHubStatusEvidence.selected(receipts, null).filterValues { receipt ->
+        val eligible = GitHubStatusEvidence.selected(receipts, acceptedRepository).filterValues { receipt ->
             val observed = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
             receipt["trusted"] == JsonPrimitive(true) &&
                 receipt["success"] == JsonPrimitive(true) &&
@@ -35,7 +35,9 @@ internal object GitHubCiObservationReport {
                 observed in 1..now &&
                 (GitHubStatusEvidence.fresh(receipt, now, epoch) || receipt["immutable"] == JsonPrimitive(true))
         }
-        val head = eligible.values.lastOrNull { it["head_observation"] == JsonPrimitive(true) }
+        val head = eligible.values.lastOrNull {
+            it["head_observation"] == JsonPrimitive(true) && (acceptedHeadSha == null || it.text("source_head_sha") == acceptedHeadSha)
+        }
             ?.text("source_head_sha")?.takeIf(sha::matches) ?: return null
         val observed = GitHubObservedWorkflowRuns.current(eligible.values, JsonPrimitive(head))
         if (!checkSnapshotOnly) packagingFailure(task, head, eligible, observed, now, epoch)?.let { return it }
@@ -84,12 +86,26 @@ internal object GitHubCiObservationReport {
         }
         if (checkSnapshotOnly) return null
         val pages = eligible.filterValues { receipt ->
+            val args = receipt["arguments"] as? JsonObject
+            val requestedHeads = listOfNotNull(args?.get("head_sha"), args?.get("commit_sha")).mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
             receipt.text("tool").substringBefore("__") == "github_ci" &&
-                (receipt["arguments"] as? JsonObject)?.text("action") == "runs"
+                args?.text("action") == "runs" &&
+                requestedHeads.all { it == head } &&
+                (requestedHeads.isNotEmpty() || (receipt.data()?.get("workflow_runs") as? JsonArray).orEmpty().any { (it as? JsonObject)?.text("head_sha") == head })
         }
         if (pages.isEmpty()) return null
-        // Inspect complete retained pages, never a truncated model/display projection.
+        val emptyFailureQueries = pages.filterValues { receipt ->
+            val arguments = receipt["arguments"] as? JsonObject ?: return@filterValues false
+            val data = receipt.data() ?: return@filterValues false
+            GitHubStatusEvidence.fresh(receipt, now, epoch) && GitHubCiFailureObservation.emptyRevision(arguments, data) == head
+        }
+        val completeEmptyFailureQuery = emptyFailureQueries.isNotEmpty()
+        val emptyFailureObservedAt = emptyFailureQueries.values.maxOfOrNull { (it["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L } ?: 0L
+        // An independently complete failure query is sufficient for its bounded
+        // absence finding. An unrelated broad/history projection cannot invalidate
+        // that query, but contradictory selected-revision observations still do.
         if (pages.values.any { receipt ->
+                if (completeEmptyFailureQuery && ((receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L) <= emptyFailureObservedAt) return@any false
                 val root = receipt.data() ?: return@any true
                 val runs = root["workflow_runs"] as? JsonArray ?: return@any true
                 val returned = (root["returned"] as? JsonPrimitive)?.intOrNull ?: return@any true
@@ -101,11 +117,6 @@ internal object GitHubCiObservationReport {
             }
         ) {
             return null
-        }
-        val completeEmptyFailureQuery = pages.values.any { receipt ->
-            val arguments = receipt["arguments"] as? JsonObject ?: return@any false
-            val data = receipt.data() ?: return@any false
-            GitHubStatusEvidence.fresh(receipt, now, epoch) && GitHubCiFailureObservation.emptyRevision(arguments, data) == head
         }
         if (observed.isEmpty() && !completeEmptyFailureQuery || observed.any { it.text("status") != "completed" || it.text("conclusion") !in setOf("success", "skipped", "neutral") || (it["run_attempt"] as? JsonPrimitive)?.intOrNull?.let { attempt -> attempt > 0 } != true }) return null
         // A separate failed/pending check observation must not disappear just because

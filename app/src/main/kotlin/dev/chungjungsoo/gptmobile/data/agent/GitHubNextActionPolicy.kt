@@ -15,6 +15,75 @@ import kotlinx.serialization.json.put
 internal object GitHubNextActionPolicy {
     enum class Action { RECONCILE, REUSE_EVIDENCE, ACQUIRE, VERIFY, WAIT, DISCOVER }
 
+    /** Bind a selected-revision diagnosis to its accepted target, never a historical failure. */
+    fun scopedCiRead(
+        call: ProviderEvent.ToolCall,
+        head: String,
+        repository: String,
+        branch: String?,
+        receipts: Map<String, JsonObject>
+    ): ProviderEvent.ToolCall? {
+        if (call.name.substringBefore("__") != "github_ci" ||
+            call.arguments.text("action") !in setOf("runs", "run", "jobs", "job", "logs", "failure", "status", "artifacts")
+        ) {
+            return call
+        }
+        if (!head.matches(Regex("[a-fA-F0-9]{40}"))) return null
+        val target = repository.split('/')
+        if (target.size != 2) return null
+        val args = call.arguments
+        if (listOf("owner" to target[0], "repo" to target[1]).any { (key, value) -> args.text(key).let { it.isNotBlank() && !it.equals(value, true) } } ||
+            listOf("head_sha", "commit_sha", "expected_head_sha").any { args.text(it).let { sha -> sha.isNotBlank() && !sha.equals(head, true) } } ||
+            !branch.isNullOrBlank() &&
+            args.text("branch").let { it.isNotBlank() && it != branch } ||
+            args.text("ref").let { it.isNotBlank() && it != branch && !it.equals(head, true) }
+        ) {
+            return null
+        }
+        val runId = args["run_id"]
+        val jobId = args["job_id"]
+        val observations = receipts.values.filter {
+            it["trusted"] == JsonPrimitive(true) &&
+                it["success"] == JsonPrimitive(true) &&
+                it["verification_eligible"] != JsonPrimitive(false) &&
+                it.text("repository").equals(repository, true) &&
+                it.text("tool") == call.name
+        }.flatMap { receipt ->
+            val root = dev.chungjungsoo.gptmobile.data.github.GitHubInventoryObservation.planningRoot(receipt) ?: return@flatMap emptyList()
+            val runs = (root["workflow_runs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            val jobs = (root["jobs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().map { row ->
+                JsonObject(root.filterKeys { it in setOf("head_sha", "run_id", "run_attempt") } + row + ("job_id" to (row["id"] ?: kotlinx.serialization.json.JsonNull)))
+            }
+            runs + jobs + root
+        }.filter { row ->
+            if (jobId != null) row["job_id"] == jobId else runId != null && (row["run_id"] ?: row["id"]) == runId
+        }
+        val latest = observations.maxByOrNull { (it["run_attempt"] as? JsonPrimitive)?.intOrNull ?: 0 }
+        if (latest != null &&
+            (
+                latest.text("head_sha").let { it.isNotBlank() && !it.equals(head, true) } ||
+                    args["run_attempt"]?.let { attempt -> (attempt as? JsonPrimitive)?.intOrNull?.let { it < ((latest["run_attempt"] as? JsonPrimitive)?.intOrNull ?: 0) } } == true
+                )
+        ) {
+            return null
+        }
+        val pinned = buildJsonObject {
+            args.forEach { (key, value) -> put(key, value) }
+            put("owner", target[0])
+            put("repo", target[1])
+            if (args.text("action") == "runs") {
+                put("head_sha", head)
+            } else if (args.text("action") == "status" && runId == null && jobId == null) {
+                put("commit_sha", head)
+            } else {
+                put("expected_head_sha", head)
+                if (args["run_attempt"] == null) latest?.get("run_attempt")?.let { put("run_attempt", it) }
+                if (runId == null) latest?.get("run_id")?.let { put("run_id", it) }
+            }
+        }
+        return call.copy(arguments = pinned, originalInvocationFingerprint = call.originalInvocationFingerprint ?: GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"))
+    }
+
     /** Current-run telemetry tied to an authorized schema and one declared action. */
     data class RouteMeasurement(val samples: Int, val succeeded: Int, val latencyMillis: Long?) {
         val successPermille get() = if (samples > 0) (1000L * succeeded / samples).toInt() else 0

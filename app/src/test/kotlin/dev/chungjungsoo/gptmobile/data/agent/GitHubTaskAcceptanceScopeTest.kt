@@ -18,7 +18,7 @@ class GitHubTaskAcceptanceScopeTest {
 
     @Test fun selectedPluginAndDedicatedChatUseTheSameRequestPolicy() {
         val saved = GitHubChatProfileOverride(intelligenceLevel = GitHubIntelligenceLevel.DEEP_ENGINEERING)
-        for (request in listOf("List open issues", "Show PR #12", "Fix the bug in app.kt")) {
+        for (request in listOf("List open issues", "Show PR #12", "Fix the bug in app.kt", "Diagnose CI failures", "Investigate workflow errors on the selected revision")) {
             val dedicated = GitHubTaskScope.select(request, workspace, listOf(target), true)
             val plugin = GitHubTaskScope.select(request, null, listOf(target, target), true)
             assertEquals(dedicated, plugin)
@@ -48,6 +48,18 @@ class GitHubTaskAcceptanceScopeTest {
         assertEquals(repository, scope.repository)
         assertEquals("connection", scope.connectionUid)
         assertNull(scope.observedCommitSha)
+    }
+
+    @Test fun aBoundedCiDiagnosisKeepsTheSelectedTargetAndRejectsAmbiguousConnections() {
+        val selected = GitHubTaskScope.select("Diagnose CI failures", null, listOf(target), true)
+        assertTrue(selected.requiresAcceptance)
+        assertEquals(repository, selected.repository)
+        assertEquals(target.observedCommitSha, selected.observedCommitSha)
+        val ambiguous = GitHubTaskScope.select("Diagnose CI failures", null, listOf(target, target.copy(connectionUid = "other")), true)
+        assertTrue(ambiguous.requiresAcceptance)
+        assertNull(ambiguous.repository)
+        assertTrue(runCatching { requireNativeGitHubTarget(ambiguous.requiresAcceptance, ambiguous.targetCount) }.isFailure)
+        assertFalse(GitHubTaskScope.select("Explain why CI pipelines are useful", null, listOf(target), true).requiresAcceptance)
     }
 
     @Test fun standardChatRepositoryWorkRequiresEvidenceWhileConversationDoesNot() {

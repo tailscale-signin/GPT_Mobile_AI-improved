@@ -169,6 +169,7 @@ class GitHubIntegrationReportTest {
             assertEquals(JsonPrimitive(false), preflight["mutation_dispatched"])
         }
         val readOnly = GitHubIntegrationPreparation.preflightSummary("Test GitHub integration read only", null)
+        assertTrue(readOnly.startsWith("Qualification scope: Read-only inspection."))
         assertTrue(readOnly.contains("mutation coverage stays out of scope"))
         assertFalse(readOnly.contains("need"))
     }

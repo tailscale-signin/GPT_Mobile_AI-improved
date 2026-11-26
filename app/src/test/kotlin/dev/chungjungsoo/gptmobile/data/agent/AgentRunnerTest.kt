@@ -275,16 +275,79 @@ class AgentRunnerTest {
     }
 
     @Test fun replayAdmissionFailureRecordsPlanningWithoutProviderDispatch() = runBlocking {
-        val provider = session { _, _ -> error("No request should reach the provider") }
-        val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0)).run(provider, listOf(tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("unused"), false) })).toList()
+        for (name in listOf("lookup", ProgressiveToolCatalog.NAME)) {
+            val provider = session { _, _ -> error("No request should reach the provider") }
+            val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0)).run(provider, listOf(tool(name) { _, _ -> error("No tool may dispatch") })).toList()
+            val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+            val budget = requireNotNull(failure.failureDetails)
+            assertEquals(JsonPrimitive("planning"), budget["failed_stage"])
+            assertEquals(JsonPrimitive(false), budget["dispatched"])
+            assertEquals(JsonPrimitive("NO_INITIAL_ALLOWANCE"), budget["replay_budget_state"])
+            assertEquals(JsonPrimitive(0), budget["replay_allowance"])
+            assertFalse("replay_tokens" in budget || "replay_exchange_count" in budget)
+        }
+    }
+
+    @Test fun zeroReplayAllowsAPlainAnswerWhenAuthorizedToolsAreHiddenOrUnselected() = runBlocking {
+        for (hidden in listOf(true, false)) {
+            var rounds = 0
+            val base = tool("compatibility_read") { _, _ -> error("A plain answer must not dispatch a backend") }
+            val backend = object : AgentTool by base {
+                override val definition = base.definition.copy(modelVisible = !hidden)
+            }
+            val provider = session { definitions, exchanges ->
+                assertTrue(definitions.isEmpty())
+                assertTrue(exchanges.isEmpty())
+                flow {
+                    rounds++
+                    emit(ProviderEvent.TextDelta("The requested plain answer."))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            // 3175 prompt + 793 wire safety + 128 reply exactly fills 4096;
+            // the authorized backend must not manufacture a replay requirement.
+            val limits = AgentRunLimits(contextTokens = 4096, initialContextTokens = 3175, finalResponseReserveTokens = 128)
+            val events = AgentRunner(limits).run(provider, listOf(backend), selectDefinitions = { if (hidden) it else emptyList() }).toList()
+            val delivered = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(1, rounds)
+            assertEquals(ProviderEvent.Completed, delivered.last())
+            assertEquals("The requested plain answer.", delivered.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertFalse(delivered.any { it is ProviderEvent.Failed })
+            assertFalse(events.any { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished })
+        }
+    }
+
+    @Test fun zeroReplayCannotDispatchAnUnadvertisedProviderCall() = runBlocking {
+        val backend = tool("authorized_read") { _, _ -> error("No receipt allowance exists for this call") }
+        val provider = session { definitions, _ ->
+            assertTrue(definitions.isEmpty())
+            flow {
+                emit(toolCall("unexpected", backend.definition.name))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0)).run(provider, listOf(backend), selectDefinitions = { emptyList() }).toList()
         val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
         assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
-        val budget = requireNotNull(failure.failureDetails)
-        assertEquals(JsonPrimitive("planning"), budget["failed_stage"])
-        assertEquals(JsonPrimitive(false), budget["dispatched"])
-        assertEquals(JsonPrimitive("NO_INITIAL_ALLOWANCE"), budget["replay_budget_state"])
-        assertEquals(JsonPrimitive(0), budget["replay_allowance"])
-        assertFalse("replay_tokens" in budget || "replay_exchange_count" in budget)
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertFalse(events.any { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished })
+    }
+
+    @Test fun zeroReplayKeepsQueuedHiddenBackendCallsUndispatched() = runBlocking {
+        val base = tool("compatibility_read") { _, _ -> error("Queued work still needs a receipt allowance") }
+        val backend = object : AgentTool by base {
+            override val definition = base.definition.copy(modelVisible = false)
+        }
+        val queued = toolCall("queued", backend.definition.name)
+        val checkpoint = ToolBatchCheckpoint(null, "queued-hidden")
+        checkpoint.enqueue(listOf(queued))
+        val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0), checkpoint = checkpoint).run(session { _, _ -> error("Queued work must block before the provider") }, listOf(backend)).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+        assertEquals(listOf(queued), checkpoint.pending())
+        assertEquals(0, checkpoint.dispatchedCount())
+        assertFalse(events.any { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished })
     }
 
     @Test fun upstreamDnsFailureKeepsItsObservedStageAndNormalizedCode() = runBlocking {

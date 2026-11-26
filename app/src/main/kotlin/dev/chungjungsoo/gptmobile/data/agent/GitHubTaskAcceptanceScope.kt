@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
+import dev.chungjungsoo.gptmobile.data.github.GitHubCiObservationReport
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
 import dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext
@@ -29,8 +30,8 @@ internal data class GitHubTaskScope(
         fun select(request: String, workspace: GitHubConversationContext?, contexts: List<GitHubPlanningContext>, hasNativeTools: Boolean): GitHubTaskScope {
             val targets = contexts.filter { it.repository != null && it.connectionUid.isNotBlank() }.distinctBy { it.connectionUid to it.repository }
             val count = if (workspace != null) 1 else targets.size
-            val lookup = hasNativeTools && count > 0 && GitHubLookupRoute.from(request) != null
-            val required = lookup || requiresNativeGitHubAcceptance(request, hasNativeTools)
+            val boundedRead = hasNativeTools && count > 0 && (GitHubLookupRoute.from(request) != null || GitHubCiObservationReport.matches(request))
+            val required = boundedRead || requiresNativeGitHubAcceptance(request, hasNativeTools)
             val inferred = targets.singleOrNull()?.takeIf { required && hasNativeTools }
             val head = workspace?.commitSha ?: inferred?.let { target ->
                 contexts.filter { it.connectionUid == target.connectionUid && it.repository == target.repository }

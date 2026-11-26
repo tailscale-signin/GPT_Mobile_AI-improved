@@ -5404,7 +5404,7 @@ class ChatRepositoryImpl(
             ).also {
                 it.restore()
                 val definitions = evidenceTools.filter { tool -> tool.nativeGitHub }.map { tool -> tool.tool.definition }
-                it.retainTaskContract(if (reuse) previousTask else githubEffectiveTask, sourceMessageId ?: user.id, definitions, callLimit, executionCallLimit)
+                it.retainTaskContract(if (reuse) previousTask else githubEffectiveTask, sourceMessageId ?: user.id, definitions, callLimit, executionCallLimit, acceptedHeadSha = taskScope.observedCommitSha)
                 if (reuse) it.authorizeTimeWindow(originalUserRequest, user.id, user.createdAt, executionAllowed = !verificationOnlyRequested && providerResumeContext == null)
                 it.retainPolicy(dispatchAuthority.revision, definitions)
             }
@@ -6954,7 +6954,7 @@ class ChatRepositoryImpl(
                     privateReviewCandidate = { reviewEvidence?.privateCandidate() },
                     lifecycle = { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, it) },
                     resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
-                    workspaceHead = chatToolConfig?.github?.commitSha,
+                    workspaceHead = taskScope.observedCommitSha,
                     measuredRoutingTokens = { invocationLedger?.measuredRunUsage(turnKey, runId)?.totalTokens },
                     resumeRequestKey = "${user.chatId}:${user.id}",
                     resumeClaimExtraction = restoreGatewayHandoffRequested,

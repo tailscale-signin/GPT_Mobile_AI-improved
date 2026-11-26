@@ -9,7 +9,8 @@ internal data class ToolBatchPlan(
     val acceptedByName: Map<String, Int>,
     val unavailableIds: Set<String> = emptySet(),
     val dependencyDeferredIds: Set<String> = emptySet(),
-    val repeatLimitSnapshots: Map<String, ToolRepeatAdmissionEvidence> = emptyMap()
+    val repeatLimitSnapshots: Map<String, ToolRepeatAdmissionEvidence> = emptyMap(),
+    val reusedReadIds: Set<String> = emptySet()
 )
 
 /** Pure dispatch planning, separated from the suspending execution/UI coordinator. */
@@ -23,6 +24,7 @@ internal fun planToolBatch(
     retainedCallIds: Set<String> = emptySet(),
     settledCallIds: Set<String> = emptySet(),
     refreshContextId: String? = null,
+    reusableReadIds: Set<String> = emptySet(),
     scope: (ProviderEvent.ToolCall) -> String
 ): ToolBatchPlan {
     val executable = mutableListOf<ProviderEvent.ToolCall>()
@@ -33,6 +35,7 @@ internal fun planToolBatch(
     val disabled = mutableSetOf<String>()
     val accepted = mutableMapOf<String, Int>()
     val repeatLimitSnapshots = mutableMapOf<String, ToolRepeatAdmissionEvidence>()
+    val reusedReads = mutableSetOf<String>()
     var newlyAdmitted = 0
     calls.forEach { call ->
         if (call.callId in settledCallIds) {
@@ -50,6 +53,10 @@ internal fun planToolBatch(
             call.name !in availableNames -> {
                 deferred += call
                 unavailable += call.callId
+            }
+            !retained && call.callId in reusableReadIds -> {
+                deferred += call
+                reusedReads += call.callId
             }
             !retained && scope(call) in blockedScopes -> {
                 deferred += call
@@ -81,7 +88,7 @@ internal fun planToolBatch(
             }
         }
     }
-    return ToolBatchPlan(executable, deferred, suppressed, hostSuppressed, disabled, accepted, unavailable, repeatLimitSnapshots = repeatLimitSnapshots.toMap())
+    return ToolBatchPlan(executable, deferred, suppressed, hostSuppressed, disabled, accepted, unavailable, repeatLimitSnapshots = repeatLimitSnapshots.toMap(), reusedReadIds = reusedReads)
 }
 
 /** Reading independent pages is useful research, not a repeated invocation loop. */
@@ -95,7 +102,14 @@ internal fun toolRepeatKey(call: ProviderEvent.ToolCall): String {
         is kotlinx.serialization.json.JsonArray -> value.joinToString(",", "[", "]") { canonical(it) }
         else -> value.toString()
     }
-    val hash = java.security.MessageDigest.getInstance("SHA-256").digest(canonical(call.arguments).toByteArray())
+    val arguments = if (call.name.substringBefore("__") == "github_ci" &&
+        (call.arguments["action"] as? kotlinx.serialization.json.JsonPrimitive)?.content in setOf("run", "runs", "jobs", "job", "logs", "failure", "status", "workflows")
+    ) {
+        kotlinx.serialization.json.JsonObject(call.arguments - "response_detail")
+    } else {
+        call.arguments
+    }
+    val hash = java.security.MessageDigest.getInstance("SHA-256").digest(canonical(arguments).toByteArray())
     return call.name + (if (github) "|operation=" else ":") + hash.joinToString("") { "%02x".format(it) }
 }
 

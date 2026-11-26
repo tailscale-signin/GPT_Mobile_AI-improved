@@ -36,6 +36,7 @@ class PhoneRepositoryGraphSessionTest {
     private var truncated = false
     private var invalidSource = false
     private var sourceText: String? = null
+    private var sourceByBlob: Map<String, String> = emptyMap()
     private var delayedBlob: String? = null
 
     private suspend fun request(path: String): JsonElement = when {
@@ -69,7 +70,7 @@ class PhoneRepositoryGraphSessionTest {
             buildJsonObject {
                 put("sha", path.substringAfterLast('/'))
                 put("encoding", "base64")
-                put("content", Base64.getEncoder().encodeToString((if (invalidSource) "\u0000" else sourceText ?: "package sample\nfun useful() = 1\n").toByteArray()))
+                put("content", Base64.getEncoder().encodeToString((if (invalidSource) "\u0000" else sourceByBlob[path.substringAfterLast('/')] ?: sourceText ?: "package sample\nfun useful() = 1\n").toByteArray()))
             }
         }
         else -> error("Unexpected transport $path")
@@ -301,6 +302,46 @@ class PhoneRepositoryGraphSessionTest {
         assertTrue((result["selected_ranges"] as JsonArray).isNotEmpty())
         assertEquals(fetched, blobs)
         assertTrue(result["coverage"]!!.jsonObject["indexed_files"]!!.jsonPrimitive.int >= 24)
+    }
+
+    @Test fun restartedTaskReusesReferenceCatalogAndUnchangedCallerBlobs() = runTest {
+        val directory = Files.createTempDirectory("task-neighborhood").toFile()
+        val paths = listOf("src/RepairStore.kt", "src/Screen.kt")
+        sourceByBlob = mapOf(
+            "%040x".format(1) to "class RepairStore { fun repairReceipt() = true }",
+            "%040x".format(2) to "fun refreshScreen() = RepairStore().repairReceipt()"
+        )
+        treeOverride = buildJsonObject {
+            put("sha", treeSha)
+            put("truncated", false)
+            put(
+                "tree",
+                JsonArray(
+                    paths.mapIndexed { index, path ->
+                        buildJsonObject {
+                            put("path", path)
+                            put("sha", "%040x".format(index + 1))
+                            put("size", 64)
+                            put("type", "blob")
+                            put("mode", "100644")
+                        }
+                    }
+                )
+            )
+        }
+        try {
+            session(store = GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", arguments("index"))
+            val fetched = blobs
+            val task = JsonObject(arguments("task_context_bundle", revision = otherHead) + ("query" to JsonPrimitive("repairReceipt in src/RepairStore.kt")))
+            val result = session("another-task", store = GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", task)
+            val ranges = result.getValue("selected_ranges").let { it as JsonArray }.map { it.jsonObject }
+            assertEquals(JsonPrimitive("RETAINED_LEXICAL_CALLER"), ranges.single { it["path"] == JsonPrimitive(paths[1]) }["reason"])
+            assertEquals(fetched, blobs)
+            assertEquals(JsonPrimitive(otherHead), result["source_sha"])
+            assertEquals(JsonPrimitive(1), result.getValue("coverage").jsonObject["caller_files"])
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     @Test fun compactCatalogFindsADeepFunctionBeyondTheFirstDeclarations() = runTest {

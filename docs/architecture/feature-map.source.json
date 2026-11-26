@@ -85,7 +85,8 @@
         "docs/architecture/repository-guide.md",
         "docs/repairs/phone-repository-map-2026-11-22.md",
         "docs/repairs/diagnostic-93d824fd-graph-integration-task.json",
-        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
+        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
+        "docs/repairs/github-mode-intelligence-2026-11-26.md"
       ],
       "invariants": [
         "Bind source ranges to the selected repository commit and blob.",
@@ -93,7 +94,8 @@
         "Graph edges and tests are candidates until verified.",
         "A local preparation failure retains only closed phase/reason evidence; it cannot grant independent source-read authority.",
         "Repeated blob deadlines retain incomplete coverage and bounded progress across restart; identity mismatches remain hard failures.",
-        "Automatic missing-tool recovery can use only the bound local catalog; foreign catalog identity never creates dispatch authority."
+        "Automatic missing-tool recovery can use only the bound local catalog; foreign catalog identity never creates dispatch authority.",
+        "Task selection expands only bounded retained caller and nearest configuration candidates; prepared source-byte/line counts do not prove provider delivery or exhaustive coverage."
       ],
       "routing": {
         "role": "evidence",
@@ -666,7 +668,9 @@
         "scripts/test_secret_history_integrity.py",
         "scripts/test_gitleaks_model_pin.py",
         "scripts/tests/test_secret_history_reporting.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageStatelessContinuityTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageStatelessContinuityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderCooldownContinuationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -682,7 +686,8 @@
         "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json",
         "docs/repairs/checksum-history-recovery-2026-11-24-task.json",
         "docs/repairs/heap-worker-observability-2026-11-24-task.json",
-        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
+        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
+        "docs/repairs/github-mode-intelligence-2026-11-26.md"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -699,7 +704,8 @@
         "Verified historical public checksums are exempt only at exact reviewed paths and complete declarations, with a literal frozen receipt line; actual pinned-scanner controls preserve detection for changed values, fields, paths, surrounding content and neighboring credentials, and final reachable-history qualification remains mandatory.",
         "Both constrained-heap CI invocations retain Gradle worker lifecycle and actual heap command evidence without changing their exact suite selectors, memory limits, retry policy or timeout.",
         "Cursor-only restoration requires exact issued selectors proof and current schema validity; restored local contents do not imply dispatch.",
-        "A completed private saved-page read requires a fresh provider response for the exact projected exchanges and atomically retains bounded source-bound reading notes with its delivery acknowledgements. Later requests and restart carry those notes as untrusted derived context, never current raw source or verified claims. Legacy delivery receipts without notes replay retained bodies within the original budget; private conversation transport stays admission-gated, and intermediate notes cannot invoke public progress callbacks."
+        "A completed private saved-page read requires a fresh provider response for the exact projected exchanges and atomically retains bounded source-bound reading notes with its delivery acknowledgements. Later requests and restart carry those notes as untrusted derived context, never current raw source or verified claims. Legacy delivery receipts without notes replay retained bodies within the original budget; private conversation transport stays admission-gated, and intermediate notes cannot invoke public progress callbacks.",
+        "Provider cooldowns and successful tool handoffs never consume transport-recovery allowance. Every resumed retry preserves original causes, deadlines and uncertain-write reconciliation."
       ],
       "routing": {
         "role": "executor",
@@ -828,7 +834,11 @@
         "gateway/v14/workspace_process.py",
         "gateway/desktop/conversation_client.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayMenuMonitor.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayMenuMonitor.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/EngineeringGatewayConnection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/GatewayModelPreparationRepository.kt",
+        "gateway/desktop/control_store.py",
+        "gateway/v14/control_settings.py"
       ],
       "tests": [
         "gateway/tests/test_gateway_workspace_guidance.py",
@@ -836,7 +846,10 @@
         "gateway/tests/test_gateway_agent_adapters.py",
         "gateway/tests/test_gateway_task_context.py",
         "gateway/tests/test_gateway_desktop_conversations.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringDefaultsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/GatewaySelectedSendQualificationTest.kt",
+        "gateway/tests/test_gateway_control_settings.py"
       ],
       "commands": [
         "python3 gateway/check_gateway.py"
@@ -848,7 +861,8 @@
       "invariants": [
         "The existing job owns source, execution, authority and publication.",
         "Optional tool configuration never grants extra authority.",
-        "Exported source is not automatically model-admitted context."
+        "Exported source is not automatically model-admitted context.",
+        "Verified owner connections may restore the engineering default without widening repository grants or bypassing explicit maintenance pauses; unchanged settings reads do not write state."
       ],
       "routing": {
         "role": "executor",
@@ -1157,7 +1171,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimSourceDelivery.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLink.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceExcerpts.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummary.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
@@ -1170,7 +1185,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/GitHubSourceDispatchTraceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRoutePolicyTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicyTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1179,7 +1195,8 @@
       "documents": [
         "docs/repairs/diagnostic-93d824fd-github-2026-11-23-task.json",
         "docs/repairs/diagnostic-93d824fd-graph-integration-task.json",
-        "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json"
+        "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json",
+        "docs/repairs/github-mode-intelligence-2026-11-26.md"
       ],
       "invariants": [
         "Refresh only the same authorized repository, pull request and connection; retain bounded read retries and never replay mutations.",
@@ -1998,7 +2015,8 @@
         "gateway/tests/test_gateway_v14_engineering_backend.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventoryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventoryTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubStatusCatalogTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubStatusCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
@@ -2007,7 +2025,8 @@
         "docs/repairs/github-chat-continuation-intent-checkpoint.json",
         "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json",
         "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json",
-        "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json"
+        "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json",
+        "docs/repairs/github-mode-intelligence-2026-11-26.md"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -2019,7 +2038,8 @@
         "Score comparisons require independently measured work under matching task, policy, environment and budget identities.",
         "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported.",
         "Leading unquoted read requests retain the selected repository target; quoted or creative task material does not activate that heuristic. Multiline quotes preserve escape parity and in-word apostrophes; complete inline runs and valid whole-line fences bound code. Prompt remains a technical subject. Evidence correction observes raw owned output before markup aggregation, preserves honest mixed lineage, application-report finality, session-owned recovery and earlier failed-round corrections.",
-        "A LiteRT-LM primary cannot execute a helper-selected recovery read; saved execution consent stays inactive without falling through to an advice choice, while existing advice eligibility and internal-tools ownership remain unchanged."
+        "A LiteRT-LM primary cannot execute a helper-selected recovery read; saved execution consent stays inactive without falling through to an advice choice, while existing advice eligibility and internal-tools ownership remain unchanged.",
+        "Qualification scope follows the accepted task; required capability outcomes and independent task criteria retain separate denominators and never expand permissions."
       ],
       "routing": {
         "role": "executor",
@@ -2783,7 +2803,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubInventoryPresentation.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubToolInventorySheet.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventory.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventory.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspacePickerTest.kt",
@@ -2800,7 +2821,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryToolTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptContinuationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityRequestTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubInventoryPresentationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubInventoryPresentationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScopeTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md"
@@ -2810,7 +2832,8 @@
       ],
       "invariants": [
         "Use the repository and branch selected for the chat. Retain saved profile overrides and tool exclusions.",
-        "A direct read offers an authorized action for the requested collection or record. Composite requests retain the engineering workflow."
+        "A direct read offers an authorized action for the requested collection or record. Composite requests retain the engineering workflow.",
+        "Ordinary native plugin chat and GitHub mode share one selected repository task scope. Ambiguous connections and explicit opt-outs do not gain repository authority."
       ],
       "routing": {
         "role": "user_control",
@@ -2820,6 +2843,180 @@
         "decline": "Keep setup visible when selection is incomplete. Keep compound requests in the full planner.",
         "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupRouteTest.kt#inventoryAndNumberedReadsPlanOnlyTheirMatchingOperation",
         "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupRouteTest.kt#compoundAndQuotedRequestsKeepTheGeneralPlanner",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "github-request-capacity",
+      "title": "GitHub request capacity and supported final-delivery reasoning",
+      "terms": [
+        "context capacity",
+        "replay budget",
+        "tool evidence allowance",
+        "OpenRouter alias",
+        "visible output",
+        "reasoning effort"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PlannedContextCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ToolEvidenceContextBudgetException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/RequestConstraints.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ModelRequestPreparation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterCatalogSnapshotStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterCatalogLimits.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/OpenRouterModelRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PreparedContextBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubPlannedContextCapacityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ToolEvidenceContextBudgetExceptionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterCatalogSnapshotStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/OpenRouterModelRepositoryCacheTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/PreparedContextBudgetTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaBudgetWireTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+      ],
+      "invariants": [
+        "Planning, replay, continuation and final serialization retain one effective ceiling and its provenance; a smaller current route requires replanning.",
+        "Fresh exact model metadata may establish capabilities. An adaptive target, stale cache or alias spelling guess cannot establish provider capacity.",
+        "Supported AUTO visible-delivery reasoning effort is a preference, never proof of a numerical reasoning-token reserve. Explicit fixed settings retain their requested behavior."
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PlannedContextCapacity.kt",
+        "proof": "Effective context ceiling, original provenance and final admitted request",
+        "admission": "Current profile, observed route capability and accepted output constraints",
+        "decline": "Replan or reject when a usable evidence envelope does not fit the smaller current ceiling",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubPlannedContextCapacityTest.kt#knownRouteTaskCeilingTravelsFromPlanningIntoReplayAndSerializedAdmission",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubPlannedContextCapacityTest.kt#adaptiveTargetCannotTurnUnknownProviderCapacityIntoAnEightKRoute",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "github-durable-recovery",
+      "title": "GitHub provider waits and durable continuation recovery",
+      "terms": [
+        "provider cooldown",
+        "429 retry",
+        "connection recovery",
+        "tool handoff",
+        "saved answer",
+        "original failure"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubOutputContinuationSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskRecovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadline.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummary.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderCooldownContinuationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubOutputContinuationSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadlineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RecoveryInterruptionExportTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+      ],
+      "invariants": [
+        "Provider cooldown, tool handoff, transport recovery, output length and no-progress retain separate durable state.",
+        "A claimed transport retry survives restart; only verified progress resets its consecutive allowance.",
+        "Original and latest interruption evidence survives terminal wrappers without granting replay of uncertain writes."
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgress.kt",
+        "proof": "Durable recovery cause, deadline and confirmed tool boundary",
+        "admission": "Original task authority, current provider wait and known operation outcomes",
+        "decline": "Reconcile uncertain writes and retain the original failure when recovery cannot continue",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt#aLegacyCooldownOrSuccessfulToolHandoffDoesNotInheritTheConnectionCounter",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt#aClaimedTransportRetrySurvivesProcessRestartAndOnlySuccessfulProgressResetsIt",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "github-receipt-completion",
+      "title": "Verified GitHub receipt completion and revision-scoped CI reads",
+      "terms": [
+        "receipt completion",
+        "empty pull request list",
+        "current revision CI",
+        "CI log coverage",
+        "retained findings"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentContracts.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiReadProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubNextActionPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDelivery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupObservation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupCompletionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiAbsenceTargetTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiReadProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiTaskScopeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDeliveryTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+      ],
+      "invariants": [
+        "Complete trusted bounded lookups from native receipts before provider replay admission, while retaining the normal publication proof and current authority checks.",
+        "CI diagnosis retains the accepted repository and head; a historical failure cannot silently replace the current target.",
+        "Reuse only completed attempt-pinned reads whose exact job inventory or log range is covered. Live refresh, new attempts and uncovered bytes remain new work.",
+        "Retained findings remain bound to the same accepted task and evidence epoch. An interruption remains partial and cannot manufacture completion or replay authority."
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "proof": "Complete native source receipts and the existing accepted-task publication gate",
+        "admission": "Current task authority, selected source identity, settled operations and bounded complete observation",
+        "decline": "Keep incomplete, stale, mismatched, approval-blocked or uncertain-write observations in the ordinary verification workflow",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt#completeEmptyPullQueryFinishesBeforeThe53TokenReplayAllowanceWithoutAnyModel",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiTaskScopeTest.kt#observedRunIdentityPinsTheCurrentAttemptAndRejectsKnownHistoricalOrOlderAttempts",
         "plugins": [],
         "tools": [],
         "decline_terms": []

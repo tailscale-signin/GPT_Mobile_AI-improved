@@ -17,6 +17,33 @@ import org.junit.Test
 class GitHubTerminalDeliveryTest {
     private fun provider(event: ProviderEvent) = AgentRunEvent.Provider(event)
 
+    @Test fun terminalRestoreUsesTheAuthorizedUsefulReportBeforeItsGenericFallback() = runTest {
+        val failure = ProviderEvent.Failed(
+            "Continuation stopped",
+            errorCode = "OUTPUT_CONTINUATION_UNAVAILABLE",
+            taskOutcome = "PARTIAL",
+            failureDetails = buildJsonObject {
+                put(
+                    "original_interruption",
+                    buildJsonObject {
+                        put("code", "429")
+                        put("http_status", 429)
+                    }
+                )
+                put("latest_interruption", buildJsonObject { put("code", "NETWORK_TIMEOUT") })
+            }
+        )
+        var deliveries = 0
+        val events = flowOf(AgentRunEvent.ToolResultsRestored(29), provider(failure)).withGitHubTerminalDelivery(true) { retained ->
+            deliveries++
+            flowOf(ProviderEvent.TextDelta("Retained diagnosis: no failed run in the selected revision's complete query; historical failures are separate."), retained)
+        }.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(1, deliveries)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.startsWith("Retained diagnosis:"))
+        assertEquals(failure, events.last())
+        assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("stopped before a verified final result") })
+    }
+
     @Test fun interruptedBulkRestoreKeepsItsCountAndTypedRecoveryReachesTheCoordinator() = runTest {
         val events = flowOf(AgentRunEvent.ToolResultsRestored(92), provider(ProviderEvent.Failed("Stopped", errorCode = "GITHUB_RUN_INTERRUPTED")))
             .withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>()
@@ -125,6 +152,31 @@ class GitHubTerminalDeliveryTest {
         val failure = ProviderEvent.Failed("HTTP 429", providerLimit = limit, invocationId = "actual")
         val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true).toList()
         assertEquals(listOf(provider(failure)), events)
+    }
+
+    @Test fun aTypedProviderWaitDoesNotInvokeTheSavedReportCallback() = runTest {
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "profile", "selected", 100_000, "scope", "PROVIDER_RATE_LIMITED", true, httpStatus = 429)
+        val failure = ProviderEvent.Failed("HTTP 429", providerLimit = limit, invocationId = "actual")
+        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true) { error("A pending durable wait must not publish a retained answer") }.toList()
+        assertEquals(listOf(provider(failure)), events)
+    }
+
+    @Test fun retainedFindingsDoNotReplaceAnUnknownWriteOutcomeWithCompletion() = runTest {
+        val failure = ProviderEvent.Failed(
+            "Reconcile the dispatched operation",
+            errorCode = "RECONCILIATION_REQUIRED",
+            taskOutcome = "PARTIAL",
+            failureDetails = buildJsonObject {
+                put("unknown_outcome", true)
+                put("original_interruption", buildJsonObject { put("code", "NETWORK_TIMEOUT") })
+            }
+        )
+        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true) { retained ->
+            flowOf(ProviderEvent.TextDelta("The source inspection is retained. The dispatched write still requires reconciliation."), retained)
+        }.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(failure, events.last())
+        assertFalse(events.any { it is ProviderEvent.Completed })
+        assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
     }
 
     @Test fun rateLimitWithoutDurableWaitKeepsItsActionableCauseAndFailureMetadata() = runTest {

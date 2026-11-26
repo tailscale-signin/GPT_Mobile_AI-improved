@@ -18,14 +18,15 @@ import kotlinx.serialization.json.put
 @Serializable
 enum class GitHubContextVariant { CURRENT, REFERENCE, TASK, SEMANTIC }
 
-data class GitHubContextFile(val path: String, val blobSha: String, val size: Long = 0, val symbols: String = "")
+data class GitHubContextFile(val path: String, val blobSha: String, val size: Long = 0, val symbols: String = "", val references: String = "")
 data class GitHubContextSource(val path: String, val blobSha: String, val text: String, val cacheHit: Boolean = false)
 
 /** Bounded, source-pinned retrieval. Documents and commands are data; this class never executes them. */
 object GitHubTaskContextBundle {
     const val SCHEMA = "repository.task_context.v1"
-    const val VERSION = 7
+    const val VERSION = 8
     const val FEATURE_MAP = "docs/architecture/feature-map.json"
+    internal const val MAX_SYMBOL_CATALOG_BYTES = 1024 * 1024
     private const val MAX_MANIFEST_BYTES = 512 * 1024
     private const val MAX_FILE_BYTES = 2 * 1024 * 1024
     private val sha = Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
@@ -49,7 +50,7 @@ object GitHubTaskContextBundle {
             .filter { it["type"] == JsonPrimitive("blob") && it["mode"] !in setOf(JsonPrimitive("120000"), JsonPrimitive("160000")) }
             .mapNotNull { entry ->
                 val path = (entry["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(::validPath) ?: return@mapNotNull null
-                val matches = terms(path).intersect(queryTerms).size
+                val matches = pathTerms(path).intersect(queryTerms).size
                 val score = matches + if (query.contains(path, ignoreCase = true)) 100 else 0
                 (path to score).takeIf { score > 0 }
             }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
@@ -207,10 +208,12 @@ object GitHubTaskContextBundle {
         val wiring = mutableListOf<JsonObject>()
         var semanticApplied = false
         val graphCandidates = linkedSetOf<String>()
+        val callerCandidates = linkedSetOf<String>()
+        val configurationCandidates = linkedSetOf<String>()
         if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) {
             val rankedPaths = accepted.values.asSequence().filter { it.path != FEATURE_MAP && !it.path.endsWith(".md", true) }
                 .map { entry ->
-                    val pathTerms = terms(entry.path)
+                    val pathTerms = pathTerms(entry.path)
                     val score = pathTerms.intersect(queryTerms).size * 10 + terms(entry.symbols, 2048).intersect(queryTerms).size * 15 +
                         (if (query.contains(entry.path, true)) 200 else 0) +
                         (if (entry.path in featurePaths) 80 else 0) +
@@ -230,10 +233,23 @@ object GitHubTaskContextBundle {
             val relatedTests = primary.flatMap { GitHubSearchContext.related(it, accepted.keys.toList()).mapNotNull { value -> (value as? JsonPrimitive)?.contentOrNull } }
             featureTests += relatedTests
             for (path in (featureTests + graphCandidates).filter { it !in primary }.take(3)) source(path)
+            // Expand only the selected task's neighborhood. References come from
+            // previously authorized immutable blobs, never an eager repository scan.
+            val symbols = sources.flatMap { (path, text) ->
+                PhoneRepositorySourceIndex.build(path, text).objects("definitions").map { it.text("name") }
+            }.filter { it.length > 2 && terms(it).intersect(queryTerms).isNotEmpty() }.distinct().take(12).toSet()
+            callerCandidates += accepted.values.asSequence().filter { it.path !in primary && it.references.isNotBlank() }
+                .map { it.path to it.references.lineSequence().take(2048).count(symbols::contains) }
+                .filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+                .take(2).map { it.first }.toList()
+            configurationCandidates += configurationPaths(primary, accepted.keys).take(1)
+            for (path in (callerCandidates + configurationCandidates).filter { it !in loaded }.take(3)) source(path)
             val candidateSources = loaded.filter { (path, source) -> path != FEATURE_MAP && !path.endsWith(".md", true) && source.text.isNotEmpty() }
             val candidateRanges = candidateSources.mapValues { (path, source) ->
                 val reason = when (path) {
                     in featureTests -> "FEATURE_TEST"
+                    in callerCandidates -> "RETAINED_LEXICAL_CALLER"
+                    in configurationCandidates -> "BUILD_CONFIGURATION"
                     in featurePaths -> "FEATURE_REFERENCE"
                     in graphCandidates -> "LEXICAL_DEPENDENCY"
                     else -> "TASK_PATH_MATCH"
@@ -266,7 +282,7 @@ object GitHubTaskContextBundle {
             semanticApplied = !semanticScores.isNullOrEmpty()
             val orderedSources = candidateSources.values.sortedByDescending { value ->
                 (semanticScores?.get(value.path)?.takeIf { it.isFinite() } ?: 0.0) * 10 +
-                    terms(value.path).intersect(queryTerms).size + (if (value.path in featurePaths) 8 else 0)
+                    pathTerms(value.path).intersect(queryTerms).size + (if (value.path in featurePaths) 8 else 0)
             }
             for (value in orderedSources) {
                 selectedRanges += candidateRanges.getValue(value.path)
@@ -359,6 +375,7 @@ object GitHubTaskContextBundle {
             put("loaded_files", loaded.size)
             put("unavailable_files", unavailableCount)
             put("source_complete", unavailableCount == 0)
+            put("source_completeness_scope", "ATTEMPTED_TASK_SELECTION_ONLY")
             put("missing_paths", json(missing.toList()))
             put(
                 "coverage",
@@ -368,6 +385,10 @@ object GitHubTaskContextBundle {
                     put("indexed_files_basis", "RETAINED_SYMBOL_CATALOG")
                     put("loaded_files", loaded.size)
                     put("selected_files", selectedRanges.size)
+                    put("selected_source_bytes", selectedRanges.sumOf { it.text("excerpt").toByteArray(Charsets.UTF_8).size })
+                    put("selected_source_lines", selectedRanges.sumOf { (it.number("end_line") - it.number("start_line") + 1).coerceAtLeast(0) })
+                    put("caller_files", selectedRanges.count { it.text("path") in callerCandidates })
+                    put("configuration_files", selectedRanges.count { it.text("path") in configurationCandidates })
                     put("tree_complete", treeComplete && files.size <= 20_000)
                     put("selection_only", true)
                     put("exhaustive", false)
@@ -536,6 +557,37 @@ object GitHubTaskContextBundle {
 
     internal fun terms(text: String, limit: Int = 256): Set<String> = word.findAll(text.replace(camelBoundary, "$1 $2").lowercase(Locale.ROOT))
         .map { it.value }.filter { it.length > 2 && it !in ignoredTerms }.distinct().take(limit).toSet()
+
+    /** Retain recent immutable symbol records within a UTF-8 bound, including JSON framing. */
+    internal fun boundedSymbolCatalog(prior: JsonObject?, blob: String, record: JsonObject): JsonObject {
+        val retained = mutableListOf<Pair<String, kotlinx.serialization.json.JsonElement>>()
+        var bytes = 2
+        val candidates = listOf(blob to record) + (prior.orEmpty() - blob).entries.toList().asReversed().take(255).map { it.toPair() }
+        for ((key, value) in candidates) {
+            val entryBytes = JsonObject(mapOf(key to value)).toString().toByteArray(Charsets.UTF_8).size - 2 + if (retained.isEmpty()) 0 else 1
+            if (bytes + entryBytes > MAX_SYMBOL_CATALOG_BYTES) continue
+            retained += key to value
+            bytes += entryBytes
+        }
+        check(retained.any { it.first == blob }) { "A bounded symbol record must fit its catalog shard." }
+        return JsonObject(retained.asReversed().toMap())
+    }
+
+    private fun pathTerms(path: String): Set<String> =
+        (terms(path.substringBeforeLast('/', "")) - setOf("app", "src", "main", "test", "tests", "kotlin", "java")) +
+            terms(path.substringAfterLast('/').substringBeforeLast('.'))
+
+    /** Nearest enclosing build manifests are candidates, not proof of compiler wiring. */
+    private fun configurationPaths(paths: List<String>, available: Set<String>): List<String> {
+        val names = listOf("build.gradle.kts", "build.gradle", "package.json", "pyproject.toml", "Cargo.toml", "CMakeLists.txt", "AndroidManifest.xml", "tsconfig.json")
+        return paths.flatMap { path ->
+            val directories = path.split('/').dropLast(1)
+            (directories.size downTo 0).flatMap { depth ->
+                val prefix = directories.take(depth).joinToString("/").let { if (it.isEmpty()) "" else "$it/" }
+                names.map { prefix + it }.filter { it in available }
+            }
+        }.distinct()
+    }
 
     private fun validPath(path: String): Boolean = path.isNotBlank() && path.length <= 2048 && !path.startsWith('/') && '\\' !in path && path.none(Char::isISOControl) && path.split('/').none { it.isBlank() || it == "." || it == ".." }
     private fun JsonObject.text(key: String): String = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

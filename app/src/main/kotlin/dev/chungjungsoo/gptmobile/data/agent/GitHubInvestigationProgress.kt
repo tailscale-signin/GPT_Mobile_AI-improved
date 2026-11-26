@@ -20,6 +20,7 @@ internal class GitHubInvestigationProgress(private val acceptedTask: String = ""
     private val recentPageFailures = ArrayDeque<Boolean>()
     private var staleRounds = 0
     private var alternateReadReplanUsed = false
+    private val ciProgress = GitHubCiReadProgress()
 
     fun observe(exchange: AgentToolExchange): String? {
         var acquired = false
@@ -33,6 +34,11 @@ internal class GitHubInvestigationProgress(private val acceptedTask: String = ""
             // query or cursor alone must not restart the useful-source progress budget.
             val raw = ((result.retainedContent ?: result.content) as? ToolResultContent.Json)?.value as? JsonObject
             val data = raw?.let(GitHubSemanticSummary::data)
+            val ciAdvanced = ciProgress.observe(call, result)
+            if (ciAdvanced != null) {
+                if (ciAdvanced) acquired = true
+                continue
+            }
             if (call.name.githubOperationFamily() == "github_search" && "view_cursor" !in call.arguments && data?.get("items") is JsonArray) {
                 if (advancesRequiredCoverage(call, result, data)) requiredCoverageAdvanced = true
                 val scope = listOf(call.name.substringAfter("__", ""), call.arguments["owner"], call.arguments["repo"], data["commit_sha"])

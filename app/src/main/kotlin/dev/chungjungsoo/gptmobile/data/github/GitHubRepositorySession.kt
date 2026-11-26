@@ -218,14 +218,21 @@ internal class GitHubRepositorySession(
         val index = blob["index"] as? JsonObject ?: return
         val names = (index["definitions"] as? JsonArray).orEmpty().take(2000).mapNotNull { (it as? JsonObject)?.s("name") }
         val text = GitHubTaskContextBundle.terms(names.joinToString(" "), 2048).joinToString(" ").take(8192)
+        val references = (index["references"] as? JsonArray).orEmpty().take(6000).mapNotNull { (it as? JsonObject)?.s("name") }
+            .filter { it.length > 2 }.distinct().take(2048).joinToString("\n").take(16_384)
+        val record = buildJsonObject {
+            put("definitions", text)
+            put("references", references)
+            put("compiler_resolution", false)
+        }
         val sourceScope = blobScope(context)
-        val catalogKey = "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v1:${sha.take(2)}"
+        val catalogKey = "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v2:${sha.take(2)}"
         val existing = store.read(sourceScope, catalogKey)?.get(sha)
-        if (existing == JsonPrimitive(text) || fillOnly && existing != null) return
+        if (existing == record || fillOnly && existing != null) return
         var changed = false
         store.update(sourceScope, catalogKey) { prior ->
-            changed = prior?.get(sha) != JsonPrimitive(text)
-            JsonObject((prior.orEmpty() - sha).entries.toList().takeLast(255).associate { it.toPair() } + (sha to JsonPrimitive(text)))
+            changed = prior?.get(sha) != record
+            GitHubTaskContextBundle.boundedSymbolCatalog(prior, sha, record)
         }
         if (changed) {
             store.update(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:generation-v1") { prior ->
@@ -744,14 +751,25 @@ internal class GitHubRepositorySession(
             }
             val catalogs = if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) {
                 taskContextPhase(PhoneTaskContextPhase.SYMBOL_CATALOG) {
-                    entries.values.map { it.s("sha").take(2) }.distinct().associateWith { prefix -> cachedSource(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v1:$prefix") }
+                    entries.values.map { it.s("sha").take(2) }.distinct().associateWith { prefix ->
+                        val previous = cachedSource(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v1:$prefix")
+                        val current = cachedSource(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v2:$prefix")
+                        JsonObject(previous.orEmpty() + current.orEmpty())
+                    }
                 }
             } else {
                 emptyMap()
             }
             val files = entries.values.map { entry ->
                 val blobSha = entry.s("sha")
-                GitHubContextFile(entry.s("path"), blobSha, (entry["size"] as? JsonPrimitive)?.longOrNull ?: 0, (catalogs[blobSha.take(2)]?.get(blobSha) as? JsonPrimitive)?.content.orEmpty())
+                val catalog = catalogs[blobSha.take(2)]?.get(blobSha)
+                GitHubContextFile(
+                    entry.s("path"),
+                    blobSha,
+                    (entry["size"] as? JsonPrimitive)?.longOrNull ?: 0,
+                    (catalog as? JsonObject)?.s("definitions") ?: (catalog as? JsonPrimitive)?.content.orEmpty(),
+                    (catalog as? JsonObject)?.s("references").orEmpty()
+                )
             }
             val keys = mutableListOf<String>()
             val progressKey = "task-context-progress:$requestKey"

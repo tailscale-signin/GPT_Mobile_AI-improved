@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -22,7 +23,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean, re
         suspend fun finish(originalFailure: ProviderEvent.Failed) {
             if (terminal) return
             var failure = originalFailure
-            if (!visible && failure.providerLimit?.mayWait != true && retainedResponse != null) {
+            if (!visible && failure.providerLimit?.mayWait != true && retainedResponse != null && failure.mayRequestRetainedReport()) {
                 // Raw runner exits (including failed connectivity waits) still have
                 // the accepted session's authorized saved report available. Ask that
                 // receipt-only boundary before replacing it with a generic message.
@@ -52,7 +53,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean, re
                     receipts.isNotEmpty() -> "${receipts.size} tool ${if (receipts.size == 1) "result was" else "results were"} recorded before this run stopped."
                     else -> "No tool result was delivered for this attempt."
                 }
-                val established = dev.chungjungsoo.gptmobile.data.github.GitHubPartialReport.render(observations.values)
+                val established = if (failure.blocksPublication()) "" else dev.chungjungsoo.gptmobile.data.github.GitHubPartialReport.render(observations.values)
                 val stage = (failure.failureDetails?.get("failed_stage") as? kotlinx.serialization.json.JsonPrimitive)?.content
                     ?.takeIf { it.matches(Regex("[a-z_]{1,64}")) }
                 val nextAction = (failure.failureDetails?.get("next_action") as? kotlinx.serialization.json.JsonPrimitive)?.content
@@ -158,6 +159,22 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean, re
         }
     }
 }
+
+private fun ProviderEvent.Failed.blocksPublication(): Boolean =
+    taskOutcome == "CONFIGURATION_INVALIDATED" ||
+        errorCode in ToolFailureMetadata.authorityStopCodes ||
+        (errorCode == null && message.substringBefore(':') in ToolFailureMetadata.authorityStopCodes) ||
+        ToolResultEnvelope.isAuthorizationRejection(errorCode) ||
+        (failureDetails?.get("authority_invalidation_code") as? JsonPrimitive)?.content in ToolFailureMetadata.authorityStopCodes
+
+/** The runner has already stopped these cases. A retained-report callback is a new session entry. */
+private fun ProviderEvent.Failed.mayRequestRetainedReport(): Boolean =
+    !blocksPublication() &&
+        errorCode !in ToolResultEnvelope.unknownOutcomeCodes &&
+        errorCode != "OUTPUT_CONTINUATION_PENDING_TOOLS" &&
+        !GatewayOutcomeRecovery.requiresReconciliation(message, errorCode) &&
+        failureDetails?.get("requires_reconciliation") != JsonPrimitive(true) &&
+        failureDetails?.get("unknown_outcome") != JsonPrimitive(true)
 
 private fun ProviderEvent.Failed.rateLimitDeliveryMessage(): String? {
     val classified = ProfileFailureRecord.fromProvider(message, errorCode, failureDetails)

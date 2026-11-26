@@ -79,7 +79,23 @@ Confirmed provider usage remains separate from estimates and failed reservations
 No live model quality, phone latency, token-saving percentage or superiority over
 another coding product is inferred from a deterministic regression.
 
-## Follow-up reports from build 151
+## Issue coverage for Android build 151
+
+The 36 open reports through #2650 came from build 151. Multiple reports describe
+the same failure. The table records the behavior under test and any remaining
+external dependency.
+
+| Reports | Behavior and verification boundary |
+| --- | --- |
+| #2614–2618, #2641–2645 | An upstream `insufficient_quota` error can arrive inside an HTTP 200 stream. Stop repeat requests for the affected account configuration and retain the provider's recovery action. Restoring the allowance requires an account or provider change. |
+| #2619–2623, #2631–2634, #2636, #2638 | Apply the selected route's effective context limit to the actual request, including the admitted schemas, reply and any required tool evidence. Text-only delivery can use retained evidence without reserving another tool call. |
+| #2624, #2626 | Preserve the saved response, continuation state and original cause when available. Stop repeated synthesis when it adds no output. The original cause was absent from #2624, so that incident cannot be reconstructed exactly. |
+| #2625, #2630 | Distinguish verified reads from remaining acceptance criteria. Report the fixture, permission or other prerequisite required to continue stronger qualification. |
+| #2627–2629 | Validate check-watch arguments against the selected commit. A failed prerequisite blocks dependent calls while independent authorized repository reads can proceed. |
+| #2635, #2637, #2640 | New llama.cpp profiles use automatic reasoning negotiation. Profiles with an explicit strict-off setting require a backend capable of honoring it. |
+| #2639 | Wake the selected sleeping model on its bound Gateway route and verify readiness before dispatch. If readiness cannot be established, surface the reason for that route. |
+
+### Pagination and deadlines
 
 | Report | Runtime behavior |
 | --- | --- |
@@ -119,3 +135,11 @@ The coordinated Gateway 18.1.5 host gate collected 2,123 Python tests across
 capabilities. Seven browser-bridge tests and the 50,000-event diagnostic stress
 check passed. Native Windows behavior, installer packaging and publication
 attestations remain the required hosted gates.
+
+An unchanged local-owner settings snapshot took 10 SQLite statements with zero
+rows changed, compared with 26 statements and one changed row on build 151.
+The comparison used an initialized temporary journal for each revision, warmed
+the local-owner snapshot once, then measured `ControlStore.schema` and
+`ControlStore._snapshot` together on the same connection using `set_trace_callback`
+and the `total_changes` delta. These counts cover the store work underlying
+`GET /gateway/settings`. HTTP authentication and model inference run separately.

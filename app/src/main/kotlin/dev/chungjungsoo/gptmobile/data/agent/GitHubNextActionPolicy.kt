@@ -81,7 +81,7 @@ internal object GitHubNextActionPolicy {
                 if (runId == null) latest?.get("run_id")?.let { put("run_id", it) }
             }
         }
-        return call.copy(arguments = pinned, originalInvocationFingerprint = call.originalInvocationFingerprint ?: GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"))
+        return call.captureProviderInvocation().copy(arguments = pinned)
     }
 
     /** Current-run telemetry tied to an authorized schema and one declared action. */

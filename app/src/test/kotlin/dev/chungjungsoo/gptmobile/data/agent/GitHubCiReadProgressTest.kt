@@ -98,6 +98,19 @@ class GitHubCiReadProgressTest {
         assertNull(GitHubCiReadProgress.reused(call, listOf(source.copy(results = listOf(truncated)))))
     }
 
+    @Test fun selectedWorkspaceCiReadGetsItsInitialObservationBeforeTheRepeatLimit() {
+        val progress = GitHubInvestigationProgress("Diagnose CI failures")
+        val args = buildJsonObject { put("action", "workflows") }
+        val data = ToolResultContent.Json(buildJsonObject { put("total_count", 57) })
+        fun exchange(id: String) = AgentToolExchange(
+            listOf(ProviderEvent.ToolCall(id, "github_ci", args)),
+            listOf(AgentToolResult(id, data, false))
+        )
+        assertNull(progress.observe(exchange("first")))
+        repeat(3) { assertNull(progress.observe(exchange("repeat-$it"))) }
+        assertNotNull(progress.observe(exchange("fourth-repeat")))
+    }
+
     @Test fun displayChangesCannotResetCanonicalReadLimitsOrSourceProgress() {
         val exchange = logs("source", 3700, 3900)
         val call = exchange.calls.single()

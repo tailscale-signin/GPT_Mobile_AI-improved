@@ -80,8 +80,12 @@ their own scope. If two connections could supply the requested repository,
 the app asks for a selection before dispatch.
 
 With an official GitHub MCP connection, the model chooses a read from that
-connection's advertised schemas. The deterministic first read and the native
-verification ledger use tools bound to the app's GitHub executor.
+connection's advertised schemas. For an ordinary chat request such as “Show
+PR #12 in owner/repo,” the app can load the selected connection's read schema
+on the first turn and bind it to that repository. When multiple selected
+connections match, the user chooses the connection. The deterministic first
+read and the native verification ledger use tools bound to the app's GitHub
+executor.
 
 | Stage | Runtime responsibility |
 | --- | --- |
@@ -94,7 +98,9 @@ Gateway engineering is selected automatically when the saved private gateway
 confirms support for durable engineering jobs. The host admits new jobs by
 default for verified owners, including owners migrated from the old implicit
 off setting. An explicit host maintenance pause still controls new jobs, and
-revocation still removes access. Either side can reconnect to an accepted job
+revocation still removes access. In an eligible saved GitHub chat, an implementation
+request starts a host job automatically. Reads and planning use the selected client
+profile, so a direct lookup can finish without creating a job. Either side can reconnect to an accepted job
 using its saved identity. Android checks the selected model before dispatch
 and can wake a sleeping model on that same route.
 

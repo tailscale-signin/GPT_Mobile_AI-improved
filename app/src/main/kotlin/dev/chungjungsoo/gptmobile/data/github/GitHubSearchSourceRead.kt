@@ -4,7 +4,6 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.captureProviderInvocation
-import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -116,7 +115,7 @@ internal object GitHubSearchSourceRead {
     /** Caller supplies the bound, revalidated original from the encrypted evidence book. */
     fun repair(call: ProviderEvent.ToolCall, receipt: JsonObject, binding: String): ProviderEvent.ToolCall? {
         if (call.name.githubOperationFamily() != "github_read" || "view_cursor" in call.arguments) return null
-        if (runCatching { call.providerInvocation() }.isFailure) return null
+        val original = runCatching { call.captureProviderInvocation() }.getOrNull() ?: return null
         val id = call.arguments.text("evidence_id")
         if (!id.matches(Regex("ev_[a-f0-9]{24}")) ||
             receipt["receipt_id"] != JsonPrimitive(id) ||
@@ -167,7 +166,6 @@ internal object GitHubSearchSourceRead {
                 put("commit_sha", commit)
             }
         )
-        val original = if (call.originalInvocation == null && call.originalInvocationFingerprint == null) call.captureProviderInvocation() else call
         return original.copy(arguments = corrected)
     }
 

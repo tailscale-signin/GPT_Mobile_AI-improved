@@ -5841,8 +5841,9 @@ class ChatRepositoryImpl(
         val capKey = admission.capKey
         val resolvedOutputCap = admission.resolvedOutputCap
         val requestConstraints = admission.requestConstraints
-        fun bindGitHubTarget(resolved: ResolvedAgentTool): dev.chungjungsoo.gptmobile.data.agent.AgentTool =
-            if (resolved.nativeGitHub && boundGitHubRepository != null) {
+        fun bindGitHubTarget(resolved: ResolvedAgentTool): dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+            val mcpRepository = boundGitHubRepository ?: taskScope.officialReadTarget(resolved)
+            return if (resolved.nativeGitHub && boundGitHubRepository != null) {
                 dev.chungjungsoo.gptmobile.data.github.GitHubBoundRepositoryTool(
                     resolved.tool,
                     boundGitHubRepository,
@@ -5851,10 +5852,10 @@ class ChatRepositoryImpl(
                     readOnly = readReference != null || dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest),
                     readReference = readReference
                 )
-            } else if (boundGitHubRepository != null && dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.GITHUB in resolved.tool.definition.capabilities) {
+            } else if (mcpRepository != null && dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.GITHUB in resolved.tool.definition.capabilities) {
                 dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryTool(
                     resolved.tool,
-                    boundGitHubRepository,
+                    mcpRepository,
                     resolved.realToolName,
                     resolved.shareableReadOnly,
                     dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest),
@@ -5865,6 +5866,7 @@ class ChatRepositoryImpl(
             } else {
                 resolved.tool
             }
+        }
         val observedRequestContext = java.util.concurrent.atomic.AtomicReference<Int?>(null)
         var currentGitHubPromptContract: JsonObject? = null
         suspend fun openPrimarySession(

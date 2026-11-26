@@ -171,12 +171,48 @@ class GitHubTerminalDeliveryTest {
                 put("original_interruption", buildJsonObject { put("code", "NETWORK_TIMEOUT") })
             }
         )
-        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true) { retained ->
-            flowOf(ProviderEvent.TextDelta("The source inspection is retained. The dispatched write still requires reconciliation."), retained)
+        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true) {
+            error("Reconciliation must not reenter a provider session")
         }.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertEquals(failure, events.last())
         assertFalse(events.any { it is ProviderEvent.Completed })
         assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
+    }
+
+    @Test fun authorityInvalidationStopsSavedReportReadsAndSuppressesEarlierSourceFindings() = runTest {
+        val call = ProviderEvent.ToolCall(
+            "pr-list",
+            "github_pr",
+            buildJsonObject {
+                put("action", "list")
+                put("state", "open")
+            }
+        )
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("items", JsonArray(emptyList()))
+                    put("has_more", false)
+                    put("page", 1)
+                }
+            ),
+            false
+        )
+        val failures = listOf(
+            ProviderEvent.Failed("Permission revoked", errorCode = "POLICY_STALE"),
+            ProviderEvent.Failed("DISPATCH_POLICY_CHANGED: prior permission was revoked"),
+            ProviderEvent.Failed("Configuration changed", taskOutcome = "CONFIGURATION_INVALIDATED"),
+            ProviderEvent.Failed("Verify the previous write", errorCode = "RECONCILIATION_REQUIRED", failureDetails = buildJsonObject { put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED") })
+        )
+        for (failure in failures) {
+            val events = flowOf(AgentRunEvent.ToolFinished(call, result), provider(failure)).withGitHubTerminalDelivery(true) {
+                error("Changed authority forbids session reentry")
+            }.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(failure, events.last())
+            assertFalse(events.any { it is ProviderEvent.Completed })
+            assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("Open pull requests observed") })
+        }
     }
 
     @Test fun rateLimitWithoutDurableWaitKeepsItsActionableCauseAndFailureMetadata() = runTest {

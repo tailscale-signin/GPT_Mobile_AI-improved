@@ -20,7 +20,10 @@ internal class GitHubCiReadProgress {
         if (call.name.githubOperationFamily() != "github_ci" || "view_cursor" in call.arguments) return null
         if (result.isError || result.sharedResult) return false
         val data = data(result) ?: return false
-        val scope = scope(call, result) ?: return false
+        // The selected connection can serve reads before repository identity is
+        // attached. Let the ordinary per-call progress guard handle those
+        // observations without adding them to the revision-bound CI ledger.
+        val scope = scope(call, result) ?: return null
         var advanced = false
         fun cover(key: String, window: IntRange) {
             val covered = ranges.getOrPut(key) { mutableListOf() }

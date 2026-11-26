@@ -8,6 +8,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class GitHubCiTaskScopeTest {
@@ -58,6 +59,22 @@ class GitHubCiTaskScopeTest {
                 )
             )
         )
+    }
+
+    @Test fun scopedReadsDispatchPinnedArgumentsAndReplayTheOriginalProviderInvocation() {
+        val request = call("runs", buildJsonObject { put("status", "failure") })
+        val original = request.providerInvocation()
+        val captured = request.captureProviderInvocation()
+        val legacy = captured.copy(originalInvocation = null)
+        val routed = captured.copy(arguments = JsonObject(request.arguments + ("per_page" to JsonPrimitive(100))))
+        for (incoming in listOf(request, legacy, routed)) {
+            val scoped = requireNotNull(scope(incoming)).captureProviderInvocation()
+            assertEquals(JsonPrimitive(head), scoped.arguments["head_sha"])
+            assertEquals(incoming.arguments["per_page"], scoped.arguments["per_page"])
+            assertEquals(original, scoped.providerInvocation())
+            assertEquals(original.fingerprint(request.callId), scoped.originalInvocationFingerprint)
+        }
+        assertThrows(IllegalStateException::class.java) { scope(legacy.copy(callId = "different")) }
     }
 
     @Test fun observedRunIdentityPinsTheCurrentAttemptAndRejectsKnownHistoricalOrOlderAttempts() {

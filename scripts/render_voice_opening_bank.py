@@ -63,7 +63,7 @@ def render(args):
                     active = np.flatnonzero(np.abs(samples) > .001)
                     samples = samples[max(0, active[0] - 480):min(len(samples), active[-1] + 1440)]
                     pcm = (np.clip(samples, -.9999, .9999) * 32767).astype("<i2").tobytes()
-                    audio = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-i", "pipe:0", "-map_metadata", "-1", "-c:a", "libopus", "-application", "voip", "-b:a", "24k", "-f", "ogg", "pipe:1"], input=pcm, capture_output=True, check=True).stdout
+                    audio = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-i", "pipe:0", "-map_metadata", "-1", "-c:a", "libopus", "-application", "voip", "-b:a", "24k", "-flags:a", "+bitexact", "-fflags", "+bitexact", "-f", "ogg", "pipe:1"], input=pcm, capture_output=True, check=True).stdout
                     write_entry(archive, f"{voice}/{kind}.ogg", audio)
                     clips[kind] = {"ms": round(len(samples) * 1000 / SAMPLE_RATE), "sha256": hashlib.sha256(audio).hexdigest()}
                 manifest["voices"][voice] = {"language": tag, "clips": clips}

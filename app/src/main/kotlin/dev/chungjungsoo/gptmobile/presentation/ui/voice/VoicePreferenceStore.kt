@@ -82,8 +82,9 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
     }
 
     fun save(value: VoicePreferences) {
-        mutable.value = value
-        writer.save(value)
+        val normalized = value.copy(kokoroThreads = VoiceCpuSchedulingPolicy.choice(value.kokoroThreads))
+        mutable.value = normalized
+        writer.save(normalized)
     }
 }
 

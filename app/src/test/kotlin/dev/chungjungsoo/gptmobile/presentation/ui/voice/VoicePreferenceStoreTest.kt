@@ -358,14 +358,14 @@ class VoicePreferenceStoreTest {
             val model = VoicePreferencesViewModel(context, store)
             views.put("voice", model)
             model.save(VoicePreferences(spokenReplies = true, kokoroThreads = 2))
-            val expected = VoicePreferences(
+            val requested = VoicePreferences(
                 language = "fr-CA",
                 recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE,
                 synthesis = VoiceSynthesisPreferences("ja", mapOf("ja" to "jf_nezumi", "es" to "em_alex")),
                 spokenReplies = false,
                 online = false,
                 kokoroVoice = KokoroVoice.HEART,
-                kokoroThreads = 4,
+                kokoroThreads = VoiceCpuSchedulingPolicy.MAX_THREADS + 1,
                 rate = 1f,
                 pause = VoicePauseDuration.MINIMAL,
                 performance = VoicePerformanceMode.FAST,
@@ -374,7 +374,8 @@ class VoicePreferenceStoreTest {
                 incrementalSpeech = false,
                 nativeModelVariant = KokoroModelVariant.ORIGINAL_FP32
             )
-            model.save(expected)
+            val expected = requested.copy(kokoroThreads = VoiceCpuSchedulingPolicy.deviceLimit())
+            model.save(requested)
             views.clear()
             runCurrent()
             assertEquals(expected, readVoicePreferences(preferences.all))

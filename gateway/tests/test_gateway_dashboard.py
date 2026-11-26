@@ -9,14 +9,15 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.configuration import atomic_json
 from desktop.dashboard_model import counters, read_snapshot, rows
 from v14.activity import ActivityMiddleware, ActivityTracker, MAX_ACTIVITIES, MAX_DEVICES, current_peer, desktop_snapshot, client_snapshot
-from v14.capability_inventory import capability_inventory
+from v14.capability_inventory import capability_inventory, InventoryChanged
 from v14.actions import current_gateway_job_id
+from v14.identity import Principal
 from gateway_security import DeviceStore, current_device
 
 
@@ -64,6 +65,44 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual('COMPLETE', inventory['sources'][0]['discoveryState'])
         self.assertEqual(99.0, inventory['sources'][0]['lastVerifiedAt'])
 
+    def test_paged_inventory_covers_the_full_catalog_and_detects_changes_beyond_the_first_page(self):
+        names = [f'lookup_{n:04d}' for n in range(2063)]
+        definitions = [{'function': {'name': name, 'parameters': {}}} for name in names]
+        health = {'authorized': True, 'schemaKnown': True, 'connectionHealthy': True}
+        runtime = SimpleNamespace(
+            get_all_mcp_tools=lambda: definitions,
+            mcp_tool_metadata={name: {'server': 'repo'} for name in names},
+            gateway_catalogue=SimpleNamespace(key=lambda name, config: name, health={'repo': health}),
+            load_mcp_config=lambda: {'repo': {}},
+        )
+        tracker = ActivityTracker()
+        legacy = capability_inventory(runtime, tracker, 'device')
+        self.assertEqual(2048, legacy['visibleCount'])
+        self.assertTrue(legacy['hasMore'])
+        def page(cursor=None, principal='device'):
+            return capability_inventory(runtime, tracker, principal, page_size=128, cursor=cursor)
+        first = page()
+        rows, result = [], first
+        while True:
+            self.assertEqual(len(rows), result['pageOffset'])
+            self.assertEqual('COMPLETE', result['catalogStatus'])
+            rows.extend(tool['name'] for tool in result['tools'])
+            if result['nextCursor'] is None:
+                break
+            result = page(result['nextCursor'])
+        self.assertEqual(names, rows)
+        cursor = first['nextCursor']
+        with self.assertRaises(InventoryChanged):
+            page(cursor, 'other-device')
+        definitions[-1]['function']['parameters'] = {'type': 'object', 'properties': {'new_field': {}}}
+        with self.assertRaises(InventoryChanged):
+            page(cursor)
+        cursor = page()['nextCursor']
+        health['authorized'] = False
+        with self.assertRaises(InventoryChanged):
+            page(cursor)
+        self.assertEqual([], page()['tools'])
+
     def test_revoked_source_cannot_supply_a_stale_discovered_route(self):
         runtime = SimpleNamespace(
             get_all_mcp_tools=lambda: [{'function': {'name': 'old_read', 'parameters': {}}}],
@@ -77,6 +116,50 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual('BLOCKED', inventory['sources'][0]['discoveryState'])
         runtime.load_mcp_config = lambda: {}
         self.assertEqual([], capability_inventory(runtime, ActivityTracker())['tools'])
+
+    def test_inventory_projects_only_installed_local_tools_and_rechecks_graph_access(self):
+        from v14.batch import install_batch
+        from v14.code_graph.tools import install_graph_tool
+        names = ['github_get_commit', 'lost_binding', 'pc_repository_graph', 'gateway_batch']
+        external = [{'function': {'name': name, 'description': 'External description'}} for name in names]
+        runtime = SimpleNamespace(
+            GATEWAY_DURABLE_JOBS=True, LLAMA_BASE='http://127.0.0.1:8090', get_all_mcp_tools=lambda force=False: external,
+            execute_mcp_tool=None, get_gateway_tool_route=None, load_mcp_config=lambda: {'github': {}},
+            mcp_tool_metadata={'github_get_commit': {'server': 'github', 'tool': 'get_commit'}},
+        )
+        grants = {'owner'}
+        service = SimpleNamespace(graph=SimpleNamespace(backend=SimpleNamespace(available=lambda: True)))
+        install_batch(runtime)
+        install_graph_tool(runtime, service, grants.__contains__)
+        tracker = ActivityTracker()
+        def page(principal, size=16, cursor=None):
+            return capability_inventory(runtime, tracker, principal, page_size=size, cursor=cursor)
+        def tools(principal):
+            return {tool['name']: tool for tool in page(principal)['tools']}
+        self.assertEqual({'github_get_commit', 'gateway_batch'}, set(tools('reader')))
+        owner = tools('owner')
+        self.assertEqual({'github_get_commit', 'gateway_batch', 'pc_repository_graph'}, set(owner))
+        for name in ('gateway_batch', 'pc_repository_graph'):
+            self.assertEqual('gateway-mcp', owner[name]['sourceId'])
+            self.assertNotEqual('External description', owner[name]['description'])
+        cursor = page('owner', 1)['nextCursor']
+        grants.clear()
+        with self.assertRaises(InventoryChanged):
+            page('owner', 1, cursor)
+        self.assertNotIn('pc_repository_graph', tools('owner'))
+        self.assertIn('pc_repository_graph', tools(None))
+
+    def test_connection_replacement_during_discovery_does_not_label_old_tools_as_authorized(self):
+        config = {'repo': {'target': 'first'}}
+        def discover():
+            config['repo']['target'] = 'second'
+            return [{'function': {'name': 'repo_lookup', 'description': 'Original connection'}}]
+        runtime = SimpleNamespace(load_mcp_config=lambda: config, get_all_mcp_tools=discover,
+                                  mcp_tool_metadata={'repo_lookup': {'server': 'repo'}})
+        result = capability_inventory(runtime, ActivityTracker(), 'device', page_size=2)
+        self.assertEqual('BLOCKED', result['catalogStatus'])
+        self.assertEqual([], result['tools'])
+        self.assertNotIn('Original connection', json.dumps(result))
 
     def test_streaming_passthrough_tracks_socket_not_forwarded_identity(self):
         tracker = ActivityTracker(now=lambda: 100)
@@ -196,6 +279,37 @@ class ActivityTests(unittest.TestCase):
 
 
 class MobileDashboardTests(unittest.TestCase):
+    def test_dashboard_and_tool_pages_follow_separate_admitted_scopes(self):
+        import gateway_v14
+        import httpx
+        runtime = SimpleNamespace(
+            GATEWAY_DURABLE_JOBS=False,
+            get_all_mcp_tools=Mock(return_value=[{'function': {'name': 'repo_lookup'}}]),
+            load_mcp_config=lambda: {'repo': {}}, mcp_tool_metadata={'repo_lookup': {'server': 'repo'}},
+        )
+        async def exercise():
+            transport = httpx.ASGITransport(app=gateway_v14.app, client=('127.0.0.1', 1234))
+            async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
+                for path in ('/gateway/dashboard', '/v1/gateway/dashboard'):
+                    with patch('v14.identity.PrincipalResolver.resolve', return_value=Principal('guest', frozenset({'chat'}))):
+                        for suffix in ('', '?inventory_preview=true'):
+                            response = await client.get(path + suffix)
+                            self.assertEqual(200, response.status_code)
+                            self.assertNotIn('capabilityInventory', response.json())
+                            self.assertFalse(response.json()['availability']['capabilities'])
+                        self.assertEqual(403, (await client.get(path + '?inventory_page_size=1')).status_code)
+                        runtime.get_all_mcp_tools.assert_not_called()
+                    with patch('v14.identity.PrincipalResolver.resolve', return_value=Principal('reader', frozenset({'tools'}))):
+                        self.assertEqual(403, (await client.get(path + '?inventory_preview=true')).status_code)
+                        response = await client.get(path + '?inventory_page_size=1')
+                        self.assertEqual(200, response.status_code)
+                        self.assertEqual({'capabilityInventory'}, set(response.json()))
+                        self.assertEqual(['repo_lookup'], [tool['name'] for tool in response.json()['capabilityInventory']['tools']])
+                        runtime.get_all_mcp_tools.assert_called_once()
+                        runtime.get_all_mcp_tools.reset_mock()
+        with patch.object(gateway_v14, 'runtime', runtime):
+            asyncio.run(exercise())
+
     def test_identity_filter_does_not_merge_two_principals_on_one_proxy_socket(self):
         tracker = ActivityTracker(now=lambda: 100)
         for owner, title, sent in [('first', 'First activity', 10), ('second', 'Hidden activity', 20)]:
@@ -232,7 +346,7 @@ class MobileDashboardTests(unittest.TestCase):
                     db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?)', ('eng-' + owner, 'NEEDS_INPUT', json.dumps({'principal': owner, 'request': {'repository': owner + '/repo'}}), 10))
             runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True, durable_job_lock=threading.RLock(), _durable_connect=lambda: sqlite3.connect(path))
             service = SimpleNamespace(instance_id='a' * 32, snapshot=lambda: {'activeWorkers': 1, 'workerLimit': 2})
-            snapshot = client_snapshot(runtime, service, ActivityTracker(), SimpleNamespace(id='first'), ownership)
+            snapshot = client_snapshot(runtime, service, ActivityTracker(), Principal('first', frozenset({'chat', 'tools'})), ownership)
             self.assertEqual(2, snapshot['openJobs'])
             self.assertTrue(snapshot['availability']['openJobs'])
             self.assertNotIn('chat-0', [item['id'] for item in snapshot['jobs']])
@@ -244,7 +358,7 @@ class MobileDashboardTests(unittest.TestCase):
     def test_unavailable_inventory_never_becomes_a_zero_job_measurement(self):
         runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=False, durable_job_initialized=False)
         service = SimpleNamespace(instance_id='a' * 32, snapshot=lambda: {'activeWorkers': 0})
-        snapshot = client_snapshot(runtime, service, ActivityTracker(), SimpleNamespace(id='first'), None)
+        snapshot = client_snapshot(runtime, service, ActivityTracker(), Principal('first', frozenset({'chat', 'tools'})), None)
         self.assertIsNone(snapshot['openJobs'])
         self.assertFalse(snapshot['availability']['openJobs'])
         self.assertFalse(snapshot['availability']['history'])

@@ -4307,7 +4307,20 @@ class ChatRepositoryImpl(
         stage: dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage,
         inventory: List<ResolvedAgentTool>? = null,
         plan: dev.chungjungsoo.gptmobile.data.context.ContextPlan? = null
-    ) = retainToolAdmission(input.runId, input.platform, input.effectiveUserMessages.lastOrNull()?.chatId, stage, inventory, plan)
+    ) {
+        val chatId = input.effectiveUserMessages.lastOrNull()?.chatId
+        val scope = input.chatToolConfig?.github
+        if (scope != null && scope.mainProfileUid == input.platform.uid && chatId != null && plan != null && input.stage == null) {
+            dev.chungjungsoo.gptmobile.data.agent.GitHubToolInventory.record(
+                input.runId,
+                chatId,
+                scope,
+                plan.authorizedTools,
+                inventory.orEmpty().associate { it.modelToolName to it.connectionUid }
+            )
+        }
+        retainToolAdmission(input.runId, input.platform, chatId, stage, inventory, plan)
+    }
 
     private suspend fun retainToolAdmission(
         runId: String,
@@ -6915,7 +6928,7 @@ class ChatRepositoryImpl(
     private suspend fun repositoryReferenceContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, task: String, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, emit: suspend (ApiState) -> Unit): String {
         val github = tools?.github ?: return ""
         if (user == null || repositoryTaskContext == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
-        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user.content) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityRequest.from(user.content) != null || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user.content) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
         val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
         val prepared = repositoryTaskContext.prepare(github, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
         AppLogRecorder.recordEvent("GitHub", "REPOSITORY_CONTEXT_PREPARED", mapOf("availability" to prepared.availability.name, "treeReused" to prepared.reusedTree, "packetReused" to prepared.reusedPacket))
@@ -6930,7 +6943,7 @@ class ChatRepositoryImpl(
 
     private suspend fun engineeringMemoryContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, runId: String, emit: suspend (ApiState) -> Unit): String {
         val github = tools?.github ?: return ""
-        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user?.content.orEmpty()) || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user?.content.orEmpty()) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user?.content.orEmpty()).conversational) return ""
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user?.content.orEmpty()) || dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityRequest.from(user?.content.orEmpty()) != null || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user?.content.orEmpty()) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user?.content.orEmpty()).conversational) return ""
         val origin = dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.captureOrigin()
         if (user == null || engineeringMemory == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
         val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
@@ -8465,6 +8478,7 @@ class ChatRepositoryImpl(
                     dev.chungjungsoo.gptmobile.data.agent.ToolCallBudgetCheckpoint.clearInMemoryChat(updated.id)
                     dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(filesDir).forgetChat(updated.id)
                 }
+                dev.chungjungsoo.gptmobile.data.agent.GitHubToolInventory.forgetChat(updated.id)
                 dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forgetChat(updated.id)
                 dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                     runs.forEach { journal.revokeRun(it.runId) }
@@ -8493,6 +8507,7 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.agent.ToolCallBudgetCheckpoint.clearInMemoryChat(room.id)
                 dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(filesDir).forgetChat(room.id)
             }
+            dev.chungjungsoo.gptmobile.data.agent.GitHubToolInventory.forgetChat(room.id)
             dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forgetChat(room.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 runs.forEach { journal.revokeRun(it.runId) }

@@ -81,7 +81,7 @@ internal fun rememberGitHubStatusActions(model: GitHubLiveStatusViewModel, conne
 }
 
 @Composable
-internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, graphContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, model: GitHubLiveStatusViewModel = hiltViewModel(), graphProfile: PlatformV2? = null, onConfigureGateway: (() -> Unit)? = null, actions: GitHubStatusActions? = null) {
+internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, graphContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, model: GitHubLiveStatusViewModel = hiltViewModel(), graphProfile: PlatformV2? = null, onConfigureGateway: (() -> Unit)? = null, actions: GitHubStatusActions? = null, allowGatewayInventory: Boolean = true) {
     val state by model.state.collectAsStateWithLifecycle()
     val currentPulls by androidx.compose.runtime.rememberUpdatedState(pulls)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -140,7 +140,7 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
                 }
             }
         }
-        profile?.let { GitHubGatewayStatusPanel(it, now) }
+        profile?.let { GitHubGatewayStatusPanel(it, now, allowInventory = allowGatewayInventory) }
         state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Checks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)

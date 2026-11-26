@@ -167,7 +167,7 @@ class ActivityMiddleware:
             current_peer.reset(marker)
 
 
-def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None):
+def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None, *, inventory_preview=False, include_inventory=True):
     """Bounded metadata only: no auth headers, tool arguments, or result bodies."""
     from v14.usage import usage_snapshot
     from v14.engineering_batch_plan import summary as batch_summary
@@ -175,7 +175,8 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None):
     result['usage'] = usage_snapshot(runtime)
     result['service'] = service.snapshot()
     from v14.capability_inventory import capability_inventory
-    result['capabilityInventory'] = capability_inventory(runtime, tracker, principal)
+    if include_inventory:
+        result['capabilityInventory'] = capability_inventory(runtime, tracker, principal, page_size=24 if inventory_preview else None)
     result['jobs'], result['engineering'] = [], []
     result['historyError'] = None
     result['openJobs'] = None
@@ -244,12 +245,14 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None):
     return result
 
 
-def client_snapshot(runtime, service, tracker, principal, ownership):
+def client_snapshot(runtime, service, tracker, principal, ownership, *, inventory_preview=False):
     """Same measured dashboard contract, with device/activity/history scoped to the admitted caller."""
-    result = desktop_snapshot(runtime, service, tracker, principal=principal.id, ownership=ownership)
+    include_inventory = 'tools' in principal.scopes
+    result = desktop_snapshot(runtime, service, tracker, principal=principal.id, ownership=ownership,
+                              inventory_preview=inventory_preview, include_inventory=include_inventory)
     result.update(schema='gptmobile.gateway.dashboard.v1', schemaVersion=1, instanceId=service.instance_id, scope='admitted_identity',
                   serviceScope='this_installation', historyLimit=100,
-                  availability={'devices': True, 'activities': True, 'service': True, 'capabilities': True,
+                  availability={'devices': True, 'activities': True, 'service': True, 'capabilities': include_inventory,
                                 'usage': bool(result['usage'].get('available')),
                                 'openJobs': result['openJobs'] is not None,
                                 'history': result['historyError'] is None and bool(runtime.GATEWAY_DURABLE_JOBS and runtime.durable_job_initialized)})

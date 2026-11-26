@@ -61,6 +61,15 @@ internal object GitHubEvidenceLink {
             .firstOrNull { sha.matches(it) } ?: return null
         val start = (file["start_line"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 }
         val end = (file["end_line"] as? JsonPrimitive)?.intOrNull?.takeIf { start != null && it >= start }
+        if ("captured_start_line" in file || "captured_end_line" in file) {
+            val first = (file["captured_start_line"] as? JsonPrimitive)?.intOrNull
+            val last = (file["captured_end_line"] as? JsonPrimitive)?.intOrNull
+            if (first != null && last != null && start != null && end != null && first in start..end && last in first..end) {
+                return sourceUrl(base, path, commit, first, last)
+            }
+            return sourceUrl(base, path, commit, null, null)
+        }
+        if (file["truncated"] == JsonPrimitive(true) || file["content"] == JsonPrimitive("")) return sourceUrl(base, path, commit, null, null)
         return sourceUrl(base, path, commit, start, end)
     }
 

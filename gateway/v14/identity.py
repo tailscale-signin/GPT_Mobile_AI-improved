@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from dataclasses import dataclass
 
 from fastapi.responses import JSONResponse
+from starlette.datastructures import QueryParams
 from gateway_security import current_device, device_store
 from v14.browser import LANDING_PATHS
 from v14.account_connection import accounts, overlay, listener_accepts_overlay, PREFIX as ACCOUNT_PREFIX
@@ -193,7 +194,9 @@ class Admission:
                     return await deny("remote_surface_not_admitted")
             elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not metadata_write and not benchmark_write and not diagnostics_write and not model_preparation_write and not voice_write and path not in {"/chat/completions", "/gateway/privacy/inference"} and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
-        required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path or benchmark_path else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
+        inventory_page = path == '/gateway/dashboard' and any(
+            key in {'inventory_page_size', 'inventory_cursor'} for key in QueryParams(scope.get('query_string', b'')))
+        required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path or benchmark_path else "tools" if inventory_page or path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
         if public_map_path and not principal.engineering_allowed:
             required = 'tools'
         granted = required in principal.scopes or diagnostics_path and 'diagnostics' in principal.scopes

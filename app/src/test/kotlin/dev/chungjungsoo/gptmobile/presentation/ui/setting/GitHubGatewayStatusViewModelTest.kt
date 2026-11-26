@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardAccessDenied
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardClient
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardObservation
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardPhase
@@ -14,7 +15,9 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDiagnosticPage
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDiagnosticStatus
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayReadinessObservation
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayToolInventory
 import dev.chungjungsoo.gptmobile.data.network.gateway.dashboardFixture
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayDashboardTarget
 import dev.chungjungsoo.gptmobile.data.network.gateway.parseGatewayDashboard
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
@@ -208,6 +211,26 @@ class GitHubGatewayStatusViewModelTest {
             verify(exactly = 0) { client.refresh(gatewayConfig(other)) }
             assertEquals(requestsAfterRemoval, requested.size)
             assertTrue(requested.none { it.second.profileUid in setOf(inference.uid, other.uid) })
+        } finally {
+            model.viewModelScope.coroutineContext[Job]!!.cancelAndJoin()
+        }
+    }
+
+    @Test fun inventoryFailureKeepsOnlySameGatewayHistoryAndDenialDropsItImmediately() = runTest {
+        val model = model()
+        try {
+            val target = requireNotNull(gatewayDashboardTarget(inference.uid, profiles.value, gateway.uid))
+            val snapshot = GatewayToolInventory(emptyList(), 0, 44)
+            val previous = GatewayCapabilityInventory(target.identity, snapshot)
+            coEvery { client.readToolInventory(any()) } throws java.io.IOException("offline")
+            val offline = model.readInventory(target, previous)
+            assertEquals(snapshot, offline.observation)
+            assertNotNull(offline.error)
+            assertNull(model.readInventory(target, previous.copy(identity = "old-route")).observation)
+            coEvery { client.readToolInventory(any()) } throws GatewayDashboardAccessDenied()
+            val denied = model.readInventory(target, previous)
+            assertNull(denied.observation)
+            assertNotNull(denied.error)
         } finally {
             model.viewModelScope.coroutineContext[Job]!!.cancelAndJoin()
         }

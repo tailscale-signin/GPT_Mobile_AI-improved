@@ -169,6 +169,7 @@ fun GitHubWorkspaceScreen(
     val privateWorkspace = privacyModeLocked || programmerState.privacyModeLocked != false
     dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(privateWorkspace)
     val repositoryMapAvailable = !privateWorkspace && commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId
+    var inventoryOpen by rememberSaveable(connection.connectionUid, state.selection, visibleProgrammer.chatId) { mutableStateOf(false) }
     var repositoryMapOpen by remember(commandContext) { mutableStateOf(false) }
     val engineeringBinding = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
         engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && (it.request.profileId ?: it.profileUid) == engineeringProfile?.uid && it.job?.terminal == false }
@@ -264,6 +265,15 @@ fun GitHubWorkspaceScreen(
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalGitHubCompositionTiming provides GitHubCompositionTiming(navigationTrace, state.recentChatId != null || savedContext != null)) {
         Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            if (inventoryOpen) {
+                val profileUid = commandContext?.mainProfileUid ?: visibleProgrammer.profileUid
+                val target = remember(profileUid, visibleProgrammer.profiles, visibleProgrammer.profileSettings.engineeringGatewayProfileUid, privateWorkspace) {
+                    profileUid?.takeUnless { privateWorkspace }?.let {
+                        dev.chungjungsoo.gptmobile.data.network.gateway.gatewayDashboardTarget(it, visibleProgrammer.profiles, visibleProgrammer.profileSettings.engineeringGatewayProfileUid)
+                    }
+                }
+                GitHubWorkspaceInventory(visibleProgrammer, target, privateWorkspace, onDismiss = { inventoryOpen = false })
+            }
             if (repositoryMapOpen && repositoryMapAvailable && commandContext != null) {
                 dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPanel(
                     commandContext,
@@ -362,7 +372,8 @@ fun GitHubWorkspaceScreen(
                                                 onBrowseFiles = { tab = 0 },
                                                 onOpenChecks = { tab = 4 },
                                                 onOpenMap = { repositoryMapOpen = true },
-                                                onReviewChanges = ::openChanges
+                                                onReviewChanges = ::openChanges,
+                                                onOpenInventory = { inventoryOpen = true }
                                             ) { dismiss ->
                                                 dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionPanel(
                                                     state = visibleProgrammer,
@@ -562,7 +573,8 @@ fun GitHubWorkspaceScreen(
                                         onDecisionMode = programmer::setDecisionMode,
                                         onCopilotEnabled = programmer::setCopilotEnabled,
                                         onBatchModes = programmer::batchModes,
-                                        onAdmissionSetting = programmer::admissionSetting
+                                        onAdmissionSetting = programmer::admissionSetting,
+                                        onOpenInventory = { inventoryOpen = true }
                                     )
                                     Row(
                                         Modifier.fillMaxWidth(),
@@ -677,6 +689,7 @@ fun GitHubWorkspaceScreen(
                                         chatId = visibleProgrammer.chatId,
                                         profile = statusProfile,
                                         graphContext = mapContext.takeUnless { privateWorkspace },
+                                        allowGatewayInventory = !privateWorkspace,
                                         model = statusModel,
                                         graphProfile = repositoryGraphProfile,
                                         onConfigureGateway = { tab = 5 },

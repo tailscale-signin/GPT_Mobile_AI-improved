@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 /** Availability alone cannot turn unrelated work or account discovery into a repository task. */
 internal fun requiresNativeGitHubAcceptance(request: String, hasNativeTools: Boolean): Boolean {
-    if (CurrentRequestContract.from(request).conversational) return false
+    if (CurrentRequestContract.from(request).conversational || dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityRequest.from(request) != null) return false
     val explicitGitHub = Regex("(?i)(?<![A-Za-z0-9])github(?:_[A-Za-z0-9_]+)?(?![A-Za-z0-9])").containsMatchIn(request)
     if (!hasNativeTools && !explicitGitHub) return false
     if (dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.intent(request) != null) return true

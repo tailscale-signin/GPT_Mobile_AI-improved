@@ -31,6 +31,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -40,6 +41,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardTarget
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayInventoryTool
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayToolInventory
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatInputBox
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -134,8 +138,10 @@ class GitHubProgrammerHomeTest {
     @Test fun chatActionsOnlyOfferAvailableDestinationsAndOpenTaskDetailsInPlace() {
         var withTask by mutableStateOf(false)
         var browsed = false
+        var inventory by mutableStateOf(false)
         compose.setContent {
             MaterialTheme {
+                if (inventory) GitHubToolInventorySheet(null, null, null, null, onDismiss = { inventory = false })
                 GitHubChatActions(
                     repositoryLoaded = true,
                     mapAvailable = false,
@@ -144,7 +150,8 @@ class GitHubProgrammerHomeTest {
                     onBrowseFiles = { browsed = true },
                     onOpenChecks = {},
                     onOpenMap = {},
-                    onReviewChanges = {}
+                    onReviewChanges = {},
+                    onOpenInventory = { inventory = true }
                 ) { dismiss ->
                     androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close task details") }
                 }
@@ -162,9 +169,34 @@ class GitHubProgrammerHomeTest {
             withTask = true
         }
         compose.onNodeWithContentDescription("GitHub chat actions").performClick()
+        compose.onNodeWithText("Tools and features").performClick()
+        compose.onNodeWithTag("github_inventory_search").performTextInput("agent_merge_status")
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Pull requests")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Pull requests").performClick()
+        compose.onAllNodes(hasText("Actions · ", substring = true) and hasText("agent_merge_status", substring = true), useUnmergedTree = true).assertCountEquals(1)
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithContentDescription("GitHub chat actions").performClick()
         compose.onNodeWithText("Task details").performClick()
         compose.onNodeWithText("Close task details").performClick()
         compose.onNodeWithText("Close task details").assertDoesNotExist()
+    }
+
+    @Test fun gatewayAllToolsShowsTheChosenSourceWhenAliasesRepeat() {
+        val target = GatewayDashboardTarget("profile", "Gateway", "selected.test", true, null)
+        val first = GatewayInventoryTool("shared_read", null, listOf("path"), id = "one", sourceId = "first", authorized = true, executableNow = true)
+        val second = first.copy(id = "two", sourceId = "second", authorized = false, executableNow = false, blockedReason = "Missing scope")
+        val observation = GatewayToolInventory(listOf(first, second), 2, 1, scope = "gateway")
+        compose.setContent {
+            MaterialTheme {
+                GatewayCapabilityDashboard(target, GatewayCapabilityInventory(target.identity, observation)) {}
+            }
+        }
+        compose.onNodeWithText("All tools").performClick()
+        compose.onAllNodes(hasText("shared_read")).assertCountEquals(2)
+        compose.onNodeWithTag("github_inventory_search").performTextInput("second")
+        compose.onNodeWithText("shared_read").performClick()
+        compose.onNodeWithText("Missing scope", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("first · Reported ready at observation").assertDoesNotExist()
     }
 
     @Test fun approvalInTheCurrentChatTakesPriorityOverBackgroundGatewayProgress() {
@@ -306,8 +338,10 @@ class GitHubProgrammerHomeTest {
     @Test fun repositoryMapIsASettingsActionAndUsesTheExistingOpenCallback() {
         var opens = 0
         var available by mutableStateOf(true)
+        var inventory by mutableStateOf(false)
         compose.setContent {
             MaterialTheme {
+                if (inventory) GitHubToolInventorySheet(null, null, "Choose a Gateway", null, onDismiss = { inventory = false })
                 Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
                     GitHubProgrammerSettings(
                         workspace,
@@ -315,6 +349,7 @@ class GitHubProgrammerHomeTest {
                         {},
                         {},
                         {},
+                        onOpenInventory = { inventory = true },
                         onOpenRepositoryMap = if (available) {
                             { opens++ }
                         } else {
@@ -324,6 +359,11 @@ class GitHubProgrammerHomeTest {
                 }
             }
         }
+        compose.onNodeWithTag("github_tools_features").performScrollTo().performClick()
+        compose.onNodeWithText("Gateway").performClick()
+        compose.onNodeWithText("Choose a Gateway").assertIsDisplayed()
+        compose.onNodeWithText("Refresh inventory").assertDoesNotExist()
+        compose.onNodeWithText("Close").performClick()
         compose.onNodeWithTag("github_repository_map").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(1, opens)

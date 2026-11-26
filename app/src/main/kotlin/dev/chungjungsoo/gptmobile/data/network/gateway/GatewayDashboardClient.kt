@@ -62,6 +62,13 @@ internal data class GatewayInventoryTool(
     }
 }
 
+internal data class GatewayInventoryPage(val offset: Int, val total: Int, val catalogStatus: String, val next: String?)
+
+// Gateway CatalogCache admits up to 64 connections and 2,048 tools each, plus its local built-ins.
+private const val MAX_GATEWAY_INVENTORY_TOOLS = 64 * 2048 + 2
+
+private class GatewayInventoryChanged : IllegalStateException("The Gateway catalog changed during discovery.")
+
 internal data class GatewayToolInventory(
     val tools: List<GatewayInventoryTool>,
     val declaredCount: Int,
@@ -70,7 +77,8 @@ internal data class GatewayToolInventory(
     val scope: String = "legacy_gateway_mcp",
     val reason: String? = null,
     val hasMore: Boolean = false,
-    val cursorLineage: String? = null
+    val cursorLineage: String? = null,
+    val page: GatewayInventoryPage? = null
 )
 
 internal fun parseGatewayToolInventory(source: JsonObject, observedAtMillis: Long): GatewayToolInventory {
@@ -108,7 +116,21 @@ internal fun parseGatewayToolInventory(source: JsonObject, observedAtMillis: Lon
         val reason = (source["reason"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.take(500)
         val hasMore = (source["hasMore"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: false
         val lineage = (source["cursorLineage"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
-        return GatewayToolInventory(tools.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }, count, observedAtMillis, requireNotNull(status), scope, reason, hasMore, lineage)
+        val page = if ("pageOffset" in source) {
+            val offset = requireNotNull((source["pageOffset"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull)
+            val total = requireNotNull((source["authorizedCount"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull)
+            require(total in 0..MAX_GATEWAY_INVENTORY_TOOLS)
+            val catalogStatus = (source["catalogStatus"] as? JsonPrimitive)?.contentOrNull
+            require(catalogStatus in setOf("COMPLETE", "PARTIAL", "STALE", "BLOCKED", "NOT_DISCOVERED"))
+            val end = offset.toLong() + count
+            require(scope == "selected_gateway_authorized_mcp" && lineage != null && offset >= 0 && end <= total && hasMore == (end < total))
+            val cursor = (source["nextCursor"] as? JsonPrimitive)?.contentOrNull
+            require(if (hasMore) count > 0 && cursor == "$lineage:$end" else cursor == null)
+            GatewayInventoryPage(offset, total, requireNotNull(catalogStatus), cursor)
+        } else {
+            null
+        }
+        return GatewayToolInventory(tools.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }, count, observedAtMillis, requireNotNull(status), scope, reason, hasMore, lineage, page)
     }
     val rows = requireNotNull(source["value"] as? JsonArray)
     val count = requireNotNull((source["Count"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull)
@@ -181,6 +203,7 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
         return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
             gatewayClientExchange(config, "dashboard", safeRead = true) { requestHeaders ->
                 http.prepareGet(endpoint) {
+                    parameter("inventory_preview", true)
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                     // Profile headers are allowed; management credentials are never used here.
                     requestHeaders.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
@@ -206,14 +229,50 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
         }
     }
 
-    suspend fun readToolInventory(config: ProviderRequestConfig): GatewayToolInventory? = readToolInventory(config, "gateway/dashboard", normalized = true)
-        ?: readToolInventory(config, "gateway/tools", normalized = false)
+    suspend fun readToolInventory(config: ProviderRequestConfig): GatewayToolInventory? = try {
+        readInventoryPages(config)
+    } catch (_: GatewayInventoryChanged) {
+        readInventoryPages(config)
+    }
 
-    private suspend fun readToolInventory(config: ProviderRequestConfig, path: String, normalized: Boolean): GatewayToolInventory? {
+    private suspend fun readInventoryPages(config: ProviderRequestConfig): GatewayToolInventory? {
+        val first = readToolInventory(config, "gateway/dashboard", normalized = true)
+            ?: return readToolInventory(config, "gateway/tools", normalized = false)
+        val firstPage = first.page ?: return first
+        require(firstPage.offset == 0)
+        val all = ArrayList(first.tools)
+        var current = first
+        while (current.hasMore) {
+            val cursor = requireNotNull(current.page?.next)
+            val next = readToolInventory(config, "gateway/dashboard", normalized = true, cursor = cursor) ?: throw GatewayInventoryChanged()
+            val page = next.page ?: throw GatewayInventoryChanged()
+            if (next.cursorLineage != first.cursorLineage ||
+                page.total != firstPage.total ||
+                page.catalogStatus != firstPage.catalogStatus ||
+                page.offset != all.size
+            ) {
+                throw GatewayInventoryChanged()
+            }
+            all.addAll(next.tools)
+            current = next
+        }
+        require(all.size == firstPage.total && all.distinctBy { it.id }.size == all.size && all.distinctBy { it.sourceId to it.name }.size == all.size)
+        return first.copy(
+            tools = all.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { tool: GatewayInventoryTool -> tool.name }.thenBy { it.sourceId }),
+            declaredCount = all.size,
+            status = firstPage.catalogStatus,
+            hasMore = false,
+            page = null
+        )
+    }
+
+    private suspend fun readToolInventory(config: ProviderRequestConfig, path: String, normalized: Boolean, cursor: String? = null): GatewayToolInventory? {
         val endpoint = config.buildEndpoint(path)
         return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
             gatewayClientExchange(config, "dashboard", safeRead = true) { headers ->
                 http.prepareGet(endpoint) {
+                    if (normalized) parameter("inventory_page_size", 128)
+                    if (cursor != null) parameter("inventory_cursor", cursor)
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                     headers.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
                     timeout {
@@ -224,6 +283,7 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
                 }.execute { response ->
                     if (response.status.value in setOf(404, 405)) return@execute null
                     if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
+                    if (cursor != null && response.status.value == 409) throw GatewayInventoryChanged()
                     check(response.status.isSuccess())
                     val body = response.boundedMetadata(2_000_000)
                     withContext(Dispatchers.Default) {

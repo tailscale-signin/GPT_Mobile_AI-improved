@@ -332,6 +332,27 @@ class ToolCatalogAdmissionTest {
         assertTrue(recovered.tools.containsAll(github.map { it.definition }))
     }
 
+    @Test fun officialOnlyLookupSurvivesInitialPlanningAndARestrictedProviderWindow() {
+        val task = "Can you inspect PR #42?"
+        fun resolved(name: String): ResolvedAgentTool {
+            val modelName = "mcp__work__$name"
+            val tool = object : AgentTool {
+                override val definition = AgentToolDefinition(modelName, name, buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB))
+                override suspend fun execute(callId: String, arguments: JsonObject) = error("Planning must not dispatch a tool")
+            }
+            return ResolvedAgentTool(tool, "work", "GitHub", name, modelName)
+        }
+        val read = resolved("get_pull_request")
+        val write = resolved("merge_pull_request")
+        val turn = ConversationTurn(MessageV2(content = task, platformType = null), null, true)
+        val plan = planAuthorizedToolContext(listOf(turn), "", listOf(write, read), TokenBudgetSettings(contextTokens = 8192, outputTokens = 1024), externalTools = true, githubMode = true)
+        assertEquals(setOf(read.modelToolName, ProgressiveToolCatalog.NAME), plan.tools.mapTo(hashSetOf()) { it.name })
+        val allowed = providerSchemaTokens(read.tool.definition, true).toInt()
+        val limits = AgentRunLimits(githubMode = true, githubTask = true, githubTaskRequest = task, contextTokens = 8192, finalResponseReserveTokens = 512)
+        val round = fitProviderToolSchemas(listOf(write.tool.definition, read.tool.definition), limits, 0, 0, maxSchemaTokens = allowed)
+        assertEquals(listOf(read.modelToolName), round.map { it.name })
+    }
+
     @Test fun initialGithubDiscoverySurvivesByBorrowingOnlyADefaultReplyAllowance() = runTest {
         val task = "Repair repository issues"
         val context = AgentToolDefinition("github_context", "Inspect the repository", buildJsonObject {})

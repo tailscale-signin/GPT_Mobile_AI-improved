@@ -1028,13 +1028,17 @@ class VoiceSetupTests(unittest.TestCase):
             python = root / 'addons/voice-cuda/venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
             python.parent.mkdir(parents=True)
             python.touch()
-            with patch('setup_voice_cuda.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'python')) as process:
-                with self.assertRaises(subprocess.CalledProcessError):
+            failure = subprocess.CalledProcessError(1, 'python')
+            with patch('setup_voice_cuda.subprocess.run', side_effect=failure) as process:
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
                     install(root, root, sys.executable)
+            self.assertIs(failure, raised.exception)
             process.assert_called_once()
-            command = process.call_args.args[0]
-            self.assertTrue(python.samefile(command[0]))
-            self.assertEqual(command[1:3], ['-I', '-c'])
+            executable, *flags, script = process.call_args.args[0]
+            self.assertTrue(python.samefile(executable))
+            self.assertEqual(['-I', '-c'], flags)
+            self.assertTrue(script.strip())
+            self.assertEqual({'check': True}, process.call_args.kwargs)
             self.assertFalse((root / 'data/voice-cuda.json').exists())
 
     def test_invalid_candidate_preserves_last_verified_manifest(self):

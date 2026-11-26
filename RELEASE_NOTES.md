@@ -11,6 +11,8 @@ Rebuild GitHub chat setup, task routing, context selection and progress around t
 
 Follow-up questions can refer to an issue or pull request by number. GitHub mode checks the preceding read and workspace before resolving a bare number. Verified source quotations link to the exact lines on the configured GitHub host, and an approval waiting on an older turn no longer holds a later answer open.
 
+GitHub chat can answer “What tools can you use here?” and “Can you inspect my PRs?” from its tool definitions. Open **Tools and features** to search documented tools, settings and integrations alongside the latest chat and Gateway observations. The same reviewed feature routes rank admitted tools when a task needs them. Code searches now open the matching lines at the checked commit, including matches deep in a file. The mobile Gateway tool list loads every authorized page when opened and refreshes if the catalog changes mid-read.
+
 ## Repository intelligence, privacy and independent speech languages
 
 - Separate the visible transcript from the history used for sends, retries and Combined recovery. Ordinary chat opens page the latest 40 turns and message links retain their anchor.

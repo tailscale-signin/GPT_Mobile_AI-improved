@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubProviderPolicy
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpToolDefinition
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
+import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
@@ -210,7 +211,8 @@ class GitHubFullToolVisibilityTest {
         }
         // Preserve a 3,005-token schema window above the compact-profile boundary.
         // Compact native-operation staging has its own rotation and budget coverage.
-        val limits = AgentRunLimits(githubTask = true, contextTokens = 8192, initialContextTokens = 4314, initialGitHubSchemaTokens = 0L, finalResponseReserveTokens = 617, maxRounds = 5)
+        val promptCeiling = RequestAdmission.maximumEstimatedPrompt(8192L - 617).toInt()
+        val limits = AgentRunLimits(githubTask = true, contextTokens = 8192, initialContextTokens = promptCeiling - 3005, initialGitHubSchemaTokens = 0L, finalResponseReserveTokens = 617, maxRounds = 5)
         assertEquals(4667L, operations.sumOf { providerSchemaTokens(it, false) })
         val admitted = fitProviderToolSchemas(operations, limits, 0, 0, discoveryPaused = true)
         assertEquals(operations.take(3), admitted)

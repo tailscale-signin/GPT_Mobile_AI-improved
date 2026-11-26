@@ -24,6 +24,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.voice.SpeakingReplyRow
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
@@ -1218,6 +1219,7 @@ private class FakeAgentPersistenceDao :
     override suspend fun removeArchiveSearchIndex(chatId: Int) = unused<Unit>()
     override suspend fun recoveryRun(runId: String): AgentRun? = unused()
     override suspend fun rawRecoveryMessage(messageId: Int): MessageV2? = unused()
+    override fun observeSpeakingReply(chatId: Int, messageId: Int, runId: String, fence: Long): Flow<SpeakingReplyRow?> = unused()
     override suspend fun pendingPrompt(id: String): dev.chungjungsoo.gptmobile.data.queue.PendingPrompt? = unused()
     override suspend fun queuedGitHubCheckWatch(id: String): dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord? = unused()
     override suspend fun consumePrompt(id: String, messageId: Int): Int = unused()

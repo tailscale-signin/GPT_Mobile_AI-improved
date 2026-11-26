@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.voice.SpeakingReplyRow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -25,6 +27,8 @@ class VoiceTerminalReplyPersistenceTest {
         try {
             val run = seed(db)
             val dao = db.agentPersistenceDao()
+            val speaking = dao.observeSpeakingReply(1, 3, run.runId, run.ownershipFence)
+            assertEquals(SpeakingReplyRow("", AgentRunStatus.RUNNING), speaking.first())
             val oldMessage = requireNotNull(dao.rawRecoveryMessage(3))
             assertEquals("", oldMessage.content)
             assertNull(dao.terminalVoiceReply(1, 3, run.runId, 7))
@@ -33,6 +37,7 @@ class VoiceTerminalReplyPersistenceTest {
             val snapshot = requireNotNull(dao.terminalVoiceReply(1, 3, run.runId, 7))
             assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
             assertEquals(final.content, snapshot.message.content)
+            assertEquals(SpeakingReplyRow(final.content, AgentRunStatus.COMPLETED), speaking.first())
             assertEquals(snapshot.run.runId, snapshot.message.currentRunId)
             assertEquals(snapshot.run.ownershipFence, snapshot.message.ownershipFence)
             assertEquals("", oldMessage.content)
@@ -56,11 +61,14 @@ class VoiceTerminalReplyPersistenceTest {
             assertNull(dao.terminalVoiceReply(1, 2, run.runId, 7))
             assertNull(dao.terminalVoiceReply(1, 3, "missing", 7))
             assertNull(dao.terminalVoiceReply(1, 3, run.runId, 6))
+            assertNull(dao.observeSpeakingReply(2, 3, run.runId, 7).first())
+            assertNull(dao.observeSpeakingReply(1, 3, run.runId, 6).first())
             // Combined retains its original display slot when a different writer
             // owns the current run. Run/message/fence identity remains authoritative.
             db.agentRunDao().upsert(snapshot.run.copy(profileUid = "replacement-writer"))
             assertEquals("replacement-writer", requireNotNull(dao.terminalVoiceReply(1, 3, run.runId, 7)).run.profileUid)
             db.messageDao().editMessages(message.copy(currentRunId = "new-run", ownershipFence = 8))
+            assertNull(dao.observeSpeakingReply(1, 3, run.runId, 7).first())
             assertNull(dao.terminalVoiceReply(1, 3, run.runId, 7))
             db.messageDao().editMessages(message.copy(ownershipFence = 8))
             assertNull(dao.terminalVoiceReply(1, 3, run.runId, 7))

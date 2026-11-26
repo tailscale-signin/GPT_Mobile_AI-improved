@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.1.4",
   "schemaVersion": 1,
-  "sourceCommit": "94b751d7495bd559ccb53a00135b285f298cb08f",
+  "sourceCommit": "7e5ca76c71b55535759929e614f47c029b68d357",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -243,7 +243,7 @@
     "tests/test_gateway_acceptance_discovery.py": "c6d0ac396f60f0884f791a1f2b615446fc661e7598e798036543a634e5e717d2",
     "tests/test_gateway_account_connection.py": "b50a11c5ff05b366fcca3dc08f8f6c22b23c600391a6f1597cc3f77c1d707353",
     "tests/test_gateway_adaptive_sampling.py": "c246b4e5c1f8822af877ce2a6c5fa8c6e03bacd7c9680ac054df112832a4e10b",
-    "tests/test_gateway_agent_adapters.py": "f661593469085492c49ae57094ba35df77c14dad409f4e5d8cf84a090dba4ce7",
+    "tests/test_gateway_agent_adapters.py": "395b2e4100993138fb62a9dcc06df21bea8d8141effc9a81a3eb883e29884dbd",
     "tests/test_gateway_autonomous_recovery.py": "a166abe6fab8c1d914b919bb118641afa792945506cdf46fcb3328a4cfab1d17",
     "tests/test_gateway_autonomous_tools.py": "12a34165a1b7f0ae9f51789d3b3668846ece32880519a2babb3d631e2efe1d26",
     "tests/test_gateway_backend_diagnostics.py": "e6161fb500ef293ad2490ce15af295b25ef5cbda44e70e072d4921da834ef340",

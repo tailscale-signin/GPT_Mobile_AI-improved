@@ -501,6 +501,7 @@
     "gateway/prepare_voice_pack.py",
     "gateway/requirements-voice.txt",
     "gateway/setup_voice_cuda.py",
+    "gateway/tests/test_gateway_agent_adapters.py",
     "gateway/tests/test_gateway_conversations.py",
     "gateway/tests/test_gateway_dashboard.py",
     "gateway/tests/test_gateway_jvm_impact.py",

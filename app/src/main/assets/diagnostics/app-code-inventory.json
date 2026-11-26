@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "9c8a680cc26e4564b9f90e9f033c283d5ef583d43007f3d54e24c6b8e958feae",
+  "source_digest": "8fc83ca6a8866d7803d3939df987185815c667aedb8979f4d28080ecfac65643",
   "file_count": 3173,
   "indexed_line_count": 542697,
   "line_coverage_available": false,
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 615,
-      "indexed_line_count": 108714
+      "indexed_line_count": 108718
     },
     {
       "id": "accessibility_and_localization",
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 264,
-      "indexed_line_count": 47683
+      "indexed_line_count": 47679
     },
     {
       "id": "agent_tools",
@@ -5037,8 +5037,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ca142cf3b0e32a4c6d8897410b1ff566df01463f0f21d42d1867253d6729e406",
-      "indexed_lines": 51
+      "sha256": "d908ebfe7a1926762253cfa6c15a0aa56fb38376e708163e99728a8159c6eec4",
+      "indexed_lines": 55
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
@@ -12233,8 +12233,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "4c8d926b280d3bcaaa9bd4a30bbec4249046d8d68480a4f29c972cee8c618f8f",
-      "indexed_lines": 8886
+      "sha256": "632d55329104fdb6cb45a5e04512b2f24a4bb230991eb74e0a0e06d9d5bbe073",
+      "indexed_lines": 8882
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",

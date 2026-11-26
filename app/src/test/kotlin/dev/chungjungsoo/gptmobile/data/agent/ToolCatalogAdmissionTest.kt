@@ -378,7 +378,10 @@ class ToolCatalogAdmissionTest {
         val settings = TokenBudgetSettings(contextTokens = 8192, outputTokens = 4096)
         val input = ContextBudgetService.breakdown(listOf(turn), "Read GitHub status.", emptyList()).total
         val schema = github.sumOf { providerSchemaTokens(it.definition, true) }
-        val nearLimit = settings.copy(contextTokens = input + schema.toInt() + 2048)
+        val discovery = ProgressiveToolCatalog(github.map { it.definition }, turn.userMessage.content, githubMode = true).definition
+        val promptWithResults = input + schema + providerSchemaTokens(discovery, true) + 512
+        val wireSafety = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(promptWithResults)
+        val nearLimit = settings.copy(contextTokens = (promptWithResults + wireSafety + 1024).toInt())
         val failure = assertThrows(GitHubToolContextBudgetException::class.java) {
             planAuthorizedToolContext(listOf(turn), "Read GitHub status.", tools, nearLimit, true, githubMode = true)
         }

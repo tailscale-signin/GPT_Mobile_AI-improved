@@ -5496,13 +5496,9 @@ class ChatRepositoryImpl(
         val capKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
         val routeOutputCap = dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.output(platform, effectiveOutputCap)
         val requestedCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
-        val toolContext = if (chatToolConfig?.github != null || exposedTools.isNotEmpty()) {
-            dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.forToolTurn(limits.contextTokens, contextPlan.promptTokens, requestedCap, 4096).also {
-                val observation = dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.Observation.capture(platform.uid, platform.model, platform.maxTokens, capacityDecision, limits.contextTokens, contextPlan.capacity?.provenance)
-                dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.requireAllocation(it, limits.contextTokens, requestedCap, observation, minimumReplayTokens = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.MINIMUM_TOOL_REPLAY, minimumOutputTokens = minOf(requestedCap, dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.MINIMUM_TOOL_REPLY).coerceAtLeast(1))
-            }
-        } else {
-            null
+        val toolContext = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.forAdmittedTools(contextPlan, limits.contextTokens, requestedCap, 4096)?.also {
+            val observation = dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.Observation.capture(platform.uid, platform.model, platform.maxTokens, capacityDecision, limits.contextTokens, contextPlan.capacity?.provenance)
+            dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.requireAllocation(it, limits.contextTokens, requestedCap, observation, minimumReplayTokens = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.MINIMUM_TOOL_REPLAY, minimumOutputTokens = minOf(requestedCap, dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.MINIMUM_TOOL_REPLY).coerceAtLeast(1))
         }
         val resolvedOutputCap = toolContext?.output ?: requestedCap
         val restoredGatewayJob = if (restoreGatewayHandoffRequested && latestUser != null && toolBudgetSourceMessageId != null) {

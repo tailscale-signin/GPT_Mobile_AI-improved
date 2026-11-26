@@ -31,6 +31,10 @@ internal object ReplayAllowance {
         return Allocation(reply, replay, ceiling, prompt, RequestAdmission.estimateSafety(prompt.toLong() + replay).toInt())
     }
 
+    /** Reserve tool receipts only for contracts that can actually be called in this plan. */
+    fun forAdmittedTools(plan: ContextPlan, context: Int, output: Int, fallback: Int): Allocation? =
+        if (plan.tools.any { it.modelVisible }) forToolTurn(context, plan.promptTokens, output, fallback) else null
+
     /** Keep an ordinary exact call/result envelope usable before any operation is dispatched. */
     fun forToolTurn(context: Int, input: Int, output: Int, fallback: Int): Allocation {
         val original = allocate(context, input, output, fallback)

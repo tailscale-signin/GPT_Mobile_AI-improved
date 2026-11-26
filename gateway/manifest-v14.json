@@ -181,7 +181,7 @@
     "desktop/native/MainWindow.Saved.cs": "c17ff1fceb430ccb91389e46f65b8beaf37105d44fc36f0fe38d93f357457192",
     "desktop/native/MainWindow.Schedules.cs": "c0306fd681847d8c6494adc0c887aaf0ca2dc76e9bfe92f023d5f890a0949b69",
     "desktop/native/MainWindow.Tools.cs": "50760f8f31b2a45d307390bee6dedf0e636c70c0ee0efbdd5282407d543c6c2f",
-    "desktop/native/MainWindow.cs": "ae2ed7b4bbb236901ed5e1e3947a8fd36caed6ce74dff737d37bc36411ca07f7",
+    "desktop/native/MainWindow.cs": "a837b320f2e733e043eff7ccc086acb2110e92bff3b28e3d63f066c3c232213c",
     "desktop/native/Ui.cs": "9e056591b044c1004c911aa1566c389efa224e0d5016c1d8cfd8ac21151f49da",
     "desktop/native/tests/Gateway.Native.Contracts.csproj": "0523a68449ac270a72a03522bb6cc2fde71c9b28ee3f070ef8b69c810f07c83a",
     "desktop/native/tests/Program.cs": "e35dda16a81cdaca6a4b5108e6860ea3cc7e4c79d45e38ae0c0ec54bcd8047f4",

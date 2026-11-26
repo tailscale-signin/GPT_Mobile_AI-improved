@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3c9fba528ab935d998ae1e98ddcbcdb46b685c3a2a77d765323d74aa48135609",
+  "source_digest": "5e8a12ba589050d0d8dddd63de40d6c10c1ae0366de8b6ace64268e64c7c3e7d",
   "file_count": 3166,
   "indexed_line_count": 541740,
   "line_coverage_available": false,
@@ -20633,7 +20633,7 @@
       "path": "gateway/desktop/native/MainWindow.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ae2ed7b4bbb236901ed5e1e3947a8fd36caed6ce74dff737d37bc36411ca07f7",
+      "sha256": "a837b320f2e733e043eff7ccc086acb2110e92bff3b28e3d63f066c3c232213c",
       "indexed_lines": 524
     },
     {

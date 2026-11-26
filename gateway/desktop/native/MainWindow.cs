@@ -403,7 +403,7 @@ public partial class MainWindow : Window
 
     private static void VerifyReferenceClipBounds(DataGrid table, DataGridRow row)
     {
-        var viewport = Ui.Descendants<System.Windows.Controls.Primitives.ScrollContentPresenter>(table).First();
+        var viewport = Ui.Descendants<System.Windows.Controls.ScrollContentPresenter>(table).First();
         var clip = VisualTreeHelper.GetClip(viewport) ?? throw new InvalidOperationException("Reference viewport has no clip.");
         var bounds = clip.Bounds;
         void Check(string name, Geometry testedClip, Rect testedBounds, bool expected)

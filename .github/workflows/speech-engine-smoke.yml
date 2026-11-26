@@ -168,6 +168,21 @@ jobs:
             --output "artifacts/mediapipe-$SPEECH_ENGINE.json" \
             --model-dir "$RUNNER_TEMP/mediapipe-$SPEECH_ENGINE" \
             --timeout 300 2>&1 | tee "artifacts/mediapipe-$SPEECH_ENGINE.log"
+      - name: Render missing bundled voice openings with the verified Kokoro model
+        if: matrix.engine == 'kokoro' && hashFiles('app/src/main/assets/voice-openings.zip') == ''
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          command -v ffmpeg >/dev/null || sudo apt-get install --no-install-recommends -y ffmpeg
+          python scripts/render_voice_opening_bank.py --model-dir "$RUNNER_TEMP/mediapipe-kokoro" --output "$RUNNER_TEMP/voice-bank/voice-openings.zip"
+      - name: Retain the generated opening bank
+        if: matrix.engine == 'kokoro' && hashFiles('app/src/main/assets/voice-openings.zip') == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: voice-openings-${{ github.sha }}
+          path: ${{ runner.temp }}/voice-bank/voice-openings.zip
+          if-no-files-found: error
+          retention-days: 14
       - name: Probe Kokoro GPU vocoder on the Linux host
         if: matrix.engine == 'kokoro'
         timeout-minutes: 8

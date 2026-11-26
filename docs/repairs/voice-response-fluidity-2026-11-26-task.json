@@ -131,5 +131,10 @@
     },
     "evidence": "The aggregate streams the original public benchmark exports, fixture metrics and separate live-session performance snapshot. Audio, transcripts, device addresses, connection credentials and local device keys are excluded. Driver kernel utilization, acoustic ear latency and subjective naturalness require independent observation.",
     "limits": "The mobile suite covers connected audio routes and installed engines. Windows CUDA requires an explicitly selected Gateway. Unsupported hardware, missing language models, process death, user cancellation and thermal stops are preserved in the report."
+  },
+  "preparedOpenings": {
+    "branch": "feature/windows-native-benchmark-kit",
+    "startingHead": "e22213233b136094e0bc8c051ca5a6ebae3db38a",
+    "intent": "Preload localized speech at microphone start, suppress short answers and let generated speech interrupt an acknowledgement immediately. Improve pronunciation and sentence flow."
   }
 }

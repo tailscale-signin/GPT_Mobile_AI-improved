@@ -602,8 +602,25 @@ class GitHubSavedPageCapacityTest {
         assertEquals(setOf(call.callId), isolated.pendingSavedPageDeliveries(listOf(rereadExchange), proof).keys)
     }
 
-    internal class Fixture(sourceLabel: String = "") {
-        val route = "github_context__" + "a".repeat(140)
+    @Test fun missingOrStalePageSelectsItsOwnAuthorizedRouteAfterAnExactPage() {
+        val first = Fixture("first", "github_context__" + "a".repeat(140))
+        val second = Fixture("second", "github_context__" + "b".repeat(140))
+        val history = listOf(first, second).mapIndexed { index, fixture ->
+            val call = requireNotNull(fixture.next(tokens = 3000)).copy(callId = "page-$index")
+            AgentToolExchange(listOf(call), listOf(fixture.read(call)))
+        }
+        val state = GitHubReplayRecovery.State(history.flatMap { it.calls }, history.flatMap { it.results })
+        val pending = state.pendingSavedPageDeliveries(history, emptyMap())
+        val authorized = first.tools + second.tools
+        val stale = history.last().results.single().copy(content = history.first().results.single().content)
+        assertEquals(listOf("page-0", "page-1"), pending.keys.toList())
+        assertNull(state.owedPageSchema(pending, authorized, history))
+        assertEquals(second.route, state.owedPageSchema(pending, authorized, history.take(1))?.name)
+        assertEquals(second.route, state.owedPageSchema(pending, authorized, listOf(history.first(), history.last().copy(results = listOf(stale))))?.name)
+        assertNull(state.owedPageSchema(pending, first.tools, history.take(1)))
+    }
+
+    internal class Fixture(sourceLabel: String = "", val route: String = "github_context__" + "a".repeat(140)) {
         private val views = GitHubResultViews(pageBytes = 8192)
         val tools = listOf(GitHubOperationTool.definition("github_context", route))
         val state = GitHubReplayRecovery.State()

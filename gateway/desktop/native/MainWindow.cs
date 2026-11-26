@@ -404,11 +404,13 @@ public partial class MainWindow : Window
     private async Task Smoke()
     {
         var layout = (FrameworkElement)Content;
+        string phase = "minimum-size pages";
         try
         {
             Width = 900; Height = 600;
             foreach (string name in Pages)
             {
+                phase = "minimum-size page: " + name;
                 Navigate(name);
                 await SettleSmokeReads();
                 await Task.Delay(250); UpdateLayout();
@@ -416,6 +418,7 @@ public partial class MainWindow : Window
                 Ui.Capture(this, System.IO.Path.Combine(root, "native-" + name.ToLowerInvariant().Replace(' ', '-') + ".png"));
             }
             // Reference screen with room reserved for the taskbar and non-client chrome.
+            phase = "reference layout and catalog";
             var referenceSize = new Size(1904, 1000);
             Width=1920; Height=1040;
             layout.Width=referenceSize.Width; layout.Height=referenceSize.Height;
@@ -438,12 +441,22 @@ public partial class MainWindow : Window
             var peer=System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(table);
             if(peer?.GetPattern(System.Windows.Automation.Peers.PatternInterface.Selection)==null)
                 throw new InvalidOperationException("Jobs does not expose UI Automation selection.");
+            phase = "reference capture";
             await Ui.CaptureReference(this, layout, referenceSize, System.IO.Path.Combine(root,"native-jobs-reference.png"), captureRoot =>
             {
-                visible = FullyVisibleRows(table).Where(row => Ui.FullyWithinRenderBounds(row, captureRoot)).ToArray();
+                var candidates = FullyVisibleRows(table);
+                var rendered = new List<DataGridRow>();
+                string? firstRejection = null;
+                foreach (var row in candidates)
+                {
+                    if (Ui.FullyWithinRenderBounds(row, captureRoot, out string rejection)) rendered.Add(row);
+                    else firstRejection ??= rejection;
+                }
+                visible = rendered.ToArray();
                 if (visible.Length < 30 || visible.Select(row => ((JobRow)row.Item).Id).Distinct().Count() != visible.Length)
-                    throw new InvalidOperationException($"Reference capture contains only {visible.Length} distinct fully rendered job rows.");
+                    throw new InvalidOperationException($"Reference capture contains only {visible.Length} distinct fully rendered job rows out of {candidates.Length} locally visible rows. First rejection: {firstRejection ?? "none"}.");
             });
+            phase = "restored overview focus and scroll";
             pins.Remove(first.Id);selectedJobs.Clear();
             layout.Width=double.NaN;layout.Height=double.NaN;Width=900;Height=600;
             Navigate("Overview"); UpdateLayout();
@@ -456,6 +469,7 @@ public partial class MainWindow : Window
 
             // Exercise the same resources used for the OS preference, without
             // changing the runner's Windows accessibility settings.
+            phase = "high-contrast palette";
             ((App)Application.Current).ApplyContrast(true); suppressMotion = true;
             Navigate("Settings");
             await SettleSmokeReads();
@@ -467,6 +481,7 @@ public partial class MainWindow : Window
             Width=1366;Height=900;
             foreach(double scale in scales)
             {
+                phase = $"simulated layout scale: {scale}";
                 layout.LayoutTransform=new ScaleTransform(scale,scale);
                 Navigate("Settings/Models");await SettleSmokeReads();UpdateLayout();
                 if(pageScroll.ActualWidth<160 || pageScroll.ActualHeight<80)
@@ -481,7 +496,7 @@ public partial class MainWindow : Window
                 simulatedScales = scales, highContrastPaletteExercised = true, simulatedLayoutScale = 1.5, reducedMotionExercised = true, focusAndScrollPreserved = true, runtime = "WPF", passed = true }));
             allowWindowExit=true;Close();
         }
-        catch (Exception error) { File.WriteAllText(System.IO.Path.Combine(root, "native-ui-failure.txt"), error.Message); Application.Current.Shutdown(1); }
+        catch (Exception error) { File.WriteAllText(System.IO.Path.Combine(root, "native-ui-failure.txt"), $"Phase: {phase}{Environment.NewLine}{error}"); Application.Current.Shutdown(1); }
         finally { layout.LayoutTransform = Transform.Identity; suppressMotion = false; ((App)Application.Current).ApplyContrast(); }
     }
 }

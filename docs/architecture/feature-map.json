@@ -2833,9 +2833,9 @@
       "sha256": "1b2493e5927036d11b7d1efae66a076f731278bd9046f4cb1b5f075a822ea9c8"
     },
     ".github/workflows/gateway-windows-installer.yml": {
-      "blob_sha": "f628924e4df2bfd91a549743cd022c3945c0302a",
-      "bytes": 5809,
-      "sha256": "5a8a86bc922935a4f53b58345a783a8960b07ff44d179c0cecdb63f8996988ea"
+      "blob_sha": "91a4e6c648112def1257218488ebb1e57e1884bc",
+      "bytes": 5892,
+      "sha256": "d221657729bd8a03723e9dbfe33ef49b7b1302c62e5d207f475424072efea18f"
     },
     ".github/workflows/native-memory-smoke.yml": {
       "blob_sha": "743f6dcc6670815a83e12257573fcbe3c056764a",

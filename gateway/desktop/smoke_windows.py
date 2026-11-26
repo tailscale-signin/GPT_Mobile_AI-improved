@@ -101,6 +101,27 @@ def seed_density_receipts(root):
             owner.claim(job, principal)
 
 
+def run_native_smoke(exe, root, output):
+    """Retain synthetic native diagnostics before the temporary install is removed."""
+    try:
+        subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=260)
+    except Exception as error:
+        output.mkdir(parents=True, exist_ok=True)
+        summary = {'phase': 'native-ui', 'errorType': type(error).__name__,
+                   'returnCode': getattr(error, 'returncode', None), 'evidence': [], 'retentionErrors': []}
+        for pattern in ('native-*-failure.txt', 'native-*.png', 'native-*-smoke.json'):
+            for evidence in sorted(root.glob(pattern)):
+                try:
+                    shutil.copy2(evidence, output / evidence.name)
+                    summary['evidence'].append(evidence.name)
+                    if evidence.name.endswith('-failure.txt'):
+                        print(evidence.read_text(encoding='utf-8', errors='replace')[:24000], flush=True)
+                except OSError as retention_error:
+                    summary['retentionErrors'].append({'file': evidence.name, 'errorType': type(retention_error).__name__})
+        atomic_json(output / 'smoke-failure.json', summary)
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--upgrade-archive', type=Path)
@@ -161,7 +182,7 @@ def main():
                 shutil.copy2(capture, output / capture.name)
             results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')
             seed_density_receipts(root)
-            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=260)
+            run_native_smoke(exe, root, output)
             native = json.loads((root / 'native-ui-smoke.json').read_text(encoding='utf-8'))
             assert native['runtime'] == 'WPF' and native['passed'] is True
             assert native['pages'] == list(NATIVE_VIEWS), native['pages']

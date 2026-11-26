@@ -37,7 +37,8 @@
     "Revalidate saved-document recall consent after asynchronous source checks, including revocation followed by reauthorization, while ordinary chats retain their own privacy authority.",
     "Select only checkpoint-eligible saved-page pairs before private-reading compaction, retain decorated pages for ordinary delivery, and distinguish exhausted body allowance while keeping original proofs and preventing repeated tool execution.",
     "Report registered GitHub tool aliases through canonical, allowlisted operation names without retaining private tool names or arguments; align regression fixtures with current live-CI recovery, compact-tool staging, dashboard inventory previews and explicitly selected LiteRT warmup and measured phrase sizing during unfinished voice streams.",
-    "Capture the actual Windows Jobs controls at the complete 1904 by 1000 reference size in an offscreen WPF presentation source and require at least 30 distinct, fully rendered rows without transparent or clipped output."
+    "Capture the actual Windows Jobs controls at the complete 1904 by 1000 reference size in an offscreen WPF presentation source and require at least 30 distinct, fully rendered rows without transparent or clipped output.",
+    "Retain Windows native smoke failure phases, exception details and partial captures before temporary-install cleanup; preserve the original failure and existing layout gates so a failed reference capture remains diagnosable."
   ],
   "limitations": [
     "The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.",
@@ -96,6 +97,7 @@
     "Minified native memory smoke"
   ],
   "allowedPaths": [
+    ".github/workflows/gateway-windows-installer.yml",
     ".github/workflows/post-merge-validation.yml",
     ".github/workflows/pr-validation.yml",
     ".github/workflows/speech-engine-smoke.yml",
@@ -516,6 +518,7 @@
     "gateway/desktop/installer.iss",
     "gateway/desktop/native/MainWindow.cs",
     "gateway/desktop/native/Ui.cs",
+    "gateway/desktop/smoke_windows.py",
     "gateway/desktop/windows/setup_smoke.py",
     "gateway/gateway_v13.py",
     "gateway/gateway_v14.py",
@@ -526,6 +529,7 @@
     "gateway/tests/test_gateway_agent_adapters.py",
     "gateway/tests/test_gateway_conversations.py",
     "gateway/tests/test_gateway_dashboard.py",
+    "gateway/tests/test_gateway_desktop_native_bridge.py",
     "gateway/tests/test_gateway_jvm_impact.py",
     "gateway/tests/test_gateway_pull_file_inventory.py",
     "gateway/tests/test_gateway_v14_continuity.py",

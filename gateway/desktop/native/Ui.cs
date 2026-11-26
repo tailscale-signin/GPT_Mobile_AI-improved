@@ -133,17 +133,37 @@ internal static class Ui
         SaveCapture(image, file);
     }
 
-    public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root)
+    public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root) => FullyWithinRenderBounds(element, root, out _);
+
+    public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root, out string rejection)
     {
-        if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        rejection = "";
+        if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+        {
+            rejection = $"{element.GetType().Name}: IsVisible={element.IsVisible}, RenderSize={element.RenderSize}";
+            return false;
+        }
         var bounds = new Rect(element.RenderSize);
         Visual current = element;
         while (true)
         {
             var clip = VisualTreeHelper.GetClip(current);
-            if (clip != null && clip.FillContainsWithDetail(new RectangleGeometry(bounds)) != IntersectionDetail.FullyContains) return false;
-            if (ReferenceEquals(current, root)) return new Rect(root.RenderSize).Contains(bounds);
-            if (VisualTreeHelper.GetParent(current) is not Visual parent) return false;
+            if (clip != null && clip.FillContainsWithDetail(new RectangleGeometry(bounds)) != IntersectionDetail.FullyContains)
+            {
+                rejection = $"{current.GetType().Name}: bounds={bounds}, clip={clip.Bounds}, relation={clip.FillContainsWithDetail(new RectangleGeometry(bounds))}";
+                return false;
+            }
+            if (ReferenceEquals(current, root))
+            {
+                bool contained = new Rect(root.RenderSize).Contains(bounds);
+                if (!contained) rejection = $"Root: bounds={bounds}, RenderSize={root.RenderSize}";
+                return contained;
+            }
+            if (VisualTreeHelper.GetParent(current) is not Visual parent)
+            {
+                rejection = $"{current.GetType().Name}: no visual parent before the capture root";
+                return false;
+            }
             bounds = current.TransformToAncestor(parent).TransformBounds(bounds);
             current = parent;
         }
@@ -180,14 +200,20 @@ internal static class Ui
         owner.Content = null;
         try
         {
-            frame.Child = content;
+            try { frame.Child = content; }
+            catch (Exception error)
+            {
+                throw new InvalidOperationException($"Reference attachment failed: visualParent={VisualTreeHelper.GetParent(content)?.GetType().FullName ?? "none"}, logicalParent={content.Parent?.GetType().FullName ?? "none"}, requested={size}.", error);
+            }
             source.RootVisual = frame;
             content.InvalidateMeasure(); content.InvalidateArrange();
             frame.Measure(size); frame.Arrange(new Rect(size)); frame.UpdateLayout();
             await frame.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
             frame.UpdateLayout();
-            if (frame.RenderSize != size || content.RenderSize != size || !FullyWithinRenderBounds(content, frame))
-                throw new InvalidOperationException("Reference content did not render at its complete requested bounds.");
+            bool complete = FullyWithinRenderBounds(content, frame, out string rejection);
+            var sourceDpi = VisualTreeHelper.GetDpi(frame);
+            if (frame.RenderSize != size || content.RenderSize != size || !complete)
+                throw new InvalidOperationException($"Reference content did not render at its complete requested bounds: requested={size}, frame={frame.RenderSize}, content={content.RenderSize}, owner={owner.RenderSize}, ownerDpi={dpi.DpiScaleX}x{dpi.DpiScaleY}, sourceDpi={sourceDpi.DpiScaleX}x{sourceDpi.DpiScaleY}, rejection={rejection}.");
             verify(frame);
 
             // Render WPF at the reference DPI; never resize or pad a clipped bitmap.
@@ -198,7 +224,7 @@ internal static class Ui
             image.CopyPixels(pixels, stride, 0);
             for (int alpha = 3; alpha < pixels.Length; alpha += 4)
                 if (pixels[alpha] != byte.MaxValue)
-                    throw new InvalidOperationException("Reference capture contains unrendered or transparent pixels.");
+                    throw new InvalidOperationException($"Reference capture contains an unrendered or transparent pixel: x={alpha / 4 % image.PixelWidth}, y={alpha / 4 / image.PixelWidth}, alpha={pixels[alpha]}, bitmap={image.PixelWidth}x{image.PixelHeight}.");
             SaveCapture(image, file);
         }
         finally

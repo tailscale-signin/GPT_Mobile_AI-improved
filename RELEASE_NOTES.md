@@ -255,6 +255,8 @@ The Jobs reference capture lays out the actual WPF controls at 1904 by 1000 pixe
 and checks that at least 30 distinct rows are fully rendered. The check rejects
 clipped or transparent output when the VM desktop is smaller than the reference
 layout.
+Failed native smoke runs preserve the observed phase, exception and partial
+captures before cleaning up the temporary installation.
 
 ## Release validation
 

@@ -3084,9 +3084,9 @@
       "sha256": "460b3f8113365c1fe07c1426d7f6b792f90625a9d8f85478c00a892b1f5e5c4c"
     },
     ".gitleaks.toml": {
-      "blob_sha": "f72e0334b67db2e06a06d799e1a547ba53395e88",
-      "bytes": 8454,
-      "sha256": "a430d5d213a524dde615e6ca95f2573221f1d1c81e2e14416d9a2478b69cc7e6"
+      "blob_sha": "5def26758827193627b0263eaf561ddae55898a8",
+      "bytes": 8466,
+      "sha256": "9a1e7cc61438a13554e226e63b2c3762733d92dcfb24a3234172407324d3dbf8"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt": {
       "blob_sha": "d32e8d2c6b486e6b4df8afcf7a49974d6dd5de78",

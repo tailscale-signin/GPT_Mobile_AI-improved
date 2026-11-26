@@ -2238,12 +2238,12 @@ class GitHubWorkspaceClient(
 
     private suspend fun ciFailureDigest(root: String, ref: String, args: JsonObject): JsonObject {
         val exactRef = ref.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
-        val selected = repositorySession.snapshot()?.takeIf {
+        val selectedSnapshot = repositorySession.snapshot()?.takeIf {
             root == "/repos/${segment(it.owner)}/${segment(it.repo)}" && (ref.isBlank() || ref == it.ref)
         }
         val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content?.takeIf(String::isNotBlank) ?: exactRef
             ?: if ("run_id" !in args && "job_id" !in args) {
-                selected?.commitSha ?: request("$root/commits/${segment(ref.ifBlank { "HEAD" })}").jsonObject["sha"]?.jsonPrimitive?.content
+                selectedSnapshot?.commitSha ?: request("$root/commits/${segment(ref.ifBlank { "HEAD" })}").jsonObject["sha"]?.jsonPrimitive?.content
                     ?.also { require(it.matches(Regex("[a-fA-F0-9]{40}"))) { "CI evidence requires the selected commit identity." } }
                     ?: error("CI evidence requires the selected commit identity.")
             } else {

@@ -259,6 +259,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPullFileInventoryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSchedulerAndPaginationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceReadTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",

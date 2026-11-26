@@ -79,6 +79,15 @@ Confirmed provider usage remains separate from estimates and failed reservations
 No live model quality, phone latency, token-saving percentage or superiority over
 another coding product is inferred from a deterministic regression.
 
+## Follow-up reports from build 151
+
+| Report | Runtime behavior |
+| --- | --- |
+| #2647 | If a PR moves during an implicitly pinned file or check traversal, refresh the head and restart the traversal at page one. A caller-specified revision stays pinned. |
+| #2648 | The reported traversal retained 81 of 111 files. For a known page gap, request the first missing page using the same PR, base, head and page size. Retain already verified pages and require complete coverage before reporting the full list. |
+| #2649 | A terminal PR-list page can arrive before preceding pages. The integration checklist now follows the validated correction returned by the read within its existing sampling and authorization limits. |
+| #2650 | The task reached its accepted 60-minute deadline. The terminal report now marks further reads unavailable until the user renews the task and retains the unmet criteria. |
+
 ## Validation record
 
 Local focused JVM execution covers 32 production-context,

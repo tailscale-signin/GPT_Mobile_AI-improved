@@ -1349,7 +1349,7 @@ internal class GitHubVerifiedSession(
                 val reportingRemaining = remainingToolCalls()
                 val baseBudget = evidence.stageBudget(receipts, reportingRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
                 val reportingBudget = if (originalFailure?.failureDetails?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
-                    JsonObject(baseBudget + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")))
+                    GitHubChecklistBudget.afterDeadline(baseBudget)
                 } else {
                     baseBudget
                 }

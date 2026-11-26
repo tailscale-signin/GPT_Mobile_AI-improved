@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -136,8 +137,8 @@ class GitHubSelfTestPullReadsTest {
         }
     }
 
-    @Test fun unheadedRecoveryRetainsArgumentsAndSingleAllowanceAcrossReceiptSerialization() {
-        val original = json("""{"action":"context","owner":"owner","repo":"repo","pull_number":2367,"include_files":true,"include_checks":false,"include_patches":true,"page":2}""")
+    @Test fun unheadedRecoveryRestartsBothOffsetsAtTheFreshHeadAndRetainsReadOptionsAcrossRestore() {
+        val original = json("""{"action":"context","owner":"owner","repo":"repo","pull_number":2367,"include_files":true,"include_checks":true,"include_patches":true,"page":4,"check_page":3,"per_page":30}""")
         val failure = unheadedFailure(original)
         val before = restored(listOf(listed, failure))
         val refresh = available(before).single { it.callId.startsWith("pr-head-refresh-") }
@@ -145,12 +146,18 @@ class GitHubSelfTestPullReadsTest {
         val refreshed = JsonObject(liveHeader(refresh, freshHead) + ("call_id" to JsonPrimitive("${refresh.callId}-resumed")))
         val after = restored(before + refreshed)
         val retry = available(after).single { it.arguments["action"] == JsonPrimitive("context") }
-        assertEquals(JsonObject(original + mapOf("expected_head_sha" to JsonPrimitive(freshHead), "verify_live" to JsonPrimitive(true))), retry.arguments)
+        assertEquals(JsonObject(original + mapOf("page" to JsonPrimitive(1), "check_page" to JsonPrimitive(1), "expected_head_sha" to JsonPrimitive(freshHead), "verify_live" to JsonPrimitive(true))), retry.arguments)
+        assertEquals(retry, GitHubSelfTestPullReads.recoverReview(listOf(tool), after))
         assertEquals(retry, available(restored(after)).single { it.arguments["action"] == JsonPrimitive("context") })
         assertTrue(GitHubActionIdentity.matches(retry.name, retry.arguments, attempted(retry, false)))
         assertEquals(original, after[1]["arguments"])
         val secondFailure = JsonObject(attempted(retry, false) + ("call_id" to JsonPrimitive("${retry.callId}-resumed")))
         assertFalse(available(restored(after + secondFailure)).any { it.callId.startsWith("pr-head-") })
+    }
+
+    @Test fun ordinaryReviewKeepsAnExplicitHeadPinWhenTheBranchAdvances() {
+        val headers = receipt("headers", """{"number":2367,"head":{"sha":"$freshHead"}}""")
+        assertNull(GitHubSelfTestPullReads.recoverReview(listOf(tool), listOf(failed(), headers)))
     }
 
     @Test fun unheadedRecoveryRejectsFailedCachedMalformedAndPreFailureHeaderReceipts() {

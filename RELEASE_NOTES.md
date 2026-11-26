@@ -4,6 +4,7 @@ Android build **152** and Windows Gateway **18.1.5** retain the Gateway 18 contr
 
 ## Changes
 
+- Recover missing pull-request list and changed-file pages at their verified revision, restart implicit traversals when the head changes, and report deadlines with the remaining work.
 - Carry one effective context ceiling and provenance through GitHub planning, replay admission, continuation and provider serialization, reserving a usable evidence envelope.
 - Refresh and restore exact OpenRouter alias metadata with its original observation age, and use the lowest advertised compatible reasoning effort for AUTO visible delivery while retaining explicit fixed settings.
 - Complete trusted direct lookups and current-revision CI observations through the existing verification gate before another provider round; retain selected source identity and canonical CI evidence coverage.

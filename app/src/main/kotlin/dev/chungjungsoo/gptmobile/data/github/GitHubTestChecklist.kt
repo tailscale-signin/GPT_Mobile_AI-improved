@@ -238,6 +238,7 @@ internal object GitHubTestChecklist {
     /** An argument repair is admissible only for an exact local cursor returned by this facade. */
     private fun savedReadRecovery(receipt: JsonObject): JsonObject? {
         if (receipt["success"] == JsonPrimitive(true)) return null
+        if (receipt.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE") return pullPageCorrection(receipt)
         val root = data(receipt) ?: return null
         val recovery = (root["correction_call"] ?: root["recovery_call"] ?: root["source_recovery_call"]) as? JsonObject ?: return null
         val args = recovery["arguments"] as? JsonObject ?: return null
@@ -283,7 +284,7 @@ internal object GitHubTestChecklist {
     }
 
     private fun issuedPages(receipt: JsonObject): List<JsonObject> {
-        if (receipt["success"] != JsonPrimitive(true)) return emptyList()
+        if (receipt["success"] != JsonPrimitive(true)) return listOfNotNull(pullPageCorrection(receipt))
         val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return emptyList()
         return buildList {
             // Complete original data satisfies display traversal, never remote pagination.
@@ -296,6 +297,40 @@ internal object GitHubTestChecklist {
                 }
             }
         }
+    }
+
+    /** Incomplete coverage can issue one native read for an observed gap without granting another query. */
+    private fun pullPageCorrection(receipt: JsonObject): JsonObject? {
+        val name = receipt.text("tool")
+        if (receipt["trusted"] != JsonPrimitive(true) ||
+            receipt["success"] != JsonPrimitive(false) ||
+            receipt["verification_eligible"] == JsonPrimitive(false) ||
+            receipt["repository_role"] == JsonPrimitive("READ_SOURCE") ||
+            name.githubOperationFamily() != "github_pr" ||
+            receipt.text("error_code") != "GITHUB_PAGINATION_INCOMPLETE"
+        ) {
+            return null
+        }
+        val original = receipt["arguments"] as? JsonObject ?: return null
+        val body = data(receipt) ?: return null
+        val progress = body["pagination_progress"] as? JsonObject ?: return null
+        val gap = (progress["first_unobserved_page"] as? JsonPrimitive)?.takeIf { !it.isString && it.intOrNull in 1..1000 } ?: return null
+        val repair = body["correction_call"] as? JsonObject ?: return null
+        if (repair.text("tool") != name ||
+            progress.text("schema") != "github.pagination-progress.v1" ||
+            progress["complete"] != JsonPrimitive(false) ||
+            progress["upstream_changed_during_traversal"] == JsonPrimitive(true) ||
+            original.containsKey("view_cursor") ||
+            gap == original["page"]
+        ) {
+            return null
+        }
+        val expected = when (original.text("action")) {
+            "list" -> JsonObject(original + ("page" to gap))
+            "context" -> GitHubPullFileInventory.recoveryArguments(original, body, gap)
+            else -> null
+        } ?: return null
+        return repair.takeIf { it["arguments"] == expected }
     }
 
     private fun remoteSamples(observations: List<JsonObject>): Int {
@@ -335,7 +370,7 @@ internal object GitHubTestChecklist {
         return 4
     }
 
-    /** Consume issued local fragments while their bounded cache entry is still live. */
+    /** Prioritize local fragments and correctable page gaps while their observations are still live. */
     private fun continuation(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, localOnly: Boolean, workflowDependencyOnly: Boolean = false): ProviderEvent.ToolCall? {
         val observations = trusted(receipts)
         fun same(receipt: JsonObject, recipe: JsonObject) = sameCall(receipt, recipe)
@@ -359,10 +394,12 @@ internal object GitHubTestChecklist {
         for ((index, failed) in observations.withIndex()) {
             if (workflowDependencyOnly) continue
             val recovery = savedReadRecovery(failed) ?: continue
+            val pullGap = failed.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE"
+            if (pullGap && !exhaustive && sampled >= 2) continue
             val source = recoverySource(recovery) ?: continue
             if (!considered.add(source)) continue
             val args = recovery["arguments"] as JsonObject
-            if (localOnly && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
+            if (localOnly && !pullGap && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
             // The durable receipts spend one correction per saved view or exact
             // recovery recipe. A later offset or process restart cannot reset it.
             if ((lastAttempts[source] ?: -1) > index) continue

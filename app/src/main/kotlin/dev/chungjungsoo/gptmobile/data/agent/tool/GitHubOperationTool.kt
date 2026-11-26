@@ -713,6 +713,9 @@ internal class GitHubOperationTool(
                     } else {
                         null
                     }
+                } else if (operation == "github_pr" && resolved["action"] == JsonPrimitive("pr_context")) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubPullFileInventory.recoveryArguments(effectiveArguments, assessment.data, gap)
+                        ?.takeIf { candidate -> ToolArgumentValidator.errors(candidate, definition.inputSchema).isEmpty() }
                 } else {
                     val pinned = if (operation == "github_context" && effectiveArguments["action"] == JsonPrimitive("commits")) {
                         (assessment.data["commit_sha"] as? JsonPrimitive)?.content?.takeIf { sha -> sha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) }
@@ -742,7 +745,7 @@ internal class GitHubOperationTool(
                                 }
                             )
                             val message = if (gap != null) {
-                                "The requested page was observed. Earlier pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows."
+                                "The requested page was observed. Other pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows."
                             } else if (changedCheckHead != null) {
                                 "The check inventory changed between pages. Refresh page one at the same commit and follow the new traversal before grading CI."
                             } else {

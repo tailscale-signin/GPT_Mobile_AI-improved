@@ -31,14 +31,20 @@ internal object GitHubEvidenceProjection {
     )
 
     /** Values are either exact or omitted. A shortened string must never become verified source text. */
-    fun result(source: JsonElement, maxBytes: Int = 32 * 1024): JsonElement {
+    fun result(source: JsonElement, maxBytes: Int = 32 * 1024, priority: Set<String> = emptySet()): JsonElement {
         var remaining = maxBytes
         fun visit(value: JsonElement, depth: Int): JsonElement? {
             if (depth > 12 || remaining < 16) return null
             return when (value) {
                 is JsonObject -> {
                     val children = linkedMapOf<String, JsonElement>()
-                    val ordered = value.entries.sortedBy { if (it.key in identities) 0 else 1 }
+                    val ordered = value.entries.sortedBy {
+                        when (it.key) {
+                            in priority -> 0
+                            in identities -> 1
+                            else -> 2
+                        }
+                    }
                     for ((key, child) in ordered) {
                         val cost = key.encodeToByteArray().size + 8
                         if (cost >= remaining) continue
@@ -65,6 +71,9 @@ internal object GitHubEvidenceProjection {
         if (source["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) return source
         val compact = when {
             source["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) -> catalog(original) ?: result(original)
+            source["error_code"] == JsonPrimitive("GITHUB_PAGINATION_INCOMPLETE") &&
+                (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_pr" ->
+                result(original, priority = setOf("data", "correction_call", "pagination_progress", "changed_file_coverage", "effective_per_page", "first_unobserved_page", "upstream_changed_during_traversal", "complete", "source", "reason", "head_sha", "base_sha", "schema"))
             (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_context" &&
                 (source["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("checks") &&
                 original is JsonObject -> result(checkRows(original))

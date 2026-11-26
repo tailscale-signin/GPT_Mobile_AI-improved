@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -12,6 +13,46 @@ internal class GitHubPullFileInventory {
     companion object {
         const val REST_LIMIT = 3000
         private val revision = Regex("[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
+
+        fun provesComplete(data: JsonObject, total: Int?): Boolean {
+            val coverage = data["changed_file_coverage"] as? JsonObject ?: return false
+            return total != null &&
+                coverage["source"] == JsonPrimitive("GITHUB_PR_FILES") &&
+                coverage["complete"] == JsonPrimitive(true) &&
+                coverage["expected"] == JsonPrimitive(total) &&
+                coverage["observed_unique"] == JsonPrimitive(total) &&
+                coverage["missing"] == JsonPrimitive(0) &&
+                listOf("head_sha", "base_sha").all { field ->
+                    val sha = data[field] as? JsonPrimitive
+                    sha != null && sha.isString && revision.matches(sha.content) && coverage[field] == sha
+                }
+        }
+
+        fun recoveryArguments(original: JsonObject, data: JsonObject, gap: JsonElement): JsonObject? {
+            val coverage = data["changed_file_coverage"] as? JsonObject ?: return null
+            val head = (coverage["head_sha"] as? JsonPrimitive)?.takeIf { it.isString && revision.matches(it.content) } ?: return null
+            val base = (coverage["base_sha"] as? JsonPrimitive)?.takeIf { it.isString && revision.matches(it.content) } ?: return null
+            val pageSize = (data["effective_per_page"] as? JsonPrimitive)?.takeIf { !it.isString && it.content.toIntOrNull() in 1..100 } ?: return null
+            if (coverage["source"] != JsonPrimitive("GITHUB_PR_FILES") || coverage["reason"] != JsonPrimitive("MISSING_PR_FILE_PAGES") || gap != coverage["first_unobserved_page"]) return null
+            if (listOfNotNull(original["expected_head_sha"], data["head_sha"]).any { it != head } ||
+                listOfNotNull(original["expected_base_sha"], data["base_sha"]).any { it != base }
+            ) {
+                return null
+            }
+            // A page-one live refresh resets the retained inventory. Both revisions
+            // still undergo the native before/after fence for the missing file read.
+            return JsonObject(
+                (original - setOf("verify_live", "check_page")) + buildJsonObject {
+                    put("page", gap)
+                    put("per_page", pageSize)
+                    put("expected_head_sha", head)
+                    put("expected_base_sha", base)
+                    put("include_files", true)
+                    put("include_checks", false)
+                    put("include_health", false)
+                }
+            )
+        }
     }
 
     private data class Key(val root: String, val number: Int, val base: String, val head: String, val total: Int?, val size: Int)
@@ -51,7 +92,7 @@ internal class GitHubPullFileInventory {
         val distinct = pages.values.flatMap { it.names }.toSet().size
         val consistent = valid && pages.values.all { it.valid } && pages.values.sumOf { it.names.size } == distinct
         val complete = consistent && total == distinct && (1..last).all(pages::containsKey) && revision.matches(base) && revision.matches(head)
-        val more = consistent && page < last
+        val more = consistent && last !in pages && page < last
         return buildJsonObject {
             put("source", "GITHUB_PR_FILES")
             put("base_sha", base)
@@ -74,6 +115,12 @@ internal class GitHubPullFileInventory {
                         else -> "MISSING_PR_FILE_PAGES"
                     }
                 )
+                if (consistent && total <= REST_LIMIT && revision.matches(base) && revision.matches(head)) {
+                    (1..last).firstOrNull { it !in pages }?.let {
+                        put("first_unobserved_page", it)
+                        put("remote_pages_observed", JsonArray(pages.keys.sorted().map(::JsonPrimitive)))
+                    }
+                }
                 if (total != null && total > REST_LIMIT) put("recovery", "Use the authorized Gateway repository mirror at the pinned PR base and head.")
             }
         }

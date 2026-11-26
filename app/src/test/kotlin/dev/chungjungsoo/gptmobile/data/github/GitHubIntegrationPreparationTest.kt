@@ -150,6 +150,30 @@ class GitHubIntegrationPreparationTest {
         assertEquals(JsonPrimitive(false), partialReport["completion_verified"])
     }
 
+    @Test fun expiredWindowDefersPlannedReadsAndFixtureWorkUntilRenewal() {
+        val receipts = mapOf("source" to source())
+        val open = GitHubChecklistBudget.checkpoint(receipts, 100)
+        val approval = json("""{"state":"READY"}""")
+        fun prepare(budget: JsonObject) = GitHubIntegrationPreparation.snapshot(task, receipts, tools, JsonArray(emptyList()), 100, approval, stageBudget = budget)
+        val expired = prepare(JsonObject(open + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"))))
+        assertEquals(JsonPrimitive("TIME_WINDOW_EXPIRED"), expired["status"])
+        assertEquals(JsonArray(emptyList()), expired["ready_reads"])
+        assertEquals(JsonPrimitive(0), expired["ready_read_count"])
+        assertEquals(JsonPrimitive(false), expired["owned_fixture_creation_admissible"])
+        assertNull(expired["next_owned_fixture_call"])
+        assertNull(expired["fixture_approval_proposal"])
+        assertEquals(JsonPrimitive(100), expired.getValue("budget").jsonObject["remaining_calls"])
+        fun evidence(plan: JsonObject) = GitHubAcceptanceRecoveryEvidence.fields(buildJsonObject { put("test_checklist", buildJsonObject { put("preparation", plan) }) })
+        val projection = evidence(expired)
+        assertEquals(JsonPrimitive(false), projection["acceptance_acquisition_allowed"])
+        assertEquals(JsonPrimitive(0), projection["acceptance_ready_read_count"])
+        assertEquals(JsonPrimitive("TIME_WINDOW_EXPIRED"), projection["acceptance_preparation_state"])
+        val unknown = GitHubChecklistBudget.checkpoint(receipts)
+        val unknownExpired = prepare(GitHubChecklistBudget.afterDeadline(unknown))
+        assertEquals(JsonPrimitive(false), evidence(unknownExpired)["acceptance_acquisition_allowed"])
+        assertTrue(prepare(open).getValue("ready_reads").jsonArray.isNotEmpty())
+    }
+
     @Test fun manualApprovalAndUnsupportedResourceLifecyclesExposeExactPrerequisitesWithoutMutations() {
         val preflight = GitHubTestChecklist.fixtureApprovalPreflight(GitHubDecisionMode.ASK, "task", "owner/repo", "main", JsonObject(emptyMap()))
         val checkpoint = GitHubTestChecklist.checkpoint(task, mapOf("source" to source()), tools, 64, preflight)

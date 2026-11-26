@@ -36,11 +36,12 @@ internal object GitHubIntegrationPreparation {
     ): JsonObject {
         val budget = stageBudget ?: GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools), acceptedContract)
         val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull ?: GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
-        val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remaining)
+        val deadlineReached = budget["stop_reason"] == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")
+        val acquisitionAllowed = !deadlineReached && GitHubChecklistBudget.acquisitionAllowed(receipts, remaining)
         val minimum = GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE
         val readCalls = if (acquisitionAllowed) GitHubSelfTestReads.available(tools, receipts.values.toList()) else emptyList()
-        val canCreate = !GitHubChecklistScope.readOnly(task) && approval?.get("state") == JsonPrimitive("READY") && (remaining == null || remaining >= minimum)
-        val fixtureCall = GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = canCreate, cleanupOnly = !acquisitionAllowed, abortIncomplete = !acquisitionAllowed)
+        val canCreate = acquisitionAllowed && !GitHubChecklistScope.readOnly(task) && approval?.get("state") == JsonPrimitive("READY") && (remaining == null || remaining >= minimum)
+        val fixtureCall = if (deadlineReached) null else GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = canCreate, cleanupOnly = !acquisitionAllowed, abortIncomplete = !acquisitionAllowed)
         val reviewPlan = if (fixtureCall == null &&
             acquisitionAllowed &&
             approval?.get("state") == JsonPrimitive("CONDITIONAL") &&
@@ -68,6 +69,7 @@ internal object GitHubIntegrationPreparation {
             put(
                 "status",
                 when {
+                    deadlineReached -> "TIME_WINDOW_EXPIRED"
                     fixtureActive && !acquisitionAllowed -> "CLEANUP_RESERVE_ACTIVE"
                     fixtureCall != null -> "OWNED_FIXTURE_STEP_PREPARED"
                     readCalls.isNotEmpty() -> "BOUNDED_READS_PREPARED"
@@ -78,7 +80,7 @@ internal object GitHubIntegrationPreparation {
             put("automatic_permission_changes", false)
             put("automatic_budget_increase", false)
             put("scope", "Prepare exact authorized reads and the supported task-owned content fixture. Missing IDs, approval or cleanup recipes remain explicit prerequisites.")
-            put("budget", budget)
+            put("budget", if (deadlineReached) GitHubChecklistBudget.afterDeadline(budget) else budget)
             put("ready_read_count", readCalls.size)
             put("required_pending_capability_count", pending.count { it["required"] != JsonPrimitive(false) })
             put("conditional_pending_capability_count", pending.count { it["required"] == JsonPrimitive(false) })

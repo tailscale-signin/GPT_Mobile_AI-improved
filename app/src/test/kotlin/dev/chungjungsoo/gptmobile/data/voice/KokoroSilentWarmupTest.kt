@@ -191,8 +191,14 @@ class KokoroSilentWarmupTest {
         }
     }
 
-    @Test fun explicitAcceleratorsNeverReceiveASilentInference() {
-        VoiceSpeechBackend.entries.filter { it != VoiceSpeechBackend.CPU && it != VoiceSpeechBackend.AUTO }.forEach { backend ->
+    @Test fun nativeAcceleratorsGatewayAndOtherSdkBackendsNeverReceiveASilentInference() {
+        listOf(
+            VoiceSpeechBackend.QNN_GPU,
+            VoiceSpeechBackend.QNN_HTP,
+            VoiceSpeechBackend.GATEWAY_CUDA,
+            VoiceSpeechBackend.PHONON_CPU,
+            VoiceSpeechBackend.POCKET_CPU
+        ).forEach { backend ->
             withOutput(backend) { fixture ->
                 fixture.output.prewarm(KokoroVoice.HEART)
                 awaitSynthesis(fixture.output)
@@ -200,6 +206,30 @@ class KokoroSilentWarmupTest {
                 assertEquals(backend.name, 0, fixture.warmCalls.size)
                 assertEquals(backend.name, 0, fixture.liveCalls.get())
                 assertEquals(backend.name, 0, fixture.audioWrites.get())
+                assertEquals(backend.name, 0, fixture.observedPcm.get())
+            }
+        }
+    }
+
+    @Test fun selectedLiteRtKokoroBackendsWarmOnceWithoutPublishingAudio() {
+        listOf(
+            VoiceSpeechBackend.LITERT_KOKORO_CPU,
+            VoiceSpeechBackend.LITERT_KOKORO_GPU,
+            VoiceSpeechBackend.LITERT_KOKORO_NPU,
+            VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED,
+            VoiceSpeechBackend.LITERT_KOKORO_SM8750
+        ).forEach { backend ->
+            withOutput(backend) { fixture ->
+                fixture.output.prewarm(KokoroVoice.HEART)
+                awaitSynthesis(fixture.output)
+                fixture.output.cancelPrewarm()
+                fixture.output.prewarm(KokoroVoice.HEART)
+                awaitSynthesis(fixture.output)
+                assertEquals(backend.name, 1, fixture.creations.get())
+                assertEquals(backend.name, listOf(KokoroVoice.HEART.speakerId to 1f), fixture.warmCalls)
+                assertEquals(backend.name, 0, fixture.liveCalls.get())
+                assertEquals(backend.name, 0, fixture.audioWrites.get())
+                assertEquals(backend.name, 0, fixture.observedPcm.get())
             }
         }
     }

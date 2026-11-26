@@ -158,9 +158,13 @@ class ToolBatchDeliveryProofTest {
             proofs.count { (id, digest) -> seen[id] == digest } in 1..2
         }
         val journal = ToolBatchCheckpoint(null, "same-profile")
+        var toolExecutions = 0
         val reader = object : AgentTool {
             override val definition = fixtures.first().tools.single()
-            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = group.results.single { it.callId == callId }
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                toolExecutions++
+                return group.results.single { it.callId == callId }
+            }
         }
         var privateReads = 0
         var ordinaryReads = 0
@@ -195,9 +199,60 @@ class ToolBatchDeliveryProofTest {
         assertTrue("Expected a private read before ordinary delivery: budget=$budget, raw=$rawTokens, receipts=$receipts, failures=$failures", privateReads > 0)
         assertEquals("Replay allowance $budget, private rounds $privateReads, failures $failures", 1, ordinaryReads)
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().none { it.event is ProviderEvent.Failed })
-        val reading = requireNotNull(journal.recoverySnapshot().savedPageReading)
+        assertEquals(group.calls.size, toolExecutions)
+        val recovered = journal.recoverySnapshot()
+        val reading = requireNotNull(recovered.savedPageReading)
         assertFalse("page-2" in SavedPageReading.fingerprints(reading))
         assertFalse(facts.last() in reading.toString())
+        assertEquals(proofs["page-2"], ToolResultDeliveryProof.digest(recovered.completedExchanges.flatMap { it.results }.single { it.callId == "page-2" }.content))
+    }
+
+    @Test fun insufficientPrivateReadingAllowanceRetainsExactPagesWithoutAcknowledgementOrReexecution() = runBlocking {
+        val facts = (0..2).map { "CAPACITY_PAGE_FACT_$it" }
+        val fixtures = facts.map { GitHubSavedPageCapacityTest.Fixture(it) }
+        val history = fixtures.mapIndexed { i, fixture ->
+            val source = fixture.history.first { exchange ->
+                val result = exchange.results.single()
+                "view_cursor" in exchange.calls.single().arguments && !result.isError && facts[i] in ToolHandoffReceipt.payload(result.content)
+            }
+            val call = source.calls.single().copy(callId = "page-$i")
+            AgentToolExchange(listOf(call), listOf(fixture.read(call)))
+        }
+        val group = AgentToolExchange(history.flatMap { it.calls }, history.flatMap { it.results })
+        val proofs = ToolResultDeliveryProof.capture(group.results)
+        val journal = ToolBatchCheckpoint(null, "same-profile")
+        var toolExecutions = 0
+        val reader = object : AgentTool {
+            override val definition = fixtures.first().tools.single()
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                toolExecutions++
+                return group.results.single { it.callId == callId }
+            }
+        }
+        var providerRounds = 0
+        val model = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                providerRounds++
+                assertTrue("No saved-page body fits after the mandatory private-reading reservation", exchanges.isEmpty())
+                group.calls.forEach { emit(it) }
+                emit(ProviderEvent.Completed)
+            }.let { SavedPageDeliveryRound.providerRound(exchanges, it) }
+        }
+        val budget = SavedPageReading.reservation(null, true)
+        val limits = AgentRunLimits(githubTask = true, maxToolCalls = 4, maxRounds = 12, maxReplayTokens = budget, maxReplayResultTokens = 512)
+        val events = AgentRunner(limits, journal).run(model, listOf(ToolExecutionBudget(limits).bind(reader))).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { it.event as? ProviderEvent.Failed }.single()
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+        assertEquals(JsonPrimitive("SAVED_PAGE_EXCEEDS_ALLOWANCE"), failure.failureDetails?.get("replay_budget_state"))
+        assertEquals(JsonPrimitive("BODY_ALLOWANCE"), failure.failureDetails?.get("replay_missing_record"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals(1, providerRounds)
+        assertEquals(group.calls.size, toolExecutions)
+        val recovered = journal.recoverySnapshot()
+        assertEquals(null, recovered.savedPageReading)
+        assertTrue(recovered.deliveredResultDigests.isEmpty())
+        assertEquals(proofs, ToolResultDeliveryProof.capture(recovered.completedExchanges.flatMap { it.results }))
+        assertTrue(recovered.unsettledCalls.isEmpty())
     }
 
     @Test fun ingressCompactionCannotPromoteSummaryDeliveryToTheOriginalIntervalAfterRestart() = runBlocking {

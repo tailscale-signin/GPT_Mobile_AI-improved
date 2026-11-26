@@ -355,7 +355,7 @@ class GatewayDashboardClientTest {
         http(
             MockEngine { request ->
                 calls++
-                assertEquals("http://192.168.1.2:8090/v1/gateway/dashboard", request.url.toString())
+                assertEquals("http://192.168.1.2:8090/v1/gateway/dashboard?inventory_preview=true", request.url.toString())
                 assertEquals("Bearer selected-token", request.headers["Authorization"])
                 assertNull(request.headers["X-Gateway-Management"])
                 assertEquals("GET", request.method.value)
@@ -381,7 +381,7 @@ class GatewayDashboardClientTest {
         ).use { http ->
             val client = GatewayDashboardClient(http)
             repeat(3) { assertNull(client.read(config)) }
-            assertEquals(listOf("http://192.168.1.2:8090/v1/gateway/dashboard"), addresses)
+            assertEquals(listOf("http://192.168.1.2:8090/v1/gateway/dashboard?inventory_preview=true"), addresses)
             assertNull(client.read(config.copy(profileUid = "different", token = "other-token")))
             assertEquals(2, addresses.size)
             client.refresh()

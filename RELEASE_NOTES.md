@@ -4,7 +4,9 @@ Android build **151** and Windows Gateway **18.1.4** use the Gateway 18 contract
 
 ## GitHub mode
 
-Standalone record numbers such as `#43` inherit the preceding read’s type only in the same workspace. Saved-page failures retain the affected operation and hashed receipt or source when available.
+Standalone record numbers such as `#43` inherit the preceding read’s type only in the same workspace. Saved-page failures retain the canonical operation and hashed receipt or source when available, including registered tool aliases without exposing their private names.
+
+Private saved-page reading spends its context allowance on checkpoint-eligible source pairs. Pages carrying final-answer instructions remain available for ordinary delivery, and an exhausted body allowance is reported without discarding original proofs or repeating tool calls.
 
 
 Rebuild GitHub chat setup, task routing, context selection and progress around the selected repository. Fresh profiles use adaptive effort. Direct lookups start with the relevant read, and the chat header keeps branch and activity visible.
@@ -248,6 +250,11 @@ policy when private masking settings change.
 The installer shows the destination and selected tasks before installation. Setup
 clears the previous configuration error file before checking settings and applying
 them. The Windows setup smoke check covers and captures the tasks and review pages.
+
+The Jobs reference capture lays out the actual WPF controls at 1904 by 1000 pixels
+and checks that at least 30 distinct rows are fully rendered. The check rejects
+clipped or transparent output when the VM desktop is smaller than the reference
+layout.
 
 ## Release validation
 

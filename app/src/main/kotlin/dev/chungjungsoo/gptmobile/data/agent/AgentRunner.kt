@@ -2220,15 +2220,28 @@ class AgentRunner(
                 )
                 return@flow
             }
-            suspend fun project(required: Map<String, String?>) = prepareReplay(exchanges, sourceAllowance, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests, required)
+            suspend fun project(required: Map<String, String?>, candidates: List<AgentToolExchange> = exchanges) = prepareReplay(candidates, sourceAllowance, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests, required)
             fun delivered(projection: ReplayProjection) = projection.exchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }
             var replay = project(requiredSavedPageDigests)
             var exact = delivered(replay)
             deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
             if (mayStage && requiredSavedPageDigests.any { (id, digest) -> deliveredBodies[id] != digest }) {
+                // Spend a private reading stage's allowance only on complete pairs
+                // whose exact bytes this journal can acknowledge. A decorated final
+                // page remains in the ordinary history, but cannot crowd out these reads.
+                val eligible = checkpoint?.eligibleReadingSources(exchanges.flatMap { it.calls }.associateBy { it.callId }, requiredSavedPageDigests)
+                    ?: requiredSavedPageDigests.keys
+                val privateCandidates = if (eligible.size < requiredSavedPageDigests.size) {
+                    exchanges.mapNotNull { exchange ->
+                        val calls = exchange.calls.filter { it.callId in eligible }
+                        calls.takeIf { it.isNotEmpty() }?.let { AgentToolExchange(it, exchange.results.filter { result -> result.callId in eligible }) }
+                    }
+                } else {
+                    exchanges
+                }
                 sourceAllowance = (replayLimit - SavedPageReading.reservation(savedPageReading, true)).coerceAtLeast(0)
                 if (sourceAllowance > 0) {
-                    replay = project(requiredSavedPageDigests)
+                    replay = project(requiredSavedPageDigests, privateCandidates)
                     exact = delivered(replay)
                     deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
                 } else {
@@ -2241,6 +2254,7 @@ class AgentRunner(
                                 put("failure_origin", "APPLICATION")
                                 put("dispatched", false)
                                 put("replay_budget_state", "SAVED_PAGE_EXCEEDS_ALLOWANCE")
+                                put("replay_missing_record", "BODY_ALLOWANCE")
                                 put("source_allowance", 0)
                                 put("replay_allowance", replayLimit)
                                 put("pending_saved_page_count", requiredSavedPageDigests.size)
@@ -2249,16 +2263,12 @@ class AgentRunner(
                     )
                     return@flow
                 }
-                // A private note must match the durable projection. A page containing a
-                // later wrap-up instruction can still be read in the ordinary final round.
-                val eligible = checkpoint?.eligibleReadingSources(exchanges.flatMap { it.calls }.associateBy { it.callId }, requiredSavedPageDigests)
-                    ?: requiredSavedPageDigests.keys
                 if (eligible.none { deliveredBodies[it] == requiredSavedPageDigests[it] }) {
                     val first = eligible.mapNotNull(originalResults::get)
                         .filter { ToolResultDeliveryProof.digest(it.content, replayRenderCache) == requiredSavedPageDigests[it.callId] }
                         .minByOrNull { replayRenderCache.measure(it.content).tokens }
                     if (first != null) {
-                        replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]))
+                        replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]), privateCandidates)
                         exact = delivered(replay)
                         deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
                     }

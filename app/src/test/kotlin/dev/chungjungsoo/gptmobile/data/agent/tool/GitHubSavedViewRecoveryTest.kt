@@ -292,7 +292,7 @@ class GitHubSavedViewRecoveryTest {
         assertFalse(details.toString().contains("IllegalStateException"))
     }
 
-    @Test fun missingJobsBodyAndInvalidViewIdRequireFreshScopedReadsEvenInReplay() = runBlocking {
+    @Test fun missingLiveCiBodyAndInvalidViewIdRequireCurrentScopedReadsEvenInReplay() = runBlocking {
         val store = GitHubSavedViewStore(GitHubRepositoryStateStore(), "account")
         val backend = Backend()
         val tool = GitHubOperationTool("github_ci", backend, "scope", views = GitHubResultViews(), loadSavedView = store::loadWithDiagnostics)
@@ -303,7 +303,7 @@ class GitHubSavedViewRecoveryTest {
             assertEquals(JsonPrimitive(reason), result.executionReceipt?.get("saved_view_restore_state"))
             val replay = requireNotNull(GitHubReplayRecovery.compact(result.content, 1500))
             for (response in listOf(body(result), requireNotNull(GitHubReplayRecovery.envelope(replay)))) {
-                assertEquals(JsonPrimitive("START_FRESH_SCOPED_READ"), response["recovery_action"])
+                assertEquals(JsonPrimitive("READ_CURRENT_STATE"), response["recovery_action"])
                 assertEquals(JsonPrimitive(false), response["mutation_replay_allowed"])
                 assertTrue(response.keys.none { it.endsWith("_call") })
                 assertFalse(response.toString().contains(id))

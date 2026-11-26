@@ -1,8 +1,11 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using System.Text.Json.Nodes;
 using Gateway.Desktop.Core;
 
@@ -127,6 +130,88 @@ internal static class Ui
         var image = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth * dpi.DpiScaleX),
             (int)Math.Ceiling(view.ActualHeight * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
         image.Render(view);
+        SaveCapture(image, file);
+    }
+
+    public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root)
+    {
+        if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        var bounds = new Rect(element.RenderSize);
+        Visual current = element;
+        while (true)
+        {
+            var clip = VisualTreeHelper.GetClip(current);
+            if (clip != null && clip.FillContainsWithDetail(new RectangleGeometry(bounds)) != IntersectionDetail.FullyContains) return false;
+            if (ReferenceEquals(current, root)) return new Rect(root.RenderSize).Contains(bounds);
+            if (VisualTreeHelper.GetParent(current) is not Visual parent) return false;
+            bounds = current.TransformToAncestor(parent).TransformBounds(bounds);
+            current = parent;
+        }
+    }
+
+    public static async Task CaptureReference(Window owner, FrameworkElement content, Size size, string file, Action<FrameworkElement> verify)
+    {
+        if (!ReferenceEquals(owner.Content, content) || size.Width <= 0 || size.Height <= 0 ||
+            size.Width != Math.Floor(size.Width) || size.Height != Math.Floor(size.Height))
+            throw new InvalidOperationException("Reference capture requires the current content and an integral layout size.");
+
+        // A CI desktop can clamp Window.ActualWidth/Height below the reference size.
+        // Present the same controls in an offscreen popup, without the Window's client clip.
+        var dpi = VisualTreeHelper.GetDpi(owner);
+        using var source = new HwndSource(new HwndSourceParameters("Gateway reference capture")
+        {
+            Width = (int)Math.Ceiling(size.Width * dpi.DpiScaleX), Height = (int)Math.Ceiling(size.Height * dpi.DpiScaleY),
+            PositionX = -32000, PositionY = -32000,
+            WindowStyle = unchecked((int)0x90000000), // WS_POPUP | WS_VISIBLE
+            ExtendedWindowStyle = 0x08000080 // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+        });
+        var frame = new Border
+        {
+            Width = size.Width, Height = size.Height, Background = owner.Background, Resources = owner.Resources,
+            DataContext = owner.DataContext, FlowDirection = owner.FlowDirection, Language = owner.Language,
+            UseLayoutRounding = owner.UseLayoutRounding, SnapsToDevicePixels = owner.SnapsToDevicePixels
+        };
+        TextElement.SetFontFamily(frame, owner.FontFamily);
+        TextElement.SetFontSize(frame, owner.FontSize);
+        TextElement.SetFontStyle(frame, owner.FontStyle);
+        TextElement.SetFontWeight(frame, owner.FontWeight);
+        TextElement.SetFontStretch(frame, owner.FontStretch);
+        TextElement.SetForeground(frame, owner.Foreground);
+        owner.Content = null;
+        try
+        {
+            frame.Child = content;
+            source.RootVisual = frame;
+            content.InvalidateMeasure(); content.InvalidateArrange();
+            frame.Measure(size); frame.Arrange(new Rect(size)); frame.UpdateLayout();
+            await frame.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+            frame.UpdateLayout();
+            if (frame.RenderSize != size || content.RenderSize != size || !FullyWithinRenderBounds(content, frame))
+                throw new InvalidOperationException("Reference content did not render at its complete requested bounds.");
+            verify(frame);
+
+            // Render WPF at the reference DPI; never resize or pad a clipped bitmap.
+            var image = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+            image.Render(frame);
+            int stride = image.PixelWidth * 4;
+            var pixels = new byte[stride * image.PixelHeight];
+            image.CopyPixels(pixels, stride, 0);
+            for (int alpha = 3; alpha < pixels.Length; alpha += 4)
+                if (pixels[alpha] != byte.MaxValue)
+                    throw new InvalidOperationException("Reference capture contains unrendered or transparent pixels.");
+            SaveCapture(image, file);
+        }
+        finally
+        {
+            source.RootVisual = null;
+            frame.Child = null;
+            owner.Content = content;
+            owner.UpdateLayout();
+        }
+    }
+
+    private static void SaveCapture(BitmapSource image, string file)
+    {
         var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
         using var stream = File.Create(file); png.Save(stream);
     }

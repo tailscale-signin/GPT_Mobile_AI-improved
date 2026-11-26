@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "69e557191fc5a6cd85b60db18bd907bf893172754bd5e38777a831afdf127984",
+  "source_digest": "80011fda34fbc19bb6eba51aa66be6c878866daba51c88bc2ae6ed990fe70d19",
   "file_count": 3166,
-  "indexed_line_count": 541543,
+  "indexed_line_count": 541646,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 262,
-      "indexed_line_count": 47181
+      "indexed_line_count": 47192
     },
     {
       "id": "agent_tools",
@@ -167,7 +167,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 285,
-      "indexed_line_count": 103876
+      "indexed_line_count": 103968
     },
     {
       "id": "authentication_service",
@@ -823,8 +823,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "2255234900502bad30942a255a17a74d2326fa1abbe8c74cdb9606e418d5ac67",
-      "indexed_lines": 3046
+      "sha256": "ab6b5a7413584d6e75b21932667a9b824652873d3bfe400fa294c941c74063bb",
+      "indexed_lines": 3056
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -2111,8 +2111,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "b26c3947934b94152857bdbf780cf2cc450e65b701daf977ec32895b2644152d",
-      "indexed_lines": 113
+      "sha256": "f991a6e96e96e60bf20d15644a4ecbdcbab04d8abb451d05cb2f0e7dc5f36604",
+      "indexed_lines": 114
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageReading.kt",
@@ -20633,15 +20633,15 @@
       "path": "gateway/desktop/native/MainWindow.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "19503fcb3813782634d4dbfb0a1ef4ca0d785737989c64682890fd904118bd94",
-      "indexed_lines": 480
+      "sha256": "d28e8fff1737d4ab78e3dffc6bdc2d718203983e6a28706744c67f142bf22f18",
+      "indexed_lines": 487
     },
     {
       "path": "gateway/desktop/native/Ui.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "2866fbb2b4f793c4e9c6a69371c356a061801fe4a14622d0e687e3dcfe3ddb71",
-      "indexed_lines": 133
+      "sha256": "010eb3ebb2756403c29b0d72990da27531d0d05bf7f96f609465af8ebc6d6608",
+      "indexed_lines": 218
     },
     {
       "path": "gateway/desktop/native_bridge.py",

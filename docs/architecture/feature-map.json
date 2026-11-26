@@ -2903,9 +2903,9 @@
       "sha256": "1c0e6725bea8a27085878c091362e96c23bc983e2e510ab7dedcfd8d2f58fc7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": {
-      "blob_sha": "097088473d41512ed90294a850c2429c823e44f2",
-      "bytes": 196565,
-      "sha256": "2255234900502bad30942a255a17a74d2326fa1abbe8c74cdb9606e418d5ac67"
+      "blob_sha": "c6cdb4b9e2769c07d34d91e53a2cea7eb2920c15",
+      "bytes": 197291,
+      "sha256": "ab6b5a7413584d6e75b21932667a9b824652873d3bfe400fa294c941c74063bb"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventory.kt": {
       "blob_sha": "2410c6ee6f8e5e8e6f611d5a0a5bda9d655ac041",
@@ -2983,9 +2983,9 @@
       "sha256": "e507d6be8fd901dd757491aa73cfe47a4bcf609f7ad67a2b99c82d8de2042e58"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt": {
-      "blob_sha": "b6a9a86d5dfb3fa88a73a7395f51b4a53b4ca22b",
-      "bytes": 6572,
-      "sha256": "b26c3947934b94152857bdbf780cf2cc450e65b701daf977ec32895b2644152d"
+      "blob_sha": "1ab784ba6f7d371cfbe6f566940c44e97afc5b15",
+      "bytes": 6698,
+      "sha256": "f991a6e96e96e60bf20d15644a4ecbdcbab04d8abb451d05cb2f0e7dc5f36604"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageReading.kt": {
       "blob_sha": "6d8baad0d44047a047835f2fe5471631249c7fb4",
@@ -4543,9 +4543,9 @@
       "sha256": "35d748659add58efbcc8832f2eaf15b42b3b23da06e1cef158017ca6f0934953"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": {
-      "blob_sha": "68c4b12e41de95dfb8f41147a431321ac634f9d3",
-      "bytes": 29321,
-      "sha256": "309827b9ae60bc0aeacea812eda54aabdef6404c695354c673ec9d366f969d75"
+      "blob_sha": "59e6724f3dfaf181f41dc4ffbc19a6f93e899c43",
+      "bytes": 29524,
+      "sha256": "976e50f737e89a0663f8b698edb413d23d1d49b715ae8e86830583335f8bee61"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt": {
       "blob_sha": "3ef6fdf9421b085f36d6aec79ab9030f44bcc7d9",
@@ -4568,9 +4568,9 @@
       "sha256": "857dd9dd98f0b78a9feeae219c53cc6f7378d34ae41d93abb30d70bdbf3dd13b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt": {
-      "blob_sha": "c16d72b48f75bdb726b018abb5d028a8f66655a7",
-      "bytes": 41973,
-      "sha256": "12b26c233bbad4808a1269139ed516cbc75dbf29b2aceae407459a28985e4c95"
+      "blob_sha": "5ec94d05a8edac98dde3703f4355df01fcd3d141",
+      "bytes": 42848,
+      "sha256": "6afe9b43be80607815fd0e5c2ef42e2c8615f1a6fa1a89d4e1213e2e8dd33d2c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubStatusCatalogTest.kt": {
       "blob_sha": "bfc0dd34bb46b9fdda56bd5573050cc525756e6c",
@@ -5248,9 +5248,9 @@
       "sha256": "a769318ea7509430ee8478db13f258f951b5edcc703026c76ea722a9a3cdbda0"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardClientTest.kt": {
-      "blob_sha": "f4c1edbf2196b2e46fbdefab90900289cd75e92c",
-      "bytes": 24335,
-      "sha256": "f38daa3f8343f26f3c0acc69e5e805224a6f1526484aef6d0374ac9ab8816988"
+      "blob_sha": "27b8626c5fe27c31bad08df37c6d5e1539583d0e",
+      "bytes": 24381,
+      "sha256": "9040b329080f5fe4afe19a20c0beeae827bdd1df5261b80e9790c77a9ad920d1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ConversationPrivacyContextTest.kt": {
       "blob_sha": "a498354474fdc3c4ecd639f5591e06546854b5d9",
@@ -5418,9 +5418,9 @@
       "sha256": "9d131297d7eff24d001a479acd06f175c6d32cc22fe6efd619039ab82c0406e7"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSilentWarmupTest.kt": {
-      "blob_sha": "2cd41cc59d33cdfb91840775752ee3c4bfce4979",
-      "bytes": 14406,
-      "sha256": "e0ba8b67da2ee96ba2ff164b0275c45ee9a12236ddcffe868dfd62d2f4593ccd"
+      "blob_sha": "9d724d79234c5bb924a8b98eb9595ecd1e10c7e6",
+      "bytes": 15743,
+      "sha256": "4debde4345854c76d76d31e778352740c221e5b6c66332b18c36f63a1c9200b6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt": {
       "blob_sha": "fd2ac1061915c0ce987a1a295a75bbbecee4f0c9",

@@ -208,7 +208,9 @@ class GitHubFullToolVisibilityTest {
             val definition = schema(name)
             definition.copy(description = "x".repeat(cost * 3 - name.length - definition.inputSchema.toString().length))
         }
-        val limits = AgentRunLimits(githubTask = true, contextTokens = 4096, initialContextTokens = 218, finalResponseReserveTokens = 617, maxRounds = 5)
+        // Preserve a 3,005-token schema window above the compact-profile boundary.
+        // Compact native-operation staging has its own rotation and budget coverage.
+        val limits = AgentRunLimits(githubTask = true, contextTokens = 8192, initialContextTokens = 4314, initialGitHubSchemaTokens = 0L, finalResponseReserveTokens = 617, maxRounds = 5)
         assertEquals(4667L, operations.sumOf { providerSchemaTokens(it, false) })
         val admitted = fitProviderToolSchemas(operations, limits, 0, 0, discoveryPaused = true)
         assertEquals(operations.take(3), admitted)

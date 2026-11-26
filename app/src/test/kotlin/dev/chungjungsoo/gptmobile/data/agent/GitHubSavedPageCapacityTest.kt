@@ -21,6 +21,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSavedPageCapacityTest {
+    @Test fun replayDiagnosticsUseCanonicalOperationsWithoutRetainingPrivateToolNames() {
+        for ((name, operation) in listOf(
+            "github_context" to "github_context",
+            "github_context__private-route" to "github_context",
+            "read_url" to "read_url",
+            "private-unknown-tool" to null,
+            "github_context_private-route" to null
+        )) {
+            val call = AgentToolCall("private-call-id", name, buildJsonObject { put("query", "private source text") })
+            val details = buildJsonObject { replaySource(listOf(AgentToolExchange(listOf(call), emptyList())), call.callId) }
+            assertEquals("name=$name", operation?.let(::JsonPrimitive), details["operation"])
+            assertNotNull(details["replay_call_hash"])
+            assertFalse(details.toString().contains("private"))
+        }
+    }
+
     @Test fun aSavedPageFailureIdentifiesItsBoundaryWithoutInventingADispatchOutcome() {
         for (stage in listOf("planning", "provider_admission", "response_stream")) {
             val failure = SavedPageDeliveryRound.blocked("Retained page", stage)
@@ -290,7 +306,7 @@ class GitHubSavedPageCapacityTest {
         val rejected = read(listOf(ProviderEvent.TextDelta("cached"), ProviderEvent.Completed), fresh = false).single() as ProviderEvent.Failed
         assertEquals("REPLAY_EVIDENCE_REQUIRED", rejected.errorCode)
         assertEquals(JsonPrimitive("FRESH_PROVIDER_COMPLETION"), rejected.failureDetails?.get("replay_missing_record"))
-        assertEquals(JsonPrimitive(call.name), rejected.failureDetails?.get("operation"))
+        assertEquals(JsonPrimitive("github_context"), rejected.failureDetails?.get("operation"))
         assertNotNull(rejected.failureDetails?.get("replay_call_hash"))
         val reviewRows = mutableMapOf<String, JsonObject>()
         val review = dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint("Read the saved page", { reviewRows[it] }, { key, value -> reviewRows[key] = value })

@@ -17,7 +17,8 @@ internal fun JsonObjectBuilder.replaySource(exchanges: List<AgentToolExchange>, 
     val call = exchanges.asSequence().flatMap { it.calls.asSequence() }.firstOrNull { it.callId == id }
     val result = exchanges.asSequence().flatMap { it.results.asSequence() }.firstOrNull { it.callId == id }
     dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("call", id)?.let { put("replay_call_hash", it) }
-    call?.name?.takeIf { it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.operations }?.let { put("operation", it) }
+    val operation = call?.name?.let { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it) ?: it }
+    operation?.takeIf { it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.operations }?.let { put("operation", it) }
     val receipt = result?.executionReceipt
     val source = ((receipt?.get("saved_view_source_sha256") ?: receipt?.get("saved_view_source_hash")) as? kotlinx.serialization.json.JsonPrimitive)?.content
     source?.takeIf(ToolResultDeliveryProof::valid)?.let { put("replay_source_hash", it) }

@@ -416,8 +416,9 @@ public partial class MainWindow : Window
                 Ui.Capture(this, System.IO.Path.Combine(root, "native-" + name.ToLowerInvariant().Replace(' ', '-') + ".png"));
             }
             // Reference screen with room reserved for the taskbar and non-client chrome.
+            var referenceSize = new Size(1904, 1000);
             Width=1920; Height=1040;
-            layout.Width=1904; layout.Height=1000;
+            layout.Width=referenceSize.Width; layout.Height=referenceSize.Height;
             Navigate("Jobs/Tasks"); await SettleSmokeReads(); await RefreshCatalog();
             UpdateLayout(); await Dispatcher.InvokeAsync(()=>{},System.Windows.Threading.DispatcherPriority.ContextIdle);
             var table=jobsTable ?? throw new InvalidOperationException("Jobs table unavailable.");
@@ -437,7 +438,12 @@ public partial class MainWindow : Window
             var peer=System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(table);
             if(peer?.GetPattern(System.Windows.Automation.Peers.PatternInterface.Selection)==null)
                 throw new InvalidOperationException("Jobs does not expose UI Automation selection.");
-            Ui.Capture(layout,System.IO.Path.Combine(root,"native-jobs-reference.png"));
+            await Ui.CaptureReference(this, layout, referenceSize, System.IO.Path.Combine(root,"native-jobs-reference.png"), captureRoot =>
+            {
+                visible = FullyVisibleRows(table).Where(row => Ui.FullyWithinRenderBounds(row, captureRoot)).ToArray();
+                if (visible.Length < 30 || visible.Select(row => ((JobRow)row.Item).Id).Distinct().Count() != visible.Length)
+                    throw new InvalidOperationException($"Reference capture contains only {visible.Length} distinct fully rendered job rows.");
+            });
             pins.Remove(first.Id);selectedJobs.Clear();
             layout.Width=double.NaN;layout.Height=double.NaN;Width=900;Height=600;
             Navigate("Overview"); UpdateLayout();
@@ -471,6 +477,7 @@ public partial class MainWindow : Window
             File.WriteAllText(System.IO.Path.Combine(root, "native-ui-smoke.json"), JsonSerializer.Serialize(new
             { pages = Pages, width = ActualWidth, height = ActualHeight, highContrast = SystemParameters.HighContrast, animations = SystemParameters.ClientAreaAnimation,
                 visibleCompactRows = visible.Length, catalogReceipts = receiptCount, selectionAndPinsPreserved = observed,
+                referenceCapture = new { width = (int)referenceSize.Width, height = (int)referenceSize.Height, dpi = 96, mode = "offscreenWpf" },
                 simulatedScales = scales, highContrastPaletteExercised = true, simulatedLayoutScale = 1.5, reducedMotionExercised = true, focusAndScrollPreserved = true, runtime = "WPF", passed = true }));
             allowWindowExit=true;Close();
         }

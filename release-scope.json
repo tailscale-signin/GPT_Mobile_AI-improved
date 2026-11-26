@@ -13,7 +13,7 @@
     "Benchmark repository-map reuse across chats, branch movement, account switches and eviction using the production cache and repeatable fixtures.",
     "Offer verified retention as a dispatch requirement for private chats while preserving profile selection, on-device inference and local masking.",
     "Set recognition and synthesis languages independently and retain observed local voice and backend evidence separately from requested accelerator placement.",
-    "Preserve the PR’s LiteRT speech and Adreno FP32 changes, improve GitHub search and saved-page continuation, and reduce Gateway job and saved-chat lookup costs.",
+    "Preserve the PR\u2019s LiteRT speech and Adreno FP32 changes, improve GitHub search and saved-page continuation, and reduce Gateway job and saved-chat lookup costs.",
     "Recover interrupted provider streams, CI job selectors, saved source pages and transient GitHub reads. Preserve exact fixture approvals, cleanup reserves and evidence scope during task verification.",
     "Prepare optimized Kokoro GPU and Snapdragon 8 Elite vocoders locally from the standard first-launch pack. Start word highlights on the first playable PCM, preserve the voice across backends, and recover from early accelerator failures without repeating speech.",
     "Use the measured size when restoring a saved page, distinguish a cancelled queue from an uncertain dispatch, and allow an ongoing lower-effort GitHub turn to finish when its intelligence setting is raised.",
@@ -34,7 +34,10 @@
     "Preserve interrupted Responses output and its replay boundary for unclassified transport failures, request extended reporter capabilities for device privacy changes, and verify saved-page delivery and delayed microphone authorization.",
     "Use the shared feature inventory to rank admitted GitHub chat tools, answer capability questions, browse the exact workspace and Gateway tool catalogs, and read pinned code-search matches at their reported lines.",
     "Restore the Gateway installer's review page, clear the previous configuration error file before checking settings and applying them, and extend the Windows setup smoke check to capture the tasks and review pages.",
-    "Revalidate saved-document recall consent after asynchronous source checks, including revocation followed by reauthorization, while ordinary chats retain their own privacy authority."
+    "Revalidate saved-document recall consent after asynchronous source checks, including revocation followed by reauthorization, while ordinary chats retain their own privacy authority.",
+    "Select only checkpoint-eligible saved-page pairs before private-reading compaction, retain decorated pages for ordinary delivery, and distinguish exhausted body allowance while keeping original proofs and preventing repeated tool execution.",
+    "Report registered GitHub tool aliases through canonical, allowlisted operation names without retaining private tool names or arguments; align regression fixtures with current live-CI recovery, compact-tool staging, dashboard inventory previews and explicitly selected LiteRT warmup.",
+    "Capture the actual Windows Jobs controls at the complete 1904 by 1000 reference size in an offscreen WPF presentation source and require at least 30 distinct, fully rendered rows without transparent or clipped output."
   ],
   "limitations": [
     "The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.",
@@ -449,6 +452,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoicePrivacyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/GatewayVoicePcmStreamTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatchesTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSilentWarmupTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVocoderPatchTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStoreTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
@@ -510,6 +514,8 @@
     "gateway/contracts/v18/gateway-v18-capabilities-full.json",
     "gateway/desktop/development_profiles.py",
     "gateway/desktop/installer.iss",
+    "gateway/desktop/native/MainWindow.cs",
+    "gateway/desktop/native/Ui.cs",
     "gateway/desktop/windows/setup_smoke.py",
     "gateway/gateway_v13.py",
     "gateway/gateway_v14.py",

@@ -41,9 +41,12 @@ internal object VoiceSpokenLead {
         if (stem.isEmpty()) return text
         if (lead.length < stem.length) return if (!final && stem.startsWith(lead, ignoreCase = true)) "" else text
         if (!lead.startsWith(stem, ignoreCase = true)) return text
-        if (lead.length == stem.length) return ""
-        if (lead[stem.length] !in cuePunctuation) return text
-        return lead.drop(stem.length).dropWhile { it in cuePunctuation }.trimStart()
+        // French commonly inserts a regular or thin nonbreaking space before !, ? and :.
+        var next = stem.length
+        while (next < lead.length && lead[next].isWhitespace()) next++
+        if (next == lead.length) return ""
+        if (lead[next] !in cuePunctuation) return text
+        return lead.substring(next).dropWhile { it in cuePunctuation }.trimStart()
     }
 
     private val cuePunctuation = setOf('.', '!', '?', ',', ':', '…', '—', '。', '！', '？', '।', '॥')

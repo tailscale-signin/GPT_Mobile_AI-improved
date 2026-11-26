@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
+import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import dev.chungjungsoo.gptmobile.presentation.service.VoicePlaybackService
@@ -26,7 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
-internal data class VoicePlaybackNotice(val token: String, val roomId: Int)
+internal data class VoicePlaybackNotice(val token: String, val roomId: Int, val message: VoiceMessageIdentity?, val phase: VoicePhase)
 
 /** Main-thread ownership of one admitted reply. The UI and service share its original audio queue. */
 @Singleton
@@ -56,12 +57,16 @@ internal class VoiceBackgroundPlayback @Inject constructor(
         val playing = state.phase == VoicePhase.SPEAKING || state.phase == VoicePhase.PREPARING
         val key = session.activeSpeechKey
         owner?.takeIf { it.runtime === runtime }?.let { active ->
-            if (active.key == key && (playing || session.retainsReply)) return
+            if (active.key == key && (playing || session.retainsReply)) {
+                if (mutableNotice.value?.phase != state.phase) mutableNotice.value = active.notice.copy(phase = state.phase)
+                return
+            }
             release(active)
         }
         if (!playing || roomId <= 0 || key == null || !session.canStartPlaybackService) return
         stopCurrent()
-        val notice = VoicePlaybackNotice(UUID.randomUUID().toString(), roomId)
+        val message = runtime.activeMessage.value?.takeIf { it.key == key } ?: runtime.playback.active?.identity?.takeIf { it.key == key }
+        val notice = VoicePlaybackNotice(UUID.randomUUID().toString(), roomId, message, state.phase)
         val active = Owner(runtime, key, notice)
         owner = active
         mutableNotice.value = notice

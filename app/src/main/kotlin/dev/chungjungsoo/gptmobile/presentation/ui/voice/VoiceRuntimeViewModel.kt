@@ -35,8 +35,13 @@ internal class VoiceRuntime(
     val recognition: MoonshineVoiceRecognizer,
     val kokoro: KokoroOutput?,
     val audio: VoicePluginAudio,
-    val session: VoiceSession
+    val session: VoiceSession,
+    background: VoiceBackgroundPlayback
 ) {
+    init {
+        session.automaticAudioAvailable = { !background.playingElsewhere(this) }
+    }
+
     val tuningConfiguration = VoiceTuningConfiguration(audio, kokoro, session)
     val playback = VoiceMessagePlayback()
     val replyProjection = VoiceReplyProjectionCache()
@@ -99,7 +104,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(
         session.submissionRejection = { model.voiceSubmissionRejection }
         session.synthesisFeedback = { kokoro?.synthesisFeedback?.value }
         restore(session)
-        return VoiceRuntime(system, recognition, kokoro, audio, session).also {
+        return VoiceRuntime(system, recognition, kokoro, audio, session, background).also {
             observed = it
             runtime = it
         }

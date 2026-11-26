@@ -7,7 +7,7 @@ This release implements the sixteen findings from the November 26 build-151 runt
 ## Changes
 
 - Voice Mode can speak one brief acknowledgment in the selected language while an answer is pending. A running lookup gets a search cue, and quick answers take priority. Speech model preparation overlaps audio setup, and stable opening words can play during a provider pause.
-
+- A spoken acknowledgment now hands off to the complete answer even when the app is in the background. French punctuation spacing is respected. Switching chats preserves the playing reply until you explicitly select another, and tapping its notification returns to the original message.
 - Voice Mode now keeps an active spoken reply playing after you switch chats or leave the app. Its notification opens the source chat and includes Stop. The selected speech language reaches Kokoro's phonemizer, and each language has its own pronunciation dictionary. French supports accented terms, elisions and multiword names. Compatible GPU and NPU routes retain their accelerator when switching to multilingual Kokoro. Native CPU speech can use up to 16 threads, within the device's available processor count.
 - Recover missing pull-request list and changed-file pages at their verified revision, restart implicit traversals when the head changes, and report deadlines with the remaining work.
 - Use one capacity-bound context plan before optional repository context, with a usable tool replay reserve, current-request protection, compact schema staging and retention of the previous user request.

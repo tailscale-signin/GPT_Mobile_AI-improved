@@ -44,6 +44,7 @@ MAX_FRAMES = SAMPLE_RATE * 30
 FIXTURE = "Café is ready. The quick brown fox jumps over the lazy dog."
 INCREMENTAL_PARTS = ("Café is ready. ", "The quick brown fox jumps over the lazy dog.")
 PRONUNCIATION_CORPUS = "Dr. Chen read the report yesterday. The lead pipe weighs 3.5 kilograms. The U.S. team met J. R. Tolkien. Café is ready."
+FRENCH_CORPUS = "Émilie arrive à Montréal. L’équipe prépare le café."
 CANCEL_FIXTURE = "This next sentence checks cancellation before the entire request finishes. " * 12
 
 # Keep these immutable publisher identities in sync with MediaPipeSpeechCatalog.kt.
@@ -165,12 +166,12 @@ def prerequisites() -> dict:
     return {"platform": platform.platform(), "python": platform.python_version(), "cpu_topology": topology, "native_sha256": NATIVE_LIBRARY_SHA256}
 
 
-def input_chunks(task, text: str, *, incremental: bool, evidence: dict):
+def input_chunks(task, text: str, *, incremental: bool, evidence: dict, voice_id=None, locale=None):
     """Drive the real SDK input protocol; the second delta waits for actual PCM."""
     evidence.update(text_delta_count=0, finish_input_calls=0, first_pcm_before_finish_input=False)
     if incremental:
         require(text == "".join(INCREMENTAL_PARTS), "Incremental fixture parts differ from the full input")
-    with task.open_stream(initial_text="" if incremental else text, finish_input=not incremental) as stream:
+    with task.open_stream(initial_text="" if incremental else text, voice_id=voice_id, locale=locale, finish_input=not incremental) as stream:
         if incremental:
             stream.push_text(INCREMENTAL_PARTS[0])
             evidence["text_delta_count"] += 1
@@ -187,7 +188,7 @@ def input_chunks(task, text: str, *, incremental: bool, evidence: dict):
         require(evidence["first_pcm_before_finish_input"] and evidence["text_delta_count"] == 2 and evidence["finish_input_calls"] == 1, "Incremental input never completed after its first PCM")
 
 
-def consume(task, text: str, np, *, incremental: bool = False, include_word_cues: bool = False) -> dict:
+def consume(task, text: str, np, *, incremental: bool = False, include_word_cues: bool = False, voice_id=None, locale=None) -> dict:
     start = time.monotonic()
     first_pcm = None
     frames = 0
@@ -206,7 +207,7 @@ def consume(task, text: str, np, *, incremental: bool = False, include_word_cues
     for character in text:
         position += len(character.encode("utf-8"))
         boundaries.add(position)
-    with closing(input_chunks(task, text, incremental=incremental, evidence=input_evidence)) as chunks_from_sdk:
+    with closing(input_chunks(task, text, incremental=incremental, evidence=input_evidence, voice_id=voice_id, locale=locale)) as chunks_from_sdk:
         for chunk in chunks_from_sdk:
             require(not final_seen, "SDK emitted a chunk after its terminal chunk")
             require(chunk.sample_rate_hz == SAMPLE_RATE, "Unexpected sample rate")
@@ -360,12 +361,19 @@ def worker(args, model: dict, model_file: Path, base: dict) -> int:
             print("KOKORO_CORPUS_END", flush=True)
             require(corpus["word_cues"], "The pronunciation corpus produced no source word cues")
             corpus_result = {"pronunciation_input": PRONUNCIATION_CORPUS, "pronunciation_corpus": corpus}
+            require("ff_siwis" in voices, "The Kokoro bundle is missing its French voice")
+            french = consume(task, FRENCH_CORPUS, np, include_word_cues=True, voice_id="ff_siwis", locale="fr")
+            require(french["word_cues"], "The French corpus produced no valid source word cues")
+            corpus_result["french"] = {"voice_id": "ff_siwis", "locale": "fr", "input": FRENCH_CORPUS, "stream": french}
             if args.cpu_reference:
                 reference = json.loads(args.cpu_reference.read_text())
                 require(reference["status"] == "passed" and reference["engine"] == "kokoro" and
                         reference["model"] == MODELS["kokoro"] and reference["host"]["native_sha256"] == host["native_sha256"] and
                         reference["requested_delegate"] == "CPU" and reference["speaking_rate"] == 1.0, "Invalid Kokoro CPU reference")
                 corpus_result["cpu_reference"] = compare_corpus(reference["pronunciation_corpus"], corpus)
+                french_reference = reference["french"]
+                require(french_reference["voice_id"] == "ff_siwis" and french_reference["locale"] == "fr", "French reference voice differs")
+                corpus_result["french"]["cpu_reference"] = compare_corpus(french_reference["stream"], french)
         initial = consume(task, FIXTURE, np)
         before = cancellation_probe(task, False)
         after = cancellation_probe(task, True)
@@ -418,7 +426,7 @@ def run_worker(args, model_file: Path, base: dict) -> int:
             result["gpu_dispatch"] = "unavailable_with_successful_pcm"
         result["driver_evidence"] = evidence
         result["diagnostic_tail"] = log[-8192:]
-        if result.get("cpu_reference", {}).get("consistent") is False:
+        if any(comparison.get("consistent") is False for comparison in (result.get("cpu_reference", {}), result["french"].get("cpu_reference", {}))):
             result["status"] = "cpu_reference_mismatch"
             write_json(args.output, result)
             return 1

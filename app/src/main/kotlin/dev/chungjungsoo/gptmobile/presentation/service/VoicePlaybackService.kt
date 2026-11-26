@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 internal class VoicePlaybackService : Service() {
     @Inject lateinit var playback: VoiceBackgroundPlayback
-    private lateinit var media: MediaSession
+    private var media: MediaSession? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var token: String? = null
     private var lastStart = 0
@@ -39,14 +39,6 @@ internal class VoicePlaybackService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "Voice playback", NotificationManager.IMPORTANCE_LOW)
         )
-        media = MediaSession(this, "Voice playback")
-        media.setCallback(object : MediaSession.Callback() {
-            override fun onStop() = playback.stop(token)
-            override fun onPause() = playback.stop(token)
-            override fun onCustomAction(action: String, extras: Bundle?) {
-                token?.let { current -> if (action == "$STOP/$current") playback.stop(current) }
-            }
-        })
         scope.launch {
             playback.notification.collect { if (it == null && lastStart != 0) stopSelfResult(lastStart) }
         }
@@ -57,21 +49,40 @@ internal class VoicePlaybackService : Service() {
         val active = playback.notification.value
         // Always meet the foreground-start deadline, even if the reply finished before service creation.
         try {
+            updateMediaSession(active)
             ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(active), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } catch (_: RuntimeException) {
             playback.stop(active?.token)
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        token = active?.token
         if (intent?.action == STOP) playback.stop(intent.data?.lastPathSegment)
         if (playback.notification.value == null) {
             stopSelfResult(startId)
         } else {
-            token?.let { media.setPlaybackState(playingState(it)) }
-            media.isActive = true
+            media?.isActive = true
         }
         return START_NOT_STICKY
+    }
+
+    private fun updateMediaSession(active: VoicePlaybackNotice?) {
+        if (token == active?.token) return
+        media?.release()
+        media = null
+        token = active?.token
+        if (active == null) return
+        val replyToken = active.token
+        media = MediaSession(this, "Voice playback").apply {
+            setCallback(object : MediaSession.Callback() {
+                override fun onStop() = playback.stop(replyToken)
+                override fun onPause() = playback.stop(replyToken)
+                override fun onCustomAction(action: String, extras: Bundle?) {
+                    if (action == "$STOP/$replyToken") playback.stop(replyToken)
+                }
+            })
+            setSessionActivity(openReplyIntent(this@VoicePlaybackService, active))
+            setPlaybackState(playingState(replyToken))
+        }
     }
 
     private fun notification(active: VoicePlaybackNotice?): Notification {
@@ -82,12 +93,10 @@ internal class VoicePlaybackService : Service() {
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
-        val style = Notification.MediaStyle().setMediaSession(media.sessionToken)
+        val style = Notification.MediaStyle()
+        media?.let { style.setMediaSession(it.sessionToken) }
         if (active != null) {
-            val open = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                .putExtra(MainActivity.EXTRA_CHAT_ROOM_ID, active.roomId)
-                .putExtra(MainActivity.EXTRA_NOTIFICATION_EVENT_ID, active.token)
-            builder.setContentIntent(PendingIntent.getActivity(this, NOTIFICATION_ID, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            builder.setContentIntent(openReplyIntent(this, active))
             val stop = Intent(this, VoicePlaybackService::class.java).setAction(STOP).setData(Uri.parse("gptmobile://voice/stop/${active.token}"))
             builder.addAction(Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, STOP_ICON), "Stop", PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_IMMUTABLE)).build())
             style.setShowActionsInCompactView(0)
@@ -98,7 +107,7 @@ internal class VoicePlaybackService : Service() {
     override fun onDestroy() {
         scope.cancel()
         playback.stop(token)
-        media.release()
+        media?.release()
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
@@ -110,6 +119,15 @@ internal class VoicePlaybackService : Service() {
         private const val NOTIFICATION_ID = 8054
         private const val STOP = "dev.chungjungsoo.gptmobile.voice.STOP"
         private const val STOP_ICON = android.R.drawable.ic_menu_close_clear_cancel
+
+        internal fun openReplyIntent(context: Context, notice: VoicePlaybackNotice): PendingIntent {
+            // Each tap gets a fresh navigation event. Restoring the activity does not replay the tap.
+            val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .setData(Uri.parse("gptmobile://voice/open/${notice.token}"))
+                .putExtra(MainActivity.EXTRA_CHAT_ROOM_ID, notice.roomId)
+            notice.message?.messageId?.takeIf { it > 0 }?.let { open.putExtra(MainActivity.EXTRA_TARGET_MESSAGE_ID, it) }
+            return PendingIntent.getActivity(context, NOTIFICATION_ID, open, PendingIntent.FLAG_IMMUTABLE)
+        }
 
         // Modern system media controls read PlaybackState; older controls use Notification.Action.
         internal fun playingState(token: String): PlaybackState = PlaybackState.Builder()

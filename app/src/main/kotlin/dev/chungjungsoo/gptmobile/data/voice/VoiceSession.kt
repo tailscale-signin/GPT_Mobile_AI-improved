@@ -415,11 +415,20 @@ class VoiceSession(
 
     // Only an already admitted utterance can outlive the visible screen.
     internal var backgroundPlayback = false
+    internal var automaticAudioAvailable: () -> Boolean = { true }
     internal val canStartPlaybackService: Boolean get() = foreground && engaged && streamAudio && !audioHeld
     internal val activeSpeechKey: String? get() = streamId
-    internal val retainsReply: Boolean get() = engaged && streamAudio && waiting && !streamComplete && state.phase == VoicePhase.THINKING
 
-    private fun playbackAllowed() = engaged && enabled && !audioHeld && state.phase != VoicePhase.CLOSED && (foreground || backgroundPlayback)
+    // A terminal row becomes visible before its final words are enqueued. The audio queue owns
+    // the transition until pumpSpeech clears waiting after the last word or silent completion.
+    internal val retainsReply: Boolean get() = engaged && streamAudio && waiting && state.phase == VoicePhase.THINKING
+
+    private fun playbackAllowed() = engaged &&
+        enabled &&
+        !audioHeld &&
+        state.phase != VoicePhase.CLOSED &&
+        (foreground || backgroundPlayback) &&
+        (manualPlayback || automaticAudioAvailable())
     private fun captureAllowed() = foreground && playbackAllowed() && permission && !state.muted
 
     /** Release only when the external worker has finished, never when cancellation is requested. */
@@ -475,7 +484,7 @@ class VoiceSession(
         }
         // Playback and typed turns remain available when recording permission is denied.
         // Only an explicit microphone action requests permission in the presentation layer.
-        if (!permission) {
+        if (!permission || !automaticAudioAvailable()) {
             update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
             return
         }

@@ -147,7 +147,11 @@ internal class PrivateLocalToolSession(
         }
         val evidence = evidence(exchanges)
         if (evidence == null || instruction.toByteArray(Charsets.UTF_8).size > 131_072) {
-            emit(rejected("REPLAY_EVIDENCE_REQUIRED", "Private local tool evidence exceeds the replay allowance. Start a smaller request; saved results remain available."))
+            emit(
+                dev.chungjungsoo.gptmobile.data.agent.SavedPageDeliveryRound.blocked("Private local tool evidence exceeds the replay allowance. Start a smaller request; saved results remain available.", "provider_admission") {
+                    put("replay_missing_record", if (evidence == null) "PRIVATE_RECEIPT_ALLOWANCE" else "PRIVATE_SCHEMA_ALLOWANCE")
+                }
+            )
             return@flow
         }
         val roundTurns = if (evidence.isEmpty()) {

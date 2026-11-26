@@ -45,7 +45,7 @@ internal data class GitHubReadReference(val number: Int, val kind: GitHubLookupR
 
     companion object {
         private val readFields = setOf("owner", "repo", "action", "include_health", "include_files", "include_checks", "include_patches", "expected_head_sha", "expected_base_sha", "check_page", "page", "per_page", "response_detail", "verify_live")
-        private val followUp = Regex("""(?:(?:(?:what|how) about )?(pr|pull request|issue) |(?:what|how) about )#([1-9][0-9]{0,9})[?!.]?""", RegexOption.IGNORE_CASE)
+        private val followUp = Regex("""(?:(?:(?:what|how) about )?(pr|pull request|issue) |(?:what|how) about )?#([1-9][0-9]{0,9})[?!.]?""", RegexOption.IGNORE_CASE)
 
         val clarificationLineage = OutputLineage(OutputOrigin.APPLICATION_REPORT)
 

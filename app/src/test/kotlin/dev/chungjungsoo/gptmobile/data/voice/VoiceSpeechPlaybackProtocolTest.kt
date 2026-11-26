@@ -29,6 +29,43 @@ class VoiceSpeechPlaybackProtocolTest {
         }
     }
 
+    @Test fun sdkPlansRecordObservedStreamProbesMatchedPrewarmAndLegacyInference() {
+        val delegates = VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO.supportedBackends
+        val config = configuration(full = true).copy(engine = VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO, backends = delegates, engineVoiceId = "af_bella", playbackScenarios = VoiceSpeechPlaybackScenario.entries)
+        val plans = VoiceSpeechPlaybackProtocol.plans(config)
+        val probes = plans.filter { it.cancellationTarget != null }
+        assertTrue(probes.any { it.cancellationTarget == VoiceSpeechCancellationTarget.SDK_STREAM_CALL })
+        assertFalse(probes.any { it.cancellationTarget == VoiceSpeechCancellationTarget.INFERENCE })
+        assertEquals(probes.map { it.cancellationTarget }, plans.mapNotNull { it.recoveryAfter })
+        val comparison = plans.filter { it.prewarmMode != null }
+        assertEquals(VoiceSpeechPrewarmMode.entries.toSet(), comparison.map { it.prewarmMode }.toSet())
+        assertEquals(1, comparison.map { it.manifest }.distinct().size)
+        val legacy = VoiceSpeechPlaybackProtocol.plans(config.copy(playbackProtocolVersion = 6))
+        assertTrue(legacy.any { it.cancellationTarget == VoiceSpeechCancellationTarget.INFERENCE })
+        assertTrue(legacy.none { it.prewarmMode != null || it.recoveryAfter != null })
+        assertTrue(VoiceSpeechPlaybackProtocol.maximumSamples(config.copy(mode = VoiceSpeechBenchmarkMode.STABILITY)) <= VoiceSpeechPlaybackProtocol.MAX_SAMPLES_PER_BACKEND)
+    }
+
+    @Test fun sdkExportKeepsUnrunStatesAndOlderHistoryWithoutCreatingSynthesisMeasurements() {
+        val delegates = VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO.supportedBackends
+        val config = configuration().copy(engine = VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO, engineVoiceId = "af_bella", backends = delegates, playbackScenarios = listOf(VoiceSpeechPlaybackScenario.CANCELLATION))
+        val report = VoiceSpeechBenchmarkReport(1L, config, state = VoiceSpeechBenchmarkRunState.INTERRUPTED, engineResults = delegates.map { VoiceSpeechEngineBenchmarkResult(it, state = VoiceSpeechBenchmarkBackendState.NOT_RUN) })
+        val json = speechBenchmarkJson(report, local = true)
+        assertEquals(report, speechBenchmarkReportFromJson(json))
+        val summary = json.getValue("backendStates").jsonArray
+        assertEquals(delegates.map { it.name }, summary.map { it.jsonObject.getValue("requestedBackend").toString().trim('"') })
+        assertTrue(summary.all { it.jsonObject.getValue("recordedTrials") == JsonPrimitive(0) })
+        assertTrue(json.getValue("engineResults").jsonArray.all { it.jsonObject["measuredCostMs"] == kotlinx.serialization.json.JsonNull })
+        val legacy = JsonObject(json + mapOf("schemaVersion" to JsonPrimitive(6), "backendStates" to JsonArray(emptyList()), "configuration" to JsonObject(json.getValue("configuration").jsonObject + ("playbackProtocolVersion" to JsonPrimitive(6)))))
+        val restored = requireNotNull(speechBenchmarkReportFromJson(legacy))
+        assertEquals(6, restored.configuration.playbackProtocolVersion)
+        assertEquals(restored, speechBenchmarkReportFromJson(speechBenchmarkJson(restored, local = true)))
+        val shared = requireNotNull(speechBenchmarkReportFromJson(speechBenchmarkJson(report)))
+        assertTrue(shared.configuration.deviceKey.isEmpty())
+        assertFalse(shared.configuration.currentProtocol)
+        assertNull(shared.recommendation())
+    }
+
     @Test fun interruptedComparisonKeepsMeasuredProcessorsPartialAndUntouchedProcessorsUnrun() {
         val config = configuration(full = true).copy(backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS)
         val plan = VoiceSpeechPlaybackProtocol.plans(config).first()
@@ -201,7 +238,7 @@ class VoiceSpeechPlaybackProtocolTest {
         assertEquals(16, sustained.size)
         assertEquals(1, sustained.map { it.manifest }.distinct().size)
         assertTrue(sustained.drop(1).all { it.expectedResident })
-        assertEquals(VoiceSpeechCancellationTarget.entries.toSet(), plans.mapNotNull { it.cancellationTarget }.toSet())
+        assertEquals(VoiceSpeechPlaybackProtocol.cancellationTargets(config).toSet(), plans.mapNotNull { it.cancellationTarget }.toSet())
         assertEquals(47, VoiceSpeechCaptionManifest.from(listOf(VoiceSpeechBenchmarkFixture.LONG.text)).spans.size)
     }
 
@@ -444,7 +481,7 @@ class VoiceSpeechPlaybackProtocolTest {
             playbackResults = listOf(result)
         )
         val json = speechBenchmarkJson(report, local = true)
-        assertEquals(6, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
+        assertEquals(7, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
         assertTrue(json.getValue("results").jsonArray.isEmpty())
         assertEquals(1, json.getValue("backendStates").jsonArray.size)
         assertFalse(json.getValue("backendStates").toString().contains("measuredCostMs"))

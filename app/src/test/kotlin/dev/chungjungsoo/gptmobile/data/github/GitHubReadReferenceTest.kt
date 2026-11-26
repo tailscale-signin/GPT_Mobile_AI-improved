@@ -28,6 +28,10 @@ class GitHubReadReferenceTest {
 
     @Test fun aBareNumberCanUseOnlyOneTypeFromAnAdjacentReadInTheSameWorkspace() {
         val bare = requireNotNull(parse(header + "What about #43?"))
+        assertEquals(bare, parse("#43"))
+        assertEquals(bare, parse(header + "#43?"))
+        assertEquals("Do you mean issue #43 or PR #43?", parse("#43")?.question)
+        for (text in listOf("#0", "#2147483648", "#43 and #44", "> #43", "#43 close", "\"#43\"")) assertNull(text, parse(text))
         assertEquals("Show issue #43", bare.resolve("Show issue #42", workspace, workspace).question)
         assertEquals("Show PR #43", bare.resolve(header + "List open pull requests", workspace, workspace).question)
         assertEquals("Show PR #43", bare.resolve("What about PR #42?", workspace.copy(commitSha = "b".repeat(40)), workspace).question)

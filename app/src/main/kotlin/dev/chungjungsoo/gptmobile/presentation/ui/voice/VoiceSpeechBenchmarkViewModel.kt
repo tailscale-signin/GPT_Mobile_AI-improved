@@ -42,6 +42,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackProtocol
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechStopOrigin
 import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
@@ -72,6 +73,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     private val cleanupQuarantined = AtomicBoolean()
     private val playbackRunner = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private val cancelled = AtomicBoolean(false)
+    private val stopOrigin = AtomicReference<VoiceSpeechStopOrigin?>(null)
     private val persistRetirement = AtomicReference<(() -> Unit)?>(null)
     private val retiringPlayback = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private var job: Job? = null
@@ -148,6 +150,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             }
             return
         }
+        stopOrigin.set(null)
         cancelled.set(false)
         mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null, nativeCleanupPending = false) }
         job = viewModelScope.launch(ConversationPrivacyContext.capture() ?: EmptyCoroutineContext) {
@@ -237,7 +240,15 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 MediaPipeVoicePhraseEngineFactory(streamingModels, checkNotNull(sdkEngine), backend, configuration.speechRate, checkNotNull(configuration.engineVoiceId), kokoroBucket = configuration.kokoroBucket, incrementalInput = configuration.incrementalInput)
             }
             when {
-                playback -> measurePlayback(models, writer, thermalStatus, sdkFactory.takeUnless { nativeEngine })
+                playback -> {
+                    val config = writer.report.configuration
+                    val pins = sdkEngine?.let { streamingModels.retainComparisonCaches(it, config.backends, config.speechRate, if (it.isKokoro) config.kokoroBucket.sdkValue else 0) }
+                    try {
+                        measurePlayback(models, writer, thermalStatus, sdkFactory.takeUnless { nativeEngine })
+                    } finally {
+                        pins?.close()
+                    }
+                }
                 nativeEngine -> measureNative(models, writer, thermalStatus)
                 else -> measureSdk(writer, thermalStatus, sdkFactory)
             }
@@ -264,7 +275,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         private val energy = VoiceSpeechBenchmarkEnergyTracker(batterySource::begin)
 
         fun publish(value: VoiceSpeechBenchmarkReport) {
-            val normalized = energy.attach(if (value.isRunning) value else value.finishPendingBackends())
+            val terminal = if (value.state == VoiceSpeechBenchmarkRunState.CANCELLED) {
+                value.copy(stopOrigin = value.stopOrigin ?: stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
+            } else {
+                value
+            }
+            val normalized = energy.attach(if (terminal.isRunning) terminal else terminal.finishPendingBackends())
             val closedWindow = normalized.configuration.playback && normalized.energyObservations.count { it.end != null } != report.energyObservations.count { it.end != null }
             report = normalized
             // Stage notifications stay in memory; disk I/O cannot inflate the first-PCM measurement.
@@ -301,7 +317,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         val nativeEngine = writer.report.configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
         val measurement = VoiceSpeechPlaybackBenchmark(context, models, writer.report.configuration, thermalStatus, engineFactory = sdkFactory)
         playbackRunner.set(measurement)
-        if (cancelled.get()) measurement.cancel()
+        if (cancelled.get()) measurement.cancel(stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
         val failedBackends = mutableSetOf<VoiceSpeechBackend>()
         for (pass in VoiceSpeechPlaybackProtocol.passes(writer.report.configuration)) {
             if (cancelled.get()) break
@@ -492,18 +508,20 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
 
     fun cancel() {
         if (!mutable.value.running) return
+        stopOrigin.compareAndSet(null, VoiceSpeechStopOrigin.USER)
         cancelled.set(true)
         mutable.update { it.copy(cancelling = true) }
         runner.get()?.cancel()
         engineRunner.get()?.cancel()
-        playbackRunner.get()?.cancel()
+        playbackRunner.get()?.cancel(stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
     }
 
     override fun onCleared() {
+        stopOrigin.compareAndSet(null, VoiceSpeechStopOrigin.LIFECYCLE)
         cancelled.set(true)
         runner.get()?.cancel()
         engineRunner.get()?.cancel()
-        playbackRunner.get()?.cancel()
+        playbackRunner.get()?.cancel(stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
         super.onCleared()
     }
 

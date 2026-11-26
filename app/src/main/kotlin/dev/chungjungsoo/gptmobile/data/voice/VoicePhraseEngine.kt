@@ -49,6 +49,7 @@ internal interface VoicePhraseEngine : AutoCloseable {
     val executionProvider: String get() = "cpu"
     val executionEvidence: VoiceSpeechExecutionEvidence? get() = null
     val executionProgress: VoiceSpeechProgress? get() = null
+    val sdkCancelToReadReturnMs: Long? get() = null
     val supportsStreaming: Boolean get() = false
     val supportsIncrementalInput: Boolean get() = false
     fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio = throw UnsupportedOperationException("This engine streams PCM")
@@ -75,7 +76,7 @@ internal interface VoicePhraseEngine : AutoCloseable {
     /** Selected only while the previous synthesis owner has retired. */
     fun selectVoice(voiceId: String): Unit = throw UnsupportedOperationException("This engine uses numeric speakers")
 
-    /** Optional CPU-only inference of a fixed public phrase. Discard PCM and keep reply evidence untouched. */
+    /** Optional inference of a fixed public phrase. Discard PCM and keep reply evidence untouched. */
     fun warmFirstInference(speaker: Int, speed: Float): Boolean = false
     fun resetCancellation()
     fun cancel()

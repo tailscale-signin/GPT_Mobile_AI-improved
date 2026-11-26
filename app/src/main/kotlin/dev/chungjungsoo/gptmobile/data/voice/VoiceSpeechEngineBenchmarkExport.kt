@@ -15,7 +15,7 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
 /** SDK callback measurements are kept separate from native provider and token-duration proof. */
-internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult, includeSamples: Boolean = true): JsonObject = buildJsonObject {
+internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult, includeSamples: Boolean = true, playback: Boolean = false): JsonObject = buildJsonObject {
     put("requestedBackend", result.requestedBackend.name)
     put("state", result.state.name)
     nullable("sessionPrepareMs", result.sessionPrepareMs)
@@ -34,14 +34,16 @@ internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult,
     nullable("timeoutScope", result.timeoutScope?.takeIf { it in TIMEOUT_SCOPES })
     nullable("timeoutLimitMs", result.timeoutLimitMs)
     nullable("timeoutElapsedMs", result.timeoutElapsedMs)
-    put("measuredCostMs", result.measuredCostMs)
+    val hasSynthesisCost = !playback && (result.sessionPrepareMs != null || result.samples.isNotEmpty() || result.failedAttemptMs != null || result.partialSample != null)
+    nullable("measuredCostMs", result.measuredCostMs.takeIf { hasSynthesisCost })
+    put("measurementScope", if (playback) "PLAYBACK_LIFECYCLE_ONLY" else "SYNTHESIS_COST")
     put("qualityScope", "STRUCTURAL_PCM_ONLY_SEMANTIC_AND_PERCEPTUAL_QUALITY_NOT_MEASURED")
     put("samples", buildJsonArray { result.samples.takeIf { includeSamples }.orEmpty().forEach { add(engineSampleJson(it)) } })
     put("partialSample", result.partialSample?.let(::engineSampleJson) ?: JsonNull)
     put(
         "fixtureStatistics",
         buildJsonArray {
-            VoiceSpeechBenchmarkFixture.entries.forEach { fixture ->
+            VoiceSpeechBenchmarkFixture.entries.filterNot { playback }.forEach { fixture ->
                 val samples = result.samples.filter { it.fixture == fixture && it.validatedAudio }
                 val warm = samples.filter { it.warm }
                 val times = warm.map { it.generationMs }.sorted()

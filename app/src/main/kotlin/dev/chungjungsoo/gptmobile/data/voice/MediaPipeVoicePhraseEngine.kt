@@ -29,6 +29,21 @@ internal class MediaPipeVoicePhraseEngine(
     private var closing = false
     private var closed = false
     private var retirementFailed = false
+    private var attemptId = 0L
+    private var attemptStarted = 0L
+    private var readSequence = 0L
+    private var readStarted: Long? = null
+    private var readStopRequested: Long? = null
+    private var readStopLatency: Long? = null
+    override val sdkCancelToReadReturnMs: Long? get() = synchronized(stateLock) { readStopLatency }
+
+    override val executionProgress: VoiceSpeechProgress?
+        get() = synchronized(stateLock) {
+            readStarted?.let { start ->
+                val now = System.nanoTime()
+                VoiceSpeechProgress(VoiceSpeechStage.SDK_STREAM_CALL, attemptId, readSequence, (now - start).coerceAtLeast(0) / 1_000_000, (now - attemptStarted).coerceAtLeast(0) / 1_000_000, cancellationRequested)
+            }
+        }
 
     override val supportsStreaming: Boolean = true
 
@@ -66,7 +81,12 @@ internal class MediaPipeVoicePhraseEngine(
         produce("", nextText, speed, emit)
     }
 
-    private fun produce(text: String, nextText: (() -> String?)?, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+    override fun warmFirstInference(speaker: Int, speed: Float): Boolean {
+        produce(VoiceSilentWarmup.PHRASE, null, speed, { true }, publishEvidence = false)
+        return true
+    }
+
+    private fun produce(text: String, nextText: (() -> String?)?, speed: Float, emit: (VoicePcmChunk) -> Boolean, publishEvidence: Boolean = true) {
         require(speed.toBits() == speakingRate.toBits()) { "Speech rate changed; prepare a new SDK engine." }
         synchronized(operationLock) {
             synchronized(stateLock) {
@@ -74,6 +94,9 @@ internal class MediaPipeVoicePhraseEngine(
                 checkCancellation()
                 owner = Thread.currentThread()
                 opening = true
+                attemptId++
+                attemptStarted = System.nanoTime()
+                readSequence = 0
             }
             var stream: MediaPipeSpeechStream? = null
             var feeder: Thread? = null
@@ -131,7 +154,21 @@ internal class MediaPipeVoicePhraseEngine(
                 while (true) {
                     synchronized(stateLock) { checkCancellation() }
                     inputFailure.get()?.let { throw it }
-                    val chunk = nativeStreamCall { opened.readNext() } ?: break
+                    // Only the SDK read is observable. Callback backpressure and text arrival are outside this interval.
+                    synchronized(stateLock) {
+                        checkCancellation()
+                        readSequence++
+                        readStarted = System.nanoTime()
+                    }
+                    val chunk = try {
+                        nativeStreamCall { opened.readNext() }
+                    } finally {
+                        val returned = System.nanoTime()
+                        synchronized(stateLock) {
+                            readStopRequested?.let { readStopLatency = (returned - it).coerceAtLeast(0) / 1_000_000 }
+                            readStarted = null
+                        }
+                    } ?: break
                     synchronized(stateLock) { checkCancellation() }
                     inputFailure.get()?.let { throw it }
                     require(!finalSeen) { "Speech SDK returned audio after its final chunk." }
@@ -211,7 +248,7 @@ internal class MediaPipeVoicePhraseEngine(
                     synchronized(stateLock) { owner = null }
                 }
             }
-            runCatching { onValidatedSynthesis?.invoke(voiceId, configuredBackend) }
+            if (publishEvidence) runCatching { onValidatedSynthesis?.invoke(voiceId, configuredBackend) }
         }
     }
 
@@ -255,12 +292,15 @@ internal class MediaPipeVoicePhraseEngine(
         synchronized(stateLock) {
             check(!closing && !closed && !retirementFailed && owner == null) { "Speech synthesis must retire before it is reset." }
             cancellationRequested = false
+            readStopRequested = null
+            readStopLatency = null
         }
     }
 
     override fun cancel() {
         synchronized(stateLock) {
             if (closed) return
+            if (readStarted != null && readStopRequested == null) readStopRequested = System.nanoTime()
             cancellationRequested = true
             inputOwner?.interrupt()
             cancelNative()

@@ -3,6 +3,31 @@ package dev.chungjungsoo.gptmobile.data.voice
 import kotlin.math.abs
 import kotlin.math.sqrt
 
+internal data class VoicePcmSignal(val samples: Long, val rms: Double, val peak: Double, val clipped: Long, val nonSilent: Long)
+
+/** Constant-space statistics for raw SDK callbacks before the playback queue. */
+internal class VoicePcmSignalMeasurement {
+    private var count = 0L
+    private var sumSquares = 0.0
+    private var peak = 0.0
+    private var clipped = 0L
+    private var nonSilent = 0L
+
+    fun accept(samples: FloatArray) {
+        for (sample in samples) {
+            val value = sample.toDouble()
+            val absolute = abs(value)
+            sumSquares += value * value
+            peak = maxOf(peak, absolute)
+            if (absolute >= 1.0) clipped++
+            if (absolute >= 1e-5) nonSilent++
+        }
+        count += samples.size
+    }
+
+    fun snapshot(): VoicePcmSignal? = if (count == 0L) null else VoicePcmSignal(count, sqrt(sumSquares / count), peak, clipped, nonSilent)
+}
+
 /** Bounded incremental measurements before playback trimming; no waveform is copied or retained. */
 internal class VoiceSpeechEnginePcmMeasurement(
     private val fixture: VoiceSpeechBenchmarkFixture,
@@ -20,10 +45,7 @@ internal class VoiceSpeechEnginePcmMeasurement(
     private var last: Long? = null
     private var maximumGap: Long? = null
     private var firstFromPreparation: Long? = null
-    private var sumSquares = 0.0
-    private var peak = 0.0
-    private var clipped = 0L
-    private var nonSilent = 0L
+    private val signal = VoicePcmSignalMeasurement()
     private var activeFrames: VoiceStreamFrames? = null
     private val timeline = mutableListOf<VoiceSpeechEnginePcmReceipt>()
 
@@ -52,14 +74,7 @@ internal class VoiceSpeechEnginePcmMeasurement(
         if (timeline.size < MAX_PCM_RECEIPTS) timeline += VoiceSpeechEnginePcmReceipt(chunks, elapsed, chunk.samples.size, calls - 1)
         chunks++
         frames += chunk.samples.size
-        for (sample in chunk.samples) {
-            val value = sample.toDouble()
-            val absolute = abs(value)
-            sumSquares += value * value
-            peak = maxOf(peak, absolute)
-            if (absolute >= 1.0) clipped++
-            if (absolute >= 1e-5) nonSilent++
-        }
+        signal.accept(chunk.samples)
     }
 
     fun finishStream() {
@@ -68,12 +83,13 @@ internal class VoiceSpeechEnginePcmMeasurement(
     }
 
     fun snapshot(complete: Boolean, thermalAfter: Int?): VoiceSpeechEngineBenchmarkSample {
-        if (complete) check(activeFrames == null && calls > 0 && frames > 0 && nonSilent > 0) { "BENCHMARK_OUTPUT_INVALID" }
+        val pcm = signal.snapshot()
+        if (complete) check(activeFrames == null && calls > 0 && frames > 0 && (pcm?.nonSilent ?: 0) > 0) { "BENCHMARK_OUTPUT_INVALID" }
         return VoiceSpeechEngineBenchmarkSample(
             fixture, repeat, text.toByteArray(Charsets.UTF_8).size, VoiceSpeechWorkload.digest(text),
             elapsed(nanoTime()), first, last, firstFromPreparation, frames, chunks, calls, maximumGap,
-            complete, thermalBefore, thermalAfter, if (frames > 0) sqrt(sumSquares / frames) else null,
-            peak.takeIf { frames > 0 }, clipped, nonSilent, timeline.toList(), (chunks - timeline.size).coerceAtLeast(0)
+            complete, thermalBefore, thermalAfter, pcm?.rms,
+            pcm?.peak, pcm?.clipped ?: 0, pcm?.nonSilent ?: 0, timeline.toList(), (chunks - timeline.size).coerceAtLeast(0)
         )
     }
 

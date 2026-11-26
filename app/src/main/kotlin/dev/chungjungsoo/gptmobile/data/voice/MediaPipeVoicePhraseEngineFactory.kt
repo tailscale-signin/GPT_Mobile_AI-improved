@@ -24,6 +24,8 @@ internal class MediaPipeVoicePhraseEngineFactory(
     private val model = MediaPipeSpeechCatalog.model(engine)
     private val generation = AtomicLong()
     private val reportedBackend = AtomicReference<VoiceSpeechBackend?>()
+
+    @Volatile var playbackMeasurement: VoiceSpeechPlaybackMeasurement? = null
     private val pendingLock = Any()
     private var pending: MediaPipeSpeechTask? = null
     private val cleanupPending = AtomicBoolean()
@@ -90,31 +92,47 @@ internal class MediaPipeVoicePhraseEngineFactory(
     private fun open(request: VoiceSpeechBackend, ticket: Long, requestedVoice: String = voiceId): MediaPipeVoicePhraseEngine {
         checkTicket(ticket)
         val selectedEngine = if (request == VoiceSpeechBackend.LITERT_KOKORO_CPU) MediaPipeSpeechEngine.KOKORO else engine
-        val lease = modelStore.acquire(selectedEngine, request, speakingRate, model.defaultVoice, effectiveTargetBucket)
+        val observer = playbackMeasurement
+        fun <T> timed(stage: String, operation: () -> T): T {
+            if (observer == null) return operation()
+            val start = System.nanoTime()
+            try {
+                return operation()
+            } finally {
+                observer.preparationPhase(stage, (System.nanoTime() - start).coerceAtLeast(0) / 1_000_000)
+            }
+        }
+        val lease = timed("MODEL_LEASE") { modelStore.acquire(selectedEngine, request, speakingRate, model.defaultVoice, effectiveTargetBucket) }
+        observer?.cacheObserved(lease.directoryPresentAtEntry, lease.evictionsOnAcquire)
         var task: MediaPipeSpeechTask? = null
         try {
-            if (request == VoiceSpeechBackend.LITERT_KOKORO_SM8750) modelStore.requireSm8750()
-            if (request == VoiceSpeechBackend.LITERT_KOKORO_NPU || request == VoiceSpeechBackend.LITERT_KOKORO_SM8750) modelStore.prepareNpu()
+            timed("DELEGATE_SETUP") {
+                if (request == VoiceSpeechBackend.LITERT_KOKORO_SM8750) modelStore.requireSm8750()
+                if (request == VoiceSpeechBackend.LITERT_KOKORO_NPU || request == VoiceSpeechBackend.LITERT_KOKORO_SM8750) modelStore.prepareNpu()
+            }
             checkTicket(ticket)
-            task = taskFactory(
-                MediaPipeSpeechTaskConfiguration(
-                    lease.file,
-                    lease.cacheDirectory,
-                    when (request) {
-                        VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.LITERT_KOKORO_SM8750 -> Delegate.NPU
-                        VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED -> Delegate.GPU
-                        else -> Delegate.CPU
-                    },
-                    speakingRate,
-                    model.defaultVoice,
-                    effectiveTargetBucket
+            val opened = timed("SDK_TASK_OPEN") {
+                taskFactory(
+                    MediaPipeSpeechTaskConfiguration(
+                        lease.file,
+                        lease.cacheDirectory,
+                        when (request) {
+                            VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.LITERT_KOKORO_SM8750 -> Delegate.NPU
+                            VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED -> Delegate.GPU
+                            else -> Delegate.CPU
+                        },
+                        speakingRate,
+                        model.defaultVoice,
+                        effectiveTargetBucket
+                    )
                 )
-            )
+            }
+            task = opened
             synchronized(pendingLock) {
-                pending = task
+                pending = opened
                 checkTicket(ticket)
             }
-            val voices = task.voiceIds()
+            val voices = timed("VOICE_ENUMERATION") { opened.voiceIds() }
             val selectedVoice = SpeechLanguages.availableVoice(requestedVoice, voices, onPlaybackDelegate != null)
                 ?: throw IOException("No installed voice matches the selected language in ${model.title}.")
             synchronized(pendingLock) {

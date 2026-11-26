@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import dev.melo.kokoro.TimedKokoro
 import java.util.concurrent.CancellationException
 
-internal enum class VoiceSpeechStage { FRONTEND, PREPARING, SYNTHESIS, VALIDATING, READY, CPU_FALLBACK }
+internal enum class VoiceSpeechStage { FRONTEND, PREPARING, SYNTHESIS, VALIDATING, READY, CPU_FALLBACK, SDK_STREAM_CALL }
 
 internal enum class VoiceSpeechFailureCode {
     FRONTEND_INPUT_EMPTY,

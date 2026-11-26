@@ -570,6 +570,16 @@ private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult) {
                 Text("Series elapsed: ${result.sustainedWallElapsedMs ?: "unmeasured"}/${result.sustainedWallDeadlineMs ?: "unknown"} ms wall limit", style = MaterialTheme.typography.bodySmall)
             }
             Text("First PCM ${result.firstPcmMs ?: "—"} ms · queued ${result.firstQueuedPcmMs ?: "—"} ms · presented ${result.firstPresentedAudioMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall)
+            result.prewarmMode?.let { mode ->
+                val outcome = if (result.prewarmCompleted == true) "completed" else "incomplete"
+                Text("Prewarm ${mode.name.lowercase(Locale.ROOT).replace('_', ' ')} · $outcome · ${result.prewarmElapsedMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall)
+            }
+            result.sdkPcm?.let { pcm ->
+                Text("Peak ${format(pcm.peak)} · RMS ${format(pcm.rms)} · ${pcm.clipped} clipped samples", style = MaterialTheme.typography.bodySmall)
+            }
+            result.stopOrigin?.let { origin ->
+                Text("Stop requested by ${origin.name.lowercase(Locale.ROOT)} · audio stopped in ${result.cancellationMs ?: "—"} ms · engine retired in ${result.nativeRetirementMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall)
+            }
             Text("AudioTrack write ${result.firstAudioTrackWriteMs ?: "unmeasured"} ms · play requested ${result.trackPlayRequestedMs ?: "unmeasured"} ms · model preparation ${result.sessionPrepareMs ?: "unmeasured"} ms", style = MaterialTheme.typography.bodySmall)
             Text(if (result.requestedDelegate == null) "Requested/effective threads ${result.requestedThreads ?: "unknown"}/${result.effectiveThreads ?: "unknown"} · engine reused ${result.engineReused ?: "unknown"}" else "${result.requestedDelegate} delegate requested · actual processor and threads unobserved · engine reused ${result.engineReused ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
             Text("${if (result.requestedDelegate == null) "${result.validatedChunks}/${result.chunks} native chunks verified · completed generation" else "${result.chunks} delivered sections · PCM production intervals"} ${result.totalSynthesisMs} ms · audio ${result.totalAudioMs} ms · elapsed ${result.elapsedMs} ms", style = MaterialTheme.typography.bodySmall)

@@ -74,7 +74,7 @@ internal data class VoiceSpeechBenchmarkConfiguration(
         require(playbackScheduleVersion in 1..2)
     }
 
-    val currentProtocol: Boolean get() = protocolId == VoiceSpeechWorkload.PROTOCOL && fixtureVersion == VoiceSpeechWorkload.FIXTURE_VERSION && fixtureHash == VoiceSpeechWorkload.fixtureHash(workload) && (!playback || playbackProtocolVersion == VoiceSpeechPlaybackProtocol.VERSION)
+    val currentProtocol: Boolean get() = deviceKey.isNotEmpty() && protocolId == VoiceSpeechWorkload.PROTOCOL && fixtureVersion == VoiceSpeechWorkload.FIXTURE_VERSION && fixtureHash == VoiceSpeechWorkload.fixtureHash(workload) && (!playback || playbackProtocolVersion == VoiceSpeechPlaybackProtocol.VERSION)
 
     /** A retained rotation is reproducible; successive runs can counterbalance backend order. */
     val plannedBackendOrder: List<VoiceSpeechBackend>
@@ -377,7 +377,8 @@ internal data class VoiceSpeechBenchmarkReport(
     val activeChunk: Int? = null,
     val playbackResults: List<VoiceSpeechPlaybackResult> = emptyList(),
     val engineResults: List<VoiceSpeechEngineBenchmarkResult> = emptyList(),
-    val energyObservations: List<VoiceSpeechBenchmarkEnergyObservation> = emptyList()
+    val energyObservations: List<VoiceSpeechBenchmarkEnergyObservation> = emptyList(),
+    val stopOrigin: VoiceSpeechStopOrigin? = null
 ) {
     val completedSamples: Int get() = when {
         configuration.playback -> playbackResults.size

@@ -148,6 +148,25 @@ class MediaPipeSpeechModelStoreTest {
         assertTrue(checkNotNull(active.cacheDirectory.parentFile).listFiles().orEmpty().size <= 2)
     }
 
+    @Test fun comparisonRetainsThreeDelegateDirectoriesUntilItsOwnerReleasesThem() = runBlocking {
+        val store = store { bytes }
+        store.install(model.engine)
+        val delegates = listOf(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU)
+        val parent = store.retainComparisonCaches(model.engine, delegates, 1f, 0).use {
+            val first = delegates.map { backend ->
+                acquire(store, backend).use { lease ->
+                    assertFalse(lease.directoryPresentAtEntry)
+                    assertEquals(0, lease.evictionsOnAcquire)
+                    lease.cacheDirectory
+                }
+            }
+            delegates.forEach { backend -> acquire(store, backend).use { lease -> assertTrue(lease.directoryPresentAtEntry) } }
+            assertTrue(first.all(File::isDirectory))
+            checkNotNull(first.first().parentFile)
+        }
+        assertTrue(parent.listFiles().orEmpty().size <= 2)
+    }
+
     @Test fun factoryIdentityAndConfigurationIncludeRateVoiceModelAndRequestedDelegate() = runBlocking {
         val store = store { bytes }
         store.install(model.engine)

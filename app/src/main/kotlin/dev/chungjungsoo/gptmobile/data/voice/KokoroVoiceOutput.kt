@@ -602,19 +602,31 @@ internal class KokoroVoiceOutput(
         if (active == null && !calibrating) speechFactory.cancelPending()
     }
 
-    override fun prewarm(voice: KokoroVoice, assetsOnly: Boolean) {
+    override fun prewarm(voice: KokoroVoice, assetsOnly: Boolean) = prepareWarmup(voice, assetsOnly, true, null)
+
+    internal fun prewarmForBenchmark(voice: KokoroVoice, mode: VoiceSpeechPrewarmMode, done: (Boolean) -> Unit) =
+        prepareWarmup(voice, false, mode == VoiceSpeechPrewarmMode.FIRST_INFERENCE, done)
+
+    private fun prepareWarmup(voice: KokoroVoice, assetsOnly: Boolean, infer: Boolean, done: ((Boolean) -> Unit)?) {
         val factory = speechFactory
-        if (closed || active != null || calibrating || !factory.isReady() || factory.requiresKokoroAssets && !models.isInstalled()) return
+        if (closed || active != null || calibrating || !factory.isReady() || factory.requiresKokoroAssets && !models.isInstalled()) {
+            done?.invoke(false)
+            return
+        }
         val speed = VoiceCpuCalibrationProtocol.rate(rate())
         if (assetsOnly && !factory.requiresKokoroAssets) return
         val key = WarmupKey(ModelKey(voice.lexicon, threadCount, factory), voice.speakerId, speed.toBits(), assetsOnly, performance)
-        if (warmupRequest == key) return
+        if (warmupRequest == key) {
+            done?.invoke(false)
+            return
+        }
         warmupRequest = key
         val generation = ++warmupGeneration
         val capturedPrivacy = privacy()
         synthesis.execute {
-            if (warmupRequest != key || warmupGeneration != generation) return@execute
+            var prepared = false
             try {
+                if (warmupRequest != key || warmupGeneration != generation) return@execute
                 ConversationPrivacyContext.withCaptured(capturedPrivacy) {
                     // Parse the large verified pronunciation dictionary before waiting behind Moonshine.
                     // The real model still acquires its own validated installation lease before JNI opens it.
@@ -633,7 +645,7 @@ internal class KokoroVoiceOutput(
                             // its measured thread choice now, instead of warming the startup fallback.
                             val resolved = key.model.copy(threads = effectiveThreads(voice, speed))
                             val model = loadModelExclusive(resolved)
-                            warmFirstCpuInference(model, voice, speed, generation)
+                            prepared = !infer || warmFirstInference(model, voice, speed, generation, factory.identity)
                         }
                     }
                 }
@@ -643,22 +655,20 @@ internal class KokoroVoiceOutput(
                 main.post { if (warmupGeneration == generation) warmupRequest = null }
             } catch (_: OutOfMemoryError) {
                 main.post { if (warmupGeneration == generation) warmupRequest = null }
+            } finally {
+                done?.invoke(prepared && warmupGeneration == generation)
             }
         }
     }
 
-    private fun warmFirstCpuInference(model: LoadedModel, voice: KokoroVoice, speed: Float, generation: Long) {
+    private fun warmFirstInference(model: LoadedModel, voice: KokoroVoice, speed: Float, generation: Long, configurationId: String): Boolean {
         val selected = model.key.factory.selectedBackend
-        if ((selected != VoiceSpeechBackend.CPU && selected != VoiceSpeechBackend.AUTO) ||
-            model.engine.executionProvider != "cpu" ||
-            powerManager?.currentThermalStatus !in 0..1
-        ) {
-            return
-        }
+        val nativeCpu = (selected == VoiceSpeechBackend.CPU || selected == VoiceSpeechBackend.AUTO) && model.engine.executionProvider == "cpu"
+        if ((!nativeCpu && !selected.isLiteRtKokoro) || powerManager?.currentThermalStatus !in 0..1) return false
         val hardware = DeviceHardwareGovernor.inspectHardwareState(application)
-        if (hardware.isModeratePressure || hardware.isThrottlingRequired) return
+        if (hardware.isModeratePressure || hardware.isThrottlingRequired) return false
         fun authorized() = !closed && active == null && !calibrating && warmupGeneration == generation && loaded === model
-        val attempt = silentWarmup.begin(model.warmupIdentity, voice.speakerId, speed, ::authorized, model.engine::resetCancellation, model.engine::cancel) ?: return
+        val attempt = silentWarmup.begin(model.warmupIdentity, voice.speakerId, speed, configurationId, ::authorized, model.engine::resetCancellation, model.engine::cancel) ?: return false
         val deadline = Runnable { silentWarmup.cancel(attempt) }
         main.postDelayed(deadline, VoiceSilentWarmup.CANCELLATION_DEADLINE_MS)
         var succeeded = false
@@ -668,6 +678,7 @@ internal class KokoroVoiceOutput(
             silentWarmup.finish(attempt, succeeded, ::authorized)
             main.removeCallbacks(deadline)
         }
+        return succeeded
     }
 
     override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) =

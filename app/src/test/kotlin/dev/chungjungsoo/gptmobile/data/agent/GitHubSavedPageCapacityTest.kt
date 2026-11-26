@@ -287,7 +287,11 @@ class GitHubSavedPageCapacityTest {
         }
         assertEquals(listOf(ProviderEvent.Completed), read(listOf(ProviderEvent.TextDelta("page received"), ProviderEvent.Completed)))
         // Bare cached UNKNOWN text cannot witness a physical provider read.
-        assertEquals("REPLAY_EVIDENCE_REQUIRED", (read(listOf(ProviderEvent.TextDelta("cached"), ProviderEvent.Completed), fresh = false).single() as ProviderEvent.Failed).errorCode)
+        val rejected = read(listOf(ProviderEvent.TextDelta("cached"), ProviderEvent.Completed), fresh = false).single() as ProviderEvent.Failed
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", rejected.errorCode)
+        assertEquals(JsonPrimitive("FRESH_PROVIDER_COMPLETION"), rejected.failureDetails?.get("replay_missing_record"))
+        assertEquals(JsonPrimitive(call.name), rejected.failureDetails?.get("operation"))
+        assertNotNull(rejected.failureDetails?.get("replay_call_hash"))
         val reviewRows = mutableMapOf<String, JsonObject>()
         val review = dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint("Read the saved page", { reviewRows[it] }, { key, value -> reviewRows[key] = value })
         val reviewEvidence = dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence()

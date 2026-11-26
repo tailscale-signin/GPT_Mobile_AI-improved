@@ -42,6 +42,21 @@ class MediaPipeVoicePhraseEngineTest {
         engine.close()
     }
 
+    @Test fun silentFirstInferenceUsesThePublicPhraseWithoutPublishingPlaybackEvidence() {
+        var receipts = 0
+        val task = TestTask {
+            var read = false
+            TestStream { if (read) null else AudioChunk(floatArrayOf(.2f), isFinal = true).also { read = true } }
+        }
+        engine(task).use { engine ->
+            engine.onValidatedSynthesis = { _, _ -> receipts++ }
+            assertTrue(engine.warmFirstInference(0, 1f))
+            assertEquals(0, receipts)
+            engine.stream("word", 0, 1f) { true }
+            assertEquals(1, receipts)
+        }
+    }
+
     @Test fun nativeClausesAreSplitIntoBoundedSlicesWithoutDuplicatingCues() {
         val native = AudioChunk(
             FloatArray(VOICE_PCM_SAMPLE_RATE * 7) { .1f },
@@ -127,8 +142,11 @@ class MediaPipeVoicePhraseEngineTest {
         try {
             val operation = worker.submit<Throwable?> { runCatching { engine.stream("test", 0, 1f) { true } }.exceptionOrNull() }
             assertTrue(entered.await(3, TimeUnit.SECONDS))
+            assertEquals(VoiceSpeechStage.SDK_STREAM_CALL, engine.executionProgress?.stage)
             engine.cancel()
             assertTrue(operation.get(3, TimeUnit.SECONDS) is CancellationException)
+            assertEquals(null, engine.executionProgress)
+            assertTrue(engine.sdkCancelToReadReturnMs != null)
             engine.close()
         } finally {
             cancelled.countDown()
@@ -160,6 +178,7 @@ class MediaPipeVoicePhraseEngineTest {
                 }.exceptionOrNull()
             }
             assertTrue(entered.await(3, TimeUnit.SECONDS))
+            assertEquals(null, engine.executionProgress)
             val closing = workers.submit { engine.close() }
             assertTrue(cancelCalled.await(3, TimeUnit.SECONDS))
             assertFalse(task.closed.get())

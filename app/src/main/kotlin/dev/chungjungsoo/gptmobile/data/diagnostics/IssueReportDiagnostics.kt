@@ -233,6 +233,7 @@ internal data class IssueReportDiagnostics(
         if ("app_search_readiness" in values.keys + omittedFields) add(SEARCH_READINESS_FEATURE)
         if ((values.keys + omittedFields).any { it in silencedInputFields }) add(SILENCED_INPUT_FEATURE)
         if ((values.keys + omittedFields).any { it in setOf("minimum_page_body_tokens", "source_allowance") } || values["replay_budget_state"] == JsonPrimitive("SAVED_PAGE_EXCEEDS_ALLOWANCE")) add("SAVED_PAGE_CAPACITY_EVIDENCE_V1")
+        if ((values.keys + omittedFields).any { it in replaySourceFields }) add("REPLAY_SOURCE_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in replayBudgetFields }) add("REPLAY_BUDGET_EVIDENCE_V1")
         if ("pending_saved_page_count" in values.keys + omittedFields || values["replay_budget_state"] == JsonPrimitive("REQUIRED_SAVED_PAGE_NOT_PRESENT")) add(SAVED_PAGE_REPLAY_FEATURE)
         if ("graph_transport_kind" in values || "graph_transport_kind" in omittedFields) add("GRAPH_TRANSPORT_EVIDENCE_V1")
@@ -326,6 +327,8 @@ internal data class IssueReportDiagnostics(
         const val SAVED_PAGE_REPLAY_FEATURE = "SAVED_PAGE_REPLAY_EVIDENCE_V1"
         private val replayBudgetCounts = setOf("replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count", "minimum_page_body_tokens", "source_allowance")
         internal val replayBudgetFields = replayBudgetCounts + "replay_budget_state"
+        internal val replaySourceFields = setOf("replay_missing_record", "replay_call_hash", "replay_source_hash", "replay_expected_body_hash")
+        internal val replayMissingRecords = setOf("EXPECTED_BODY_DIGEST", "SAVED_PAGE_BODY", "BODY_ALLOWANCE", "PROJECTION_MATCH", "FRESH_PROVIDER_COMPLETION", "READING_NOTES", "NOTE_LIMIT", "UNSUPPORTED_OUTPUT", "CHECKPOINT_IDENTITY", "AUTHORIZED_REOPEN", "PRIVATE_RECEIPT_ALLOWANCE", "PRIVATE_SCHEMA_ALLOWANCE", "TERMINAL_FAILURE_DETAILS")
         private val reconciliationEvidenceFields = setOf("reconciliation_source", "reconciliation_tracked_signature_count")
         internal val graphTransportKinds = setOf("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN")
         internal val graphLocalPhases = setOf("TREE_SELECTION", "PACKET_CACHE_READ", "SYMBOL_CATALOG", "SOURCE_LOAD", "MANIFEST_RANKING", "SOURCE_GRAPH", "SOURCE_RANGES", "SEMANTIC_RANKING", "PACKET_ASSEMBLY", "PACKET_CACHE_WRITE")
@@ -409,7 +412,7 @@ internal data class IssueReportDiagnostics(
             "REASONING_AUTO_UNSUPPORTED", "GATEWAY_REMOTE_SURFACE_NOT_ADMITTED"
         )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
-        private val hashFields = commonHashes + profileSelectionHashes + setOf(
+        private val hashFields = commonHashes + profileSelectionHashes + setOf("replay_call_hash", "replay_source_hash", "replay_expected_body_hash") + setOf(
             "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash", "missing_tool_hash",
             "graph_index_attempt_hash",
             "reasoning_template_hash", "conflict_conversation_hash", "conflict_pending_tool_ids_hash",
@@ -480,6 +483,7 @@ internal data class IssueReportDiagnostics(
             "conflict_stream_job_relation" to setOf("MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"),
             "acceptance_capability_scope" to setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES"),
             "reconciliation_source" to setOf("SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"),
+            "replay_missing_record" to replayMissingRecords,
             "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH", "SAVED_PAGE_EXCEEDS_ALLOWANCE"),
             "graph_transport_kind" to graphTransportKinds,
             "graph_local_phase" to graphLocalPhases,
@@ -630,7 +634,7 @@ internal data class IssueReportDiagnostics(
             "VOICE" to voiceInstallEvidenceFields + voicePackStateFields + voiceCapturePlaybackFields + setOf("voice_install_state", "voice_install_scheduler", "voice_install_failure", "voice_install_stop_reason", "voice_install_progress_percent", "voice_reply_state", "voice_reply_characters", "voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_speech_end_to_transcript_ms", "voice_transcript_to_request_ms", "voice_request_to_response_ms", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"),
             "GATEWAY" to setOf("queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "gateway_preflight_candidate_count", "gateway_preflight_blocker_codes", "gateway_preflight_recovery_actions", "gateway_preflight_discovery_state", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "gateway_preflight_blocker_codes", "gateway_preflight_recovery_actions", "gateway_preflight_discovery_state", "gateway_preflight_candidate_count", "status_policy_recovery") + commonHashes + modelPreparationFields + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),
             "APP" to composerEvidenceFields + commonHashes + setOf("original_error_code_hash", "app_exit_kind", "chat_failure_code_state"),
-            "INCIDENT" to commonHashes + replayBudgetFields + reconciliationEvidenceFields + setOf(
+            "INCIDENT" to commonHashes + replayBudgetFields + replaySourceFields + reconciliationEvidenceFields + setOf(
                 "original_error_code_hash",
                 "chat_failure_code_state",
                 "provider_error_code_state",

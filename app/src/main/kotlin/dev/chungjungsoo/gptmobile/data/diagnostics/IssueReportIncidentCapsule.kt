@@ -548,6 +548,25 @@ internal object IssueReportIncidentCapsule {
         ) {
             IssueReportDiagnostics.replayBudgetFields.forEach(::remove)
         }
+        if (area != "INCIDENT" ||
+            feature != ReportFeature.CHAT ||
+            source != "CHAT_FAILURE" ||
+            code != "REPLAY_EVIDENCE_REQUIRED" ||
+            text(fields["failure_origin"]) != "APPLICATION" ||
+            phase !in setOf("planning", "provider_admission", "response_stream") ||
+            text(fields["replay_missing_record"]) !in IssueReportDiagnostics.replayMissingRecords
+        ) {
+            IssueReportDiagnostics.replaySourceFields.forEach(::remove)
+        }
+        if (area == "INCIDENT" &&
+            feature == ReportFeature.CHAT &&
+            source == "CHAT_FAILURE" &&
+            code == "REPLAY_EVIDENCE_REQUIRED" &&
+            text(fields["incident_capture_site"]) == ExceptionCaptureSite.AGENT_FAILED_EVENT.name &&
+            fields["failed_event_details_present"] in setOf(false, JsonPrimitive(false))
+        ) {
+            put("replay_missing_record", "TERMINAL_FAILURE_DETAILS")
+        }
         remove("app_search_readiness")
         if (area == "INCIDENT" &&
             feature == ReportFeature.CHAT &&

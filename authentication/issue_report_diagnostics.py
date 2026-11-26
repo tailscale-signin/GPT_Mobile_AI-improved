@@ -306,6 +306,12 @@ REPLAY_BUDGET_COUNTS = {"replay_allowance", "replay_tokens", "replay_exchange_co
 COUNTS.update(REPLAY_BUDGET_COUNTS)
 ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH", "SAVED_PAGE_EXCEEDS_ALLOWANCE"}
 FIELDS_BY_AREA["INCIDENT"].update(REPLAY_BUDGET_COUNTS | {"replay_budget_state"})
+REPLAY_SOURCE_HASHES = {"replay_call_hash", "replay_source_hash", "replay_expected_body_hash"}
+HASH_FIELDS.update(REPLAY_SOURCE_HASHES)
+ENUMS["replay_missing_record"] = {"EXPECTED_BODY_DIGEST", "SAVED_PAGE_BODY", "BODY_ALLOWANCE", "PROJECTION_MATCH",
+                                  "FRESH_PROVIDER_COMPLETION", "READING_NOTES", "NOTE_LIMIT", "UNSUPPORTED_OUTPUT",
+                                  "CHECKPOINT_IDENTITY", "AUTHORIZED_REOPEN", "PRIVATE_RECEIPT_ALLOWANCE", "PRIVATE_SCHEMA_ALLOWANCE", "TERMINAL_FAILURE_DETAILS"}
+FIELDS_BY_AREA["INCIDENT"].update(REPLAY_SOURCE_HASHES | {"replay_missing_record"})
 COUNTS.add("reconciliation_tracked_signature_count")
 FLAGS.add("round_catalog_discovery_available")
 ENUMS["reconciliation_source"] = {"SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"}

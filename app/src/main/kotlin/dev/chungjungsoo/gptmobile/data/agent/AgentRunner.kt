@@ -374,7 +374,13 @@ class AgentRunner(
                     if (latest != null && latest.savedPageReading != savedPageReading) {
                         val knownCalls = SavedPageReading.fingerprints(savedPageReading) + exchanges.flatMap { it.calls }.associate { it.callId to ToolHandoffReceipt.fingerprint(it) }
                         if (!SavedPageReading.canRefresh(savedPageReading, latest.savedPageReading, knownCalls)) {
-                            emit(AgentRunEvent.Provider(SavedPageDeliveryRound.blocked("Another runner changed the saved reading context outside the current source history. Resume from the authorized checkpoint.", "planning")))
+                            emit(
+                                AgentRunEvent.Provider(
+                                    SavedPageDeliveryRound.blocked("Another runner changed the saved reading context outside the current source history. Resume from the authorized checkpoint.", "planning") {
+                                        put("replay_missing_record", "CHECKPOINT_IDENTITY")
+                                    }
+                                )
+                            )
                             return
                         }
                         restoreReadingState(latest)
@@ -383,7 +389,15 @@ class AgentRunner(
                     val pending = pendingSavedPages.filterKeys { it in preparedRound.unacknowledgedSavedPages }
                     val restore = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pending, reopenAvailable = true)
                     if (restore == null) {
-                        emit(AgentRunEvent.Provider(SavedPageDeliveryRound.blocked("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", "planning")))
+                        emit(
+                            AgentRunEvent.Provider(
+                                SavedPageDeliveryRound.blocked("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", "planning") {
+                                    put("replay_missing_record", "AUTHORIZED_REOPEN")
+                                    val missing = pending.entries.firstOrNull()
+                                    replaySource(exchanges, missing?.key, missing?.value)
+                                }
+                            )
+                        )
                         return
                     }
                     emit(AgentRunEvent.Notice(restore.notice, persistent = false))
@@ -2307,6 +2321,17 @@ class AgentRunner(
                             put("logical_continuation_allowed", false)
                             put("failure_origin", "APPLICATION")
                             put("replay_budget_state", state)
+                            val missing = owed.entries.firstOrNull { (id, digest) -> digest == null || originalResults[id] == null } ?: owed.entries.first()
+                            put(
+                                "replay_missing_record",
+                                when {
+                                    missing.value == null -> "EXPECTED_BODY_DIGEST"
+                                    originalResults[missing.key] == null -> "SAVED_PAGE_BODY"
+                                    state == "SAVED_PAGE_EXCEEDS_ALLOWANCE" -> "BODY_ALLOWANCE"
+                                    else -> "PROJECTION_MATCH"
+                                }
+                            )
+                            replaySource(exchanges, missing.key, missing.value)
                             put("pending_saved_page_count", owed.size)
                             smallest?.let { put("minimum_page_body_tokens", it) }
                             put("source_allowance", sourceAllowance)
@@ -2381,10 +2406,13 @@ class AgentRunner(
             }
             if (requiredSavedPageDigests.isNotEmpty()) {
                 val onWire = ToolResultDeliveryProof.capture(preparedExchanges.flatMap { it.results }, replayRenderCache)
-                if (requiredSavedPageDigests.keys.any { it in deliveredBodies && onWire[it] != deliveredBodies[it] }) {
+                val mismatch = requiredSavedPageDigests.keys.firstOrNull { it in deliveredBodies && onWire[it] != deliveredBodies[it] }
+                if (mismatch != null) {
                     emit(
                         SavedPageDeliveryRound.blocked("The final provider projection changed a required saved page. Its original receipt is available for recovery.", "planning") {
                             put("replay_budget_state", "SAVED_PAGE_DELIVERY_MISMATCH")
+                            put("replay_missing_record", "PROJECTION_MATCH")
+                            replaySource(exchanges, mismatch, requiredSavedPageDigests[mismatch])
                             put("pending_saved_page_count", requiredSavedPageDigests.size)
                             put("replay_allowance", replayLimit)
                         }

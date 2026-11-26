@@ -27,6 +27,14 @@ internal class MediaPipePlaybackRecovery(
     override val supportsIncrementalInput = initial.supportsIncrementalInput
     override val executionProvider: String get() = current?.executionProvider ?: "unavailable"
 
+    override val sdkCancelToReadReturnMs: Long? get() = current?.sdkCancelToReadReturnMs
+    override val executionProgress: VoiceSpeechProgress? get() = current?.executionProgress
+
+    override fun warmFirstInference(speaker: Int, speed: Float): Boolean = synchronized(operations) {
+        synchronized(state) { checkActive() }
+        current?.warmFirstInference(speaker, speed) == true
+    }
+
     fun prepare(voiceId: String, reporter: (MediaPipeVoicePhraseEngine) -> Unit) {
         synchronized(operations) {
             report = reporter

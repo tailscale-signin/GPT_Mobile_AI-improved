@@ -108,7 +108,17 @@ internal data class VoiceSpeechPlaybackResult(
     val sustainedCompletedRepeats: Int? = null,
     val sustainedQualification: String? = null,
     val renderedManifestWords: Int? = null,
-    val nativeRetirementMs: Long? = null
+    val nativeRetirementMs: Long? = null,
+    val stopOrigin: VoiceSpeechStopOrigin? = null,
+    val sdkCancelToReadReturnMs: Long? = null,
+    val prewarmMode: VoiceSpeechPrewarmMode? = null,
+    val prewarmCompleted: Boolean? = null,
+    val prewarmElapsedMs: Long? = null,
+    val recoveryAfter: VoiceSpeechCancellationTarget? = null,
+    val sdkPcm: VoicePcmSignal? = null,
+    val cacheDirectoryPresent: Boolean? = null,
+    val cacheDirectoriesEvicted: Int? = null,
+    val firstSdkPcmAfterStreamStartMs: Long? = null
 ) {
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
@@ -288,6 +298,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     @Synchronized fun reached(target: VoiceSpeechCancellationTarget): Boolean = when (target) {
         VoiceSpeechCancellationTarget.PREPARATION -> currentStage == VoiceSpeechStage.PREPARING
         VoiceSpeechCancellationTarget.INFERENCE -> currentStage == VoiceSpeechStage.SYNTHESIS
+        VoiceSpeechCancellationTarget.SDK_STREAM_CALL -> currentStage == VoiceSpeechStage.SDK_STREAM_CALL
         VoiceSpeechCancellationTarget.PLAYBACK -> firstPresented != null
     }
 
@@ -299,6 +310,7 @@ internal class VoiceSpeechPlaybackMeasurement(
         return when (target) {
             VoiceSpeechCancellationTarget.PREPARATION -> modelPreparationActive || activeStage == VoiceSpeechStage.PREPARING
             VoiceSpeechCancellationTarget.INFERENCE -> activeStage == VoiceSpeechStage.SYNTHESIS
+            VoiceSpeechCancellationTarget.SDK_STREAM_CALL -> activeStage == VoiceSpeechStage.SDK_STREAM_CALL
             VoiceSpeechCancellationTarget.PLAYBACK -> firstPresented != null
         }
     }
@@ -386,7 +398,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     }
 
     @Synchronized override fun preparationPhase(stage: String, elapsedMs: Long) {
-        if (stoppedAt == null && stage in setOf("GATE_WAIT", "MODEL_LOAD")) preparationPhases[stage] = elapsedMs.coerceAtLeast(0)
+        if (stoppedAt == null && stage in SPEECH_PREPARATION_PHASES) preparationPhases[stage] = elapsedMs.coerceAtLeast(0)
     }
 
     @Synchronized override fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) {
@@ -447,9 +459,23 @@ internal class VoiceSpeechPlaybackMeasurement(
         }
     }
 
-    @Synchronized fun cancelRequested(targetReached: Boolean? = null) {
+    private var stopOrigin: VoiceSpeechStopOrigin? = null
+    private var cacheDirectoryPresent: Boolean? = null
+    private var cacheDirectoriesEvicted: Int? = null
+
+    @Synchronized fun cacheObserved(present: Boolean, evicted: Int) {
+        if (stoppedAt == null) {
+            cacheDirectoryPresent = present
+            cacheDirectoriesEvicted = evicted
+        }
+    }
+
+    @Synchronized fun cancelRequested(targetReached: Boolean? = null, origin: VoiceSpeechStopOrigin? = null) {
         if (stoppedAt != null) return
-        if (cancellationRequested == null) cancellationRequested = elapsed()
+        if (cancellationRequested == null) {
+            cancellationRequested = elapsed()
+            stopOrigin = origin
+        }
         cancellationTargetReached = targetReached ?: cancellationTargetReached
     }
 
@@ -496,10 +522,12 @@ internal class VoiceSpeechPlaybackMeasurement(
             failedTokenCount = native?.tokenCount, failedTokenLimit = native?.tokenLimit, failedRequestedProvider = native?.requestedProvider,
             failedEffectiveProvider = native?.effectiveProvider, failedDiscoverySummary = native?.discoverySummary,
             failedAttemptMs = (attemptStarted ?: preparationAttemptStarted.takeIf { native != null && chunks == 0 })?.let { (ended - it).coerceAtLeast(0) }.takeIf { failure != null || native != null }, failureObservation = native?.observation,
+            prewarmMode = plan?.prewarmMode, recoveryAfter = plan?.recoveryAfter,
             cancellationTarget = plan?.cancellationTarget, cancellationTargetReached = cancellationTargetReached, arrivalIntervalMs = plan?.arrivalIntervalMs ?: 0,
             underrunsByPhase = phaseUnderruns.toMap(), preparationPhases = preparationPhases.toMap(),
             timeoutLimitMs = native?.timeoutLimitMs, timeoutElapsedMs = native?.timeoutElapsedMs, timeoutScope = native?.timeoutScope,
-            omittedPcmRecords = omittedPcmRecords
+            omittedPcmRecords = omittedPcmRecords, stopOrigin = stopOrigin,
+            cacheDirectoryPresent = cacheDirectoryPresent, cacheDirectoriesEvicted = cacheDirectoriesEvicted
         )
     }
 

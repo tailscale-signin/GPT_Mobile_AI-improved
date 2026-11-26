@@ -6,6 +6,7 @@ internal class VoiceSilentWarmup {
         internal val owner: Any,
         internal val speaker: Int,
         internal val rateBits: Int,
+        internal val configurationId: String,
         internal val cancel: () -> Unit
     ) {
         internal var cancelled = false
@@ -16,12 +17,15 @@ internal class VoiceSilentWarmup {
     private var completed: Attempt? = null
 
     /** Reset and publication are atomic with cancellation; a live reply cannot lose its stop. */
-    fun begin(owner: Any, speaker: Int, rate: Float, authorized: () -> Boolean, reset: () -> Unit, cancel: () -> Unit): Attempt? = synchronized(lock) {
+    fun begin(owner: Any, speaker: Int, rate: Float, authorized: () -> Boolean, reset: () -> Unit, cancel: () -> Unit): Attempt? =
+        begin(owner, speaker, rate, "", authorized, reset, cancel)
+
+    fun begin(owner: Any, speaker: Int, rate: Float, configurationId: String, authorized: () -> Boolean, reset: () -> Unit, cancel: () -> Unit): Attempt? = synchronized(lock) {
         require(speaker >= 0 && rate.isFinite() && rate in .5f..2f)
         if (!authorized() || current != null) return@synchronized null
-        if (completed?.let { it.owner === owner && it.speaker == speaker && it.rateBits == rate.toBits() } == true) return@synchronized null
+        if (completed?.let { it.owner === owner && it.speaker == speaker && it.rateBits == rate.toBits() && it.configurationId == configurationId } == true) return@synchronized null
         reset()
-        Attempt(owner, speaker, rate.toBits(), cancel).also { current = it }
+        Attempt(owner, speaker, rate.toBits(), configurationId, cancel).also { current = it }
     }
 
     fun isCurrent(attempt: Attempt, authorized: () -> Boolean): Boolean = synchronized(lock) {
@@ -43,7 +47,7 @@ internal class VoiceSilentWarmup {
         if (current !== attempt) return@synchronized
         if (succeeded && !attempt.cancelled && authorized()) {
             // The completion key retains no JNI handle or cancellation closure.
-            completed = Attempt(attempt.owner, attempt.speaker, attempt.rateBits) {}
+            completed = Attempt(attempt.owner, attempt.speaker, attempt.rateBits, attempt.configurationId) {}
         }
         current = null
     }

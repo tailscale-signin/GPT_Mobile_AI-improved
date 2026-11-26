@@ -2705,6 +2705,13 @@ class IncidentReportContractTest(unittest.TestCase):
         _, issue = issue_from_report(report)
         self.assertIn("| replay_budget_state | `REQUIRED_SAVED_PAGE_NOT_PRESENT` |", issue["body"])
         self.assertIn("| pending_saved_page_count | `1` |", issue["body"])
+        scoped = {**fields, "replay_missing_record": "SAVED_PAGE_BODY", "replay_call_hash": "a" * 64,
+                  "replay_source_hash": "b" * 64, "replay_expected_body_hash": "c" * 64}
+        validate_diagnostics(self.capture("INCIDENT", scoped))
+        for key, value in (("replay_missing_record", "private body"), ("replay_call_hash", "raw-call-id"),
+                           ("replay_source_hash", "path/to/source.kt")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {**scoped, key: value}))
         bounded = {**fields, "replay_budget_state": "SAVED_PAGE_EXCEEDS_ALLOWANCE",
                    "minimum_page_body_tokens": 25001, "source_allowance": 24000}
         validate_diagnostics(self.capture("INCIDENT", bounded))

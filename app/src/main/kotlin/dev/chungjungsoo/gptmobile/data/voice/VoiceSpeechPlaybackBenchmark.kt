@@ -31,7 +31,7 @@ internal class VoiceSpeechPlaybackBenchmark(
     private val cancelled = AtomicBoolean(false)
     private val active = AtomicReference<Active?>(null)
     private val main = Handler(Looper.getMainLooper())
-    private data class PendingCleanup(val backend: VoiceSpeechBackend, val retirement: VoiceNativeRetirement, val measurement: VoiceSpeechPlaybackMeasurement?)
+    private data class PendingCleanup(val backend: VoiceSpeechBackend, val retirement: VoiceNativeRetirement, val measurement: VoiceSpeechPlaybackMeasurement?, val engine: VoicePhraseEngine?)
 
     @Volatile private var pendingCleanup: PendingCleanup? = null
     private val retirements = mutableListOf<VoiceNativeRetirement>()
@@ -59,7 +59,7 @@ internal class VoiceSpeechPlaybackBenchmark(
         return report.copy(
             playbackResults = rows.mapIndexed { index, row ->
                 if (row.requestedBackend == pending.backend && row.cleanupState == "PENDING") {
-                    row.copy(cleanupState = "RETIRED", nativeRetirementMs = if (index == last) pending.measurement?.stopToRetiredMs(retiredAt) else null)
+                    row.copy(sdkCancelToReadReturnMs = pending.engine?.sdkCancelToReadReturnMs?.takeIf { index == last && row.stopOrigin != null }, cleanupState = "RETIRED", nativeRetirementMs = if (index == last) pending.measurement?.stopToRetiredMs(retiredAt) else null)
                 } else {
                     row
                 }
@@ -68,10 +68,15 @@ internal class VoiceSpeechPlaybackBenchmark(
         )
     }
 
-    fun cancel() {
+    private val stopOrigin = AtomicReference<VoiceSpeechStopOrigin?>(null)
+    private val warmingOutput = AtomicReference<KokoroVoiceOutput?>(null)
+
+    fun cancel(origin: VoiceSpeechStopOrigin = VoiceSpeechStopOrigin.USER) {
+        stopOrigin.compareAndSet(null, origin)
         cancelled.set(true)
+        warmingOutput.get()?.let { output -> main.post { if (warmingOutput.get() === output) output.cancelPrewarm() } }
         active.get()?.let { owned ->
-            owned.measurement.cancelRequested()
+            owned.measurement.cancelRequested(origin = stopOrigin.get())
             main.post {
                 if (active.get() === owned) {
                     owned.output.stop("speech_benchmark_cancelled")
@@ -94,7 +99,11 @@ internal class VoiceSpeechPlaybackBenchmark(
         for ((scenario, selected) in plans.groupBy { it.scenario }) {
             if (cancelled.get()) break
             // A cold or cancellation sample gets a fresh engine. Other scenarios reuse the exact owner.
-            val sessions = if (scenario in setOf(VoiceSpeechPlaybackScenario.COLD_START, VoiceSpeechPlaybackScenario.CANCELLATION)) selected.map(::listOf) else listOf(selected)
+            val sessions = when (scenario) {
+                VoiceSpeechPlaybackScenario.COLD_START, VoiceSpeechPlaybackScenario.CANCELLATION -> selected.map(::listOf)
+                VoiceSpeechPlaybackScenario.RESIDENT_WARM -> listOf(selected.filter { it.prewarmMode == null }).filter { it.isNotEmpty() } + selected.filter { it.prewarmMode != null }.map(::listOf)
+                else -> listOf(selected)
+            }
             for (session in sessions) {
                 if (cancelled.get() || pendingRetirements.isNotEmpty()) break
                 val relay = VoiceSpeechPlaybackMeasurementRelay()
@@ -135,12 +144,15 @@ internal class VoiceSpeechPlaybackBenchmark(
                     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
                         val preparationMeasurement = relay.current
                         preparationMeasurement?.preparationStarted()
+                        (selected as? MediaPipeVoicePhraseEngineFactory)?.playbackMeasurement = preparationMeasurement
                         val created = try {
                             if (sdk) selected.create(directory, lexicon, threads) else (selected as QualcommVoicePhraseEngineFactory).createBenchmarkEngine(directory, lexicon, threads)
                         } catch (failure: Throwable) {
                             if (selected.nativeCleanupPending) quarantine()
                             preparationMeasurement?.nativeFailure(failure, configuration.deviceKey, configuration.modelSha256)
                             throw failure
+                        } finally {
+                            (selected as? MediaPipeVoicePhraseEngineFactory)?.playbackMeasurement = null
                         }
                         nativeOwner.set(created)
                         if (sdk) return VoiceSpeechBenchmarkStreamingEngine(created, { relay.current }, { streamingRelay.current }, ::quarantine)
@@ -206,11 +218,24 @@ internal class VoiceSpeechPlaybackBenchmark(
                         val plan = pendingPlans[planIndex++]
                         val limit = sustained?.sampleDeadlineMs() ?: 180_000L
                         val scope = if (sustained != null && sustained.remainingMs() <= VoiceSpeechSustainedSeries.MAX_REPLY_WALL_MS) "SUSTAINED_SERIES" else "BENCHMARK_SAMPLE"
+                        val prewarmStart = System.nanoTime()
+                        val prewarmed = plan.prewarmMode?.let { mode ->
+                            val ready = CompletableDeferred<Boolean>()
+                            warmingOutput.set(output)
+                            try {
+                                if (!cancelled.get()) output.prewarmForBenchmark(configuration.voice, mode) { ready.complete(it) } else ready.complete(false)
+                                withTimeoutOrNull(strictFactory.preparationTimeoutMs + VoiceSilentWarmup.CANCELLATION_DEADLINE_MS) { ready.await() } ?: false
+                            } finally {
+                                if (!ready.isCompleted) output.cancelPrewarm()
+                                warmingOutput.compareAndSet(output, null)
+                            }
+                        }
+                        val prewarmMs = prewarmed?.let { (System.nanoTime() - prewarmStart).coerceAtLeast(0) / 1_000_000 }
                         val measured = measureSample(output, relay, streamingRelay, backend, plan, limit, scope, onInterrupted = { interrupted ->
-                            results += sustained?.observe(interrupted) ?: interrupted
+                            results += (sustained?.observe(interrupted) ?: interrupted).copy(prewarmCompleted = prewarmed, prewarmElapsedMs = prewarmMs)
                             publishSnapshot(duringCleanup = true)
                         }) { nativeOwner.get()?.executionProgress }
-                        val result = sustained?.observe(measured) ?: measured
+                        val result = (sustained?.observe(measured) ?: measured).copy(prewarmCompleted = prewarmed, prewarmElapsedMs = prewarmMs)
                         results += result
                         publishSnapshot()
                         if (result.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) || result.state == VoiceSpeechPlaybackState.CANCELLED && plan.cancellationTarget == null) break
@@ -231,7 +256,7 @@ internal class VoiceSpeechPlaybackBenchmark(
                     val closing = VoiceNativeRetirement(output::awaitClosed).also { synchronized(retirements) { retirements += it } }
                     retirement = closing
                     val cleanup = withContext(NonCancellable) { closing.awaitWithinBudget() }
-                    if (cleanup == VoiceNativeRetirementState.PENDING) pendingCleanup = PendingCleanup(backend, closing, lastMeasurement)
+                    if (cleanup == VoiceNativeRetirementState.PENDING) pendingCleanup = PendingCleanup(backend, closing, lastMeasurement, nativeOwner.get())
                     if (strictFactory.nativeCleanupPending) {
                         quarantine()
                     }
@@ -239,7 +264,7 @@ internal class VoiceSpeechPlaybackBenchmark(
                         results[index] = if (nativeCleanupPending) {
                             results[index].copy(cleanupState = "FAILED", state = VoiceSpeechPlaybackState.FAILED, pipelineFailureCode = "NATIVE_RETIREMENT_FAILED")
                         } else {
-                            results[index].copy(cleanupState = cleanup.name, nativeRetirementMs = if (cleanup == VoiceNativeRetirementState.RETIRED && index == results.lastIndex) lastMeasurement?.stopToRetiredMs(closing.retiredAtNanos) else null)
+                            results[index].copy(sdkCancelToReadReturnMs = nativeOwner.get()?.sdkCancelToReadReturnMs?.takeIf { index == results.lastIndex && results[index].stopOrigin != null }, cleanupState = cleanup.name, nativeRetirementMs = if (cleanup == VoiceNativeRetirementState.RETIRED && index == results.lastIndex) lastMeasurement?.stopToRetiredMs(closing.retiredAtNanos) else null)
                         }
                     }
                     publishSnapshot(duringCleanup = true)
@@ -265,6 +290,8 @@ internal class VoiceSpeechPlaybackBenchmark(
                 requestedDelegate = requestedSpeechDelegate(backend),
                 observedProviderStatus = "NOT_EXPOSED_BY_SDK",
                 engineStreamCalls = streaming.callCount(),
+                sdkPcm = streaming.signalSnapshot(),
+                firstSdkPcmAfterStreamStartMs = streaming.firstPcmMs(),
                 engineStreamWallMs = streaming.streamWallMs(),
                 requestedThreads = null,
                 effectiveThreads = null
@@ -278,7 +305,7 @@ internal class VoiceSpeechPlaybackBenchmark(
         var inputJob: kotlinx.coroutines.Job? = null
         try {
             if (cancelled.get()) {
-                measurement.cancelRequested()
+                measurement.cancelRequested(origin = stopOrigin.get())
                 return@coroutineScope describe(measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus()))
             }
             val reply = output.openReplyWithFailure(
@@ -326,7 +353,7 @@ internal class VoiceSpeechPlaybackBenchmark(
                         } == true
                         if (!completion.isCompleted) {
                             val stillReached = measurement.reached(target, currentProgress())
-                            measurement.cancelRequested(reached && stillReached)
+                            measurement.cancelRequested(reached && stillReached, VoiceSpeechStopOrigin.PROBE)
                             output.stop("speech_benchmark_cancel_probe")
                             completion.complete(measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus()))
                         }
@@ -335,14 +362,14 @@ internal class VoiceSpeechPlaybackBenchmark(
             }
             describe(
                 withTimeoutOrNull(deadline) { completion.await() } ?: run {
-                    measurement.cancelRequested()
+                    measurement.cancelRequested(origin = VoiceSpeechStopOrigin.DEADLINE)
                     output.stop("speech_benchmark_deadline")
                     measurement.result(VoiceSpeechPlaybackState.FAILED, thermalStatus(), VoiceSpeechFailureCode.EXECUTION_FAILED, pipelineFailureCode = "BENCHMARK_DEADLINE")
                         .let { it.copy(timeoutLimitMs = deadline, timeoutElapsedMs = it.elapsedMs, timeoutScope = deadlineScope) }
                 }
             )
         } catch (cancelled: CancellationException) {
-            measurement.cancelRequested()
+            measurement.cancelRequested(origin = stopOrigin.get() ?: VoiceSpeechStopOrigin.COROUTINE)
             output.stop("speech_benchmark_cancelled")
             onInterrupted(describe(measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus())))
             throw cancelled

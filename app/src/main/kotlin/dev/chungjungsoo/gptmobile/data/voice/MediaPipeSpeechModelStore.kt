@@ -123,6 +123,53 @@ internal class MediaPipeSpeechModelStore internal constructor(
 
     internal fun isReady(engine: MediaPipeSpeechEngine): Boolean = localStore(engine).isInstalled()
 
+    private fun cacheDirectory(parent: File, backend: VoiceSpeechBackend, speakingRate: Float, bucket: Int) =
+        File(parent, "shared-${backend.name.lowercase()}-${speakingRate.toBits().toUInt().toString(16)}-bucket-$bucket")
+
+    /** Keep only the selected keys across separated passes. Active SDK leases remain independent. */
+    fun retainComparisonCaches(engine: MediaPipeSpeechEngine, backends: List<VoiceSpeechBackend>, rate: Float, bucket: Int): AutoCloseable {
+        require(backends.size in 1..3 && backends.distinct().size == backends.size)
+        val parent = modelCacheDirectory(engine)
+        val paths = backends.map { cacheDirectory(parent, it, rate, bucket).absolutePath }
+        synchronized(cacheUsers) { paths.forEach { pinned[it] = (pinned[it] ?: 0) + 1 } }
+        val closed = AtomicBoolean()
+        return AutoCloseable {
+            if (closed.compareAndSet(false, true)) {
+                synchronized(cacheUsers) {
+                    paths.forEach { path ->
+                        val remaining = pinned.getValue(path) - 1
+                        if (remaining == 0) pinned.remove(path) else pinned[path] = remaining
+                    }
+                    unusedDirectories(parent).drop(2).forEach { it.deleteRecursively() }
+                }
+            }
+        }
+    }
+
+    /** SDK disk writes cannot be capped while a native handle owns the files. Bound retained idle comparison caches. */
+    private fun trimComparisonCaches(parent: File): Int {
+        val idle = parent.listFiles().orEmpty().filter { it.absolutePath in pinned && it.absolutePath !in cacheUsers }
+            .sortedByDescending(File::lastModified)
+        var remaining = VoiceSpeechPlaybackProtocol.COMPARISON_CACHE_BYTES
+        return idle.count { directory ->
+            var measured = 0L
+            for (file in directory.walkTopDown().onEnter { !java.nio.file.Files.isSymbolicLink(it.toPath()) }) {
+                if (file.isFile && !java.nio.file.Files.isSymbolicLink(file.toPath())) measured += file.length().coerceAtMost(VoiceSpeechPlaybackProtocol.COMPARISON_CACHE_BYTES + 1)
+                if (measured > remaining) break
+            }
+            if (measured <= remaining) {
+                remaining -= measured
+                false
+            } else {
+                directory.deleteRecursively()
+            }
+        }
+    }
+
+    private fun unusedDirectories(parent: File): List<File> = parent.listFiles().orEmpty()
+        .filter { it.isDirectory && it.absolutePath !in cacheUsers && it.absolutePath !in pinned }
+        .sortedByDescending(File::lastModified)
+
     /** No network access; a verified file lease remains held until the SDK handle is destroyed. */
     internal fun acquire(engine: MediaPipeSpeechEngine, backend: VoiceSpeechBackend, speakingRate: Float, voiceId: String, targetBucket: Int = 0): ModelLease {
         require(voiceId.isNotBlank())
@@ -134,27 +181,29 @@ internal class MediaPipeSpeechModelStore internal constructor(
             val parent = modelCacheDirectory(engine)
             // Voice embeddings are selected per utterance. Task initialization uses the
             // bundle default, so voices share the same compiled weights and resident task.
-            val directory = File(parent, "shared-${backend.name.lowercase()}-${speakingRate.toBits().toUInt().toString(16)}-bucket-$targetBucket")
-            synchronized(cacheUsers) {
+            val directory = cacheDirectory(parent, backend, speakingRate, targetBucket)
+            val (present, evicted) = synchronized(cacheUsers) {
                 // Cache keys include every exposed SDK configuration input. Keep the current
                 // directory and one previous unused configuration; never remove an active lease.
-                val unused = parent.listFiles().orEmpty().filter { it != directory && cacheUsers[it.absolutePath] == null }
-                    .sortedByDescending(File::lastModified)
-                unused.drop(1).forEach {
+                val present = directory.isDirectory
+                val comparisonEvictions = if (pinned.isEmpty()) 0 else trimComparisonCaches(parent)
+                val expired = unusedDirectories(parent).filter { it != directory }.drop(1)
+                expired.forEach {
                     if (!it.deleteRecursively()) throw IOException("Could not clear an old speech engine cache.")
                 }
                 if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Could not prepare the speech engine cache.")
                 directory.setLastModified(System.currentTimeMillis())
                 cacheUsers[directory.absolutePath] = (cacheUsers[directory.absolutePath] ?: 0) + 1
+                present to expired.size + comparisonEvictions
             }
-            return ModelLease(File(store.modelDirectory(), model.fileName), directory) {
+            return ModelLease(File(store.modelDirectory(), model.fileName), directory, present, evicted) {
                 synchronized(cacheUsers) {
                     val count = cacheUsers.getValue(directory.absolutePath)
                     if (count == 1) cacheUsers.remove(directory.absolutePath) else cacheUsers[directory.absolutePath] = count - 1
                     // Concurrent preparations can temporarily keep extra leased directories.
                     // Once they retire, retain at most two unused configurations as well.
-                    parent.listFiles().orEmpty().filter { cacheUsers[it.absolutePath] == null }
-                        .sortedByDescending(File::lastModified).drop(2).forEach { it.deleteRecursively() }
+                    unusedDirectories(parent).drop(2).forEach { it.deleteRecursively() }
+                    if (pinned.isNotEmpty()) trimComparisonCaches(parent)
                 }
                 store.releaseUse()
             }
@@ -169,7 +218,7 @@ internal class MediaPipeSpeechModelStore internal constructor(
         return File(cacheRoot, "${MediaPipeSpeechCatalog.RUNTIME_VERSION}/${model.id}/${model.sha256}")
     }
 
-    internal class ModelLease(val file: File, val cacheDirectory: File, private val release: () -> Unit) : AutoCloseable {
+    internal class ModelLease(val file: File, val cacheDirectory: File, val directoryPresentAtEntry: Boolean, val evictionsOnAcquire: Int, private val release: () -> Unit) : AutoCloseable {
         private val closed = AtomicBoolean()
         override fun close() {
             if (closed.compareAndSet(false, true)) release()
@@ -178,6 +227,7 @@ internal class MediaPipeSpeechModelStore internal constructor(
 
     private companion object {
         val cacheUsers = mutableMapOf<String, Int>()
+        val pinned = mutableMapOf<String, Int>()
     }
 }
 

@@ -4,6 +4,9 @@ Android build **151** and Windows Gateway **18.1.4** use the Gateway 18 contract
 
 ## GitHub mode
 
+Standalone record numbers such as `#43` inherit the preceding read’s type only in the same workspace. Saved-page failures retain the affected operation and hashed receipt or source when available.
+
+
 Rebuild GitHub chat setup, task routing, context selection and progress around the selected repository. Fresh profiles use adaptive effort. Direct lookups start with the relevant read, and the chat header keeps branch and activity visible.
 
 Follow-up questions can refer to an issue or pull request by number. GitHub mode checks the preceding read and workspace before resolving a bare number. Verified source quotations link to the exact lines on the configured GitHub host, and an approval waiting on an older turn no longer holds a later answer open.
@@ -24,6 +27,9 @@ Follow-up questions can refer to an issue or pull request by number. GitHub mode
 The repository-map benchmark uses simulated GitHub transport. A host measurement or requested speech delegate does not establish live handset latency or physical accelerator placement.
 
 ## Voice updates and earlier release context
+
+LiteRT playback comparisons measure SDK task opening, first PCM, first presented audio, raw clipping and cancellation. The results distinguish the stop request, the return of an outstanding SDK read and engine retirement. Matched trials compare model-only prewarming with a cancellable first inference. Exports include every requested delegate and preserve older benchmark history.
+
 
 GitHub integration reports show the saved page after a time limit and the minimum remaining inventory calls. Phone maps identify the pinned revision and source coverage. Source reads preserve captured lines across files, and saved-page recovery distinguishes missing data, delivery mismatches and measured capacity. Private planning uses a separate token record. Failed provider requests show the retained reads available for inspection.
 

@@ -51,6 +51,9 @@ internal class MediaPipeVoicePhraseEngineFactory(
     override val requiresKokoroAssets: Boolean get() = false
     override val nativeCleanupPending: Boolean get() = cleanupPending.get()
     override fun isReady(): Boolean = modelStore.isReady(engine)
+    override fun prefetchAssets(current: () -> Boolean) {
+        modelStore.prefetchInstalled(engine, current)
+    }
     val effectiveTargetBucket: Int = if (engine.isKokoro) kokoroBucket.sdkValue else 0
     override val residentIdentity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:bucket=$effectiveTargetBucket:incremental=$incrementalInput:allowCpuFallback=${onPlaybackDelegate != null}"
     override val identity = "$residentIdentity:voice=$voiceId"

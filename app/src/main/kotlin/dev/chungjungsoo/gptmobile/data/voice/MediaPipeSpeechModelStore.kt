@@ -123,6 +123,28 @@ internal class MediaPipeSpeechModelStore internal constructor(
 
     internal fun isReady(engine: MediaPipeSpeechEngine): Boolean = localStore(engine).isInstalled()
 
+    /** Fault in the verified bundle header on the warmup worker, without contending for the microphone's native gate. */
+    internal fun prefetchInstalled(engine: MediaPipeSpeechEngine, current: () -> Boolean): Int {
+        val store = localStore(engine)
+        if (!current() || !store.isInstalled() || !store.acquireUse()) return 0
+        try {
+            val model = manifests.single { it.engine == engine }
+            val limit = minOf(model.downloadBytes, 2L * 1024 * 1024).toInt()
+            val buffer = ByteArray(minOf(limit, 64 * 1024))
+            var read = 0
+            File(store.modelDirectory(), model.fileName).inputStream().use { source ->
+                while (read < limit && current()) {
+                    val n = source.read(buffer, 0, minOf(buffer.size, limit - read))
+                    if (n <= 0) break
+                    read += n
+                }
+            }
+            return read
+        } finally {
+            store.releaseUse()
+        }
+    }
+
     private fun cacheDirectory(parent: File, backend: VoiceSpeechBackend, speakingRate: Float, bucket: Int) =
         File(parent, "shared-${backend.name.lowercase()}-${speakingRate.toBits().toUInt().toString(16)}-bucket-$bucket")
 

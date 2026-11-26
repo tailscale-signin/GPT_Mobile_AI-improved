@@ -311,6 +311,7 @@ class VoiceDiagnosticTrace internal constructor(
                 "GATE_WAIT" -> "gate_wait"
                 "VERIFICATION" -> "verification"
                 "MODEL_LOAD" -> "model_load"
+                "AUDIO_TRACK_SETUP" -> "audio_track_setup"
                 else -> null
             }
             if (metric != null) owner.performance.observe(metric, durationMs, owner.performanceEngine(metric), owner.values["voice_engine_warm"] as? Boolean)
@@ -360,8 +361,12 @@ class VoiceDiagnosticTrace internal constructor(
                 owner.moments["queue"]?.let { first -> owner.performance.observe("queue_to_pcm", owner.now() - first, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean) }
             }
         }
-        internal fun lookupAudioStarted() = owner.record(this) {
-            owner.moments["accepted"]?.let { accepted -> owner.performance.observe("request_to_lookup_audio", owner.now() - accepted) }
+        internal fun openingAudioStarted(lookup: Boolean) = owner.record(this) {
+            owner.moments["accepted"]?.let { accepted ->
+                val elapsed = owner.now() - accepted
+                owner.performance.observe("request_to_cue_audio", elapsed)
+                if (lookup) owner.performance.observe("request_to_lookup_audio", elapsed)
+            }
         }
 
         fun firstAudio(basis: FirstAudio) = owner.record(this) {

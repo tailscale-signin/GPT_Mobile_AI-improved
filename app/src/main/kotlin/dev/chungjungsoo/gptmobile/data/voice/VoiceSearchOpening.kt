@@ -27,6 +27,7 @@ internal object VoiceSearchOpening {
                 event.connectionUidSnapshot != null ||
                 event.status != ToolEventStatus.RUNNING ||
                 event.startedAt == null ||
+                event.completedAt != null ||
                 event.isError ||
                 event.arguments.length > 2048
             ) {

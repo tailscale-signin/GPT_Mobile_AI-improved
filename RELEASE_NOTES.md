@@ -6,6 +6,8 @@ This release implements the sixteen findings from the November 26 build-151 runt
 
 ## Changes
 
+- Voice Mode can speak one brief acknowledgment in the selected language while an answer is pending. A running lookup gets a search cue, and quick answers take priority. Speech model preparation overlaps audio setup, and stable opening words can play during a provider pause.
+
 - Voice Mode now keeps an active spoken reply playing after you switch chats or leave the app. Its notification opens the source chat and includes Stop. The selected speech language reaches Kokoro's phonemizer, and each language has its own pronunciation dictionary. French supports accented terms, elisions and multiword names. Compatible GPU and NPU routes retain their accelerator when switching to multilingual Kokoro. Native CPU speech can use up to 16 threads, within the device's available processor count.
 - Recover missing pull-request list and changed-file pages at their verified revision, restart implicit traversals when the head changes, and report deadlines with the remaining work.
 - Use one capacity-bound context plan before optional repository context, with a usable tool replay reserve, current-request protection, compact schema staging and retention of the previous user request.
@@ -39,7 +41,7 @@ Publication requires successful validation of the final PR head, main revision a
 - Provider balances, account/project/key limits, external rate limits and unavailable servers remain external conditions. Recovery controls do not replenish quota or override a provider rejection.
 - Explicit local reasoning On/Off remains blocked unless the exact selected model and runtime provide a recognized, fresh template-control proof. Auto must be selected explicitly when that proof is unavailable.
 - Bounded graph qualification demonstrates the selected first-party sample; it does not claim that every file or repository integration was exercised.
-- French pronunciation, sustained background audio, and GPU/NPU performance still require physical handset qualification. Host regressions exercise language selection, stream ownership, CPU thread scheduling and accelerator fallback.
+- French pronunciation, sustained background audio, GPU/NPU performance and end-to-end speech latency still require physical handset qualification. Host regressions exercise language selection, streaming and service ownership, acknowledgment handoff, parallel audio preparation, CPU thread scheduling and accelerator fallback.
 - Unified Reliability v2 is not complete. This release qualifies the scoped GitHub mode and repository-context changes; broader program acceptance remains independent.
 - Live provider answer quality, remote token savings and physical-phone latency require matched measurements. Deterministic and hosted regressions do not establish a measured intelligence score or superiority over another coding product.
 - Repository caller, import, test and configuration relationships are bounded lexical candidates. Prepared source excerpts may be trimmed by final request admission and do not establish exhaustive repository coverage, compiler resolution or executed tests.

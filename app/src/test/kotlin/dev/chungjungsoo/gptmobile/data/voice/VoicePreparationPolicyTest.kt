@@ -9,6 +9,7 @@ class VoicePreparationPolicyTest {
             VoicePreparationPolicy.stage(phase, awaitingReply = false, hasDraft = false, local = true, admitted = false, openingMicrophone = openingMicrophone)
         assertEquals(VoicePreparation.ASSETS, stage(VoicePhase.PAUSED))
         assertEquals(VoicePreparation.ASSETS, stage(VoicePhase.STARTING))
+        assertEquals(VoicePreparation.MODEL, stage(VoicePhase.STARTING, openingMicrophone = false))
         assertEquals(VoicePreparation.MODEL, stage(VoicePhase.PAUSED, openingMicrophone = false))
         assertEquals(VoicePreparation.MODEL, stage(VoicePhase.LISTENING))
         assertEquals(VoicePreparation.MODEL, stage(VoicePhase.FINALIZING))

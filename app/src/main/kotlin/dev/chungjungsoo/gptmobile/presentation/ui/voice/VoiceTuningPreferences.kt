@@ -11,7 +11,8 @@ internal data class VoiceTuningPreferences(
     val handsFreeInterruption: Boolean = false,
     val pronunciation: Map<String, String> = emptyMap(),
     val captionOffsetMs: Int = 0,
-    val localizedPronunciations: Map<String, Map<String, String>> = emptyMap()
+    val localizedPronunciations: Map<String, Map<String, String>> = emptyMap(),
+    val spokenAcknowledgments: Boolean = true
 ) {
     fun dictionary(language: String) = if (language == "en") pronunciation else localizedPronunciations[language].orEmpty()
 
@@ -39,6 +40,7 @@ internal fun readVoiceTuningPreferences(saved: Map<String, *>): VoiceTuningPrefe
         captureBatchMs = (saved["capture_batch_ms"] as? Int)?.takeIf { it in setOf(20, 40, 80, 100) } ?: 40,
         handsFreeInterruption = saved["hands_free_interruption"] as? Boolean ?: false,
         pronunciation = pronunciation,
+        spokenAcknowledgments = saved["spoken_acknowledgments"] as? Boolean ?: true,
         localizedPronunciations = buildMap {
             SpeechLanguages.synthesis.map { it.dictionaryLanguage }.distinct().filter { it != "en" }.forEach { language ->
                 entries(localized?.optJSONObject(language)).takeIf { it.isNotEmpty() }?.let { put(language, it) }

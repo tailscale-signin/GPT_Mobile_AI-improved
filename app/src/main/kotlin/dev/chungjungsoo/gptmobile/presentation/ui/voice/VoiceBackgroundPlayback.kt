@@ -39,6 +39,7 @@ internal class VoiceBackgroundPlayback @Inject constructor(
         var detached = false
         var released = false
         var feed: Job? = null
+        var flush: Job? = null
     }
 
     private var owner: Owner? = null
@@ -79,6 +80,8 @@ internal class VoiceBackgroundPlayback @Inject constructor(
         active.detached = false
         active.feed?.cancel()
         active.feed = null
+        active.flush?.cancel()
+        active.flush = null
     }
 
     fun detach(runtime: VoiceRuntime) {
@@ -94,6 +97,11 @@ internal class VoiceBackgroundPlayback @Inject constructor(
             stop(active.notice.token)
             return
         }
+        fun flushPendingSpeech() {
+            active.flush?.cancel()
+            active.flush = if (session.nextSpeechFlushDelayMs() != null) scope.launch { session.awaitSpeechFlush() } else null
+        }
+        flushPendingSpeech()
         active.feed = scope.launch {
             try {
                 persistence.get().observeSpeakingReply(active.notice.roomId, identity.messageId, identity.runId, fence)
@@ -113,7 +121,10 @@ internal class VoiceBackgroundPlayback @Inject constructor(
                             }
                         } else {
                             val text = ConversationSubject.withoutMetadata(row.content)
-                            if (!session.state.reply.startsWith(text)) session.streamReply(active.key, text)
+                            if (!session.state.reply.startsWith(text)) {
+                                session.streamReply(active.key, text)
+                                flushPendingSpeech()
+                            }
                         }
                     }
             } catch (cancelled: CancellationException) {
@@ -153,6 +164,7 @@ internal class VoiceBackgroundPlayback @Inject constructor(
         owner = null
         active.runtime.session.backgroundPlayback = false
         active.feed?.cancel()
+        active.flush?.cancel()
         mutableNotice.value = null
         if (active.released) main.post { active.runtime.session.close() }
     }

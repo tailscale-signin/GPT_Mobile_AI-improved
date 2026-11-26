@@ -51,6 +51,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoicePreferenceStoreTest {
+    @Test fun spokenAcknowledgmentsDefaultOnAndRestoreAnExplicitOptOut() {
+        assertTrue(readVoiceTuningPreferences(emptyMap<String, Any>()).spokenAcknowledgments)
+        assertFalse(readVoiceTuningPreferences(mapOf("spoken_acknowledgments" to false)).spokenAcknowledgments)
+    }
+
     @Test fun restoreAndEditDictionariesIndependentlyAcrossLanguages() {
         val tuning = readVoiceTuningPreferences(
             mapOf(

@@ -98,13 +98,14 @@ class VoiceDiagnosticTraceTest {
         val probe = trace.beginReply(1)
         probe.requestAccepted()
         time = 300
-        probe.lookupAudioStarted()
+        probe.openingAudioStarted(lookup = true)
         assertFalse(trace.performance.snapshots.value.rows.any { it.metric == "request_to_answer_audio" })
         time = 900
         probe.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
         time = 950
         probe.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
         val rows = trace.performance.snapshots.value.rows.associateBy { it.metric }
+        assertEquals(200L, rows.getValue("request_to_cue_audio").p50Ms)
         assertEquals(200L, rows.getValue("request_to_lookup_audio").p50Ms)
         assertEquals(800L, rows.getValue("request_to_answer_audio").p50Ms)
         assertEquals(1, rows.getValue("request_to_answer_audio").count)

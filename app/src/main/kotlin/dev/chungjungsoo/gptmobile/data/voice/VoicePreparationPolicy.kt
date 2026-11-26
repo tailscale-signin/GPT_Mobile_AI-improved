@@ -8,7 +8,7 @@ internal object VoicePreparationPolicy {
         if (!local) return if (admitted && awaitingReply && phase == VoicePhase.THINKING) VoicePreparation.MODEL else VoicePreparation.NONE
         return when (phase) {
             VoicePhase.PAUSED -> if (openingMicrophone) VoicePreparation.ASSETS else VoicePreparation.MODEL
-            VoicePhase.STARTING -> VoicePreparation.ASSETS
+            VoicePhase.STARTING -> if (openingMicrophone) VoicePreparation.ASSETS else VoicePreparation.MODEL
             VoicePhase.LISTENING, VoicePhase.FINALIZING -> VoicePreparation.MODEL
             VoicePhase.REVIEWING -> if (hasDraft) VoicePreparation.MODEL else VoicePreparation.NONE
             VoicePhase.THINKING -> if (awaitingReply) VoicePreparation.MODEL else VoicePreparation.NONE

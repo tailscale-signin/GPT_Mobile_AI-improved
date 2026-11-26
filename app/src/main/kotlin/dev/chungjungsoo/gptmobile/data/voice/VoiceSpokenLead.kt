@@ -34,5 +34,18 @@ internal object VoiceSpokenLead {
         return rest
     }
 
+    /** A locally heard status can reappear as the model's first sentence, in any voice language. */
+    fun afterCue(text: String, cue: String, final: Boolean): String {
+        val lead = text.trimStart()
+        val stem = cue.trimEnd { it in cuePunctuation }
+        if (stem.isEmpty()) return text
+        if (lead.length < stem.length) return if (!final && stem.startsWith(lead, ignoreCase = true)) "" else text
+        if (!lead.startsWith(stem, ignoreCase = true)) return text
+        if (lead.length == stem.length) return ""
+        if (lead[stem.length] !in cuePunctuation) return text
+        return lead.drop(stem.length).dropWhile { it in cuePunctuation }.trimStart()
+    }
+
+    private val cuePunctuation = setOf('.', '!', '?', ',', ':', '…', '—', '。', '！', '？', '।', '॥')
     private val punctuation = setOf('.', '!', ',', ':', '…', '—')
 }

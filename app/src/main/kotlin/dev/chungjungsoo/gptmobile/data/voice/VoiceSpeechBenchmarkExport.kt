@@ -1242,7 +1242,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
 
 private val SAFE_CODE = Regex("[A-Za-z0-9_]{1,80}")
 private val UNDERRUN_PHASES = setOf("startup", "active", "refill", "draining", "paused", "cancelled")
-internal val SPEECH_PREPARATION_PHASES = setOf("GATE_WAIT", "MODEL_LOAD", "MODEL_LEASE", "DELEGATE_SETUP", "SDK_TASK_OPEN", "VOICE_ENUMERATION")
+internal val SPEECH_PREPARATION_PHASES = setOf("AUDIO_TRACK_SETUP", "GATE_WAIT", "MODEL_LOAD", "MODEL_LEASE", "DELEGATE_SETUP", "SDK_TASK_OPEN", "VOICE_ENUMERATION")
 private val CLEANUP_STATES = setOf("NOT_OBSERVED", "PENDING", "RETIRED", "FAILED")
 private val SHA256 = Regex("[0-9a-f]{64}")
 private val IDENTITY = Regex("[A-Za-z0-9._-]{1,120}")

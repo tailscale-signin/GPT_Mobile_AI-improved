@@ -7,6 +7,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechBufferTest {
+    @Test fun balancedAndFastOpenOnStableWordsDuringAProviderPause() {
+        var clock = 0L
+        val buffer = VoiceSpeechBuffer { clock }
+        val raw = "Toronto has "
+        assertTrue(buffer.append(raw, false, earlyStart = true).orEmpty().isEmpty())
+        assertEquals(120L, buffer.nextFlushDelayMs(null))
+        clock += 120
+        assertEquals(listOf(raw), buffer.append(raw, false, earlyStart = true))
+        assertNull(buffer.nextFlushDelayMs(null))
+        assertEquals(listOf("snow today."), buffer.append(raw + "snow today.", true))
+    }
+
+    @Test fun aShortQuestionSettlesWithoutWaitingForAnotherProviderToken() {
+        var clock = 0L
+        val buffer = VoiceSpeechBuffer { clock }
+        assertTrue(buffer.append("Ready?", false, earlyStart = true).orEmpty().isEmpty())
+        clock += 50
+        assertTrue(buffer.append("Ready??", false, earlyStart = true).orEmpty().isEmpty())
+        assertEquals(80L, buffer.nextFlushDelayMs(null))
+        clock += 80
+        assertEquals(listOf("Ready??"), buffer.append("Ready??", false, earlyStart = true))
+        assertTrue(buffer.append("Ready??", true).orEmpty().isEmpty())
+        val number = VoiceSpeechBuffer { clock }
+        assertTrue(number.append("3.", false, earlyStart = true).orEmpty().isEmpty())
+        assertNull(number.nextFlushDelayMs(null))
+    }
+
+    @Test fun theHeardFrenchCueIsSkippedOnceAndOrdinaryAnswerTextKeepsItsWording() {
+        val buffer = VoiceSpeechBuffer().apply { heardOpening = "Un instant." }
+        val text = "Un instant. La réponse est prête."
+        val speech = buildList {
+            for (end in 1..text.length) addAll(buffer.append(text.take(end), false, earlyStart = true).orEmpty())
+            addAll(buffer.append(text, true).orEmpty())
+        }.joinToString("")
+        assertEquals("La réponse est prête.", speech)
+        assertEquals(".5 seconde.", VoiceSpokenLead.afterCue("Un instant. .5 seconde.", "Un instant.", true))
+        assertEquals("Un instantané précis.", VoiceSpokenLead.afterCue("Un instantané précis.", "Un instant.", true))
+    }
+
     @Test fun bufferedAudioLetsAClauseFinishAndLowReserveReleasesWords() {
         var clock = 0L
         val buffer = VoiceSpeechBuffer { clock }

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-response-fluidity-2026-11-26",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+  "workingBranch": "fix/unified-github-gateway",
+  "startingHead": "77a5c8ed540a33356c037fb8ffae6ac397f43ac5",
+  "pullRequest": 2646,
+  "intent": "Reduce time to first spoken answer and play brief localized, turn-bound acknowledgments while the answer or a real lookup is being prepared.",
+  "behavior": [
+    "Give a speakable reply priority. Offer at most one foreground acknowledgment per eligible new turn, after 850 ms of ordinary preparation or 180 ms of confirmed lookup activity. Never send an extra model request.",
+    "Preserve an audible acknowledgment through its phrase boundary. Retire an unheard one as soon as the answer can speak. Keep synthetic status outside the stored answer and measure its first audio separately.",
+    "Overlap Android output setup with model loading, prefetch installed bundle headers during native microphone startup, and release stable initial words on a bounded timer in both foreground and service playback. Reuse a local model already loading for an unheard cue when the same voice starts the answer."
+  ],
+  "integratedHeads": [
+    "248203b3945dd828160a16a54802489efa377bde"
+  ],
+  "verification": {
+    "focusedJvmTestsPassed": 292,
+    "robolectricVoiceTestsPassed": 63,
+    "foregroundServiceSmokeTestsPassed": 1,
+    "covered": [
+      "Cues in eight languages, including French",
+      "Existing reply priority, duplicate suppression, interruption and stale callbacks",
+      "Overlap between audio setup and graph creation",
+      "One cold graph load when an unheard cue yields to the answer, with explicit Stop still honored",
+      "Background delivery of stable words during a provider pause"
+    ],
+    "handsetLatency": "Unmeasured"
+  }
+}

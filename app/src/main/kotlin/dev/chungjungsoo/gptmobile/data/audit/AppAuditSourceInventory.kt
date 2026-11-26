@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "b4b67738c8c1b1ec6b6eb2c6702d5d4fa955dd6b8e5baf4baeb0d8e7ab03bd68"
-    val fileCount: Int = 3186
-    val lineCount: Int = 545500
+    val sourceDigest: String = "2cf1c3afd5a426ec7bb2e636b622cfca7ed0a9a4876c78a7e74414f399b703dc"
+    val fileCount: Int = 3188
+    val lineCount: Int = 545767
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -25,7 +25,7 @@ object AppAuditSourceInventory {
     )
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 76, 8895),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 618, 109127),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 619, 109193),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9297),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 265, 48187),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 104, 24766),
@@ -43,7 +43,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 109, 17563),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 152, 25444),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 56, 8339),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 142, 25487),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 143, 25688),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 286, 104136),

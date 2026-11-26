@@ -55,6 +55,7 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
                     .putString("listening_style", value.tuning.listeningStyle.name)
                     .putInt("capture_batch_ms", value.tuning.captureBatchMs)
                     .putBoolean("hands_free_interruption", value.tuning.handsFreeInterruption)
+                    .putBoolean("spoken_acknowledgments", value.tuning.spokenAcknowledgments)
                     .putString("pronunciation_overrides", org.json.JSONObject(value.tuning.pronunciation).toString())
                     .putString("localized_pronunciations", org.json.JSONObject(value.tuning.localizedPronunciations).toString())
                     .putInt("caption_offset_ms", value.tuning.captionOffsetMs).commit()

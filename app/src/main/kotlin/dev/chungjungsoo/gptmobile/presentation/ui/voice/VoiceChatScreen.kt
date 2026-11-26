@@ -92,7 +92,6 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePreparation
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreparationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
-import dev.chungjungsoo.gptmobile.data.voice.VoiceSearchOpening
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
@@ -481,13 +480,7 @@ private fun VoiceChatSessionScreen(
     }
     LaunchedEffect(session, state.reply, state.awaitingReply, performance, speakWhileGenerating, foregroundVoice) {
         if (!foregroundVoice) return@LaunchedEffect
-        while (true) {
-            val remainingMs = session.nextSpeechFlushDelayMs() ?: break
-            delay(remainingMs)
-            session.flushSpeech()
-            // An oversized word needs another provider token before the buffer can advance.
-            if (session.nextSpeechFlushDelayMs() == 0L) break
-        }
+        session.awaitSpeechFlush()
     }
     val localSpeech = backend.backend != VoiceSpeechBackend.GATEWAY_CUDA
     val prepareSpeech = foregroundVoice &&
@@ -506,7 +499,7 @@ private fun VoiceChatSessionScreen(
             state.hasDraft,
             localSpeech,
             admission?.stage == VoiceAdmissionStage.ACCEPTED,
-            openingMicrophone = listeningEnabled && !state.muted && (recognitionReady || localModel.status == LocalVoiceModelStatus.CHECKING)
+            openingMicrophone = recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE && listeningEnabled && !state.muted && (recognitionReady || localModel.status == LocalVoiceModelStatus.CHECKING)
         )
     } else {
         VoicePreparation.NONE
@@ -657,7 +650,25 @@ private fun VoiceChatSessionScreen(
         val accepted = admission ?: return@LaunchedEffect
         session.admission(accepted.stage, accepted.reason, accepted.requestId)
     }
-    LaunchedEffect(loaded, roomReady, messages, runs, admission, toolEvents, enabled, backend.loaded, spokenReplies, speakWhileGenerating, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning, approvals.isEmpty(), inputs.isEmpty(), consent, chatView) {
+    val canOfferOpening = foregroundVoice &&
+        voiceReady &&
+        preferencesApplied &&
+        spokenReplies &&
+        speakWhileGenerating &&
+        tuning.spokenAcknowledgments &&
+        state.speaker &&
+        !manualMessage &&
+        !room.privacyModeLocked &&
+        approvals.isEmpty() &&
+        inputs.isEmpty() &&
+        consent == null &&
+        !runtimeOwner.background.playingElsewhere(runtime) &&
+        (state.phase == VoicePhase.THINKING && state.awaitingReply || chatView && state.phase == VoicePhase.PAUSED)
+    val openingPlan = remember(canOfferOpening, room.id, selectedProfile?.uid, admission, state.transcript, chatView, messages, runs, toolEvents, synthesis.language) {
+        if (canOfferOpening) voiceOpeningPlan(admission, state.transcript, chatView, room.id, selectedProfile.uid, messages, runs, toolEvents, synthesis.language) else null
+    }
+    val dueOpening = rememberDueVoiceOpening(openingPlan)
+    LaunchedEffect(loaded, roomReady, messages, runs, admission, dueOpening, enabled, backend.loaded, spokenReplies, speakWhileGenerating, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning, approvals.isEmpty(), inputs.isEmpty(), consent, chatView) {
         if (!loaded || !roomReady || benchmarkOwnership.value != null) return@LaunchedEffect
         // Restoration publishes messages before loaded=true. Read the current flow snapshot so
         // separate Compose collectors cannot accidentally prime from an empty history.
@@ -686,39 +697,19 @@ private fun VoiceChatSessionScreen(
             activeMessage = null
         }
         if (playback.active == null) {
-            val accepted = model.voiceAdmission.value
-            val run = accepted?.takeIf {
-                it.stage == VoiceAdmissionStage.ACCEPTED && it.chatId == room.id && it.profileUid == selectedProfile?.uid
-            }?.run(runSnapshot)
-            val lookup = if (run != null &&
-                run.status == AgentRunStatus.RUNNING &&
-                currentSession.awaitingReply &&
-                currentSession.phase == VoicePhase.THINKING &&
-                spokenReplies &&
-                speakWhileGenerating &&
-                !chatView &&
-                !room.privacyModeLocked &&
-                approvals.isEmpty() &&
-                inputs.isEmpty() &&
-                consent == null
-            ) {
-                val prompt = messageSnapshot.userMessages.lastOrNull { it.id == run.userMessageId && it.chatId == run.chatId }?.content
-                prompt?.takeIf { it == currentSession.transcript }?.let {
-                    VoiceSearchOpening.line(it, run.runId, model.toolEventsByRun.value[run.runId].orEmpty())
-                }
-            } else {
-                null
+            // Recheck live ownership after the grace period. A filled reply always wins admission.
+            val opening = dueOpening?.takeIf {
+                voiceOpeningPlan(model.voiceAdmission.value, currentSession.transcript, chatView, room.id, selectedProfile?.uid, messageSnapshot, runSnapshot, model.toolEventsByRun.value, synthesis.language) == it
             }
-            val identity = run?.takeIf { lookup != null }?.let { VoiceMessageIdentity(it.assistantMessageId, it.runId) }
-            val next = playback.next(identity) ?: return@LaunchedEffect
+            val next = playback.next(opening?.identity) ?: return@LaunchedEffect
             if (!session.beginMessage(next.identity.key, diagnosticRunId = next.identity.runId, readAloud = next.readAloud)) {
                 playback.finish()
                 return@LaunchedEffect
             }
             activeMessage = next.identity.takeIf { next.readAloud }
             retainMessage(next.identity)
-            if (lookup != null && next.identity == identity && next.text.isBlank() && !next.complete && next.readAloud) {
-                session.offerSearchOpening(next.identity.key, lookup)
+            if (opening != null && next.identity == opening.identity && next.text.isBlank() && !next.complete && next.readAloud) {
+                session.offerOpening(next.identity.key, opening.cue)
             }
         }
         session.autoContinue = listeningEnabled && !playback.hasPending

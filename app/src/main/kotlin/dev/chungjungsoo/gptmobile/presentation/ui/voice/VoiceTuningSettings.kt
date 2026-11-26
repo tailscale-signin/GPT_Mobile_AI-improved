@@ -36,6 +36,8 @@ internal fun VoiceTuningSettings(
     language: SpeechLanguage,
     supportsCpuThreads: Boolean = true
 ) {
+    VoiceSettingsSection("Conversation pacing")
+    VoiceSettingSwitch("Speak a brief acknowledgment while thinking", value.spokenAcknowledgments) { change(value.copy(spokenAcknowledgments = it)) }
     VoiceSettingsSection("Listening response")
     VoiceChoice("Listening style", value.listeningStyle.name, VoiceListeningStyle.entries.map { it.name to it.label }, { change(value.copy(listeningStyle = VoiceListeningStyle.valueOf(it))) })
     Text("Quick responds sooner; Thoughtful allows longer pauses.", style = MaterialTheme.typography.bodySmall)

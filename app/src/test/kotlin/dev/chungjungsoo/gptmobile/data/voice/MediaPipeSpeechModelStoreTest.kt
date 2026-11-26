@@ -38,6 +38,30 @@ class MediaPipeSpeechModelStoreTest {
         sha256 = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     )
 
+    @Test fun warmupReadsOnlyTheVerifiedLocalBundlePrefixAndReleasesItsLease(): Unit = runBlocking {
+        val payload = ByteArray(3 * 1024 * 1024) { 17 }
+        val pack = model.copy(downloadBytes = payload.size.toLong(), sha256 = hash(payload))
+        val opens = AtomicInteger()
+        val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, listOf(pack)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String): LocalVoiceAssetStream {
+                    opens.incrementAndGet()
+                    return LocalVoiceAssetStream(ByteArrayInputStream(payload), payload.size.toLong())
+                }
+                override fun cancel() = Unit
+            }
+        }
+        assertEquals(0, store.prefetchInstalled(pack.engine) { true })
+        assertEquals(0, opens.get())
+        store.install(pack.engine)
+        assertEquals(2 * 1024 * 1024, store.prefetchInstalled(pack.engine) { true })
+        var checks = 0
+        assertEquals(64 * 1024, store.prefetchInstalled(pack.engine) { ++checks <= 2 })
+        assertEquals(1, opens.get())
+        store.remove(pack.engine)
+        assertFalse(store.isReady(pack.engine))
+    }
+
     @Test fun localCompiledPackUsesVerifiedBytesAndAnIndependentLease() = runBlocking {
         val compiled = MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO_SM8750).copy(downloadBytes = bytes.size.toLong(), sha256 = hash(bytes))
         val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, listOf(compiled)) { error("Import must not use the network") }

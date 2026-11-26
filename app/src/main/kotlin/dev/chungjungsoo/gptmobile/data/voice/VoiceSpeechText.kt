@@ -137,7 +137,14 @@ internal object VoiceSpeechText {
 
     private fun project(text: String, final: Boolean, depth: Int, notices: Notices, completed: Boolean = final, includeDetails: Boolean = false, literalTags: Boolean = false): String {
         if (depth > 4) return ""
-        val stableEnd = if (final) text.length else text.indexOfLast { it.isWhitespace() || it in "。！？।॥" } + 1
+        val stableEnd = if (final) {
+            text.length
+        } else {
+            val separatedEnd = text.indexOfLast { it.isWhitespace() || it in "。！？।॥" } + 1
+            // A plain opening question is complete at '?'. Match only the first ordinary sentence;
+            // URL queries, Markdown, tags and a lone '!' (a possible image marker) keep the normal lookahead.
+            if (depth == 0 && separatedEnd < 128) maxOf(separatedEnd, plainOpeningQuestion.find(text)?.range?.last?.plus(1) ?: 0) else separatedEnd
+        }
         val spoken = StringBuilder()
         var index = 0
         fun codeNotice() {
@@ -634,6 +641,7 @@ internal object VoiceSpeechText {
     private val inlineTechnicalName = Regex("[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+")
     private val inlineRate = Regex("(?:[kKMGT]?[Bb]|[ckm]?m|[mun]?g|frames|tokens)/(?:s|sec|min|h)")
     private val inlineQuantity = Regex("[$£€]?[+\\-−]?(?:[0-9]+(?:[.,][0-9]+)*|\\.[0-9]+)(?:[%°]|[ \\t]*(?:°[CF]|[µμ]g|[a-zA-Z]{1,5}(?:/[smh])?))?")
+    private val plainOpeningQuestion = Regex("""^[\p{L}\p{N}][\p{L}\p{M}\p{N} '’\u00a0\u202f-]{0,120}\?{1,4}["”»’)]{0,3}""")
     private val fenceStart = Regex("^(`{3,}|~{3,})")
     private val lineMarker = Regex("^(?:#{1,6}|>|[-+*]|[0-9]+[.)])[ \\t]+")
     private val referenceDefinition = Regex("^\\[[^]\\n]+]:")

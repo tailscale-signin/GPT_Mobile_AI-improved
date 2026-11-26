@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "aff3fcffd7a7f39c90f80113f6934f42820ce3478743a30e524edbfd180fa3cc",
+  "source_digest": "08d4f8a81b5512ec4adb2d2488f8795546f33cc008921e5bbb4d463c527aa141",
   "file_count": 3175,
-  "indexed_line_count": 543839,
+  "indexed_line_count": 543856,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 265,
-      "indexed_line_count": 48107
+      "indexed_line_count": 48124
     },
     {
       "id": "agent_tools",
@@ -823,8 +823,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "02d0f83047f3e9fd5e7744b5aa06d00fd1cecf553855ea113cf9a94fc6aabbf1",
-      "indexed_lines": 3144
+      "sha256": "6c9c492851f96e7f53a5c00a48062b56c6544fcc73e5375d7c7e91ff7221ccf7",
+      "indexed_lines": 3145
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -1761,8 +1761,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDelivery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "7d9657393b001b4caddb2b85eee6c6567de394cbb9b21215af11f77c0be3dac9",
-      "indexed_lines": 190
+      "sha256": "ef6856786bb44013afbf804b98db56234ad408ffe073aad0d9ddf0a319d6d205",
+      "indexed_lines": 206
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolHandoff.kt",

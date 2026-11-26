@@ -110,12 +110,25 @@ disabled acquisition and zero ready reads; they omit the unsupported preparation
 enum. This keeps the current receiver contract compatible without implying a
 renewal, fixture authority or satisfied prerequisites.
 
+Retained failure delivery is attempted at most once per run collection. The
+runner and its terminal boundary use the same eligibility checks: authority
+invalidation, unknown operation outcomes and unreconciled provider recovery
+state cannot start retained publication. A later user resume receives a fresh
+boundary. Saved-page and investigation fixtures retain exact read sequences,
+source identity and accepted call ceilings. Unscoped legacy observations retain
+the ordinary per-call progress guard without entering the revision-bound ledger.
+
+Before a CI read receives its accepted repository or revision scope, the
+runner retains the complete original provider invocation. Effective arguments
+can then be narrowed while the original envelope and digest remain verifiable;
+identity mismatches still stop dispatch.
+
 ## Validation record
 
 Local focused JVM execution covers 32 production-context,
 qualification-summary and context-presentation tests, 25 merged capacity/catalog tests,
 44 durable recovery tests, 14 lookup/CI evidence tests, seven interruption-export
-tests and 16 terminal-delivery tests. The repeated-provider-wait regression fails
+tests and 20 terminal-delivery tests. The repeated-provider-wait regression fails
 against the original base and completes with the recovery change. The interruption
 export suite also fails against the earlier implementation and passes after cause
 retention is repaired. Two adapter-specific terminal tests require the full Android
@@ -124,7 +137,8 @@ runner and recovery regressions are included in the ordinary test sources and
 must pass the repository's exact-revision PR and main-branch gates. Eleven focused
 acceptance-recovery projection tests also pass, including an expiry regression
 that fails against the preceding projection, and the existing receiver enum
-parity check accepts the compatible export. The canonical
+parity check accepts the compatible export. Four merged CI-scope and replay tests
+validate original invocation preservation and tampered-envelope rejection. The canonical
 host gate is `bash scripts/validate-local.sh fast`; generated source maps and
 inventories must match the final combined revision. Release signing, artifact
 identity, packaging size, attestations and published-asset verification remain

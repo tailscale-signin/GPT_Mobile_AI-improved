@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
@@ -11,6 +13,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -157,7 +160,12 @@ class GitHubTerminalDeliveryTest {
     @Test fun aTypedProviderWaitDoesNotInvokeTheSavedReportCallback() = runTest {
         val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "profile", "selected", 100_000, "scope", "PROVIDER_RATE_LIMITED", true, httpStatus = 429)
         val failure = ProviderEvent.Failed("HTTP 429", providerLimit = limit, invocationId = "actual")
-        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true) { error("A pending durable wait must not publish a retained answer") }.toList()
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("A pending durable wait cannot start a model round")
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = error("A pending durable wait must not publish a retained answer")
+        }.withSingleRetainedFailureResponse()
+        assertEquals(listOf(failure), session.retainedFailureResponse(failure).toList())
+        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true, session::retainedFailureResponse).toList()
         assertEquals(listOf(provider(failure)), events)
     }
 
@@ -174,7 +182,7 @@ class GitHubTerminalDeliveryTest {
         val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true) {
             error("Reconciliation must not reenter a provider session")
         }.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-        assertEquals(failure, events.last())
+        assertSame(failure, events.last())
         assertFalse(events.any { it is ProviderEvent.Completed })
         assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
     }
@@ -199,8 +207,9 @@ class GitHubTerminalDeliveryTest {
             ),
             false
         )
-        val failures = listOf(
-            ProviderEvent.Failed("Permission revoked", errorCode = "POLICY_STALE"),
+        val failures = (ToolFailureMetadata.authorityStopCodes + setOf("AUTH_REQUIRED", "FORBIDDEN", "PERSONAL_DATA_CONSENT_REQUIRED")).map {
+            ProviderEvent.Failed("Permission revoked", errorCode = it)
+        } + listOf(
             ProviderEvent.Failed("DISPATCH_POLICY_CHANGED: prior permission was revoked"),
             ProviderEvent.Failed("Configuration changed", taskOutcome = "CONFIGURATION_INVALIDATED"),
             ProviderEvent.Failed("Verify the previous write", errorCode = "RECONCILIATION_REQUIRED", failureDetails = buildJsonObject { put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED") })
@@ -209,10 +218,103 @@ class GitHubTerminalDeliveryTest {
             val events = flowOf(AgentRunEvent.ToolFinished(call, result), provider(failure)).withGitHubTerminalDelivery(true) {
                 error("Changed authority forbids session reentry")
             }.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-            assertEquals(failure, events.last())
+            assertSame(failure, events.last())
             assertFalse(events.any { it is ProviderEvent.Completed })
             assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("Open pull requests observed") })
         }
+    }
+
+    @Test fun uncertainWritesKeepObservedReadFactsWithoutReenteringTheSession() = runTest {
+        val call = ProviderEvent.ToolCall("observed", "github_pr", buildJsonObject { put("action", "list") })
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("items", JsonArray(emptyList()))
+                    put("has_more", false)
+                    put("page", 1)
+                }
+            ),
+            false
+        )
+        val failures = (ToolResultEnvelope.unknownOutcomeCodes + setOf("OUTPUT_CONTINUATION_PENDING_TOOLS", "EXECUTION_OPERATION_UNKNOWN_OUTCOME")).map {
+            ProviderEvent.Failed("Reconcile the previous operation", errorCode = it, taskOutcome = "PARTIAL")
+        } + ProviderEvent.Failed("GATEWAY_OUTCOME_UNKNOWN: The dispatched operation has no result", taskOutcome = "PARTIAL") +
+            listOf("requires_reconciliation", "unknown_outcome", "command_outcome_unknown", "remote_outcome_unknown").map {
+                ProviderEvent.Failed("Transport stopped", errorCode = "NETWORK_TIMEOUT", taskOutcome = "PARTIAL", failureDetails = buildJsonObject { put(it, true) })
+            }
+        for (failure in failures) {
+            val events = flowOf(AgentRunEvent.ToolFinished(call, result), provider(failure)).withGitHubTerminalDelivery(true) {
+                error("An uncertain write cannot reenter a retained session")
+            }.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertSame(failure, events.last())
+            assertFalse(events.any { it is ProviderEvent.Completed })
+            val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+            assertTrue(text.contains("Open pull requests observed: 0 (complete captured list)"))
+            assertTrue(text.contains("do not establish completion"))
+            assertTrue(text.contains("uncertain writes must not be repeated"))
+        }
+    }
+
+    @Test fun terminalFallbackIsAttemptedOncePerCollectionEvenWhenTheRunnerReceivesOnlyFailure() = runTest {
+        val failure = ProviderEvent.Failed(
+            "Continuation stopped",
+            errorCode = "OUTPUT_CONTINUATION_UNAVAILABLE",
+            failureDetails = buildJsonObject {
+                put(
+                    "original_interruption",
+                    buildJsonObject {
+                        put("code", "429")
+                        put("retry_at_ms", 40_000)
+                    }
+                )
+            }
+        )
+        var deliveries = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("Retained delivery cannot start a model round")
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
+                deliveries++
+                emit(failure)
+            }
+        }
+        val run = flow {
+            val guarded = session.withSingleRetainedFailureResponse()
+            val attemptedByRunner = flow<AgentRunEvent> {
+                guarded.retainedFailureResponse(failure).collect { emit(provider(it)) }
+            }
+            emitAll(attemptedByRunner.withGitHubTerminalDelivery(true, guarded::retainedFailureResponse))
+        }
+        for (collection in 1..2) {
+            val events = run.toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(collection, deliveries)
+            assertSame(failure, events.last())
+            assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
+            assertFalse(events.any { it is ProviderEvent.Completed })
+        }
+    }
+
+    @Test fun retainedSessionGuardPreservesEachFailureAndNeverReopensInvalidAuthority() = runTest {
+        var deliveries = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("Retained delivery cannot start a model round")
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
+                deliveries++
+                emit(ProviderEvent.TextDelta("Saved authorized findings"))
+                emit(failure)
+            }
+        }
+        val invalid = ProviderEvent.Failed("The profile changed", errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED")
+        val later = ProviderEvent.Failed("Connection unavailable", errorCode = "LOCAL_SERVICE_UNREACHABLE")
+        val guarded = session.withSingleRetainedFailureResponse()
+        assertSame(invalid, guarded.retainedFailureResponse(invalid).toList().single())
+        assertSame(later, guarded.retainedFailureResponse(later).toList().single())
+        assertEquals(0, deliveries)
+        val resumed = session.withSingleRetainedFailureResponse()
+        val events = resumed.retainedFailureResponse(later).toList()
+        assertEquals(1, deliveries)
+        assertEquals("Saved authorized findings", (events.first() as ProviderEvent.TextDelta).text)
+        assertSame(later, events.last())
     }
 
     @Test fun rateLimitWithoutDurableWaitKeepsItsActionableCauseAndFailureMetadata() = runTest {

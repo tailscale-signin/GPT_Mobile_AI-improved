@@ -2992,7 +2992,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupObservation.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplay.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt",
@@ -3000,7 +3001,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiAbsenceTargetTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiReadProgressTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiTaskScopeTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDeliveryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDeliveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentGitHubResilienceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationRecoveryRunnerTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3012,7 +3015,9 @@
         "Complete trusted bounded lookups from native receipts before provider replay admission, while retaining the normal publication proof and current authority checks.",
         "CI diagnosis retains the accepted repository and head; a historical failure cannot silently replace the current target.",
         "Reuse only completed attempt-pinned reads whose exact job inventory or log range is covered. Live refresh, new attempts and uncovered bytes remain new work.",
-        "Retained findings remain bound to the same accepted task and evidence epoch. An interruption remains partial and cannot manufacture completion or replay authority."
+        "Retained findings remain bound to the same accepted task and evidence epoch. An interruption remains partial and cannot manufacture completion or replay authority.",
+        "Attempt retained failure delivery at most once per run collection, and never after authority invalidation or an unknown operation outcome; a later explicit resume receives a fresh delivery boundary.",
+        "Capture the complete original provider invocation before applying accepted repository or revision scope; effective arguments may narrow the request without replacing its immutable identity proof."
       ],
       "routing": {
         "role": "executor",

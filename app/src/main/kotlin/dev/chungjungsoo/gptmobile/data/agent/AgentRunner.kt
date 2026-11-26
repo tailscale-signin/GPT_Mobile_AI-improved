@@ -173,7 +173,8 @@ class AgentRunner(
     }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
-        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + RequestByteBudgetScope() + AdaptiveBatchScope(limits.maxConcurrentTools)))
+        val deliverySession = if (limits.githubTask && limits.combined == null) session.withSingleRetainedFailureResponse() else session
+        emitAll(runWithRepairScope(deliverySession, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + RequestByteBudgetScope() + AdaptiveBatchScope(limits.maxConcurrentTools)))
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {

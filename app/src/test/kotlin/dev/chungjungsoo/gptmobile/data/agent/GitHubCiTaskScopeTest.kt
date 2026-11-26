@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCiTaskScopeTest {
@@ -70,11 +71,21 @@ class GitHubCiTaskScopeTest {
         for (incoming in listOf(request, legacy, routed)) {
             val scoped = requireNotNull(scope(incoming)).captureProviderInvocation()
             assertEquals(JsonPrimitive(head), scoped.arguments["head_sha"])
+            assertEquals(JsonPrimitive("owner"), scoped.arguments["owner"])
+            assertEquals(JsonPrimitive("repo"), scoped.arguments["repo"])
+            assertEquals(JsonPrimitive("failure"), scoped.arguments["status"])
             assertEquals(incoming.arguments["per_page"], scoped.arguments["per_page"])
             assertEquals(original, scoped.providerInvocation())
             assertEquals(original.fingerprint(request.callId), scoped.originalInvocationFingerprint)
         }
         assertThrows(IllegalStateException::class.java) { scope(legacy.copy(callId = "different")) }
+    }
+
+    @Test fun ciPinningRejectsAChangedRetainedProviderEnvelope() {
+        val original = call("runs", buildJsonObject { put("status", "failure") }).captureProviderInvocation()
+        val changed = original.copy(originalInvocation = requireNotNull(original.originalInvocation).copy(arguments = JsonObject(emptyMap())))
+        val failure = assertThrows(IllegalStateException::class.java) { scope(changed) }
+        assertTrue(failure.message?.startsWith("CLIENT_TOOL_RESULT_IDENTITY_MISMATCH:") == true)
     }
 
     @Test fun observedRunIdentityPinsTheCurrentAttemptAndRejectsKnownHistoricalOrOlderAttempts() {

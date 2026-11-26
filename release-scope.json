@@ -134,6 +134,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlViewModel.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModel.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentGitHubResilienceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiReadProgressTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiTaskScopeTest.kt",

@@ -2996,7 +2996,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupObservation.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplay.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt",
@@ -3004,7 +3005,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiAbsenceTargetTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiReadProgressTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiTaskScopeTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDeliveryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDeliveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentGitHubResilienceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationRecoveryRunnerTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3016,7 +3019,9 @@
         "Complete trusted bounded lookups from native receipts before provider replay admission, while retaining the normal publication proof and current authority checks.",
         "CI diagnosis retains the accepted repository and head; a historical failure cannot silently replace the current target.",
         "Reuse only completed attempt-pinned reads whose exact job inventory or log range is covered. Live refresh, new attempts and uncovered bytes remain new work.",
-        "Retained findings remain bound to the same accepted task and evidence epoch. An interruption remains partial and cannot manufacture completion or replay authority."
+        "Retained findings remain bound to the same accepted task and evidence epoch. An interruption remains partial and cannot manufacture completion or replay authority.",
+        "Attempt retained failure delivery at most once per run collection, and never after authority invalidation or an unknown operation outcome; a later explicit resume receives a fresh delivery boundary.",
+        "Capture the complete original provider invocation before applying accepted repository or revision scope; effective arguments may narrow the request without replacing its immutable identity proof."
       ],
       "routing": {
         "role": "executor",
@@ -3119,9 +3124,9 @@
       "sha256": "1c0e6725bea8a27085878c091362e96c23bc983e2e510ab7dedcfd8d2f58fc7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": {
-      "blob_sha": "149a8c755ad0789d51d9dcc2a238ba661fb2433c",
-      "bytes": 202121,
-      "sha256": "02d0f83047f3e9fd5e7744b5aa06d00fd1cecf553855ea113cf9a94fc6aabbf1"
+      "blob_sha": "ab120d00f516198c2329dcfd8b8932232c000232",
+      "bytes": 202266,
+      "sha256": "6c9c492851f96e7f53a5c00a48062b56c6544fcc73e5375d7c7e91ff7221ccf7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventory.kt": {
       "blob_sha": "2410c6ee6f8e5e8e6f611d5a0a5bda9d655ac041",
@@ -3184,9 +3189,9 @@
       "sha256": "2a1ab2e55f2429a13cf69858d227c54b3a2af8edb36a5187ea3e7377fede3b8d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDelivery.kt": {
-      "blob_sha": "d04d4fd905fc09dabcd4e9de68bb77beefe31304",
-      "bytes": 11898,
-      "sha256": "7d9657393b001b4caddb2b85eee6c6567de394cbb9b21215af11f77c0be3dac9"
+      "blob_sha": "5be7805ae68ff9a8a352957d0dfdb18750c111c4",
+      "bytes": 12721,
+      "sha256": "ef6856786bb44013afbf804b98db56234ad408ffe073aad0d9ddf0a319d6d205"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventory.kt": {
       "blob_sha": "71432e9f944ca679fba80ae2b9e93fd11e476a01",
@@ -3227,6 +3232,11 @@
       "blob_sha": "a4d9b8e3d1ef3acd10cbba9af312da789ce57598",
       "bytes": 11396,
       "sha256": "4e02f9dd24684211efe1528a401b83a118ffca3a00db6adb18bc4e9088e1ac95"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplay.kt": {
+      "blob_sha": "9da037787e361cfc366d184c01c8885c00df5559",
+      "bytes": 1761,
+      "sha256": "e2e1e5244ff0aa67a838fa049c752c52bbf89774553e411b8ec36977488ab11e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadline.kt": {
       "blob_sha": "445f0f9363f7f69a7f92be94ac31fdbc9de35602",
@@ -4898,6 +4908,11 @@
       "bytes": 2513,
       "sha256": "b74988d81dbaf25dad324dd4f653541d910521cec026c2d73ddca4a982560650"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentGitHubResilienceTest.kt": {
+      "blob_sha": "307431512d093fe58307140ae0ba22ee0653a0fa",
+      "bytes": 13498,
+      "sha256": "6257b0faf991c0c2dbbb722d541a61e75e3d0b4c69d8f98b7aa1e83f7eed0939"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRequestByteReplanTest.kt": {
       "blob_sha": "a53ef3692cc50b550c245b2052b4ab0f2a4cc506",
       "bytes": 9821,
@@ -4929,9 +4944,9 @@
       "sha256": "57a193310334f7051a39bd1f2e9ed56654d7a553f05ee934548d1921d1f83be6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiTaskScopeTest.kt": {
-      "blob_sha": "52272b1a714c15b316303d4b0b0828aa7acf7c7d",
-      "bytes": 4378,
-      "sha256": "e26c881bf0cbeb0166a0ad2e738ddf0c923ca0f3e787d023a3a14eb8d6f678ef"
+      "blob_sha": "317f6e53e7dc293590cc88558a721a39dfecb571",
+      "bytes": 5155,
+      "sha256": "d770bcd10bdcf111aac51470c27f3c4cd55695cd1fc427ef6baf3393bf98c4d1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": {
       "blob_sha": "59e6724f3dfaf181f41dc4ffbc19a6f93e899c43",
@@ -4942,6 +4957,11 @@
       "blob_sha": "3ef6fdf9421b085f36d6aec79ab9030f44bcc7d9",
       "bytes": 11765,
       "sha256": "191068a2955ed57f692b2e8902d1dc1a0d59e4c2c98d8187545097baaa2199f0"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationRecoveryRunnerTest.kt": {
+      "blob_sha": "846699f31797e3ea62fc82e5ed02bcb746f1455f",
+      "bytes": 12599,
+      "sha256": "6d417806a305b36925ced0f36fc2f8168a7bc62614672a2896167dc49e335e45"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubOutputContinuationSessionTest.kt": {
       "blob_sha": "85124bc5a879d715b8ba6185446c8849ae120651",
@@ -4989,9 +5009,9 @@
       "sha256": "08f2df5cd1e9f4c9954d719a202953257e4e45581d03a153f0f51acc6611429f"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDeliveryTest.kt": {
-      "blob_sha": "27adc740bfdd9328146b9ee9c6bf48c5980e08ee",
-      "bytes": 19702,
-      "sha256": "2baa87cac3020d63f42b4567065ea91b81c1a6b62f6382cece657f0e395f311d"
+      "blob_sha": "84aad5061dc8278b30a3c219ec2ba95cd9b9fabf",
+      "bytes": 25724,
+      "sha256": "53d4f91d76713928ff15c1a600ca1930914943b7733717c218df69190903f59b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventoryTest.kt": {
       "blob_sha": "c3ac1f5f06e0348a91bb234192932bbac7305eef",
@@ -6719,9 +6739,9 @@
       "sha256": "11e8309a920ad344493cd7d6c220b893d2139dab2c0b18a1fcaf0ca7c1bac12c"
     },
     "docs/repairs/github-mode-intelligence-2026-11-26.md": {
-      "blob_sha": "7e3b140cd831fd781e65f7b44e3a33dfb0e14791",
-      "bytes": 11635,
-      "sha256": "d418a99eeb060980d536d28e797d5240f2873bb297d75d64e6333fc1aed65790"
+      "blob_sha": "fae032cccd5b234270fd5a4e399a3e7eb4d7c6ce",
+      "bytes": 12565,
+      "sha256": "c0bc11d4e09b7e75273a0ad44618f09d48e0b575c1f478fbcbb7fea50802241a"
     },
     "docs/repairs/github-progress-source-identity-2026-11-24-task.json": {
       "blob_sha": "416586638daafdfd3d121ca7920598d545479a5c",

@@ -1,14 +1,30 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+
+/** One terminal delivery attempt per run collection; a later user resume gets a new wrapper. */
+internal fun AgentProviderSession.withSingleRetainedFailureResponse(): AgentProviderSession {
+    val attempted = AtomicBoolean(false)
+    return object : AgentProviderSession by this {
+        override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
+            if (!attempted.compareAndSet(false, true) || !failure.mayRequestRetainedReport()) {
+                emit(failure)
+                return@flow
+            }
+            emitAll(this@withSingleRetainedFailureResponse.retainedFailureResponse(failure))
+        }
+    }
+}
 
 /** A terminal delivery boundary, after recovery; it never invokes a model or a tool. */
 internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean, retainedResponse: ((ProviderEvent.Failed) -> Flow<ProviderEvent>)? = null): Flow<AgentRunEvent> {
@@ -23,7 +39,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean, re
         suspend fun finish(originalFailure: ProviderEvent.Failed) {
             if (terminal) return
             var failure = originalFailure
-            if (!visible && failure.providerLimit?.mayWait != true && retainedResponse != null && failure.mayRequestRetainedReport()) {
+            if (!visible && retainedResponse != null && failure.mayRequestRetainedReport()) {
                 // Raw runner exits (including failed connectivity waits) still have
                 // the accepted session's authorized saved report available. Ask that
                 // receipt-only boundary before replacing it with a generic message.
@@ -169,12 +185,12 @@ private fun ProviderEvent.Failed.blocksPublication(): Boolean =
 
 /** The runner has already stopped these cases. A retained-report callback is a new session entry. */
 private fun ProviderEvent.Failed.mayRequestRetainedReport(): Boolean =
-    !blocksPublication() &&
+    providerLimit?.mayWait != true &&
+        !blocksPublication() &&
         errorCode !in ToolResultEnvelope.unknownOutcomeCodes &&
-        errorCode != "OUTPUT_CONTINUATION_PENDING_TOOLS" &&
+        errorCode !in setOf("OUTPUT_CONTINUATION_PENDING_TOOLS", "EXECUTION_OPERATION_UNKNOWN_OUTCOME") &&
         !GatewayOutcomeRecovery.requiresReconciliation(message, errorCode) &&
-        failureDetails?.get("requires_reconciliation") != JsonPrimitive(true) &&
-        failureDetails?.get("unknown_outcome") != JsonPrimitive(true)
+        listOf("requires_reconciliation", "unknown_outcome", "command_outcome_unknown", "remote_outcome_unknown").none { failureDetails?.get(it) == JsonPrimitive(true) }
 
 private fun ProviderEvent.Failed.rateLimitDeliveryMessage(): String? {
     val classified = ProfileFailureRecord.fromProvider(message, errorCode, failureDetails)

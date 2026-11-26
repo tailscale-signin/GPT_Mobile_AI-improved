@@ -887,8 +887,11 @@ internal class AndroidVoiceCapture(
         if (silenced != true || stopped) return
         // Android can briefly silence a newly opened input while it transfers the normal
         // recording route. Keep the same recorder and wait once, before reading any PCM.
-        if (beforeRead && !waitedForInputRoute && capturedSamples == 0L &&
-            manager?.mode == AudioManager.MODE_NORMAL && !manager.isMicrophoneMute
+        if (beforeRead &&
+            !waitedForInputRoute &&
+            capturedSamples == 0L &&
+            manager?.mode == AudioManager.MODE_NORMAL &&
+            !manager.isMicrophoneMute
         ) {
             waitedForInputRoute = true
             repeat(8) {

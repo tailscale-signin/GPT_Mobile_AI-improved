@@ -236,6 +236,19 @@ Final-request refusal diagnostics report only the four observed typed outcomes f
 
 The added engine benchmark measures structural PCM, callback delivery and playback behavior. It does not establish cross-engine intelligibility, perceptual equivalence, acoustic latency, energy savings or an automatic engine winner. The supplied 631bad14 phone logs are baseline observations, not verification of these changes.
 
+## Saved document recall
+
+Document recall checks consent again after asynchronous source validation. Revoking
+consent, or revoking and restoring it during that check, stops the prepared request
+before it reaches the provider. Ordinary chats continue to use their own privacy
+policy when private masking settings change.
+
+## Windows Gateway setup
+
+The installer shows the destination and selected tasks before installation. Setup
+clears the previous configuration error file before checking settings and applying
+them. The Windows setup smoke check covers and captures the tasks and review pages.
+
 ## Release validation
 
 - Avoid the pinned emulator action's premature MENU unlock before acceptance readiness, using verified upstream source/runtime bytes while retaining the API34/API36 matrix, resource/time limits and all launcher/ANR health checks.

@@ -258,10 +258,12 @@ class MediaPipeSpeechNativeSmokeTest {
                     if (segment == 1 && ending.lastIndex - 1 in range) lastCaption.set(true)
                 }
                 started.set(SystemClock.elapsedRealtime())
-                reply = checkNotNull(output.openReply(voice, done::countDown) { reason, _ ->
-                    failure.set(reason)
-                    done.countDown()
-                })
+                reply = checkNotNull(
+                    output.openReply(voice, done::countDown) { reason, _ ->
+                        failure.set(reason)
+                        done.countDown()
+                    }
+                )
                 reply.enqueue("GPU is ready.")
             }
             check(done.await(60, TimeUnit.SECONDS)) { "Android streaming playback did not drain." }

@@ -3692,8 +3692,7 @@ class ChatRepositoryImpl(
             if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) null else latestUser?.let { knowledge?.recall(it.chatId, it.content) }
         }
         val documentContext = documentRecall?.text.orEmpty()
-        suspend fun validateDocuments() {
-            if (documentRecall?.sources.isNullOrEmpty()) return
+        suspend fun validateDocumentConsent() {
             require(factVault?.recallGeneration() == documentConsentGeneration) { "DOCUMENT_RECALL_STALE: Document consent changed while queued. Prepare the request again." }
             val consent = factVault?.recallConsent()
             require(
@@ -3701,7 +3700,14 @@ class ChatRepositoryImpl(
                     consent.settings.recallEnabled &&
                     (platform.isPrivateDestination() || consent.settings.allowCloudRecall)
             ) { "DOCUMENT_RECALL_STALE: Document recall consent was revoked. Prepare the request again." }
+        }
+        suspend fun validateDocuments() {
+            if (documentRecall?.sources.isNullOrEmpty()) return
+            validateDocumentConsent()
             knowledge?.validateRecall(requireNotNull(documentRecall))
+            // Canonical document validation can suspend after the consent check.
+            // Revoking and regranting consent still invalidates the prepared bytes.
+            validateDocumentConsent()
         }
         return PrimaryDispatchMemory(memorySettings, connectedMemoryTools, researchMemory, documentConsentGeneration, documentContext, ::validateDocuments)
     }

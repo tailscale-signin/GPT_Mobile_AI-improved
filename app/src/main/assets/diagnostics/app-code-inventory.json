@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "801ece14d57d9b05450ec28d042973333bc4faf276684fa0032c7cf0e34956c5",
+  "source_digest": "69e557191fc5a6cd85b60db18bd907bf893172754bd5e38777a831afdf127984",
   "file_count": 3166,
-  "indexed_line_count": 541536,
+  "indexed_line_count": 541543,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 262,
-      "indexed_line_count": 47175
+      "indexed_line_count": 47181
     },
     {
       "id": "agent_tools",
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 140,
-      "indexed_line_count": 25274
+      "indexed_line_count": 25275
     },
     {
       "id": "portable_domain",
@@ -12198,8 +12198,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "7ed01ea1324f1a823d2de0e81479c1c6570930c38a46797078b4ae80f51516ef",
-      "indexed_lines": 8737
+      "sha256": "6199ea59ccbc3aa5c51cc407805a05380b125e262af3abbf7dc986f1b77550cb",
+      "indexed_lines": 8743
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",
@@ -13647,8 +13647,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseBoundaries.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "3cbf3733e0f1952519f8e003fb635dab642d8553c00e117b129e7588a6e76362",
-      "indexed_lines": 109
+      "sha256": "dd912e9419fad3836ce90a1c71546ef1d2f8b380b2d14901d4b6f18aea1cb463",
+      "indexed_lines": 110
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",

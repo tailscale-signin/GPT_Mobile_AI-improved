@@ -848,7 +848,7 @@ class ChatRepositoryImplTest {
     }
 
     @Test fun documentOnlyRecallIsRevalidatedAtPhysicalDispatchAfterDeletionOrConsentRevocation() = runBlocking {
-        for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation", "privacy_changed_during_validation")) {
+        for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation", "privacy_changed_during_validation", "profile_revoked_during_validation", "consent_revoked_during_final_validation", "consent_regranted_during_final_validation")) {
             val storage = object : SecretVault {
                 val values = mutableMapOf<String, ByteArray>()
                 override suspend fun put(secretRef: String, secret: ByteArray) {
@@ -868,9 +868,14 @@ class ChatRepositoryImplTest {
             val chunk = dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk("doc:0", "doc", 0, 0, evidence.length, evidence)
             val packet = dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallPacket(1, dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope(), evidence, listOf(dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallSource(document, chunk)))
             val documents = mockk<dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository>(relaxed = true)
+            val platform = groqPlatform(false, "model")
+            var selectedPlatform = platform
             var deleted = false
             var physicalBoundaryReached = false
+            var physicalDocumentValidations = 0
             var privacyValidationChanges = 0
+            var profileValidationChanges = 0
+            var consentValidationChanges = 0
             var privacyPolicy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = false, revision = 1)
             val privacyStore = if (mode == "privacy_changed_during_validation") {
                 mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>().also {
@@ -890,17 +895,33 @@ class ChatRepositoryImplTest {
             }
             coEvery { documents.validateRecall(any()) } coAnswers {
                 check(!deleted) { "DOCUMENT_RECALL_STALE: document deleted" }
-                if (mode == "privacy_changed_during_validation" && physicalBoundaryReached) {
-                    // The parent guard passed, then document validation suspended at physical dispatch.
+                if (physicalBoundaryReached) physicalDocumentValidations++
+                if (mode == "privacy_changed_during_validation" && physicalBoundaryReached && privacyValidationChanges == 0) {
+                    // Private mask settings do not change this ordinary conversation's policy.
                     kotlinx.coroutines.yield()
                     privacyPolicy = privacyPolicy.copy(categories = emptySet(), revision = privacyPolicy.revision + 1, protectionRevision = privacyPolicy.protectionRevision + 1)
                     privacyPolicy = privacyPolicy.copy(categories = dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.entries.toSet(), revision = privacyPolicy.revision + 1, protectionRevision = privacyPolicy.protectionRevision + 1)
                     privacyValidationChanges++
                 }
+                if (mode == "profile_revoked_during_validation" && physicalBoundaryReached && profileValidationChanges == 0) {
+                    // The parent guard passed before this source check suspended; it must run again.
+                    kotlinx.coroutines.yield()
+                    selectedPlatform = selectedPlatform.copy(enabled = false)
+                    profileValidationChanges++
+                }
+                if (mode in setOf("consent_revoked_during_final_validation", "consent_regranted_during_final_validation") && physicalDocumentValidations == 2 && consentValidationChanges == 0) {
+                    // The inherited guard checked once; suspend the final saved-source check
+                    // so an earlier validation cannot hide a missing post-await consent check.
+                    kotlinx.coroutines.yield()
+                    facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = false))
+                    if (mode == "consent_regranted_during_final_validation") {
+                        facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = true))
+                    }
+                    consentValidationChanges++
+                }
             }
-            val platform = groqPlatform(false, "model")
             val settings = mockk<SettingRepository>(relaxed = true)
-            coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+            coEvery { settings.fetchPlatformV2s() } answers { listOf(selectedPlatform) }
             coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
             val persistence = persistenceFixture()
             coEvery { persistence.getChatRoom(1) } returns ChatRoomV2(id = 1, title = "Document fixture")
@@ -915,13 +936,19 @@ class ChatRepositoryImplTest {
             )
             val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, knowledgeOverride = documents, privacyModeOverride = privacyStore)
                 .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall my saved document", platformType = null)), emptyList(), platform, runId = "document-$mode").toList()
-            if (mode == "allowed") {
-                assertEquals(1, api.streamCalls)
-                assertTrue(api.lastRequest!!.messages.first().content.toString().contains(evidence))
-            } else {
-                assertEquals(states.toString(), 0, api.streamCalls)
-                assertTrue(states.any { it is ApiState.Error })
+            if (mode == "allowed" || mode == "privacy_changed_during_validation") {
+                assertEquals("mode=$mode states=$states", 1, api.streamCalls)
+                assertTrue("mode=$mode states=$states", states.none { it is ApiState.Error })
+                assertTrue("mode=$mode", api.lastRequest!!.messages.first().content.toString().contains(evidence))
                 if (mode == "privacy_changed_during_validation") assertEquals(1, privacyValidationChanges)
+            } else {
+                assertEquals("mode=$mode states=$states", 0, api.streamCalls)
+                assertTrue("mode=$mode states=$states", states.any { it is ApiState.Error })
+                if (mode == "profile_revoked_during_validation") assertEquals(1, profileValidationChanges)
+                if (mode in setOf("consent_revoked_during_final_validation", "consent_regranted_during_final_validation")) {
+                    assertEquals("mode=$mode states=$states", 1, consentValidationChanges)
+                    assertEquals("mode=$mode states=$states", 2, physicalDocumentValidations)
+                }
             }
         }
     }

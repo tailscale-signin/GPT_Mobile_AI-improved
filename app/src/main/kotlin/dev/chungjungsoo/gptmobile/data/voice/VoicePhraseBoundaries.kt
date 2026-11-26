@@ -81,6 +81,7 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
         const val PROTOCOL = "spoken-groups-v1"
         private val word = Regex("\\S+")
         private val title = Regex("""(?i)(?:dr|mr|mrs|ms|prof|sr|jr)\.""")
+
         // Keep examples and dotted initials with their following word for Kokoro's tokenizer.
         private val abbreviation = Regex("""(?:[A-Za-z]\.){2,}|[A-Z]\.|(?i:no|fig|vs|approx)\.""")
         private const val CLOSERS = "\"'”’»)]}"

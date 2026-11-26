@@ -253,7 +253,9 @@ class VoicePluginAudioTest {
         val output = StreamingOutput()
         val spoken = mutableListOf<String>()
         val plugin = VoicePluginAudio(
-            system, LocalInput(), output,
+            system,
+            LocalInput(),
+            output,
             captureOfflineSpeech = {
                 val snapshot = VoicePronunciationDictionary(system.pronunciations)
                 val say: VoiceOfflineSpeech = { text, _, _ -> spoken += snapshot.project(text).text }

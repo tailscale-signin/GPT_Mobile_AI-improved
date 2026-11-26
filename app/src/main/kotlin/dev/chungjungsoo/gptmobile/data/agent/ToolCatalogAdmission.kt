@@ -257,7 +257,8 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
         }
     }
     ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
-    if ((limits.githubMode || limits.githubTask) && !discoveryFits && nextOperation == null && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
+    val lookupAdmitted = lookup != null && required.any(lookup::matchesTool)
+    if ((limits.githubMode || limits.githubTask) && !discoveryFits && nextOperation == null && !lookupAdmitted && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
         val needed = visible.filter { ProgressiveToolCatalog.isGitHubTool(it) || it.name in requiredNames }
         throw GitHubToolContextBudgetException(needed.sumOf { providerSchemaTokens(it, limits.githubMode) }, budget.available, budget).withRequiredSchemas(needed, limits.githubMode)
     }

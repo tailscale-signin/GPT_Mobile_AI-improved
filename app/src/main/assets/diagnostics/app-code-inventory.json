@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6ee292c206b25dee5df7ac17f56ba7426b4cd90e350df5c36ae31839b59232ed",
+  "source_digest": "ecb0687c7640083a597cfb8f8371a2d21ba472ddf020ac5e9e8fd5393dccc277",
   "file_count": 3166,
-  "indexed_line_count": 541398,
+  "indexed_line_count": 541399,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 262,
-      "indexed_line_count": 47174
+      "indexed_line_count": 47175
     },
     {
       "id": "agent_tools",
@@ -2216,8 +2216,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "14ce274d6a5e16619f24aa062c2ffda2b027de441b6a1b024816e24aa4aeedcd",
-      "indexed_lines": 417
+      "sha256": "48f1d088e92f19d2e5b3609e5b6db1a574408a2e826eb2786816315710f19adc",
+      "indexed_lines": 418
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogDiagnostics.kt",

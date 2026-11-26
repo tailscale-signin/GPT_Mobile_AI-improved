@@ -67,7 +67,9 @@ data class AgentRunLimits(
     val githubMode: Boolean = false,
     /** Optional objective for reading a saved batch; this is not an end-to-end recovery target. */
     val checkpointRestoreObjective: CheckpointRestoreObjective? = null,
-    val combined: CombinedExecutionContext? = null
+    val combined: CombinedExecutionContext? = null,
+    /** Schemas actually charged in initialContextTokens, before later selection or recovery. */
+    val initialGitHubSchemaTokens: Long? = null
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
@@ -302,7 +304,7 @@ class AgentRunner(
             return
         }
         prepareToolSelection?.invoke()
-        val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
+        val initialSchemaTokens = limits.initialGitHubSchemaTokens ?: selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
         val ciInvestigation = GitHubCiInvestigationRecovery(limits.githubTaskRequest)
         val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome, diagnosticRunId, limits.githubTaskRequest.orEmpty())
@@ -313,6 +315,9 @@ class AgentRunner(
         if (!restoreCompletedExchanges(recovery, toolByName, exchanges, state)) return
         state.savedResultRecovery.observeDelivered(exchanges, state.deliveredResultDigests, replayRenderCache)
         exchanges.forEach(ciInvestigation::observe)
+        val completedOperations = linkedSetOf<String>()
+        exchanges.forEach { recordCompletedGitHubOperations(it, completedOperations, restoredJournal = true) }
+        completedOperations.forEach { healthCatalog?.restoreCompletedPhase(it) }
         state.replayTokens = prepareReplay(exchanges, effectiveReplayTokens, limits.maxReplayResultTokens, state.consumedCallIds, state.deliveredResultDigests).compactedTokens.toLong()
 
         var admittedReplayLimit = effectiveReplayTokens
@@ -326,9 +331,28 @@ class AgentRunner(
                 // downstream collector errors must leave the run without retrying or emitting.
                 val searchContext = searchRoundContext(toolByName, executableToolByName, exchanges)
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
+                val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
+                val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
+                val owedSchema = if ((limits.githubMode || limits.githubTask) && limits.contextTokens <= 4096 && pendingSavedPages.isNotEmpty()) {
+                    automaticRecovery?.owedPageSchema(pendingSavedPages, exposedDefinitions.filter { it.name in executableToolByName })
+                } else {
+                    null
+                }
                 val roundDefinitions = try {
-                    val available = fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens + SavedPageReading.reservation(savedPageReading, false), discoveryPaused = unproductiveDiscoveryRounds >= 2 && retrySchemaNames == null)
-                    val fitted = retrySchemaNames?.let { names -> available.filter { it.name in names } } ?: available
+                    val selected = selectedForRound(exposedDefinitions, selectDefinitions)
+                    val candidates = if (owedSchema == null) selected else listOf(owedSchema) + selected.filterNot { ProgressiveToolCatalog.isGitHubTool(it) }
+
+                    val available = fitProviderToolSchemas(
+                        candidates,
+                        limits,
+                        initialSchemaTokens,
+                        replayTokens + SavedPageReading.reservation(savedPageReading, false),
+                        discoveryPaused = unproductiveDiscoveryRounds >= 2 && retrySchemaNames == null,
+                        completedOperations = completedOperations.toList(),
+                        focusedOperation = healthCatalog?.focusedOperation(candidates),
+                        owedOperation = owedSchema?.name
+                    )
+                    val fitted = retrySchemaNames?.let { names -> available.filter { it.name in names || it.name == owedSchema?.name } } ?: available
                     afterRepeatedGitHubDiscovery(fitted, unproductiveDiscoveryRounds >= 2)
                 } catch (capacity: GitHubToolContextBudgetException) {
                     emit(AgentRunEvent.Provider(capacity.providerFailure()))
@@ -336,8 +360,6 @@ class AgentRunner(
                 }
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
-                val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
-                val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
                 val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pendingSavedPages)
                 val preparedRound = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
@@ -507,12 +529,13 @@ class AgentRunner(
                     ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
                 }
                 val completed = processToolCalls(
-                    calls, toolByName, executableToolByName, exposedDefinitions, roundDefinitions, exchanges, dynamicTools, selectDefinitions,
+                    calls, toolByName, executableToolByName, exposedDefinitions, roundDefinitions, restoringBatch, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
                     retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
                     admittedReplayLimit, consumedCallIds, deliveredResultDigests
                 ) ?: return
+                exchanges.lastOrNull()?.let { recordCompletedGitHubOperations(it, completedOperations) }
                 executableToolByName = completed.tools
                 exposedDefinitions = completed.definitions
                 toolCallCount = completed.toolCallCount
@@ -737,7 +760,10 @@ class AgentRunner(
                 if (!remoteAllowed || ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) <= 0) return null
                 val pageBudget = minOf(replayLimit, limits.maxRetainedEvidenceTokens.coerceIn(1024, 262_144))
                 val restore = savedResultRecovery.restoreMissingPage(pendingSavedPages, exchanges, definitions.filter { it.name in executableToolByName }, pageBudget, reopenAvailable)
-                return restore?.let { AutomaticRead(it, "Restoring the exact saved page from the authorized local view.") }
+                return restore?.let {
+                    val status = if ("view_cursor" in it.arguments) "Restoring the exact saved page from the authorized local view." else "Reading the original file ranges at their pinned commit to recover the saved page."
+                    AutomaticRead(it, status)
+                }
             }
             val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
             if (remoteAllowed && definitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }) {
@@ -1330,6 +1356,7 @@ class AgentRunner(
         initialTools: Map<String, AgentTool>,
         initialDefinitions: List<AgentToolDefinition>,
         roundDefinitions: List<AgentToolDefinition>,
+        restoringBatch: Boolean,
         exchanges: MutableList<AgentToolExchange>,
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
@@ -1367,10 +1394,18 @@ class AgentRunner(
         // A choice and a mutation in the same model batch must not race. Replan
         // dependent actions after the answer has been returned to the model.
         val decisionCalls = calls.filter { it.name in questionNames }
+        // Queued calls restore their original checkpoint. Fresh model calls can use
+        // only the native GitHub operation actually exposed in this compact round.
+        val roundTools = if (!restoringBatch && (limits.githubMode || limits.githubTask) && limits.contextTokens <= 4096) {
+            val names = roundDefinitions.mapTo(hashSetOf()) { it.name }
+            executableToolByName.filterKeys { it in names || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it) == null }
+        } else {
+            executableToolByName
+        }
         val toolsForBatch = when {
-            decisionCalls.isNotEmpty() -> executableToolByName.filterKeys { it in questionNames }
-            unproductiveDiscoveryRounds >= 2 && roundDefinitions.none { it.name == ProgressiveToolCatalog.NAME } -> executableToolByName - ProgressiveToolCatalog.NAME
-            else -> executableToolByName
+            decisionCalls.isNotEmpty() -> roundTools.filterKeys { it in questionNames }
+            unproductiveDiscoveryRounds >= 2 && roundDefinitions.none { it.name == ProgressiveToolCatalog.NAME } -> roundTools - ProgressiveToolCatalog.NAME
+            else -> roundTools
         }
         val batchAllowance = when {
             decisionCalls.any { it.callId in restoredCompleted } -> 0
@@ -1732,6 +1767,18 @@ class AgentRunner(
     }
 
     private data class ToolCatalogUpdate(val tools: Map<String, AgentTool>, val definitions: List<AgentToolDefinition>)
+
+    private fun recordCompletedGitHubOperations(exchange: AgentToolExchange, completed: MutableSet<String>, restoredJournal: Boolean = false) {
+        if (!(limits.githubMode || limits.githubTask) || limits.contextTokens > 4096) return
+        val results = exchange.results.associateBy { it.callId }
+        for (call in exchange.calls) {
+            val result = results[call.callId] ?: continue
+            if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name) != null && githubSchemaPhaseComplete(call.name, result, call.arguments, restoredJournal)) {
+                completed.remove(call.name)
+                completed.add(call.name)
+            }
+        }
+    }
 
     private fun selectedForRound(definitions: List<AgentToolDefinition>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): List<AgentToolDefinition> {
         val selected = selectDefinitions(definitions)
@@ -2236,7 +2283,16 @@ class AgentRunner(
                 }
                 val pageIds = owed.keys.take(3).filter { it.matches(Regex("[A-Za-z0-9_.:-]{1,96}")) }.joinToString(", ")
                 val recovery = when (state) {
-                    "SAVED_PAGE_BODY_UNAVAILABLE" -> "The original saved page body is unavailable. Reopen the same page from its authorized checkpoint."
+                    "SAVED_PAGE_BODY_UNAVAILABLE" -> {
+                        val liveObservation = exchanges.any { exchange ->
+                            exchange.calls.any { it.callId in owed && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in setOf("github_pr", "github_issue", "github_ci", "github_release", "github_watch_checks") }
+                        }
+                        if (liveObservation) {
+                            "The original GitHub observation is unavailable. A separately authorized read can report current state. Reconcile any previously submitted change without repeating it."
+                        } else {
+                            "The original saved page body is unavailable. Its pinned source could not be verified against the authorized checkpoint."
+                        }
+                    }
                     "SAVED_PAGE_EXCEEDS_ALLOWANCE" -> "The smallest outstanding page needs at least $smallest estimated body tokens and the source allowance is $sourceAllowance. Narrow the requested range or authorize more context."
                     else -> "The delivered saved page does not match its expected body. Restore the exact page from the saved checkpoint before continuing."
                 }

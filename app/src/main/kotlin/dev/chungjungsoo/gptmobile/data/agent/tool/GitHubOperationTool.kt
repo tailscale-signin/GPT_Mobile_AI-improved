@@ -28,6 +28,7 @@ internal class GitHubOperationTool(
     private val views: GitHubResultViews = GitHubResultViews.shared,
     private val loadSavedView: suspend (String) -> JsonObject? = { null },
     private val saveSavedView: (suspend (String, JsonObject) -> Unit)? = null,
+    private val restorePinnedSource: (suspend (String, JsonObject, JsonObject, (JsonArray?, Int) -> JsonObject?) -> Boolean)? = null,
     private val validateSavedViewAccess: suspend () -> Unit = {}
 ) : AgentTool {
     override val managesExecutionBudget get() = backend.managesExecutionBudget
@@ -343,7 +344,9 @@ internal class GitHubOperationTool(
                 return argumentPrecheck(callId, "Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context.", "SAVED_VIEW_CURSOR_MALFORMED")
             }
             val context = JsonObject(arguments - "view_cursor")
-            var saved = views.read(scope, operation, definition.name, cursor, callId, context)
+            var checkpoint: Pair<String, JsonObject>? = null
+            fun readPage() = views.read(scope, operation, definition.name, cursor, callId, context).also { checkpoint = views.checkpoint(scope, it) }
+            var saved = synchronized(views) { readPage() }
             if (saved.errorCode == "SAVED_VIEW_UNAVAILABLE") {
                 var restoreState = "NOT_FOUND"
                 var restoreErrorHash: String? = null
@@ -353,6 +356,48 @@ internal class GitHubOperationTool(
                     throw cancelled
                 } catch (missing: dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore.MissingSavedView) {
                     restoreState = missing.reason
+                    // Reopening an immutable source is a separate authorized read. A lost
+                    // page from a mutation or a live issue/CI observation offers no replay.
+                    val pin = if (operation == "github_read" && context.isEmpty()) missing.pinnedSource(scope, definition.name, cursor) else null
+                    val args = pin?.recipe?.get("arguments") as? JsonObject
+                    if (pin != null &&
+                        args != null &&
+                        ToolArgumentValidator.errors(args, definition.inputSchema).isEmpty() &&
+                        GitHubOperationArguments.errors(operation, args).isEmpty()
+                    ) {
+                        val original = (saved.content as? ToolResultContent.Json)?.value as? JsonObject ?: JsonObject(emptyMap())
+                        val correction = buildJsonObject {
+                            put("recovery_action", "REOPEN_ORIGINAL_SOURCE")
+                            put("source_recovery_call", pin.recipe)
+                            put("recovery_call", pin.recipe)
+                            put("message", "The saved page is unavailable. Read the recorded file ranges at their original commit with source_recovery_call.")
+                        }
+                        saved = saved.copy(
+                            content = ToolResultContent.Json(JsonObject(original + correction)),
+                            executionReceipt = JsonObject(
+                                saved.executionReceipt.orEmpty() + buildJsonObject {
+                                    put("saved_view_owner_operation", operation)
+                                    put("saved_view_cursor_issued", true)
+                                    put("saved_view_source_hash", pin.sourceDigest)
+                                    put("source_recovery_call", pin.recipe)
+                                }
+                            )
+                        )
+                    }
+                    if (operation in setOf("github_pr", "github_issue", "github_ci", "github_release", "github_watch_checks") && context.isEmpty()) {
+                        val original = (saved.content as? ToolResultContent.Json)?.value as? JsonObject ?: JsonObject(emptyMap())
+                        saved = saved.copy(
+                            content = ToolResultContent.Json(
+                                JsonObject(
+                                    original + buildJsonObject {
+                                        put("recovery_action", "READ_CURRENT_STATE")
+                                        put("mutation_replay_allowed", false)
+                                        put("message", "The original GitHub observation is unavailable. A separately authorized read can report current state. A previously submitted change must be reconciled without repeating it.")
+                                    }
+                                )
+                            )
+                        )
+                    }
                     null
                 } catch (error: Exception) {
                     restoreState = "LOAD_FAILED"
@@ -360,11 +405,13 @@ internal class GitHubOperationTool(
                     null
                 }
                 if (snapshot != null) {
-                    if (views.restore(scope, operation, definition.name, cursor, snapshot)) {
-                        restoreState = "RESTORED"
-                        saved = views.read(scope, operation, definition.name, cursor, callId, context)
-                    } else {
-                        restoreState = "IDENTITY_REJECTED"
+                    synchronized(views) {
+                        if (views.restore(scope, operation, definition.name, cursor, snapshot)) {
+                            restoreState = "RESTORED"
+                            saved = readPage()
+                        } else {
+                            restoreState = "IDENTITY_REJECTED"
+                        }
                     }
                 }
                 saved = saved.copy(
@@ -376,7 +423,7 @@ internal class GitHubOperationTool(
                     )
                 )
             }
-            val retained = retainSavedView(saved, cursor)
+            val retained = retainSavedView(saved, checkpoint, cursor)
             savedViewAuthorizationFailure(callId)?.let { return it }
             return retained
         }
@@ -784,7 +831,14 @@ internal class GitHubOperationTool(
         } else {
             null
         }
-        val savedPage = views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection)
+        // Capture the body and its issued handles while the view is inserted. Other
+        // concurrent tool calls may evict it before this coroutine reaches storage.
+        var checkpoint: Pair<String, JsonObject>? = null
+        val originalSource = if (operation == "github_read") dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(presented.retainedContent ?: presented.content) as? JsonObject else null
+        val coverage = (originalSource?.get("source_coverage") as? JsonArray)?.takeIf { it.toString().encodeToByteArray().size <= 64 * 1024 }
+        val savedPage = views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection) { captured ->
+            checkpoint = if (coverage == null) captured else captured.first to JsonObject(captured.second + ("captured_source_coverage" to coverage))
+        }
         val pageBody = (savedPage.content as? ToolResultContent.Json)?.value as? JsonObject
         val sourceRead = body?.get("source_read_call") as? JsonObject
         val pageWithRead = if (!savedPage.isError && pageBody != null && sourceRead != null) JsonObject(pageBody + ("source_read_call" to sourceRead)) else null
@@ -799,7 +853,30 @@ internal class GitHubOperationTool(
         } else {
             null
         }
-        return retainSavedView(if (frontier == null) saved else saved.copy(executionReceipt = JsonObject(saved.executionReceipt.orEmpty() + ("search_frontier" to frontier))))
+        val retained = retainSavedView(if (frontier == null) saved else saved.copy(executionReceipt = JsonObject(saved.executionReceipt.orEmpty() + ("search_frontier" to frontier))), checkpoint)
+        val cursor = dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.sourceRestoreCursor(callId)
+        val captured = checkpoint?.second
+        if (cursor == null || captured == null || retained.isError || !immutableRead(definition.name, arguments) || restorePinnedSource == null) return retained
+        savedViewAuthorizationFailure(callId)?.let { return it.copy(dispatched = retained.dispatched, executionReceipt = retained.executionReceipt) }
+        val restored = try {
+            restorePinnedSource.invoke(cursor, arguments, captured) { previous, size ->
+                originalSource?.takeIf { previous == null || it["source_coverage"] is JsonArray }?.let {
+                    val historical = if (previous == null) it else JsonObject(it + ("source_coverage" to previous))
+                    val display = dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project(operation, effectiveArguments, historical, historical)
+                    val history = presented.copy(content = ToolResultContent.Json(display), retainedContent = ToolResultContent.Json(historical))
+                    var snapshot: JsonObject? = null
+                    views.present(scope, operation, definition.name, history, effectiveArguments, maxPageBytes = size) { (_, old) ->
+                        snapshot = if (previous == null) old else JsonObject(old + ("captured_source_coverage" to previous))
+                    }
+                    snapshot
+                }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        return retained.copy(executionReceipt = JsonObject(retained.executionReceipt.orEmpty() + ("recovered_saved_view" to JsonPrimitive(restored))))
     }
 
     private fun argumentPrecheck(callId: String, message: String, reason: String) = AgentToolResult(
@@ -853,8 +930,8 @@ internal class GitHubOperationTool(
         return result.copy(content = ToolResultContent.Json(data), retainedContent = evidence?.let { ToolResultContent.Json(it) } ?: retained)
     }
 
-    private suspend fun retainSavedView(result: AgentToolResult, requestedCursor: String? = null): AgentToolResult {
-        val (id, checkpoint) = views.checkpoint(scope, result) ?: return result
+    private suspend fun retainSavedView(result: AgentToolResult, captured: Pair<String, JsonObject>?, requestedCursor: String? = null): AgentToolResult {
+        val (id, checkpoint) = captured ?: return result
         val body = (result.content as? ToolResultContent.Json)?.value as? JsonObject
         fun cursor(key: String): JsonPrimitive? = (((body?.get(key) as? JsonObject)?.get("arguments") as? JsonObject)?.get("view_cursor") as? JsonPrimitive)
         val issued = (checkpoint["issued_cursors"] as? JsonArray).orEmpty().toSet()

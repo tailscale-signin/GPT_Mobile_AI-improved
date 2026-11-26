@@ -128,6 +128,8 @@ def completion_gate(job, readiness, merged=False, *, semantic_receipts=()):
     for check in checks:
         if check.get('required') is True and check.get('status') != 'SUCCESS':
             failures.append('Required check did not pass: ' + str(check.get('name')))
+    if (readiness.get('changed_file_coverage') or {}).get('complete') is False:
+        failures.append('Changed-file coverage is incomplete for this PR revision')
     changed = set(readiness.get('changed_files', []))
     passed = {check.get('name') for check in checks if check.get('status') == 'SUCCESS'}
     requirements = []

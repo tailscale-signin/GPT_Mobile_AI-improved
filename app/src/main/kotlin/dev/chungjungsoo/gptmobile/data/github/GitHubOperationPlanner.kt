@@ -91,7 +91,7 @@ object GitHubOperationPlanner {
             } else if (Regex("""\b(?:pull requests?|prs?|reviews?)\b""").containsMatchIn(normalized)) {
                 add(step("pr_context", "Page PR files and checks with expected_head so a moving PR cannot mix revisions."))
             }
-            if (Regex("""\b(?:debug(?:ging)?|failures?|ci|builds?)\b""").containsMatchIn(normalized)) add(step(if (wantsWrite) "baseline_ci_failure_digest" else "ci_failure_digest", "Read the latest failed job at the selected branch and inspect failure context throughout the bounded log."))
+            if (Regex("""\b(?:debug(?:ging)?|failures?|ci|builds?)\b""").containsMatchIn(normalized)) add(step(if (wantsWrite) "baseline_ci_failure_digest" else "ci_failure_digest", "Read the failed job at the selected revision and attempt. Cite its job URL and any exact annotation or JUnit source URL. Report the tested checkout separately when CI built a merge commit. Treat unlocated log patterns as hypotheses."))
             if (wantsWrite) {
                 add(step("select_defect", "Select one actionable correctness issue with a source range, expected behavior, and the observation that would disprove it.", "read_ranges"))
                 add(step("regression", "Choose a narrow failing case or record the exact missing execution prerequisite.", "select_defect"))

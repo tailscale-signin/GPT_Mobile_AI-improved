@@ -189,7 +189,7 @@ class GitHubTool(
     internal fun operations(): List<GitHubOperationTool> {
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
         return GitHubOperationTool.names.map {
-            GitHubOperationTool(requireNotNull(GitHubOperationTool.operationName(it)), this, savedViewScope, it + suffix, loadSavedView = savedViews::loadWithDiagnostics, saveSavedView = savedViews::save, validateSavedViewAccess = ::validateSavedViewAccess)
+            GitHubOperationTool(requireNotNull(GitHubOperationTool.operationName(it)), this, savedViewScope, it + suffix, loadSavedView = savedViews::loadWithDiagnostics, saveSavedView = savedViews::save, restorePinnedSource = savedViews::restorePinnedSource, validateSavedViewAccess = ::validateSavedViewAccess)
         }
     }
 

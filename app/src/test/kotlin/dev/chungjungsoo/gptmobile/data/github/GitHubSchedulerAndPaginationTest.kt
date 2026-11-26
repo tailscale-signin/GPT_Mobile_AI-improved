@@ -229,7 +229,7 @@ class GitHubSchedulerAndPaginationTest {
                     request.url.encodedPath.endsWith("/pulls/7") -> respond("""{"number":7,"changed_files":31,"head":{"sha":"$head"},"base":{"sha":"$base"}}""")
                     request.url.encodedPath.endsWith("/files") -> {
                         fileReads++
-                        respond("[]")
+                        respond(JsonArray((1..30).map { buildJsonObject { put("filename", "file-$it") } }).toString())
                     }
                     else -> error(request.url.toString())
                 }
@@ -289,6 +289,55 @@ class GitHubSchedulerAndPaginationTest {
             assertFalse(result.toString().contains("sig=secret"))
             assertTrue(result.toString().length < 30000)
             assertEquals(5, requests.size)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun failureDigestLinksTheJobsOwnCheckAndJunitReceiptEvenWhenThePrTestedAMerge() = runTest {
+        val merge = "b".repeat(40)
+        val reportHash = "f".repeat(64)
+        val junit = """{"schema_version":1,"run_id":"8","run_attempt":"2","repository":"owner/repo","job":"validate","head_sha":"$head","tested_sha":"$merge","tracked_files_clean":true,"failures":[{"class_name":"second.FooTest","name":"check","outcome":"ERROR","report_sha256":"$reportHash","source_path":"second/FooTest.kt"}]}"""
+        val zip = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { archive ->
+                archive.putNextEntry(java.util.zip.ZipEntry("ci-junit.json"))
+                archive.write(junit.encodeToByteArray())
+                archive.closeEntry()
+            }
+        }.toByteArray()
+        val hash = java.security.MessageDigest.getInstance("SHA-256").digest(zip).joinToString("") { "%02x".format(it) }
+        val checkUrl = "https://api.github.com/repos/owner/repo/check-runs/19"
+        val http = HttpClient(
+            MockEngine { request ->
+                when (request.url.encodedPath.removePrefix("/repos/owner/repo")) {
+                    "/actions/jobs/7" -> respond("""{"id":7,"run_id":8,"run_attempt":2,"status":"completed","check_run_url":"$checkUrl"}""")
+                    "/actions/runs/8/attempts/2" -> respond("""{"id":8,"run_attempt":2,"head_sha":"$head"}""")
+                    "/actions/jobs/7/logs" -> respond("error in FooTest.kt:14\nArtifact ci-junit-8-2-validate has been successfully uploaded! Final size is ${zip.size} bytes. Artifact ID is 20")
+                    "/commits/$head" -> respond("""{"files":[{"filename":"first/FooTest.kt"},{"filename":"second/FooTest.kt"}]}""")
+                    "/check-runs/19" -> respond("""{"id":19,"head_sha":"$head"}""")
+                    "/check-runs/19/annotations" -> respond("""[{"path":"first/FooTest.kt","start_line":14,"end_line":14,"message":"compilation error","annotation_level":"failure"}]""")
+                    "/actions/artifacts/20" -> respond("""{"id":20,"name":"ci-junit-8-2-validate","size_in_bytes":${zip.size},"expired":false,"digest":"sha256:$hash","workflow_run":{"id":8,"head_sha":"$head"}}""")
+                    "/actions/artifacts/20/zip" -> respond(zip)
+                    else -> error(request.url.toString())
+                }
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("ci-test-evidence-token", http)
+            fun request(attempt: Int) = args {
+                put("expected_head_sha", head)
+                put("job_id", 7)
+                put("run_attempt", attempt)
+            }
+            val result = client.execute("ci_failure_digest", request(2)).jsonObject
+            val evidence = result.getValue("diagnosis").jsonArray.map { it.jsonObject }.associateBy { it.getValue("source").jsonPrimitive.content }
+            assertEquals("https://github.com/owner/repo/blob/$head/first/FooTest.kt#L14", evidence.getValue("CHECK_RUN_ANNOTATION").getValue("source_url").jsonPrimitive.content)
+            assertEquals("https://github.com/owner/repo/blob/$merge/second/FooTest.kt", evidence.getValue("JUNIT_ARTIFACT").getValue("source_url").jsonPrimitive.content)
+            assertEquals("https://github.com/owner/repo/actions/runs/8/job/7", evidence.getValue("JUNIT_ARTIFACT").getValue("job_url").jsonPrimitive.content)
+            assertEquals("AMBIGUOUS_BASENAME", evidence.getValue("JOB_LOG").getValue("location_status").jsonPrimitive.content)
+            assertTrue(evidence.getValue("JOB_LOG").getValue("matching_changed_paths").jsonArray.isEmpty())
+            assertEquals(2, result.getValue("expand_with").jsonObject.getValue("run_attempt").jsonPrimitive.intOrNull)
+            assertTrue(runCatching { client.execute("ci_failure_digest", request(1)) }.exceptionOrNull()?.message.orEmpty().contains("attempt"))
         } finally {
             http.close()
         }

@@ -314,9 +314,9 @@ def instrumented_coverage(path, since, now, junit_current):
         return {'available': False, 'reason': 'INVALID_OR_UNEXECUTED_INSTRUMENTED_REPORT'}
 
 
-def collect(root, reports, since, now, coverage_path=None):
+def collect(root, reports, since, now, coverage_path=None, *, junit=None):
     mapping = catalog(root)
-    classes, errors = junit_observations(reports, since, now)
+    classes, errors = junit if junit is not None else junit_observations(reports, since, now)
     areas = []
     for area, paths in mapping.items():
         harnesses = [harness_observation(root, path, classes, errors) for path in paths]
@@ -336,12 +336,50 @@ def collect(root, reports, since, now, coverage_path=None):
     }
 
 
+def ci_junit_report(classes, errors, checkout, env, root):
+    failures = [case for owner in sorted(classes) for case in classes[owner]
+                if case['outcome'] in ('FAILURE', 'ERROR') and case['current_run_timestamp']]
+    owners = {case['class_name'].split('$')[0] for case in failures[:30]}
+    sources = {}
+    if owners and checkout['tracked_files_clean']:
+        # A shared filename can represent different packages or source sets. Keep only
+        # a unique tracked declaration for the class that actually produced the JUnit row.
+        tracked = subprocess.check_output(['git', 'ls-files', '-z', '--', '*.kt', '*.java'], cwd=root).decode().split('\0')
+        simple_names = {owner.rpartition('.')[2] for owner in owners}
+        for relative in tracked:
+            file = Path(relative)
+            if file.stem not in simple_names or not any(part in ('test', 'jvmTest', 'commonTest') for part in file.parts):
+                continue
+            source = (root / file).read_text()
+            package = re.search(r'^\s*package\s+([\w.]+)', source, re.M)
+            owner = (package[1] + '.' if package else '') + file.stem
+            if owner in owners and re.search(r'\bclass\s+' + re.escape(file.stem) + r'\b', source):
+                sources.setdefault(owner, []).append(relative)
+    rows = []
+    for case in failures[:30]:
+        row = {key: case[key] for key in ('class_name', 'name', 'report_sha256', 'outcome')}
+        paths = sources.get(case['class_name'].split('$')[0], [])
+        if len(paths) == 1:
+            row['source_path'] = paths[0]
+        rows.append(row)
+    parents = checkout['pull_request_event_parents']
+    return {'schema_version': 1, 'tested_sha': checkout['commit'],
+            'tracked_files_clean': checkout['tracked_files_clean'],
+            'head_sha': parents[1] if parents else checkout['commit'],
+            'run_id': env.get('GITHUB_RUN_ID'), 'run_attempt': env.get('GITHUB_RUN_ATTEMPT'),
+            'job': env.get('GITHUB_JOB'), 'repository': env.get('GITHUB_REPOSITORY'),
+            'partial': bool(errors or len(failures) > len(rows) or not classes or
+                            any(not case['current_run_timestamp'] for cases in classes.values() for case in cases)),
+            'failures': rows}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--junit-dir', type=Path, action='append', help='Repeat for independent current-run JVM report directories.')
     parser.add_argument('--started-at-file', type=Path)
     parser.add_argument('--coverage', type=Path)
     parser.add_argument('--output', type=Path, default=Path('app-audit-source-qualification.json'))
+    parser.add_argument('--ci-failure-output', type=Path, help='Compact current JUnit failures for the GitHub CI diagnosis tool.')
     args = parser.parse_args()
     try:
         since = timestamp(args.started_at_file.read_text().strip()) if args.started_at_file and args.started_at_file.is_file() else None
@@ -349,7 +387,9 @@ def main():
         reports = [report for directory in directories for report in directory.glob('TEST-*.xml')]
         if len(reports) > 4096:
             raise ValueError('JUnit report count exceeds the collection bound')
-        result = collect(ROOT, reports, since, datetime.now(timezone.utc), args.coverage)
+        now = datetime.now(timezone.utc)
+        junit = junit_observations(reports, since, now)
+        result = collect(ROOT, reports, since, now, args.coverage, junit=junit)
         try:
             runtime = subprocess.run(['java', '-version'], capture_output=True, text=True, timeout=10, check=True)
             java_version = (runtime.stderr or runtime.stdout).splitlines()[0][:200]
@@ -365,6 +405,10 @@ def main():
             'scope': 'Collector and CI job environment; not Android device or remote-service identity.',
         }
         result['checkout'] = checkout_identity(ROOT, os.environ)
+        if args.ci_failure_output:
+            report = ci_junit_report(*junit, result['checkout'], os.environ, ROOT)
+            args.ci_failure_output.parent.mkdir(parents=True, exist_ok=True)
+            args.ci_failure_output.write_text(json.dumps(report) + '\n')
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps({'output': str(args.output), 'source_areas': len(result['areas']), 'reports': len(reports), 'report_errors': len(result['report_errors'])}))

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import javax.inject.Inject
@@ -52,7 +53,6 @@ class GitHubTaskContextPreparation @Inject constructor(
 ) {
     internal suspend fun prepare(
         context: GitHubConversationContext,
-        chatId: Int,
         query: String,
         variant: GitHubContextVariant,
         contextTokens: Int,
@@ -69,7 +69,7 @@ class GitHubTaskContextPreparation @Inject constructor(
                 null
             } else {
                 withTimeoutOrNull(750) {
-                    semantic.rankEngineering(task, semanticScope(context, chatId, connection.updatedAt, account), records)
+                    semantic.rankEngineering(task, semanticScope(context, connection, account), records)
                 }
             }
         }
@@ -138,8 +138,19 @@ class GitHubTaskContextPreparation @Inject constructor(
     }
 
     companion object {
-        /** Source/range fingerprints invalidate vectors; advancing an unchanged branch does not. */
-        internal fun semanticScope(context: GitHubConversationContext, chatId: Int, connectionRevision: Long, accountIdentity: String): String =
-            "github:task-context:" + GitHubRepositoryStateStore.digest("$accountIdentity|$chatId|${context.connectionUid}|$connectionRevision|${context.owner}/${context.repo}|${context.mainProfileUid}|${PhoneRepositoryGraph.PARSER_VERSION}|${GitHubTaskContextBundle.VERSION}")
+        /** Only immutable repository source records use this namespace. The encoder keys each blob/range separately. */
+        internal fun semanticScope(context: GitHubConversationContext, connection: ToolConnection, accountIdentity: String): String {
+            require(accountIdentity.isNotBlank() && connection.connectionUid == context.connectionUid)
+            val scope = buildJsonObject {
+                put("account", accountIdentity)
+                put("connection", connection.connectionUid)
+                put("connection_revision", connection.updatedAt)
+                put("permission", GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl))
+                put("repository", context.repository.fullName.lowercase())
+                put("parser", PhoneRepositoryGraph.PARSER_VERSION)
+                put("bundle", GitHubTaskContextBundle.VERSION)
+            }
+            return "github:source-ranges:" + GitHubRepositoryStateStore.digest(scope.toString())
+        }
     }
 }

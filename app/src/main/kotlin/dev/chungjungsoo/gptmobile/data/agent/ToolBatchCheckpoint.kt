@@ -541,8 +541,11 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         // Compaction and JSON encoding depend only on this immutable result. They
         // must not hold the dispatch/checkpoint mutex while other tools finish.
         val saved = withContext(Dispatchers.Default) {
-            val retained = ToolExchangeCompactor.compact(listOf(AgentToolExchange(listOf(call), listOf(result.copy(traceContent = null, retainedContent = null)))), 4096, 4096).single().results.single()
-            val content = retained.content
+            val content = GitHubReplayRecovery.checkpointPage(call, result) ?: ToolExchangeCompactor.compact(
+                listOf(AgentToolExchange(listOf(call), listOf(result.copy(traceContent = null, retainedContent = null)))),
+                4096,
+                4096
+            ).single().results.single().content
             val body = when (content) {
                 is ToolResultContent.Json -> content.value.toString()
                 is ToolResultContent.Text -> content.text

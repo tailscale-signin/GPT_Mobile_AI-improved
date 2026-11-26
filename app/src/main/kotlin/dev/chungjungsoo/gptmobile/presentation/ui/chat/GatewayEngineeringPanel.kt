@@ -178,6 +178,11 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                             }
                         }
                         "Changes" -> {
+                            current.job?.changedFileCoverage?.let { coverage ->
+                                val observed = coverage["observed_unique"]?.jsonPrimitive?.content
+                                val expected = coverage["expected"]?.jsonPrimitive?.content
+                                if (observed != null && expected != null) Text("Changed files verified: $observed of $expected")
+                            }
                             val changed = current.job?.changedFiles.orEmpty()
                             if (changed.isEmpty()) Text("No changed files recorded yet.")
                             changed.forEach { Text(it) }

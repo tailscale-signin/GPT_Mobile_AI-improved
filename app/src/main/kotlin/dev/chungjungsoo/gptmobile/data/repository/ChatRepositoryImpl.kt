@@ -5471,6 +5471,8 @@ class ChatRepositoryImpl(
                 maxGeneratedCharacters = budgetSettings.responseCharacterLimit,
                 detectRepetition = budgetSettings.repetitionGuardEnabled,
                 initialContextTokens = toolContext?.input ?: contextPlan.promptTokens,
+                initialGitHubSchemaTokens = contextPlan.tools.takeIf { chatToolConfig?.github != null }
+                    ?.sumOf { dev.chungjungsoo.gptmobile.data.agent.providerSchemaTokens(it, githubMode = true) },
                 finalResponseReserveTokens = toolContext?.output ?: resolvedOutputCap,
                 finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls),
                 maxReplayTokens = toolContext?.replay ?: minOf(customRunner.limits.maxReplayTokens, delegationSettings.primaryReplayTokens),
@@ -5543,7 +5545,10 @@ class ChatRepositoryImpl(
             } else {
                 null
             }
-            ).also { it?.bindExecutionContracts(runnerTools.map { tool -> tool.definition }) }
+            ).also { catalog ->
+            catalog?.bindExecutionContracts(runnerTools.map { tool -> tool.definition })
+            catalog?.stageRequiredOperations(contextPlan.stagedGitHubOperations)
+        }
 
     private fun recordPrimaryToolCatalog(
         catalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog?,
@@ -6912,7 +6917,7 @@ class ChatRepositoryImpl(
         if (user == null || repositoryTaskContext == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
         if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user.content) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
         val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
-        val prepared = repositoryTaskContext.prepare(github, user.chatId, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
+        val prepared = repositoryTaskContext.prepare(github, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
         AppLogRecorder.recordEvent("GitHub", "REPOSITORY_CONTEXT_PREPARED", mapOf("availability" to prepared.availability.name, "treeReused" to prepared.reusedTree, "packetReused" to prepared.reusedPacket))
         val text = prepared.text.ifEmpty { return prepared.nextAction }
         if (text.isNotBlank()) {

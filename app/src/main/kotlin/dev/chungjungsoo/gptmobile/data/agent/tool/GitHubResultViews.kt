@@ -61,7 +61,7 @@ internal class GitHubResultViews(
         }
     }
 
-    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes, sourceCorrection: JsonObject? = null): AgentToolResult {
+    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes, sourceCorrection: JsonObject? = null, capture: ((Pair<String, JsonObject>) -> Unit)? = null): AgentToolResult {
         val pageBytes = minOf(this.pageBytes, maxPageBytes.coerceAtLeast(2048))
         fun value(content: ToolResultContent): JsonElement? = when (content) {
             is ToolResultContent.Json -> content.value
@@ -80,10 +80,10 @@ internal class GitHubResultViews(
             val recipes = mutableListOf<JsonObject>()
             retainContinuations(value, "", operation, modelName, request, recipes)
             if (recipes.toString().encodeToByteArray().size <= pageBytes / 4) {
-                return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, sourcePages = true)
+                return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture, sourcePages = true)
             }
         }
-        if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
+        if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
         val summary = (value as? JsonObject)?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.from(operation, request, it) }
@@ -143,7 +143,7 @@ internal class GitHubResultViews(
             }
             if (lastContinuations.isNotEmpty()) buffer += buildJsonObject { put("kind", "continuation_boundary") }
         } catch (_: FragmentCapacity) {
-            return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
+            return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
         }
         val fragments = buffer.records
         if (fragments.any { it.toString().toByteArray().size > pageBytes / 3 } || fragments.isEmpty()) return overflow(upstream, operation, modelName, value, request)
@@ -152,11 +152,11 @@ internal class GitHubResultViews(
         val defaults = if (operation in setOf("github_context", "github_ci", "github_pr")) mapOf("response_detail" to JsonPrimitive("compact")) else emptyMap()
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
-        if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
+        if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
         val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()), sourceCallId = upstream.callId)
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
-            store(id, entry)
+            store(id, entry, capture)
             val visible = sourceCorrection?.let { JsonObject(small + mapOf("correction_call" to it, "recovery_action" to JsonPrimitive("RECOVER_SOURCE_EVIDENCE"))) }
                 ?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: small
             return upstream.copy(
@@ -174,7 +174,7 @@ internal class GitHubResultViews(
         }
         val first = page(id, entry, 0, modelName)
         authorize(entry, first)
-        store(id, entry)
+        store(id, entry, capture)
         // The verifier consumes the complete durable source, not each display fragment.
         // Keep its exact remote recipes outside the model-visible page. If those
         // recipes are themselves too large, preserve the existing paged fallback.
@@ -425,8 +425,11 @@ internal class GitHubResultViews(
             entries[handle.substringBefore(':')]?.let { it.scope == scope && handle in it.issuedCursors } == true
         } ?: return null
         val id = cursor.substringBefore(':')
-        val entry = entries.getValue(id)
-        return id to buildJsonObject {
+        return checkpoint(id, entries.getValue(id))
+    }
+
+    private fun checkpoint(id: String, entry: Entry): Pair<String, JsonObject> =
+        id to buildJsonObject {
             put("schema", "github.saved-view.v1")
             put("scope", entry.scope)
             put("operation", entry.operation)
@@ -448,7 +451,6 @@ internal class GitHubResultViews(
             put("issued_cursors", JsonArray(entry.issuedCursors.map(::JsonPrimitive)))
             put("failed_persistence_cursors", JsonArray(entry.failedPersistenceCursors.map(::JsonPrimitive)))
         }
-    }
 
     @Synchronized
     fun markPersistenceUnavailable(scope: String, id: String, cursors: List<JsonPrimitive>) {
@@ -780,7 +782,7 @@ internal class GitHubResultViews(
         }
 
     /** Large notes/logs stay compressed once, instead of multiplying thousands of JSON objects. */
-    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement, sourcePages: Boolean = false): AgentToolResult {
+    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement, capture: ((Pair<String, JsonObject>) -> Unit)?, sourcePages: Boolean = false): AgentToolResult {
         val source = value.toString()
         val plain = source.encodeToByteArray()
         if (plain.size > MAX_SERIALIZED_SOURCE_BYTES) return overflow(upstream, operation, modelName, value, request)
@@ -824,7 +826,7 @@ internal class GitHubResultViews(
         val rangePage = if (sourcePages && value is JsonObject) sourcePage(id, modelName, value, GitHubSourcePages.FIRST, pageBytes, continuations) else null
         val first = rangePage ?: summary?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: page(id, entry, 0, modelName)
         authorize(entry, first)
-        store(id, entry)
+        store(id, entry, capture)
         return upstream.copy(
             content = ToolResultContent.Json(first),
             retainedContent = upstream.retainedContent ?: upstream.content,
@@ -959,13 +961,14 @@ internal class GitHubResultViews(
     }
 
     @Synchronized
-    private fun store(id: String, entry: Entry) {
+    private fun store(id: String, entry: Entry, capture: ((Pair<String, JsonObject>) -> Unit)?) {
         purge()
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + entry.bytes > capacityBytes)) {
             evict(entries.keys.first())
         }
         entries[id] = entry
         retainedBytes += entry.bytes
+        capture?.invoke(checkpoint(id, entry))
     }
 
     private fun purge() {

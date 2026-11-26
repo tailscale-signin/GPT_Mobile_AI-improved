@@ -230,11 +230,14 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val pageNumber = page(args)
         val total = (result["files_total"] as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it >= 0 }
         val files = result["files"] as? JsonArray
-        val expectedRows = total?.let { (it.toLong() - (pageNumber.toLong() - 1L) * 30L).coerceIn(0L, 30L).toInt() }
+        val coverage = result["changed_file_coverage"] as? JsonObject
+        val size = (result["effective_per_page"] as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it in 1..100 } ?: 30
+        val expectedRows = total?.let { (it.toLong() - (pageNumber.toLong() - 1L) * size).coerceIn(0L, size.toLong()).toInt() }
         val claimedRows = (result["files_returned"] as? JsonPrimitive)?.content?.toIntOrNull()
-        val expectedMore = total?.let { pageNumber.toLong() * 30L < it }
+        val expectedMore = total?.let { pageNumber.toLong() * size < it }
         if (pageNumber > 0 &&
             expectedRows != null &&
+            coverage?.get("reason") == null &&
             files?.size == expectedRows &&
             claimedRows == expectedRows &&
             result["has_more"] == JsonPrimitive(expectedMore == true)
@@ -247,7 +250,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             put("remote_page", pageNumber)
             put("remote_pages_observed", JsonArray(listOf(JsonPrimitive(pageNumber))))
             put("upstream_rows_returned", files?.size ?: 0)
-            put("unique_records_observed", files?.size ?: 0)
+            put("unique_records_observed", coverage?.get("observed_unique") ?: JsonPrimitive(files?.size ?: 0))
             total?.let { put("reported_total", it) }
             put("contiguous_from_first_page", pageNumber == 1)
             put("complete", false)
@@ -263,7 +266,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                     put("complete", false)
                     put("traversal_state", "INCOMPLETE")
                     put("pagination_progress", progress)
-                    put("message", "Requested PR files did not match files_total for this page. Refresh page 1 with verify_live=true and include_files=true at the observed PR head; do not accept incomplete file coverage.")
+                    val gap = coverage?.get("missing")
+                    put("message", if (coverage?.get("reason") == JsonPrimitive("GITHUB_PR_FILE_LIMIT")) "GitHub caps PR file lists at 3000. Missing $gap distinct filenames. Use the authorized Gateway mirror at this PR base and head." else "Requested PR file coverage is incomplete. Refresh page 1 with verify_live=true and follow its pinned file continuations.")
                 }
             ),
             "GITHUB_PAGINATION_INCOMPLETE"

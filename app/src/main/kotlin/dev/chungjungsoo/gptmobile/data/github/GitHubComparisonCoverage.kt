@@ -87,6 +87,8 @@ internal object GitHubComparisonCoverage {
             val lastPage = (progress?.get("terminal_page") as? JsonPrimitive)?.intOrNull ?: page(row)
             result["has_more"] == JsonPrimitive(false) &&
                 result["complete"] != JsonPrimitive(false) &&
+                result["file_inventory_complete"] != JsonPrimitive(false) &&
+                (result["changed_file_coverage"] as? JsonObject)?.get("complete") != JsonPrimitive(false) &&
                 progress?.get("complete") != JsonPrimitive(false) &&
                 progress?.get("upstream_changed_during_traversal") != JsonPrimitive(true) &&
                 lastPage in 1..1000 &&

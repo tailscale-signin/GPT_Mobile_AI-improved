@@ -196,9 +196,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                 val queryVector = embed(query)
                 records.mapValues { (id, text) ->
                     currentCoroutineContext().ensureActive()
-                    val fingerprint = MessageDigest.getInstance("SHA-256").digest(text.encodeToByteArray()).joinToString("") { "%02x".format(it) }
-                    val key = engineeringVectorCache.key(id, scope, fingerprint)
-                    val vector = engineeringVectorCache.read(key) ?: embed(text).also { engineeringVectorCache.write(key, it) }
+                    val vector = engineeringVectorCache.getOrEmbed(id, scope, text, ::embed)
                     val norm = kotlin.math.sqrt(queryVector.sumOf { it.toDouble() * it } * vector.sumOf { it.toDouble() * it })
                     if (norm > 0) queryVector.indices.sumOf { queryVector[it].toDouble() * vector[it] } / norm else 0.0
                 }.also { engineeringVectorCache.bound(4096) }

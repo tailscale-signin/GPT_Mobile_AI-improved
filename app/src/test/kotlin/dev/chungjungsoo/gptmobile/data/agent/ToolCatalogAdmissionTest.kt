@@ -221,7 +221,9 @@ class ToolCatalogAdmissionTest {
         val operations = names.map { AgentToolDefinition(it, "bounded operation ".repeat(134), buildJsonObject {}) }
         val limits = AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 218, finalResponseReserveTokens = 617)
         assertTrue(operations.sumOf { providerSchemaTokens(it, true) } > 3005)
-        assertThrows(GitHubToolContextBudgetException::class.java) { fitProviderToolSchemas(operations, limits, 0, 0) }
+        assertEquals(listOf(operations.first()), fitProviderToolSchemas(operations, limits, 0, 0))
+        val focused = operations[2]
+        assertEquals(listOf(focused), fitProviderToolSchemas(operations, limits, 0, 0, completedOperations = listOf(focused.name), focusedOperation = focused.name))
         for (chosen in operations) {
             val available = fitProviderToolSchemas((listOf(chosen) + operations + discovery).distinctBy { it.name }, limits, 0, 0)
             val paused = afterRepeatedGitHubDiscovery(available, true)
@@ -231,6 +233,86 @@ class ToolCatalogAdmissionTest {
             assertTrue(discovery in afterRepeatedGitHubDiscovery(available, false))
         }
         assertEquals(listOf(discovery), afterRepeatedGitHubDiscovery(listOf(discovery), true))
+    }
+
+    @Test fun compactRunnerExecutesSixRegisteredOperationsInOrderWithoutDiscovery() = runTest {
+        val names = listOf("github_context", "github_pr", "github_ci", "github_read", "github_search", "github_issue")
+        val executed = mutableListOf<String>()
+        val operations = names.mapIndexed { index, name ->
+            val targetCost = if (index == 0) 777 else 778
+            val description = "x".repeat(3 * (targetCost - 16) - name.length - 2)
+            object : AgentTool {
+                override val definition = AgentToolDefinition(name, description, buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    executed += name
+                    if (name == names.first() && arguments["page"] == JsonPrimitive(1)) {
+                        val page = buildJsonObject {
+                            put("schema", "github.result.v1")
+                            put(
+                                "continuation_call",
+                                buildJsonObject {
+                                    put("tool", name)
+                                    put("arguments", buildJsonObject { put("page", 2) })
+                                }
+                            )
+                        }
+                        return AgentToolResult(callId, ToolResultContent.Json(page), false, retainedContent = ToolResultContent.Text("Unpaged upstream bytes"))
+                    }
+                    return AgentToolResult(callId, ToolResultContent.Text("Observed $name"), false)
+                }
+            }
+        }
+        val schemaTokens = operations.sumOf { providerSchemaTokens(it.definition, true) }.toInt()
+        assertEquals(4667, schemaTokens)
+        val plannedSchemaTokens = providerSchemaTokens(operations.first().definition, true)
+        val limits = AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 218 + plannedSchemaTokens.toInt(), initialGitHubSchemaTokens = plannedSchemaTokens, finalResponseReserveTokens = 617, maxRounds = 9)
+        val stages = listOf(names.first()) + names
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                assertTrue(tools.sumOf { providerSchemaTokens(it, true) } <= 3005)
+                if (executed.size == stages.size) {
+                    emit(ProviderEvent.TextDelta("Six observations complete."))
+                } else {
+                    val next = stages[executed.size]
+                    assertEquals(next, tools.single().name)
+                    emit(ProviderEvent.ToolCall("phase-${executed.size}", next, buildJsonObject { if (next == names.first()) put("page", executed.size + 1) }))
+                    if (executed.isEmpty()) emit(ProviderEvent.ToolCall("unadvertised", names.last(), buildJsonObject {}))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(limits).run(session, operations).toList()
+        assertEquals(stages, executed)
+        assertFalse(events.toString(), events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
+    @Test fun compactInitialAdmissionValidatesEveryExplicitPhaseAndAdvertisesTheNextOne() {
+        val names = listOf("github_context", "github_pr", "github_ci", "github_read", "github_search", "github_issue")
+        val task = names.joinToString(" then ") { "use tool $it" }
+        val definitions = names.map { AgentToolDefinition(it, "bounded operation ".repeat(168), buildJsonObject {}) }
+        val catalog = ProgressiveToolCatalog(definitions, task, githubMode = true, contextCeilingTokens = 4096)
+        val operations = definitions.map { definition ->
+            object : AgentTool {
+                override val definition = definition
+                override suspend fun execute(callId: String, arguments: JsonObject) = error("Planning must not dispatch")
+            }
+        }
+        val resolved = (operations + catalog).map { ResolvedAgentTool(it, null, "GitHub", it.definition.name, it.definition.name, progressiveCatalog = catalog.takeIf { item -> item === it }) }
+        val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
+        val settings = TokenBudgetSettings(contextTokens = 4096, outputTokens = 617)
+        val plan = planAuthorizedToolContext(turns, "", resolved, settings, true, githubMode = true, requestedTask = task)
+        assertEquals(617, plan.outputTokens)
+        assertEquals(setOf(names.first(), ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
+        assertTrue(names.all { name -> plan.authorizedTools.any { it.name == name } })
+        for (name in names) {
+            assertEquals(name, catalog.selected(plan.authorizedTools).first().name)
+            catalog.recordObservation(name, AgentToolResult("$name-failed", ToolResultContent.Text("Temporary error"), true))
+            assertEquals(name, catalog.selected(plan.authorizedTools).first().name)
+            catalog.recordObservation(name, AgentToolResult(name, ToolResultContent.Text("Read"), false))
+        }
+        assertThrows(RequiredToolReadinessFailure::class.java) {
+            planAuthorizedToolContext(turns, "", resolved.filterNot { it.modelToolName == names.last() }, settings, true, githubMode = true, requestedTask = task)
+        }
     }
 
     @Test fun defaultReplyReserveYieldsToRequiredSchemasWhileExplicitReserveStaysPinned() {

@@ -60,6 +60,29 @@ class ToolBatchDeliveryProofTest {
         return journal
     }
 
+    @Test fun restartPreservesExactBoundedPageWhenProviderEnvelopeWouldCrowdItOut() = runBlocking {
+        val fixture = GitHubSavedPageCapacityTest.Fixture()
+        val native = requireNotNull(fixture.next(tokens = 3000))
+        val original = ProviderToolInvocation(native.name, buildJsonObject { put("legacy_argument", "x".repeat(24_000)) })
+        val call = native.copy(originalInvocation = original, originalInvocationFingerprint = original.fingerprint(native.callId))
+        val page = fixture.read(call)
+        assertFalse(page.isError)
+        val directory = java.nio.file.Files.createTempDirectory("exact-page-checkpoint").toFile()
+        try {
+            val file = File(directory, "turn.json")
+            val checkpoint = ToolBatchCheckpoint(file, "original-scope")
+            checkpoint.enqueue(listOf(call))
+            checkpoint.execute(call) { page }
+            val restarted = ToolBatchCheckpoint(file, "original-scope")
+            val restored = restarted.execute(call) { error("Saved page must reopen without another dispatch") }
+            assertEquals(page.content, restored.content)
+            assertEquals(ToolResultDeliveryProof.digest(page.content), ToolResultDeliveryProof.digest(restored.content))
+            assertTrue(runCatching { ToolBatchCheckpoint(file, "other-scope").recoverySnapshot() }.isFailure)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun oversizedSavedBatchIsDeliveredAcrossRoundsAndTheCheckpointKeepsEveryPageProof() = runBlocking {
         val file = File.createTempFile("saved-pages-in-parts", ".json").apply { delete() }
         try {

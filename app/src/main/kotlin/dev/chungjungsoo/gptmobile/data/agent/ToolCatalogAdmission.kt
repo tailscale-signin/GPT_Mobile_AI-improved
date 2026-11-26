@@ -154,8 +154,23 @@ internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val o
 
 internal fun providerSchemaTokens(tool: AgentToolDefinition, githubMode: Boolean): Long = ProgressiveToolCatalog.schemaTokens(tool).toLong() + if (githubMode) 16 else 0
 
+/** Only advance after a delivered success whose native response offers no further page for this operation. */
+internal fun githubSchemaPhaseComplete(name: String, result: AgentToolResult, arguments: JsonObject?, restoredJournal: Boolean = false): Boolean {
+    if (result.isError) return false
+    if (!result.dispatched || result.sharedResult && !restoredJournal) {
+        val call = ProviderEvent.ToolCall(result.callId, name, arguments ?: return false)
+        if (GitHubReplayRecovery.checkpointPage(call, result) == null) return false
+    }
+    val page = GitHubReplayRecovery.envelope(result.content)
+    fun sameTool(call: JsonObject?) = call?.get("tool") == JsonPrimitive(name) || call?.get("name") == JsonPrimitive(name)
+    if (sameTool(page?.get("continuation_call") as? JsonObject)) return false
+    return listOf(page?.get("remote_continuations"), result.executionReceipt?.get("retained_remote_continuations")).none { recipes ->
+        (recipes as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { sameTool(it["call"] as? JsonObject) }
+    }
+}
+
 /** Recheck warm as well as cold discoveries against the current request's remaining room. */
-internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limits: AgentRunLimits, initialSchemaTokens: Long, replayTokens: Long, maxSchemaTokens: Int? = null, discoveryPaused: Boolean = false): List<AgentToolDefinition> {
+internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limits: AgentRunLimits, initialSchemaTokens: Long, replayTokens: Long, maxSchemaTokens: Int? = null, discoveryPaused: Boolean = false, completedOperations: List<String> = emptyList(), focusedOperation: String? = null, owedOperation: String? = null): List<AgentToolDefinition> {
     val visible = definitions.filter { it.modelVisible }
     if (limits.contextTokens == Int.MAX_VALUE && maxSchemaTokens == null) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
@@ -174,7 +189,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     }
     val required = visible.filter { tool ->
         val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
-        val requiredForGitHub = (limits.githubMode || limits.githubTask) && (tool.name == "read_recovery_context" || operation in scopedOperations)
+        val requiredForGitHub = (limits.githubMode || limits.githubTask) && (tool.name == "read_recovery_context" || tool.name == owedOperation || operation in scopedOperations)
         val requested = tool.name in explicitlyRequired || operation in explicitlyRequired
         val requiredForRetry = maxSchemaTokens != null && (requested || AgentToolCapability.USER_DECISION in tool.capabilities)
         requiredForGitHub || requiredForRetry
@@ -188,6 +203,34 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
     val discoveryCost = discovery?.takeUnless { it.name in requiredNames }?.let { providerSchemaTokens(it, limits.githubMode) } ?: 0L
     val discoveryFits = discovery != null && discoveryCost <= remaining
+    // A local sequence can page the already resolved native contracts even when the
+    // wire window has no directory. It never acquires tools or increases a reserve.
+    if ((limits.githubMode || limits.githubTask) && limits.contextTokens <= 4096 && discovery == null && maxSchemaTokens == null && scopedOperations.isEmpty()) {
+        val optional = visible.filter { it.name !in requiredNames && ProgressiveToolCatalog.isGitHubTool(it) }
+        val nativeOnly = optional.all { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null }
+        if (nativeOnly && optional.size > 1 && optional.sumOf { providerSchemaTokens(it, limits.githubMode) } > remaining) {
+            // Keep the planner's order for unvisited contracts. After all have run,
+            // prioritize the least recently completed one for follow-up evidence.
+            val next = optional.firstOrNull { it.name == focusedOperation } ?: optional.minBy { completedOperations.indexOf(it.name) }
+            val nextCost = providerSchemaTokens(next, limits.githubMode)
+            if (nextCost > remaining) {
+                throw GitHubToolContextBudgetException(nextCost + requiredSchemaTokens, budget.available, budget).withRequiredSchemas(required + next, limits.githubMode)
+            }
+            remaining -= nextCost
+            val selected = visible.filter { tool ->
+                when {
+                    tool.name in requiredNames || tool.name == next.name -> true
+                    tool === discovery || ProgressiveToolCatalog.isGitHubTool(tool) -> false
+                    else -> {
+                        val cost = providerSchemaTokens(tool, limits.githubMode)
+                        (cost <= remaining).also { fits -> if (fits) remaining -= cost }
+                    }
+                }
+            }
+            ToolCatalogDiagnostics.recordOmissions("provider_round", optional.filterNot { it.name == next.name }.associate { it.name to "DEFERRED_GITHUB_OPERATION" })
+            return selected
+        }
+    }
     // After unchanged discovery spend the next round on an operation if one fits on its own.
     val nextOperation = if (discoveryPaused && discovery?.name !in requiredNames) {
         required.firstOrNull { it.name != ProgressiveToolCatalog.NAME && ProgressiveToolCatalog.isGitHubTool(it) }
@@ -264,7 +307,13 @@ internal fun planAuthorizedToolContext(
         } + recovery
         ).distinctBy { it.name }
     val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus || lookup != null || integration) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
-    val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
+    val normalized = limits.normalized()
+    // Readiness for every explicit tool is validated above, including credentials and ambiguous aliases.
+    val staged = required.filter { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null }
+        .takeIf { effectiveGitHubMode && fullGitHubCatalog && normalized.contextTokens <= 4096 && it.size > 1 }.orEmpty()
+    catalog?.stageRequiredOperations(staged.map { it.name })
+    val immediateRequired = if (staged.isEmpty()) required else required - staged.toSet() + staged.first()
+    val advertised = (immediateRequired + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
     // Pin the immediate status/context read, not every operation mentioned in
     // a multi-step engineering task. Remaining schemas are discoverable later.
     val requestedGitHubOperations = if (requireToolExecution) {
@@ -278,6 +327,7 @@ internal fun planAuthorizedToolContext(
         scopedGitHubStatus -> advertised.filter {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
         }
+        staged.isNotEmpty() -> listOf(staged.first())
         fullGitHubCatalog -> dev.chungjungsoo.gptmobile.data.github.githubFamilyTools(advertised, "github_context")
         else -> advertised.filter { definition ->
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
@@ -290,8 +340,7 @@ internal fun planAuthorizedToolContext(
     // survives initial planning. Charge that path before optional schemas rather
     // than silently reducing executable authority to the schemas that happen to fit.
     val requiredDiscovery = catalog?.definition?.takeIf { effectiveGitHubMode || requiredGitHubSchemas.isNotEmpty() }
-    val pinnedSchemas = (immediateGitHubSchemas + required + listOfNotNull(requiredDiscovery)).distinctBy { it.name }
-    val normalized = limits.normalized()
+    val pinnedSchemas = (immediateGitHubSchemas + immediateRequired + listOfNotNull(requiredDiscovery)).distinctBy { it.name }
     var effectiveLimits = normalized
     var admittedGitHubBudget: GitHubSchemaBudget? = null
     if ((requiredGitHubSchemas.isNotEmpty() || requiredDiscovery != null) && normalized.contextTokens != Int.MAX_VALUE) {
@@ -327,7 +376,12 @@ internal fun planAuthorizedToolContext(
     }
     ToolCatalogDiagnostics.recordOmissions("initial_context", advertised.filterNot { candidate -> plan.tools.any { it.name == candidate.name } }.associate { it.name to "CONTEXT_BUDGET" })
     // Authorization stays discoverable only if the discovery schema itself fits.
-    return if (catalog != null && plan.tools.any { it.name == catalog.definition.name }) plan.copy(authorizedTools = definitions) else plan
+    val authorized = when {
+        catalog != null && plan.tools.any { it.name == catalog.definition.name } -> definitions
+        staged.isNotEmpty() -> (plan.authorizedTools + staged).distinctBy { it.name }
+        else -> return plan
+    }
+    return plan.copy(authorizedTools = authorized, stagedGitHubOperations = staged.map { it.name })
 }
 
 /** A discovery receipt must not promise a schema that the runner could not admit. */

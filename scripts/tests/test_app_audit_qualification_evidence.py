@@ -53,6 +53,23 @@ class AppAuditQualificationEvidenceTest(unittest.TestCase):
             "files": [],
         }))
 
+    def test_ci_failures_keep_tested_merge_and_omit_ambiguous_or_stale_test_locations(self):
+        other = 'core-domain/src/jvmTest/kotlin/AlphaTest.kt'
+        self.write_catalog({'connections': [ALPHA, other, BETA]})
+        subprocess.run(['git', 'init', '-q'], cwd=self.root, check=True)
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        xml = self.junit([(PACKAGE + '.AlphaTest', 'sameName', 'FAILURE'), (PACKAGE + '.BetaTest', 'located', 'ERROR')])
+        stale = self.junit([(PACKAGE + '.BetaTest', 'oldResult', 'FAILURE')], observed=self.since - timedelta(hours=1), name='TEST-old.xml')
+        classes, errors = COLLECTOR.junit_observations([xml, stale], self.since, self.now)
+        checkout = {'commit': 'b' * 40, 'pull_request_event_parents': ['c' * 40, 'a' * 40], 'tracked_files_clean': True}
+        report = COLLECTOR.ci_junit_report(classes, errors, checkout, {'GITHUB_RUN_ATTEMPT': '2'}, self.root)
+        self.assertEqual(('a' * 40, 'b' * 40, '2'), (report['head_sha'], report['tested_sha'], report['run_attempt']))
+        self.assertTrue(report['partial'])
+        rows = {row['name']: row for row in report['failures']}
+        self.assertEqual({'sameName', 'located'}, set(rows))
+        self.assertNotIn('source_path', rows['sameName'])
+        self.assertEqual(BETA, rows['located']['source_path'])
+
     def junit(self, cases=None, observed=UNSET, name="TEST-fixture.xml", attributes=None):
         cases = cases if cases is not None else [(PACKAGE + ".AlphaTest", "observedBehavior", "PASS")]
         counts = {"tests": len(cases), "failures": 0, "errors": 0, "skipped": 0}

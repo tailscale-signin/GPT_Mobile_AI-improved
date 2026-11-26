@@ -46,6 +46,8 @@ class ProgressiveToolCatalog(
     private val actionSelections = mutableMapOf<String, Pair<String, String>>()
     private val requirementActions = mutableMapOf<String, Pair<String, String>>()
     private val explicitSelections = linkedSetOf<String>()
+    private var stagedRequiredOperations = emptyList<String>()
+    private val completedStagedContracts = mutableMapOf<String, String>()
     private var candidateRevision = 0L
     private var requirementFocusKey: Pair<String, Long>? = null
     private fun presented(tool: AgentToolDefinition): AgentToolDefinition {
@@ -179,9 +181,10 @@ class ProgressiveToolCatalog(
 
     @Synchronized
     internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis(), arguments: JsonObject? = null) {
-        if (!result.dispatched || result.sharedResult) return
         val candidate = candidates[resolveName(name)] ?: return
         val contract = contractFingerprint(candidate)
+        if (name in stagedRequiredOperations && githubSchemaPhaseComplete(name, result, arguments)) completedStagedContracts[name] = contract
+        if (!result.dispatched || result.sharedResult) return
         if (!observedCalls.add("${candidate.name}:$contract:${result.callId}")) return
         while (observedCalls.size > 8192) observedCalls.remove(observedCalls.first())
         val previous = observations[candidate.name]?.takeIf { it.contract == contract }
@@ -316,10 +319,32 @@ class ProgressiveToolCatalog(
     )
 
     @Synchronized
+    internal fun restoreCompletedPhase(name: String) {
+        if (name in stagedRequiredOperations) candidates[name]?.let { completedStagedContracts[name] = contractFingerprint(it) }
+    }
+
+    @Synchronized
+    internal fun stageRequiredOperations(names: List<String>) {
+        stagedRequiredOperations = names
+    }
+
+    /** Preserve a requirement's selected action across pagination and corrective reads. */
+    @Synchronized
+    internal fun focusedOperation(allowed: List<AgentToolDefinition>): String? = allowed.firstOrNull { tool ->
+        tool.name in explicitSelections || tool.name in requirementActions
+    }?.name
+
+    @Synchronized
     fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> {
         val definitions = allowed.filter { it.modelVisible }.associateBy { it.name }
-        // Preserve task/discovery priority when the outer context planner has less room.
-        return (active + NAME).distinct().mapNotNull(definitions::get).map(::presented)
+        // A completed first phase releases its slot for the next requested operation.
+        // Intersection with allowed is repeated after every suspension or revocation.
+        val next = stagedRequiredOperations.firstOrNull { name ->
+            val candidate = candidates[name] ?: return@firstOrNull false
+            name in definitions && completedStagedContracts[name] != contractFingerprint(candidate)
+        }
+        val ordered = if (next == null) active + NAME else listOf(next) + active.filterNot { it in stagedRequiredOperations } + NAME
+        return ordered.distinct().mapNotNull(definitions::get).map(::presented)
     }
 
     /** Select only from registered contracts. Discovery of a missing family has no side effects here. */

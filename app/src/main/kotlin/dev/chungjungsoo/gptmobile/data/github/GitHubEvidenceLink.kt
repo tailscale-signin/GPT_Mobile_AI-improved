@@ -21,6 +21,23 @@ internal object GitHubEvidenceLink {
         val tool = receipt.text("tool").githubOperationFamily()
         val action = (receipt["arguments"] as? JsonObject)?.text("action").orEmpty()
         val file = parent?.takeIf { it.text("path").isNotBlank() || it.text("filename").isNotBlank() }
+        if (tool == "github_ci" && action == "failure" && parent != null) {
+            when (field) {
+                "source_path", "test_name" -> {
+                    val revision = when (parent.text("source")) {
+                        "JUNIT_ARTIFACT" -> parent.text("tested_sha")
+                        "CHECK_RUN_ANNOTATION" -> parent.text("check_head_sha")
+                        else -> ""
+                    }
+                    return sourceUrl(base, parent.text("source_path"), revision, (parent["start_line"] as? JsonPrimitive)?.intOrNull, (parent["end_line"] as? JsonPrimitive)?.intOrNull)
+                }
+                "job_id" -> {
+                    val runId = parent.text("run_id").toLongOrNull()?.takeIf { it > 0 } ?: return null
+                    return value.toLongOrNull()?.takeIf { it > 0 }?.let { "$base/actions/runs/$runId/job/$it" }
+                }
+                "tested_sha", "check_head_sha" -> return value.takeIf(sha::matches)?.let { "$base/commit/$it" }
+            }
+        }
         return when {
             field in branchFields && value.isNotBlank() -> "$base/tree/${encode(value)}"
             field in commitFields && sha.matches(value) -> "$base/commit/$value"
@@ -64,7 +81,7 @@ internal object GitHubEvidenceLink {
         return sourceUrl(base, path, binding.text("commit_sha"), start, end)
     }
 
-    private fun sourceUrl(base: String, path: String, commit: String, start: Int?, end: Int?): String? {
+    fun sourceUrl(base: String, path: String, commit: String, start: Int?, end: Int?): String? {
         if (!sha.matches(commit) || path.isBlank() || path.split('/').any { it in setOf("", ".", "..") } || path.any { it.code < 32 || it == '\\' }) return null
         val lines = if (start == null) {
             ""

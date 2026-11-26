@@ -530,6 +530,58 @@ class VoiceFailureReportingTest {
     }
 
     @Test
+    fun androidRateLimitRetainsItsOriginalAttemptPhaseAndLocalCooldownWithoutExportingIdentity() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (stage in AndroidRecognitionFailure.Stage.entries) {
+            IssueReportIncidents.clearRecent()
+            lateinit var capture: VoiceAudio.Listener
+            val audio = object : VoiceAudio {
+                override fun listen(listener: VoiceAudio.Listener) {
+                    capture = listener
+                }
+                override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+                override fun stop() = Unit
+                override fun close() = Unit
+            }
+            val session = VoiceSession(audio, { false }, {}, { 1000L }).apply { autoContinue = true }
+            val attemptId = "voice:private-android-session:${stage.name}"
+            val dispatched = stage != AndroidRecognitionFailure.Stage.SUPPORT_CHECK
+            try {
+                session.access(true, true, true)
+                session.resume()
+                capture.failure(
+                    "The speech service is temporarily limited.",
+                    "VOICE_RECOGNIZER_RATE_LIMITED",
+                    retryMillis = 15_000,
+                    recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE,
+                    cause = AndroidRecognitionFailure(10, stage, dispatched, attemptId, 15_000)
+                )
+                val report = IssueReportIncidents.pending.value.single()
+                val values = requireNotNull(report.context?.diagnostics).values
+                assertEquals("VOICE_RECOGNIZER_RATE_LIMITED", report.errorCode)
+                assertEquals(stage.reportPhase, report.context?.stage)
+                assertEquals("voice_recognition", report.context?.operation)
+                assertEquals(dispatched, report.context?.dispatched)
+                assertEquals(false, report.context?.retryable)
+                assertEquals(15_000L, report.context?.retryAfterMillis)
+                assertEquals(JsonPrimitive("EXPLICIT_CAUSE"), values["causal_provenance"])
+                assertEquals(JsonPrimitive("TYPED_EVIDENCE"), values["incident_evidence_status"])
+                assertEquals(JsonPrimitive("LOCAL_BACKOFF"), values["retry_delay_source"])
+                assertEquals(JsonPrimitive(15_000L), values["retry_delay_ms"])
+                assertEquals(JsonPrimitive("TERMINAL"), values["recovery_observation"])
+                assertTrue(values.containsKey("causal_id_hash"))
+                assertFalse(IssueReport.json.encodeToString(IssueReport.serializer(), report).contains(attemptId))
+                session.resume()
+                assertEquals(report, IssueReportIncidents.pending.value.single())
+                assertEquals(16_000L, session.state.retryAtMillis)
+                assertEquals(VoiceRecoveryAction.SPEECH_SERVICE, session.state.recoveryAction)
+            } finally {
+                session.close()
+            }
+        }
+    }
+
+    @Test
     fun resumingDuringCooldownKeepsTheOriginalFailureWithoutReportingAnotherAttempt() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val attempts = mutableListOf<VoiceAudio.Listener>()

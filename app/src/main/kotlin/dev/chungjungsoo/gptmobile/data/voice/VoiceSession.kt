@@ -515,7 +515,7 @@ class VoiceSession(
                     "retry_after_ms" to retryMillis,
                     "retryable" to retryable,
                     "recovery_action" to recoveryAction?.name
-                )
+                ) + (cause as? AndroidRecognitionFailure)?.reportFields(retry && !draftPending && state.transcript.isBlank()).orEmpty()
             )
             // Partial speech is user input, not a disposable failed attempt.
             automaticRetry = retry && !draftPending

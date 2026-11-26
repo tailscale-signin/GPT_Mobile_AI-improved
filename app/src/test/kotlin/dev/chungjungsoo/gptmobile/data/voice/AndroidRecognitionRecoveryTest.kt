@@ -44,6 +44,7 @@ class AndroidRecognitionRecoveryTest {
         var creations = 0
         var qualifications = 0
         var deferSupport = false
+        var qualification = RecognitionQualification(RecognitionSupportStatus.SUPPORTED)
         lateinit var confirmSupport: () -> Unit
         val modes = mutableListOf<Boolean>()
         override fun available(onDevice: Boolean): Boolean {
@@ -57,7 +58,7 @@ class AndroidRecognitionRecoveryTest {
         }
         override fun checkSupport(recognizer: SpeechRecognizer, intent: Intent, onDevice: Boolean, result: (RecognitionQualification) -> Unit) {
             qualifications++
-            confirmSupport = { result(RecognitionQualification(RecognitionSupportStatus.SUPPORTED)) }
+            confirmSupport = { result(qualification) }
             if (!deferSupport) confirmSupport()
         }
         fun listener(): RecognitionListener {
@@ -165,7 +166,38 @@ class AndroidRecognitionRecoveryTest {
             assertTrue(listener.failures.single().contains("request or connection limit"))
             assertEquals(0, listener.retryable)
             assertEquals(15000L, audio.retryAfterMillis())
+            val cause = listener.causes.single() as AndroidRecognitionFailure
+            assertEquals(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, cause.platformError)
+            assertEquals(AndroidRecognitionFailure.Stage.STARTING, cause.stage)
+            assertTrue(cause.dispatched)
+            assertEquals("capture_start", cause.reportFields(false)["failed_stage"])
             verify(service.engine).destroy()
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun supportRateLimitRetainsItsUndispatchedAttemptAndCannotRestartCapture() {
+        val service = Service().apply {
+            qualification = RecognitionQualification(RecognitionSupportStatus.FAILED, SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+        }
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val cause = listener.causes.single() as AndroidRecognitionFailure
+            assertEquals(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, cause.platformError)
+            assertEquals(AndroidRecognitionFailure.Stage.SUPPORT_CHECK, cause.stage)
+            assertFalse(cause.dispatched)
+            assertEquals("precheck", cause.reportFields(false)["failed_stage"])
+            assertEquals(listOf("VOICE_RECOGNIZER_RATE_LIMITED"), listener.codes)
+            assertEquals(listOf(VoiceRecoveryAction.SPEECH_SERVICE), listener.repairs)
+            assertEquals(0, listener.retryable)
+            assertEquals(15_000L, audio.retryAfterMillis())
+            audio.listen(Listener())
+            verify(service.engine, never()).startListening(any(Intent::class.java))
+            verify(service.engine).destroy()
+            assertEquals(1, service.qualifications)
         } finally {
             audio.close()
         }
@@ -477,6 +509,10 @@ class AndroidRecognitionRecoveryTest {
             assertEquals(0, listener.retryable)
             assertTrue(listener.failures.single().contains("Automatic retries are paused"))
             assertEquals(15000L, audio.retryAfterMillis())
+            val cause = listener.causes.single() as AndroidRecognitionFailure
+            assertEquals(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, cause.platformError)
+            assertEquals(AndroidRecognitionFailure.Stage.RECOGNITION, cause.stage)
+            assertTrue(cause.dispatched)
             verify(service.engine).cancel()
             verify(service.engine).destroy()
             // A retired binder cannot extend the cooldown or trigger another retry.

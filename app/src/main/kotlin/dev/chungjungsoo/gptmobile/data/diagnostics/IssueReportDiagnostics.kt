@@ -303,6 +303,9 @@ internal data class IssueReportDiagnostics(
         private val githubCooldownLongs = setOf("github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms")
         internal val githubCooldownFields = githubCooldownLongs + setOf("github_cooldown_resource", "github_cooldown_basis", "github_cooldown_remaining_requests")
         private val acceptanceScopeFields = setOf("acceptance_capability_scope", "acceptance_pagination_mode")
+
+        // A single retained criterion must not hide the other observed blocker categories.
+        private val acceptanceBlockerTotals = setOf("acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total")
         private val githubPrerequisiteFields = setOf("repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation")
         private val graphPolicyFields = setOf("branch_protection_http_status", "branch_rules_http_status")
         private val graphPolicyBlockers = setOf("GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED")
@@ -730,7 +733,7 @@ internal data class IssueReportDiagnostics(
                 // optional fields are gone. An impossible envelope still fails validation.
                 val candidates = values.filterKeys { it !in criterionFloor }
                 if (candidates.isEmpty()) break
-                val optional = if (version == 3) candidates.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in incidentDetailFields && it !in replayBudgetFields && it !in searchFailureFields && it !in readerRunFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields && it !in PrivacyFinalRequestFailureEvidence.fields } else candidates
+                val optional = if (version == 3) candidates.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in incidentDetailFields && it !in replayBudgetFields && it !in searchFailureFields && it !in readerRunFields && it !in acceptanceScopeFields && it !in acceptanceBlockerTotals && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields && it !in PrivacyFinalRequestFailureEvidence.fields } else candidates
                 val key = (optional.ifEmpty { candidates }).maxBy { it.key.length + it.value.toString().length }.key
                 val criterionSize = (values[key] as? JsonArray)?.size ?: 0
                 if (version == 3 && key in criterionFields && criterionSize > 1) {

@@ -354,6 +354,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayWorkspaceClientTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayWorkspaceCommandStoreTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayWorkspaceRepositoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceCompactionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContractTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceDiagnosticsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceExplanationTest.kt",

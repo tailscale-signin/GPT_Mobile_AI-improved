@@ -460,7 +460,18 @@ class AndroidVoiceAudio internal constructor(
                         reportCode,
                         recognitionGate.remainingMillis(),
                         retryable = repair == null && error in setOf(SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT),
-                        recoveryAction = repair
+                        recoveryAction = repair,
+                        cause = AndroidRecognitionFailure(
+                            platformError = error,
+                            stage = when {
+                                !dispatched -> AndroidRecognitionFailure.Stage.SUPPORT_CHECK
+                                becameReady -> AndroidRecognitionFailure.Stage.RECOGNITION
+                                else -> AndroidRecognitionFailure.Stage.STARTING
+                            },
+                            dispatched = dispatched,
+                            attemptId = "voice:$sessionId:$ticket",
+                            localBackoffMillis = recognitionGate.remainingMillis()
+                        )
                     )
                 }
             })
@@ -512,7 +523,14 @@ class AndroidVoiceAudio internal constructor(
                             else -> "VOICE_RECOGNIZER_UNAVAILABLE"
                         },
                         recognitionGate.remainingMillis(),
-                        recoveryAction = repair
+                        recoveryAction = repair,
+                        cause = AndroidRecognitionFailure(
+                            platformError = support.errorCode,
+                            stage = AndroidRecognitionFailure.Stage.SUPPORT_CHECK,
+                            dispatched = false,
+                            attemptId = "voice:$sessionId:$ticket",
+                            localBackoffMillis = recognitionGate.remainingMillis()
+                        )
                     )
                     return@supportResult
                 }

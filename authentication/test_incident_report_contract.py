@@ -12,6 +12,37 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_android_recognition_limit_keeps_dispatch_and_local_backoff_in_approved_report(self):
+        for stage, dispatched in (("precheck", False), ("capture_start", True), ("voice_recognition", True)):
+            with self.subTest(stage=stage):
+                capture = self.capture("VOICE", {
+                    "incident_phase": stage,
+                    "causal_provenance": "EXPLICIT_CAUSE",
+                    "causal_failure_code": "VOICE_RECOGNIZER_RATE_LIMITED",
+                    "incident_origin": "UNKNOWN",
+                    "recovery_observation": "TERMINAL",
+                    "retry_delay_ms": 15_000,
+                    "retry_delay_source": "LOCAL_BACKOFF",
+                    "voice_engine": "SYSTEM",
+                    "voice_phase": "STARTING" if stage != "voice_recognition" else "LISTENING",
+                })
+                report = self.report(capture)
+                report.update(feature="voice", errorCode="VOICE_RECOGNIZER_RATE_LIMITED")
+                report["context"].update(source="VOICE_STATE", stage=stage, operation="voice_recognition",
+                                         dispatched=dispatched, retryable=False, retryAfterMillis=15_000,
+                                         recoveryAction="SPEECH_SERVICE")
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| Failure stage | `{stage}` |", issue["body"])
+                self.assertIn("LOCAL_BACKOFF", issue["body"])
+                self.assertIn("EXPLICIT_CAUSE", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                rejected = copy.deepcopy(report)
+                rejected["context"]["diagnostics"]["values"]["causal_id_hash"] = "voice:raw-session:19"
+                with self.assertRaises(ReportError):
+                    issue_from_report(rejected)
+
     def test_phone_deadline_public_alias_uses_existing_context_and_incident_vocabulary(self):
         for action in ("index", "query"):
             capture = self.capture("TOOL", {

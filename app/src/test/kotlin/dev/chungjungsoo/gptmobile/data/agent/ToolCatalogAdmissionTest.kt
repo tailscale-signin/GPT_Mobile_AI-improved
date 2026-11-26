@@ -235,11 +235,11 @@ class ToolCatalogAdmissionTest {
         assertEquals(listOf(discovery), afterRepeatedGitHubDiscovery(listOf(discovery), true))
     }
 
-    @Test fun compactRunnerExecutesSixRegisteredOperationsInOrderWithoutDiscovery() = runTest {
+    @Test fun reported4096TokenRunExecutesSixRegisteredOperationsInOrderWithoutDiscovery() = runTest {
         val names = listOf("github_context", "github_pr", "github_ci", "github_read", "github_search", "github_issue")
         val executed = mutableListOf<String>()
         val operations = names.mapIndexed { index, name ->
-            val targetCost = if (index == 0) 777 else 778
+            val targetCost = if (index < 2) 781 else 782
             val description = "x".repeat(3 * (targetCost - 16) - name.length - 2)
             object : AgentTool {
                 override val definition = AgentToolDefinition(name, description, buildJsonObject {})
@@ -263,13 +263,14 @@ class ToolCatalogAdmissionTest {
             }
         }
         val schemaTokens = operations.sumOf { providerSchemaTokens(it.definition, true) }.toInt()
-        assertEquals(4667, schemaTokens)
+        assertEquals(4690, schemaTokens)
         val plannedSchemaTokens = providerSchemaTokens(operations.first().definition, true)
-        val limits = AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 218 + plannedSchemaTokens.toInt(), initialGitHubSchemaTokens = plannedSchemaTokens, finalResponseReserveTokens = 617, maxRounds = 9)
+        val limits = AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 224 + plannedSchemaTokens.toInt(), initialGitHubSchemaTokens = plannedSchemaTokens, finalResponseReserveTokens = 622, maxRounds = 9)
+        assertEquals(2994L, GitHubSchemaBudget(4096, 224, 622, 256).available)
         val stages = listOf(names.first()) + names
         val session = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
-                assertTrue(tools.sumOf { providerSchemaTokens(it, true) } <= 3005)
+                assertTrue(tools.sumOf { providerSchemaTokens(it, true) } <= 2994)
                 if (executed.size == stages.size) {
                     emit(ProviderEvent.TextDelta("Six observations complete."))
                 } else {
@@ -284,6 +285,36 @@ class ToolCatalogAdmissionTest {
         val events = AgentRunner(limits).run(session, operations).toList()
         assertEquals(stages, executed)
         assertFalse(events.toString(), events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
+    @Test fun reportedSchemaWindowRetainsRecoveryAndOwedReadsWithoutEnlargingTheAllowance() {
+        val names = listOf("github_context", "github_pr", "github_ci", "github_read", "github_search", "github_issue")
+        val operations = names.mapIndexed { index, name ->
+            val targetCost = if (index < 2) 781 else 782
+            AgentToolDefinition(name, "x".repeat(3 * (targetCost - 16) - name.length - 2), buildJsonObject {})
+        }
+        val recovery = AgentToolDefinition("read_recovery_context", "Read retained task receipts", buildJsonObject {})
+        val limits = AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 224, finalResponseReserveTokens = 622)
+        assertEquals(4690L, operations.sumOf { providerSchemaTokens(it, true) })
+        val completed = mutableListOf<String>()
+        for (operation in operations) {
+            val selected = fitProviderToolSchemas(operations + recovery, limits, 0, 0, completedOperations = completed)
+            assertEquals(listOf(operation, recovery), selected)
+            assertTrue(selected.sumOf { providerSchemaTokens(it, true) } <= 2994)
+            completed += operation.name
+        }
+        val owed = operations[3]
+        val owedBudget = providerSchemaTokens(owed, true) + providerSchemaTokens(recovery, true)
+        val selected = fitProviderToolSchemas(listOf(owed, recovery), limits, 0, 2994 - owedBudget, owedOperation = owed.name)
+        assertEquals(listOf(owed, recovery), selected)
+        val blocked = assertThrows(GitHubToolContextBudgetException::class.java) {
+            fitProviderToolSchemas(listOf(owed, recovery), limits, 0, 2995 - owedBudget, owedOperation = owed.name)
+        }
+        assertEquals(owedBudget, blocked.requiredSchemaTokens)
+        assertEquals(owedBudget - 1, blocked.availableSchemaTokens)
+        assertEquals(JsonPrimitive(false), blocked.providerFailure().failureDetails?.get("dispatched"))
+        assertEquals(4096, limits.contextTokens)
+        assertEquals(622, limits.finalResponseReserveTokens)
     }
 
     @Test fun compactInitialAdmissionValidatesEveryExplicitPhaseAndAdvertisesTheNextOne() {

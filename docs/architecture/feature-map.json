@@ -6483,9 +6483,9 @@
       "sha256": "e1b8fe1d0ed5965c57098a8f18464dc2aeb29e01b7c8dbfca4415e9aa50aaac7"
     },
     "gateway/tests/test_gateway_agent_adapters.py": {
-      "blob_sha": "d432a73e3466c99cd955aa47ba23e15ac8a7c70e",
-      "bytes": 88418,
-      "sha256": "f661593469085492c49ae57094ba35df77c14dad409f4e5d8cf84a090dba4ce7"
+      "blob_sha": "ba1637bb17fdce2da0aad19b8957426b177bb088",
+      "bytes": 88545,
+      "sha256": "395b2e4100993138fb62a9dcc06df21bea8d8141effc9a81a3eb883e29884dbd"
     },
     "gateway/tests/test_gateway_benchmark_qualification.py": {
       "blob_sha": "6d655256094e8a80133cb3439e52237ea12ca5c8",

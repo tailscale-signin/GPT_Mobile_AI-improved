@@ -5,6 +5,7 @@ internal class VoiceCalibrationInterrupted(val reason: VoiceCalibrationStop) : I
 
 /** Short, matched CPU workloads; settings and order are frozen for an entire calibration. */
 internal object VoiceCpuCalibrationProtocol {
+    const val PREFERENCES = "voice_synthesis_calibration_v2"
     const val VERSION = 4
     const val ORDER_KEY = "cpu-calibration-order-v4"
     private val fixtures = listOf("the voice is ready.", "here are the main points.", "you can ask your next question.")

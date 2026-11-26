@@ -31,10 +31,8 @@ internal fun VoiceTuningSettings(
     change: (VoiceTuningPreferences) -> Unit,
     history: VoicePerformanceHistory,
     feedback: StateFlow<VoiceSynthesisFeedback>?,
-    benchmark: (((String) -> Unit) -> Unit)?,
     adjustCaptionOffset: (Int) -> Unit,
-    language: SpeechLanguage,
-    supportsCpuThreads: Boolean = true
+    language: SpeechLanguage
 ) {
     VoiceSettingsSection("Conversation pacing")
     VoiceSettingSwitch("Speak a brief acknowledgment while thinking", value.spokenAcknowledgments) { change(value.copy(spokenAcknowledgments = it)) }
@@ -49,7 +47,6 @@ internal fun VoiceTuningSettings(
     VoiceSettingsSection("Caption alignment")
     VoiceCaptionAdjustment(value.captionOffsetMs, feedback, adjustCaptionOffset)
     VoiceSettingsSection("Performance")
-    if (supportsCpuThreads) VoiceCalibrationControl(benchmark)
     VoiceSynthesisStatus(feedback)
     VoicePerformancePanel(history, feedback?.collectAsStateWithLifecycle()?.value)
 }
@@ -85,24 +82,6 @@ private fun VoicePronunciationEditor(language: String, value: Map<String, String
         )
         Button(onClick = { parsed?.let(save) }, enabled = parsed != null && parsed != value) { Text("Save pronunciations") }
     }
-}
-
-@Composable
-private fun VoiceCalibrationControl(benchmark: (((String) -> Unit) -> Unit)?) {
-    var running by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<String?>(null) }
-    Button(onClick = {
-        running = true
-        result = "Measuring local synthesis…"
-        benchmark?.invoke { message ->
-            running = false
-            result = message
-        }
-    }, enabled = benchmark != null && !running, modifier = Modifier.testTag("voice_cpu_benchmark")) {
-        Text(if (running) "Measuring…" else "Measure CPU setting for Auto")
-    }
-    Text("Auto threads use the measured count and reduce it when the phone warms up.", style = MaterialTheme.typography.bodySmall)
-    result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable

@@ -257,6 +257,7 @@ for test in (
 ):
     check_instrumentation(folder / 'agent-persistence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest', test)
 for test in (
+    'oneStartAndStopKeepsAReadableExport',
     'selectedStreamingPackCanStartVoiceChatWithoutTheNativeKokoroPack',
     'voiceButtonIsLeftOfNewChatAndReportsItsRevealOrigin',
     'disabledPluginWaitsForExplicitOptIn',

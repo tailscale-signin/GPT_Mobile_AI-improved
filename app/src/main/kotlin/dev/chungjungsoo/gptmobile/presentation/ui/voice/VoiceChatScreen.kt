@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.voice
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -68,8 +69,10 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
@@ -233,7 +236,7 @@ private fun VoiceChatSessionScreen(
     bottomInteractionContent: (@Composable () -> Unit)?,
     runtimeOwner: VoiceRuntimeViewModel = hiltViewModel(),
     backendOwner: VoiceBackendViewModel = hiltViewModel(),
-    benchmarkOwner: VoiceSpeechBenchmarkViewModel = hiltViewModel()
+    benchmarkOwner: VoiceSpeechBenchmarkViewModel = hiltViewModel(LocalActivity.current as? ViewModelStoreOwner ?: checkNotNull(LocalViewModelStoreOwner.current))
 ) {
     val context = LocalContext.current
     val settingsScope = rememberCoroutineScope()
@@ -1056,7 +1059,10 @@ private fun VoiceChatSessionScreen(
                             kokoroOutput?.releaseWarmModel()
                         },
                         captionOffsetMs = tuning.captionOffsetMs,
-                        viewModel = benchmarkOwner
+                        viewModel = benchmarkOwner,
+                        performance = { session.performanceHistory.snapshots.value },
+                        feedback = { kokoroOutput?.synthesisFeedback?.value },
+                        gateway = backend.factory.takeIf { backend.backend == VoiceSpeechBackend.GATEWAY_CUDA && it.selectedBackend == VoiceSpeechBackend.GATEWAY_CUDA }
                     )
                     if (!benchmarkRunning) {
                         VoiceTuningSettings(
@@ -1067,18 +1073,12 @@ private fun VoiceChatSessionScreen(
                             },
                             session.performanceHistory,
                             kokoroOutput?.synthesisFeedback,
-                            if (backend.backend.supportsCpuThreadCalibration && kokoroOutput != null && kokoroVoice != null && kokoroModel.status == LocalVoiceModelStatus.READY) {
-                                { completed -> kokoroOutput.benchmark(requireNotNull(kokoroVoice), completed) }
-                            } else {
-                                null
-                            },
                             adjustCaptionOffset = { milliseconds ->
                                 kokoroOutput?.configureCaptionOffset(milliseconds)
                                 tuning = tuning.copy(captionOffsetMs = milliseconds)
                                 savePreferences()
                             },
-                            language = synthesis.profile,
-                            supportsCpuThreads = backend.backend.supportsCpuThreadCalibration
+                            language = synthesis.profile
                         )
                     }
                 }
@@ -1361,7 +1361,7 @@ private fun VoiceSettingsScreen(
             }
             if (state.speechBackend.isStreamingLocal) {
                 VoiceSettingSwitch("Keep one speech stream for each reply", state.incrementalSpeech, actions.changeIncrementalSpeech)
-                Text("New text joins the current stream as it arrives. Turn this off to compare separate phrases in the speech benchmark.", style = MaterialTheme.typography.bodySmall)
+                Text("New text joins the current stream as it arrives. The full voice benchmark measures both input modes.", style = MaterialTheme.typography.bodySmall)
                 if (state.speechBackend.streamingEngine()?.isKokoro == true) {
                     VoiceChoice("Kokoro phrase capacity · experiment", state.kokoroBucket.name, MediaPipeKokoroBucket.entries.map { it.name to it.label }, { actions.changeKokoroBucket(MediaPipeKokoroBucket.valueOf(it)) })
                     Text("Compare capacities with the same voice and text. Model default lets the runtime choose; a smaller capacity may help short phrases. The complete reply remains queued.", style = MaterialTheme.typography.bodySmall)

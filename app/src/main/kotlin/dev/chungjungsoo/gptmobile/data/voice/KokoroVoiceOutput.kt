@@ -260,9 +260,9 @@ internal class KokoroVoiceOutput(
     private val application = context.applicationContext
     private val audioManager = application.getSystemService(AudioManager::class.java)
     private val powerManager = application.getSystemService(PowerManager::class.java)
-    private val calibration by lazy { application.getSharedPreferences("voice_synthesis_calibration_v2", Context.MODE_PRIVATE) }
+    private val calibration by lazy { application.getSharedPreferences(VoiceCpuCalibrationProtocol.PREFERENCES, Context.MODE_PRIVATE) }
 
-    @Volatile private var calibratedThreads: Map<String, Int> = emptyMap()
+    @Volatile private var calibrationLoaded = false
     override val synthesisFeedback: kotlinx.coroutines.flow.StateFlow<VoiceSynthesisFeedback> = measuredSynthesis
     private val main = Handler(Looper.getMainLooper())
     private val synthesis = Executors.newSingleThreadExecutor { task -> Thread(task, "KokoroSynthesis").apply { isDaemon = true } }
@@ -387,7 +387,7 @@ internal class KokoroVoiceOutput(
         val hardware = if (adaptive) DeviceHardwareGovernor.inspectHardwareState(application) else null
         return VoiceCpuSchedulingPolicy.threads(
             threadCount,
-            calibratedThreads[calibrationKey(voice, speed)],
+            if (adaptive && calibrationLoaded) calibration.getInt(calibrationKey(voice, speed), 0).takeIf { it in VoiceCpuSchedulingPolicy.supported } else null,
             adaptive,
             hardware?.isModeratePressure == true,
             hardware?.isThrottlingRequired == true
@@ -437,7 +437,6 @@ internal class KokoroVoiceOutput(
                     if (!closed && calibrationTicket == ticket && active == null && speechFactory.identity == selectionIdentity && powerManager?.currentThermalStatus in 0..1) {
                         val selected = VoiceCpuCalibration.select(samples)
                         calibration.edit().putInt(key, selected).apply()
-                        calibratedThreads = calibratedThreads + (key to selected)
                         measuredSynthesis.update { it.copy(threads = selected) }
                         result = "Calibration complete at $speed×: Auto uses $selected CPU threads for ${voice.label}. Slowest measured warm phrase: ${samples.getValue(selected).max()} ms."
                     }
@@ -596,9 +595,8 @@ internal class KokoroVoiceOutput(
         // SharedPreferences may touch disk on its first access. The screen can construct
         // and prewarm the deferred output on main without doing that read there.
         synthesis.execute {
-            calibratedThreads = calibration.all.mapNotNull { (key, value) ->
-                (value as? Int)?.takeIf { key.startsWith("threads:") }?.let { key to it }
-            }.toMap()
+            calibration.contains(VoiceCpuCalibrationProtocol.ORDER_KEY)
+            calibrationLoaded = true
         }
     }
 

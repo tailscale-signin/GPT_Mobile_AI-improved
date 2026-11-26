@@ -104,5 +104,32 @@
         "integration": "Retained the concurrent fix in 4eb088e16 and verified both compiled instrumentation callers invoke the explicit two-argument method. The new accelerated handset probe adds narrow smoke-only method retention."
       }
     }
+  },
+  "fullVoiceBenchmark": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "baseBranch": "main",
+    "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+    "workingBranch": "feature/windows-native-benchmark-kit",
+    "startingHead": "803c740faee1979c619c5ebdadb7487c0482d518",
+    "pullRequest": 2651,
+    "intent": "Replace the manual configuration matrix with one full on-device voice benchmark and one export that preserves detailed measurements, skips and interrupted work.",
+    "entry": "Voice settings → Run full voice benchmark → Export full voice benchmark",
+    "execution": "Activity-owned coordinator holds the process-wide microphone/playback lease. Native, streaming and playback runners execute sequentially, await retirement, and preserve strict model/delegate identities. Missing packs are reported before scheduling. Cooldown is bounded to five minutes; unresolved thermal pressure or native cleanup stops remaining stages.",
+    "coverage": [
+      "Four microphone batch sizes and audio route/effect capabilities",
+      "Two fixed English recognition recordings with three Moonshine endpointing styles; edit distance, first partial and final timings",
+      "All catalog languages and voices, dictionary source alignment, acoustic signal, first PCM and timed word cues; measure Android on-device loopback accuracy only when the engine reads the supplied audio",
+      "Android offline system voices rendered to validated WAV, reported language availability, and a previously selected CUDA Gateway",
+      "Native INT8 and FP32, standard/optimized Kokoro, Phonon and Pocket, supported CPU/GPU/NPU requests, device thread counts, QNN policies, LiteRT sequence buckets and text-input modes",
+      "Short/medium/long workloads, 20 warm repeats, caption offset, cancellation/recovery, playback gaps, bounded battery and thermal observations, and 1/5/10-minute sustained targets",
+      "Production automatic thread calibration, localized thinking/search cue planning and process-scoped live voice timings"
+    ],
+    "fixtures": {
+      "source": "Local synthesis with FFmpeg Flite voices slt and rms. G.711 mu-law mono at 16 kHz. The English references appear in VoiceBenchRecognition.kt.",
+      "ready.mulaw": "c413870702dcb1391947078bb63579ce74f55da0e9b9d2ff2c7afedfd6af5bf4",
+      "weather.mulaw": "f5112c380389c8ec4c0e6be80e0ef96db191500b68c907a72986948f112d996a"
+    },
+    "evidence": "The aggregate streams the original public benchmark exports, fixture metrics and separate live-session performance snapshot. Audio, transcripts, device addresses, connection credentials and local device keys are excluded. Driver kernel utilization, acoustic ear latency and subjective naturalness require independent observation.",
+    "limits": "The mobile suite covers connected audio routes and installed engines. Windows CUDA requires an explicitly selected Gateway. Unsupported hardware, missing language models, process death, user cancellation and thermal stops are preserved in the report."
   }
 }

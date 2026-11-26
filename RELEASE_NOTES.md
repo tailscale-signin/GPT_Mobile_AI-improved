@@ -8,6 +8,7 @@ This release implements the sixteen findings from the November 26 build-151 runt
 
 - Embed matched native-product benchmark campaigns in the Windows Gateway app, with editable preregistered controls, original capture imports, independent supplied-answer grading, original-request recovery and unknown-preserving scoreboards.
 
+- Voice settings now have one **Run full voice benchmark** button and one JSON export. It measures microphone input, recognition accuracy, multilingual pronunciation and word timing, native and LiteRT processor routes, offline Android voices, and a selected CUDA Gateway. The run includes warm and cold synthesis, interruptions, Auto CPU thread calibration, and 1-, 5- and 10-minute playback tests. Completed and interrupted measurements survive reopening the app.
 - Voice Mode can play French and other installed voices through standard Kokoro when an optimized GPU or Snapdragon pack is missing. Driver startup and clipped output are checked before playback, and accelerator caches and voice verification are renewed after firmware or app updates.
 - Voice Mode can speak one brief acknowledgment in the selected language while an answer is pending. A running lookup gets a search cue, and quick answers take priority. Speech model preparation overlaps audio setup, and stable opening words can play during a provider pause.
 - A spoken acknowledgment now hands off to the complete answer even when the app is in the background. French punctuation spacing is respected. Switching chats preserves the playing reply until you explicitly select another, and tapping its notification returns to the original message.
@@ -53,5 +54,6 @@ Publication requires successful validation of the final PR head, main revision a
 - The repository and gateway regressions include simulated transports. Physical handset execution and live side-by-side model quality have not been measured for these changes. Provider quota and explicit reasoning-off support depend on the selected backend.
 
 - The native campaign controller has no measured product-quality results. Synthetic fixtures and portable presentation checks do not establish Windows installation, native product execution or comparative superiority.
+- Full voice benchmark measurements depend on the installed models, Android speech services, physical output route and device thermal state. Synthetic speech recognition and waveform measurements cannot rate human-perceived pronunciation.
 
 Published tags remain immutable, and a passing earlier revision does not qualify a later commit.

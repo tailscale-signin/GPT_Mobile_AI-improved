@@ -401,6 +401,27 @@ public partial class MainWindow : Window
         catch (InvalidOperationException) { /* An offline dataset has its own empty/error state. */ }
     }
 
+    private static void VerifyReferenceClipBounds(DataGrid table, DataGridRow row)
+    {
+        var viewport = Ui.Descendants<System.Windows.Controls.Primitives.ScrollContentPresenter>(table).First();
+        var clip = VisualTreeHelper.GetClip(viewport) ?? throw new InvalidOperationException("Reference viewport has no clip.");
+        var bounds = clip.Bounds;
+        void Check(string name, Geometry testedClip, Rect testedBounds, bool expected)
+        {
+            if (Ui.ClipContainsRenderBounds(testedClip, testedBounds) != expected)
+                throw new InvalidOperationException($"Reference clip assertion failed: {name}, expected={expected}, bounds={testedBounds}, clip={testedClip.Bounds}.");
+        }
+
+        Check("actual viewport row", clip, row.TransformToAncestor(viewport).TransformBounds(new Rect(row.RenderSize)), true);
+        Check("exact viewport equality", clip, bounds, true);
+        Check("one DIP outside left", clip, new Rect(bounds.Left - 1, bounds.Top, bounds.Width + 1, bounds.Height), false);
+        Check("one DIP outside top", clip, new Rect(bounds.Left, bounds.Top - 1, bounds.Width, bounds.Height + 1), false);
+        Check("one DIP outside right", clip, new Rect(bounds.Left, bounds.Top, bounds.Width + 1, bounds.Height), false);
+        Check("one DIP outside bottom", clip, new Rect(bounds.Left, bounds.Top, bounds.Width, bounds.Height + 1), false);
+        Check("rounded corners remain clipped", new RectangleGeometry(bounds, 4, 4), bounds, false);
+        Check("translated rectangle remains clipped", new RectangleGeometry(bounds, 0, 0, new TranslateTransform(1, 0)), bounds, false);
+    }
+
     private async Task Smoke()
     {
         var layout = (FrameworkElement)Content;
@@ -445,6 +466,7 @@ public partial class MainWindow : Window
             await Ui.CaptureReference(this, layout, referenceSize, System.IO.Path.Combine(root,"native-jobs-reference.png"), captureRoot =>
             {
                 var candidates = FullyVisibleRows(table);
+                if (candidates.Length > 0) VerifyReferenceClipBounds(table, candidates[0]);
                 var rendered = new List<DataGridRow>();
                 string? firstRejection = null;
                 foreach (var row in candidates)

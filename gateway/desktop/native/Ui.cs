@@ -135,6 +135,16 @@ internal static class Ui
 
     public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root) => FullyWithinRenderBounds(element, root, out _);
 
+    public static bool ClipContainsRenderBounds(Geometry clip, Rect bounds)
+    {
+        // WPF viewport rectangles include their edges; the geometry relation can
+        // report Intersects for a contained row that shares those exact edges.
+        if (clip is RectangleGeometry rectangle && rectangle.RadiusX == 0 && rectangle.RadiusY == 0 &&
+            (rectangle.Transform == null || rectangle.Transform.Value.IsIdentity))
+            return rectangle.Rect.Contains(bounds);
+        return clip.FillContainsWithDetail(new RectangleGeometry(bounds)) == IntersectionDetail.FullyContains;
+    }
+
     public static bool FullyWithinRenderBounds(FrameworkElement element, FrameworkElement root, out string rejection)
     {
         rejection = "";
@@ -148,7 +158,7 @@ internal static class Ui
         while (true)
         {
             var clip = VisualTreeHelper.GetClip(current);
-            if (clip != null && clip.FillContainsWithDetail(new RectangleGeometry(bounds)) != IntersectionDetail.FullyContains)
+            if (clip != null && !ClipContainsRenderBounds(clip, bounds))
             {
                 rejection = $"{current.GetType().Name}: bounds={bounds}, clip={clip.Bounds}, relation={clip.FillContainsWithDetail(new RectangleGeometry(bounds))}";
                 return false;

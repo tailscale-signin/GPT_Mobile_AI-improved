@@ -252,7 +252,8 @@ clears the previous configuration error file before checking settings and applyi
 them. The Windows setup smoke check covers and captures the tasks and review pages.
 
 The Jobs reference capture lays out the actual WPF controls at 1904 by 1000 pixels
-and checks that at least 30 distinct rows are fully rendered. The check rejects
+and checks that at least 30 distinct rows are fully rendered. Rows aligned exactly
+with a viewport edge count as visible; rows extending beyond it are rejected. The check rejects
 clipped or transparent output when the VM desktop is smaller than the reference
 layout.
 Failed native smoke runs preserve the observed phase, exception and partial

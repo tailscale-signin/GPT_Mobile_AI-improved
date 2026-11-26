@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "70ca826f1e42364576876991dba0d83715d09d73a110cd2a4f67a5fe581034c2",
+  "source_digest": "288e5ee2b6bfc2a0ab65c8b41b0ae1158f09e73c39803fb95fe3723ed78999b2",
   "file_count": 3195,
-  "indexed_line_count": 548721,
+  "indexed_line_count": 548762,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -35,7 +35,7 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 76,
-      "indexed_line_count": 8913
+      "indexed_line_count": 8915
     },
     {
       "id": "chat_ui",
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 143,
-      "indexed_line_count": 25700
+      "indexed_line_count": 25739
     },
     {
       "id": "portable_domain",
@@ -193,8 +193,8 @@
       "path": "app/src/main/AndroidManifest.xml",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "524cb29802f7af69f709eec811e305846d5a904d95450fe4a662cf45d7113d1c",
-      "indexed_lines": 197
+      "sha256": "7ffef82882374f8e9db628039a18bccd241ec9cb08680bf5f8c942d7eb045101",
+      "indexed_lines": 199
     },
     {
       "path": "app/src/main/assets/mathjax/fonts/newcm/svg/dynamic/PUA.js",
@@ -13493,8 +13493,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStore.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "eec3b736a3eac8453795552f45aafe080faae1d628d02b4ad6c1a4965fcffde5",
-      "indexed_lines": 264
+      "sha256": "041f6d8d07a92e21f9ad0418eb2768964dce19b60f14a324258200684bb819a1",
+      "indexed_lines": 268
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNpu.kt",
@@ -13514,15 +13514,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngine.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "9fb240a8ae8623e1e40beb70402a16774d761894305927d17f6fd9dc3b0057d9",
-      "indexed_lines": 353
+      "sha256": "dd4c4ffb2896a48ec67ef15006c9fb935074ed220b99f0a6676b8ebb25df3dda",
+      "indexed_lines": 367
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineFactory.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "82e9b69809274e4c4c63e39a424206c8e28b2b1287f0b55c39e75f4282631790",
-      "indexed_lines": 202
+      "sha256": "1342cbca8ca189d34f8e7e839610b87cc161461c370b2121cc18557fc5077692",
+      "indexed_lines": 204
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeWordCueMapper.kt",
@@ -13584,8 +13584,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidence.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "5e002f59c5f86e04b4b068b2de18a45ae2853f79e1c8a99de6b29c14fbb35a22",
-      "indexed_lines": 24
+      "sha256": "bb31c7e02dc2ac1e8e2d0a95a1e157ab6a6b1543d631b3c93434a560e5e8839e",
+      "indexed_lines": 37
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionFailureDiagnostics.kt",
@@ -13899,8 +13899,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "5122bdf7c5147ac3eeceb707d98a4224c09a1c6814069e72247f72db7e5c6aab",
-      "indexed_lines": 29
+      "sha256": "1f633c3b078464d8d5607ef824ab84b666dc1b447219abb5416dce818c635136",
+      "indexed_lines": 35
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
@@ -18071,7 +18071,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "59dc315a415c15b3ee660c7451b9f036c533cb639870c58de60f5f37ad9a8c2b",
+      "sha256": "82fb15063dfb70e9c3d24a8ab176444e3a8be78f0d7f263a94860a7085f5985a",
       "indexed_lines": 420
     },
     {

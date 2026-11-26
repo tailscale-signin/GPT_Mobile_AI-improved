@@ -93,10 +93,15 @@ class MediaPipeSpeechNativeSmokeTest {
         val expectedBytes = descriptor.downloadBytes
         assertTrue("Insufficient space for model and runtime caches", directory.usableSpace >= expectedBytes * 4)
         val digest = MessageDigest.getInstance("SHA-256")
+        val remoteDirectory = if (InstrumentationRegistry.getArguments().getString("mediapipeSmokeIsolatedModel") == "true") {
+            "/data/local/tmp/mediapipe-speech/${requireNotNull(runId)}"
+        } else {
+            "/data/local/tmp/mediapipe-speech"
+        }
         var copied = 0L
         val staged = File(directory, descriptor.fileName + ".part")
         ParcelFileDescriptor.AutoCloseInputStream(
-            instrumentation.uiAutomation.executeShellCommand("cat /data/local/tmp/mediapipe-speech/${descriptor.fileName}")
+            instrumentation.uiAutomation.executeShellCommand("cat $remoteDirectory/${descriptor.fileName}")
         ).use { input ->
             staged.outputStream().use { output ->
                 val buffer = ByteArray(64 * 1024)
@@ -157,22 +162,31 @@ class MediaPipeSpeechNativeSmokeTest {
             val incrementalAfter = cancelWaitingInput(engine, task)
             engine.resetCancellation()
             val incrementalRecovered = consumeIncremental(engine, task)
-            val frenchFrames = if (kind.isKokoro) {
+            val frenchPreview = if (kind.isKokoro) {
                 val french = SpeechLanguages.forLocale("fr-CA")!!
-                engine.selectVoice(french.voices.first())
+                val voiceId = french.voices.first()
+                engine.selectVoice(voiceId)
                 val sample = VoiceStreamFrames(french.preview)
+                val signal = VoicePcmSignalMeasurement()
+                val start = SystemClock.elapsedRealtime()
+                var firstAudio: Long? = null
                 engine.stream(french.preview, 0, 1f) {
+                    if (it.samples.isNotEmpty() && firstAudio == null) firstAudio = SystemClock.elapsedRealtime() - start
+                    signal.accept(it.samples)
                     sample.accept(it)
                     true
                 }
                 sample.finish()
-                assertTrue(sample.frames in 1..VOICE_PCM_SAMPLE_RATE * 30L)
-                sample.frames
+                val pcm = checkNotNull(signal.snapshot())
+                assertTrue(sample.frames in 1..VOICE_PCM_SAMPLE_RATE * 30L && pcm.samples == sample.frames)
+                JSONObject().put("voice_id", voiceId).put("frames", pcm.samples).put("first_pcm_ms", checkNotNull(firstAudio))
+                    .put("rms", pcm.rms).put("peak", pcm.peak).put("clipped_samples", pcm.clipped).put("non_silent_samples", pcm.nonSilent)
             } else {
                 null
             }
             evidence = JSONObject()
-                .put("french_preview_frames", frenchFrames ?: JSONObject.NULL)
+                .put("french_preview_frames", frenchPreview?.getLong("frames") ?: JSONObject.NULL)
+                .put("french_preview", frenchPreview ?: JSONObject.NULL)
                 .put("schema", "mediapipe-android-jni-smoke-v2")
                 .put("scope", "android_jni_checkpoint_smoke")
                 .put("status", "passed")
@@ -202,8 +216,8 @@ class MediaPipeSpeechNativeSmokeTest {
             // If native retirement fails, preserve its files rather than unlink mapped data.
             engine.close()
             try {
-                if (backend == VoiceSpeechBackend.LITERT_KOKORO_CPU) {
-                    evidence?.put("application_playback", observeKokoroPlayback(instrumentation, descriptor, model))
+                if (kind.isKokoro) {
+                    evidence?.put("application_playback", observeKokoroPlayback(instrumentation, descriptor, model, backend))
                 }
             } finally {
                 check(directory.deleteRecursively()) { "Could not remove the native smoke checkpoint/cache." }
@@ -214,11 +228,18 @@ class MediaPipeSpeechNativeSmokeTest {
         instrumentation.sendStatus(2, Bundle().apply { putString("mediapipe_smoke_evidence", completedEvidence.toString()) })
     }
 
-    private fun observeKokoroPlayback(instrumentation: Instrumentation, descriptor: MediaPipeSpeechModel, model: File): JSONObject {
+    private fun observeKokoroPlayback(instrumentation: Instrumentation, descriptor: MediaPipeSpeechModel, model: File, backend: VoiceSpeechBackend): JSONObject {
         val context = instrumentation.targetContext
         val root = Files.createTempDirectory(context.cacheDir.toPath(), "kokoro-playback-").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val models = MediaPipeSpeechModelStore(File(root, "models"), File(root, "cache"), scope, listOf(descriptor)) {
+        val models = MediaPipeSpeechModelStore(
+            File(root, "models"),
+            File(root, "cache"),
+            scope,
+            listOf(descriptor),
+            prepareNpu = { prepareMediaPipeSpeechNpu(context) },
+            acceleratorEnvironment = speechAcceleratorEnvironment(context)
+        ) {
             object : LocalVoiceAssetSource {
                 override fun open(url: String): LocalVoiceAssetStream {
                     check(url == descriptor.downloadUrl)
@@ -250,12 +271,15 @@ class MediaPipeSpeechNativeSmokeTest {
         val voice = KokoroVoice.HEART
         val observed = AtomicReference<ObservedNativeTask>()
         val ending = "The next word arrives."
-        val factory = MediaPipeVoicePhraseEngineFactory(models, descriptor.engine, VoiceSpeechBackend.LITERT_KOKORO_CPU, 1f, voice.streamingVoiceId) {
-            ObservedNativeTask(AndroidMediaPipeSpeechTask(it)).also(observed::set)
+        val requested = requestedSpeechDelegate(backend)
+        val factory = MediaPipeVoicePhraseEngineFactory(models, descriptor.engine, backend, 1f, voice.streamingVoiceId) { config ->
+            check(config.delegate.name == requested)
+            ObservedNativeTask(AndroidMediaPipeSpeechTask(config)).also(observed::set)
         }
         var activity: android.app.Activity? = null
         try {
-            runBlocking { models.install(descriptor.engine) }
+            // The provisioned model is already the exact pack, including for patched vocoders.
+            runBlocking { models.localStore(descriptor.engine).install() }
             check(models.isReady(descriptor.engine))
             // API 35+ grants audio focus to a foreground app. Start its real launcher activity.
             activity = instrumentation.startActivitySync(checkNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName)))
@@ -289,6 +313,8 @@ class MediaPipeSpeechNativeSmokeTest {
             check(written.get() in 0..presented.get() && appendedAfterPresentation.get())
             check(firstCaption.get() && lastCaption.get()) { "Playback did not present both original caption ranges." }
             return JSONObject()
+                .put("requested_delegate", requested)
+                .put("kernel_placement", "unreported_by_task")
                 .put("voice_id", voice.streamingVoiceId)
                 .put("speaking_rate", 1f.toDouble())
                 .put("first_audio_track_write_ms", written.get())

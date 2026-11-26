@@ -27,6 +27,18 @@
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend { *; }
 # The minified test APK opens the real streaming output and observes its Android playback clock.
 -keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore { *; }
+-keepclassmembers class dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore {
+    java.lang.Object install(kotlin.coroutines.Continuation);
+}
+-keep class dev.chungjungsoo.gptmobile.data.voice.SpeechVoiceEvidenceKt {
+    public static java.lang.String speechAcceleratorEnvironment(android.content.Context);
+}
+-keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechNpuKt {
+    public static void prepareMediaPipeSpeechNpu(android.content.Context);
+    public static boolean isSm8750SpeechDevice();
+}
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoicePcmSignalMeasurement { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoicePcmSignal { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.KokoroVoiceOutput { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack { *; }

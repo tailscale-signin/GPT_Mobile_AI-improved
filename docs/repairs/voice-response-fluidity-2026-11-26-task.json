@@ -52,5 +52,57 @@
       "mediaControls": "Notification and media-session taps target the same reply. A delayed pause or Stop from another reply cannot cancel the new owner.",
       "scannerControlsPassed": 112
     }
+  },
+  "acceleratorCompatibilityReview": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "workingBranch": "feature/windows-native-benchmark-kit",
+    "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+    "startingHead": "26e09fb88225b86f7ade90047bb1eba19253a5d4",
+    "intent": "Verify the actual Android speech SDK and Qualcomm provider interfaces, and improve startup, output validity and compiled-cache compatibility for foreground and service playback.",
+    "pullRequest": 2651,
+    "integratedHead": "21dcd5fd5c2fc8df7bbedaacae147580c11f3b05",
+    "upstream": [
+      {
+        "speechSdk": "com.google.mediapipe:tasks-audio:1.2.3",
+        "source": "https://github.com/google-ai-edge/mediapipe/releases/tag/v1.2.3",
+        "androidWrapper": "https://github.com/google-ai-edge/mediapipe/blob/v1.2.3/mediapipe/tasks/java/com/google/mediapipe/tasks/audio/texttospeech/TextToSpeech.kt",
+        "verified": "The AAR TTS nativeCreate receives the delegate enum, rate, bucket, default voice and locale, model path and cache path. The generic NPU and GPU options from BaseOptions are not arguments of this native method."
+      },
+      {
+        "nativeKokoro": "com.qualcomm.qti:onnxruntime-android-qnn:2.8.0 with com.qualcomm.qti:qnn-runtime:2.52.0",
+        "source": "https://github.com/onnxruntime/onnxruntime-qnn/blob/main/docs/execution_providers/QNN-ExecutionProvider.md",
+        "verified": "The Android publisher validates these two packages together. The app links its native Kokoro ARM64 bridge against static ONNX Runtime 1.31.0."
+      },
+      {
+        "localLanguageModel": "LiteRT-LM 0.20.0 reviewed. The app's 0.18.0 dispatch build is separate from MediaPipe Tasks Audio synthesis.",
+        "source": "https://github.com/google-ai-edge/LiteRT-LM/releases/tag/v0.20.0",
+        "buildInputs": "docs/audits/qualcomm-dispatch-inputs.json"
+      },
+      {
+        "driverDiscovery": "Android 12 or later requires explicit optional vendor library declarations.",
+        "source": "https://developer.android.com/guide/topics/manifest/uses-native-library-element"
+      }
+    ],
+    "routing": [
+      "Standard Kokoro can satisfy live startup and prefetch when either optimized pack is unavailable. A failed specialized lease or late driver load can recover with the same voice and rate. An exact benchmark never substitutes a different delegate.",
+      "Reject nonfinite output, any accelerator magnitude above full scale or four consecutive full-scale samples across SDK packets. A failed first packet can be retried locally. After audio or captions were delivered, the damaged packet is withheld and no published text is replayed.",
+      "GPU and NPU caches and successful-voice records share a firmware, ABI, native dependency and app-install identity. The existing CPU cache key and previous CPU voice records remain usable."
+    ],
+    "verification": {
+      "jvmTestsPassed": 349,
+      "robolectricTestsPassed": 80,
+      "serviceLifecycleTestsPassed": 1,
+      "speechSmokeHarnessTestsPassed": 39,
+      "beforeAndAfter": "Missing optimized packs, a lazy NPU loader error, corrupt first PCM and saturation across packets each failed with the previous factory/engine and passed with the candidate.",
+      "packaging": "The 1.2.3 ARM64 and x86_64 native binaries reference libOpenCL.so, libOpenCL-pixel.so and libOpenCL-car.so. Gradle's ARM64, x86_64 and universal packaged manifests expose all three and FastRPC as optional.",
+      "nativeContracts": "QNN provenance and C++/JNI context, cancellation, retirement and waveform validation controls passed on the host.",
+      "handsetRunner": "The manual minified native smoke workflow stages an ARM64 APK pair. The runner and verifier accept an explicit GPU or NPU request, the French waveform and startup timing, Android AudioTrack presentation, pronunciation, captions and cancellation. Synthetic runs exercise both routes and reject mismatched or clipped evidence.",
+      "physicalQualification": "No physical Android device was attached. ROG Phone 9 Pro kernel placement, cold/warm latency, listening quality and sustained performance are unmeasured for this candidate.",
+      "preexistingMinifiedFailure": {
+        "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45901243476/job/140198228868",
+        "cause": "The separate test APK invoked the optimized-away Kotlin configurePronunciation default bridge. Both instrumentation callers now pass English explicitly. Smoke-only R8 roots preserve the signal and NPU setup APIs that the separate test APK directly calls.",
+        "integration": "Retained the concurrent fix in 4eb088e16 and verified both compiled instrumentation callers invoke the explicit two-argument method. The new accelerated handset probe adds narrow smoke-only method retention."
+      }
+    }
   }
 }

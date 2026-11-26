@@ -150,6 +150,8 @@ internal class MediaPipeVoicePhraseEngine(
                 }
                 var frames = 0L
                 var nonSilent = false
+                val checkClipping = configuredBackend.isMediaPipeAccelerator
+                var fullScaleRun = 0
                 var packets = 0
                 var finalSeen = false
                 while (true) {
@@ -176,8 +178,18 @@ internal class MediaPipeVoicePhraseEngine(
                     require(++packets <= packetLimit) { "Speech stream packet limit exceeded." }
                     nativeStreamCall { require(chunk.sampleRateHz == VOICE_PCM_SAMPLE_RATE) { "Speech SDK must return 24 kHz mono PCM." } }
                     require(frames + chunk.samples.size <= frameLimit) { "Speech stream frame limit exceeded." }
-                    nativeStreamCall { require(chunk.samples.all(Float::isFinite)) { "Speech SDK returned invalid PCM." } }
-                    nonSilent = nonSilent || chunk.samples.any { kotlin.math.abs(it) >= 1e-5f }
+                    nativeStreamCall {
+                        // Inspect the whole SDK packet before forwarding its audio or captions.
+                        for (sample in chunk.samples) {
+                            require(sample.isFinite()) { "Speech SDK returned invalid PCM." }
+                            val magnitude = kotlin.math.abs(sample)
+                            if (checkClipping) {
+                                fullScaleRun = if (magnitude >= 1f) fullScaleRun + 1 else 0
+                                require(magnitude <= 1f && fullScaleRun < FULL_SCALE_RUN_LIMIT) { "Speech accelerator returned clipped PCM." }
+                            }
+                            if (magnitude >= 1e-5f) nonSilent = true
+                        }
+                    }
                     if (chunk.samples.isEmpty()) {
                         val readyCues = cues.accept(chunk.wordTimestamps, frames)
                         if (readyCues.isNotEmpty()) emitChecked(VoicePcmChunk(FloatArray(0), wordCues = readyCues), emit)
@@ -346,6 +358,8 @@ internal class MediaPipeVoicePhraseEngine(
     }
 
     private companion object {
+        // A single normalized full-scale peak is representable. Repeated full scale signals saturation.
+        const val FULL_SCALE_RUN_LIMIT = 4
         const val MAX_NATIVE_PACKETS = 4_096
         const val MAX_INCREMENTAL_PACKETS = 32_768
         const val INPUT_RETIREMENT_MS = 1_000L

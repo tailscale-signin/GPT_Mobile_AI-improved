@@ -172,6 +172,36 @@ class MediaPipeSpeechModelStoreTest {
         assertTrue(checkNotNull(active.cacheDirectory.parentFile).listFiles().orEmpty().size <= 2)
     }
 
+    @Test fun acceleratedCachesFollowTheDriverAndInstalledRuntimeWhileCpuCanReuseItsCache(): Unit = runBlocking {
+        val models = files.newFolder()
+        val cache = files.newFolder()
+        fun store(environment: String) = MediaPipeSpeechModelStore(models, cache, scope, listOf(model), acceleratorEnvironment = environment) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String) = LocalVoiceAssetStream(ByteArrayInputStream(bytes), bytes.size.toLong())
+                override fun cancel() = Unit
+            }
+        }
+
+        val original = store("first-install")
+        val updated = store("updated-install")
+        original.install(model.engine)
+        for (backend in listOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.LITERT_KOKORO_CPU)) {
+            acquire(original, backend).use { first ->
+                val marker = File(first.cacheDirectory, "compiled-model").also { it.writeText("driver output") }
+                acquire(store("first-install"), backend).use { reopened ->
+                    assertTrue(reopened.directoryPresentAtEntry)
+                    assertEquals(first.cacheDirectory, reopened.cacheDirectory)
+                }
+                acquire(updated, backend).use { next ->
+                    val cpu = backend == VoiceSpeechBackend.LITERT_KOKORO_CPU
+                    assertEquals(cpu, next.directoryPresentAtEntry)
+                    assertEquals(cpu, next.cacheDirectory == first.cacheDirectory)
+                    assertTrue(marker.isFile)
+                }
+            }
+        }
+    }
+
     @Test fun comparisonRetainsThreeDelegateDirectoriesUntilItsOwnerReleasesThem() = runBlocking {
         val store = store { bytes }
         store.install(model.engine)
@@ -422,6 +452,33 @@ class MediaPipeSpeechModelStoreTest {
             }
             assertEquals(listOf(Delegate.NPU), delegates)
         }
+        store.remove(MediaPipeSpeechEngine.KOKORO)
+    }
+
+    @Test fun aDelegateThatFailsDuringVoiceDiscoveryIsClosedBeforeOpeningCpu(): Unit = runBlocking {
+        val store = installedKokoro()
+        val events = mutableListOf<String>()
+        val factory = MediaPipeVoicePhraseEngineFactory(
+            store,
+            MediaPipeSpeechEngine.KOKORO,
+            VoiceSpeechBackend.LITERT_KOKORO_NPU,
+            1f,
+            onPlaybackDelegate = { events += it.name }
+        ) { config ->
+            events += "open ${config.delegate}"
+            val stub = sealedTask { error("No synthesis during preparation") }
+            object : MediaPipeSpeechTask by stub {
+                override fun voiceIds(): Set<String> {
+                    if (config.delegate == Delegate.NPU) throw UnsatisfiedLinkError("vendor driver unavailable")
+                    return setOf("af_heart")
+                }
+                override fun close() {
+                    events += "close ${config.delegate}"
+                }
+            }
+        }
+        factory.create(files.root, "", 2).close()
+        assertEquals(listOf("open NPU", "close NPU", "open CPU", "LITERT_KOKORO_CPU", "close CPU"), events)
         store.remove(MediaPipeSpeechEngine.KOKORO)
     }
 
@@ -678,6 +735,75 @@ class MediaPipeSpeechModelStoreTest {
         store.remove(MediaPipeSpeechEngine.KOKORO)
     }
 
+    @Test fun clippedFirstPacketRecoversBeforePlaybackAndADelegateBenchmarkKeepsItsSelectedRoute(): Unit = runBlocking {
+        val store = installedKokoro()
+        val cases = listOf(
+            VoiceSpeechBackend.LITERT_KOKORO_GPU to floatArrayOf(.2f, 1.01f),
+            VoiceSpeechBackend.LITERT_KOKORO_NPU to floatArrayOf(-1f, -1f, -1f, -1f)
+        )
+        for ((selected, damaged) in cases) {
+            for (live in listOf(false, true)) {
+                val opened = mutableListOf<Delegate>()
+                val evidence = mutableListOf<VoiceSpeechBackend>()
+                val factory = MediaPipeVoicePhraseEngineFactory(
+                    store,
+                    MediaPipeSpeechEngine.KOKORO,
+                    selected,
+                    1f,
+                    onPlaybackDelegate = if (live) ({ _ -> }) else null,
+                    onValidatedSynthesis = { _, backend -> evidence += backend }
+                ) { config ->
+                    opened += config.delegate
+                    sealedTask {
+                        val packets = listOf(AudioChunk(if (config.delegate == Delegate.CPU) floatArrayOf(.25f) else damaged)).iterator()
+                        return@sealedTask { if (packets.hasNext()) packets.next() else null }
+                    }
+                }
+                val heard = mutableListOf<Float>()
+                factory.create(files.root, "", 2).use { speech ->
+                    val play = { speech.stream("test", 0, 1f) { heard.addAll(it.samples.toList()) } }
+                    if (live) play() else assertTrue(assertThrows(IllegalArgumentException::class.java, play).message.orEmpty().contains("clipped PCM"))
+                }
+                val delegate = if (selected == VoiceSpeechBackend.LITERT_KOKORO_NPU) Delegate.NPU else Delegate.GPU
+                assertEquals(if (live) listOf(delegate, Delegate.CPU) else listOf(delegate), opened)
+                assertEquals(if (live) listOf(.25f) else emptyList(), heard)
+                assertEquals(if (live) listOf(VoiceSpeechBackend.LITERT_KOKORO_CPU) else emptyList(), evidence)
+            }
+        }
+    }
+
+    @Test fun isolatedFullScaleSamplesPassAndSaturationAcrossPacketsNeverReplaysPublishedAudio(): Unit = runBlocking {
+        val store = installedKokoro()
+        val opens = mutableListOf<Pair<Delegate, String>>()
+        val factory = MediaPipeVoicePhraseEngineFactory(
+            store,
+            MediaPipeSpeechEngine.KOKORO,
+            VoiceSpeechBackend.LITERT_KOKORO_GPU,
+            1f,
+            onPlaybackDelegate = {}
+        ) { config ->
+            sealedTask { phrase ->
+                opens += config.delegate to phrase
+                val sequence = when (phrase) {
+                    "Isolated." -> listOf(AudioChunk(floatArrayOf(1f, .25f, -1f)))
+                    "Damaged." -> listOf(AudioChunk(floatArrayOf(.25f, 1f, 1f)), AudioChunk(floatArrayOf(1f, 1f, .5f)))
+                    else -> listOf(AudioChunk(floatArrayOf(.5f)))
+                }.iterator()
+                return@sealedTask { if (sequence.hasNext()) sequence.next() else null }
+            }
+        }
+        val heard = mutableListOf<Float>()
+        factory.create(files.root, "", 2).use { speech ->
+            fun play(phrase: String) = speech.stream(phrase, 0, 1f) { heard.addAll(it.samples.toList()) }
+            play("Isolated.")
+            assertThrows(IllegalArgumentException::class.java) { play("Damaged.") }
+            speech.resetCancellation()
+            play("Next.")
+        }
+        assertEquals(listOf(1f, .25f, -1f, .25f, 1f, 1f, .5f), heard)
+        assertEquals(listOf(Delegate.GPU to "Isolated.", Delegate.GPU to "Damaged.", Delegate.CPU to "Next."), opens)
+    }
+
     @Test fun cancellingDuringLazyCpuRecoveryNeverPresentsOrRetainsTheReplacementTask(): Unit = runBlocking {
         val store = installedKokoro()
         val entered = CountDownLatch(1)
@@ -764,6 +890,64 @@ class MediaPipeSpeechModelStoreTest {
                 assertEquals(listOf(expected), reported)
                 assertEquals(listOf("ff_siwis"), spoken)
             }
+        }
+    }
+
+    @Test fun missingOptimizedPacksUseInstalledFrenchKokoroOnTheSameAcceleratorOnlyDuringPlayback(): Unit = runBlocking {
+        for ((engine, selected, delegate) in listOf(
+            Triple(MediaPipeSpeechEngine.KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, Delegate.GPU),
+            Triple(MediaPipeSpeechEngine.KOKORO_SM8750, VoiceSpeechBackend.LITERT_KOKORO_SM8750, Delegate.NPU)
+        )) {
+            val packs = listOf(MediaPipeSpeechEngine.KOKORO, engine).map {
+                MediaPipeSpeechCatalog.model(it).copy(downloadBytes = bytes.size.toLong(), sha256 = hash(bytes))
+            }
+            val downloads = AtomicInteger()
+            val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, packs) {
+                object : LocalVoiceAssetSource {
+                    override fun open(url: String): LocalVoiceAssetStream {
+                        downloads.incrementAndGet()
+                        return LocalVoiceAssetStream(ByteArrayInputStream(bytes), bytes.size.toLong())
+                    }
+                    override fun cancel() = Unit
+                }
+            }
+            val reports = mutableListOf<VoiceSpeechBackend>()
+            val strict = MediaPipeVoicePhraseEngineFactory(store, engine, selected, 1f, "ff_siwis") { error("Benchmark cannot open another pack") }
+            val playback = MediaPipeVoicePhraseEngineFactory(store, engine, selected, 1f, "ff_siwis", onPlaybackDelegate = { reports += it }) { config ->
+                assertEquals(delegate, config.delegate)
+                assertEquals(packs.first().fileName, config.modelFile.name)
+                val stub = sealedTask {
+                    val packets = listOf(AudioChunk(floatArrayOf(.3f))).iterator()
+                    return@sealedTask { if (packets.hasNext()) packets.next() else null }
+                }
+                object : MediaPipeSpeechTask by stub {
+                    override fun voiceIds() = setOf("ff_siwis")
+                    override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream {
+                        assertEquals("ff_siwis", voiceId)
+                        return stub.openStream(text, voiceId)
+                    }
+                }
+            }
+            assertFalse(playback.isReady())
+            store.install(MediaPipeSpeechEngine.KOKORO)
+            assertTrue(playback.isReady())
+            assertFalse(strict.isReady())
+            var prefetched = 0
+            playback.prefetchAssets { ++prefetched > 0 }
+            assertTrue(prefetched > 1)
+            assertThrows(IOException::class.java) { strict.create(files.root, "", 2) }
+            playback.create(files.root, "", 2).use { it.stream("Bonjour.", 0, 1f) { true } }
+            assertEquals(listOf(if (delegate == Delegate.GPU) VoiceSpeechBackend.LITERT_KOKORO_GPU else VoiceSpeechBackend.LITERT_KOKORO_NPU), reports)
+            assertEquals(1, downloads.get())
+
+            // A once-ready optimized pack can also disappear between UI readiness and the lease.
+            store.localStore(engine).install()
+            assertTrue(strict.isReady())
+            assertTrue(File(store.localStore(engine).modelDirectory(), packs.last().fileName).delete())
+            playback.create(files.root, "", 2).use { it.stream("Encore.", 0, 1f) { true } }
+            assertFalse(strict.isReady())
+            store.remove(MediaPipeSpeechEngine.KOKORO)
+            assertFalse(playback.isReady())
         }
     }
 

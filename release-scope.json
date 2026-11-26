@@ -29,7 +29,8 @@
     "Keep spoken replies playing across app and conversation navigation, with a stop control. Use language-specific voices and dictionaries, retain compatible GPU/NPU routes, and allow up to 16 native CPU threads subject to device capacity.",
     "Recover missing pull-request list and changed-file pages at their verified revision, restart implicit traversals when the head changes, and report deadlines with the remaining work.",
     "Embed matched native-product benchmark campaigns in the Windows Gateway app, with editable preregistered controls, original capture imports, independent supplied-answer grading, original-request recovery and unknown-preserving scoreboards.",
-    "Preserve a queued final answer across a background acknowledgment, recognize French punctuation spacing, and keep automatic microphone and playback activity in another chat from interrupting speech. The playback notification opens the original message on each tap."
+    "Preserve a queued final answer across a background acknowledgment, recognize French punctuation spacing, and keep automatic microphone and playback activity in another chat from interrupting speech. The playback notification opens the original message on each tap.",
+    "Voice Mode can play French and other installed voices through standard Kokoro when an optimized GPU or Snapdragon pack is missing. Driver startup and clipped output are checked before playback, and accelerator caches and voice verification are renewed after firmware or app updates."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -60,11 +61,13 @@
   ],
   "allowedPaths": [
     ".github/workflows/gateway-windows-installer.yml",
+    ".github/workflows/native-memory-smoke.yml",
     ".gitleaks.toml",
     "AGENTS.md",
     "AI-Memory.md",
     "CLAUDE.md",
     "RELEASE_NOTES.md",
+    "app/app-native-smoke-rules.pro",
     "app/build.gradle.kts",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/KokoroListeningInstrumentedTest.kt",
@@ -193,6 +196,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngine.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineFactory.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidence.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStore.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicy.kt",
@@ -206,6 +210,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSearchOpening.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
@@ -341,6 +346,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguagesTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocolTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
@@ -440,10 +446,13 @@
     "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
     "release-scope.json",
     "scripts/check_issue_reporting_configuration.py",
+    "scripts/check_mediapipe_android_smoke.py",
     "scripts/github_routing_replay.py",
+    "scripts/run_mediapipe_android_smoke.sh",
     "scripts/smoke_mediapipe_speech.py",
     "scripts/test_gitleaks_model_pin.py",
     "scripts/tests/test_github_routing_replay.py",
+    "scripts/tests/test_mediapipe_android_smoke.py",
     "scripts/tests/test_mediapipe_speech.py"
   ],
   "publicationRequest": {

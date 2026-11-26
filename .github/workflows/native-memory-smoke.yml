@@ -132,30 +132,44 @@ jobs:
       - name: Stage one verified APK pair for every speech engine
         run: |
           python3 - <<'PY'
-          import hashlib, json, pathlib, shutil, subprocess
+          import hashlib, json, os, pathlib, shutil, subprocess
           root = pathlib.Path('app/build/outputs/apk')
-          output = pathlib.Path('app/build/native-smoke-apks')
-          output.mkdir(parents=True, exist_ok=True)
-          selected = {
-              'app-x86_64.apk': list(root.glob('nativeSmoke/*x86_64*.apk')),
-              'test.apk': list(root.glob('androidTest/nativeSmoke/*.apk')),
-          }
-          manifest = {'schema': 'native-smoke-apks-v1', 'source_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'apks': {}}
-          for name, candidates in selected.items():
-              if len(candidates) != 1:
-                  raise SystemExit(f'Expected one {name}, found {len(candidates)}')
-              destination = output / name
-              shutil.copyfile(candidates[0], destination)
-              with destination.open('rb') as source:
-                  digest = hashlib.file_digest(source, 'sha256').hexdigest()
-              manifest['apks'][name] = {'sha256': digest, 'bytes': destination.stat().st_size}
-          (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          outputs = {'x86_64': 'native-smoke-apks'}
+          if os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
+              outputs['arm64-v8a'] = 'native-smoke-apks-arm64'
+          for abi, directory in outputs.items():
+              output = pathlib.Path('app/build', directory)
+              output.mkdir(parents=True, exist_ok=True)
+              selected = {
+                  f'app-{abi}.apk': list(root.glob(f'nativeSmoke/*{abi}*.apk')),
+                  'test.apk': list(root.glob('androidTest/nativeSmoke/*.apk')),
+              }
+              manifest = {'schema': 'native-smoke-apks-v1', 'source_revision': revision, 'apks': {}}
+              for name, candidates in selected.items():
+                  if len(candidates) != 1:
+                      raise SystemExit(f'Expected one {name}, found {len(candidates)}')
+                  destination = output / name
+                  shutil.copyfile(candidates[0], destination)
+                  with destination.open('rb') as source:
+                      digest = hashlib.file_digest(source, 'sha256').hexdigest()
+                  manifest['apks'][name] = {'sha256': digest, 'bytes': destination.stat().st_size}
+              (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
           PY
       - name: Share the single minified app and instrumentation build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: minified-native-smoke-apks
           path: app/build/native-smoke-apks/
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+      - name: Share the ARM64 pair for handset voice measurements
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: minified-native-smoke-apks-arm64
+          path: app/build/native-smoke-apks-arm64/
           retention-days: 3
           compression-level: 0
           if-no-files-found: error

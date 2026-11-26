@@ -17,6 +17,12 @@ internal enum class VoiceSpeechBackend(val label: String) {
     val isLiteRtKokoro: Boolean
         get() = this in setOf(LITERT_KOKORO_CPU, LITERT_KOKORO_GPU, LITERT_KOKORO_NPU, LITERT_KOKORO_GPU_OPTIMIZED, LITERT_KOKORO_SM8750)
 
+    val isMediaPipeAccelerator: Boolean
+        get() = when (this) {
+            LITERT_KOKORO_GPU, LITERT_KOKORO_GPU_OPTIMIZED, LITERT_KOKORO_NPU, LITERT_KOKORO_SM8750 -> true
+            else -> false
+        }
+
     val isStreamingLocal: Boolean
         get() = isLiteRtKokoro || this == PHONON_CPU || this == POCKET_CPU
 

@@ -374,7 +374,7 @@ internal class VoiceBackendViewModel internal constructor(
                 "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
             }
             val selectedId = if (engine.isKokoro) streamingVoiceId else descriptor.defaultVoice
-            val evidence = runCatching { SpeechVoiceEvidence(context) }.getOrNull()
+            val evidence = runCatching { SpeechVoiceEvidence(context, models.acceleratorEnvironment) }.getOrNull()
             fun modelUsed(configured: VoiceSpeechBackend) = MediaPipeSpeechCatalog.model(requireNotNull(configured.streamingEngine()))
             fun evidenceStatus(configured: VoiceSpeechBackend, usedId: String = selectedId): String {
                 val message = if (configured == value.backend) status else "${value.backend.label} was unavailable during playback. Using ${configured.label}."

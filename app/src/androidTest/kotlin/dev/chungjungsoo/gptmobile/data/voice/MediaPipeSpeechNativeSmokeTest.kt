@@ -261,7 +261,7 @@ class MediaPipeSpeechNativeSmokeTest {
             activity = instrumentation.startActivitySync(checkNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName)))
             instrumentation.runOnMainSync {
                 output.configureEngine(factory)
-                output.configurePronunciation(mapOf("GPU" to "graphics processor"))
+                output.configurePronunciation(mapOf("GPU" to "graphics processor"), language = "en")
                 lateinit var reply: VoiceReplyPlayback
                 output.bindPlaybackStarted {
                     appendedAfterPresentation.set(presented.get() >= 0)

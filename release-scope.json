@@ -67,6 +67,7 @@
     "RELEASE_NOTES.md",
     "app/build.gradle.kts",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/KokoroListeningInstrumentedTest.kt",
     "app/src/main/AndroidManifest.xml",
     "app/src/main/assets/diagnostics/app-code-inventory.json",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentContracts.kt",

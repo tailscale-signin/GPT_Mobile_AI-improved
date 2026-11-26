@@ -94,6 +94,9 @@ internal object FrameTimingRecorder {
             val diagnosticCaptureEpoch = alignEpoch(nowMs)
             if (!force && !window.due(nowMs)) return
             if (window.frames == 0) {
+                diagnosticCaptureEpoch?.let { epoch ->
+                    AppLogRecorder.recordCaptured(epoch, "Rendering", "FRAME_CALLBACK_COVERAGE · coverageId=$coverageId · reportReason=$reason · evidence=${window.callbackCoverage(nowMs)}")
+                }
                 window.clear(nowMs)
                 previousMemory = null
                 previousCpuMillis = null
@@ -112,6 +115,7 @@ internal object FrameTimingRecorder {
                     AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_OPERATION_CONTEXTS · coverageId=$coverageId · causalAttribution=false · contextTruncated=${operationContexts.truncated} · maximumContexts=${FrameOperationCoverage.MAX_REPORTED_CONTEXTS} · maximumContextCharacters=${FrameOperationCoverage.MAX_CONTEXT_CHARACTERS} · windowStartMonoNs=$observedWindowStartNanos · windowEndMonoNs=$operationWindowEndedNanos · contexts=${operationContexts.contexts}")
                 }
                 val memory = AndroidDiagnosticExportMemory.sample()
+                AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_CALLBACK_COVERAGE · coverageId=$coverageId · reportReason=$reason · evidence=${window.callbackCoverage(nowMs)}")
                 AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_WINDOW_EVIDENCE · coverageId=$coverageId · evidence=${window.evidence.snapshot(diagnosticCaptureEpoch)}")
                 val gcCount = previousMemory?.gcCount?.let { before -> memory.gcCount?.minus(before)?.takeIf { it >= 0 } }
                 val gcDurationMs = previousMemory?.gcTimeMillis?.let { before -> memory.gcTimeMillis?.minus(before)?.takeIf { it >= 0 } }
@@ -153,7 +157,7 @@ internal object FrameTimingRecorder {
             }
             updateEffectRecovery()
             val captureEpoch = alignEpoch(nowMs)
-            if (!window.observe(duration, deadline, lost, observedDeadline == null)) return@OnFrameMetricsAvailableListener
+            if (!window.observe(duration, deadline, lost, observedDeadline == null, nowMs)) return@OnFrameMetricsAvailableListener
             val observedPhases = runPhases.snapshot(captureEpoch)
             window.runCoverage.observe(observedPhases, captureEpoch)
             window.evidence.observe(System.nanoTime(), duration, observedPhases.keys, captureEpoch) {

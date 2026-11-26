@@ -48,8 +48,12 @@ class GitHubOperationToolTest {
             put("repo", "repo")
             put("commit_sha", "a".repeat(40))
             put("wait_timeout_seconds", 10)
+            put("all_checks", false)
         }
-        val result = tool.execute("watch", arguments)
+        // Production validates the selected schema in the budget wrapper first.
+        val result = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(
+            dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 4)
+        ).bind(tool).execute("watch", arguments)
         assertTrue(result.isError)
         assertFalse(result.dispatched)
         val recipe = (result.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject

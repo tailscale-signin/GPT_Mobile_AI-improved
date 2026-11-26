@@ -106,7 +106,7 @@ internal object GitHubReplayRecovery {
         }
         fun hasRemoteRead(name: String, args: JsonObject) = remoteKey(name, args) in remoteReads
         fun observeDelivered(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>, cache: ToolExchangeCompactor.RenderCache? = null) = deliveredReads.observe(exchanges, deliveredResultDigests, cache)
-        fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?) = deliveredReads.advance(call, tool)
+        fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?, repairRepeatedProviderRead: Boolean = false) = deliveredReads.advance(call, tool, repairRepeatedProviderRead)
 
         /** Native admission and provider delivery are separate facts. Projections cannot replace the full-body witness. */
         fun pendingSavedPageDeliveries(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>): Map<String, String?> {

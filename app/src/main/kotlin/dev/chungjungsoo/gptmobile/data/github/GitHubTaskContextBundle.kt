@@ -235,14 +235,22 @@ object GitHubTaskContextBundle {
             for (path in (featureTests + graphCandidates).filter { it !in primary }.take(3)) source(path)
             // Expand only the selected task's neighborhood. References come from
             // previously authorized immutable blobs, never an eager repository scan.
-            val symbols = sources.flatMap { (path, text) ->
-                PhoneRepositorySourceIndex.build(path, text).objects("definitions").map { it.text("name") }
-            }.filter { it.length > 2 && terms(it).intersect(queryTerms).isNotEmpty() }.distinct().take(12).toSet()
-            callerCandidates += accepted.values.asSequence().filter { it.path !in primary && it.references.isNotBlank() }
-                .map { it.path to it.references.lineSequence().take(2048).count(symbols::contains) }
-                .filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
-                .take(2).map { it.first }.toList()
-            configurationCandidates += configurationPaths(primary, accepted.keys).take(1)
+            taskContextPhase(PhoneTaskContextPhase.SOURCE_GRAPH) {
+                val preparationContext = currentCoroutineContext()
+                preparationContext.ensureActive()
+                val symbols = sources.flatMap { (path, text) ->
+                    PhoneRepositorySourceIndex.build(path, text) { preparationContext.ensureActive() }
+                        .objects("definitions").map { it.text("name") }
+                }.filter { it.length > 2 && terms(it).intersect(queryTerms).isNotEmpty() }.distinct().take(12).toSet()
+                callerCandidates += accepted.values.asSequence().onEach { preparationContext.ensureActive() }
+                    .filter { it.path !in primary && it.references.isNotBlank() }
+                    .map { it.path to it.references.lineSequence().take(2048).count(symbols::contains) }
+                    .filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+                    .take(2).map { it.first }.toList()
+                preparationContext.ensureActive()
+                configurationCandidates += configurationPaths(primary, accepted.keys).take(1)
+                preparationContext.ensureActive()
+            }
             for (path in (callerCandidates + configurationCandidates).filter { it !in loaded }.take(3)) source(path)
             val candidateSources = loaded.filter { (path, source) -> path != FEATURE_MAP && !path.endsWith(".md", true) && source.text.isNotEmpty() }
             val candidateRanges = candidateSources.mapValues { (path, source) ->

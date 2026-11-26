@@ -21,6 +21,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceDiagnosticPayloadTest {
+    @Test fun hydrationReportsChildPhasesWithoutCachingOrSkippingAuthorization() = runBlocking {
+        var now = 0L
+        var authorizations = 0
+        val timings = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings { now++ }
+        val text = """{"result":"retained","token":"secret value"}"""
+        val result = readWorkspaceDiagnosticPayload(
+            7, metadata(listOf("workspace-memory-7-one"), text), 1024, {},
+            {
+                authorizations++
+                true
+            },
+            { text.length + 38L }, { text.toByteArray() }, {}, timings = timings
+        )
+        assertEquals(2, authorizations)
+        assertFalse(result.payload.toString().contains("secret value"))
+        val phases = timings.json().getValue("phases").jsonObject
+        for (phase in listOf("PROTECTED_STORAGE_STAT", "PROTECTED_READ_DECRYPT", "PROTECTED_DIGEST", "PROTECTED_SHAPE", "PROTECTED_JSON_PARSE", "PROTECTED_PROJECTION", "PROTECTED_REDACTION")) {
+            assertEquals(phase, JsonPrimitive(1L), phases.getValue(phase).jsonObject["calls"])
+        }
+        assertEquals(JsonPrimitive(2L), phases.getValue("PROTECTED_AUTHORIZATION").jsonObject["calls"])
+    }
+
     @Test fun verifiedShapeReuseStillRechecksDigestAuthorizationAndRedactsEveryRow() = runBlocking {
         val text = """{"token":"must-be-redacted","result":"ok"}"""
         val meta = metadata(listOf("workspace-memory-7-one"), text)

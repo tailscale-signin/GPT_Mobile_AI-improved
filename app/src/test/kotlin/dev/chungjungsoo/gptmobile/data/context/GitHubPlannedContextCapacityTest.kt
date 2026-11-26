@@ -28,7 +28,7 @@ class GitHubPlannedContextCapacityTest {
         val payload = "{\"messages\":[{\"role\":\"user\",\"content\":\"" + "x".repeat(3013 * 3) + "\"}],\"max_tokens\":" + allocation.output + "}"
         val prepared = RequestAdmission.prepare(payload, "primary", serialized, RequestAdmission.estimate(payload), allocation.output.toLong(), "accepted")
         assertEquals(8192L, prepared.receipt.contextTokens)
-        assertEquals(CapacityProvenance.DECLARED, prepared.receipt.capacityProvenance)
+        assertEquals(CapacityProvenance.CONSERVATIVE_POLICY, prepared.receipt.capacityProvenance)
         assertEquals(payload, prepared.dispatchPayload(runtime, "accepted"))
     }
 

@@ -48,6 +48,7 @@ class GitHubLookupObservationTest {
         val commits = requireNotNull(firstRead("Show the last 5 commits", "github_context_inspect")).arguments
         assertEquals(JsonPrimitive("feature/mobile"), commits["ref"])
         assertEquals(JsonPrimitive(5), commits["per_page"])
+        assertEquals(JsonPrimitive(10), requireNotNull(firstRead("Show recent commits", "github_context")).arguments["per_page"])
         assertEquals(JsonPrimitive(100), requireNotNull(firstRead("Show the last 200 commits", "github_context")).arguments["per_page"])
         assertNull(GitHubLookupRoute.request("List the last 0 commits"))
         assertNull(GitHubLookupRoute.request("List closed issues labeled blocked"))

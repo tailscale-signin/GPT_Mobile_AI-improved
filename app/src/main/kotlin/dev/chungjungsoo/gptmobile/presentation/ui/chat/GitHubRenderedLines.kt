@@ -66,7 +66,7 @@ internal fun rememberGitHubTextLayout(key: Any, sourceOffset: Int = 0, updatesAd
                 } else {
                     null
                 }
-                scope.owner.ledger.observe(
+                val changed = scope.owner.ledger.observe(
                     key = layoutKey,
                     document = scope.document,
                     sourceOffset = sourceOffset,
@@ -77,17 +77,17 @@ internal fun rememberGitHubTextLayout(key: Any, sourceOffset: Int = 0, updatesAd
                     previousLinesAtGeometry = previousLines,
                     firstAppearanceAddsLines = firstAppearanceAddsLines
                 )
-                scope.owner.changed.trySend(Unit)
+                // Progress-only recomposition can report an identical settled
+                // layout. It must not wake the scroll/measure feedback loop.
+                if (changed) scope.owner.changed.trySend(Unit)
             }
         }
     }
 }
 
 internal fun gitHubLineGeometry(input: TextLayoutInput): List<Any?> = listOf(
-    input.constraints.maxWidth, input.density.density, input.density.fontScale, input.layoutDirection,
-    input.style.fontSize, input.style.lineHeight, input.style.fontFamily, input.style.fontWeight,
-    input.style.fontStyle, input.style.fontSynthesis, input.style.letterSpacing, input.style.fontFeatureSettings,
-    input.style.textIndent, input.style.textDirection, input.style.lineBreak, input.style.hyphens,
+    input.constraints, input.density.density, input.density.fontScale, input.layoutDirection,
+    input.style, input.fontFamilyResolver, input.overflow,
     input.maxLines, input.softWrap, input.placeholders
 )
 

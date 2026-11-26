@@ -368,6 +368,73 @@ class PhoneRepositoryGraphSessionTest {
         assertFalse(result.toString().contains("source-account"))
     }
 
+    @Test fun priorityIndexReachesApplicationSourceAndTestsBeforeVendorAssets() = runTest {
+        val appSha = "%040x".format(101)
+        val testSha = "%040x".format(102)
+        treeOverride = buildJsonObject {
+            put("sha", treeSha)
+            put("truncated", false)
+            put(
+                "tree",
+                buildJsonArray {
+                    (1..45).forEach { n ->
+                        add(
+                            buildJsonObject {
+                                put("path", "app/src/main/assets/MathJax/File$n.js")
+                                put("sha", "%040x".format(n))
+                                put("size", 40)
+                                put("type", "blob")
+                            }
+                        )
+                    }
+                    for ((path, sha) in listOf("app/src/main/kotlin/Chat.kt" to appSha, "app/src/test/kotlin/ChatTest.kt" to testSha)) {
+                        add(
+                            buildJsonObject {
+                                put("path", path)
+                                put("sha", sha)
+                                put("size", 40)
+                                put("type", "blob")
+                            }
+                        )
+                    }
+                }
+            )
+        }
+        val reads = mutableListOf<String>()
+        val reader = GitHubRepositorySession("account", "connection", "map-conversation", "priority", state, { path ->
+            if ("/git/blobs/" in path) reads += path.substringAfterLast('/')
+            request(path)
+        }, { _, _ -> error("Unexpected mutation") })
+        val result = reader.repositoryMap("owner", "repo", arguments("index"))
+        assertEquals(listOf(appSha, testSha), reads.take(2))
+        assertEquals(JsonPrimitive(RepositorySourcePriority.VERSION), result["index_order_version"])
+        assertEquals(JsonPrimitive(47), result["total_paths"])
+        assertEquals(JsonPrimitive(true), result["has_more"])
+    }
+
+    @Test fun boundedQualificationDoesNotAdvanceOrCompleteTheWholeRepositoryCursor() = runTest {
+        val status = session().repositoryMap("owner", "repo", arguments("status"))
+        val paths = status.getValue("qualification_candidate_paths")
+        val selected = mapOf("qualification_scope" to JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE), "paths" to paths)
+        val sample = session().repositoryMap("owner", "repo", JsonObject(arguments("index") + selected))
+        assertEquals(RepositorySourcePriority.SAMPLE_FILES, blobs)
+        assertEquals(JsonPrimitive(true), sample["qualification_complete"])
+        assertEquals(paths, sample["qualification_paths"])
+        assertEquals(JsonPrimitive(false), sample["coverage_complete"])
+        assertEquals(JsonPrimitive(false), sample.getValue("graph").jsonObject["coverage_complete"])
+        val restored = session("restart").repositoryMap("owner", "repo", JsonObject(arguments("architecture") + selected))
+        assertEquals(JsonPrimitive(true), restored["qualification_complete"])
+        assertEquals(RepositorySourcePriority.SAMPLE_FILES, blobs)
+        val full = session("full-index").repositoryMap("owner", "repo", arguments("status"))
+        assertEquals(JsonPrimitive(true), full["has_more"])
+        assertEquals(JsonPrimitive(false), full["complete"])
+        val cursor = full.getValue("index_cursor").jsonPrimitive.content
+        val wrongScope = runCatching {
+            session().repositoryMap("owner", "repo", JsonObject(arguments("index", cursor) + selected))
+        }.exceptionOrNull()
+        assertEquals("PHONE_GRAPH_CURSOR_STALE", (wrongScope as GatewayGraphResultException).code)
+    }
+
     @Test fun phoneIndexResumesAfterRestartAndReusesImmutableSourceAcrossCommits() = runTest {
         val first = session().repositoryMap("owner", "repo", arguments("index"))
         assertEquals(24, blobs)

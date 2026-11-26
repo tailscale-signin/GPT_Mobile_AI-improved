@@ -44,7 +44,8 @@ internal enum class GitHubLookupRoute(val operation: String, val action: String,
         val newestFirst: Boolean,
         val filesOnly: Boolean,
         val patches: Boolean,
-        val requestedCount: Int? = pageSize
+        val requestedCount: Int? = pageSize,
+        val exhaustive: Boolean = false
     )
 
     companion object {
@@ -87,7 +88,9 @@ internal enum class GitHubLookupRoute(val operation: String, val action: String,
                 null
             }
             val newestFirst = (route == ISSUES || route == PULL_REQUESTS) && (size != null || "recent " in modifiers || "latest " in modifiers)
-            return Request(route, number, state, size?.coerceAtMost(100), newestFirst, target.startsWith("files ") || target.startsWith("changes "), target.startsWith("changes "), size)
+            val exhaustive = "all" in modifiers.split(' ')
+            val pageSize = size?.coerceAtMost(100) ?: 10.takeIf { route == COMMITS && !exhaustive }
+            return Request(route, number, state, pageSize, newestFirst, target.startsWith("files ") || target.startsWith("changes "), target.startsWith("changes "), size ?: pageSize, exhaustive)
         }
     }
 }

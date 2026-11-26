@@ -14,9 +14,12 @@ internal class GitHubRenderedLineLedger {
         documents[key] = (previous?.first ?: if (armed) 0 else sourceLength) to sourceLength
     }
 
-    fun observe(key: Any, document: Any, sourceOffset: Int, text: String, lines: Int, geometry: Any, updatesAddLines: Boolean = true, previousLinesAtGeometry: Int? = null, firstAppearanceAddsLines: Boolean = true) {
-        val previous = layouts.put(key, Layout(text, if (text.isBlank()) 0 else lines, geometry))
-        if (!armed || text.isBlank()) return
+    fun observe(key: Any, document: Any, sourceOffset: Int, text: String, lines: Int, geometry: Any, updatesAddLines: Boolean = true, previousLinesAtGeometry: Int? = null, firstAppearanceAddsLines: Boolean = true): Boolean {
+        val next = Layout(text, if (text.isBlank()) 0 else lines, geometry)
+        val previous = layouts[key]
+        if (previous == next) return false
+        layouts[key] = next
+        if (!armed || text.isBlank()) return true
         val added = when {
             previous == null -> if (firstAppearanceAddsLines && sourceOffset >= (documents[document]?.first ?: 0)) lines else 0
             !updatesAddLines || previous.text == text -> 0
@@ -24,6 +27,7 @@ internal class GitHubRenderedLineLedger {
             else -> (lines - previous.lines).coerceAtLeast(0)
         }
         pending = (pending.toLong() + added).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        return true
     }
 
     fun takeLines(): Int = pending.also { pending = 0 }

@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -14,6 +18,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,6 +28,34 @@ class GitHubTaskContextBundleTest {
     private val test = "app/src/test/RepairStoreTest.kt"
     private val guide = "docs/architecture/repository-guide.md"
     private val code = "package sample\n\nclass RepairStore {\n    fun repairReceipt() = true\n}\n"
+
+    @Test fun cancellationAfterSourceLoadStopsNeighborhoodPreparationWithoutPublishingAPacket() = runBlocking {
+        val cancelled = CancellationException("Repository preparation was cancelled")
+        var returnedPacket = false
+        var observedCancellation: CancellationException? = null
+        val preparation = launch {
+            try {
+                GitHubTaskContextBundle.build(
+                    "owner/repo",
+                    commit,
+                    "main",
+                    listOf(GitHubContextFile(implementation, "b".repeat(40))),
+                    "repairReceipt in $implementation",
+                    load = { path ->
+                        currentCoroutineContext().cancel(cancelled)
+                        GitHubContextSource(path, "b".repeat(40), code)
+                    }
+                )
+                returnedPacket = true
+            } catch (failure: CancellationException) {
+                observedCancellation = failure
+            }
+        }
+        preparation.join()
+        assertTrue(preparation.isCancelled)
+        assertFalse(returnedPacket)
+        assertSame(cancelled, observedCancellation)
+    }
 
     @Test fun retainedReferenceCatalogEvictsOldRowsByUtf8BytesAndKeepsTheCurrentBlob() {
         val large = buildJsonObject {

@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -28,7 +29,7 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 @Composable
 internal fun MeasuredMarkdownTableRow(content: String, node: ASTNode, width: Dp, style: TextStyle, settings: AnnotatorSettings, header: Boolean = false, firstAppearanceAddsLines: Boolean = true) {
     val cells = remember(node) { node.children.filter { it.type == GFMTokenTypes.CELL } }
-    val layouts = remember(node.startOffset, width, LocalDensity.current, style.fontSize, style.lineHeight, style.fontFamily, style.fontWeight, style.fontStyle, style.letterSpacing) { mutableMapOf<Int, TextLayoutResult>() }
+    val layouts = remember(node.startOffset, width, LocalDensity.current, LocalLayoutDirection.current, style, settings) { mutableMapOf<Int, TextLayoutResult>() }
     val source = content.substring(node.startOffset, node.endOffset)
     val reportLayout = rememberGitHubTableLayout("source:${node.startOffset}:0", node.startOffset, source, firstAppearanceAddsLines)
     val text = remember(content, node, settings, style, header) {

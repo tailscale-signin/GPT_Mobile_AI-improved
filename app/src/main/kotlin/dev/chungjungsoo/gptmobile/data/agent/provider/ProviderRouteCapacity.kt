@@ -21,7 +21,7 @@ internal object ProviderRouteCapacity {
         fun toolPlanningProvenance(resolvedContext: Int, toolPlanningContext: Int): CapacityProvenance = when {
             tokens == Int.MAX_VALUE && toolPlanningContext in 1 until Int.MAX_VALUE -> CapacityProvenance.CONSERVATIVE_POLICY
             tokens == toolPlanningContext && resolvedContext == tokens -> provenance
-            resolvedContext in 1 until tokens && toolPlanningContext == resolvedContext -> CapacityProvenance.DECLARED
+            resolvedContext in 1 until tokens && toolPlanningContext == resolvedContext -> CapacityProvenance.CONSERVATIVE_POLICY
             else -> CapacityProvenance.UNKNOWN
         }
     }

@@ -120,6 +120,17 @@ internal data class GatewayModelCapabilityObservation(
         else -> null
     }
 
+    /** A loaded route and its reasoning toggle are independently qualified. */
+    fun reasoningSummary(): String? = if (capacity == null || reasoningControl != null) {
+        null
+    } else {
+        when (reasoningControlState) {
+            "UNRECOGNIZED" -> "The model is loaded, but its changed reasoning template format has not been qualified. Keep your explicit setting by choosing a qualified model, or choose Auto explicitly, then recheck."
+            "UNSUPPORTED" -> "The model is loaded, but no working reasoning toggle was verified for this template. Choose a qualified model or choose Auto explicitly, then recheck."
+            else -> "The model's context is ready, but its reasoning control is still unverified. Recheck support for this exact model and template; the saved reasoning setting is unchanged."
+        }
+    }
+
     fun failureFields(): JsonObject = buildJsonObject {
         GatewayReadinessFailure.reasonCode(reasonCode)?.let { put("gateway_reason_code", it) }
         GatewayReadinessFailure.failureCode(failureCode)?.let { put("gateway_failure_code", it) }
@@ -187,6 +198,7 @@ internal fun parseGatewayModelObservation(body: String, config: ProviderRequestC
         reasoningControlState = when {
             control != null -> "VERIFIED"
             capacity != null && text(selected, "reasoningControlState") == "UNSUPPORTED" -> "UNSUPPORTED"
+            capacity != null && text(selected, "reasoningControlState") == "UNRECOGNIZED" -> "UNRECOGNIZED"
             else -> "UNVERIFIED"
         },
         reasonCode = GatewayReadinessFailure.reasonCode(text(selected, "reasonCode")),

@@ -117,4 +117,17 @@ class PublicProgressInstructionsTest {
         assertTrue(instruction.contains("Answer ordinary general-knowledge and writing requests directly"))
         assertFalse(instruction.contains("The app renders graphs"))
     }
+
+    @Test fun compactLocalPromptsKeepSelectedIdentityAndThePreviewProtocol() {
+        val repository = context.promptContext("Inspect the current source", contextTokens = 5632)
+        val progress = toolProgressInstructions(githubMode = true, compact = true)
+        assertTrue(repository.contains(context.commitSha))
+        assertTrue(repository.contains("owner/repo"))
+        assertTrue(repository.contains("honor approvals, budgets and cancellation"))
+        assertTrue(repository.contains("matching test receipts"))
+        assertTrue(progress.contains("<progress_update>...</progress_update>"))
+        assertTrue(progress.contains("Keep the final answer separate"))
+        assertTrue(progress.contains("private reasoning"))
+        assertTrue(progress.length < toolProgressInstructions(githubMode = true).length / 2)
+    }
 }

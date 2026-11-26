@@ -12,6 +12,19 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_provider_quota_group_retains_bounded_hashed_occurrences(self):
+        fields = {"provider_configuration_hash": "c" * 64, "provider_quota_occurrences": 3, "provider_quota_span_ms": 500,
+                  "provider_quota_invocation_hashes": ["a" * 64, "b" * 64]}
+        capture = self.capture("PROVIDER", fields)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for key, value in (("provider_configuration_hash", "private configuration"),
+                           ("provider_quota_occurrences", -1),
+                           ("provider_quota_span_ms", "private timestamp"),
+                           ("provider_quota_invocation_hashes", ["private invocation"]),
+                           ("provider_quota_invocation_hashes", ["a" * 64] * 9)):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {**fields, key: value}))
+
     def test_android_recognition_limit_keeps_dispatch_and_local_backoff_in_approved_report(self):
         for stage, dispatched in (("precheck", False), ("capture_start", True), ("voice_recognition", True)):
             with self.subTest(stage=stage):

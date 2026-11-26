@@ -25,6 +25,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubWorkspaceClientTest {
+    @Test fun failureDiscoveryPinsTheSelectedBranchBeforeLookingForFailedRuns() = runTest {
+        val head = "a".repeat(40)
+        val requests = mutableListOf<String>()
+        val http = HttpClient(
+            MockEngine { req ->
+                requests += req.url.toString()
+                when (req.url.encodedPath) {
+                    "/repos/o/r/commits/main" -> respond("""{"sha":"$head"}""")
+                    "/repos/o/r/actions/runs" -> {
+                        assertEquals(head, req.url.parameters["head_sha"])
+                        assertEquals("failure", req.url.parameters["status"])
+                        assertEquals(null, req.url.parameters["branch"])
+                        respond("""{"workflow_runs":[]}""")
+                    }
+                    "/repos/o/r/commits/$head/check-runs" -> respond("""{"total_count":0,"check_runs":[]}""")
+                    "/repos/o/r/commits/$head/status" -> respond("""{"total_count":0,"statuses":[],"state":"pending"}""")
+                    else -> error("Unexpected request ${req.url}")
+                }
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("token", http, conditionalReads = false)
+            val result = client.execute(
+                "ci_failure_digest",
+                buildJsonObject {
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("ref", "main")
+                }
+            ).jsonObject
+            assertEquals(JsonPrimitive(head), result["head_sha"])
+            assertEquals(JsonPrimitive("no_failed_run"), result["status"])
+            assertTrue(requests.first().endsWith("/commits/main"))
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun copilotAgentMergeUsesSelectedPrAndNeverCallsAutoMerge() = runTest {
         val expected = "a".repeat(40)
         var prState = "open"

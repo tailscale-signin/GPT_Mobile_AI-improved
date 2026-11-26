@@ -123,6 +123,18 @@ runner retains the complete original provider invocation. Effective arguments
 can then be narrowed while the original envelope and digest remain verifiable;
 identity mismatches still stop dispatch.
 
+## Packaged dispatch size
+
+The [draft APK gate at `b13ed65e`](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45875720278/job/140110531102)
+measured three dispatch methods above its exclusive 16,383 DEX-code-unit ceiling:
+primary dispatch at 23,222, the agent loop at 18,058, and delegated evidence
+preparation at 18,012. Existing recovery and evidence-preparation branches now
+execute in separate non-inline stages. The same mutable owners, early exits,
+permission checks, cancellation behavior and operation ordering are retained.
+All extracted helpers remain covered by the unchanged packaged-method selector;
+no size threshold, exclusion or workflow requirement is relaxed. Focused local
+compilation and DEX measurements supplement the required exact-revision APK gate.
+
 ## Validation record
 
 Local focused JVM execution covers 32 production-context,

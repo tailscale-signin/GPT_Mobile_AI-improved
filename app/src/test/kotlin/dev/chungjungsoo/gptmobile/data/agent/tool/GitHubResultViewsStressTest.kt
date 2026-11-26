@@ -21,6 +21,83 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubResultViewsStressTest {
+    @Test fun overflowingCompactCommitPageNeverExpandsBackIntoRawSignatures() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        fun rows(raw: Boolean) = kotlinx.serialization.json.JsonArray(
+            (1..30).map { index ->
+                buildJsonObject {
+                    put("sha", index.toString(16).padStart(40, 'a'))
+                    put(
+                        "commit",
+                        buildJsonObject {
+                            put(if (raw) "message" else "subject", "Commit $index " + "useful subject ".repeat(6))
+                            if (raw) put("verification", buildJsonObject { put("signature", "RAW_SIGNATURE_".repeat(400)) })
+                        }
+                    )
+                }
+            }
+        )
+        val original = buildJsonObject { put("items", rows(true)) }
+        val compact = buildJsonObject { put("items", rows(false)) }
+        val source = AgentToolResult("commits", ToolResultContent.Json(compact), false, retainedContent = ToolResultContent.Json(original))
+        val shown = views.present("scope", "github_context", "github_context", source, buildJsonObject { put("action", "commits") })
+        assertEquals(source.retainedContent, shown.retainedContent)
+        var page = data(shown)
+        var pages = 0
+        val delivered = StringBuilder()
+        while (true) {
+            assertEquals(JsonPrimitive("COMPACT"), page["projection"])
+            assertEquals(JsonPrimitive(GitHubRepositoryStateStore.digest(original.toString())), page["source_sha256"])
+            assertFalse(page.toString().contains("RAW_SIGNATURE_"))
+            delivered.append(page["fragments"])
+            assertTrue(++pages < 100)
+            if (page["local_page_complete"] == JsonPrimitive(true)) break
+            page = data(views.read("scope", "github_context", "github_context", cursor(page), "next-$pages"))
+        }
+        assertTrue(delivered.contains("Commit 30"))
+    }
+
+    @Test fun compressedCompactOverflowRestoresWithSeparatePayloadAndOriginalEvidenceHashes() {
+        fun records(raw: Boolean) = kotlinx.serialization.json.JsonArray(
+            (1..30).map { index ->
+                buildJsonObject {
+                    put("sha", index.toString(16).padStart(40, 'a'))
+                    put("subject", "Commit $index " + "retained subject ".repeat(8))
+                    if (raw) put("signature", "RAW_SIGNATURE_".repeat(4000))
+                }
+            }
+        )
+        val original = buildJsonObject { put("items", records(true)) }
+        val compact = buildJsonObject { put("items", records(false)) }
+        val views = GitHubResultViews(pageBytes = 2048)
+        val source = AgentToolResult("source", ToolResultContent.Json(compact), false, retainedContent = ToolResultContent.Json(original))
+        val first = views.present("scope", "github_context", "github_context", source, buildJsonObject { put("action", "commits") })
+        assertEquals(JsonPrimitive("GZIP_JSON_UTF8"), first.executionReceipt?.get("saved_result_encoding"))
+        assertEquals(source.retainedContent, first.retainedContent)
+        val snapshot = requireNotNull(views.checkpoint("scope", first)).second
+        val originalHash = JsonPrimitive(GitHubRepositoryStateStore.digest(original.toString()))
+        assertEquals(originalHash, snapshot["source_sha256"])
+        assertTrue(snapshot["payload_sha256"] != originalHash)
+        val next = cursor(data(first))
+        val restored = GitHubResultViews(pageBytes = 2048)
+        assertFalse(restored.restore("scope", "github_context", "github_context", next, JsonObject(snapshot + ("payload_sha256" to JsonPrimitive("0".repeat(64))))))
+        assertFalse(restored.restore("scope", "github_context", "github_context", next, JsonObject(snapshot + ("compact_projection" to JsonPrimitive(false)))))
+        assertTrue(restored.restore("scope", "github_context", "github_context", next, snapshot))
+        var page = data(first)
+        var pages = 0
+        val delivered = StringBuilder()
+        while (true) {
+            assertEquals(JsonPrimitive("COMPACT"), page["projection"])
+            assertEquals(originalHash, page["source_sha256"])
+            assertFalse(page.toString().contains("RAW_SIGNATURE_"))
+            delivered.append(page["fragments"])
+            assertTrue(++pages < 100)
+            if (page["local_page_complete"] == JsonPrimitive(true)) break
+            page = data(restored.read("scope", "github_context", "github_context", cursor(page), "next-$pages"))
+        }
+        assertTrue(delivered.contains("Commit 30"))
+    }
+
     @Test fun savedSearchWithALongConnectionNameStillAdvancesWithinTheRequestedBudget() {
         val views = GitHubResultViews(pageBytes = 2048)
         val model = "github_search__" + "connection".repeat(18)

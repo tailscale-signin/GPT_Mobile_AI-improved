@@ -31,7 +31,7 @@ internal object GitHubInventoryObservation {
             put("fetched", records.size)
             put("record_keys", JsonArray(identities))
             put("record_keys_complete", identities.size == records.size && identities.distinct().size == records.size)
-            if (field in setOf("workflow_runs", "jobs", "pull_requests", "issues", "releases", "tags", "items")) {
+            if (field in setOf("workflow_runs", "jobs", "pull_requests", "issues", "releases", "tags", "items", "recent_commits", "commits")) {
                 put(
                     "planning_records",
                     JsonArray(
@@ -43,6 +43,21 @@ internal object GitHubInventoryObservation {
                                     if (path != null && blob != null) {
                                         put("path", path)
                                         put("sha", blob)
+                                    }
+                                    val commit = row["commit"] as? JsonObject
+                                    if (blob != null && commit != null) {
+                                        put("sha", blob)
+                                        (row["html_url"] as? JsonPrimitive)?.takeIf { it.isString && it.content.length <= 2048 }?.let { put("html_url", it) }
+                                        put(
+                                            "commit",
+                                            buildJsonObject {
+                                                val subject = ((commit["subject"] ?: commit["message"]) as? JsonPrimitive)?.contentOrNull?.lineSequence()?.firstOrNull().orEmpty()
+                                                put("subject", subject.take(240))
+                                                (commit["author"] as? JsonObject)?.let { author ->
+                                                    put("author", JsonObject(author.filter { (key, value) -> key in setOf("name", "date") && value is JsonPrimitive && value.isString && value.content.length <= 160 }))
+                                                }
+                                            }
+                                        )
                                     }
                                     for (key in listOf("head", "base")) {
                                         (row[key] as? JsonObject)?.let { revision -> put(key, JsonObject(revision.filterKeys { it == "sha" })) }

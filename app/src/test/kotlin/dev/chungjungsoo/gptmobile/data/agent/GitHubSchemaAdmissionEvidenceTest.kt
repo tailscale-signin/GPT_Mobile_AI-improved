@@ -75,7 +75,7 @@ class GitHubSchemaAdmissionEvidenceTest {
         val fields = requireNotNull(bound.providerFailure().failureDetails)
         assertEquals(JsonPrimitive(8192), fields["admission_configured_context_tokens"])
         assertEquals(JsonPrimitive(5632), fields["admission_route_context_tokens"])
-        assertEquals(JsonPrimitive("DECLARED"), fields["admission_capacity_provenance"])
+        assertEquals(JsonPrimitive("CONSERVATIVE_POLICY"), fields["admission_capacity_provenance"])
         assertEquals(JsonPrimitive(4096), fields["admission_capacity_tokens"])
         assertTrue(bound.message.orEmpty().contains("context allowance of 4096 tokens"))
         assertFalse(bound.message.orEmpty().contains("route was verified"))

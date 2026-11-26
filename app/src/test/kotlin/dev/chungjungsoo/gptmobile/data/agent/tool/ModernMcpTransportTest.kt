@@ -581,8 +581,9 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun catalogHttp400And404AreQuarantinedUntilTheSavedConfigurationRevisionChanges() = runBlocking {
-        for (status in listOf(HttpStatusCode.BadRequest, HttpStatusCode.NotFound)) {
+    @Test fun catalogHttp400And404AllowChangedSavedRevisionsForInteractiveAndPassiveDiscovery() = runBlocking {
+        val cases = listOf(HttpStatusCode.BadRequest, HttpStatusCode.NotFound).flatMap { status -> listOf(false, true).map { status to it } }
+        for ((status, passive) in cases) {
             val methods = mutableListOf<String>()
             var repaired = false
             HttpClient(
@@ -642,9 +643,13 @@ class ModernMcpTransportTest {
                     assertEquals("PROTOCOL_CONFIGURATION", mcpFailurePresentation(failure, manager.healthSnapshot(firstRevision.connectionUid)).outcome)
 
                     val firstMethods = methods.toList()
-                    dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+                    if (!passive) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
                     repeat(3) {
-                        assertTrue(runCatching { manager.listTools(firstRevision, awaitCompletion = true) }.exceptionOrNull() is McpProtocolConfigurationException)
+                        if (passive) {
+                            assertTrue(manager.listTools(firstRevision, passiveBackoff = true).isEmpty())
+                        } else {
+                            assertTrue(runCatching { manager.listTools(firstRevision, awaitCompletion = true) }.exceptionOrNull() is McpProtocolConfigurationException)
+                        }
                     }
                     assertEquals(firstMethods, methods)
 
@@ -656,7 +661,7 @@ class ModernMcpTransportTest {
                         firstRevision.authorizationHeader,
                         configurationRevision = "b".repeat(64)
                     )
-                    assertEquals(listOf("echo"), manager.listTools(repairedRevision, awaitCompletion = true).map { it.name })
+                    assertEquals(listOf("echo"), manager.listTools(repairedRevision, awaitCompletion = !passive, passiveBackoff = passive).map { it.name })
                     assertEquals(2, methods.count { it == "server/discover" })
                     assertEquals(2, methods.count { it == "tools/list" })
                     assertEquals(McpConnectionHealthState.CONNECTED, manager.healthSnapshot(repairedRevision.connectionUid).state)

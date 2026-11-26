@@ -67,7 +67,25 @@ object ReasoningPolicy {
     fun verifiesThinkingToggle(enabledPrompt: String, disabledPrompt: String): Boolean {
         val on = enabledPrompt.lastIndexOf("<think>")
         val off = disabledPrompt.lastIndexOf("<think>")
-        if (on < 0 || on != off || enabledPrompt.substring(0, on) != disabledPrompt.substring(0, off)) return false
-        return enabledPrompt.substring(on + 7).isBlank() && disabledPrompt.substring(off + 7).trim() == "</think>"
+        if (on < 0 || off < 0 || !enabledPrompt.substring(on + 7).isBlank() || disabledPrompt.substring(off + 7).trim() != "</think>") return false
+        val enabledPrefix = enabledPrompt.substring(0, on)
+        val disabledPrefix = disabledPrompt.substring(0, off)
+        if (enabledPrefix == disabledPrefix) return true
+        // A known ChatML template may change its system instruction with the
+        // toggle. Keep the exact synthetic user turn and assistant boundary;
+        // arbitrary prompt differences cannot establish reasoning control.
+        return qualifiedChatMlProbePrefix(enabledPrefix) && qualifiedChatMlProbePrefix(disabledPrefix)
+    }
+
+    private fun qualifiedChatMlProbePrefix(prefix: String): Boolean {
+        val turn = "<|im_start|>user\nTemplate capability check.<|im_end|>\n<|im_start|>assistant\n"
+        if (!prefix.endsWith(turn)) return false
+        val instruction = prefix.removeSuffix(turn)
+        if (instruction.isEmpty()) return true
+        val start = "<|im_start|>system\n"
+        val end = "<|im_end|>\n"
+        if (!instruction.startsWith(start) || !instruction.endsWith(end)) return false
+        val content = instruction.removePrefix(start).removeSuffix(end)
+        return "<|im_start|>" !in content && "<|im_end|>" !in content
     }
 }

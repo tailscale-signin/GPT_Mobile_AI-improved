@@ -125,7 +125,7 @@ class ReasoningCapabilityRepository internal constructor(
                 },
                 result.routeVerified,
                 supported,
-                result.detailMessage,
+                result.detailMessage.takeIf { needsTemplateControl || !result.routeVerified },
                 result.contextTokens?.takeIf { result.routeVerified && it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
             ).also { entry.flow.value = it }
         }
@@ -184,7 +184,14 @@ class ReasoningCapabilityRepository internal constructor(
             } else {
                 null
             }
-            return ReasoningCapabilityProbe(verified, control, revision, controlStatus = controlStatus, contextTokens = snapshot.contextTokens)
+            return ReasoningCapabilityProbe(
+                verified,
+                control,
+                revision,
+                controlStatus = controlStatus,
+                detailMessage = capacity.gatewayObservation(config, profile.model)?.reasoningSummary(),
+                contextTokens = snapshot.contextTokens
+            )
         }
     }
 

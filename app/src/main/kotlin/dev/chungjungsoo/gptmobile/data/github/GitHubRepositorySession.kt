@@ -525,10 +525,24 @@ internal class GitHubRepositorySession(
         } ?: throw readBudgetExpired(context, "phone_index_tree")
         if (action == "task_context_bundle") return@withContext taskContextBundle(context, tree, args)
         val entries = tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
-        val eligible = indexableSourceEntries(entries)
+        val allEligible = RepositorySourcePriority.ordered(indexableSourceEntries(entries))
+        val requestedSample = args["qualification_scope"] == JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE)
+        require(args["qualification_scope"] == null || requestedSample) { "Unknown phone graph qualification scope." }
+        val samplePaths = if (requestedSample) {
+            val requested = (args["paths"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }.distinct()
+            require(requested.size in 1..RepositorySourcePriority.SAMPLE_FILES && requested.all { path -> allEligible.any { it.s("path") == path && PhoneRepositorySourceIndex.supports(path) } }) {
+                "A bounded qualification requires up to four observed source paths in this revision."
+            }
+            requested.sorted()
+        } else {
+            emptyList()
+        }
+        val eligible = if (requestedSample) allEligible.filter { it.s("path") in samplePaths } else allEligible
+        val selection = if (requestedSample) GitHubRepositoryStateStore.digest(samplePaths.joinToString("\n")) else "repository"
+        val orderIdentity = "${RepositorySourcePriority.VERSION}:$selection"
         val sourceScope = blobScope(context)
-        val checkpointKey = "phone-map-progress:v$GITHUB_TREE_CACHE_VERSION:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}"
-        val cursorPrefix = "phone-index:${GitHubRepositoryStateStore.digest("$GITHUB_TREE_CACHE_VERSION|$accountId|$connectionUid|${context.owner.lowercase()}/${context.repo.lowercase()}|${context.commitSha}|${context.treeSha}|${PhoneRepositoryGraph.PARSER_VERSION}").take(32)}:"
+        val checkpointKey = "phone-map-progress:v$GITHUB_TREE_CACHE_VERSION:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}:order:$orderIdentity"
+        val cursorPrefix = "phone-index:${GitHubRepositoryStateStore.digest("$GITHUB_TREE_CACHE_VERSION|$accountId|$connectionUid|${context.owner.lowercase()}/${context.repo.lowercase()}|${context.commitSha}|${context.treeSha}|${PhoneRepositoryGraph.PARSER_VERSION}|$orderIdentity").take(32)}:"
         val saved = store.read(sourceScope, checkpointKey)
         val savedPosition = (saved?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..eligible.size } ?: 0
         val suppliedCursor = args.s("index_cursor")
@@ -573,6 +587,7 @@ internal class GitHubRepositorySession(
                 },
                 onBlob = { entry, blob -> retainShard(entry, blob) },
                 budget = budget,
+                orderedEntries = eligible,
                 onCheckpoint = { progress ->
                     store.update(sourceScope, checkpointKey) { previous ->
                         val previousPosition = (previous?.get("prepared_through") as? JsonPrimitive)?.intOrNull ?: 0
@@ -661,14 +676,24 @@ internal class GitHubRepositorySession(
         }
         inventoryComplete = inventoryComplete && inspected == true
         val treeComplete = tree["truncated"] != JsonPrimitive(true)
-        val coverageComplete = inventoryComplete && indexed == eligible.size && treeComplete
-        val more = !coverageComplete && position < eligible.size
+        val selectionComplete = inventoryComplete && indexed == eligible.size && treeComplete
+        val coverageComplete = selectionComplete && !requestedSample
+        val more = !selectionComplete && position < eligible.size
         val status = buildJsonObject {
             batch?.filterKeys { it in setOf("prepared_through", "fetched_this_batch", "attempted_this_batch", "skipped_this_batch", "prepared_bytes_this_batch", "read_deadline_reached", "deferred_files", "stop_reason") }?.forEach { (name, value) -> put(name, value) }
             put("commit_sha", context.commitSha)
             put("tree_sha", context.treeSha)
             put("total_paths", entries.size)
-            put("eligible_paths", eligible.size)
+            put("eligible_paths", allEligible.size)
+            put("index_order_version", RepositorySourcePriority.VERSION)
+            put("bounded_qualification_supported", true)
+            put("qualification_candidate_paths", JsonArray(RepositorySourcePriority.sample(allEligible).map(::JsonPrimitive)))
+            if (requestedSample) {
+                put("qualification_scope", RepositorySourcePriority.BOUNDED_SAMPLE)
+                put("qualification_paths", JsonArray(samplePaths.map(::JsonPrimitive)))
+                put("qualification_expected_files", eligible.size)
+                put("qualification_complete", selectionComplete && indexedSupported == eligible.size && partialSupported == 0)
+            }
             put("indexed_blobs", indexed)
             put("indexed_eligible_blobs", indexed)
             put("unparsed_cached_files", unparsedCached)
@@ -679,8 +704,8 @@ internal class GitHubRepositorySession(
             put("counts_are_lower_bounds", !inventoryComplete)
             put("operation_deadline_reached", budget.expired || !inventoryComplete)
             put("processed_files", indexed)
-            put("expected_files", eligible.size)
-            put("excluded_nonindexable_paths", entries.size - eligible.size)
+            put("expected_files", allEligible.size)
+            put("excluded_nonindexable_paths", entries.size - allEligible.size)
             put("tree_complete", treeComplete)
             put("complete", coverageComplete)
             put("coverage_complete", coverageComplete)
@@ -692,7 +717,7 @@ internal class GitHubRepositorySession(
             put("loaded_source_files", cached.size)
             put("map_source", "phone")
             put("graph_source", "PHONE")
-            put("index_coverage_scope", "ELIGIBLE_TEXT_SOURCE_ONLY")
+            put("index_coverage_scope", if (requestedSample) RepositorySourcePriority.BOUNDED_SAMPLE else "ELIGIBLE_TEXT_SOURCE_ONLY")
             put("compiler_resolution", false)
         }
         val topologyKey = if (inspect && !forceLiveReads()) PhoneMapTopology.key(context, cached, args["paths"] as? JsonArray) else null
@@ -858,11 +883,14 @@ internal class GitHubRepositorySession(
         alreadyPrepared: (suspend (JsonObject) -> Boolean)? = null,
         onBlob: (suspend (JsonObject, JsonObject) -> Unit)? = null,
         budget: GitHubReadWorkBudget = GitHubReadWorkBudget(readOperationTimeoutMs),
+        orderedEntries: List<JsonObject>? = null,
         onCheckpoint: (suspend (JsonObject) -> Unit)? = null
     ): JsonObject {
         val pinnedTree = budget.run { tree(context) } ?: throw readBudgetExpired(context, "index_tree")
         val entries = pinnedTree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
-        val eligible = indexableSourceEntries(entries)
+        // The public lexical operation retains its existing numeric cursor order.
+        // Phone map cursors bind the versioned priority and selected paths above.
+        val eligible = orderedEntries ?: indexableSourceEntries(entries)
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..eligible.size) }
         val failureKey = "index-read-failures:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}"
         var next = cursor

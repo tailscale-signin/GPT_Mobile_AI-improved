@@ -44,6 +44,64 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun recentCommitsPublishDirectlyFromTheBoundedRetainedRowsWithoutAModelRound() = runBlocking {
+        val task = "Show recent commits"
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_context", "github_context__selected")
+        val book = GitHubEvidenceBook("commits", "owner/repo", "main", setOf(tool.name), now = { 1000L })
+        book.retainTaskContract(task, 1, listOf(tool), 24)
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("A bounded commit inventory needs no model generation")
+        }
+        var published: JsonObject? = null
+        val session = GitHubVerifiedSession(provider, book, task, { 8192 }, { error("No claim extraction is necessary") }, {}, {}, now = { 1000L }, authorizedTools = listOf(tool), remainingToolCalls = { 24 }, onPublication = { published = it })
+        val call = session.streamRound(listOf(tool), emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(JsonPrimitive(10), call.arguments["per_page"])
+        val rows = JsonArray(
+            (1..10).map { index ->
+                buildJsonObject {
+                    put("sha", index.toString(16).padStart(40, 'a'))
+                    put("html_url", "https://github.com/owner/repo/commit/${index.toString(16).padStart(40, 'a')}")
+                    put(
+                        "commit",
+                        buildJsonObject {
+                            put("message", "Commit $index\n\nA long commit body is not needed for the lookup.")
+                            put(
+                                "author",
+                                buildJsonObject {
+                                    put("name", "Author $index")
+                                    put("date", "2026-11-26T10:00:00Z")
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+        )
+        book.observe(
+            call,
+            AgentToolResult(
+                call.callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("commit_sha", "a".repeat(40))
+                        put("items", rows)
+                        put("returned", 10)
+                        put("page", 1)
+                        put("per_page", 10)
+                        put("has_more", true)
+                    }
+                ),
+                false
+            )
+        )
+        val events = session.streamRound(listOf(tool), emptyList()).toList()
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+        assertTrue(text.contains("Commit 10"))
+        assertTrue(text.contains("Author 10"))
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Failed })
+        assertEquals(JsonPrimitive(true), published?.get("completion_verified"))
+    }
+
     @Test fun completeToolInventoryRequestOnlyInvokesLocalCatalogDiscovery() = runBlocking {
         val task = "List all tools and features"
         val write = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_write", "github_write__selected")

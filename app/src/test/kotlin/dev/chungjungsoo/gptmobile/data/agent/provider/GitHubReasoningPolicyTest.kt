@@ -10,6 +10,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @Test fun automaticIntelligentRepairChangesEffortWithoutChangingPolicyOrOutputCeiling() {
+        val role = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
+        val original = RequestConstraints(
+            maxOutputTokens = 4096,
+            reasoningModeOverride = ReasoningMode.AUTO,
+            maximizeReasoning = true,
+            gitHubIntelligenceLevel = dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.INTELLIGENT,
+            gitHubEffort = dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.HIGH
+        )
+        val repaired = original.forRole(role)
+        assertEquals(dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.LOW, repaired.gitHubEffort)
+        assertFalse(repaired.maximizeReasoning)
+        assertEquals(ReasoningMode.AUTO, repaired.reasoningModeOverride)
+        assertEquals(4096, repaired.maxOutputTokens)
+        for (mode in listOf(ReasoningMode.ON, ReasoningMode.OFF)) {
+            assertEquals(original.gitHubEffort, original.copy(reasoningModeOverride = mode).forRole(role).gitHubEffort)
+        }
+        assertEquals(original.gitHubEffort, original.copy(gitHubIntelligenceLevel = dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.DEEP_ENGINEERING).forRole(role).gitHubEffort)
+        assertEquals(dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM, original.copy(gitHubEffort = dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM).forRole(role).gitHubEffort)
+    }
+
     @Test fun visibleOutputRecoveryKeepsExplicitHighEffortAndTheAcceptedOutputLimit() {
         val role = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
         for (mode in ReasoningMode.entries) {
@@ -50,6 +71,13 @@ class GitHubReasoningPolicyTest {
         assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair, advertised.copy(reasoningEfforts = emptySet())))
         assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair, advertised.copy(reasoningControlAdvertised = false)))
         assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.forRole("primary"), advertised))
+        for (level in listOf(dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.DEEP_ENGINEERING, dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE)) {
+            val explicit = repair.copy(gitHubIntelligenceLevel = level)
+            assertFalse(GitHubReasoningPolicy.automaticVisibleDelivery(explicit))
+            assertNull(GitHubReasoningPolicy.visibleOutputEffort(explicit, advertised))
+            assertNull(GitHubReasoningPolicy.visibleOutputEffort(explicit.forRole("github-final-summary"), advertised))
+        }
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.copy(gitHubEffort = dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM), advertised))
         assertEquals(4096, repair.maxOutputTokens)
     }
 

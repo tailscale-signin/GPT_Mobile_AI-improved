@@ -164,6 +164,16 @@ class ToolEvidenceContextBudgetExceptionTest {
         assertSame(admitted, ToolEvidenceContextBudgetException.requireAllocation(admitted, Int.MAX_VALUE, 2048, minimumReplayTokens = 128, minimumOutputTokens = 128))
     }
 
+    @Test fun recordedThirtyEightTokenReplayCannotDispatchAnEightySixTokenIdentity() {
+        val old = ReplayAllowance.allocate(4096, 3088, 2048, 4096)
+        assertEquals(38, old.replay)
+        val bounded = ReplayAllowance.forToolTurn(4096, 3088, 2048, 4096)
+        assertEquals(4096, bounded.ceiling)
+        assertThrows(ToolEvidenceContextBudgetException::class.java) {
+            ToolEvidenceContextBudgetException.requireAllocation(bounded, 4096, 2048, minimumReplayTokens = 86, minimumOutputTokens = 128)
+        }
+    }
+
     @Test fun anAuthorizedButUnadvertisedToolDoesNotBlockAPlainAnswer() {
         val reader = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("read_recovery_context", "", kotlinx.serialization.json.buildJsonObject {})
         val plain = ContextPlan(emptyList(), "", emptyList(), 0, 128, "", promptTokens = 3110, authorizedTools = listOf(reader))

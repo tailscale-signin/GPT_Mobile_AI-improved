@@ -145,6 +145,24 @@ class GitHubSelfTestGraphTest {
         }
     }
 
+    @Test fun boundedPhoneQualificationUnlocksReadProbesWithoutClaimingFullIndexCoverage() {
+        val observed = graph("status", """"has_more":true,"bounded_qualification_supported":true,"qualification_candidate_paths":["src/Foo.kt","src/FooTest.kt"]""")
+        val next = calls(observed).single()
+        val options = """{"qualification_scope":"BOUNDED_SOURCE_SAMPLE","paths":["src/Foo.kt","src/FooTest.kt"]}"""
+        assertEquals(json("""{"action":"index","options":$options}"""), next.arguments)
+        val sample = graph("index", """"has_more":false,"complete":false,"qualification_scope":"BOUNDED_SOURCE_SAMPLE","qualification_complete":true,"qualification_paths":["src/Foo.kt","src/FooTest.kt"]""", """, "options":$options""")
+        assertFalse(GitHubSelfTestGraph.incomplete("index", sample))
+        val architecture = calls(observed, sample).first()
+        assertEquals(JsonPrimitive("architecture"), architecture.arguments["action"])
+        assertEquals(json(options), architecture.arguments["options"])
+        assertFalse(calls(observed, sample).any { it.arguments["action"] == JsonPrimitive("index") })
+        val failedSample = graph("index", """"has_more":false,"qualification_scope":"BOUNDED_SOURCE_SAMPLE","qualification_complete":false,"qualification_paths":["src/Foo.kt","src/FooTest.kt"]""", """, "options":$options""")
+        assertTrue(GitHubSelfTestGraph.incomplete("index", failedSample))
+        assertTrue(calls(observed, failedSample).isEmpty())
+        val mismatched = graph("index", """"has_more":false,"qualification_scope":"BOUNDED_SOURCE_SAMPLE","qualification_complete":true,"qualification_paths":["src/Other.kt"]""", """, "options":$options""")
+        assertTrue(GitHubSelfTestGraph.incomplete("index", mismatched))
+    }
+
     @Test fun missingGraphPreparesIndexAndEveryConfirmedBatchUsesItsExactCursor() {
         assertTrue(calls().isEmpty())
         assertEquals(json("""{"action":"index"}"""), calls(missing()).single().arguments)

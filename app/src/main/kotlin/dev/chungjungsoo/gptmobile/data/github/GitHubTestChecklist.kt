@@ -922,6 +922,14 @@ internal object GitHubTestChecklist {
                             put("successfully_tested", status in setOf("PASSED", "RECOVERED") && latestDispatch?.get("success") == JsonPrimitive(true))
                         }
                     )
+                    if (capability.tool == "repository_graph") {
+                        val qualified = successes.lastOrNull()?.let(::data)
+                        if (qualified?.get("qualification_scope") == JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE)) {
+                            put("qualification_scope", RepositorySourcePriority.BOUNDED_SAMPLE)
+                            qualified["qualification_paths"]?.let { put("qualification_paths", it) }
+                            put("qualification_description", "Operation exercised on these named source files; full repository indexing remains separate.")
+                        }
+                    }
                     put("inventory_status", if (graphIncomplete || successes.any { data(it)?.get("complete") == JsonPrimitive(false) || (data(it)?.get("graph") as? JsonObject)?.get("complete") == JsonPrimitive(false) }) "PARTIAL" else "See independent inventory coverage")
                     put("evidence_scope", "Validated response for the exact action; origins identify LIVE, CACHED, LOCAL, MOCKED or NOT_TESTED execution. Fixture state, cleanup, application behavior and device health require separate evidence")
                     put("receipt_ids", JsonArray(observed.mapNotNull { it["receipt_id"] }))

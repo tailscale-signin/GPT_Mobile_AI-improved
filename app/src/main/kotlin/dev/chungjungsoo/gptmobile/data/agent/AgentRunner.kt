@@ -386,88 +386,17 @@ class AgentRunner(
                     continue
                 }
                 if (round.batchRejected) {
-                    if (limits.combined?.requested?.singlePass == true) {
-                        emit(failed("TOOL_BATCH_REJECTED", round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
-                        return
-                    }
-                    val recovery = recoverRejectedBatch(session, round, exposedDefinitions, observedToolCalls, observedLimit, rounds, batchRepairAttempted, stormFinalizationAttempted, finalResponseRequested) ?: return
-                    exposedDefinitions = recovery.definitions
-                    if (recovery.repair) {
-                        batchRepairAttempted = true
-                    } else {
-                        stormFinalizationAttempted = true
-                        executableToolByName = emptyMap()
-                        finalResponseRequested = true
-                    }
+                    if (!recoverRejectedRound(session, round, state, observedLimit)) return
                     continue
                 }
                 if (round.toolDefinitionsRejected) {
-                    if (limits.githubMode) {
-                        emit(AgentRunEvent.Provider(ProviderEvent.Failed(round.failure ?: "This model rejected the required GitHub tool catalog.", errorCode = "GITHUB_TOOL_CONTRACT_UNSUPPORTED", failureDetails = round.failureDetails, invocationId = round.invocationId)))
-                        return
-                    }
-                    if (limits.combined?.requested?.singlePass != true && exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
-                        retriedWithoutTools = true
-                        exposedDefinitions = emptyList()
-                        executableToolByName = emptyMap()
-                        rounds -= 1
-                        emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
-                        continue
-                    }
-                    emit(failed("TOOL_UNAVAILABLE", round.failure ?: "Tools are unavailable for this model."))
-                    return
+                    if (!recoverToolDefinitionRejection(round, state)) return
+                    continue
                 }
                 if (round.failure != null) {
-                    val admission = round.failureDetails
-                    val payloadRetry = if (capacityReplans < 2 && !session.handlesToolsInternally) {
-                        replanRejectedPayload(round, state, exchanges, admittedReplayLimit, roundDefinitions, initialSchemaTokens)
-                    } else {
-                        null
-                    }
-                    if (payloadRetry != null) {
-                        admittedReplayLimit = payloadRetry
-                        capacityReplans++
-                        rounds--
-                        continue
-                    }
-                    if (capacityReplans < 2 &&
-                        !session.handlesToolsInternally &&
-                        !retainedUnknownOutcome &&
-                        unknownOutcomes.isEmpty() &&
-                        admission?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
-                        !round.textEmitted &&
-                        round.calls.isEmpty() &&
-                        exchanges.isNotEmpty() &&
-                        round.errorCode in setOf("CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED") &&
-                        (admission?.get("attempt_dispatch_state") as? JsonPrimitive)?.content == "NOT_DISPATCHED"
-                    ) {
-                        fun count(key: String) = (admission?.get(key) as? JsonPrimitive)?.content?.toLongOrNull()
-                            ?.takeIf { it in 0..Int.MAX_VALUE }
-                        val prompt = count("prompt_tokens")
-                        val safety = count("safety_tokens")
-                        val ceiling = count("capacity_tokens")
-                        val output = if (round.errorCode == "INPUT_CAPACITY_EXCEEDED") 0L else count("output_allowance") ?: 0L
-                        if (prompt != null && safety != null && ceiling != null) {
-                            val overage = (prompt + safety + output - ceiling).coerceAtLeast(1)
-                            val requested = (minOf(replayTokens, admittedReplayLimit.toLong()) - overage - 64).coerceAtLeast(0).toInt()
-                            val fit = prepareReplay(exchanges, requested, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests)
-                            if (requested > 0 && fit.compactedTokens <= requested && fit.compactedTokens.toLong() < replayTokens) {
-                                admittedReplayLimit = requested
-                                replayTokens = fit.compactedTokens.toLong()
-                                capacityReplans++
-                                rounds--
-                                continue
-                            }
-                        }
-                    }
-                    val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome, unknownOutcomes.values.toList(), recoveryState) ?: return
-                    exposedDefinitions = recovery.definitions
-                    if (recovery.restoreRound) rounds--
-                    if (recovery.finalize) {
-                        executableToolByName = emptyMap()
-                        finalResponseRequested = true
-                        instructFinalResponse(exchanges, consumedCallIds)
-                    }
+                    val recovery = recoverFailedLoopRound(round, session, state, exchanges, admittedReplayLimit, capacityReplans, roundDefinitions, initialSchemaTokens) ?: return
+                    admittedReplayLimit = recovery.replayLimit
+                    capacityReplans = recovery.capacityReplans
                     continue
                 }
                 if (!session.handlesToolsInternally && admittedReplayLimit <= 0 && round.calls.isNotEmpty()) {
@@ -487,7 +416,7 @@ class AgentRunner(
                     finalizationToolRepairAttempted = true
                 }
                 savedResultRecovery.observeDelivered(exchanges, deliveredResultDigests, replayRenderCache)
-                val resolvedCalls = resolveRoundCalls(round.calls, restoringBatch, exchanges, executableToolByName)
+                val resolvedCalls = resolveRoundCalls(round.calls, restoringBatch, exchanges, executableToolByName, savedResultRecovery, explicitSavedReread)
                 resolvedCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
                 savedResultRecovery.record(calls)
@@ -513,6 +442,110 @@ class AgentRunner(
                 if (!executeToolRound(session, calls, toolByName, roundDefinitions, restoringBatch, exchanges, state, dynamicTools, selectDefinitions, initialSchemaTokens, executionToolCallLimit, automaticRecovery, ciInvestigation, admittedReplayLimit, completedOperations)) return
             }
         }
+    }
+
+    /** Each recovery stage retains the loop's ordered mutations without inlining them into its DEX method. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.recoverRejectedRound(
+        session: AgentProviderSession,
+        round: RoundResult,
+        state: LoopState,
+        observedLimit: Int
+    ): Boolean = with(state) {
+        if (limits.combined?.requested?.singlePass == true) {
+            emit(failed("TOOL_BATCH_REJECTED", round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
+            return@with false
+        }
+        val recovery = recoverRejectedBatch(session, round, exposedDefinitions, observedToolCalls, observedLimit, rounds, batchRepairAttempted, stormFinalizationAttempted, finalResponseRequested) ?: return@with false
+        exposedDefinitions = recovery.definitions
+        if (recovery.repair) {
+            batchRepairAttempted = true
+        } else {
+            stormFinalizationAttempted = true
+            executableToolByName = emptyMap()
+            finalResponseRequested = true
+        }
+        true
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.recoverToolDefinitionRejection(
+        round: RoundResult,
+        state: LoopState
+    ): Boolean = with(state) {
+        if (limits.githubMode) {
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(round.failure ?: "This model rejected the required GitHub tool catalog.", errorCode = "GITHUB_TOOL_CONTRACT_UNSUPPORTED", failureDetails = round.failureDetails, invocationId = round.invocationId)))
+            return@with false
+        }
+        if (limits.combined?.requested?.singlePass != true && exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
+            retriedWithoutTools = true
+            exposedDefinitions = emptyList()
+            executableToolByName = emptyMap()
+            rounds -= 1
+            emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
+            return@with true
+        }
+        emit(failed("TOOL_UNAVAILABLE", round.failure ?: "Tools are unavailable for this model."))
+        false
+    }
+
+    private data class FailedLoopRoundRecovery(val replayLimit: Int, val capacityReplans: Int)
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.recoverFailedLoopRound(
+        round: RoundResult,
+        session: AgentProviderSession,
+        state: LoopState,
+        exchanges: MutableList<AgentToolExchange>,
+        admittedReplayLimit: Int,
+        capacityReplans: Int,
+        roundDefinitions: List<AgentToolDefinition>,
+        initialSchemaTokens: Long
+    ): FailedLoopRoundRecovery? = with(state) {
+        val admission = round.failureDetails
+        val payloadRetry = if (capacityReplans < 2 && !session.handlesToolsInternally) {
+            replanRejectedPayload(round, state, exchanges, admittedReplayLimit, roundDefinitions, initialSchemaTokens)
+        } else {
+            null
+        }
+        if (payloadRetry != null) {
+            rounds--
+            return@with FailedLoopRoundRecovery(payloadRetry, capacityReplans + 1)
+        }
+        if (capacityReplans < 2 &&
+            !session.handlesToolsInternally &&
+            !retainedUnknownOutcome &&
+            unknownOutcomes.isEmpty() &&
+            admission?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
+            !round.textEmitted &&
+            round.calls.isEmpty() &&
+            exchanges.isNotEmpty() &&
+            round.errorCode in setOf("CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED") &&
+            (admission?.get("attempt_dispatch_state") as? JsonPrimitive)?.content == "NOT_DISPATCHED"
+        ) {
+            fun count(key: String) = (admission?.get(key) as? JsonPrimitive)?.content?.toLongOrNull()
+                ?.takeIf { it in 0..Int.MAX_VALUE }
+            val prompt = count("prompt_tokens")
+            val safety = count("safety_tokens")
+            val ceiling = count("capacity_tokens")
+            val output = if (round.errorCode == "INPUT_CAPACITY_EXCEEDED") 0L else count("output_allowance") ?: 0L
+            if (prompt != null && safety != null && ceiling != null) {
+                val overage = (prompt + safety + output - ceiling).coerceAtLeast(1)
+                val requested = (minOf(replayTokens, admittedReplayLimit.toLong()) - overage - 64).coerceAtLeast(0).toInt()
+                val fit = prepareReplay(exchanges, requested, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests)
+                if (requested > 0 && fit.compactedTokens <= requested && fit.compactedTokens.toLong() < replayTokens) {
+                    replayTokens = fit.compactedTokens.toLong()
+                    rounds--
+                    return@with FailedLoopRoundRecovery(requested, capacityReplans + 1)
+                }
+            }
+        }
+        val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome, unknownOutcomes.values.toList(), recoveryState) ?: return@with null
+        exposedDefinitions = recovery.definitions
+        if (recovery.restoreRound) rounds--
+        if (recovery.finalize) {
+            executableToolByName = emptyMap()
+            finalResponseRequested = true
+            instructFinalResponse(exchanges, consumedCallIds)
+        }
+        FailedLoopRoundRecovery(admittedReplayLimit, capacityReplans)
     }
 
     private fun replayAdmissionFailure(allowance: Int) = AgentRunEvent.Provider(
@@ -561,13 +594,20 @@ class AgentRunner(
         calls: List<ProviderEvent.ToolCall>,
         restoringBatch: Boolean,
         exchanges: List<AgentToolExchange>,
-        executableToolByName: Map<String, AgentTool>
+        executableToolByName: Map<String, AgentTool>,
+        savedResultRecovery: GitHubReplayRecovery.State?,
+        explicitSavedReread: Boolean
     ): List<ProviderEvent.ToolCall> = calls.map { call ->
         // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
         val identified = if (restoringBatch) call else call.captureProviderInvocation()
         val resolved = resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
         val canonical = resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
-        if (restoringBatch) canonical else GitHubRecoveryCalls.repairSourceRead(canonical, executableToolByName[canonical.name])
+        if (restoringBatch) {
+            canonical
+        } else {
+            val repaired = GitHubRecoveryCalls.repairSourceRead(canonical, executableToolByName[canonical.name])
+            savedResultRecovery?.advanceSavedRead(repaired, executableToolByName[repaired.name]?.definition, repairRepeatedProviderRead = !explicitSavedReread) ?: repaired
+        }
     }
 
     /** Keep batch dispatch and its ordered state updates out of the loop's DEX method. */
@@ -925,6 +965,7 @@ class AgentRunner(
         var suppressedReadRounds = 0
         var unsuccessfulGitHubRounds = 0
         val investigation = GitHubInvestigationProgress(acceptedTask)
+        val explicitSavedReread = Regex("(?i)\\b(?:re-read|reread|read again|revisit|read.*again)\\b").containsMatchIn(acceptedTask)
         var finalizationToolRepairAttempted = false
         var restoredCalls = recovery?.pending.orEmpty()
         var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()

@@ -23,6 +23,24 @@ class GatewayModelCapabilityObservationTest {
     ).replace("\"limitsVerified\":false", "\"limitsVerified\":true")
         .replace("\"reasoningControlState\":\"UNVERIFIED\"", "\"reasoningControlState\":\"UNSUPPORTED\"")
 
+    @Test fun unrecognizedTemplateKeepsCapacityButNeverGrantsExplicitReasoningControl() {
+        val observed = parseGatewayModelObservation(
+            qualified("""{"outcome":"PREFIX_MISMATCH","attempts":2,"observationAgeMs":0}""")
+                .replace("\"reasoningControlState\":\"UNSUPPORTED\"", "\"reasoningControlState\":\"UNRECOGNIZED\""),
+            config,
+            "selected",
+            100
+        )
+        assertNotNull(observed.capacity)
+        assertNull(observed.reasoningControl)
+        assertEquals("UNRECOGNIZED", observed.reasoningControlState)
+        assertTrue(requireNotNull(observed.reasoningSummary()).contains("format has not been qualified"))
+        val rejected = ReasoningCapabilityUnavailableException("REASONING_CAPABILITY_UNVERIFIED", observed, ReasoningMode.OFF)
+        assertTrue(requireNotNull(rejected.message).contains("saved reasoning setting is unchanged"))
+        assertEquals(ReasoningMode.OFF, rejected.requested)
+        assertEquals("UNVERIFIED", observed.fresh(20_100).reasoningControlState)
+    }
+
     @Test fun cachedProbeAgeAdvancesIndependentlyFromFreshCapacityMetadataWithoutGrantingControl() {
         val observation = parseGatewayModelObservation(qualified("""{"outcome":"IDENTICAL_PROMPTS","attempts":2,"observationAgeMs":8000}"""), config, "selected", 100)
         assertNotNull(observation.capacity)

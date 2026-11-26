@@ -58,6 +58,50 @@ def logical_rows(archive, name):
     check(not pending, "Incomplete staged row")
 
 
+def workspace_payloads(rows):
+    """Restore only digest-verified references to earlier rows in this archive part."""
+    originals = {}
+
+    def resolve(reference):
+        check(isinstance(reference, dict)
+              and reference.get("schema") == "gptmobile.workspace-payload-reference.v1"
+              and reference.get("table") == "workspace_records",
+              "Invalid workspace payload reference")
+        row_id = reference.get("rowId")
+        check(type(row_id) is int and row_id in originals, "Workspace reference requires an earlier row in this part")
+        pointer = reference.get("pointer")
+        check(isinstance(pointer, str) and not re.search(r"~(?![01])", pointer), "Invalid workspace JSON pointer")
+        parts = pointer.split("/")
+        check(parts[:3] == ["", "fields", "payload"] and len(parts) in (3, 4), "Invalid workspace JSON pointer")
+        value = originals[row_id]
+        if len(parts) == 4:
+            key = parts[3].replace("~1", "/").replace("~0", "~")
+            check(isinstance(value, dict) and key in value, "Workspace body reference is unavailable")
+            value = value[key]
+        check(sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+              == reference.get("redactedJsonSha256"), "Workspace payload reference digest mismatch")
+        return value
+
+    for record in rows:
+        fields = record.get("fields", {})
+        payload = fields.get("payload")
+        if "payload_ref" in fields:
+            check("payload" not in fields and "payload_body_refs" not in fields, "Conflicting workspace payload representation")
+            payload = resolve(fields["payload_ref"])
+        if "payload_body_refs" in fields:
+            references = fields["payload_body_refs"]
+            check(isinstance(payload, dict) and isinstance(references, dict) and 0 < len(references) <= 32,
+                  "Malformed workspace body references")
+            check(not (payload.keys() & references.keys()), "Workspace body reference overwrites current evidence")
+            payload = dict(payload)
+            for key, reference in references.items():
+                payload[key] = resolve(reference)
+        row_id = record.get("rowId")
+        check(type(row_id) is int and row_id not in originals, "Duplicate or invalid workspace row identity")
+        originals[row_id] = payload
+        yield record, payload
+
+
 def staged_runs(path, revision):
     """Read only the original checked capture stages, replacing all task, argument and receipt identities."""
     from replay_conversation_debug import load_snapshot, STAGED_SCHEMA
@@ -69,19 +113,10 @@ def staged_runs(path, revision):
     with ZipFile(path) as archive:
         check({"workspace.jsonl", "tool-receipts.jsonl", "runs.jsonl"} <= set(archive.namelist()), "Required diagnostic stages are missing")
         workspace = [r for r in logical_rows(archive, "workspace.jsonl") if r.get("table") == "workspace_records"]
-        originals = {r["rowId"]: r["fields"]["payload"] for r in workspace if "payload" in r.get("fields", {})}
-        for record in workspace:
+        for record, p in workspace_payloads(workspace):
             f = record.get("fields", {})
             if f.get("kind") not in {"github_evidence", "synthesis_checkpoint"}:
                 continue
-            p = f.get("payload")
-            ref = f.get("payload_ref")
-            if ref:
-                p = originals.get(ref.get("rowId"))
-                check(isinstance(p, dict) and ref.get("schema") == "gptmobile.workspace-payload-reference.v1"
-                      and ref.get("pointer") == "/fields/payload" and ref.get("table") == "workspace_records"
-                      and sha256(json.dumps(p, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest() == ref.get("redactedJsonSha256"),
-                      "Workspace payload reference could not be verified in the capture")
             if not isinstance(p, dict):
                 continue
             run = f.get("runId")

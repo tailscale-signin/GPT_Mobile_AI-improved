@@ -151,7 +151,7 @@ def failure_fields(value, *, conditions=True):
                            'recovery_condition': ENUM_ATTRIBUTES['recovery_condition'],
                            'metadataAccess': {'unknown', 'available', 'restricted'},
                            'backend': {'unreachable', 'restricted', 'ready', 'loading', 'unavailable'},
-                           'reasoningControlState': {'VERIFIED', 'UNVERIFIED', 'UNSUPPORTED'},
+                           'reasoningControlState': {'VERIFIED', 'UNVERIFIED', 'UNSUPPORTED', 'UNRECOGNIZED'},
                            'modelState': MODEL_STATES,
                            'upstreamErrorType': UPSTREAM_ERROR_TYPES,
                            'upstreamErrorBodyState': UPSTREAM_BODY_STATES,

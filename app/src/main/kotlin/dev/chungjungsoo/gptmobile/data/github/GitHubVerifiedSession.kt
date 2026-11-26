@@ -64,7 +64,8 @@ internal class GitHubVerifiedSession(
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
         GitHubTaskContinuity.reportOnly(currentRequest) ||
-        GitHubTaskContinuity.diagnostic(currentRequest)
+        GitHubTaskContinuity.diagnostic(currentRequest) ||
+        GitHubLookupRoute.request(task)?.let { it.route == GitHubLookupRoute.COMMITS && !it.exhaustive && (it.requestedCount ?: 10) <= 100 } == true
     private val ciDiagnosis = GitHubCiObservationReport.matches(task)
     private var readOnlyEvidenceRecovery = false
     private var lastChecklist: JsonObject? = null
@@ -148,13 +149,16 @@ internal class GitHubVerifiedSession(
         ) {
             return null
         }
-        val observed = if (ciDiagnosis) renderCiObservation(receipts, epoch) else renderLookupObservation(receipts, epoch)
-        if (observed?.second?.get("completion_verified") != JsonPrimitive(true)) return null
+        val observed = (if (ciDiagnosis) renderCiObservation(receipts, epoch) else renderLookupObservation(receipts, epoch)) ?: return null
+        if (observed.second["completion_verified"] != JsonPrimitive(true)) return null
         // Publication repeats the proof against the final receipt snapshot and current
         // authority. No replay body or verifier model is required for this response.
-        // The public diagnostic contract keeps its existing coarse status classification;
-        // the local report retains the specific REQUESTED_LOOKUP completion scope.
-        return publish(null, if (ciDiagnosis) GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION else GitHubAcceptancePublicationEvidence.Entry.STATUS_SNAPSHOT)
+        val entry = when {
+            ciDiagnosis -> GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION
+            observed.second["schema"] == JsonPrimitive("github.lookup-report.v1") -> GitHubAcceptancePublicationEvidence.Entry.LOOKUP_OBSERVATION
+            else -> GitHubAcceptancePublicationEvidence.Entry.STATUS_SNAPSHOT
+        }
+        return publish(null, entry)
     }
 
     private suspend fun renderCiObservation(receipts: Map<String, JsonObject>, epoch: Long, checkSnapshotOnly: Boolean = false): Pair<String, JsonObject>? {
@@ -171,7 +175,15 @@ internal class GitHubVerifiedSession(
         val repository = (contract["repository"] as? JsonPrimitive)?.contentOrNull ?: return null
         if (GitHubTaskContinuity.request(evidence.acceptedTaskRequest().orEmpty()) != GitHubTaskContinuity.request(task)) return null
         val branch = (contract["accepted_branch"] as? JsonPrimitive)?.contentOrNull
-        return withContext(computationDispatcher) { GitHubLookupObservation.render(task, receipts, repository, branch, now(), epoch) }
+        return withContext(computationDispatcher) {
+            if (Regex("(?i)\\bsummari[sz]e\\b").containsMatchIn(GitHubTaskContinuity.request(task))) {
+                null
+            } else {
+                val at = now()
+                GitHubLookupReport.render(task, receipts, at, epoch, repository, branch)
+                    ?: GitHubLookupObservation.render(task, receipts, repository, branch, at, epoch)
+            }
+        }
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
@@ -441,7 +453,31 @@ internal class GitHubVerifiedSession(
     private suspend fun FlowCollector<ProviderEvent>.runRepositoryWorkflow(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         if (ciDiagnosis) {
             val (receipts, epoch) = evidence.snapshot()
+            val at = now()
+            val target = evidence.acceptedHeadSha(workspaceHead)
+            val repository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
+            val selected = GitHubStatusEvidence.selected(receipts, repository).filterValues { row ->
+                row["trusted"] == JsonPrimitive(true) &&
+                    row["verification_eligible"] != JsonPrimitive(false) &&
+                    row["epoch"] == JsonPrimitive(epoch)
+            }
+            val head = selected.values.lastOrNull {
+                it["head_observation"] == JsonPrimitive(true) && (target == null || it["source_head_sha"] == JsonPrimitive(target))
+            }?.get("source_head_sha")?.let(GitHubInventoryQuery::commitSha)?.content
             val observed = renderCiObservation(receipts, epoch)
+            val unresolvedRun = head?.let {
+                val inventory = GitHubCiRunInventory.snapshot(selected, it, at)
+                GitHubObservedWorkflowRuns.current(GitHubCiRunInventory.currentObservations(selected, inventory).values, JsonPrimitive(it))
+            }
+                .orEmpty().any { it["status"] != JsonPrimitive("completed") || it["conclusion"] !in setOf(JsonPrimitive("success"), JsonPrimitive("skipped"), JsonPrimitive("neutral")) }
+            if (head != null && !unresolvedRun && observed?.second?.get("observation_state") != JsonPrimitive("WAITING_FOR_CI") && remainingToolCalls()?.let { it > 0 } != false) {
+                GitHubCiRunInventory.nextCall(tools, selected, head, at)?.let { next ->
+                    progress("Completing the workflow inventory for the selected commit")
+                    emit(next)
+                    emit(ProviderEvent.Completed)
+                    return
+                }
+            }
             if (observed != null && !pendingPackagingRepair(observed.second)) {
                 val report = observed.second
                 if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["run_id"] == null && remainingToolCalls()?.let { it > 0 } != false) {
@@ -1544,6 +1580,7 @@ internal class GitHubVerifiedSession(
                         status != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
                         coverage != null -> GitHubAcceptancePublicationEvidence.Source.COVERAGE
                         selectedCiObservation != null -> GitHubAcceptancePublicationEvidence.Source.CI_OBSERVATION
+                        lookupObservation?.second?.get("schema") == JsonPrimitive("github.lookup-report.v1") -> GitHubAcceptancePublicationEvidence.Source.LOOKUP_OBSERVATION
                         lookupObservation != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
                         extraction != null -> GitHubAcceptancePublicationEvidence.Source.CLAIM_EXTRACTION
                         else -> GitHubAcceptancePublicationEvidence.Source.PARTIAL_FALLBACK

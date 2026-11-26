@@ -18,6 +18,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticContentPolicyTest {
+    @Test fun namedQualificationRetainsScopeWithoutExposingPrivateSourcePaths() {
+        val fixture = Json.parseToJsonElement("""{"qualification_scope":"BOUNDED_SOURCE_SAMPLE","qualification_complete":true,"qualification_paths":["private/Feature.kt"],"qualification_candidate_paths":["private/FeatureTest.kt"]}""")
+        val safe = DiagnosticContentRedactor().redact(fixture) as JsonObject
+        assertEquals(JsonPrimitive("BOUNDED_SOURCE_SAMPLE"), safe["qualification_scope"])
+        assertEquals(JsonPrimitive(true), safe["qualification_complete"])
+        assertFalse(safe.toString().contains("private/"))
+    }
+
     @Test fun canonicalArgumentsRemainPrivateWhileNormalizationReceiptsSurvive() {
         val fixture = buildJsonObject {
             put("canonical_arguments", buildJsonObject { put("selector", "PRIVATE SELECTOR synthetic-credential") })

@@ -16,6 +16,28 @@ internal object MemoryTokenWindow {
 
     private val commonWords = setOf("that", "this", "with", "what", "have", "from", "were", "would", "please", "could", "about", "there", "your", "which")
 
+    /** Retain the previous request and a clearly partial response when a follow-up cannot fit the whole turn. */
+    fun continuityTurn(history: List<ConversationTurn>, available: Int, question: String, cost: (ConversationTurn) -> Int): ConversationTurn? {
+        val previous = history.lastOrNull() ?: return null
+        if (available <= 0 || !Regex("(?i)\\b(?:summari[sz]e|summary|summaries|previous|above|these|those|again|continue|solutions)\\b").containsMatchIn(question)) return null
+        if (cost(previous) <= available) return previous
+        val answer = previous.assistantMessage?.takeIf { it.content.isNotBlank() && it.attachments.isEmpty() } ?: return null
+        val label = "[Partial excerpt of the previous response. Omitted text remains in the saved conversation; this is not complete evidence.]\n"
+        fun candidate(characters: Int): ConversationTurn {
+            val front = answer.content.take((characters + 1) / 2).dropLastWhile { Character.isHighSurrogate(it) }
+            val end = answer.content.takeLast(characters / 2).dropWhile { Character.isLowSurrogate(it) }
+            return previous.copy(assistantMessage = answer.copy(content = label + front + "\n[... omitted ...]\n" + end))
+        }
+        if (cost(candidate(0)) > available) return null
+        var low = 0
+        var high = answer.content.length
+        while (low < high) {
+            val middle = low + (high - low + 1) / 2
+            if (cost(candidate(middle)) <= available) low = middle else high = middle - 1
+        }
+        return candidate(low)
+    }
+
     /** Spend history headroom on complete, chronological turns within this conversation. */
     fun forQuestion(history: List<ConversationTurn>, available: Int, question: String, cost: (ConversationTurn) -> Int): List<ConversationTurn> {
         if (available <= 0 || history.isEmpty()) return emptyList()

@@ -28,12 +28,41 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test fun quotaCaptureRetainsItsOwningOpaqueConfigurationThroughTheIncidentCapsule() {
+        val original = profile.copy(uid = "quota-capture-profile", token = "fixture-old-credential", apiUrl = "https://fixture.invalid/v1")
+        val event = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event("insufficient_quota", "Private provider message", httpStatus = 200)
+        val failure = ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails, invocationId = "quota-capture-invocation")
+        val receipt = ProviderFailureReceipt.from(original, "primary", failure)
+        val captured = requireNotNull(receipt.configurationHash)
+        val replacement = original.copy(token = "fixture-replacement-credential", providerConnectionUid = "replacement-connection")
+        val replacementReceipt = ProviderFailureReceipt.from(replacement, "primary", failure)
+        assertNotEquals(captured, replacementReceipt.configurationHash)
+        assertEquals(replacementReceipt.configurationHash, ProviderFailureReceipt.from(replacement, "primary", failure).configurationHash)
+        val fields = ProviderFailureReport.fields("quota-capture-run", failure, receipt)
+        val capsule = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "SOURCE_PAYMENT_REQUIRED", fields)
+        val diagnostics = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", capsule, 1000).diagnostics)
+        assertEquals(JsonPrimitive(captured), diagnostics.values[ProviderQuotaIncidentGrouping.CONFIGURATION_FIELD])
+        assertEquals(JsonPrimitive(researchHash(original.uid)), diagnostics.values["profile_hash"])
+        assertEquals(JsonPrimitive(researchHash(original.model)), diagnostics.values["model_hash"])
+        assertEquals(JsonPrimitive("BUDGET"), diagnostics.values["provider_failure_kind"])
+        assertEquals(JsonPrimitive(false), diagnostics.values["request_replay_allowed"])
+        assertTrue(ProviderQuotaIncidentGrouping.FEATURE in diagnostics.requiredServiceFeatures())
+        assertTrue(receipt.valid())
+        assertFalse(receipt.copy(configurationHash = "private configuration").valid())
+        val serialized = IssueReport.json.encodeToString(ProviderFailureReceipt.serializer(), receipt)
+        assertFalse(serialized.contains("fixture-old-credential"))
+        assertFalse(serialized.contains("fixture-replacement-credential"))
+        val legacy = ProviderFailureReport.fields("legacy-run", failure, receipt.copy(configurationHash = null))
+        assertFalse(legacy.containsKey(ProviderQuotaIncidentGrouping.CONFIGURATION_FIELD))
+    }
+
     @Test fun extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision() {
         val details = buildJsonObject {
             put("failed_stage", "claim_extraction")

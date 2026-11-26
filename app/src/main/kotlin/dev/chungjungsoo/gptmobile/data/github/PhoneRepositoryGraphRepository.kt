@@ -145,6 +145,12 @@ class PhoneRepositoryGraphRepository internal constructor(
                     put("action", "status")
                     put("ref", context.ref)
                     put("commit_sha", context.commitSha)
+                    // Concurrent callers observe the same bounded preparation,
+                    // never a different whole-repository checkpoint.
+                    if (arguments["qualification_scope"] == JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE)) {
+                        put("qualification_scope", RepositorySourcePriority.BOUNDED_SAMPLE)
+                        arguments["paths"]?.let { put("paths", it) }
+                    }
                 }
                 client.repositoryMap(context.owner, context.repo, status)
             }

@@ -8,6 +8,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameTimingWindowTest {
+    @Test fun callbackCoverageIncludesSilentWindowsWithoutInventingSessionJank() {
+        val window = FrameTimingWindow(0)
+        window.align(1, 100)
+        val silent = window.callbackCoverage(5100)
+        assertEquals(JsonPrimitive("NO_CALLBACKS"), silent["coverage"])
+        assertEquals(JsonPrimitive(0), silent["observedCallbacks"])
+        assertEquals(JsonPrimitive(false), silent["sessionJankRateAvailable"])
+        window.observe(80_000_000, 10_000_000, 2, false, 1100)
+        window.observe(90_000_000, 10_000_000, 0, false, 3100)
+        val observed = window.callbackCoverage(5100)
+        assertEquals(JsonPrimitive("CALLBACKS_DROPPED"), observed["coverage"])
+        assertEquals(JsonPrimitive(1000L), observed["firstCallbackDelayMs"])
+        assertEquals(JsonPrimitive(2000L), observed["maximumCallbackGapMs"])
+        assertEquals(JsonPrimitive(2000L), observed["lastCallbackAgeMs"])
+        assertEquals(JsonPrimitive(false), observed["callbackGapsAreJankEvidence"])
+        window.clear(5100)
+        assertEquals(JsonPrimitive("NO_CALLBACKS"), window.callbackCoverage(10100)["coverage"])
+        assertEquals(JsonPrimitive(0L), window.callbackCoverage(10100)["maximumCallbackGapMs"])
+    }
+
     @Test fun thresholdFlushAndAlreadyQueuedTimerShareOneDeadline() {
         val window = FrameTimingWindow(0)
         window.align(1, 0)

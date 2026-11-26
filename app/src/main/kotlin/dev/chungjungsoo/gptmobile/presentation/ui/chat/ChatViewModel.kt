@@ -2392,7 +2392,28 @@ class ChatViewModel @Inject constructor(
         _reasoningRecoveries.update { it + (attempt to ReasoningRecoveryUiState(checking = true, requested = request.mode, frozenRequest = frozen)) }
         reasoningRecoveryJobs[attempt] = viewModelScope.launch {
             try {
-                val result = reasoningCapabilities?.check(request.profile, request.mode, forceRefresh = true)
+                suspend fun validateRecoverySelection() {
+                    val current = _groupedMessages.value.assistantMessages.getOrNull(turnIndex)?.getOrNull(platformIndex)
+                    if (leavingConversation || reasoningRecoveryGenerations[attempt] != generation || current?.currentRunId != attempt || reasoningRecoveryRequest(turnIndex, platformIndex) != request) {
+                        throw CancellationException("The selected model recovery owner changed.")
+                    }
+                }
+                val preparation = modelPreparationRepository
+                val result = recheckProfileModel(
+                    request,
+                    ::validateRecoverySelection,
+                    check = { reasoningCapabilities?.check(request.profile, request.mode, forceRefresh = true) },
+                    prepare = preparation?.let { repository ->
+                        suspend {
+                            repository.prepareSelectedWhile(request.profile, request.mode, forceRefresh = true, validateSelection = ::validateRecoverySelection) { state ->
+                                if (reasoningRecoveryGenerations[attempt] == generation) {
+                                    _reasoningRecoveries.update { it + (attempt to ReasoningRecoveryUiState(checking = true, requested = request.mode, frozenRequest = frozen, detailMessage = state?.message)) }
+                                }
+                            }
+                            Unit
+                        }
+                    }
+                )
                 if (reasoningRecoveryGenerations[attempt] != generation) return@launch
                 val current = _groupedMessages.value.assistantMessages.getOrNull(turnIndex)?.getOrNull(platformIndex)
                 if (current?.currentRunId != attempt || reasoningRecoveryRequest(turnIndex, platformIndex) != request) {
@@ -2400,9 +2421,14 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
                 val permitted = result?.let { reasoningRecoveryGate.record(attempt, request, it) } == true
-                _reasoningRecoveries.update { it + (attempt to ReasoningRecoveryUiState(requested = request.mode, status = result?.status ?: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNVERIFIED, qualified = permitted, frozenRequest = frozen, qualifiedAtMillis = result?.observedAtMillis, routeVerified = result?.routeVerified)) }
+                _reasoningRecoveries.update { it + (attempt to ReasoningRecoveryUiState(requested = request.mode, status = result?.status ?: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNVERIFIED, qualified = permitted, frozenRequest = frozen, qualifiedAtMillis = result?.observedAtMillis, routeVerified = result?.routeVerified, detailMessage = result?.detailMessage)) }
                 refreshCombinedFailures()
             } catch (cancelled: CancellationException) {
+                if (reasoningRecoveryGenerations[attempt] == generation) {
+                    reasoningRecoveryGate.invalidate(attempt)
+                    _reasoningRecoveries.update { it - attempt }
+                    refreshCombinedFailures()
+                }
                 throw cancelled
             } catch (_: Exception) {
                 if (reasoningRecoveryGenerations[attempt] != generation) return@launch

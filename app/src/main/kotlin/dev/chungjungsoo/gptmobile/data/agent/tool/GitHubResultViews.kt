@@ -30,7 +30,7 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf(), val compressedSource: ByteArray? = null, val sourceCharacters: Int = 0, val sourceSha256: String? = null, val sourceCallId: String? = null) {
+    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf(), val compressedSource: ByteArray? = null, val sourceCharacters: Int = 0, val sourceSha256: String? = null, val sourceCallId: String? = null, val compactProjection: Boolean = false, val payloadSha256: String? = null) {
         val fragmentCount: Int get() = if (compressedSource == null) fragments.size else (sourceCharacters + SOURCE_FRAGMENT_CHARACTERS - 1) / SOURCE_FRAGMENT_CHARACTERS
     }
     private data class EvictedView(
@@ -83,7 +83,6 @@ internal class GitHubResultViews(
                 return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture, sourcePages = true)
             }
         }
-        if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
         val summary = (value as? JsonObject)?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.from(operation, request, it) }
@@ -120,6 +119,8 @@ internal class GitHubResultViews(
                 if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call"))
             }
         }
+        val compactOverflow = display != value && !upstream.isError && small.toString().encodeToByteArray().size > pageBytes
+        if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture, compactProjection = compactOverflow)
         var metadataBytes = 0
         val metadata = JsonObject(
             (value as? JsonObject).orEmpty().filter { (key, item) ->
@@ -132,7 +133,8 @@ internal class GitHubResultViews(
         // They are appended only after every data fragment; no remote record is discarded.
         val lastContinuations = if (continuations.toString().toByteArray().size <= pageBytes / 4) continuations else emptyList()
         try {
-            fragment("", body, buffer, minOf(pageBytes, MIN_RECOVERY_PAGE_BYTES))
+            // Overflow must not expand the requested semantic projection back into signatures and raw metadata.
+            fragment("", if (compactOverflow) displayBody else body, buffer, minOf(pageBytes, MIN_RECOVERY_PAGE_BYTES))
             if (lastContinuations.isEmpty()) {
                 continuations.forEach { continuation ->
                     buffer += buildJsonObject {
@@ -143,7 +145,7 @@ internal class GitHubResultViews(
             }
             if (lastContinuations.isNotEmpty()) buffer += buildJsonObject { put("kind", "continuation_boundary") }
         } catch (_: FragmentCapacity) {
-            return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
+            return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture, compactProjection = compactOverflow)
         }
         val fragments = buffer.records
         if (fragments.any { it.toString().toByteArray().size > pageBytes / 3 } || fragments.isEmpty()) return overflow(upstream, operation, modelName, value, request)
@@ -152,8 +154,8 @@ internal class GitHubResultViews(
         val defaults = if (operation in setOf("github_context", "github_ci", "github_pr")) mapOf("response_detail" to JsonPrimitive("compact")) else emptyMap()
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
-        if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture)
-        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()), sourceCallId = upstream.callId)
+        if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, capture, compactProjection = compactOverflow)
+        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()), sourceCallId = upstream.callId, compactProjection = compactOverflow)
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
             store(id, entry, capture)
@@ -436,11 +438,13 @@ internal class GitHubResultViews(
             put("model_name", entry.modelName)
             put("fragments", JsonArray(entry.fragments))
             entry.sourceSha256?.let { put("source_sha256", it) }
+            entry.payloadSha256?.let { put("payload_sha256", it) }
             entry.sourceCallId?.let { put("source_call_id", it) }
             entry.compressedSource?.let {
                 put("source_gzip_base64", Base64.getEncoder().encodeToString(it))
                 put("source_characters", entry.sourceCharacters)
             }
+            put("compact_projection", entry.compactProjection)
             put("metadata", entry.metadata)
             put("continuations", JsonArray(entry.continuations))
             put("original_error", entry.originalError)
@@ -475,11 +479,16 @@ internal class GitHubResultViews(
         if (encoded != null && compressed == null || fragments.isEmpty() && compressed == null || fragments.size != (snapshot["fragments"] as JsonArray).size) return false
         val sourceCharacters = (snapshot["source_characters"] as? JsonPrimitive)?.intOrNull ?: 0
         val sourceHash = text("source_sha256")
+        val payloadHash = text("payload_sha256")
+        val compactProjection = snapshot["compact_projection"] == JsonPrimitive(true)
         val sourceCallId = text("source_call_id")
         if (sourceHash != null && !sourceHash.matches(Regex("[a-f0-9]{64}"))) return false
+        if (payloadHash != null && !payloadHash.matches(Regex("[a-f0-9]{64}"))) return false
+        if (payloadHash != null && (!compactProjection || compressed == null)) return false
         if (sourceCallId != null && (sourceCallId.isBlank() || sourceCallId.length > 512)) return false
         if (compressed != null && (fragments.isNotEmpty() || sourceCharacters !in 1..MAX_SERIALIZED_SOURCE_BYTES || sourceHash?.matches(Regex("[a-f0-9]{64}")) != true)) return false
-        if (compressed != null && runCatching { decodeSource(compressed, sourceCharacters, requireNotNull(sourceHash)) }.isFailure) return false
+        if (compressed != null && compactProjection && payloadHash == null) return false
+        if (compressed != null && runCatching { decodeSource(compressed, sourceCharacters, payloadHash ?: requireNotNull(sourceHash)) }.isFailure) return false
         val pageSize = (snapshot["page_bytes"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 2048..pageBytes } ?: return false
         val metadata = snapshot["metadata"] as? JsonObject ?: return false
         val continuations = (snapshot["continuations"] as? JsonArray)?.filterIsInstance<JsonObject>() ?: return false
@@ -493,7 +502,7 @@ internal class GitHubResultViews(
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + size > capacityBytes)) evict(entries.keys.first())
         val entry = Entry(
             scope, operation, modelName, fragments, metadata, continuations, now() + 10 * 60_000, size.toInt(),
-            originalError, text("original_error_code"), pageSize, context, recovery, issued.toMutableSet(), failed.toMutableSet(), compressed, sourceCharacters, sourceHash, sourceCallId
+            originalError, text("original_error_code"), pageSize, context, recovery, issued.toMutableSet(), failed.toMutableSet(), compressed, sourceCharacters, sourceHash, sourceCallId, compactProjection, payloadHash
         )
         entries[id] = entry
         retainedBytes += entry.bytes
@@ -529,7 +538,7 @@ internal class GitHubResultViews(
     )
 
     private fun page(id: String, entry: Entry, offset: Int, modelName: String, pageBytes: Int = entry.pageBytes): JsonObject {
-        val source = entry.compressedSource?.let { decodeSource(it, entry.sourceCharacters, requireNotNull(entry.sourceSha256)) }
+        val source = entry.compressedSource?.let { decodeSource(it, entry.sourceCharacters, entry.payloadSha256 ?: requireNotNull(entry.sourceSha256)) }
         if (offset >= GitHubSourcePages.FIRST && source != null && entry.operation == "github_read") {
             val root = Json.parseToJsonElement(source) as JsonObject
             return sourcePage(id, modelName, root, offset, pageBytes, entry.continuations, entry.pageBytes) ?: buildJsonObject {
@@ -559,6 +568,7 @@ internal class GitHubResultViews(
             put("schema", SCHEMA)
             put("operation", entry.operation)
             put("local_page_complete", complete)
+            if (entry.compactProjection) put("projection", "COMPACT")
             if (entry.originalError) {
                 put("source_operation_failed", true)
                 entry.originalErrorCode?.let { put("source_error_code", it) }
@@ -570,7 +580,9 @@ internal class GitHubResultViews(
             put("total_fragments", entry.fragmentCount)
             put(
                 "reconstruction",
-                if (compact) {
+                if (entry.compactProjection) {
+                    "Compact projection fragments; source_sha256 identifies retained original evidence. Use response_detail=full for raw fields."
+                } else if (compact) {
                     "Use fragment offsets to reconstruct the original result."
                 } else if (source != null) {
                     "Join json_text values by UTF-16 offset, verify each chunk and the source SHA-256, then parse JSON. Finish local pages before remote continuation."
@@ -782,8 +794,10 @@ internal class GitHubResultViews(
         }
 
     /** Large notes/logs stay compressed once, instead of multiplying thousands of JSON objects. */
-    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement, capture: ((Pair<String, JsonObject>) -> Unit)?, sourcePages: Boolean = false): AgentToolResult {
-        val source = value.toString()
+    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement, capture: ((Pair<String, JsonObject>) -> Unit)?, sourcePages: Boolean = false, compactProjection: Boolean = false): AgentToolResult {
+        val original = value.toString()
+        if (original.encodeToByteArray().size > MAX_SERIALIZED_SOURCE_BYTES) return overflow(upstream, operation, modelName, value, request)
+        val source = if (compactProjection) retainContinuations(display, "", operation, modelName, request, mutableListOf()).toString() else original
         val plain = source.encodeToByteArray()
         if (plain.size > MAX_SERIALIZED_SOURCE_BYTES) return overflow(upstream, operation, modelName, value, request)
         val output = ByteArrayOutputStream()
@@ -804,9 +818,10 @@ internal class GitHubResultViews(
         val entry = Entry(
             scope, operation, modelName, emptyList(), metadata, continuations, now() + 10 * 60_000, cost.toInt(),
             upstream.isError, upstream.errorCode, pageBytes, context, recovery,
-            compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(source), sourceCallId = upstream.callId
+            compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(original), sourceCallId = upstream.callId,
+            compactProjection = compactProjection, payloadSha256 = if (compactProjection) GitHubRepositoryStateStore.digest(source) else null
         )
-        val summary = if (display == value) {
+        val summary = if (display == value || compactProjection) {
             null
         } else {
             buildJsonObject {
@@ -836,6 +851,7 @@ internal class GitHubResultViews(
                     put("retained_remote_continuations", JsonArray(continuations))
                     put("saved_result_encoding", "GZIP_JSON_UTF8")
                     put("saved_result_sha256", entry.sourceSha256)
+                    entry.payloadSha256?.let { put("saved_result_payload_sha256", it) }
                 }
             )
         )

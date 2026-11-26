@@ -1208,6 +1208,27 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.start(any()) }
     }
 
+    @Test fun selectionChangedDuringRecoveryClearsCheckingWithoutQualifyingTheOldProof() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.map { if (it.uid == "profile-2") it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) else it }
+        seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.COMPLETED))
+        runs.value = runs.value.map { if (it.profileUid == "profile-2") it.copy(terminalError = "REASONING_OFF_UNSUPPORTED") else it }
+        val result = CompletableDeferred<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } coAnswers { result.await() }
+        val model = createViewModel(reasoningCapabilities = capabilities)
+        model.recheckReasoningFailure(1, "profile-2")
+        assertTrue(model.reasoningRecoveries.value.getValue("run-2").checking)
+        profiles = profiles.map { if (it.uid == "profile-2") it.copy(token = "replacement-test-credential") else it }
+        model.refreshLocalNetworkRequirement()
+        withTimeout(5000) { model.platformsInApp.first { it == profiles } }
+        result.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation("profile-2", "model-2", dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "old-configuration", "runtime", System.currentTimeMillis(), null, true, true))
+        withTimeout(5000) { model.reasoningRecoveries.first { it["run-2"]?.checking != true } }
+        assertFalse(model.reasoningRecoveries.value["run-2"]?.qualified == true)
+        assertFalse(model.combinedFailures.value.single().retryAllowed)
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
     @Test fun billingUnavailableCannotBeReplayedByTheGenericRetryControl() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         seedTurn(listOf(AgentRunStatus.FAILED, AgentRunStatus.COMPLETED, AgentRunStatus.COMPLETED))

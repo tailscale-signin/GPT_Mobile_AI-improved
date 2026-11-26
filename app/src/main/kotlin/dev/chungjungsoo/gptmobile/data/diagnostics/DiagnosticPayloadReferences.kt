@@ -13,6 +13,12 @@ internal class DiagnosticPayloadReferences {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 4096
     }
 
+    private data class BodyOrigin(val rowId: Long, val pointer: String)
+    private val bodyOriginals = object : LinkedHashMap<String, BodyOrigin>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BodyOrigin>?) = size > 2048
+    }
+    private data class BodyProjection(val value: JsonObject, val originals: List<Pair<String, BodyOrigin>>, val references: Int)
+
     suspend fun write(value: JsonElement, timings: DiagnosticCaptureTimings? = null, emit: suspend (JsonElement) -> Unit) {
         prepare(value, timings, retainEncoding = false) { output, _ -> emit(output) }
     }
@@ -56,18 +62,55 @@ internal class DiagnosticPayloadReferences {
         }
         val first = originals[digest]
         if (first == null || first == rowId) {
-            emit(value, serialized)
-            originals[digest] = rowId
-        } else {
-            val reference = buildJsonObject {
-                put("schema", "gptmobile.workspace-payload-reference.v1")
-                put("table", "workspace_records")
-                put("rowId", first)
-                put("pointer", "/fields/payload")
-                put("redactedJsonSha256", digest)
+            val bodies = if (payload is JsonObject && "payload_body_refs" !in fields) {
+                timings?.measure(DiagnosticCaptureTimings.Phase.PAYLOAD_DEDUPLICATION) { projectBodies(row, fields, payload, rowId) }
+                    ?: projectBodies(row, fields, payload, rowId)
+            } else {
+                BodyProjection(row, emptyList(), 0)
             }
-            emit(JsonObject(row + ("fields" to JsonObject(fields - "payload" + ("payload_ref" to reference)))), null)
+            emit(bodies.value, serialized.takeIf { bodies.references == 0 })
+            // Register only after the complete logical row has been written.
+            // Whole-payload references never point at a body-compacted row.
+            if (bodies.references == 0) originals[digest] = rowId
+            bodies.originals.forEach { (key, origin) -> bodyOriginals[key] = origin }
+            timings?.bodyReferenceReused(bodies.references)
+        } else {
+            emit(JsonObject(row + ("fields" to JsonObject(fields - "payload" + ("payload_ref" to reference(first, "/fields/payload", digest))))), null)
         }
+    }
+
+    private fun projectBodies(row: JsonObject, fields: JsonObject, payload: JsonObject, rowId: Long): BodyProjection {
+        val references = linkedMapOf<String, JsonElement>()
+        val retained = mutableListOf<Pair<String, BodyOrigin>>()
+        for ((key, value) in payload) {
+            if (key !in DiagnosticPayloadBodies.fields) continue
+            val digest = DiagnosticRecordChunks.largePayloadDigest(value, 2048) ?: continue
+            val first = bodyOriginals[digest]
+            if (first == null || first.rowId == rowId) {
+                val escaped = key.replace("~", "~0").replace("/", "~1")
+                retained += digest to BodyOrigin(rowId, "/fields/payload/$escaped")
+            } else {
+                references[key] = reference(first.rowId, first.pointer, digest)
+            }
+        }
+        val result = if (references.isEmpty()) {
+            row
+        } else {
+            val compactFields = fields + mapOf(
+                "payload" to JsonObject(payload - references.keys),
+                "payload_body_refs" to JsonObject(references)
+            )
+            JsonObject(row + ("fields" to JsonObject(compactFields)))
+        }
+        return BodyProjection(result, retained, references.size)
+    }
+
+    private fun reference(rowId: Long, pointer: String, digest: String) = buildJsonObject {
+        put("schema", "gptmobile.workspace-payload-reference.v1")
+        put("table", "workspace_records")
+        put("rowId", rowId)
+        put("pointer", pointer)
+        put("redactedJsonSha256", digest)
     }
 
     private fun encodeRow(row: JsonObject, payload: String): String = buildString(payload.length + 512) {

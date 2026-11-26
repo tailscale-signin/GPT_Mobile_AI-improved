@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "task": "runtime-audit-github-2026-11-26",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/unified-github-gateway",
+  "baseCommit": "d47f17815e43a70353d39c576378d7726bbefabd",
+  "originalAuditBase": "0e625e250117475446b8f216df2501ddbef168f2",
+  "workingBranch": "codex/audit-github",
+  "intentRecordedBeforeSourceEdits": "Recorded in the coordinating agent conversation before source edits; this file is the implementation handoff checkpoint.",
+  "parentPullRequest": 2646,
+  "status": "IMPLEMENTED_PENDING_INTEGRATED_COMPILATION_AND_REQUIRED_CI",
+  "intent": "Implement audit findings F03 through F08 without widening source authority, reasoning policy, caller budgets, deadlines, or true write dependencies.",
+  "changes": [
+    "Page an overflowing compact result from its requested compact projection while retaining original evidence separately.",
+    "Bound ordinary recent-commit lookup to ten records and publish validated retained commit subjects, authors and dates without another model round.",
+    "Preserve an intentional saved-page reread; advance a repeated model proposal only after two distinct proven deliveries and only for a task that did not ask to reread.",
+    "Qualify provider-issued exact local pagination for mechanical continuation and lower only automatic Instant/Intelligent visible-output repair effort without increasing its output ceiling.",
+    "Pin failure discovery to the selected immutable commit, preserving explicit historical run/job selectors.",
+    "Keep complete CI query scope and as-of observations, require contiguous same-query pages or a complete empty failure query for completion, and refresh the same revision and scope.",
+    "Preserve PR2646's authenticated full-SHA all_checks watch support and shared selector recovery; add runner and budget preflight regressions for selectorless fixed-run requests.",
+    "Preserve PR2646's separation of watch ordering from workspace failure dependencies; add pinned-read and preceding-write regressions.",
+    "Preserve explicit Deep/Maximum profiles and maximum effort at the provider-wire boundary when applying automatic visible-output repair."
+  ],
+  "ordinaryRegressionClasses": [
+    "GitHubResultViewsStressTest",
+    "GitHubSavedReadProgressTest",
+    "GitHubMechanicalReasoningTest",
+    "GitHubReasoningPolicyTest",
+    "GitHubLookupObservationTest",
+    "GitHubLookupReportTest",
+    "GitHubInventoryObservationTest",
+    "GitHubVerifiedSessionTest",
+    "GitHubCiRunInventoryTest",
+    "GitHubCiObservationReportTest",
+    "GitHubWorkspaceClientTest",
+    "GitHubOperationToolTest",
+    "IntelligentToolBatchTest",
+    "ToolArgumentRepairRunnerTest"
+  ],
+  "qualification": {
+    "focusedHostHelperExecution": "16 behavior regressions passed against actual Kotlin CI/lookup/inventory/status/projection, saved-read/delivery-proof, and compact-result paging sources. Schema/catalog/task-service/semantic-summary and JUnit boundaries used host stubs; replay-restoration and cross-projection replay tests were excluded. This is not Android or full production-flow qualification.",
+    "ordinaryProjectTests": "Pending the coordinating agent's unified Android build; no concurrent full Gradle run was started in this worktree.",
+    "formattingTool": "ktlint 1.3.1; pinned SHA-256 a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+    "canonicalValidation": "The coordinating agent owns scripts/validate-local.sh and required CI at the final integrated SHA.",
+    "physicalOrLiveGitHubRuntimeQualification": "Not run; deterministic regressions do not claim physical-device or live authenticated execution evidence."
+  },
+  "integration": {
+    "generatedArchitectureMaps": "Owned by the coordinating agent after integration.",
+    "incidentContract": "Add LOOKUP_OBSERVATION to acceptance_publication_entry and acceptance_publication_source in authentication/incident_report_contract.py and regenerate its diagnostic schema.",
+    "remoteWrites": "No push, PR mutation, merge or publication is performed by this worktree owner."
+  }
+}

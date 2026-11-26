@@ -57,6 +57,7 @@ internal object IssueReportIncidents {
     private data class PendingPrecheck(val identity: ToolReportDiagnostics.PrecheckIdentity, val calls: MutableSet<String>)
 
     private val pendingPrechecks = mutableMapOf<String, PendingPrecheck>()
+    private val pendingProviderOccurrences = mutableMapOf<String, MutableSet<String>>()
     private val lastFailures = mutableMapOf<FailureKey, Long>()
     private val lastCauses = mutableMapOf<IssueReportIncidentCapsule.CausalIdentity, Long>()
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -125,6 +126,7 @@ internal object IssueReportIncidents {
         lastFailures.clear()
         lastCauses.clear()
         pendingPrechecks.clear()
+        pendingProviderOccurrences.clear()
         clearDiagnosticSnapshots()
     }
 
@@ -553,6 +555,7 @@ internal object IssueReportIncidents {
             synchronized(lock) {
                 mutablePending.value = emptyList()
                 pendingPrechecks.clear()
+                pendingProviderOccurrences.clear()
                 clearDiagnosticSnapshots()
                 if (!AppLogRecorder.enabled.value) clearRecent()
             }
@@ -568,6 +571,7 @@ internal object IssueReportIncidents {
         synchronized(lock) {
             mutablePending.value = mutablePending.value.filterNot { it.reportId == reportId }
             pendingPrechecks.remove(reportId)
+            pendingProviderOccurrences.remove(reportId)
         }
         withContext(Dispatchers.IO) { crashFile(reportId)?.delete() }
     }
@@ -643,9 +647,27 @@ internal object IssueReportIncidents {
     }
 
     private fun addPending(report: IssueReport, precheck: ToolReportDiagnostics.PrecheckIdentity? = null) {
+        val occurrence = ProviderQuotaIncidentGrouping.occurrence(report)
+        if (occurrence != null) {
+            val queued = mutablePending.value
+            for ((index, first) in queued.withIndex()) {
+                val seen = pendingProviderOccurrences[first.reportId] ?: continue
+                val updated = ProviderQuotaIncidentGrouping.merge(first, report, seen) ?: continue
+                seen.add(occurrence)
+                if (updated.reportId != first.reportId) {
+                    pendingProviderOccurrences.remove(first.reportId)
+                    pendingProviderOccurrences[updated.reportId] = seen
+                }
+                mutablePending.value = queued.toMutableList().also { it[index] = updated }
+                updated.context?.diagnostics?.let(ReportDiagnosticSnapshots::retain)
+                pendingCorrelations.trySend(updated)
+                return
+            }
+        }
         if (mutablePending.value.size < PENDING_LIMIT && mutablePending.value.none { it.reportId == report.reportId }) {
             val call = report.context?.callIdHash
             if (precheck != null && call != null) pendingPrechecks[report.reportId] = PendingPrecheck(precheck, mutableSetOf(call))
+            if (occurrence != null && report.errorCode == "SOURCE_PAYMENT_REQUIRED") pendingProviderOccurrences[report.reportId] = linkedSetOf(occurrence)
             mutablePending.value = (mutablePending.value + report).take(PENDING_LIMIT)
             // The queue is bounded; Send/export also retain every still-pending report synchronously.
             pendingCorrelations.trySend(report)

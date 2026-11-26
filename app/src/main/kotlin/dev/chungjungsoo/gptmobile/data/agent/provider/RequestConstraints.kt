@@ -57,7 +57,12 @@ data class RequestConstraints(
 
     /** Extraction is bounded formatting; engineering reasoning must leave room for visible JSON. */
     fun forRole(role: String): RequestConstraints {
-        val briefHelper = role in setOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary") || role.startsWith("github-review") && !role.endsWith("repair")
+        val visibleRepair = role == dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE &&
+            reasoningModeOverride in setOf(null, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) &&
+            gitHubIntelligenceLevel in setOf(GitHubIntelligenceLevel.INSTANT, GitHubIntelligenceLevel.INTELLIGENT) &&
+            gitHubEffort != null &&
+            gitHubEffort != GitHubReasoningEffort.MAXIMUM
+        val briefHelper = visibleRepair || role in setOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary") || role.startsWith("github-review") && !role.endsWith("repair")
         return copy(
             requestRole = role,
             restoredGatewayJob = restoredGatewayJob.takeIf { role == "primary" },

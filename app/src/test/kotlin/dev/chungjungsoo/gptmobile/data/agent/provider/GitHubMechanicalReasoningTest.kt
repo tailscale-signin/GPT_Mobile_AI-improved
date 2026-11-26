@@ -22,14 +22,14 @@ class GitHubMechanicalReasoningTest {
         return AgentToolExchange(listOf(call), listOf(result))
     }
 
-    @Test fun onlyAnUnfinishedNativeLocalPageGetsTheMechanicalPreference() {
+    @Test fun onlyAnUnfinishedVerifiedLocalPageGetsTheMechanicalPreference() {
         assertTrue(GitHubReasoningPolicy.supportsOpenAiMechanicalEffort("gpt-5.2"))
         assertFalse(GitHubReasoningPolicy.supportsOpenAiMechanicalEffort("gpt-5.2-pro"))
         assertFalse(GitHubReasoningPolicy.supportsOpenAiMechanicalEffort("o3-deep-research"))
         assertFalse(GitHubReasoningPolicy.supportsOpenAiMechanicalEffort("unadvertised-model"))
         assertTrue(GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, listOf(page())))
         assertFalse(GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, listOf(page(complete = true))))
-        assertFalse(GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, listOf(page(id = "model-call-one"))))
+        assertTrue(GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, listOf(page(id = "model-call-one"))))
         assertFalse(GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, listOf(page(nextView = "other-view"))))
         assertFalse(GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, listOf(page(failed = true))))
         assertFalse(GitHubReasoningPolicy.mechanicalContinuation(constraints, emptyList(), listOf(page())))

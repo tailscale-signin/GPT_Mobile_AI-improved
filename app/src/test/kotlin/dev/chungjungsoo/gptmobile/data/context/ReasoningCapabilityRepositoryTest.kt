@@ -195,6 +195,20 @@ class ReasoningCapabilityRepositoryTest {
         assertFalse(auto.routeVerified)
     }
 
+    @Test fun loadedAutoRouteDoesNotOfferAnAlreadySelectedAutoWorkaround() = runTest {
+        val guidance = "This template control is unrecognized. Choose Auto explicitly or select a qualified model."
+        val repository = ReasoningCapabilityRepository({ _, _ ->
+            ReasoningCapabilityProbe(true, controlStatus = ReasoningCapabilityStatus.UNVERIFIED, detailMessage = guidance)
+        }, { 10L })
+        val auto = repository.check(profile, ReasoningMode.AUTO)
+        assertTrue(auto.permitsRequest)
+        assertTrue(auto.routeVerified)
+        assertNull(auto.detailMessage)
+        val off = repository.check(profile, ReasoningMode.OFF)
+        assertFalse(off.permitsRequest)
+        assertEquals(guidance, off.detailMessage)
+    }
+
     @Test fun verifiedPlanningCapacityUsesTheFreshCredentialBoundObservation() = runTest {
         var probes = 0
         var verified = true

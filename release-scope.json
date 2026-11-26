@@ -59,6 +59,7 @@
   ],
   "allowedPaths": [
     ".github/workflows/gateway-windows-installer.yml",
+    ".gitleaks.toml",
     "AGENTS.md",
     "AI-Memory.md",
     "CLAUDE.md",

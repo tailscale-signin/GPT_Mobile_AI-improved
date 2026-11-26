@@ -3099,9 +3099,9 @@
       "sha256": "460b3f8113365c1fe07c1426d7f6b792f90625a9d8f85478c00a892b1f5e5c4c"
     },
     ".gitleaks.toml": {
-      "blob_sha": "f72e0334b67db2e06a06d799e1a547ba53395e88",
-      "bytes": 8454,
-      "sha256": "a430d5d213a524dde615e6ca95f2573221f1d1c81e2e14416d9a2478b69cc7e6"
+      "blob_sha": "5def26758827193627b0263eaf561ddae55898a8",
+      "bytes": 8466,
+      "sha256": "9a1e7cc61438a13554e226e63b2c3762733d92dcfb24a3234172407324d3dbf8"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt": {
       "blob_sha": "d32e8d2c6b486e6b4df8afcf7a49974d6dd5de78",
@@ -6949,9 +6949,9 @@
       "sha256": "4d8bb6f2f795713bb69dc946c34ee045a619e8e295d0f2e5f3cce258ddb7f0e5"
     },
     "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json": {
-      "blob_sha": "4cc1fde0a7d3d9fab04e1f74284c6f5bf9829db9",
-      "bytes": 5750,
-      "sha256": "5dee38c6900b742c2b81f55257b3cd2e8aae96c76b40bee862959986815f0b08"
+      "blob_sha": "c915f6eefc07bad54c22a5f68b4d4a2b6125cab3",
+      "bytes": 6186,
+      "sha256": "4ccb174239245ea2af0461af4cff1d6603afaf22f5de2944655e16068d93c9fe"
     },
     "docs/repairs/windows-owner-presentation-2026-11-24-task.json": {
       "blob_sha": "921c965acfc045c03b55565d50bac1bf19a5aaed",

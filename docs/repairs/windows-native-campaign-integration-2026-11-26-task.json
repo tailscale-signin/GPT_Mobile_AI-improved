@@ -41,6 +41,11 @@
     {
       "state": "WINDOWS_FIXTURE_REPAIR",
       "details": "Closed all eight fixture-owned SQLite connections explicitly, preserved transaction commits, and added retained-handle lifecycle assertions before directory cleanup. File identity checks accept equivalent Windows path spellings. The native smoke now requires a successful packaged campaign-history bridge response rather than accepting layout after a swallowed read error. All 89 focused tests passed with PowerShell enabled on Linux; hosted Windows rerun remains required."
+    },
+    {
+      "state": "PARENT_HISTORY_CONTROL_RECONCILED",
+      "sourceSha": "c36df697132e434e29e2baa8a0d64079fb6da8d7",
+      "details": "Merged the concurrently published parent fix for the exact public version-four voice calibration preference in secret-history controls. Preserved both release-scope path additions and regenerated source references. No benchmark grader, evidence boundary or qualification gate was relaxed."
     }
   ],
   "validation": [
@@ -92,7 +97,7 @@
   ],
   "productMeasurements": null,
   "windowsExecution": null,
-  "integrationBaseSha": "5e02fbfbb8c131412045d08a0fb46bbecc1587f4",
+  "integrationBaseSha": "c36df697132e434e29e2baa8a0d64079fb6da8d7",
   "changes": [
     "Embedded canonical native-product campaign controller and endpoint-restricted installed transport.",
     "Added native WPF Native products tab, editable budgets, capture helpers, signed imports, supplied-answer grading, recovery and unknown-preserving reports.",

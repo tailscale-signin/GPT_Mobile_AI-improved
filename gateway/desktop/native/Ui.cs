@@ -201,6 +201,9 @@ internal static class Ui
             DataContext = owner.DataContext, FlowDirection = owner.FlowDirection, Language = owner.Language,
             UseLayoutRounding = owner.UseLayoutRounding, SnapsToDevicePixels = owner.SnapsToDevicePixels
         };
+        if (frame.Background is not SolidColorBrush backdrop || backdrop.Color.A != byte.MaxValue ||
+            backdrop.Opacity != 1 || frame.Opacity != 1)
+            throw new InvalidOperationException("Reference capture requires a fully opaque solid background.");
         TextElement.SetFontFamily(frame, owner.FontFamily);
         TextElement.SetFontSize(frame, owner.FontSize);
         TextElement.SetFontStyle(frame, owner.FontStyle);
@@ -232,10 +235,10 @@ internal static class Ui
             int stride = image.PixelWidth * 4;
             var pixels = new byte[stride * image.PixelHeight];
             image.CopyPixels(pixels, stride, 0);
-            for (int alpha = 3; alpha < pixels.Length; alpha += 4)
-                if (pixels[alpha] != byte.MaxValue)
-                    throw new InvalidOperationException($"Reference capture contains an unrendered or transparent pixel: x={alpha / 4 % image.PixelWidth}, y={alpha / 4 / image.PixelWidth}, alpha={pixels[alpha]}, bitmap={image.PixelWidth}x{image.PixelHeight}.");
+            // Keep the exact rendered PNG even when coverage validation fails.
             SaveCapture(image, file);
+            int roundedGlyphPixels = ReferenceCaptureCoverage.ValidatePbgra32(pixels, image.PixelWidth, image.PixelHeight);
+            Console.WriteLine($"Reference capture coverage: {image.PixelWidth}x{image.PixelHeight}, glyph-alpha rounding pixels={roundedGlyphPixels}.");
         }
         finally
         {

@@ -113,6 +113,38 @@ Check(1000*PublicPreview.FirstSummarySeconds==motion.Number("first_finding_ms")
     && 1000*PublicPreview.NextSummarySeconds==motion.Number("later_finding_ms"), "Findings use the shared summary cadence");
 foreach(var example in contract.Array("reading"))
     Check(PublicPreview.ReadingMs((int)example!.Number("lines")!)==example.Number("duration_ms"), "Rendered-line reading example matches Android");
+// Reproduce WPF's software glyph-over blend, rather than assuming every rendered alpha is 255.
+for (int glyphAlpha = 1; glyphAlpha < 255; glyphAlpha++)
+{
+    byte renderedAlpha = (byte)(((255 * (255 - glyphAlpha)) >> 8) + glyphAlpha);
+    byte[] glyphPixel = [0, 18, 25, renderedAlpha];
+    Check(ReferenceCaptureCoverage.ValidatePbgra32(glyphPixel, 1, 1) == 1,
+        "Fractional glyph coverage over an opaque background is fully rendered");
+}
+byte[] mixedCapture = [0, 18, 25, 255, 1, 2, 3, 254];
+byte[] unchangedCapture = (byte[])mixedCapture.Clone();
+Check(ReferenceCaptureCoverage.ValidatePbgra32(mixedCapture, 2, 1) == 1,
+    "Capture validation reads alpha, not color channels");
+Check(mixedCapture.SequenceEqual(unchangedCapture), "Capture validation preserves raw rendered pixels");
+void RejectCapture(byte[] pixels, int width, int height, string name)
+{
+    try { ReferenceCaptureCoverage.ValidatePbgra32(pixels, width, height); }
+    catch (InvalidOperationException) { Check(true, name); return; }
+    throw new Exception(name);
+}
+foreach (byte alpha in new byte[] { 0, 1, 127, 253 })
+    RejectCapture([0, 18, 25, 255, 0, 18, 25, alpha], 2, 1,
+        "Pixels outside the documented glyph-alpha allowance are rejected");
+byte repeatedGlyphAlpha = (byte)(((254 * (255 - 1)) >> 8) + 1);
+RejectCapture([0, 18, 25, repeatedGlyphAlpha], 1, 1, "The allowance stays limited to a single glyph blend");
+RejectCapture([0, 18, 25, 255], -1, 1, "Negative bitmap dimensions fail closed");
+RejectCapture([0, 18, 25], 1, 1, "An incomplete final pixel fails closed");
+RejectCapture(null!, 1, 1, "A missing bitmap buffer fails closed");
+RejectCapture([], 0, 0, "An empty bitmap cannot pass reference coverage");
+RejectCapture([0, 18, 25, 255], 2, 1, "A truncated bitmap cannot pass reference coverage");
+RejectCapture(mixedCapture, 1, 1, "Extra pixel bytes cannot hide a dimension mismatch");
+RejectCapture([], int.MaxValue, int.MaxValue, "Overflowing bitmap dimensions fail closed");
+
 Console.WriteLine($"{count} native bridge contract assertions passed.");
 
 sealed class RepeatedReader(int count) : TextReader

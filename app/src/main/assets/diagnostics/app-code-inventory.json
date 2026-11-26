@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "5e8a12ba589050d0d8dddd63de40d6c10c1ae0366de8b6ace64268e64c7c3e7d",
-  "file_count": 3166,
-  "indexed_line_count": 541740,
+  "source_digest": "c36c5747c13a85ccf0b5e44c4bed3351838e2fdebcfd19afc6e8215d648a2593",
+  "file_count": 3167,
+  "indexed_line_count": 541769,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,8 +166,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 285,
-      "indexed_line_count": 104062
+      "file_count": 286,
+      "indexed_line_count": 104091
     },
     {
       "id": "authentication_service",
@@ -20539,6 +20539,13 @@
       "indexed_lines": 100
     },
     {
+      "path": "gateway/desktop/native/Core/ReferenceCaptureCoverage.cs",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "4726218db2a094398ff0127cb46d9c335b5642c1cc47bb4cfa56de27c03f7643",
+      "indexed_lines": 26
+    },
+    {
       "path": "gateway/desktop/native/GlobalUsings.cs",
       "area_id": "gateway_software",
       "kind": "source",
@@ -20640,8 +20647,8 @@
       "path": "gateway/desktop/native/Ui.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "9e056591b044c1004c911aa1566c389efa224e0d5016c1d8cfd8ac21151f49da",
-      "indexed_lines": 254
+      "sha256": "004bd7e281ecba715db53f2f2d9118d95baa42ff998b1cde8c568c9dac77cb99",
+      "indexed_lines": 257
     },
     {
       "path": "gateway/desktop/native_bridge.py",

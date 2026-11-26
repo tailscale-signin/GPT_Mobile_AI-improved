@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import android.app.Application
+import android.media.session.PlaybackState
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import dagger.Lazy
@@ -112,6 +113,14 @@ class VoiceBackgroundPlaybackTest {
         assertEquals(finalText.trim(), output.played.joinToString(" ").replace(Regex("""\s+"""), " ").trim())
         assertNull(owner.notification.value)
         assertTrue(output.closed)
+    }
+
+    @Test fun systemMediaControlsAdvertiseAStopActionBoundToThePlayingReply() {
+        val state = VoicePlaybackService.playingState("first")
+        assertEquals(PlaybackState.STATE_PLAYING, state.state)
+        assertTrue(state.actions and PlaybackState.ACTION_STOP != 0L)
+        assertEquals("Stop", state.customActions.single().name)
+        assertFalse(state.customActions.single().action == VoicePlaybackService.playingState("second").customActions.single().action)
     }
 
     @Test fun switchingRoomsAndTappingAnOldNotificationCannotStopTheNewReply() {

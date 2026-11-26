@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6bdc5a424c05395c9353381e77b2c208b409e9195b359a98391c437688d5e743",
+  "source_digest": "feef770c42fd8b06e908c8fc4137505eeadedce41f1cca4da224ea141a7326eb",
   "file_count": 3186,
-  "indexed_line_count": 545489,
+  "indexed_line_count": 545499,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -35,7 +35,7 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 76,
-      "indexed_line_count": 8885
+      "indexed_line_count": 8895
     },
     {
       "id": "chat_ui",
@@ -14781,8 +14781,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/service/VoicePlaybackService.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "61479b4e909c3155839594574dc9f4b750612c692200df17695843acb140de05",
-      "indexed_lines": 115
+      "sha256": "546684dacef9b667a6d20b9fc8e395ef278570b72eb3c432b4613129558ce043",
+      "indexed_lines": 125
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/theme/ChatAlphaTokens.kt",

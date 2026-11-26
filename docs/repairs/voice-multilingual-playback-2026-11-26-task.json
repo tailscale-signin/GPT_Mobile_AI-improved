@@ -12,7 +12,7 @@
   "verification": {
     "host": "Canonical fast gate passed with 843 passing Python tests, one skipped, resource preflight and generated reference checks.",
     "speech": "216 focused JVM tests passed for pronunciation, locale/voice selection, CPU scheduling, accelerator fallback, phrase buffering and playback state.",
-    "background": "Three Robolectric tests passed on simulated API 34: screen release through audio completion, durable reply continuation, and stale notification Stop isolation.",
+    "background": "28 Robolectric tests passed for playback, preferences and backend selection. Four directly cover screen release, durable reply continuation, stale Stop isolation and the Android media-session Stop control.",
     "database": "Room KSP generated the playback DAO. The query ran against schema v54 with matching, superseded, wrong-room and wrong-fence cases.",
     "native": "Host native speech contracts passed for validation, cancellation, finalization and compiled-context handling.",
     "device": "Physical French audio, uninterrupted handset playback and accelerator performance require a compatible handset."

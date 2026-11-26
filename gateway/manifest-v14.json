@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.1.5",
   "schemaVersion": 1,
-  "sourceCommit": "5f6bf3538ef4d0cb0cba28fd5cea69f797398fd6",
+  "sourceCommit": "af4c5251319f2e8ddabfd3d7798b5818adf8577a",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -282,7 +282,7 @@
     "tests/test_gateway_benchmark_setup.py": "d662bcd704abd925eda98c730b4afa05b39e5997b0adc250daac6e48a1fa26d9",
     "tests/test_gateway_benchmark_v17.py": "cdee8c079e8554ce025e1592694d31d71bed19d4d0ada6d978399075922d7c1d",
     "tests/test_gateway_browser_bridge.mjs": "673e8604bd44317355c9824213d1d1f6c9ce12eef81f7b093b75e2bc621568b0",
-    "tests/test_gateway_campaign_gateway.py": "41f0207cefef57d671c48534517afd5a51606fa380e5f25b44e6597f2a0c2676",
+    "tests/test_gateway_campaign_gateway.py": "e124b86dd130fec1783e5ecc41e89bf3cec4567ef029c43b4d32aecb790a266e",
     "tests/test_gateway_campaign_powershell.py": "e03dd1b38e73d3d6365e1ae9d27254d1e97a193d74926841e0bc2514a78e766e",
     "tests/test_gateway_capabilities.py": "07004e429de289a6c6bc1fe6328de1a7c8aa7790a185878986948464ffc70b2f",
     "tests/test_gateway_command_outcomes.py": "af672663eca137a980de6cf98dbd9cef253fc8fa019cfbfc79fde2946e9d771a",

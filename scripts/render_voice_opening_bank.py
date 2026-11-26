@@ -55,7 +55,7 @@ def render(args):
                     continue
                 clips = {}
                 for kind, text in catalog[lang].items():
-                    parts = [chunk.samples.copy() for chunk in input_chunks(task, text, incremental=False, evidence={}, voice_id=voice, locale=lang) if chunk.samples.size]
+                    parts = [chunk.samples.copy() for chunk in input_chunks(task, text, incremental=False, evidence={}, voice_id=voice, locale=tag) if chunk.samples.size]
                     samples = np.concatenate(parts)
                     if not 0 < len(samples) <= SAMPLE_RATE * 8 or not np.isfinite(samples).all() or float(np.max(np.abs(samples))) < .005:
                         raise ValueError(f"Invalid voice output for {voice}/{kind}")

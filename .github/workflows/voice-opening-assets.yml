@@ -2,7 +2,7 @@ name: Generate voice acknowledgement bank
 
 on:
   workflow_dispatch:
-  pull_request:
+  push:
     paths:
       - '.github/workflows/voice-opening-assets.yml'
       - 'scripts/render_voice_opening_bank.py'

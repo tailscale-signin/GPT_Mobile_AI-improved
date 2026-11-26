@@ -138,9 +138,13 @@ internal object GitHubReplayRecovery {
                 .mapValues { (_, read) -> read.deliveryDigest }
         }
 
-        /** Exact current alias of a verified saved-page obligation. No new operation is acquired. */
-        fun owedPageSchema(pending: Map<String, String?>, authorized: List<AgentToolDefinition>): AgentToolDefinition? {
-            for (id in pending.keys) {
+        /** Reserve a tool only for a missing page. Retained exact bytes need only provider delivery. */
+        fun owedPageSchema(pending: Map<String, String?>, authorized: List<AgentToolDefinition>, retained: List<AgentToolExchange> = emptyList(), cache: ToolExchangeCompactor.RenderCache? = null): AgentToolDefinition? {
+            if (pending.isEmpty() || authorized.isEmpty()) return null
+            val bodies = retained.flatMap { it.results }.associateBy { it.callId }
+            for ((id, digest) in pending) {
+                val body = bodies[id]
+                if (body != null && digest != null && ToolResultDeliveryProof.digest(body.content, cache) == digest) continue
                 val read = verifiedReads[id] ?: continue
                 if (immutablePageIdentity(read) == null) continue
                 val tool = authorized.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue

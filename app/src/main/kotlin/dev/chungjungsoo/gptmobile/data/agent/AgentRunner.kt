@@ -324,17 +324,10 @@ class AgentRunner(
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
                 val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
-                val owedSchema = if ((limits.githubMode || limits.githubTask) && pendingSavedPages.isNotEmpty()) {
-                    automaticRecovery?.owedPageSchema(pendingSavedPages, exposedDefinitions.filter { it.name in executableToolByName })
-                } else {
-                    null
-                }
-                val roundDefinitions = try {
-                    fitRoundDefinitions(state, selectDefinitions, initialSchemaTokens, completedOperations, owedSchema)
-                } catch (capacity: GitHubToolContextBudgetException) {
-                    emit(AgentRunEvent.Provider(capacity.providerFailure()))
-                    return
-                }
+                val authorizedPageTools = if (pendingSavedPages.isEmpty()) emptyList() else exposedDefinitions.filter { it.name in executableToolByName }
+                val owedSchema = automaticRecovery?.owedPageSchema(pendingSavedPages, authorizedPageTools, exchanges, replayRenderCache)
+                val selected = selectedForRound(exposedDefinitions, selectDefinitions)
+                var roundDefinitions = fitRoundDefinitions(state, selected, initialSchemaTokens, completedOperations, owedSchema) ?: return
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
                 val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pendingSavedPages)
@@ -364,6 +357,10 @@ class AgentRunner(
                         continue
                     }
                     val pending = pendingSavedPages.filterKeys { it in preparedRound.unacknowledgedSavedPages }
+                    val reopenSchema = automaticRecovery?.owedPageSchema(pending, authorizedPageTools)
+                    if (reopenSchema != null && reopenSchema != owedSchema) {
+                        roundDefinitions = fitRoundDefinitions(state, selected, initialSchemaTokens, completedOperations, reopenSchema) ?: return
+                    }
                     val restore = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pending, reopenAvailable = true)
                     if (restore == null) {
                         emit(
@@ -531,26 +528,30 @@ class AgentRunner(
         )
     )
 
-    private fun fitRoundDefinitions(
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.fitRoundDefinitions(
         state: LoopState,
-        selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
+        selected: List<AgentToolDefinition>,
         initialSchemaTokens: Long,
         completedOperations: Set<String>,
         owedSchema: AgentToolDefinition?
-    ): List<AgentToolDefinition> = with(state) {
-        val selected = selectedForRound(exposedDefinitions, selectDefinitions)
+    ): List<AgentToolDefinition>? = with(state) {
         val candidates = if (owedSchema == null) selected else listOf(owedSchema) + selected.filterNot { ProgressiveToolCatalog.isGitHubTool(it) }
 
-        val available = fitProviderToolSchemas(
-            candidates,
-            limits,
-            initialSchemaTokens,
-            replayTokens + SavedPageReading.reservation(savedPageReading, false),
-            discoveryPaused = unproductiveDiscoveryRounds >= 2 && retrySchemaNames == null,
-            completedOperations = completedOperations.toList(),
-            focusedOperation = healthCatalog?.focusedOperation(candidates),
-            owedOperation = owedSchema?.name
-        )
+        val available = try {
+            fitProviderToolSchemas(
+                candidates,
+                limits,
+                initialSchemaTokens,
+                replayTokens + SavedPageReading.reservation(savedPageReading, false),
+                discoveryPaused = unproductiveDiscoveryRounds >= 2 && retrySchemaNames == null,
+                completedOperations = completedOperations.toList(),
+                focusedOperation = healthCatalog?.focusedOperation(candidates),
+                owedOperation = owedSchema?.name
+            )
+        } catch (capacity: GitHubToolContextBudgetException) {
+            emit(AgentRunEvent.Provider(capacity.providerFailure()))
+            return@with null
+        }
         val fitted = retrySchemaNames?.let { names -> available.filter { it.name in names || it.name == owedSchema?.name } } ?: available
         afterRepeatedGitHubDiscovery(fitted, unproductiveDiscoveryRounds >= 2)
     }

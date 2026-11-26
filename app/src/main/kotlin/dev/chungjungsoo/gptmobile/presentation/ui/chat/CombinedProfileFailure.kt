@@ -4,6 +4,9 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetKind
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** One decision queue derived from durable current attempts; successful replies are never replaced. */
 data class CombinedProfileFailure(
@@ -19,14 +22,26 @@ data class CombinedProfileFailure(
     val retryAfterMillis: Long? = null,
     val category: String = "INCOMPLETE",
     val retrying: Boolean = false,
-    val waitingForApproval: Boolean = false
+    val waitingForApproval: Boolean = false,
+    val budgetKind: ProviderBudgetKind? = null
+)
+
+// Older saved runs have only the terminal message. A bare 402 or billing category
+// does not distinguish an account balance from a key or request-level limit.
+private val legacyCreditDenial = Regex(
+    """\b(?:credit balance (?:is |was )?too low|no credits remaining|insufficient credits|account credits cannot cover this request)\b""",
+    RegexOption.IGNORE_CASE
 )
 
 internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     retrying -> "Retrying…"
     category == "WAITING_FOR_APPROVAL" -> "Waiting for approval"
     category == "ENDPOINT_RETIRED" -> "Endpoint retired"
-    category == "BILLING_UNAVAILABLE" -> "Provider allowance unavailable"
+    category == "BILLING_UNAVAILABLE" -> when (budgetKind) {
+        ProviderBudgetKind.ACCOUNT_CREDITS -> "Provider credits unavailable"
+        null, ProviderBudgetKind.UNKNOWN -> if (legacyCreditDenial.containsMatchIn(details)) "Provider credits unavailable" else "Provider allowance unavailable"
+        else -> "Provider allowance unavailable"
+    }
     category == "QUEUED_JOB" -> "Waiting for remote job"
     category == "CACHED_UNUSABLE_RESPONSE" -> "Cached answer unavailable"
     category == "HOSTED_GENERATION_FAILED" -> "Provider generation failed"
@@ -134,5 +149,7 @@ internal fun combinedProfileFailures(
             else -> classified.category
         }
     }
-    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category, waitingForApproval = waitingForApproval)
+    val budgetName = (classified.providerFailure?.get("provider_budget_kind") as? JsonPrimitive)?.contentOrNull
+    val budgetKind = budgetName?.let { name -> ProviderBudgetKind.entries.firstOrNull { it.name == name } }
+    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category, waitingForApproval = waitingForApproval, budgetKind = budgetKind)
 }

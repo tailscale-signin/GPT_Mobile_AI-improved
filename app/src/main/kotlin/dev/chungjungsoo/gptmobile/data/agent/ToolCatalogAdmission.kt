@@ -187,7 +187,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val discoveryFits = discovery != null && discoveryCost <= remaining
     // A local sequence can page the already resolved native contracts even when the
     // wire window has no directory. It never acquires tools or increases a reserve.
-    if ((limits.githubMode || limits.githubTask) && discovery == null && maxSchemaTokens == null && scopedOperations.isEmpty()) {
+    if ((limits.githubMode || limits.githubTask) && limits.contextTokens <= 4096 && discovery == null && maxSchemaTokens == null && scopedOperations.isEmpty()) {
         val optional = visible.filter { it.name !in requiredNames && ProgressiveToolCatalog.isGitHubTool(it) }
         val nativeOnly = optional.all { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null }
         if (nativeOnly && optional.size > 1 && optional.sumOf { providerSchemaTokens(it, limits.githubMode) } > remaining) {

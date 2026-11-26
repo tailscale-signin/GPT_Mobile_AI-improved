@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ba2f112bcc931469d89468f5b12e31cf2af7459e3d6d5f9c7a3da83d95a334e3",
+  "source_digest": "414200a919b0450e6409ef86629022511647694f4351a91f33567974eb89a2bc",
   "file_count": 3175,
-  "indexed_line_count": 543556,
+  "indexed_line_count": 543578,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 615,
-      "indexed_line_count": 108718
+      "indexed_line_count": 108735
     },
     {
       "id": "accessibility_and_localization",
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 265,
-      "indexed_line_count": 48060
+      "indexed_line_count": 48065
     },
     {
       "id": "agent_tools",
@@ -823,8 +823,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "b2d7575d622c6feafacd94292fe58707f2265f95524c5cf8dc8add757ff45718",
-      "indexed_lines": 3143
+      "sha256": "02d0f83047f3e9fd5e7744b5aa06d00fd1cecf553855ea113cf9a94fc6aabbf1",
+      "indexed_lines": 3144
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -1705,8 +1705,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "9509b6ddcfa553d2e8da0a67ec461cb72efca7886221caba97cc060d0a7baf4a",
-      "indexed_lines": 817
+      "sha256": "196fe5d9923acbd937f8c5353c1d669c2e39e22efd12ce7023cce24db7ce5876",
+      "indexed_lines": 821
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRequirementToolFocus.kt",
@@ -2237,7 +2237,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "dee08e858322c95effd1a2856a30ea429f8d4811bd1ebc1ebebfadba403460ab",
+      "sha256": "1df96c9051481177723b8549d970fe155817768027ba2d42ea5f0100753ed476",
       "indexed_lines": 414
     },
     {
@@ -15264,8 +15264,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedProfileFailure.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "2933c8cadee6c26abdffec41cb29d50456fe284cc26f3d154e523818e29c4a83",
-      "indexed_lines": 138
+      "sha256": "109a2eb37cf4ed1073894c34f6fd7a66cb7ef891f35817773ff0f1b712ab47cc",
+      "indexed_lines": 155
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedProfileFailureCache.kt",

@@ -115,6 +115,29 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun emptyFinalizationDoesNotDiscardNonEmptyPartialTranscript() {
+        val accepted = CountDownLatch(1)
+        val decoder = FakeDecoder {
+            events(LocalSpeechEvent.Partial("recognized words"))
+            accepted.countDown()
+        }.apply { finalOnFinish = "" }
+        val capture = FakeCapture().apply { chunks.add(FloatArray(1600) { 0.1f }) }
+        val fixture = Fixture(decoder, capture = capture)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(accepted.await(3, TimeUnit.SECONDS))
+            fixture.audio.finishListening()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf("recognized words"), fixture.finals)
+            assertTrue(fixture.codes.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
     @Test fun lateSilencingDrainsCapturedAudioAndDeliversOnlyAnEditableTranscript() {
         val error = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", capturedSamples = 1600)
         val capture = FakeCapture(readFailure = error).apply { chunks.add(FloatArray(1600) { 0.1f }) }

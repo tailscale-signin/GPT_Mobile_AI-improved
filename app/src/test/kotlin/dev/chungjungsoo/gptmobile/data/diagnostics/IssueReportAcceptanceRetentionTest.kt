@@ -26,6 +26,29 @@ class IssueReportAcceptanceRetentionTest {
             }
             assertEquals(JsonPrimitive(11), snapshot.values["unmet_criterion_count"])
             assertEquals(JsonPrimitive(10), snapshot.values["unmet_criterion_omitted_count"])
+            val prerequisiteFields = setOf(
+                "acceptance_prerequisite_blockers",
+                "acceptance_blocked_operation_families",
+                "acceptance_additional_blocked_family_count",
+                "acceptance_ready_read_count",
+                "acceptance_additional_ready_read_count",
+                "acceptance_preparation_state",
+                "repository_graph_observation",
+                "graph_input_blocked_count"
+            )
+            prerequisiteFields.forEach { key ->
+                assertNotNull("A compact acceptance report must retain $key", snapshot.values[key])
+                assertFalse("$key must not be compacted away", key in snapshot.omittedFields)
+                assertFalse("$key must not be marked unavailable", key in snapshot.unavailableFields)
+            }
+            assertEquals(
+                JsonArray(listOf(JsonPrimitive("WORKFLOW_RUN_OR_JOB_REQUIRED"), JsonPrimitive("OWNED_FIXTURE_REQUIRED"))),
+                snapshot.values["acceptance_prerequisite_blockers"]
+            )
+            assertEquals(
+                JsonArray(listOf(JsonPrimitive("github_ci"), JsonPrimitive("github_read"))),
+                snapshot.values["acceptance_blocked_operation_families"]
+            )
             assertTrue(snapshot.omittedFields.isNotEmpty())
             assertTrue(snapshot.omittedFields.none { it in snapshot.values })
             assertTrue(snapshot.values.keys.none { it == "raw_failure" })

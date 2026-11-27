@@ -375,6 +375,16 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             response.close()
             return
 
+    def response_lines():
+        try:
+            yield from response.iter_lines(chunk_size=256)
+        except (AttributeError, ValueError) as exc:
+            # Closing urllib3's chunk reader from the watchdog can clear its file
+            # reference or close the file while its reader is still inside readline.
+            if not (tail_finished.is_set() or expired.is_set() or stopped.is_set()):
+                raise
+            raise requests.ConnectionError("Stream closed by the backend watchdog.") from exc
+
     def observed(state):
         nonlocal last_progress, last_size, last_state, terminal_seen_at, backend_first_output_ms
         nonlocal backend_first_visible_output_ms, backend_first_reasoning_output_ms, backend_first_event_ms
@@ -442,7 +452,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             return response, None
         if "text/event-stream" in response.headers.get("content-type", "").lower():
             try:
-                data = consume_sse(response.iter_lines(chunk_size=256), observed, lambda: cancelled() or stopped.is_set() or expired.is_set())
+                data = consume_sse(response_lines(), observed, lambda: cancelled() or stopped.is_set() or expired.is_set())
             except (requests.RequestException, OSError):
                 # A complete finish marker is sufficient. Give a trailing usage
                 # chunk a short grace period, not an unbounded wait for socket EOF.

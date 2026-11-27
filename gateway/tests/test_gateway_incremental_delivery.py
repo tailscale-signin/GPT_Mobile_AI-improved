@@ -326,7 +326,10 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 body = self.body(job_id, role=role)
                 if mode == 'fast':
                     release.set()
-                poll_seconds = 5 if mode == 'fast' else self.runtime.PROGRESS_POLL_SECONDS
+                # Exercise a completion that wakes the subscriber before another
+                # progress poll, regardless of how long CI takes to persist it.
+                # finish_streams still bounds the observer and physical worker.
+                poll_seconds = None if mode == 'fast' else self.runtime.PROGRESS_POLL_SECONDS
                 mode_scope = self.stack.enter_context(ExitStack())
                 mode_scope.enter_context(patch.object(self.runtime, 'PROGRESS_POLL_SECONDS', poll_seconds))
                 worker = asyncio.create_task(self.observe(body, job_id, packets, first_visible))

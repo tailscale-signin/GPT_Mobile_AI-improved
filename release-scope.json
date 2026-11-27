@@ -51,7 +51,8 @@
     "Summarize GitHub session failures from preceding turns and show revision-bound review progress. Recover bounded private reading notes and persist reduced claim batches across interruption.",
     "Translation mode shows your words at the top and the translated reply below. The prompt fades in as you speak, stays through playback, and fades away when the microphone starts listening again.",
     "Recover saved GitHub pages displaced by chat history, fit required read schemas to small models, name missing evidence in partial reports, and cite CI failures beyond the first log page.",
-    "Voice translation reserves space for the first line of dictation at the selected text size. Long control labels stay within two lines, and the reply-language list scrolls with its explanation."
+    "Voice translation reserves space for the first line of dictation at the selected text size. Long control labels stay within two lines, and the reply-language list scrolls with its explanation.",
+    "Gateway keeps the completed answer and any received usage when its stream watchdog closes a Windows connection after the finish marker."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -672,7 +673,10 @@
     "docs/repairs/github-build152-issue-intake-task.json",
     "scripts/tests/test_prepare_emulator_ui.py",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt",
+    "gateway/gateway_v13_transport.py",
+    "gateway/tests/test_gateway_completion_recovery.py",
+    "gateway/tests/test_gateway_incremental_delivery.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

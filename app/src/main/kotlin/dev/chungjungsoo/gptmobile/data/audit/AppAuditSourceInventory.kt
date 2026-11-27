@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "4e88487c7bd2f2340e69d4f2edac41f944caa4389ee248f06083e621fbb5d679"
+    val sourceDigest: String = "c1ac2f55b14cdf42e3de1ce55e6614336ff48e67ea036728a3508a15c5724170"
     val fileCount: Int = 3214
-    val lineCount: Int = 553809
+    val lineCount: Int = 553819
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -46,7 +46,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("voice_and_media", "Voice and media", 153, 27121),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 297, 108793),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 297, 108803),
         AppAuditSourceArea("authentication_service", "Authentication broker software", 10, 2985),
         AppAuditSourceArea("external_integrations", "External integration servers", 63, 6507),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2875)

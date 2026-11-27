@@ -81,6 +81,14 @@
       "job": 140278908025,
       "junitArtifact": 15169116815,
       "details": "The hosted GenieX unit run reported four failures in 15,168 tests. Its JUnit evidence identifies a status schema now restricted to runs, a model fixture missing an explicit low-effort capability, changed retrospective introduction wording, and a real-I/O workspace coroutine that resumed after its test reset Dispatchers.Main. Preserve the intended catalog, provider and retrospective behavior and retire the originating view model before restoring the dispatcher."
+    },
+    {
+      "sourceSha": "e2af4e3852d0de402417db832e102aff14e3868b",
+      "workflowRun": 45933509483,
+      "job": 140291315154,
+      "details": "Windows Python 3.12 exposed urllib3 reading a closed chunk stream after the terminal grace period. Reproduce the transport close with a validated finish marker and verify that cancellation, deadlines and unrelated read errors remain distinct. Exercise completion before the next ASGI progress poll independently of Windows host speed.",
+      "state": "WINDOWS_SSE_COMPLETION_REPAIR",
+      "localReproduction": "A watchdog-driven closed reader reproduced both AttributeError and ValueError on the original transport. A 5.5-second delay after backend generation reproduced the original fast-mode receipt mismatch. The repaired paths preserve the final answer, usage and ASGI receipt in each fixture."
     }
   ],
   "verification": {

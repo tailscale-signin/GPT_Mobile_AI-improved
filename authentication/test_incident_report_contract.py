@@ -1519,6 +1519,14 @@ class IncidentReportContractTest(unittest.TestCase):
         omitted["omittedFields"] = sorted(capsule.TOOL_EVENT_PERSISTENCE_FIELDS)
         self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
 
+    def test_acceptance_publication_source_and_entry_match_android(self):
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt").read_text()
+        for enum, field in (("Source", "acceptance_publication_source"), ("Entry", "acceptance_publication_entry")):
+            with self.subTest(field=field):
+                declaration = re.search(r"enum class " + enum + r"\s*\{([^}]+)\}", source)
+                self.assertIsNotNone(declaration)
+                self.assertEqual({name.strip() for name in declaration.group(1).split(",") if name.strip()}, capsule.ENUMS[field])
+
     def test_acceptance_observation_causes_keep_closed_entries_and_comparison_policy(self):
         intake = self.capture("ACCEPTANCE", {"acceptance_publication_source": "ISSUE_INTAKE",
                                               "acceptance_publication_entry": "ISSUE_INTAKE"})

@@ -601,6 +601,41 @@ class IssueReportSubmissionTest {
         )
     )
 
+    @Test fun issueIntakePublicationWaitsForASupportingReporter() {
+        val feature = GitHubAcceptancePublicationEvidence.ISSUE_INTAKE_FEATURE
+        val original = requireNotNull(publicationReport().context)
+        val diagnostics = requireNotNull(original.diagnostics)
+        assertFalse(feature in diagnostics.requiredServiceFeatures())
+        for (field in listOf("acceptance_publication_source", "acceptance_publication_entry")) {
+            val observed = diagnostics.copy(values = diagnostics.values + (field to JsonPrimitive("ISSUE_INTAKE")))
+            val needed = observed.requiredServiceFeatures()
+            assertTrue(feature in needed)
+            val approved = report.copy(context = original.withDiagnostics(observed))
+            val payload = approved.approvedPayload()
+            var supported = false
+            val methods = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("extended", request.url.queryParameter("capabilities"))
+                    val features = JsonArray(needed.filter { supported || it != feature }.map(::JsonPrimitive))
+                    response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                } else {
+                    assertEquals(payload, body(request))
+                    response(request, 200, """{"reportId":"${approved.reportId}","number":1240}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(approved.reportId, payload) as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertEquals(listOf("GET"), methods)
+            supported = true
+            assertEquals(IssueReportSubmission.Confirmed(1240), submission.send(approved.reportId, payload))
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+        }
+    }
+
     @Test fun verificationReserveReasonUsesExistingCapabilitiesAndPreservesApprovedBytes() {
         val observations = listOf(
             "CHAT_FAILURE" to mapOf("failed_stage" to "acceptance_verification", "diagnostic_area" to "ACCEPTANCE", "used_calls" to 62, "remaining_calls" to 2, "verification_reserve" to 2),

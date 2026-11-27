@@ -13,6 +13,7 @@ import kotlinx.serialization.json.put
 internal object GitHubAcceptancePublicationEvidence {
     const val FEATURE = "ACCEPTANCE_PUBLICATION_EVIDENCE_V1"
     const val OBSERVATION_FEATURE = "ACCEPTANCE_OBSERVATION_CAUSES_V1"
+    const val ISSUE_INTAKE_FEATURE = "GITHUB_ISSUE_INTAKE_EVIDENCE_V1"
     const val KEY = "publication_observation"
     const val TRUST_KEY = "trust_observation"
     private const val SCHEMA = "github.acceptance-publication.v1"

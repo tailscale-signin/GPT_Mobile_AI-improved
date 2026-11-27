@@ -179,6 +179,13 @@ internal class GitHubRepositorySession(
         return bounded
     }
 
+    private suspend fun directoryTree(context: GitHubTaskSnapshot, sha: String, allowMissingIdentity: Boolean): JsonObject? = try {
+        GitHubRepositoryIndex.checkedPinnedTree(request("${root(context.owner, context.repo)}/git/trees/$sha"), sha)
+    } catch (failure: GitHubReadValidation) {
+        if (!allowMissingIdentity || failure.code != "EVIDENCE_REVISION_MISMATCH" || failure.details["reason"] != JsonPrimitive(GitHubRepositoryIndex.MISSING_TREE_IDENTITY)) throw failure
+        null
+    }
+
     private suspend fun withRequestedPaths(context: GitHubTaskSnapshot, retained: JsonObject, requested: List<String>): JsonObject {
         if (retained["truncated"] != JsonPrimitive(true) || requested.isEmpty()) return retained
         val rows = retained.getValue("tree").jsonArray
@@ -192,12 +199,8 @@ internal class GitHubRepositorySession(
             for ((index, component) in parts.withIndex()) {
                 val entries = directories[sha] ?: run {
                     if (directories.size >= 32) return@run emptyList()
-                    val tree = GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/$sha").jsonObject, sha)
-                    val children = if (tree.s("sha").equals(sha, ignoreCase = true)) {
-                        tree.getValue("tree").jsonArray.map { it.jsonObject }
-                    } else {
-                        emptyList()
-                    }
+                    val tree = directoryTree(context, sha, allowMissingIdentity = true)
+                    val children = tree?.getValue("tree")?.jsonArray.orEmpty().map { it.jsonObject }
                     children.also { directories[sha] = it }
                 }
                 val entry = entries.singleOrNull { it.s("path") == component } ?: break
@@ -1687,7 +1690,7 @@ internal class GitHubRepositorySession(
         return SearchMatches(matches, incompleteSymbols)
     }
 
-    private suspend fun applicableGuidance(context: GitHubTaskSnapshot, paths: Collection<String>, pinned: JsonObject): JsonObject {
+    private suspend fun applicableGuidance(context: GitHubTaskSnapshot, paths: Collection<String>, pinned: JsonObject, allowIncomplete: Boolean = false): JsonObject {
         val directories = linkedSetOf("")
         paths.forEach { path ->
             val parts = path.split('/').dropLast(1)
@@ -1696,6 +1699,7 @@ internal class GitHubRepositorySession(
         val entries = pinned["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
         val complete = pinned["truncated"]?.jsonPrimitive?.booleanOrNull != true
         val directoryTrees = mutableMapOf("" to context.treeSha)
+        var guidanceComplete = true
         var budget = 8192
         val rules = mutableListOf<JsonObject>()
         for (dir in directories.sortedWith(compareBy<String> { it.count { c -> c == '/' } + if (it.isEmpty()) 0 else 1 }.thenBy { it })) {
@@ -1704,11 +1708,17 @@ internal class GitHubRepositorySession(
                 null
             } else {
                 val treeSha = directoryTrees[dir] ?: continue
-                val response = cachedSource(blobScope(context), "guidance-tree:v$GITHUB_TREE_CACHE_VERSION:$treeSha")
-                    ?: GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/$treeSha").jsonObject, treeSha).also {
-                        store.write(blobScope(context), "guidance-tree:v$GITHUB_TREE_CACHE_VERSION:$treeSha", it)
-                    }
-                require(response["truncated"]?.jsonPrimitive?.booleanOrNull != true) { "The instruction directory listing is incomplete." }
+                val key = "guidance-tree:v$GITHUB_TREE_CACHE_VERSION:$treeSha"
+                val response = cachedSource(blobScope(context), key)?.takeIf { it.s("sha").equals(treeSha, ignoreCase = true) }
+                    ?: directoryTree(context, treeSha, allowMissingIdentity = allowIncomplete)?.also { store.write(blobScope(context), key, it) }
+                if (response == null) {
+                    guidanceComplete = false
+                    continue
+                }
+                if (response["truncated"]?.jsonPrimitive?.booleanOrNull == true) {
+                    require(allowIncomplete) { "The instruction directory listing is incomplete." }
+                    guidanceComplete = false
+                }
                 response["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { row ->
                     val full = listOf(dir, row.s("path")).filter(String::isNotEmpty).joinToString("/")
                     if (row.s("type") == "tree" && full in directories) directoryTrees[full] = row.s("sha")
@@ -1734,6 +1744,7 @@ internal class GitHubRepositorySession(
         return buildJsonObject {
             put("commit_sha", context.commitSha)
             put("files", JsonArray(rules))
+            if (!guidanceComplete) put("complete", false)
             put("precedence", "Apply instructions to files in their directory tree. Nearer directories take precedence. AGENTS.md takes precedence over CLAUDE.md in one directory. User instructions and tool permissions remain authoritative.")
         }
     }
@@ -1880,8 +1891,10 @@ internal class GitHubRepositorySession(
                 }
             }
         }
-        val guidance = applicableGuidance(context, selected.keys, pinnedTree)
-        if (guidance.getValue("files").jsonArray.isNotEmpty()) store.write(scope, guidanceKey(context), guidance)
+        val guidance = applicableGuidance(context, selected.keys, pinnedTree, allowIncomplete = true)
+        val hasInstructions = guidance.getValue("files").jsonArray.isNotEmpty()
+        val incompleteGuidance = guidance["complete"] == JsonPrimitive(false)
+        if (hasInstructions && !incompleteGuidance) store.write(scope, guidanceKey(context), guidance)
         val contextGraph = withContext(Dispatchers.Default) { GitHubCodeContext.build(sources, entries.keys.toList(), context.commitSha) }
         val evidenceId = GitHubRepositoryStateStore.digest(scope + context.commitSha + results.toString() + if (failedRanges.isEmpty() && corrections.isEmpty()) "" else ranges.toString())
         val evidence = buildJsonObject {
@@ -1894,7 +1907,7 @@ internal class GitHubRepositorySession(
             if (failedRanges.isNotEmpty()) put("failed_ranges", JsonArray(failedRanges))
             if (corrections.isNotEmpty()) put("path_corrections", JsonArray(corrections))
             put("context_graph", contextGraph)
-            if (guidance["files"]?.jsonArray?.isNotEmpty() == true) put("active_instructions", guidance)
+            if (hasInstructions || incompleteGuidance) put("active_instructions", guidance)
         }
         store.write(scope, "evidence:$evidenceId", evidence)
         retainSourceDescriptor(evidenceId, evidence)
@@ -1926,7 +1939,7 @@ internal class GitHubRepositorySession(
             if (failedRanges.isNotEmpty()) put("failed_ranges", JsonArray(failedRanges))
             if (corrections.isNotEmpty()) put("path_corrections", JsonArray(corrections))
             put("context_graph", contextGraph)
-            if (guidance["files"]?.jsonArray?.isNotEmpty() == true) put("active_instructions", guidance)
+            if (hasInstructions || incompleteGuidance) put("active_instructions", guidance)
             put("concurrent_blob_limit", 2)
             put("excerpt_bytes", MAX_EXCERPT_BYTES - remaining)
         }

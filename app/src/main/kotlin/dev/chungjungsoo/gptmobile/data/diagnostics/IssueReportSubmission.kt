@@ -165,6 +165,7 @@ internal class IssueReportSubmission(
             GitHubAcceptancePublicationEvidence.FEATURE,
             dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanation.FEATURE,
             GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE,
+            GitHubAcceptancePublicationEvidence.ISSUE_INTAKE_FEATURE,
             IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE,
             IssueReportIncidentCapsule.REPEAT_HISTORY_FEATURE,
             IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE,

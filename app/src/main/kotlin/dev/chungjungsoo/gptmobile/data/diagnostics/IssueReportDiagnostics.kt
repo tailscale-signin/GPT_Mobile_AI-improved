@@ -139,6 +139,11 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.toolEventPersistenceFields }) add(IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE)
         if ("sqlite_constraint_kind" in values || "sqlite_constraint_kind" in omittedFields) add(IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE)
         if ((values.keys + omittedFields).any { it in GitHubAcceptancePublicationEvidence.observationFields || it in IssueReportIncidentCapsule.reviewComparisonFields }) add(GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE)
+        if (values["acceptance_publication_source"] == JsonPrimitive(GitHubAcceptancePublicationEvidence.Source.ISSUE_INTAKE.name) ||
+            values["acceptance_publication_entry"] == JsonPrimitive(GitHubAcceptancePublicationEvidence.Entry.ISSUE_INTAKE.name)
+        ) {
+            add(GitHubAcceptancePublicationEvidence.ISSUE_INTAKE_FEATURE)
+        }
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.handoffReconciliationFields }) add("HANDOFF_RECONCILIATION_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.chatDeliveryFields } || values["incident_capture_site"] == JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER")) add("CHAT_DELIVERY_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.claimFreshnessFields }) add("CLAIM_FRESHNESS_EVIDENCE_V1")

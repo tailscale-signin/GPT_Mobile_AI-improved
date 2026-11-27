@@ -249,6 +249,7 @@ class IssueReportAdmissionEvidenceTest {
             assertTrue(partial.isValid())
             assertNull(partial.values[key])
             assertTrue(GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE in partial.requiredServiceFeatures())
+            assertEquals(entry == GitHubAcceptancePublicationEvidence.Entry.ISSUE_INTAKE, GitHubAcceptancePublicationEvidence.ISSUE_INTAKE_FEATURE in partial.requiredServiceFeatures())
         }
         for (field in GitHubAcceptancePublicationEvidence.observationFields) {
             val value = if (field == key) JsonArray(failures.take(1)) else JsonPrimitive("STATUS_COLLECTION")

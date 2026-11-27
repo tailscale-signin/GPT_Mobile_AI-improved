@@ -370,6 +370,31 @@ class GitHubReadRecoveryTest {
         }
     }
 
+    @Test fun httpIdentityValidationKeepsVerifiedRangesWhenADirectoryIsUnidentified() = runBlocking {
+        val fixture = fixture(listOf("README.md"), truncated = true) { sha ->
+            directoryTree(null, "Hidden.kt", "d".repeat(40)).also {
+                GitHubRepositoryIndex.checkPinnedTreeResponse("/repos/owner/repo/git/trees/$sha", it)
+            }
+        }
+        val ranges = JsonArray(listOf("README.md", "Hidden.kt").map { buildJsonObject { put("path", it) } })
+        val result = fixture.session.execute("read_ranges", "owner", "repo", JsonObject(read("README.md") - "path" + ("ranges" to ranges))).jsonObject
+        assertEquals(JsonPrimitive("README.md"), result.getValue("items").jsonArray.single().jsonObject["path"])
+        assertEquals(JsonPrimitive("GITHUB_TREE_INCOMPLETE"), result.getValue("failed_ranges").jsonArray.single().jsonObject["error_code"])
+        assertEquals(JsonPrimitive(false), result.getValue("active_instructions").jsonObject["complete"])
+        assertEquals(1, fixture.blobs.get())
+
+        val patch = buildJsonObject {
+            put("ref", head)
+            put("commit_sha", head)
+            put("target_file", "README.md")
+            put("search_snippet", "fun needle")
+            put("replacement_snippet", "fun renamed")
+        }
+        val failure = runCatching { fixture.session.execute("stage_patch", "owner", "repo", patch) }.exceptionOrNull()
+        assertTrue(failure.toString(), failure is GitHubReadValidation)
+        assertEquals("EVIDENCE_REVISION_MISMATCH", (failure as GitHubReadValidation).code)
+    }
+
     @Test fun batchedAndSubsequentReadsExposeCompleteImmutableRangeCoverage() = runBlocking {
         val fixture = fixture(source = (1..217).joinToString("\n") { "line $it" })
         val ranges = JsonArray(

@@ -40,6 +40,12 @@
       "retry_query_sqlite_replay": "Only the earlier user turn was returned.",
       "android_instrumentation": "Added to the named acceptance receipts, to run in CI."
     },
-    "reconciled_pr_head": "d095e18dd7c86215776b7cebd1b02bba0bc88682"
+    "reconciled_pr_head": "d095e18dd7c86215776b7cebd1b02bba0bc88682",
+    "hosted_ci_followup": {
+      "observed_run": 45918575936,
+      "previous_revision": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
+      "diagnostics": "Android emitted ISSUE_INTAKE for the publication source and entry, while the report service rejected both. Android now negotiates the new values, and the closed vocabularies are tested together.",
+      "pinned_reads": "An HTTP check rejected an unidentified scoped directory before the session could preserve other verified ranges. That response stays out of the cache and leaves only the unknown path incomplete. A conflicting identity remains a revision mismatch."
+    }
   }
 }

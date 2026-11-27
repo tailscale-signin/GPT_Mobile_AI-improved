@@ -74,7 +74,7 @@ MODELS = {
         "bytes": 87_205_888,
         "sha256": "b33a9a0d65acec36762db38a2bff6d899f4aab34b196bb56d89fab5665eabebe",
         "voice": "freya",
-        "required_voices": ["freya"],
+        "required_voices": ["freya", "claire", "lukas", "sofia", "lucas"],
     },
     "pocket": {
         "repository": "litert-community/pocket-tts",
@@ -83,8 +83,26 @@ MODELS = {
         "bytes": 162_766_856,
         "sha256": "465e0083cd61188772aed76160b07af0dcf59057497d7659f43f3f2b13a174a1",
         "voice": "alba",
-        "required_voices": ["alba"],
+        "required_voices": ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma"],
     },
+    "pocket-multilingual": {
+        "repository": "litert-community/pocket-tts",
+        "revision": "00c866f2397788f514ab6bbcb931be22afc3b58f",
+        "file_name": "pocket_tts_int8.litertlm",
+        "bytes": 760_061_960,
+        "sha256": "9c5427cf3fe2d6680f8268e1c06537496be52d818ef12233a461bf193f314b3c",
+        "voice": "alba",
+        "required_voices": ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma", "estelle", "juergen", "lola", "giovanni", "rafael", "daan"],
+    },
+}
+
+VOICE_PROBES = {
+    "estelle": ("fr", FRENCH_CORPUS),
+    "juergen": ("de", "Der Kaffee ist fertig. Die Stimme ist bereit für deine nächste Frage."),
+    "lola": ("es", "El café está listo. La voz está preparada para tu próxima pregunta."),
+    "giovanni": ("it", "Il caffè è pronto. La voce è pronta per la tua prossima domanda."),
+    "rafael": ("pt", "O café está pronto. A voz está pronta para a sua próxima pergunta."),
+    "daan": ("nl", "De koffie is klaar. De stem is klaar voor je volgende vraag."),
 }
 
 
@@ -261,6 +279,17 @@ def consume(task, text: str, np, *, incremental: bool = False, include_word_cues
     }
 
 
+def consume_selectable_voices(task, model: dict, np) -> list[dict]:
+    """PCM readiness for each advertised voice; no acoustic pronunciation verdict."""
+    results = []
+    for voice in model["required_voices"]:
+        locale, text = VOICE_PROBES.get(voice, ("en", FIXTURE))
+        stream = consume(task, text, np, voice_id=voice, locale=locale, include_word_cues=True)
+        require(stream["word_cues"], "Selectable voice produced no source word cues")
+        results.append({"voice_id": voice, "locale": locale, "stream": stream})
+    return results
+
+
 def cancellation_probe(task, after_first_chunk: bool, *, incremental: bool = False) -> dict:
     started = time.monotonic()
     with task.open_stream(initial_text="" if incremental else CANCEL_FIXTURE, finish_input=not incremental) as stream:
@@ -374,6 +403,8 @@ def worker(args, model: dict, model_file: Path, base: dict) -> int:
                 french_reference = reference["french"]
                 require(french_reference["voice_id"] == "ff_siwis" and french_reference["locale"] == "fr", "French reference voice differs")
                 corpus_result["french"]["cpu_reference"] = compare_corpus(french_reference["stream"], french)
+        if args.engine in ("phonon", "pocket", "pocket-multilingual"):
+            corpus_result["selectable_voice_streams"] = consume_selectable_voices(task, model, np)
         initial = consume(task, FIXTURE, np)
         before = cancellation_probe(task, False)
         after = cancellation_probe(task, True)

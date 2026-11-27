@@ -28,7 +28,7 @@ class VoiceExecutionDiagnosticsTest {
     @Test fun streamingCapabilityIsRequiredOnlyForNewClosedValuesInTheirOwnFields() {
         val additions = mapOf(
             "voice_engine" to setOf("MEDIAPIPE"),
-            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
+            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_MULTILINGUAL_CPU"),
             "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
         )
         for ((field, choices) in additions) {
@@ -58,8 +58,9 @@ class VoiceExecutionDiagnosticsTest {
         assertEquals(JsonPrimitive("KOKORO_CPU"), VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive("KOKORO_CPU")))
         assertEquals(JsonPrimitive("KOKORO"), VoiceExecutionDiagnostics.validValue("voice_fallback_source", JsonPrimitive("KOKORO")))
         assertNull(VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive("KOKORO")))
-        for (selected in listOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU")) {
+        for (selected in listOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_MULTILINGUAL_CPU")) {
             assertEquals(JsonPrimitive(selected), VoiceExecutionDiagnostics.validValue("voice_selected_backend", JsonPrimitive(selected)))
+            assertEquals(JsonPrimitive(selected), VoiceExecutionDiagnostics.validValue("voice_failure_requested_backend", JsonPrimitive(selected)))
             assertNull(VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive(selected)))
         }
     }

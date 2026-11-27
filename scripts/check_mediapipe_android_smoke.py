@@ -94,7 +94,7 @@ def check_receipt(receipt, engine, run_id, abi="x86_64", delegate="CPU"):
         "schema": "mediapipe-android-jni-smoke-v2",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
-        "engine": engine.upper(),
+        "engine": engine.upper().replace("-", "_"),
         "runtime": "mediapipe-tasks-audio-" + RUNTIME_VERSION,
         "run_id": run_id,
         "model_sha256": model["sha256"],
@@ -113,6 +113,12 @@ def check_receipt(receipt, engine, run_id, abi="x86_64", delegate="CPU"):
         require(type(receipt.get(key)) is int and 0 <= receipt[key] <= 300_000, f"Missing bounded native timing: {key}")
     for key in ("cancel_before_first_read", "cancel_after_first_chunk"):
         require(isinstance(receipt.get(key), str) and receipt[key] in {"native_cancelled", "end_of_stream"}, f"Native cancellation did not complete: {key}")
+    if engine in ("phonon", "pocket", "pocket-multilingual"):
+        voices = receipt.get("available_voice_ids")
+        require(isinstance(voices, list) and len(voices) <= 256 and all(isinstance(v, str) for v in voices), "Missing bounded voice enumeration")
+        require(set(model["required_voices"]) <= set(voices), "Pinned Android pack is missing selectable voices")
+    if engine == "pocket-multilingual":
+        check_french_preview(receipt.get("french_preview"), receipt.get("french_preview_frames"), voice="estelle")
     if engine == "kokoro":
         playback = receipt.get("application_playback")
         require(isinstance(playback, dict), "Missing actual application streaming playback")
@@ -146,8 +152,8 @@ def check_receipt(receipt, engine, run_id, abi="x86_64", delegate="CPU"):
     require(type(cancellation.get("total_ms")) is int and 0 <= cancellation["total_ms"] <= 300_000, "Open-input cancellation exceeded its bound")
 
 
-def check_french_preview(french, expected_frames):
-    require(isinstance(french, dict) and french.get("voice_id") == "ff_siwis", "Missing French voice receipt")
+def check_french_preview(french, expected_frames, voice="ff_siwis"):
+    require(isinstance(french, dict) and french.get("voice_id") == voice, "Missing French voice receipt")
     count = french.get("frames")
     require(type(count) is int and type(expected_frames) is int and 0 < count <= SAMPLE_RATE * 30 and count == expected_frames,
             "Invalid French frame count")

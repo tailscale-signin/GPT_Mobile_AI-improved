@@ -84,6 +84,7 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
@@ -333,6 +334,7 @@ private fun VoiceChatSessionScreen(
     var language by rememberSaveable { mutableStateOf(SpeechLanguages.recognitionDefault()) }
     var recognitionBackend by rememberSaveable { mutableStateOf(VoiceRecognitionBackend.LOCAL_MOONSHINE) }
     var synthesis by remember { mutableStateOf(VoiceSynthesisPreferences()) }
+    fun activeSpeechProfile() = backend.synthesisProfile(synthesis)
     var translationMode by remember { mutableStateOf(false) }
     var kokoroVoice by rememberSaveable { mutableStateOf<KokoroVoice?>(null) }
     var kokoroThreads by rememberSaveable { mutableIntStateOf(VoiceCpuSchedulingPolicy.AUTO) }
@@ -401,7 +403,7 @@ private fun VoiceChatSessionScreen(
             }
             audio.recognitionBackend = recognitionBackend
             localRecognition.languageTag = language
-            tuningConfiguration.apply(tuning, synthesis.profile.dictionaryLanguage)
+            tuningConfiguration.apply(tuning, activeSpeechProfile().dictionaryLanguage)
             audio.kokoroVoice = kokoroVoice
             kokoroOutput?.configureThreads(kokoroThreads)
             kokoroOutput?.configurePacing(pause, performance)
@@ -409,8 +411,8 @@ private fun VoiceChatSessionScreen(
             session.speakWhileGenerating = speakWhileGenerating
             if (session.states.value.speaker != spokenReplies) session.speaker()
             // Configure before permitting the first listen, including after restoring the screen.
-            systemAudio.synthesisLanguageTag = synthesis.language
-            model.voiceReplyPolicy = VoiceResponsePolicy.forLanguage(synthesis.language, translationMode)
+            systemAudio.synthesisLanguageTag = activeSpeechProfile().tag
+            model.voiceReplyPolicy = VoiceResponsePolicy.forLanguage(activeSpeechProfile().tag, translationMode)
             systemAudio.languageTag = language
             systemAudio.allowOnlineSpeech = false
             systemAudio.speechRate = rate
@@ -437,9 +439,9 @@ private fun VoiceChatSessionScreen(
         audio.synthesisSupported = backend.backend.forSynthesis(synthesis) == backend.backend
         audio.recognitionBackend = recognitionBackend
         localRecognition.languageTag = language
-        tuningConfiguration.apply(tuning, synthesis.profile.dictionaryLanguage)
-        systemAudio.synthesisLanguageTag = synthesis.language
-        model.voiceReplyPolicy = VoiceResponsePolicy.forLanguage(synthesis.language, translationMode)
+        tuningConfiguration.apply(tuning, activeSpeechProfile().dictionaryLanguage)
+        systemAudio.synthesisLanguageTag = activeSpeechProfile().tag
+        model.voiceReplyPolicy = VoiceResponsePolicy.forLanguage(activeSpeechProfile().tag, translationMode)
         systemAudio.languageTag = language
         systemAudio.allowOnlineSpeech = onlineAllowed
         systemAudio.speechRate = rate
@@ -583,7 +585,7 @@ private fun VoiceChatSessionScreen(
         } else {
             report(null)
             kokoroOutput.configureEngine(selectedBackend.factory)
-            playKokoroPreview(kokoroOutput, selected, ::applyAudioConfiguration, synthesis.profile.preview) { message, _ -> report(message) }
+            playKokoroPreview(kokoroOutput, selected, ::applyAudioConfiguration, activeSpeechProfile().preview) { message, _ -> report(message) }
         }
     }
     fun setSpokenReplies(value: Boolean) {
@@ -686,8 +688,8 @@ private fun VoiceChatSessionScreen(
         consent == null &&
         !runtimeOwner.background.playingElsewhere(runtime) &&
         (state.phase == VoicePhase.THINKING && state.awaitingReply || chatView && state.phase == VoicePhase.PAUSED)
-    val openingPlan = remember(canOfferOpening, room.id, selectedProfile?.uid, admission, state.transcript, chatView, messages, runs, toolEvents, synthesis.language) {
-        if (canOfferOpening) voiceOpeningPlan(admission, state.transcript, chatView, room.id, selectedProfile.uid, messages, runs, toolEvents, synthesis.language) else null
+    val openingPlan = remember(canOfferOpening, room.id, selectedProfile?.uid, admission, state.transcript, chatView, messages, runs, toolEvents, activeSpeechProfile().tag) {
+        if (canOfferOpening) voiceOpeningPlan(admission, state.transcript, chatView, room.id, selectedProfile.uid, messages, runs, toolEvents, activeSpeechProfile().tag) else null
     }
     val dueOpening = rememberDueVoiceOpening(openingPlan)
     LaunchedEffect(loaded, roomReady, messages, runs, stoppedRuns, admission, dueOpening, speakingNotification?.token, enabled, backend.loaded, spokenReplies, speakWhileGenerating, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning, approvals.isEmpty(), inputs.isEmpty(), consent, chatView) {
@@ -722,7 +724,7 @@ private fun VoiceChatSessionScreen(
         if (playback.active == null) {
             // Recheck live ownership after the grace period. A filled reply always wins admission.
             val opening = dueOpening?.takeIf {
-                voiceOpeningPlan(model.voiceAdmission.value, currentSession.transcript, chatView, room.id, selectedProfile?.uid, messageSnapshot, runSnapshot, model.toolEventsByRun.value, synthesis.language) == it
+                voiceOpeningPlan(model.voiceAdmission.value, currentSession.transcript, chatView, room.id, selectedProfile?.uid, messageSnapshot, runSnapshot, model.toolEventsByRun.value, activeSpeechProfile().tag) == it
             }
             val next = playback.next(opening?.identity) ?: return@LaunchedEffect
             val source = if (translationMode) {
@@ -1039,7 +1041,9 @@ private fun VoiceChatSessionScreen(
                 ),
                 engineContent = {
                     OutlinedButton(onClick = { routeOpen = true }) { Text("Audio output · $route") }
-                    SynthesisLanguageChoices(synthesis, backend.backend.usesKokoroVoices, enabled = !session.state.awaitingReply, change = ::changeSynthesis)
+                    if (backend.backend.usesKokoroVoices) {
+                        SynthesisLanguageChoices(synthesis, backend.backend.usesKokoroVoices, enabled = !session.state.awaitingReply, change = ::changeSynthesis)
+                    }
                     VoiceSpeechBackendSettings(
                         value = backend,
                         selectBackend = {
@@ -1059,6 +1063,8 @@ private fun VoiceChatSessionScreen(
                             standardPack = backend.streamingModels[MediaPipeSpeechEngine.KOKORO],
                             preparingNpuBase = backend.preparingNpuBase,
                             npuBaseError = backend.npuBaseError,
+                            voiceId = backend.streamingVoiceId,
+                            selectVoice = backendOwner::selectStreamingVoice,
                             enabled = backend.loaded && !benchmarkRunning && !state.awaitingReply && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
                             install = backendOwner::installStreamingModel,
                             importCompiled = backendOwner::importSm8750Model,
@@ -1078,7 +1084,7 @@ private fun VoiceChatSessionScreen(
                 tuningContent = {
                     VoiceSpeechBenchmarkSettings(
                         voice = kokoroVoice,
-                        streamingKokoroVoice = synthesis.voiceId,
+                        streamingKokoroVoice = backend.streamingVoiceId ?: synthesis.voiceId,
                         threads = kokoroThreads,
                         speechRate = rate,
                         enabled = !benchmarkRunning && !state.awaitingReply && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
@@ -1103,11 +1109,11 @@ private fun VoiceChatSessionScreen(
                             session.performanceHistory,
                             kokoroOutput?.synthesisFeedback,
                             adjustCaptionOffset = { milliseconds ->
-                                kokoroOutput?.configureCaptionOffset(milliseconds)
+                                kokoroOutput?.calibrateCaptionOffset(milliseconds)
                                 tuning = tuning.copy(captionOffsetMs = milliseconds)
                                 savePreferences()
                             },
-                            language = synthesis.profile
+                            language = activeSpeechProfile()
                         )
                     }
                 }
@@ -1157,7 +1163,8 @@ private fun VoiceChatSessionScreen(
                     language = language,
                     recognitionReady = recognitionReady,
                     recognitionBackend = recognitionBackend,
-                    replyLanguage = synthesis.language,
+                    replyLanguage = activeSpeechProfile().tag,
+                    replyLanguageProfiles = backend.backend.streamingEngine()?.takeUnless { it.isKokoro }?.let(MediaPipeSpeechVoices::profiles) ?: SpeechLanguages.synthesis,
                     translationMode = translationMode,
                     enabled = enabled,
                     voiceReady = voiceReady,
@@ -1207,7 +1214,16 @@ private fun VoiceChatSessionScreen(
                     replay = { readResponse(VoiceMessageIdentity(retainedMessageId, retainedRunId, retainedRevision), state.reply) },
                     openChat = ::openChat,
                     toggleMicrophone = ::toggleMicrophone,
-                    changeReplyLanguage = { tag -> changeSynthesis(synthesis.selectLanguage(tag)) },
+                    changeReplyLanguage = { tag ->
+                        val streaming = backend.backend.streamingEngine()?.takeUnless { it.isKokoro }
+                        if (streaming != null) {
+                            MediaPipeSpeechVoices.profiles(streaming).firstOrNull { it.tag == tag }?.let { profile ->
+                                if (backend.streamingVoiceId !in profile.voices) backendOwner.selectStreamingVoice(profile.voices.first())
+                            }
+                        } else {
+                            changeSynthesis(synthesis.selectLanguage(tag))
+                        }
+                    },
                     changeTranslationMode = { value ->
                         translationMode = value
                         applyAudioConfiguration()
@@ -1391,6 +1407,9 @@ private fun VoiceSettingsScreen(
             var sliderRate by remember(state.rate) { androidx.compose.runtime.mutableFloatStateOf(state.rate) }
             Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", sliderRate)}×")
             Text("Speech rate changes how quickly the voice talks. Performance mode changes how soon speech starts.", style = MaterialTheme.typography.bodySmall)
+            if (state.speechBackend.isStreamingLocal) {
+                Text("Streaming speed preserves the voice's pitch. Captions follow the adjusted audio timing.", style = MaterialTheme.typography.bodySmall)
+            }
             Slider(
                 value = sliderRate,
                 onValueChange = { sliderRate = it },

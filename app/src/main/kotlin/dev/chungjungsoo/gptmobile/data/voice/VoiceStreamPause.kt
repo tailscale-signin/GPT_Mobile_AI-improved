@@ -21,8 +21,15 @@ internal class VoiceStreamPause(private val raw: VoiceStreamFrames, private val 
         val samples = limiter.filter(chunk.samples, onRemoved = { start, end -> map.remove(rawStart + start, rawStart + end) })
         map.observeThrough(raw.frames.toInt())
         retainedFrames += samples.size
-        pending.addAll(cues)
         val ready = mutableListOf<VoiceStreamCue>()
+        val corrections = mutableListOf<VoiceStreamCue>()
+        for (cue in cues) {
+            if (cue.revision == 0) {
+                pending.addLast(cue)
+            } else {
+                corrections += cue
+            }
+        }
         // Gateway can send every cue with its first PCM chunk. Complete cues use known
         // history; the single cue crossing the raw frontier exposes only its retained prefix.
         while (pending.firstOrNull()?.let { it.endFrame <= raw.frames } == true) {
@@ -34,6 +41,14 @@ internal class VoiceStreamPause(private val raw: VoiceStreamFrames, private val 
         pending.firstOrNull()?.takeIf { it.startFrame < raw.frames }?.let { cue ->
             val start = map.retainedAt(cue.startFrame.toInt()).toLong()
             if (retainedFrames > start) ready += cue.copy(startFrame = start, endFrame = retainedFrames, finalEnd = false)
+        }
+        // A tempo processor can coalesce the original and its correction into one
+        // callback. Publish observed originals first, and never let an unrelated
+        // future word hold back an already available correction.
+        for (cue in corrections) {
+            val start = map.retainedAt(cue.startFrame.toInt())
+            val end = map.retainedAt(cue.endFrame.toInt())
+            if (end > start) ready += cue.copy(startFrame = start.toLong(), endFrame = end.toLong())
         }
         return VoiceStreamAudio(samples, ready)
     }

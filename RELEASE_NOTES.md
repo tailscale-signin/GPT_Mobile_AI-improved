@@ -6,6 +6,11 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Translate every voice utterance directly into the selected language, including questions and commands. Translation excludes conversation history, persona, tools and task controls; literal translated text cannot become a tool call or progress message.
+- Preserve voice pitch when changing streaming speech speed, map captions to the adjusted audio, and revise future estimated word timings without moving words already heard.
+- Expand pronunciation dictionaries with regional profiles, technical readings, a correction form, spoken-text previews and reviewed import/export.
+- Expose eight English Pocket voices, fourteen voices in an optional multilingual Pocket pack, and five Phonon voices. Keep model installation explicit and show the packaged CPU-only capability accurately.
+- Bind caption offsets and streaming comparisons to observed output devices, retain timing provenance, and separate measured latency from independent acoustic quality qualification.
 - Keep orphaned Gateway workers single flight until the physical worker exits, so cancellation and reconnect cannot dispatch a second generation for the same job.
 - Recover malformed local catalog lookups without selecting an action or identifier for the user; preserve independently admitted repository reads after a discovery failure and report missing source selectors explicitly.
 - Verify complete large GitHub plans across durable bounded windows, retaining every criterion, exact receipt and authorization binding across interruption.
@@ -89,6 +94,8 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Qualification and remaining limits
 
+- Packaged Pocket and Phonon remain CPU-only; no compatible incremental GPU/NPU or smaller replacement runtime is implemented by this change.
+- SDK caption timestamps remain estimates. Forced acoustic alignment, physical-device pitch/naturalness, translation faithfulness across providers, and output-route latency require independent device measurements.
 Publication requires successful validation of the final PR head, main revision and signed artifacts. The release workflow records source identity, checksums, signing/provenance evidence and publication receipts.
 
 - Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.

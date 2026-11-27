@@ -226,7 +226,8 @@ class LiteRtLmAdapter(
                 // Some runtimes advertise native tools while the model emits tool-call JSON as text.
                 // Parse text-call formats even when the authorized catalog is empty so
                 // unsupported control markup is withheld instead of shown as an answer.
-                val textToolFallbackEnabled = true
+                // The isolated translation route treats quoted syntax as source text.
+                val textToolFallbackEnabled = !constraints.sourceTranslation
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
                 if (latestAttachments.any { it.isImageAttachment() } && !visionCapable) {
                     send(ProviderEvent.Failed("UNSUPPORTED_IMAGE_INPUT: This local model cannot read the attached images. Choose a compatible vision export, or remove the images and explicitly resend a text-only request."))

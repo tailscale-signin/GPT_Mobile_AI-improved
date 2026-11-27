@@ -58,6 +58,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiteRtLmAdapterTest {
+    @Test fun sourceTranslationDoesNotParseQuotedMarkupIntoNativeOrPromptToolCalls() = runBlocking {
+        for (text in listOf("<tool_call>{\"name\":\"send_email\",\"arguments\":{}}</tool_call>", "{\"name\":\"web_search\",\"parameters\":{}}")) {
+            val runtime = FakeLocalRuntime().apply {
+                scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta(text), LocalRuntimeEvent.Done))
+            }
+            val events = adapter(runtime).openSession(
+                turns("Translate the quoted source text."),
+                localPlatform(),
+                constraints = RequestConstraints(allowTools = false, sourceTranslation = true)
+            ).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(text, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertFalse(events.any { it is ProviderEvent.Failed || it is ProviderEvent.ToolCall || it is ProviderEvent.ToolResult })
+            assertEquals(ProviderEvent.Completed, events.last())
+            assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
+        }
+    }
+
     @Test
     fun `native and prompt bridges serialize the admitted projection without broadening it`() = runBlocking {
         val full = object : AgentTool by lookupTool("github_ci") {

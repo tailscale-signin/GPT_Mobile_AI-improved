@@ -135,7 +135,7 @@ private fun mediaPipeExecution(provider: String): Pair<String, String>? = when (
     "mediapipe-kokoro-gpu-requested" -> "MEDIAPIPE_KOKORO" to "GPU"
     "mediapipe-kokoro-npu-requested" -> "MEDIAPIPE_KOKORO" to "NPU"
     "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON" to "CPU"
-    "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET" to "CPU"
+    "mediapipe-pocket-cpu-requested", "mediapipe-pocket-multilingual-cpu-requested" -> "MEDIAPIPE_POCKET" to "CPU"
     else -> null
 }
 

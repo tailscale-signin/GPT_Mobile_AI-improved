@@ -12,10 +12,10 @@ internal data class VoicePronunciationProjection(val text: String, val sourceCha
 /** Indexed once per settings change. Each speech operation keeps its own immutable dictionary. */
 internal class VoicePronunciationDictionary @JvmOverloads constructor(overrides: Map<String, String>, languageTag: String = "en") {
     private val language = Locale.forLanguageTag(languageTag).language
-    private val readings = LocalizedVoiceReadings.forLanguage(language)
+    private val readings = LocalizedVoiceReadings.forLanguage(languageTag)
     private val personal = VoicePronunciationOverrides.clean(overrides)
     private fun index(entries: Map<String, String>) = entries.entries.sortedByDescending { it.key.length }.groupBy { it.key.first() }
-    private val entries = readings + personal
+    private val entries = readings + (if (language == "en") KokoroEnglishReadings.precisionReadings else emptyMap()) + personal
     private val personalIndex = index(entries)
     private val continuations = buildList {
         for (term in entries.keys) {
@@ -41,7 +41,7 @@ internal class VoicePronunciationDictionary @JvmOverloads constructor(overrides:
 
     // Alternative English text engines cannot consume Kokoro phoneme IDs. Share only
     // the unambiguous text readings, with saved whole-term corrections taking precedence.
-    private val englishIndex by lazy { index(KokoroEnglishReadings.englishTextReadings + personal) }
+    private val englishIndex by lazy { index(KokoroEnglishReadings.englishTextReadings + KokoroEnglishReadings.precisionReadings + personal) }
 
     fun project(input: String, englishFallback: Boolean = false): VoicePronunciationProjection =
         VoicePronunciationOverrides.projectIndexed(input, if (englishFallback && language == "en") englishIndex else personalIndex, language)
@@ -53,6 +53,9 @@ internal class VoicePronunciationDictionary @JvmOverloads constructor(overrides:
 
 /** Whole words or phrases mapped to a spoken spelling in the selected language. */
 internal object VoicePronunciationOverrides {
+    const val MAX_ENTRIES = 512
+    const val MAX_EFFECTIVE_ENTRIES = MAX_ENTRIES * 2
+    const val MAX_EDITOR_CHARS = 131_072
     private val word = Regex("\\.?[\\p{L}][\\p{L}\\p{M}\\p{N}'’._+#-]*")
     private val term = Regex("""\.?[\p{L}][\p{L}\p{M}\p{N}'’._+#-]*(?: \.?[\p{L}][\p{L}\p{M}\p{N}'’._+#-]*){0,5}""")
     private val spoken = Regex("""[\p{L}][\p{L}\p{M}]*(?:['’\- ][\p{L}][\p{L}\p{M}]*)*""")
@@ -64,7 +67,7 @@ internal object VoicePronunciationOverrides {
             spoken.matches(pronunciation) &&
             pronunciation.count { it == ' ' } < 8
 
-    fun clean(overrides: Map<String, String>): Map<String, String> = overrides.entries.take(128).mapNotNull { (original, pronunciation) ->
+    fun clean(overrides: Map<String, String>): Map<String, String> = overrides.entries.take(MAX_EFFECTIVE_ENTRIES).mapNotNull { (original, pronunciation) ->
         val originalKey = original.trim()
         val value = pronunciation.trim().replace(Regex("\\s+"), " ")
         if (valid(originalKey, value)) key(originalKey) to value.lowercase(Locale.ROOT) else null
@@ -210,15 +213,18 @@ internal object VoicePronunciationOverrides {
 
 /** English readings shared with the vocabulary-checked native Kokoro frontend. */
 internal object KokoroEnglishReadings {
-    val initialisms = setOf("AI", "API", "APK", "AAR", "ABI", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "PDF", "NPU", "ASR", "JVM", "PCM", "IP", "USD", "CAD", "EUR", "GBP", "GPT", "GLM", "QNN", "ONNX", "JNI", "JDK", "JRE", "GL", "TLS", "SSL", "TCP", "UDP", "RPC", "SSE", "JWT", "BPE", "UTF", "LSTM", "CNN", "RNN", "SSD", "HDD", "DDR", "HDMI", "PCI", "PCIE", "FPS", "RGB", "RGBA", "FP", "NVFP", "GCC", "GDB", "RTX", "GTX")
+    val initialisms = setOf("AI", "API", "APK", "AAR", "ABI", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "PDF", "NPU", "ASR", "JVM", "PCM", "IP", "USD", "CAD", "EUR", "GBP", "GPT", "GLM", "QNN", "ONNX", "JNI", "JDK", "JRE", "GL", "TLS", "SSL", "TCP", "UDP", "RPC", "SSE", "JWT", "BPE", "UTF", "LSTM", "CNN", "RNN", "SSD", "HDD", "DDR", "HDMI", "PCI", "PCIE", "FPS", "RGB", "RGBA", "FP", "NVFP", "GCC", "GDB", "RTX", "GTX", "GGUF", "GGML", "DSP", "HTP", "CTC", "VAD", "RTF", "IPA", "SSML", "NDK", "AOT", "JIT", "VLM", "OCR", "DPO", "RLHF")
 
     // These keys are technical names even when an answer writes them in lowercase. Ordinary
     // words such as RAM, ARM, US and IT must never become automatic lowercase initialisms.
-    val technicalInitialisms = setOf("ai", "api", "apk", "aar", "abi", "cpu", "gpu", "npu", "html", "http", "https", "llm", "mcp", "sdk", "sql", "ssh", "tts", "url", "xml", "usb", "dns", "vpn", "cli", "ide", "pdf", "asr", "jvm", "pcm", "gpt", "glm", "qnn", "onnx", "jni", "jdk", "jre", "tls", "ssl", "tcp", "udp", "rpc", "sse", "jwt", "bpe", "lstm", "cnn", "rnn", "ssd", "hdd", "ddr", "hdmi", "fps", "rgb", "rgba", "nvfp", "gcc", "gdb", "utf", "rtx", "gtx")
+    val technicalInitialisms = setOf("ai", "api", "apk", "aar", "abi", "cpu", "gpu", "npu", "html", "http", "https", "llm", "mcp", "sdk", "sql", "ssh", "tts", "url", "xml", "usb", "dns", "vpn", "cli", "ide", "pdf", "asr", "jvm", "pcm", "gpt", "glm", "qnn", "onnx", "jni", "jdk", "jre", "tls", "ssl", "tcp", "udp", "rpc", "sse", "jwt", "bpe", "lstm", "cnn", "rnn", "ssd", "hdd", "ddr", "hdmi", "fps", "rgb", "rgba", "nvfp", "gcc", "gdb", "utf", "rtx", "gtx", "gguf", "ggml", "dsp", "htp", "ctc", "vad", "rtf", "ssml", "ndk", "aot", "jit", "vlm", "ocr", "dpo", "rlhf")
     val technicalNames = mapOf(
         "github" to "git hub", "gitlab" to "git lab", "chatgpt" to "chat GPT", "openai" to "open AI",
         "opengl" to "open GL", "webgpu" to "web GPU", "typescript" to "type script", "javascript" to "java script",
-        "json" to "jason", "c++" to "c plus plus", "c#" to "c sharp", "f#" to "f sharp", ".net" to "dot net", "pcie" to "PCI e"
+        "json" to "jason", "c++" to "c plus plus", "c#" to "c sharp", "f#" to "f sharp", ".net" to "dot net", "pcie" to "PCI e",
+        "cuda" to "koo dah", "litert" to "lite R T", "webgl" to "web GL", "pytorch" to "pie torch",
+        "tensorflow" to "tensor flow", "numpy" to "num pie", "scipy" to "sigh pie", "sqlite" to "S Q L lite",
+        "vulkan" to "vulcan", "safetensors" to "safe tensors", "huggingface" to "hugging face", "wasm" to "web assembly"
     )
     val abbreviations = mapOf(
         "e.g." to "for example", "e.g" to "for example", "i.e." to "that is", "i.e" to "that is", "etc." to "et cetera", "vs." to "versus",
@@ -232,4 +238,11 @@ internal object KokoroEnglishReadings {
         abbreviations + technicalInitialisms.associateWith { spokenInitialisms(it.uppercase(Locale.ROOT)) } +
             technicalNames.mapValues { (_, text) -> spokenInitialisms(text) }
     }
+
+    /** Tokens with digits are kept whole so all engines pronounce the same precision identifier. */
+    val precisionReadings = mapOf(
+        "fp16" to "F P sixteen", "fp32" to "F P thirty two", "fp64" to "F P sixty four",
+        "bf16" to "B F sixteen", "int4" to "int four", "int8" to "int eight", "int16" to "int sixteen",
+        "int32" to "int thirty two", "float16" to "float sixteen", "float32" to "float thirty two"
+    )
 }

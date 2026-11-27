@@ -1,0 +1,13 @@
+{
+  "name": "AndroidX Media Sonic",
+  "sourceCommit": "8c6678b657ede1e7883fc164ef73ed483c7796c3",
+  "sourceUrl": "https://github.com/androidx/media/blob/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/common/src/main/java/androidx/media3/common/audio/Sonic.java",
+  "upstreamSha256": "6fdaffeca98ad1e4d3d0bfc84eeba5501fb2b69adb8d1f5201e9b76547b4fa04",
+  "license": "Apache-2.0",
+  "adaptations": [
+    "Local package; eliminate external Preconditions/nullness dependencies",
+    "Expose monotonically processed input/output frame anchors for pitch=1 unchanged-sample-rate operation",
+    "No modification to pitch detection or overlap-add implementation"
+  ],
+  "purpose": "Bounded streaming pitch-preserving speech tempo with caption timeline mapping"
+}

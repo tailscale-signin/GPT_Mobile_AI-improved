@@ -229,10 +229,23 @@ class MediaPipeVoicePhraseEngineTest {
         }
     }
 
-    @Test fun rateChangesRequireAnotherPreparedTaskAndDelegateIsOnlyARequest() {
-        val task = TestTask { error("A stale rate must never reach native synthesis") }
+    @Test fun tempoChangesReuseThePreparedTaskAndDelegateIsOnlyARequest() {
+        val samples = FloatArray(24_000) { (.5 * kotlin.math.sin(2 * Math.PI * 160 * it / 24_000)).toFloat() }
+        val task = TestTask {
+            var read = false
+            TestStream { if (read) null else AudioChunk(samples, isFinal = true).also { read = true } }
+        }
         val engine = engine(task)
-        assertThrows(IllegalArgumentException::class.java) { engine.stream("test", 0, 1.1f) { true } }
+        for ((rate, expected) in listOf(1f to 24_000, 1.5f to 16_000, .5f to 48_000, 2f to 12_000)) {
+            var delivered = 0
+            engine.stream("test", 0, rate) {
+                delivered += it.samples.size
+                true
+            }
+            assertEquals(expected, delivered)
+        }
+        assertEquals(4, task.opens.get())
+        assertEquals(0, task.closes.get())
         assertEquals("mediapipe-phonon-cpu-requested", engine.executionProvider)
         assertNull(engine.executionEvidence)
         engine.close()

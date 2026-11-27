@@ -14,7 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
-/** SDK callback measurements are kept separate from native provider and token-duration proof. */
+/** Engine output callback measurements are kept separate from native provider and token-duration proof. */
 internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult, includeSamples: Boolean = true, playback: Boolean = false): JsonObject = buildJsonObject {
     put("requestedBackend", result.requestedBackend.name)
     put("state", result.state.name)

@@ -157,7 +157,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
         }
 
         val scrolling = rememberScrollableState(::move)
-        LaunchedEffect(lines, target, active, speaking, animate, reader.following, returningToLive, timing?.playing) {
+        LaunchedEffect(lines, target, active, speaking, animate, reader.following, returningToLive, timing?.playing, timing?.wordStartFrame, timing?.wordEndFrame) {
             var now = withFrameNanos { it }
             if (previousLines !== lines) {
                 val current = motion.sample(now).position
@@ -172,13 +172,15 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                 else -> timing?.playing != false
             }
             motion.playing(playbackMoving, now)
-            val wordMs = timing?.takeIf { it.sampleRate > 0 && it.wordEndFrame > it.wordStartFrame }
-                ?.let { ((it.wordEndFrame - it.wordStartFrame) * 1000 / it.sampleRate).coerceIn(240, 420).toInt() } ?: 320
+            val wordMs = timing?.let { captionWordMotionDurationMs(it.wordStartFrame, it.wordEndFrame, it.frameAt(now), it.sampleRate) } ?: 320
             motion.retarget(reader.position(liveLine, lastLine), now, animate && reader.following, wordMs)
             val onset = timing?.let {
                 captionWordOnsetNanos(it.wordStartFrame, it.wordEndFrame, it.presentedFrame, it.bufferedEndFrame, it.sampleRate, it.observedAtNanos, now, it.playing)
             } ?: now
-            highlights.update(active, onset, now, animate)
+            val wordNanos = timing?.takeIf { it.sampleRate > 0 && it.wordEndFrame > it.wordStartFrame }
+                ?.let { (it.wordEndFrame - it.wordStartFrame) * 1_000_000_000L / it.sampleRate }
+            highlights.playing(timing?.playing != false, now)
+            highlights.update(active, onset, now, animate, wordNanos)
             do {
                 frameNanos.longValue = now
                 drawnPosition.floatValue = motion.sample(now).position.coerceIn(0f, lastLine.toFloat())

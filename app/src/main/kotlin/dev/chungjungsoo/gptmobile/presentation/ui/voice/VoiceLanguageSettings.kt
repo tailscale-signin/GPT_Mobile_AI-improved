@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
@@ -99,7 +100,8 @@ internal fun VoiceReplyLanguageDialog(
     translationMode: Boolean,
     changeTranslationMode: (Boolean) -> Unit,
     select: (String) -> Unit,
-    dismiss: () -> Unit
+    dismiss: () -> Unit,
+    profiles: List<SpeechLanguage> = SpeechLanguages.synthesis
 ) {
     AlertDialog(
         onDismissRequest = dismiss,
@@ -122,7 +124,7 @@ internal fun VoiceReplyLanguageDialog(
                 item {
                     Text(
                         if (translationMode) {
-                            "Translate everything you say into the selected language, including questions."
+                            "Translate everything you say into the selected language. Questions stay questions and commands stay commands; the app translates them without answering or carrying them out."
                         } else {
                             "Answer in the selected language and use its voice for playback."
                         },
@@ -130,7 +132,7 @@ internal fun VoiceReplyLanguageDialog(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                 }
-                items(SpeechLanguages.synthesis, key = { it.tag }) { language ->
+                items(profiles, key = { it.tag }) { language ->
                     Row(
                         Modifier.fillMaxWidth().selectable(language.tag == selected, role = Role.RadioButton, onClick = { select(language.tag) })
                             .testTag("voice_reply_language_${language.tag}").padding(vertical = 12.dp),

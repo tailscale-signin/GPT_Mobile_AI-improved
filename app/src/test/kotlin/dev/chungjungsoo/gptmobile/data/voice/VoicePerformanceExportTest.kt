@@ -22,7 +22,8 @@ class VoicePerformanceExportTest {
             Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-gpu-requested", "GPU"),
             Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-npu-requested", "NPU"),
             Triple("MEDIAPIPE_PHONON", "mediapipe-phonon-cpu-requested", "CPU"),
-            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-cpu-requested", "CPU")
+            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-cpu-requested", "CPU"),
+            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-multilingual-cpu-requested", "CPU")
         )) {
             val history = VoicePerformanceHistory()
             history.observe("text_to_audio", 125, family, true)

@@ -2,7 +2,18 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 internal typealias SpokenRangeObserver = (Int, String, IntRange) -> Unit
 
-internal data class VoicePcmCue(val frame: Long, val segment: Int, val text: String, val range: IntRange, val endFrame: Long = frame, val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.NATIVE_DURATION)
+internal data class VoicePcmCue(
+    val frame: Long,
+    val segment: Int,
+    val text: String,
+    val range: IntRange,
+    val endFrame: Long = frame,
+    val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.NATIVE_DURATION,
+    val streamStart: Long = -1,
+    val startByte: Int = -1,
+    val endByte: Int = -1,
+    val revision: Int = 0
+)
 
 /** The pinned pack produces 600 PCM samples per predicted duration unit, at the requested speed. */
 internal fun kokoroWordFrames(durations: LongArray, wordTokens: IntArray, wordCount: Int, samples: Int): IntArray {
@@ -39,7 +50,12 @@ internal class VoicePcmCaptions {
             require(cue.range.isEmpty() || cue.range.first >= 0 && cue.range.last < text.length)
             require(cue.startFrame >= 0 && cue.endFrame > cue.startFrame)
             if (!cue.range.isEmpty()) {
-                val mapped = VoicePcmCue(streamStart + cue.startFrame, segment, text, cue.range, streamStart + cue.endFrame, cue.provenance)
+                val mapped = VoicePcmCue(streamStart + cue.startFrame, segment, text, cue.range, streamStart + cue.endFrame, cue.provenance, streamStart, cue.startByte, cue.endByte, cue.revision)
+                if (cue.revision > 0) {
+                    require(cue.finalEnd && cue.startByte >= 0 && cue.endByte > cue.startByte && mapped.endFrame <= produced + frames) { "STREAM_CUE_REVISION" }
+                    reviseUnheard(mapped)
+                    continue
+                }
                 val open = openStreamCue
                 if (!cue.finalEnd || open != null) require(mapped.endFrame <= produced + frames) { "STREAM_CUE_UNOBSERVED" }
                 val retained = if (open == null) {
@@ -54,6 +70,8 @@ internal class VoicePcmCaptions {
                             previous.segment == mapped.segment &&
                             previous.text == mapped.text &&
                             previous.range == mapped.range &&
+                            previous.startByte == mapped.startByte &&
+                            previous.endByte == mapped.endByte &&
                             previous.provenance == mapped.provenance &&
                             mapped.endFrame >= previous.endFrame
                     ) { "STREAM_CUE_REVISION" }
@@ -75,10 +93,42 @@ internal class VoicePcmCaptions {
                 }
                 openStreamCue = if (cue.finalEnd) null else streamStart to retained
                 lastStreamEnd = retained.endFrame
-                if (cue.finalEnd) pending.addLast(VoicePcmCue(retained.endFrame, segment, text, IntRange.EMPTY, provenance = cue.provenance))
+                if (cue.finalEnd) pending.addLast(retained.copy(frame = retained.endFrame, range = IntRange.EMPTY))
             }
         }
         produced += frames
+    }
+
+    /**
+     * The presented-frame watermark commits a word's identity and onset. Delayed
+     * SDK estimates can repair queued words, but cannot rewind or replace words
+     * already heard. Native duration cues remain authoritative for their stream.
+     */
+    private fun reviseUnheard(mapped: VoicePcmCue) {
+        val index = pending.indexOfFirst {
+            !it.range.isEmpty() && it.streamStart == mapped.streamStart && it.startByte == mapped.startByte
+        }
+        if (index < 0) return
+        val previous = pending[index]
+        require(
+            previous.segment == mapped.segment &&
+                previous.text == mapped.text &&
+                previous.range == mapped.range &&
+                previous.endByte == mapped.endByte &&
+                previous.provenance == mapped.provenance &&
+                mapped.revision > previous.revision
+        ) { "STREAM_CUE_REVISION" }
+        if (lastConsumed > 0 && (previous.frame <= lastConsumed || mapped.frame <= lastConsumed) || previous.provenance == VoiceWordCueProvenance.NATIVE_DURATION) return
+        val marker = pending.getOrNull(index + 1) ?: return
+        if (!marker.range.isEmpty() || marker.frame != previous.endFrame || marker.startByte != previous.startByte || marker.streamStart != previous.streamStart) return
+        val before = if (index == 0) current?.endFrame ?: 0L else pending[index - 1].endFrame
+        val after = pending.getOrNull(index + 2)?.frame ?: Long.MAX_VALUE
+        // A neighbour may have crossed the watermark since the SDK made its
+        // correction. Preserve that committed interval instead of overlapping it.
+        if (mapped.frame < before || mapped.endFrame > after) return
+        pending[index] = mapped
+        pending[index + 1] = mapped.copy(frame = mapped.endFrame, range = IntRange.EMPTY)
+        if (index + 2 == pending.size && openStreamCue == null) lastStreamEnd = mapped.endFrame
     }
 
     @Synchronized fun append(segment: Int, text: String, ranges: List<IntRange>, boundaries: IntArray, frames: Int) {

@@ -7,6 +7,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceCaptionMotionTest {
+    @Test fun fastSpeechUsesItsRemainingWordTimeForLineMotion() {
+        assertEquals(100, captionWordMotionDurationMs(0, 2_400, 0, 24_000))
+        assertEquals(60, captionWordMotionDurationMs(0, 2_400, 2_000, 24_000))
+        assertEquals(420, captionWordMotionDurationMs(0, 48_000, 0, 24_000))
+        assertEquals(320, captionWordMotionDurationMs(0, 0, 0, 24_000))
+        val motion = VoiceCaptionMotion(0f)
+        motion.retarget(1f, 0, animate = true, durationMs = 100)
+        assertEquals(VoiceCaptionMotionSample(1f, 0f), motion.sample(100_000_000))
+        assertFalse(motion.moving(100_000_000))
+    }
+
+    @Test fun fastWordColourReachesTheAccentDuringTheWordAndDoesNotTrailSeveralLaterWords() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(0..2, 0, 0, animate = true, wordDurationNanos = 100_000_000)
+        assertEquals(1f, highlights.visible(45_000_000).single().colour, 0f)
+        highlights.update(4..6, 100_000_000, 100_000_000, animate = true, wordDurationNanos = 100_000_000)
+        assertEquals(listOf(4..6), highlights.visible(150_000_000).map { it.range })
+        assertEquals(1f, highlights.visible(150_000_000).single().colour, 0f)
+    }
+
+    @Test fun pausingFreezesTheColourEnvelopeAlongWithTheWordAndScrollPosition() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(0..2, 0, 0, animate = true, wordDurationNanos = 100_000_000)
+        highlights.playing(false, 20_000_000)
+        val held = highlights.visible(20_000_000)
+        assertEquals(held, highlights.visible(5_000_000_000))
+        assertFalse(highlights.animating(5_000_000_000))
+        highlights.playing(true, 5_000_000_000)
+        assertEquals(held, highlights.visible(5_000_000_000))
+        assertEquals(1f, highlights.visible(5_025_000_000).single().colour, 0f)
+    }
+
     @Test fun theFiveSettledRowsRetainTheirTypographyAndOpacity() {
         assertEquals(listOf(1f, 1.5f, 2f, 1.5f, 1f), (-2..2).map { captionLineScale(it.toFloat()) })
         assertEquals(listOf(.5f, .75f, 1f, .75f, .5f), (-2..2).map { captionLineAlpha(it.toFloat()) })

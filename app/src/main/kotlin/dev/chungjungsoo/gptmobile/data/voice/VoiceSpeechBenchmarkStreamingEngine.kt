@@ -53,7 +53,7 @@ internal class VoiceSpeechEnginePlaybackRelay {
     @Volatile var current: VoiceSpeechEnginePlaybackObservation? = null
 }
 
-/** The real engine and playback queue are retained; only bounded, raw-PCM validation is observed. */
+/** Observes engine callback PCM after app tempo processing and before playback pause trimming. */
 internal class VoiceSpeechBenchmarkStreamingEngine(
     private val delegate: VoicePhraseEngine,
     private val measurement: () -> VoiceSpeechPlaybackMeasurement?,

@@ -43,6 +43,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
                 MediaPipeSpeechEngine.KOKORO_SM8750 -> backend == VoiceSpeechBackend.LITERT_KOKORO_SM8750
                 MediaPipeSpeechEngine.PHONON -> backend == VoiceSpeechBackend.PHONON_CPU
                 MediaPipeSpeechEngine.POCKET -> backend == VoiceSpeechBackend.POCKET_CPU
+                MediaPipeSpeechEngine.POCKET_MULTILINGUAL -> backend == VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU
             }
         )
     }
@@ -60,8 +61,8 @@ internal class MediaPipeVoicePhraseEngineFactory(
         }
     }
     val effectiveTargetBucket: Int = if (engine.isKokoro) kokoroBucket.sdkValue else 0
-    override val residentIdentity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:bucket=$effectiveTargetBucket:incremental=$incrementalInput:allowCpuFallback=${onPlaybackDelegate != null}"
-    override val identity = "$residentIdentity:voice=$voiceId"
+    override val residentIdentity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:synthesis=1:tempo=${VoiceTempoProcessor.IMPLEMENTATION_ID}:bucket=$effectiveTargetBucket:incremental=$incrementalInput:allowCpuFallback=${onPlaybackDelegate != null}"
+    override val identity = "$residentIdentity:rate=${speakingRate.toBits()}:voice=$voiceId"
 
     override fun prepareForPlayback(engine: VoicePhraseEngine) {
         if (engine is MediaPipePlaybackRecovery) {
@@ -121,7 +122,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
         var acquired: MediaPipeSpeechModelStore.ModelLease? = null
         var task: MediaPipeSpeechTask? = null
         try {
-            val lease = timed("MODEL_LEASE") { modelStore.acquire(selectedEngine, request, speakingRate, selectedModel.defaultVoice, effectiveTargetBucket) }
+            val lease = timed("MODEL_LEASE") { modelStore.acquire(selectedEngine, request, 1f, selectedModel.defaultVoice, effectiveTargetBucket) }
             acquired = lease
             observer?.cacheObserved(lease.directoryPresentAtEntry, lease.evictionsOnAcquire)
             timed("DELEGATE_SETUP") {
@@ -139,7 +140,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
                             VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED -> Delegate.GPU
                             else -> Delegate.CPU
                         },
-                        speakingRate,
+                        1f,
                         selectedModel.defaultVoice,
                         effectiveTargetBucket
                     )
@@ -157,7 +158,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
                 checkTicket(ticket)
                 pending = null
             }
-            return MediaPipeVoicePhraseEngine(task, lease, request, speakingRate, selectedVoice, incrementalInput, voices, onPlaybackDelegate != null && request.isMediaPipeAccelerator)
+            return MediaPipeVoicePhraseEngine(task, lease, request, 1f, selectedVoice, incrementalInput, voices, onPlaybackDelegate != null && request.isMediaPipeAccelerator)
         } catch (failure: Throwable) {
             synchronized(pendingLock) { if (pending === task) pending = null }
             val closeFailure = runCatching { task?.close() }.exceptionOrNull()

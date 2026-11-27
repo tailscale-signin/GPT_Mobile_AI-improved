@@ -22,7 +22,8 @@ internal data class VoiceBenchStage(
     val htp: String = "balanced",
     val probe: VoiceBenchProbe? = null,
     val language: String? = null,
-    val listeningStyle: VoiceListeningStyle? = null
+    val listeningStyle: VoiceListeningStyle? = null,
+    val selectedVoiceId: String? = null
 ) {
     fun configuration(voice: KokoroVoice, streamingVoice: String?, offset: Int, order: Long, build: Int, sdk: Int, device: String, commit: String): VoiceSpeechBenchmarkConfiguration {
         val selected = requireNotNull(engine)
@@ -30,8 +31,9 @@ internal data class VoiceBenchStage(
         val standardVoice = voice.streamingVoiceId
         val voiceId = when {
             sdkModel == null -> voice.name
+            selectedVoiceId != null -> MediaPipeSpeechVoices.selected(sdkModel.engine, selectedVoiceId)
+            calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS && streamingVoice != null && MediaPipeSpeechVoices.profile(sdkModel.engine, streamingVoice) != null -> streamingVoice
             !sdkModel.engine.isKokoro -> sdkModel.defaultVoice
-            calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS -> streamingVoice ?: standardVoice
             else -> standardVoice
         }
         return VoiceSpeechBenchmarkConfiguration(
@@ -75,6 +77,14 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
     configs.forEach { base ->
         addCase(base, "playback, captions and interruption", base.copy(playback = scenarios))
         addCase(base, "current rate and caption calibration", base.copy(rate = selection, playback = listOf(VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS), calibration = VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS))
+        listOf(.75f, 1.25f, 1.5f, 2f).forEach { rate ->
+            addCase(base, "$rate× streaming playback", base.copy(rate = rate, playback = listOf(VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS)))
+        }
+        base.engine?.mediaPipeEngine()?.takeUnless { it.isKokoro }?.let { engine ->
+            MediaPipeSpeechVoices.ids(engine).forEach { id ->
+                addCase(base, "voice $id · PCM readiness", base.copy(mode = VoiceSpeechBenchmarkMode.QUICK, selectedVoiceId = id))
+            }
+        }
     }
     configs.forEach { base ->
         VoiceSpeechBenchmarkWorkload.entries.filterNot { it == base.workload }.forEach { workload ->
@@ -111,7 +121,7 @@ internal enum class VoiceBenchStatus { PENDING, RUNNING, MEASURED, PARTIAL, FAIL
 internal data class VoiceBenchMetric(val label: String, val value: Double, val unit: String, val samples: Int)
 
 @Serializable
-internal data class VoiceBenchResult(val label: String, val status: VoiceBenchStatus = VoiceBenchStatus.PENDING, val reason: String? = null, val measurements: Int = 0, val metrics: List<VoiceBenchMetric> = emptyList(), val recommendedRoute: String? = null)
+internal data class VoiceBenchResult(val label: String, val status: VoiceBenchStatus = VoiceBenchStatus.PENDING, val reason: String? = null, val measurements: Int = 0, val metrics: List<VoiceBenchMetric> = emptyList(), val recommendedRoute: String? = null, val measuredLatencyCandidate: String? = null)
 
 @Serializable
 internal data class VoiceBenchManifest(
@@ -157,5 +167,5 @@ internal fun VoiceSpeechBenchmarkReport.suiteResult(label: String): VoiceBenchRe
         val kind = if (configuration.playback) "cold first presented audio" else "warm short phrase to first PCM"
         VoiceBenchMetric("${backend.label} · $kind", median, "ms", times.size)
     }
-    return VoiceBenchResult(label, status, issue?.name ?: outcome.name, completedSamples, summary, recommendation()?.label)
+    return VoiceBenchResult(label, status, issue?.name ?: outcome.name, completedSamples, summary, recommendation()?.label, measuredStreamingCandidate()?.label)
 }

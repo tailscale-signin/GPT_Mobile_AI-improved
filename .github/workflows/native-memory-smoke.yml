@@ -208,7 +208,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [kokoro, phonon, pocket]
+        engine: [kokoro, phonon, pocket, pocket-multilingual]
     env:
       MEDIAPIPE_SMOKE_EVIDENCE_DIR: app/build/native-speech-smoke/${{ matrix.engine }}
     steps:

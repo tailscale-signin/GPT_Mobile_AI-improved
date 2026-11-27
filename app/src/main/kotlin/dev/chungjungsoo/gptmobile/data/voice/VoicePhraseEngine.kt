@@ -19,7 +19,9 @@ internal data class VoiceWordCue(
     val startFrame: Long,
     val endFrame: Long,
     val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.ESTIMATED,
-    val finalEnd: Boolean = true
+    val finalEnd: Boolean = true,
+    /** Increasing corrections replace this exact byte span; they never introduce another word. */
+    val revision: Int = 0
 )
 
 /** Mono float PCM. The producer must not mutate samples after handing them to the consumer. */

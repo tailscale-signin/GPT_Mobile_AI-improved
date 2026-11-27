@@ -21,10 +21,11 @@ internal class VoiceTuningConfiguration(
         if (before?.listeningStyle != value.listeningStyle) audio.listeningStyle = value.listeningStyle
         if (before?.captureBatchMs != value.captureBatchMs) audio.captureBatchMs = value.captureBatchMs
         if (before?.handsFreeInterruption != value.handsFreeInterruption) session.configureInterruption(value.handsFreeInterruption)
-        if (previousLanguage != language || before?.dictionary(language) != value.dictionary(language)) {
+        if (previousLanguage != language || before?.dictionary(language) != value.dictionary(language) || before?.pronunciationLanguage(language) != value.pronunciationLanguage(language)) {
             val entries = value.dictionary(language)
-            session.pronunciationDictionary = VoicePronunciationDictionary(entries, language)
-            audio.configurePronunciation(entries, language)
+            val pronunciationLanguage = value.pronunciationLanguage(language)
+            session.pronunciationDictionary = VoicePronunciationDictionary(entries, pronunciationLanguage)
+            audio.configurePronunciation(entries, pronunciationLanguage)
             previousLanguage = language
         }
         if (before?.captionOffsetMs != value.captionOffsetMs) output?.configureCaptionOffset(value.captionOffsetMs)

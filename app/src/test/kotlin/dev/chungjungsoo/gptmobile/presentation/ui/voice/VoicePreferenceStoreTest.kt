@@ -80,6 +80,19 @@ class VoicePreferenceStoreTest {
         assertEquals(tuning.pronunciation, edited.pronunciation)
     }
 
+    @Test fun regionalPreferenceRestoresSharedAndSpecificEntriesWithoutAcceptingAnotherLanguage() {
+        val saved = mapOf(
+            "localized_pronunciations" to """{"pt":{"São":"são"},"pt-PT-azores":{"Melo":"mê lo"},"fr-CA":{"Élodie":"é lo die"}}""",
+            "pronunciation_locales" to """{"pt":"pt-PT-azores","fr":"pt-BR"}"""
+        )
+        val restored = readVoiceTuningPreferences(saved)
+        assertEquals("pt-PT-azores", restored.pronunciationLanguage("pt-BR"))
+        assertEquals(mapOf("São" to "são", "Melo" to "mê lo"), restored.dictionary("pt"))
+        assertEquals("fr", restored.pronunciationLanguage("fr-CA"))
+        assertTrue(restored.dictionary("fr").isEmpty())
+        assertEquals(mapOf("Élodie" to "é lo die"), restored.localizedPronunciations["fr-CA"])
+    }
+
     @Test fun originalWeightsAreTheFreshNativeDefaultAndOlderPreferencesKeepTheirPack() {
         assertEquals(KokoroModelVariant.ORIGINAL_FP32, readVoicePreferences(emptyMap<String, Any>()).nativeModelVariant)
         assertEquals(KokoroModelVariant.INT8, readVoicePreferences(mapOf("captions" to true)).nativeModelVariant)
@@ -386,7 +399,12 @@ class VoicePreferenceStoreTest {
                 speakWhileGenerating = false,
                 kokoroBucket = MediaPipeKokoroBucket.TOKENS_128,
                 incrementalSpeech = false,
-                nativeModelVariant = KokoroModelVariant.ORIGINAL_FP32
+                nativeModelVariant = KokoroModelVariant.ORIGINAL_FP32,
+                tuning = VoiceTuningPreferences(
+                    pronunciation = mapOf("CUDA" to "koo dah"),
+                    localizedPronunciations = mapOf("pt" to mapOf("São" to "são"), "pt-PT-azores" to mapOf("Melo" to "mê lo")),
+                    pronunciationLocales = mapOf("pt" to "pt-PT-azores")
+                )
             )
             val expected = requested.copy(kokoroThreads = VoiceCpuSchedulingPolicy.deviceLimit())
             model.save(requested)

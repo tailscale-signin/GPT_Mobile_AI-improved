@@ -2648,7 +2648,9 @@ class AgentRunner(
                                 evidenceCorrectionEligible = false
                             }
                         }
-                        .withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText)
+                        .let { output ->
+                            if (session.isSourceTranslation) output.withSourceTranslationOutputGuard() else output.withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText)
+                        }
                 )
             }
         }.flowOn(replayDelivery).catch { error ->
@@ -2817,7 +2819,7 @@ class AgentRunner(
                         textEmitted = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(event.text)
                     } else if (event is ProviderEvent.TextDelta && !textEmitted) {
                         answerCandidate.append(event.text)
-                        textEmitted = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(answerCandidate.toString())
+                        textEmitted = if (session.isSourceTranslation) answerCandidate.isNotBlank() else dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(answerCandidate.toString())
                     }
                     if (event is ProviderEvent.TextDelta && event.text.isNotBlank() && event.lineage.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT) {
                         applicationReportEmitted = true

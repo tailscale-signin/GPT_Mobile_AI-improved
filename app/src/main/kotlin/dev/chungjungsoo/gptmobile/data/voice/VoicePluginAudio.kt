@@ -23,6 +23,7 @@ internal interface KokoroOutput {
     fun configurePacing(pause: VoicePauseDuration, performance: VoicePerformanceMode) = Unit
     fun configurePronunciation(overrides: Map<String, String>, language: String = "en") = Unit
     fun configureCaptionOffset(milliseconds: Int) = Unit
+    fun calibrateCaptionOffset(milliseconds: Int) = configureCaptionOffset(milliseconds)
     fun configureEngine(factory: VoicePhraseEngineFactory) = Unit
     fun benchmark(voice: KokoroVoice, completed: (String) -> Unit) = completed("This speech engine does not support calibration.")
     fun prewarm(voice: KokoroVoice, assetsOnly: Boolean = false) = Unit

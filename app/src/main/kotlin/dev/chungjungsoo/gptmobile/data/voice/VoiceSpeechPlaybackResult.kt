@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+private val OUTPUT_ROUTE_IDENTITY = Regex("(speaker|earpiece|bluetooth|usb|wired|other):[a-f0-9]{32}")
+internal fun isVoiceOutputRouteIdentity(value: String): Boolean = value.matches(OUTPUT_ROUTE_IDENTITY)
+
 internal enum class VoiceSpeechPlaybackState { COMPLETE, FAILED, UNSUPPORTED, CANCELLED }
 
 internal data class VoiceSpeechPlaybackChunk(
@@ -115,10 +118,16 @@ internal data class VoiceSpeechPlaybackResult(
     val prewarmCompleted: Boolean? = null,
     val prewarmElapsedMs: Long? = null,
     val recoveryAfter: VoiceSpeechCancellationTarget? = null,
+    // Legacy storage name: engine callback PCM; configuration.pcmProcessingId identifies processing.
     val sdkPcm: VoicePcmSignal? = null,
     val cacheDirectoryPresent: Boolean? = null,
     val cacheDirectoriesEvicted: Int? = null,
-    val firstSdkPcmAfterStreamStartMs: Long? = null
+    val firstSdkPcmAfterStreamStartMs: Long? = null,
+    val captionNativeTimingWords: Int? = null,
+    val captionEstimatedTimingWords: Int? = null,
+    val captionTimingRevisions: Int? = null,
+    val outputRouteIdentity: String? = null,
+    val outputRouteIdentityChanges: Int? = null
 ) {
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
@@ -163,7 +172,7 @@ internal data class VoiceSpeechPlaybackResult(
         }
 }
 
-/** Optional numeric observer. No transcript, PCM, device identity or credentials cross this boundary. */
+/** Optional numeric observer. No transcript, PCM, raw device identity or credentials cross this boundary. */
 internal interface VoicePlaybackMeasurementObserver {
     /** Each production reply captures its observer once, before any asynchronous work starts. */
     fun forPlayback(): VoicePlaybackMeasurementObserver = this
@@ -172,9 +181,11 @@ internal interface VoicePlaybackMeasurementObserver {
     fun refillAt(frame: Long, elapsedMs: Long) = Unit
     fun pcmQueued() = Unit
     fun captionsPrepared(segment: Int, ranges: List<IntRange>) = Unit
+    fun outputRouteIdentity(identity: String?) = Unit
     fun firstPresented(clockBasis: String, route: String) = Unit
     fun terminal(underruns: Int?, bufferRestarts: Int, longestRefillMs: Long, clockBasis: String, route: String) = Unit
     fun captionClockCrossed(segment: Int, range: IntRange) = Unit
+    fun captionTimingObserved(segment: Int, range: IntRange, provenance: VoiceWordCueProvenance, revision: Int = 0) = Unit
     fun firstAudioTrackWrite() = Unit
     fun trackPlayRequested() = Unit
     fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) = Unit
@@ -225,6 +236,9 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var refill = 0L
     private var clock: String? = null
     private var route: String? = null
+    private var outputRouteIdentity: String? = null
+    private var outputRouteIdentityChanges = 0
+    private var outputRouteObserved = false
     private var provider: String? = null
     private var accelerated = false
     private var captions = 0
@@ -244,6 +258,8 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var attemptAudio: VoiceSpeechAudioObservation? = null
     private val expectedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
     private val observedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
+    private val timingWords = mutableMapOf<VoiceSpeechCaptionSpan, Pair<VoiceWordCueProvenance, Int>>()
+    private var timingRevisions = 0
     private val chunkRecords = mutableListOf<VoiceSpeechPlaybackChunk>()
     private val reserves = mutableListOf<VoiceSpeechReserveObservation>()
     private val calibrations = mutableListOf<VoiceSpeechCalibrationObservation>()
@@ -424,6 +440,16 @@ internal class VoiceSpeechPlaybackMeasurement(
         if (calibrations.lastOrNull() != value) calibrations += value
     }
 
+    @Synchronized override fun outputRouteIdentity(identity: String?) {
+        if (stoppedAt != null) return
+        val observed = identity?.takeIf(::isVoiceOutputRouteIdentity)
+        if (outputRouteObserved && outputRouteIdentity != observed) {
+            outputRouteIdentityChanges = (outputRouteIdentityChanges + 1).coerceAtMost(100_000)
+        }
+        outputRouteObserved = true
+        outputRouteIdentity = observed
+    }
+
     @Synchronized override fun firstPresented(clockBasis: String, route: String) {
         if (stoppedAt != null) return
         if (firstPresented == null) firstPresented = elapsed()
@@ -437,6 +463,28 @@ internal class VoiceSpeechPlaybackMeasurement(
             val span = VoiceSpeechCaptionSpan(segment, range.first, range.last)
             if (span in expectedWords || expectedWords.size < VoiceSpeechCaptionManifest.MAX_WORDS) expectedWords.add(span) else violations++
         }
+    }
+
+    @Synchronized override fun captionTimingObserved(segment: Int, range: IntRange, provenance: VoiceWordCueProvenance, revision: Int) {
+        if (stoppedAt != null || range.isEmpty()) return
+        if (segment < 0 || range.first < 0 || range.last >= 1_000_000 || revision < 0) {
+            violations++
+            return
+        }
+        val span = VoiceSpeechCaptionSpan(segment, range.first, range.last)
+        val previous = timingWords[span]
+        if (previous != null) {
+            if (revision <= previous.second) return
+            if (timingRevisions >= 100_000) {
+                violations++
+                return
+            }
+            timingRevisions++
+        } else if (timingWords.size >= VoiceSpeechCaptionManifest.MAX_WORDS) {
+            violations++
+            return
+        }
+        timingWords[span] = provenance to revision
     }
 
     private val crossedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
@@ -527,7 +575,12 @@ internal class VoiceSpeechPlaybackMeasurement(
             underrunsByPhase = phaseUnderruns.toMap(), preparationPhases = preparationPhases.toMap(),
             timeoutLimitMs = native?.timeoutLimitMs, timeoutElapsedMs = native?.timeoutElapsedMs, timeoutScope = native?.timeoutScope,
             omittedPcmRecords = omittedPcmRecords, stopOrigin = stopOrigin,
-            cacheDirectoryPresent = cacheDirectoryPresent, cacheDirectoriesEvicted = cacheDirectoriesEvicted
+            cacheDirectoryPresent = cacheDirectoryPresent, cacheDirectoriesEvicted = cacheDirectoriesEvicted,
+            captionNativeTimingWords = timingWords.takeIf { it.isNotEmpty() }?.count { it.value.first == VoiceWordCueProvenance.NATIVE_DURATION },
+            captionEstimatedTimingWords = timingWords.takeIf { it.isNotEmpty() }?.count { it.value.first == VoiceWordCueProvenance.ESTIMATED },
+            captionTimingRevisions = timingRevisions.takeIf { timingWords.isNotEmpty() },
+            outputRouteIdentity = outputRouteIdentity,
+            outputRouteIdentityChanges = outputRouteIdentityChanges.takeIf { outputRouteObserved }
         )
     }
 

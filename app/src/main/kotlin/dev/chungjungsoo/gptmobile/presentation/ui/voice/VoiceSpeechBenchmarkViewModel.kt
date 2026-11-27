@@ -248,7 +248,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             when {
                 configuration.playback -> {
                     val config = writer.report.configuration
-                    val pins = sdkEngine?.let { streamingModels.retainComparisonCaches(it, config.backends, config.speechRate, if (it.isKokoro) config.kokoroBucket.sdkValue else 0) }
+                    val pins = sdkEngine?.let { streamingModels.retainComparisonCaches(it, config.backends, 1f, if (it.isKokoro) config.kokoroBucket.sdkValue else 0) }
                     try {
                         measurePlayback(models, writer, thermalStatus, sdkFactory.takeUnless { nativeEngine })
                     } finally {

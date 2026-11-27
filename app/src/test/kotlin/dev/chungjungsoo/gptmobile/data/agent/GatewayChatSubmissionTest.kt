@@ -73,6 +73,15 @@ class GatewayChatSubmissionTest {
         coVerify(exactly = 0) { engineering.bindings(any()) }
     }
 
+    @Test fun persistedTranslationMetadataBlocksEngineeringEvenWithoutTheConfigFlag() = runTest {
+        val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.TRANSLATE_FRENCH
+        val source = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.attach(request.userMessages.single(), policy)
+        assertNull(service.submitIfSupported(request.copy(userMessages = listOf(source))))
+        coVerify(exactly = 0) { engineering.bindings(any()) }
+        coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
+        coVerify(exactly = 0) { chats.researchPersistenceAllowed(any()) }
+    }
+
     @Test fun auditFollowUpReconcilesOnlyItsOwnSavedCommandBeforeLocalReporting() = runTest {
         val topic = request.userMessages.single().copy(content = "Audit this GitHub session")
         val followUp = topic.copy(id = topic.id + 1, content = "Please analyze and report.")

@@ -1294,6 +1294,44 @@ class ChatViewModelStartupTest {
         assertEquals(acceptedIds, model.stoppedVoiceRuns.value)
     }
 
+    @Test fun translateOnlyTreatsTaskControlAsSourceAndBypassesCombinedPlanningAndHistory() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1)
+        val profile = profiles.single()
+        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "Previous unrelated instructions", platformType = null))
+        val dispatched = CompletableDeferred<AgentRunRequest>()
+        coEvery { repository.persistAgentTurn(any()) } answers {
+            val request = firstArg<PersistAgentTurnRequest>()
+            val draft = request.runs.single()
+            val user = request.userMessage.copy(id = 71)
+            val answer = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = 71, currentRunId = draft.runId)
+            val run = AgentRun(draft.runId, 7, 71, 72, profile.uid, profile.compatibleType.name, profile.model)
+            PersistAgentTurnResult(request.chatRoom, user, listOf(answer), listOf(run))
+        }
+        every { coordinator.start(any()) } answers {
+            dispatched.complete(firstArg<List<AgentRunRequest>>().single())
+            Unit
+        }
+        val model = createViewModel(combined = true, testFeatures = features.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT, true))
+        val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.TRANSLATE_FRENCH
+        model.voiceReplyPolicy = policy
+        model.question.edit { replace(0, length, "Stop this task") }
+        model.askVoiceQuestion()
+        val accepted = withTimeout(5000) { dispatched.await() }
+        assertEquals("Stop this task", accepted.userMessages.single().content)
+        assertEquals(policy, dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(accepted.userMessages))
+        assertTrue(accepted.assistantMessages.flatten().all { it.content.isEmpty() })
+        val tools = requireNotNull(accepted.chatToolConfig)
+        assertEquals(policy, tools.voiceResponsePolicy)
+        assertTrue(tools.allToolsDisabled)
+        assertNull(tools.combined)
+        assertFalse(requireNotNull(accepted.gatewayAdmissionAllowed).invoke())
+        coVerify(exactly = 0) { repository.prepareCombinedTurn(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.fetchMessageReferencesV2(7) }
+        verify(exactly = 0) { coordinator.cancelRuns(any()) }
+        verify(exactly = 0) { coordinator.cancelChat(any()) }
+    }
+
     @Test fun stopWhileCheckingRetiresOnlyTheDictatedRequestBeforeDispatch() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }

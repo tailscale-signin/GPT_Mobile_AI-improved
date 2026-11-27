@@ -59,6 +59,7 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
                     .putBoolean("spoken_acknowledgments", value.tuning.spokenAcknowledgments)
                     .putString("pronunciation_overrides", org.json.JSONObject(value.tuning.pronunciation).toString())
                     .putString("localized_pronunciations", org.json.JSONObject(value.tuning.localizedPronunciations).toString())
+                    .putString("pronunciation_locales", org.json.JSONObject(value.tuning.pronunciationLocales).toString())
                     .putInt("caption_offset_ms", value.tuning.captionOffsetMs).commit()
             )
             error.value = null

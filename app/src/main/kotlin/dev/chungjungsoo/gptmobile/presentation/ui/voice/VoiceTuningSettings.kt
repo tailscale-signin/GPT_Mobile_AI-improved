@@ -1,26 +1,18 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceListeningStyle
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceHistory
+import dev.chungjungsoo.gptmobile.data.voice.VoicePronunciationLocales
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisFeedback
 import kotlinx.coroutines.flow.StateFlow
 
@@ -43,7 +35,17 @@ internal fun VoiceTuningSettings(
     VoiceSettingSwitch("Interrupt replies by speaking", value.handsFreeInterruption) { change(value.copy(handsFreeInterruption = it)) }
     Text("Hands-free interruption uses echo cancellation when the active audio route supports it.", style = MaterialTheme.typography.bodySmall)
     VoiceSettingsSection("Pronunciation")
-    VoicePronunciationEditor(language.label, value.dictionary(language.dictionaryLanguage)) { change(value.withDictionary(language.dictionaryLanguage, it)) }
+    val dictionaryLanguage = value.pronunciationLanguage(language.dictionaryLanguage)
+    val dictionaryChoices = VoicePronunciationLocales.choices(language.dictionaryLanguage)
+    if (dictionaryChoices.size > 1) {
+        VoiceChoice("Pronunciation dictionary", dictionaryLanguage, dictionaryChoices, { selected ->
+            change(value.copy(pronunciationLocales = value.pronunciationLocales + (language.dictionaryLanguage to selected)))
+        })
+        Text("Regional dictionaries add your local names and spellings. Shared corrections still apply. The selected voice determines the spoken accent.", style = MaterialTheme.typography.bodySmall)
+    }
+    VoicePronunciationEditor(dictionaryLanguage, value.editableDictionary(language.dictionaryLanguage), value.inheritedDictionary(language.dictionaryLanguage)) {
+        change(value.withDictionary(language.dictionaryLanguage, it))
+    }
     VoiceSettingsSection("Caption alignment")
     VoiceCaptionAdjustment(value.captionOffsetMs, feedback, adjustCaptionOffset)
     VoiceSettingsSection("Performance")
@@ -54,34 +56,15 @@ internal fun VoiceTuningSettings(
 @Composable
 private fun VoiceCaptionAdjustment(defaultOffset: Int, feedback: StateFlow<VoiceSynthesisFeedback>?, adjust: (Int) -> Unit) {
     val sample = feedback?.collectAsStateWithLifecycle()?.value
-    val observed = sample?.takeIf { it.route != "unknown" }
+    val observed = sample?.takeIf { it.route != "unknown" && it.bufferState != "idle" }
     var offset by remember(observed?.route, observed?.captionOffsetMs, defaultOffset) { mutableIntStateOf(observed?.captionOffsetMs ?: defaultOffset) }
     Text("Caption adjustment · $offset ms")
     Slider(offset.toFloat(), {
         offset = (it / 10).toInt() * 10
         adjust(offset)
     }, valueRange = -500f..500f, steps = 99)
-    observed?.let { Text("Saved for ${it.route}", style = MaterialTheme.typography.bodySmall) }
+    Text(if (observed == null) "Changes apply to the next playback device." else "Saved for the playing ${observed.route} device.", style = MaterialTheme.typography.bodySmall)
     Text("Positive values delay the highlight. Audio playback keeps its natural speed.", style = MaterialTheme.typography.bodySmall)
-}
-
-@Composable
-private fun VoicePronunciationEditor(language: String, value: Map<String, String>, save: (Map<String, String>) -> Unit) {
-    var editor by remember(language, value) { mutableStateOf(value.entries.joinToString("\n") { "${it.key} = ${it.value}" }) }
-    val parsed = remember(editor) { parsePronunciationEditor(editor) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        OutlinedTextField(
-            value = editor,
-            onValueChange = { if (it.length <= 32_000) editor = it },
-            modifier = Modifier.fillMaxWidth().testTag("voice_pronunciation_editor"),
-            label = { Text("Word or term = spoken pronunciation") },
-            supportingText = { Text("Write one term = spoken spelling per line in $language. You can save up to 100 names, phrases or abbreviations.") },
-            minLines = 2,
-            maxLines = 6,
-            isError = parsed == null
-        )
-        Button(onClick = { parsed?.let(save) }, enabled = parsed != null && parsed != value) { Text("Save pronunciations") }
-    }
 }
 
 @Composable

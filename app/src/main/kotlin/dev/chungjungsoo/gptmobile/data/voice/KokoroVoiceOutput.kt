@@ -74,6 +74,7 @@ internal class DeferredKokoroOutput(
     private var pronunciations: Map<String, String> = emptyMap()
     private var pronunciationLanguage = "en"
     private var captionOffset = 0
+    private var pendingCaptionCalibration: Int? = null
     private var speechFactory: VoicePhraseEngineFactory = TimedKokoroPhraseEngineFactory
 
     // The deferred native output reports playback-head consumption without loading JNI here.
@@ -113,6 +114,8 @@ internal class DeferredKokoroOutput(
                 output.configurePacing(pause, performance)
                 output.configurePronunciation(pronunciations, pronunciationLanguage)
                 output.configureCaptionOffset(captionOffset)
+                pendingCaptionCalibration?.let(output::calibrateCaptionOffset)
+                pendingCaptionCalibration = null
                 output.configureEngine(speechFactory)
                 replyId?.let(output::bindReply)
                 output.bindDiagnostics(diagnosticProbe)
@@ -171,7 +174,17 @@ internal class DeferredKokoroOutput(
     override fun configureCaptionOffset(milliseconds: Int) {
         synchronized(lock) {
             captionOffset = milliseconds.coerceIn(-500, 500)
+            if (pendingCaptionCalibration != captionOffset) pendingCaptionCalibration = null
             delegate?.configureCaptionOffset(captionOffset)
+        }
+    }
+
+    override fun calibrateCaptionOffset(milliseconds: Int) {
+        synchronized(lock) {
+            if (closed) return
+            captionOffset = milliseconds.coerceIn(-500, 500)
+            val output = delegate
+            if (output == null) pendingCaptionCalibration = captionOffset else output.calibrateCaptionOffset(captionOffset)
         }
     }
 
@@ -284,6 +297,7 @@ internal class KokoroVoiceOutput(
 
     @Volatile private var captionOffset = 0
     private val captionCalibration = VoiceCaptionCalibration()
+    private val routeCalibration = VoiceCaptionRouteCalibration()
 
     @Volatile private var calibrationTicket = 0L
 
@@ -344,15 +358,31 @@ internal class KokoroVoiceOutput(
         pronunciations = VoicePronunciationDictionary(overrides, language)
     }
 
+    /** Hydrates the global default without changing any device-specific saved calibration. */
     override fun configureCaptionOffset(milliseconds: Int) {
         captionCalibration.useSavedRoutes()
         val bounded = milliseconds.coerceIn(-500, 500)
-        if (captionOffset == bounded && (active?.captionOffsetMs ?: measuredSynthesis.value.captionOffsetMs) == bounded) return
         captionOffset = bounded
-        active?.captionOffsetMs = captionOffset
-        val route = active?.route ?: measuredSynthesis.value.route
-        if (!closed && route != "unknown") synthesis.execute { calibration.edit().putInt("caption:$route", bounded).apply() }
+        routeCalibration.configureDefault(bounded)
+        val playback = active
+        if (playback?.captionRouteKey == null) playback?.captionOffsetMs = bounded
+        measuredSynthesis.update { it.copy(captionOffsetMs = playback?.captionOffsetMs ?: bounded) }
+    }
+
+    /** The next AudioTrack observation owns this edit, even if the device just changed while idle. */
+    override fun calibrateCaptionOffset(milliseconds: Int) {
+        if (closed) return
+        val bounded = milliseconds.coerceIn(-500, 500)
+        captionCalibration.useSavedRoutes()
+        captionOffset = bounded
+        routeCalibration.request(bounded)
+        active?.captionOffsetMs = bounded
         measuredSynthesis.update { it.copy(captionOffsetMs = bounded) }
+    }
+
+    private fun persistCaptionCalibration(write: VoiceCaptionRouteCalibration.Write?) {
+        if (write == null || closed) return
+        runCatching { synthesis.execute { calibration.edit().putInt(write.routeKey, write.offsetMs).apply() } }
     }
 
     /** Isolates a benchmark from saved route settings without changing those preferences. */
@@ -516,6 +546,8 @@ internal class KokoroVoiceOutput(
         var routeId = -1
 
         @Volatile var route = "unknown"
+
+        @Volatile var captionRouteKey: String? = null
         var clockBasis = "unknown"
 
         @Volatile var captionOffsetMs = 0
@@ -975,7 +1007,7 @@ internal class KokoroVoiceOutput(
                 playback.synthesizing = true
                 if (model.engine.supportsStreaming && !playback.key.factory.requiresKokoroAssets) {
                     segmentIndex++
-                    val plan = VoiceStreamingPhrasePlan(segment, playback.pronunciations, speed, englishFallback = !playback.key.factory.selectedBackend.isLiteRtKokoro)
+                    val plan = VoiceStreamingPhrasePlan(segment, playback.pronunciations, speed, englishFallback = true)
                     while (active === playback) {
                         val phrase = plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
                         if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.text, null, speed, silence, phrase.sourceCharacters)) return
@@ -1085,7 +1117,10 @@ internal class KokoroVoiceOutput(
                     }
                     if (timedCaptions) {
                         playback.captions.append(segmentIndex, segment, phrase.wordRanges, boundaries, samples.size)
-                        runCatching { playback.measurements?.captionsPrepared(segmentIndex, phrase.wordRanges) }
+                        runCatching {
+                            playback.measurements?.captionsPrepared(segmentIndex, phrase.wordRanges)
+                            phrase.wordRanges.forEach { playback.measurements?.captionTimingObserved(segmentIndex, it, VoiceWordCueProvenance.NATIVE_DURATION) }
+                        }
                     }
                     publishFeedback(playback)
                     if (!queuePcm(playback, samples, sampleRate, phrase.speech.length)) return
@@ -1154,7 +1189,7 @@ internal class KokoroVoiceOutput(
                     playback.lastProgress = SystemClock.elapsedRealtime()
                     segmentIndex++
                     segment = queued
-                    plan = VoiceStreamingPhrasePlan(segment, playback.pronunciations, speed, englishFallback = !playback.key.factory.selectedBackend.isLiteRtKokoro)
+                    plan = VoiceStreamingPhrasePlan(segment, playback.pronunciations, speed, englishFallback = true)
                 }
             }
             if (playback.sealed) playback.awaitingIncrementalText = false
@@ -1172,7 +1207,10 @@ internal class KokoroVoiceOutput(
             } else {
                 captions.forEachIndexed { index, caption ->
                     playback.captions.appendStream(caption.segment, caption.text, streamStart, listOf(caption.cue), if (index == 0) retained.samples.size else 0)
-                    runCatching { playback.measurements?.captionsPrepared(caption.segment, listOf(caption.cue.range)) }
+                    runCatching {
+                        playback.measurements?.captionsPrepared(caption.segment, listOf(caption.cue.range))
+                        playback.measurements?.captionTimingObserved(caption.segment, caption.cue.range, caption.cue.provenance, caption.cue.revision)
+                    }
                 }
             }
             measuredSynthesis.update {
@@ -1219,7 +1257,12 @@ internal class KokoroVoiceOutput(
             // expanded speech offsets then belong to the normalized input, not the segment.
             val captions = if (timedCaptions) retained.cues.map { it.lexicalRange(segment) } else emptyList()
             playback.captions.appendStream(segmentIndex, segment, streamStart, captions, retained.samples.size)
-            if (timedCaptions) runCatching { playback.measurements?.captionsPrepared(segmentIndex, captions.map { it.range }) }
+            if (timedCaptions) {
+                runCatching {
+                    playback.measurements?.captionsPrepared(segmentIndex, captions.map { it.range })
+                    captions.forEach { playback.measurements?.captionTimingObserved(segmentIndex, it.range, it.provenance, it.revision) }
+                }
+            }
             measuredSynthesis.update {
                 it.copy(synthesisMs = (callbackStarted - started - callbackMs).coerceAtLeast(0), generatedAudioMs = stream.retainedFrames * 1_000 / chunk.sampleRate, executionProvider = engine.executionProvider)
             }
@@ -1589,16 +1632,41 @@ internal class KokoroVoiceOutput(
         playback.consumedFrames.set(frames)
         val now = SystemClock.elapsedRealtime()
         val route = track.routedDevice
-        if (route != null && route.id != playback.routeId) {
-            playback.routeId = route.id
-            playback.route = routeName(route.type)
+        if (route == null && playback.routeId != -1) {
+            playback.routeId = -1
+            playback.route = "unknown"
+            playback.captionRouteKey = null
             playback.clock.routeChanged()
             playback.hasTimestamp = false
             playback.nextTimestampAt = 0
-            playback.captionOffsetMs = captionCalibration.resolve(captionOffset) { calibration.getInt("caption:${playback.route}", captionOffset) }
-            runCatching { playback.measurements?.calibration(playback.route, playback.captionOffsetMs, playback.clock.routeEpoch) }
+            runCatching { playback.measurements?.outputRouteIdentity(null) }
+            publishFeedback(playback)
+        } else if (route != null && (route.id != playback.routeId || captionCalibration.usesSavedRoutes && routeCalibration.hasPending)) {
+            val changed = route.id != playback.routeId
+            playback.routeId = route.id
+            playback.route = routeName(route.type)
+            val address = runCatching { route.address }.getOrDefault("")
+            val product = runCatching { route.productName.toString() }.getOrDefault("")
+            val routeKey = VoiceCaptionRouteIdentity.key(playback.route, route.type, address, product, VOICE_PCM_SAMPLE_RATE)
+            playback.captionRouteKey = routeKey
+            if (changed) {
+                playback.clock.routeChanged()
+                playback.hasTimestamp = false
+                playback.nextTimestampAt = 0
+            }
+            playback.captionOffsetMs = captionCalibration.resolve(captionOffset) {
+                val resolved = routeCalibration.observed(routeKey) {
+                    calibration.getInt(routeKey, calibration.getInt("caption:${playback.route}", captionOffset))
+                }
+                persistCaptionCalibration(resolved.write)
+                resolved.offsetMs
+            }
+            runCatching {
+                playback.measurements?.calibration(playback.route, playback.captionOffsetMs, playback.clock.routeEpoch)
+                playback.measurements?.outputRouteIdentity(VoiceCaptionRouteIdentity.observedRoute(routeKey, address, product))
+            }
             measuredSynthesis.update { it.copy(captionOffsetMs = playback.captionOffsetMs) }
-            timing("route_changed", playback, "route=${playback.route} · captionOffsetMs=${playback.captionOffsetMs}")
+            timing(if (changed) "route_changed" else "caption_calibrated", playback, "route=${playback.route} · captionOffsetMs=${playback.captionOffsetMs}")
             publishFeedback(playback)
         }
         val trackPlaying = track.playState == AudioTrack.PLAYSTATE_PLAYING

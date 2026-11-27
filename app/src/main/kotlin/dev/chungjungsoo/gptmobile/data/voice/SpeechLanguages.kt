@@ -22,7 +22,7 @@ internal object SpeechLanguages {
     )
     val default = synthesis.first()
 
-    fun forVoice(id: String): SpeechLanguage? = synthesis.firstOrNull { id in it.voices }
+    fun forVoice(id: String): SpeechLanguage? = synthesis.firstOrNull { id in it.voices } ?: MediaPipeSpeechVoices.forVoice(id)
 
     fun forLocale(tag: String): SpeechLanguage? {
         val locale = Locale.forLanguageTag(tag)
@@ -33,7 +33,7 @@ internal object SpeechLanguages {
     fun availableVoice(requested: String, available: Set<String>, sameLanguageFallback: Boolean): String? {
         if (requested in available) return requested
         if (!sameLanguageFallback) return null
-        return synthesis.firstOrNull { requested in it.voices }?.voices?.firstOrNull { it in available }
+        return forVoice(requested)?.voices?.firstOrNull { it in available }
     }
 
     fun recognitionDefault(locale: Locale = Locale.getDefault()): String =

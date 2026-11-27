@@ -53,7 +53,9 @@ class SpeechLanguagesTest {
             }
         }
         assertEquals("fr", VoiceSynthesisPreferences().selectLanguage("fr-CA").profile.tag)
-        assertEquals(null, streamSynthesisOptions("freya").locale)
+        assertEquals("en-US", streamSynthesisOptions("freya").locale)
+        assertEquals("fr-FR", streamSynthesisOptions("estelle").locale)
+        assertEquals("pt-BR", streamSynthesisOptions("rafael").locale)
         assertTrue(VoiceResponsePolicy.forLanguage("fr").instruction().contains("Use French"))
     }
 

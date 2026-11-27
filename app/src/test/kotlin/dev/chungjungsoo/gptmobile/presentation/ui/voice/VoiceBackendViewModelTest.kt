@@ -112,8 +112,9 @@ class VoiceBackendViewModelTest {
             val japanese = VoiceSynthesisPreferences("ja").selectVoice("jf_nezumi")
             model.configureSpeech(KokoroVoice.HEART, 1f, synthesis = japanese)
             runCurrent()
-            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, model.state.value.backend)
-            assertTrue(model.state.value.factory.identity.endsWith("voice=jf_nezumi"))
+            assertEquals(VoiceSpeechBackend.PHONON_CPU, model.state.value.backend)
+            assertTrue(model.state.value.factory.identity.endsWith("voice=freya"))
+            assertEquals("en-US", model.state.value.synthesisProfile(japanese).tag)
             assertEquals(VoiceSpeechBackend.PHONON_CPU, preferences.state.value?.value?.backend)
             model.configureSpeech(KokoroVoice.HEART, 1f, synthesis = japanese.selectLanguage("en-US"))
             runCurrent()
@@ -180,11 +181,13 @@ class VoiceBackendViewModelTest {
         }
     }
 
-    @Test fun nonEnglishSpeechUsesMultilingualKokoroAndRetainsConfiguredKokoroDelegates() {
+    @Test fun nativeMultilingualFallbackRetainsStreamingPacksAndTheirOwnVoiceLocales() {
         val japanese = VoiceSynthesisPreferences("ja").selectVoice("jf_nezumi")
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.QNN_GPU.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.QNN_HTP.forSynthesis(japanese.selectLanguage("fr-CA")))
-        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.PHONON_CPU.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.PHONON_CPU.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.POCKET_CPU, VoiceSpeechBackend.POCKET_CPU.forSynthesis(japanese))
+        assertEquals("en-US", VoiceBackendSettings(backend = VoiceSpeechBackend.POCKET_CPU).synthesisProfile(japanese).tag)
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.GATEWAY_CUDA.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.AUTO, VoiceSpeechBackend.AUTO.forSynthesis(japanese.selectLanguage("en-US")))
@@ -195,10 +198,55 @@ class VoiceBackendViewModelTest {
         assertEquals(MediaPipeSpeechEngine.KOKORO, VoiceSpeechBackend.LITERT_KOKORO_GPU.streamingEngine())
         assertEquals(MediaPipeSpeechEngine.PHONON, VoiceSpeechBackend.PHONON_CPU.streamingEngine())
         assertEquals(MediaPipeSpeechEngine.POCKET, VoiceSpeechBackend.POCKET_CPU.streamingEngine())
+        assertEquals(MediaPipeSpeechEngine.POCKET_MULTILINGUAL, VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU.streamingEngine())
         assertEquals(null, VoiceSpeechBackend.CPU.streamingEngine())
         assertEquals(null, VoiceSpeechBackend.GATEWAY_CUDA.streamingEngine())
         assertEquals("af_heart", KokoroVoice.HEART.streamingVoiceId)
         assertEquals("am_adam", KokoroVoice.ADAM.streamingVoiceId)
+    }
+
+    @Test fun streamingVoiceSelectionSurvivesEngineSwitchAndPreferenceReload() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher)
+            owners.put("voice", model)
+            runCurrent()
+            model.selectBackend(VoiceSpeechBackend.POCKET_CPU)
+            runCurrent()
+            val alba = model.state.value.factory
+            model.selectStreamingVoice("marius")
+            runCurrent()
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            assertTrue(model.state.value.factory.identity.endsWith("voice=marius"))
+            assertEquals(alba.residentIdentity, model.state.value.factory.residentIdentity)
+            model.selectStreamingVoice("rafael")
+            runCurrent()
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            model.selectBackend(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU)
+            runCurrent()
+            model.selectStreamingVoice("rafael")
+            runCurrent()
+            assertEquals("pt-BR", model.state.value.synthesisProfile(VoiceSynthesisPreferences()).tag)
+            assertTrue(model.state.value.factory.identity.endsWith("voice=rafael"))
+            model.selectBackend(VoiceSpeechBackend.POCKET_CPU)
+            runCurrent()
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            val restored = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            runCurrent()
+            assertEquals("marius", restored.state.value?.value?.streamingVoice(MediaPipeSpeechEngine.POCKET))
+            assertEquals("rafael", restored.state.value?.value?.streamingVoice(MediaPipeSpeechEngine.POCKET_MULTILINGUAL))
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun voiceAndRateChangesReplaceOnlyTheMatchingQualificationIdentity() = runTest {

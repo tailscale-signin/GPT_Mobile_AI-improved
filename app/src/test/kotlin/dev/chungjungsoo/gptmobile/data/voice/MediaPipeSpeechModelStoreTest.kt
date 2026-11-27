@@ -221,11 +221,13 @@ class MediaPipeSpeechModelStoreTest {
         assertTrue(parent.listFiles().orEmpty().size <= 2)
     }
 
-    @Test fun factoryIdentityAndConfigurationIncludeRateVoiceModelAndRequestedDelegate() = runBlocking {
+    @Test fun playbackTempoReusesNormalRateSdkWhileVoiceModelAndDelegateRemainBound() = runBlocking {
         val store = store { bytes }
         store.install(model.engine)
         var configuration: MediaPipeSpeechTaskConfiguration? = null
-        val factory = MediaPipeVoicePhraseEngineFactory(store, model.engine, VoiceSpeechBackend.PHONON_CPU, 1.2f) { config ->
+        val firstCallbacks = mutableListOf<VoiceSpeechBackend>()
+        val changedCallbacks = mutableListOf<VoiceSpeechBackend>()
+        val factory = MediaPipeVoicePhraseEngineFactory(store, model.engine, VoiceSpeechBackend.PHONON_CPU, 1.2f, onPlaybackDelegate = { firstCallbacks += it }) { config ->
             configuration = config
             object : MediaPipeSpeechTask {
                 override fun voiceIds() = setOf("freya")
@@ -234,18 +236,24 @@ class MediaPipeSpeechModelStoreTest {
                 override fun close() = Unit
             }
         }
-        val otherRate = MediaPipeVoicePhraseEngineFactory(store, model.engine, VoiceSpeechBackend.PHONON_CPU, 1f)
+        val otherRate = MediaPipeVoicePhraseEngineFactory(store, model.engine, VoiceSpeechBackend.PHONON_CPU, 1f, onPlaybackDelegate = { changedCallbacks += it }) {
+            error("Changing output tempo must reuse the prepared SDK task")
+        }
         assertFalse(factory.requiresKokoroAssets)
         assertTrue(factory.isReady())
         assertNotEquals(factory.identity, otherRate.identity)
+        assertEquals(factory.residentIdentity, otherRate.residentIdentity)
         factory.create(files.root, "no-native-lexicon", 99).use { engine ->
             val actual = checkNotNull(configuration)
             assertEquals("mediapipe-phonon-cpu-requested", engine.executionProvider)
             assertTrue(actual.modelFile.isFile)
             assertTrue(actual.cacheDirectory.isDirectory)
-            assertEquals(1.2f, actual.speakingRate, 0f)
+            assertEquals(1f, actual.speakingRate, 0f)
             assertEquals("freya", actual.voiceId)
             assertEquals(Delegate.CPU, actual.delegate)
+            otherRate.prepareForPlayback(engine)
+            assertEquals(listOf(VoiceSpeechBackend.PHONON_CPU), firstCallbacks)
+            assertEquals(listOf(VoiceSpeechBackend.PHONON_CPU), changedCallbacks)
         }
         withTimeout(2_000) { store.remove(model.engine) }
         assertFalse(store.isReady(model.engine))
@@ -423,7 +431,7 @@ class MediaPipeSpeechModelStoreTest {
             assertEquals(listOf(delegate, Delegate.CPU), configurations.map { it.delegate })
             assertEquals(1, configurations.map { it.modelFile }.distinct().size)
             assertEquals(2, configurations.map { it.cacheDirectory }.distinct().size)
-            assertTrue(configurations.all { it.speakingRate == 1.25f && it.targetBucket == 64 })
+            assertTrue(configurations.all { it.speakingRate == 1f && it.targetBucket == 64 })
 
             failAccelerator = false
             factory.create(files.root, "", 2).use { engine -> factory.prepareForPlayback(engine) }

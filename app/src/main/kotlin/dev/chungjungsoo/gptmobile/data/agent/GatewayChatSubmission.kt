@@ -42,7 +42,7 @@ class GatewayChatSubmission @Inject constructor(
     /** Null leaves the turn on its selected client inference route, before any engineering submission. */
     suspend fun submitIfSupported(request: AgentRunRequest): GatewayChatHandoff? {
         val tools = request.chatToolConfig
-        if (tools?.voiceResponsePolicy?.translationOnly == true) return null
+        if (dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(request.userMessages, tools?.voiceResponsePolicy)?.translationOnly == true) return null
         if (!chats.researchPersistenceAllowed(request.chatId)) return null
         if (GitHubTaskContinuity.localAuditTopic(request.userMessages, tools, request.platform.uid, staged = request.stage != null) != null) {
             // A resumed run may already belong to the Gateway even if its text now qualifies for a local report.

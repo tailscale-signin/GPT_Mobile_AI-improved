@@ -1978,8 +1978,14 @@ class ChatRepositoryImpl(
         val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(userMessages, chatToolConfig?.voiceResponsePolicy)
         val tools = policy?.let { (chatToolConfig ?: ChatMcpToolConfig()).withVoicePolicy(it) } ?: chatToolConfig
         if (policy?.translationOnly == true) {
+            val source = userMessages.lastOrNull()
+            if (source == null || source.platformType != null || source.content.isBlank() || source.attachments.isNotEmpty() || stage != null) {
+                emit(ApiState.Error("Translate only accepts the current spoken or typed text. Remove attachments or workflow stages before translating.", errorCode = "VOICE_TRANSLATION_SOURCE_INVALID", taskOutcome = "BLOCKED"))
+                emit(ApiState.Done)
+                return@flow
+            }
             // The utterance is source material. Previous turns can contain questions, commands or a different target language.
-            emitAll(completeChatWithPrivacy(userMessages.takeLast(1), listOf(emptyList()), platform, runId, tools, stage).flowOn(privacy))
+            emitAll(completeChatWithPrivacy(listOf(source), listOf(emptyList()), platform, runId, tools, null).flowOn(privacy))
         } else {
             val costs = if (policy != null && chatId != null) agentToolResolver.voiceSchemaCosts(chatId, platform.uid) else emptyMap()
             val turnContext = if (costs.isEmpty()) privacy else privacy + dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.withVoiceSchemaCosts(costs)
@@ -2223,6 +2229,9 @@ class ChatRepositoryImpl(
         freshRepositoryTurn: Boolean = false
     ): dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext {
         val chatId = users.lastOrNull()?.chatId
+        if (chatToolConfig?.voiceResponsePolicy?.translationOnly == true) {
+            return dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext(chatId = chatId, grants = freeToolConsents)
+        }
         val labels = assistants.flatten().flatMap { message ->
             val timeline = message.timeline + message.revisions.flatMap { it.timeline }
             timeline.flatMap { it.personalData } + timeline.filter { it.recalledFacts.isNotEmpty() }.map { item ->
@@ -2265,8 +2274,8 @@ class ChatRepositoryImpl(
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
         val voicePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(userMessages, chatToolConfig?.voiceResponsePolicy)
-        val chatToolConfig = chatToolConfig?.copy(voiceResponsePolicy = voicePolicy)
-            ?: voicePolicy?.let { ChatMcpToolConfig(voiceResponsePolicy = it) }
+        val chatToolConfig = chatToolConfig?.withVoicePolicy(voicePolicy)
+            ?: voicePolicy?.let { ChatMcpToolConfig().withVoicePolicy(it) }
         if (chatToolConfig?.github?.let { it.mainProfileUid != platform.uid } == true) {
             send(localAdmissionError("GITHUB_PROFILE_LOCKED", "GitHub chat can dispatch only its selected AI profile.", "provider_admission"))
             return@channelFlow
@@ -4647,7 +4656,8 @@ class ChatRepositoryImpl(
 
         // Delivery still validates saved-evidence access, but must not require an
         // original execution tool before it reaches final-writing preparation.
-        fun requiresExecutionTools(resumeWriterOnly: Boolean): Boolean = !verificationOnlyRequested &&
+        fun requiresExecutionTools(resumeWriterOnly: Boolean): Boolean = chatToolConfig?.voiceResponsePolicy?.translationOnly != true &&
+            !verificationOnlyRequested &&
             !resumeWriterOnly &&
             stage?.writerRequestPlan == null &&
             !(githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reportOnly(savedUserTurns.lastOrNull()?.content.orEmpty()))
@@ -4684,6 +4694,7 @@ class ChatRepositoryImpl(
         val resumeDescriptor = input.resumeDescriptor
         val stage = input.stage
         val chatToolConfig = input.chatToolConfig
+        val translationOnly = chatToolConfig?.voiceResponsePolicy?.translationOnly == true
         dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(platform)?.let { outcome ->
             val decision = dev.chungjungsoo.gptmobile.data.network.providerLimitDecision(platform, outcome)
             if (decision != null) {
@@ -4740,9 +4751,21 @@ class ChatRepositoryImpl(
             return null
         }
         var contextTurns = measurePreparation(runId, PreparationPhase.NORMALIZATION) {
-            val frozen = stage?.writerContext
-            require(frozen?.attachmentPaths.orEmpty().none { it in exclusions.attachments }) { "COMBINED_WRITER_DOCUMENT_SCOPE_CHANGED: An accepted attachment was excluded after the final input was frozen. No writer request was sent." }
-            (frozen?.turns(requireNotNull(stage).stagePrompt) ?: buildContextTurns(withoutExcludedAttachments(effectiveUserMessages, exclusions.attachments), assistantMessages.map { withoutExcludedAttachments(it, exclusions.attachments) }, platform, preserveAttachments = runId.startsWith("combined-synthesis:"))).also { turns ->
+            val turns = if (translationOnly) {
+                val source = effectiveUserMessages.single()
+                listOf(
+                    ConversationTurn(
+                        MessageV2(id = source.id, chatId = source.chatId, content = dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationSource.encode(source.content), platformType = null, createdAt = source.createdAt),
+                        assistantMessage = null,
+                        isCurrentTurn = true
+                    )
+                )
+            } else {
+                val frozen = stage?.writerContext
+                require(frozen?.attachmentPaths.orEmpty().none { it in exclusions.attachments }) { "COMBINED_WRITER_DOCUMENT_SCOPE_CHANGED: An accepted attachment was excluded after the final input was frozen. No writer request was sent." }
+                frozen?.turns(requireNotNull(stage).stagePrompt) ?: buildContextTurns(withoutExcludedAttachments(effectiveUserMessages, exclusions.attachments), assistantMessages.map { withoutExcludedAttachments(it, exclusions.attachments) }, platform, preserveAttachments = runId.startsWith("combined-synthesis:"))
+            }
+            turns.also { turns ->
                 validateInlineBudgetIfNeeded(turns, platform)
             }
         }
@@ -4838,7 +4861,7 @@ class ChatRepositoryImpl(
         if (advertisedLimits != null) AppLogRecorder.record("Context", "MODEL_CATALOG_LIMITS · context=${advertisedLimits.context ?: "unknown"} · output=${advertisedLimits.output ?: "unknown"} · source=public_catalog · serverConfirmed=false")
         // Resolve the task target before memory, repository context or tool prompts
         // are prepared. Frozen Combined writer inputs keep their accepted allowance.
-        val planningBudget = if (chatToolConfig?.combined == null && stage?.writerRequestPlan == null && !runId.startsWith("combined-synthesis:")) {
+        val planningBudget = if (!translationOnly && chatToolConfig?.combined == null && stage?.writerRequestPlan == null && !runId.startsWith("combined-synthesis:")) {
             dev.chungjungsoo.gptmobile.data.context.EngineeringAdaptivePolicy.forPreparation(
                 runFeatures.engineeringProfiles[platform.uid],
                 taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(),
@@ -4876,14 +4899,14 @@ class ChatRepositoryImpl(
         }
         if (admittedPolicy.enabled && taskRecovery?.primaryOnly != true && !resumeWriterOnly && roleAdmission.warning != null) emit(ApiState.Notice(roleAdmission.warning, persistent = true))
         val researchChatId = effectiveUserMessages.lastOrNull()?.chatId ?: -1
-        val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
-        acceptPrimaryResearchTask(researchChatId, turnKey, researchPersistent, savedUserTurns, taskRecovery, resumeDescriptor, stage, admittedFeatures, admittedProfiles, chatToolConfig, effectiveUserMessages.lastOrNull()?.id.toString(), platform.uid)
+        val researchPersistent = !translationOnly && researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
+        if (!translationOnly) acceptPrimaryResearchTask(researchChatId, turnKey, researchPersistent, savedUserTurns, taskRecovery, resumeDescriptor, stage, admittedFeatures, admittedProfiles, chatToolConfig, effectiveUserMessages.lastOrNull()?.id.toString(), platform.uid)
         if (stage != null) {
             contextTurns = contextTurns.map { turn ->
                 if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = stage.stagePrompt)) else turn
             }
         }
-        val admittedResearchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls, ownerScope = platform.uid, acceptedTools = chatToolConfig, expectedAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle]?.attempt)
+        val admittedResearchJournal = if (translationOnly) null else researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls, ownerScope = platform.uid, acceptedTools = chatToolConfig, expectedAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle]?.attempt)
         return PrimaryRunAdmission(exclusions, resumeWriterOnly, contextTurns, effectiveMaxTools, customRunner, runFeatures, searchPolicy, behavior, budgetSettings, limits, turnKey, admittedProfiles, admittedPolicy, researchChatId, researchPersistent, admittedResearchJournal, capacityDecision)
     }
 
@@ -5661,7 +5684,8 @@ class ChatRepositoryImpl(
                 }
             },
             maxOutputTokens = resolvedOutputCap,
-            allowTools = !editorialPass,
+            allowTools = !editorialPass && chatToolConfig?.voiceResponsePolicy?.translationOnly != true,
+            sourceTranslation = chatToolConfig?.voiceResponsePolicy?.translationOnly == true,
             // A chat switch is authoritative; otherwise the migrated per-profile enum owns Llama reasoning.
             reasoningModeOverride = chatToolConfig?.reasoning?.let {
                 if (it) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF
@@ -6127,13 +6151,18 @@ class ChatRepositoryImpl(
             } else {
                 providerSession(turns, invocationPlatform)
             }
-            val raw = routedSession.let { session ->
-                if (!privateTurn && platform.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA) && !session.handlesToolsInternally) {
-                    dev.chungjungsoo.gptmobile.data.agent.provider.LocalNativeToolFrameSession(session)
-                } else {
-                    session
-                }
-            }.withNormalizedAssistantText(latestUser?.content.orEmpty()).withGatewayTaskMetadataBinding(kind) { metadata ->
+            val normalized = if (constraints.sourceTranslation) {
+                dev.chungjungsoo.gptmobile.data.agent.SourceTranslationSession(routedSession)
+            } else {
+                routedSession.let { session ->
+                    if (!privateTurn && platform.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA) && !session.handlesToolsInternally) {
+                        dev.chungjungsoo.gptmobile.data.agent.provider.LocalNativeToolFrameSession(session)
+                    } else {
+                        session
+                    }
+                }.withNormalizedAssistantText(latestUser?.content.orEmpty())
+            }
+            val raw = normalized.withGatewayTaskMetadataBinding(kind) { metadata ->
                 // This must precede the review flow's dispatcher buffer. A
                 // continuation can reopen before public metadata is consumed.
                 // Ephemeral non-persisted sessions retain their adapter binding;
@@ -6177,7 +6206,7 @@ class ChatRepositoryImpl(
             val guarded = if (platform.compatibleType == ClientType.LLAMA) authorized.withProgressWatchdog(settings = progressSettings) else authorized
             val retainGithubAccounting = chatToolConfig?.github != null && latestUser?.chatId?.let { agentPersistenceDao.getChatRoom(it)?.isTemporary == false } == true
             val ledger = if (passCombined != null || retainGithubAccounting) requireNotNull(invocationLedger) { "Invocation accounting is unavailable; no request was dispatched." } else invocationLedger
-            return ledger?.wrap(
+            val metered = ledger?.wrap(
                 guarded, runId, turnKey, platform.compatibleType.name, platform.model, kind,
                 preparedPromptTokens,
                 constraints.outputLimit(platform.maxTokens) ?: 0, budgetSettings.totalRunTokens,
@@ -6186,10 +6215,13 @@ class ChatRepositoryImpl(
                 preparedAssistEvidence = preparedAssistEvidence,
                 combined = passCombined
             ) ?: guarded
+            // Some accounting wrappers expose only the base session interface. Reassert this
+            // request-scoped text contract at the runner boundary without changing their receipts.
+            return if (constraints.sourceTranslation) dev.chungjungsoo.gptmobile.data.agent.SourceTranslationSession(metered) else metered
         }
         if (chatToolConfig?.voiceResponsePolicy?.translationOnly == true) {
             val session = openPrimarySession(contextPlan.turns, textOnly = true)
-            streamAgentEvents(customRunner.run(session, emptyList()), platform, runId, 0, trace, outputAllowance = resolvedOutputCap, dispatchAuthority = dispatchAuthority).collect { send(it) }
+            streamAgentEvents(customRunner.run(session, emptyList()), platform, runId, 0, trace, outputAllowance = resolvedOutputCap, dispatchAuthority = dispatchAuthority, sourceTranslation = true).collect { send(it) }
             return@channelFlow
         }
         val recovery = streamPrimaryAnswerRecovery(
@@ -7406,7 +7438,8 @@ class ChatRepositoryImpl(
         outputAllowance: Int? = null,
         dispatchAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard,
         githubChat: Boolean = false,
-        githubProgress: dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress? = null
+        githubProgress: dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress? = null,
+        sourceTranslation: Boolean = false
     ): Flow<ApiState> = flow {
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(platform)
@@ -7496,7 +7529,12 @@ class ChatRepositoryImpl(
                         }
                         if (!progressParser.hasPendingText) progressLineage.reset()
                         if (providerEvent.text.isNotEmpty()) progressLineage.append(providerEvent.lineage)
-                        if (gitHubPublicProgress != null) {
+                        if (sourceTranslation) {
+                            if (providerEvent.text.isNotEmpty()) {
+                                visibleAnswerEmitted = visibleAnswerEmitted || providerEvent.text.isNotBlank()
+                                emit(ApiState.Success(providerEvent.text, providerEvent.lineage))
+                            }
+                        } else if (gitHubPublicProgress != null) {
                             val answer = gitHubPublicProgress.accept(providerEvent)
                             if (answer.isNotBlank()) {
                                 visibleAnswerEmitted = true
@@ -7655,13 +7693,13 @@ class ChatRepositoryImpl(
 
                     is ProviderEvent.ToolResult -> Unit
                     ProviderEvent.Completed -> {
-                        if (gitHubPublicProgress != null) {
+                        if (!sourceTranslation && gitHubPublicProgress != null) {
                             val answer = gitHubPublicProgress.finish()
                             if (answer.isNotBlank()) {
                                 visibleAnswerEmitted = true
                                 emit(ApiState.Success(answer, progressLineage.lineage))
                             }
-                        } else {
+                        } else if (!sourceTranslation) {
                             progressParser.accept("", flush = true).forEach { (progress, text) ->
                                 if (progress) {
                                     emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId))

@@ -57,7 +57,8 @@ internal data class VoiceSpeechBenchmarkConfiguration(
     val htpPerformanceMode: String = "balanced",
     val nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
     val sustainedTargetAudioMs: Long = 300_000L,
-    val playbackScheduleVersion: Int = 2
+    val playbackScheduleVersion: Int = 2,
+    val pcmProcessingId: String? = if (engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO) null else VoiceTempoProcessor.IMPLEMENTATION_ID
 ) {
     init {
         require(backends.isNotEmpty() && backends.distinct().size == backends.size && backends.all { it in engine.supportedBackends })
@@ -72,9 +73,17 @@ internal data class VoiceSpeechBenchmarkConfiguration(
         require(htpPerformanceMode in setOf("balanced", "burst", "high_performance"))
         require(sustainedTargetAudioMs in VoiceSpeechSustainedSeries.TARGETS)
         require(playbackScheduleVersion in 1..2)
+        require(pcmProcessingId == null || pcmProcessingId.matches(Regex("[A-Za-z0-9._-]{1,160}")))
     }
 
-    val currentProtocol: Boolean get() = deviceKey.isNotEmpty() && protocolId == VoiceSpeechWorkload.PROTOCOL && fixtureVersion == VoiceSpeechWorkload.FIXTURE_VERSION && fixtureHash == VoiceSpeechWorkload.fixtureHash(workload) && (!playback || playbackProtocolVersion == VoiceSpeechPlaybackProtocol.VERSION)
+    val currentProtocol: Boolean get() = deviceKey.isNotEmpty() && protocolId == VoiceSpeechWorkload.PROTOCOL && fixtureVersion == VoiceSpeechWorkload.FIXTURE_VERSION && fixtureHash == VoiceSpeechWorkload.fixtureHash(workload) && (!playback || playbackProtocolVersion == VoiceSpeechPlaybackProtocol.VERSION) && (engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO || pcmProcessingId == VoiceTempoProcessor.IMPLEMENTATION_ID)
+
+    val enginePcmObservationScope: String get() = when {
+        engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> "NOT_APPLICABLE"
+        pcmProcessingId == VoiceTempoProcessor.IMPLEMENTATION_ID -> "ENGINE_CALLBACKS_AFTER_APP_TEMPO_BEFORE_PAUSE_TRIMMING"
+        pcmProcessingId == null -> "LEGACY_ENGINE_CALLBACK_PROCESSING_UNRECORDED"
+        else -> "ENGINE_CALLBACK_PROCESSING_UNRECOGNIZED"
+    }
 
     /** A retained rotation is reproducible; successive runs can counterbalance backend order. */
     val plannedBackendOrder: List<VoiceSpeechBackend>
@@ -378,7 +387,8 @@ internal data class VoiceSpeechBenchmarkReport(
     val playbackResults: List<VoiceSpeechPlaybackResult> = emptyList(),
     val engineResults: List<VoiceSpeechEngineBenchmarkResult> = emptyList(),
     val energyObservations: List<VoiceSpeechBenchmarkEnergyObservation> = emptyList(),
-    val stopOrigin: VoiceSpeechStopOrigin? = null
+    val stopOrigin: VoiceSpeechStopOrigin? = null,
+    val independentSpeechQuality: List<VoiceIndependentSpeechQuality> = emptyList()
 ) {
     val completedSamples: Int get() = when {
         configuration.playback -> playbackResults.size

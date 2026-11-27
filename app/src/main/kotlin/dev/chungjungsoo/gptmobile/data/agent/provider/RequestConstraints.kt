@@ -52,9 +52,12 @@ data class RequestConstraints(
     /** Identity of the complete retained answer, even when the wire sends only its tail. */
     val continuationPrefixDigest: String? = null,
     val gitHubIntelligenceLevel: GitHubIntelligenceLevel? = null,
-    val gitHubEffort: GitHubReasoningEffort? = null
+    val gitHubEffort: GitHubReasoningEffort? = null,
+    /** A selected translation turn treats generated text as source data, never as prompt-tool syntax. */
+    val sourceTranslation: Boolean = false
 ) {
     init {
+        require(!sourceTranslation || !allowTools && !allowGatewayLocalTools && combined == null) { "Source translation cannot enable tools or Combined execution." }
         finalResponseSchemaJson?.let { schema ->
             require(schema.toByteArray().size <= 32 * 1024) { "Final-response schema exceeds 32 KiB" }
             require(kotlinx.serialization.json.Json.parseToJsonElement(schema) is kotlinx.serialization.json.JsonObject) { "Final-response schema must be an object" }

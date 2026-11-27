@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -37,7 +38,7 @@ import org.junit.runner.RunWith
 /**
  * Opt-in real JNI/checkpoint smoke. Push the exact catalog model to
  * /data/local/tmp/mediapipe-speech/<fileName> and pass mediapipeSmokeEngine=phonon,
- * kokoro or pocket. A supplied argument makes missing/bad weights a failure.
+ * kokoro, pocket or pocket-multilingual. A supplied argument makes missing/bad weights a failure.
  * On a compatible phone, select the optimized GPU or compiled SM8750 pack by catalog id.
  * Each defaults to its supported delegate. Standard Kokoro also accepts an explicit GPU or NPU.
  * The receipt identifies the request. Kernel placement needs separate device evidence.
@@ -51,7 +52,8 @@ class MediaPipeSpeechNativeSmokeTest {
             MediaPipeSpeechEngine.KOKORO_GPU to VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED,
             MediaPipeSpeechEngine.KOKORO_SM8750 to VoiceSpeechBackend.LITERT_KOKORO_SM8750,
             MediaPipeSpeechEngine.PHONON to VoiceSpeechBackend.PHONON_CPU,
-            MediaPipeSpeechEngine.POCKET to VoiceSpeechBackend.POCKET_CPU
+            MediaPipeSpeechEngine.POCKET to VoiceSpeechBackend.POCKET_CPU,
+            MediaPipeSpeechEngine.POCKET_MULTILINGUAL to VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU
         )
         assertEquals(MediaPipeSpeechEngine.entries.toSet(), defaults.keys)
         for ((engine, backend) in defaults) assertEquals(backend, smokeBackend(engine, null))
@@ -59,6 +61,8 @@ class MediaPipeSpeechNativeSmokeTest {
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_NPU, smokeBackend(MediaPipeSpeechEngine.KOKORO, "NPU"))
         assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.KOKORO_GPU, "CPU") }
         assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.KOKORO_SM8750, "GPU") }
+        assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.POCKET_MULTILINGUAL, "GPU") }
+        assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.POCKET_MULTILINGUAL, "NPU") }
     }
 
     private fun smokeBackend(kind: MediaPipeSpeechEngine, selectedDelegate: String?): VoiceSpeechBackend {
@@ -127,10 +131,9 @@ class MediaPipeSpeechNativeSmokeTest {
         var evidence: JSONObject? = null
         try {
             assertTrue(descriptor.defaultVoice in task.voiceIds())
-            if (kind.isKokoro) {
-                val missing = SpeechLanguages.synthesis.flatMap { it.voices }.toSet() - task.voiceIds()
-                assertTrue("Kokoro pack is missing catalogued voices: $missing", missing.isEmpty())
-            }
+            val availableVoices = task.voiceIds()
+            val missingVoices = MediaPipeSpeechVoices.ids(kind).toSet() - availableVoices
+            assertTrue("Speech pack is missing catalogued voices: $missingVoices", missingVoices.isEmpty())
             val frames = VoiceStreamFrames(FIXTURE)
             val started = SystemClock.elapsedRealtime()
             var firstPcmMs: Long? = null
@@ -162,8 +165,8 @@ class MediaPipeSpeechNativeSmokeTest {
             val incrementalAfter = cancelWaitingInput(engine, task)
             engine.resetCancellation()
             val incrementalRecovered = consumeIncremental(engine, task)
-            val frenchPreview = if (kind.isKokoro) {
-                val french = SpeechLanguages.forLocale("fr-CA")!!
+            val frenchPreview = if (kind.isKokoro || kind == MediaPipeSpeechEngine.POCKET_MULTILINGUAL) {
+                val french = MediaPipeSpeechVoices.profiles(kind).first { it.dictionaryLanguage == "fr" }
                 val voiceId = french.voices.first()
                 engine.selectVoice(voiceId)
                 val sample = VoiceStreamFrames(french.preview)
@@ -192,6 +195,7 @@ class MediaPipeSpeechNativeSmokeTest {
                 .put("status", "passed")
                 .put("run_id", runId ?: JSONObject.NULL)
                 .put("engine", kind.name)
+                .put("available_voice_ids", JSONArray(availableVoices.sorted()))
                 .put("model_id", descriptor.id)
                 .put("configured_backend", backend.name)
                 .put("runtime", MediaPipeSpeechCatalog.RUNTIME_ID)

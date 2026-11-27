@@ -5,7 +5,8 @@ internal enum class MediaPipeSpeechEngine {
     KOKORO_GPU,
     KOKORO_SM8750,
     PHONON,
-    POCKET;
+    POCKET,
+    POCKET_MULTILINGUAL;
 
     val isKokoro: Boolean get() = this == KOKORO || this == KOKORO_GPU || this == KOKORO_SM8750
 }
@@ -108,6 +109,19 @@ internal object MediaPipeSpeechCatalog {
             "alba",
             "CC-BY-4.0",
             "Pocket TTS and voice assets by Kyutai; quantized and packaged for LiteRT by litert-community."
+        ),
+        MediaPipeSpeechModel(
+            MediaPipeSpeechEngine.POCKET_MULTILINGUAL,
+            "pocket-multilingual",
+            "Pocket TTS · 7 languages",
+            "litert-community/pocket-tts",
+            "00c866f2397788f514ab6bbcb931be22afc3b58f",
+            "pocket_tts_int8.litertlm",
+            760_061_960,
+            "9c5427cf3fe2d6680f8268e1c06537496be52d818ef12233a461bf193f314b3c",
+            "alba",
+            "CC-BY-4.0",
+            "Pocket TTS and 14 voice assets by Kyutai; quantized and packaged for LiteRT by litert-community."
         )
     )
 

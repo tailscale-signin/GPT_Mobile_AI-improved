@@ -68,7 +68,30 @@ class VoiceBenchmarkSuiteTest {
     @Test fun deviceThreadLimitsAndInvalidRatesCannotCreateUnrunnableStages() {
         for (count in listOf(0, 1, 4, 32)) {
             val plan = fullVoiceBenchPlan(64, Float.NaN, count)
-            assertTrue(plan.all { it.threads in 1..count.coerceIn(1, 16) && it.rate == 1f })
+            assertTrue(plan.all { it.threads in 1..count.coerceIn(1, 16) && it.rate.isFinite() && it.rate in .5f..2f })
+            assertTrue(plan.filter { it.calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS }.all { it.rate == 1f })
+        }
+    }
+
+    @Test fun currentCalibrationUsesTheSelectedStreamingVoiceOnlyInItsOwnPack() {
+        fun config(engine: VoiceSpeechBenchmarkEngine, id: String) = stages.first {
+            it.engine == engine && it.calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS
+        }.configuration(KokoroVoice.HEART, id, 90, 0, 153, 37, "fixture", "a".repeat(40))
+        assertEquals("marius", config(VoiceSpeechBenchmarkEngine.POCKET, "marius").engineVoiceId)
+        assertEquals("rafael", config(VoiceSpeechBenchmarkEngine.POCKET_MULTILINGUAL, "rafael").engineVoiceId)
+        assertEquals("claire", config(VoiceSpeechBenchmarkEngine.PHONON, "claire").engineVoiceId)
+        assertEquals("alba", config(VoiceSpeechBenchmarkEngine.POCKET, "rafael").engineVoiceId)
+        assertEquals("af_heart", config(VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO, "marius").engineVoiceId)
+        assertEquals("HEART", config(VoiceSpeechBenchmarkEngine.NATIVE_KOKORO, "marius").engineVoiceId)
+    }
+
+    @Test fun fullCampaignCoversBundledVoicesAndPitchSensitivePlaybackRates() {
+        for (engine in VoiceSpeechBenchmarkEngine.entries) {
+            val part = stages.filter { it.engine == engine }
+            assertTrue(part.filter { it.playback.isNotEmpty() }.map { it.rate }.containsAll(listOf(.75f, 1.25f, 1.5f, 2f)))
+            engine.mediaPipeEngine()?.takeUnless { it.isKokoro }?.let { sdk ->
+                assertEquals(MediaPipeSpeechVoices.ids(sdk).toSet(), part.mapNotNull { it.selectedVoiceId }.toSet())
+            }
         }
     }
 

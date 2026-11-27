@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMicrophoneAction
@@ -108,7 +109,8 @@ internal data class VoiceConversationUiState(
     val interruptionState: kotlinx.coroutines.flow.StateFlow<VoiceInterruptionStatus>? = null,
     val recognitionBackend: VoiceRecognitionBackend = SpeechLanguages.recognitionBackend(language),
     val replyLanguage: String = SpeechLanguages.default.tag,
-    val translationMode: Boolean = false
+    val translationMode: Boolean = false,
+    val replyLanguageProfiles: List<SpeechLanguage> = SpeechLanguages.synthesis
 )
 
 internal class VoiceConversationActions(
@@ -387,7 +389,7 @@ private fun VoiceConversationControls(state: VoiceConversationUiState, actions: 
         Row(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Spacer(Modifier.weight(1f))
             VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, Modifier.weight(1f))
-            val language = SpeechLanguages.forLocale(state.replyLanguage)?.label.orEmpty()
+            val language = state.replyLanguageProfiles.firstOrNull { it.tag == state.replyLanguage }?.label ?: java.util.Locale.forLanguageTag(state.replyLanguage).displayName
             VoiceControl(
                 language,
                 Icons.Rounded.Language,
@@ -403,7 +405,7 @@ private fun VoiceConversationControls(state: VoiceConversationUiState, actions: 
         VoiceReplyLanguageDialog(state.replyLanguage, state.translationMode, actions.changeTranslationMode, select = {
             actions.changeReplyLanguage(it)
             choosingLanguage = false
-        }, dismiss = { choosingLanguage = false })
+        }, dismiss = { choosingLanguage = false }, profiles = state.replyLanguageProfiles)
     } else if (choosingLanguage) {
         androidx.compose.runtime.LaunchedEffect(Unit) { choosingLanguage = false }
     }

@@ -391,7 +391,11 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidence.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationLocales.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationTransfer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalizedVoiceReadings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePronunciationEditor.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
@@ -405,7 +409,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguagesTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidenceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechVoiceEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationTransferTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -415,7 +421,8 @@
         "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json",
         "docs/repairs/voice-literal-pronunciation-order-2026-11-24-task.json",
         "docs/repairs/evidence/voice-literal-pronunciation-order/required-junit-methods.json",
-        "docs/repairs/literal-pronunciation-public-composition-2026-11-24-task.json"
+        "docs/repairs/literal-pronunciation-public-composition-2026-11-24-task.json",
+        "docs/architecture/voice-streaming-quality-2026-11-27.md"
       ],
       "invariants": [
         "Shared projection preserves readable content and append-stable replay without exposing hidden reasoning or encoded source addresses.",
@@ -423,7 +430,8 @@
         "Native English normalization and SDK natural-language processing retain their own phonetic frontends.",
         "Android utterances snapshot pronunciation settings and reject late callbacks after cancellation.",
         "No raw vocabulary, matched terms or source speech is added to diagnostics; phonetic tests do not establish phone acoustic quality.",
-        "Playback preserves eligible literal spelling only after safety filtering; unmatched defaults follow one-pass correction and captions use the same original spelling. The general-purpose buffer retains its default projection."
+        "Playback preserves eligible literal spelling only after safety filtering; unmatched defaults follow one-pass correction and captions use the same original spelling. The general-purpose buffer retains its default projection.",
+        "Shared/regional dictionaries admit512 entries each; bounded versioned UTF-8 imports remain staged until Save. English readings stay language-scoped."
       ],
       "routing": {
         "role": "presentation",
@@ -517,7 +525,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt",
         "scripts/tests/test_prepare_emulator_action.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailureTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechVoicesTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -526,7 +535,8 @@
       "documents": [
         "docs/architecture/voice-streaming.md",
         "docs/architecture/repository-guide.md",
-        "docs/repairs/gateway-stream-ownership-2026-11-23-task.json"
+        "docs/repairs/gateway-stream-ownership-2026-11-23-task.json",
+        "docs/architecture/pocket-streaming-capabilities-2026-11-27.md"
       ],
       "invariants": [
         "Stream PCM with bounded backpressure and retire native handles before releasing model leases.",
@@ -536,7 +546,8 @@
         "Production accelerator playback requires complete same-run CPU-reference consistency before native open; explicit Recheck publishes its complete requested cohort and cancellation cannot grant partial admission.",
         "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
         "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request.",
-        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
+        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone.",
+        "Installed packs keep separate voice/language identities. Packaged Pocket and Phonon are CPU-only; incompatible accelerator conversions cannot be selected."
       ],
       "routing": {
         "role": "executor",
@@ -1454,7 +1465,9 @@
         ".github/workflows/speech-engine-smoke.yml",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnership.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirement.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirement.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparison.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparisonExport.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
@@ -1472,7 +1485,9 @@
         "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirementTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparisonTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchmarkSuiteTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1505,7 +1520,8 @@
         "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner.",
         "Failed native preparation retains its actual owner until confirmed destruction; a missing returned engine cannot authorize lease release.",
         "An already-recorded deadline remains effective independently of delayed notification; measured partial PCM never implies completed audio validation.",
-        "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero."
+        "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero.",
+        "Streaming candidates require matching PCM processor, voice/rate/fixtures and stable observed route; missing independent acoustic quality stays unknown and cannot replace native Auto qualification."
       ],
       "routing": {
         "role": "evidence",
@@ -1874,7 +1890,9 @@
         "scripts/smoke_mediapipe_speech.py",
         "scripts/check_mediapipe_android_smoke.py",
         ".github/workflows/speech-engine-smoke.yml",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechVoices.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendPreferenceStore.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeIncrementalSpeechTest.kt",
@@ -1902,8 +1920,8 @@
         "Supported voice changes reuse immutable model weights while each utterance captures the selected voice; model-variant replacement retires the previous store owner.",
         "Failed native close retains ownership and prevents replacement; a cancellation or UI return cannot imply retirement.",
         "Auto CPU scheduling follows the shared device governor; explicit thread selections and benchmark settings remain fixed. Performance hints target only app-owned worker IDs.",
-        "All three real SDK checkpoints must deliver PCM before the second fragment and finishInput, then retain complete source cue coverage; open-input cancellation requires retirement and same-task recovery. Android receipt v2 rejects missing or stale source/model/runtime/incremental evidence.",
-        "SDK chunk boundaries retain actual separators and original source/UTF-8 ranges for playback and benchmarks; synthetic replacements cannot consume neighboring source text or exceed existing chunk bounds."
+        "SDK chunk boundaries retain actual separators and original source/UTF-8 ranges for playback and benchmarks; synthetic replacements cannot consume neighboring source text or exceed existing chunk bounds.",
+        "All real SDK checkpoints must deliver PCM before the second fragment and finishInput, then retain complete source cue coverage; open-input cancellation requires retirement and same-task recovery. Android receipt v2 rejects missing or stale source/model/runtime/incremental evidence."
       ],
       "routing": {
         "role": "executor",
@@ -3543,6 +3561,112 @@
         "decline": "Retain the previous snapshot when the transfer is corrupt, incomplete or revoked",
         "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirrorTest.kt#interruptedTransferResumesAfterRestartAndKeepsThePreviousMap",
         "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirrorTest.kt#corruptRecordCannotReplaceAValidMap",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "voice-translation-only",
+      "title": "Translation-only voice request and literal output isolation",
+      "terms": [
+        "translate only",
+        "voice translation",
+        "question translated instead of answered",
+        "spoken command as source",
+        "fixed translation language"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSource.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SourceTranslationSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayChatSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSourceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/SourceTranslationSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayChatSubmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImplTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/architecture/voice-streaming-quality-2026-11-27.md",
+        "docs/repairs/voice-streaming-quality-2026-11-27-task.json"
+      ],
+      "invariants": [
+        "Every accepted translation utterance remains source data regardless of question, command, task-cancellation or language-change wording. Destination comes from the selected UI policy.",
+        "Translation sends one escaped current source without conversation history, persona, research, recall, tools, delegation, Combined planning or Gateway engineering handoff.",
+        "Request constraints cannot enable tools or Combined execution for translation. Literal text does not become an action claim, local tool frame or app progress event; structured calls remain rejected before execution.",
+        "Deterministic translation routing does not establish perfect provider translation quality; failed providers cannot silently fall back to answering or executing the source."
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+        "proof": "Accepted turn-scoped translation policy and current source text",
+        "admission": "Translation selected with a source-only utterance and selected destination",
+        "decline": "Surface invalid source or provider failure without conversational or action fallback",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt#translateOnlyTreatsTaskControlAsSourceAndBypassesCombinedPlanningAndHistory",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/SourceTranslationSessionTest.kt#sessionRejectsAnAccidentallySuppliedToolBeforeCallingTheProvider",
+        "plugins": [
+          "voice_chat"
+        ],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "voice-output-tempo",
+      "title": "Pitch-preserving streaming speed and per-device caption calibration",
+      "terms": [
+        "high pitch at faster speech",
+        "streaming speed",
+        "pitch preservation",
+        "tempo caption mapping",
+        "Bluetooth caption offset",
+        "output device calibration"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessor.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTimelineTransform.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionRouteIdentity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionRouteCalibration.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/java/dev/chungjungsoo/gptmobile/data/voice/Sonic.java"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessorTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoCaptionRegressionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionRouteIdentityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionRouteCalibrationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCueRevisionTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/architecture/voice-streaming-quality-2026-11-27.md",
+        "docs/audits/voice-sonic-source.json",
+        "docs/repairs/voice-streaming-quality-2026-11-27-task.json"
+      ],
+      "invariants": [
+        "Normal-rate SDK PCM passes through a per-stream pitch-preserving tempo processor at nondefault speed; input/output anchors map cues to produced PCM without claiming acoustic alignment.",
+        "Final cue and revision endpoints wait until more input or EOS resolves the accepted source frontier, including every drained output frame; heard words and earlier finalized intervals cannot be rewritten.",
+        "Canceled streams discard their processor; slow tempo preserves the output duration ceiling; model residency remains rate-independent while full playback factory identity rebinds rate-specific callbacks.",
+        "Only explicit user calibration may queue a per-device edit. Hydration cannot overwrite saved device values; idle edits bind to the next actually observed output route and route loss clears comparison identity."
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessor.kt",
+        "proof": "Observed input/output PCM frame anchors under the current stream owner",
+        "admission": "Supported bounded tempo and finite streaming PCM at the declared sample rate",
+        "decline": "Reject invalid PCM or tempo and discard canceled stream state",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessorTest.kt#tempoChangesDurationWithoutRaisingOrLoweringTheFundamentalPitch",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessorTest.kt#invalidRatesAndNonFiniteSamplesCannotEnterTheProcessor",
         "plugins": [],
         "tools": [],
         "decline_terms": []

@@ -25,7 +25,8 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
         "schema": "mediapipe-android-jni-smoke-v2",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
-        "engine": engine.upper(),
+        "engine": engine.upper().replace("-", "_"),
+        "available_voice_ids": model["required_voices"],
         "runtime": "mediapipe-tasks-audio-1.2.3",
         "run_id": run_id,
         "model_sha256": model["sha256"],
@@ -63,6 +64,12 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
             "first_presented_audio_ms": 240, "clock_basis": "audio_timestamp",
             "presented_before_last_text": True, "pronunciation_reached_sdk": True,
             "source_caption_ranges_presented": True, "finish_input_calls": 1, "stream_closed": True,
+        }
+    if engine == "pocket-multilingual":
+        receipt["french_preview_frames"] = 12000
+        receipt["french_preview"] = {
+            "voice_id": "estelle", "frames": 12000, "first_pcm_ms": 120, "rms": .1,
+            "peak": .8, "clipped_samples": 0, "non_silent_samples": 11600,
         }
     return receipt
 
@@ -113,6 +120,16 @@ def fixture(directory, engine="phonon", source=SOURCE, abi="x86_64", delegate="C
 
 
 class MediaPipeAndroidReceiptTest(unittest.TestCase):
+    def test_multilingual_requires_every_advertised_voice_and_the_actual_french_voice(self):
+        receipt = native_receipt("pocket-multilingual")
+        smoke.check_receipt(receipt, "pocket-multilingual", RUN_ID)
+        for changes in ({"available_voice_ids": ["alba"]}, {"available_voice_ids": None},
+                        {"french_preview": {**receipt["french_preview"], "voice_id": "ff_siwis"}},
+                        {"requested_delegate": "GPU"}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                smoke.check_receipt(receipt | changes, "pocket-multilingual", RUN_ID)
+
+
     def test_kokoro_requires_playback_head_progress_before_second_text_and_original_caption_ranges(self):
         receipt = native_receipt("kokoro")
         smoke.check_receipt(receipt, "kokoro", RUN_ID)
@@ -159,9 +176,9 @@ class MediaPipeAndroidReceiptTest(unittest.TestCase):
             return smoke.check_results(self.output, engine, RUN_ID)
 
     def test_each_engine_requires_its_named_test_and_exact_checkpoint(self):
-        for engine in ("kokoro", "phonon", "pocket"):
+        for engine in ("kokoro", "phonon", "pocket", "pocket-multilingual"):
             with self.subTest(engine=engine):
-                self.assertEqual(engine.upper(), self.check(packets(native_receipt(engine)), engine)["engine"])
+                self.assertEqual(engine.upper().replace("-", "_"), self.check(packets(native_receipt(engine)), engine)["engine"])
         self.check(packets(native_receipt()).replace("\n", "\r\n"))
 
     def test_empty_skipped_aborted_and_incomplete_tests_cannot_pass(self):
@@ -360,14 +377,14 @@ class MediaPipeAndroidRunnerTest(unittest.TestCase):
         return result, evidence, [json.loads(line) for line in calls.read_text().splitlines()]
 
     def test_actual_runner_selects_each_named_engine_and_collects_bound_evidence(self):
-        for engine in ("kokoro", "phonon", "pocket"):
+        for engine in ("kokoro", "phonon", "pocket", "pocket-multilingual"):
             with self.subTest(engine=engine):
                 result, evidence, calls = self.run_fixture(engine=engine)
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
                 status = json.loads((evidence / "status.json").read_text())
                 invocation = json.loads((evidence / "invocation.json").read_text())
                 self.assertEqual("PASSED", status["status"])
-                self.assertEqual(engine.upper(), status["native_receipt"]["engine"])
+                self.assertEqual(engine.upper().replace("-", "_"), status["native_receipt"]["engine"])
                 self.assertEqual(invocation["run_id"], status["native_receipt"]["run_id"])
                 self.assertNotEqual(RUN_ID, invocation["run_id"])
                 self.assertTrue(any(call[:3] == ["shell", "am", "force-stop"] for call in calls))
@@ -440,10 +457,10 @@ class MediaPipeAndroidRunnerTest(unittest.TestCase):
         self.assertIn("path: ${{ env.MEDIAPIPE_SMOKE_APK_DIR }}", download)
         self.assertIn('--model-dir "$MEDIAPIPE_SMOKE_MODEL_DIR"', download)
 
-    def test_ci_reuses_one_minified_build_and_runs_exact_main_and_three_engines(self):
+    def test_ci_reuses_one_minified_build_and_runs_exact_main_and_four_engines(self):
         workflow = (ROOT / ".github/workflows/native-memory-smoke.yml").read_text()
         self.assertRegex(workflow, r"on:\n  push:\n    branches: \[main\]")
-        self.assertIn("engine: [kokoro, phonon, pocket]", workflow)
+        self.assertIn("engine: [kokoro, phonon, pocket, pocket-multilingual]", workflow)
         self.assertIn("fail-fast: false", workflow)
         self.assertIn("needs: smoke", workflow)
         self.assertEqual(1, workflow.count(":app:minifyNativeSmokeWithR8"))

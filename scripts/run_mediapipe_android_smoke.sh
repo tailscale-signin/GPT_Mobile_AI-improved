@@ -4,9 +4,9 @@
 # set MEDIAPIPE_SMOKE_ABI=arm64-v8a and pass kokoro GPU or kokoro NPU.
 set -euo pipefail
 
-speech_engine=${1:?Pass kokoro, phonon or pocket}
+speech_engine=${1:?Pass kokoro, phonon, pocket or pocket-multilingual}
 case "$speech_engine" in
-  kokoro|phonon|pocket) ;;
+  kokoro|phonon|pocket|pocket-multilingual) ;;
   *) echo "Unsupported speech smoke engine: $speech_engine" >&2; exit 2 ;;
 esac
 speech_delegate=${2:-CPU}

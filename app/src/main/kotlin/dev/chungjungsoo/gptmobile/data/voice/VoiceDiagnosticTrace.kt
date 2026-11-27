@@ -209,7 +209,7 @@ class VoiceDiagnosticTrace internal constructor(
             val engine = provider ?: when (raw) {
                 "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested", "mediapipe-kokoro-npu-requested" -> "MEDIAPIPE_KOKORO"
                 "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON"
-                "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET"
+                "mediapipe-pocket-cpu-requested", "mediapipe-pocket-multilingual-cpu-requested" -> "MEDIAPIPE_POCKET"
                 else -> null
             }
             if (owner.speechProvider != null && engine != null && owner.speechProvider != engine) {
@@ -233,7 +233,7 @@ class VoiceDiagnosticTrace internal constructor(
                 "gateway-cuda" -> "GATEWAY_CUDA"
                 "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested", "mediapipe-kokoro-npu-requested" -> "LITERT_KOKORO"
                 "mediapipe-phonon-cpu-requested" -> "PHONON"
-                "mediapipe-pocket-cpu-requested" -> "POCKET"
+                "mediapipe-pocket-cpu-requested", "mediapipe-pocket-multilingual-cpu-requested" -> "POCKET"
                 else -> "KOKORO"
             }
             owner.values["voice_fallback_source"] = source

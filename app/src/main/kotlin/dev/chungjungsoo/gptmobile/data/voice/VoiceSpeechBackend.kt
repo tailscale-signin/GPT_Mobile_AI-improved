@@ -12,7 +12,8 @@ internal enum class VoiceSpeechBackend(val label: String) {
     LITERT_KOKORO_GPU_OPTIMIZED("Kokoro LiteRT · GPU-optimized vocoder"),
     LITERT_KOKORO_SM8750("Kokoro LiteRT · Snapdragon 8 Elite NPU vocoder"),
     PHONON_CPU("Phonon streaming · CPU"),
-    POCKET_CPU("Pocket streaming · CPU");
+    POCKET_CPU("Pocket streaming · English CPU"),
+    POCKET_MULTILINGUAL_CPU("Pocket streaming · 7 languages CPU");
 
     val isLiteRtKokoro: Boolean
         get() = this in setOf(LITERT_KOKORO_CPU, LITERT_KOKORO_GPU, LITERT_KOKORO_NPU, LITERT_KOKORO_GPU_OPTIMIZED, LITERT_KOKORO_SM8750)
@@ -24,7 +25,7 @@ internal enum class VoiceSpeechBackend(val label: String) {
         }
 
     val isStreamingLocal: Boolean
-        get() = isLiteRtKokoro || this == PHONON_CPU || this == POCKET_CPU
+        get() = isLiteRtKokoro || this == PHONON_CPU || this == POCKET_CPU || this == POCKET_MULTILINGUAL_CPU
 
     val supportsCpuThreadCalibration: Boolean
         get() = this == CPU || this == AUTO

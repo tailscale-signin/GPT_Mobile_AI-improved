@@ -19,7 +19,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkFixture
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkResult
 import java.util.Locale
 
-/** SDK callback results deliberately omit native token timing and executed-processor claims. */
+/** Engine output callback results deliberately omit native token timing and executed-processor claims. */
 @Composable
 internal fun VoiceSpeechEngineBenchmarkCard(result: VoiceSpeechEngineBenchmarkResult) {
     var expanded by remember(result.requestedBackend) { mutableStateOf(false) }

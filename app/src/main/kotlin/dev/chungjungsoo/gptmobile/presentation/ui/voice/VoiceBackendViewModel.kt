@@ -18,8 +18,10 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
 import dev.chungjungsoo.gptmobile.data.voice.SpeechVoiceEvidence
 import dev.chungjungsoo.gptmobile.data.voice.UnavailableVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
@@ -51,7 +53,8 @@ internal data class VoiceBackendSettings(
     val loaded: Boolean = false,
     val streamingModels: Map<MediaPipeSpeechEngine, LocalVoiceModelState> = emptyMap(),
     val preparingNpuBase: Boolean = false,
-    val npuBaseError: String? = null
+    val npuBaseError: String? = null,
+    val streamingVoiceId: String? = null
 )
 
 internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when (this) {
@@ -60,16 +63,22 @@ internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when
     VoiceSpeechBackend.LITERT_KOKORO_SM8750 -> MediaPipeSpeechEngine.KOKORO_SM8750
     VoiceSpeechBackend.PHONON_CPU -> MediaPipeSpeechEngine.PHONON
     VoiceSpeechBackend.POCKET_CPU -> MediaPipeSpeechEngine.POCKET
+    VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU -> MediaPipeSpeechEngine.POCKET_MULTILINGUAL
     else -> null
 }
 
 internal val VoiceSpeechBackend.usesKokoroVoices: Boolean get() = !isStreamingLocal || streamingEngine()?.isKokoro == true
 
+internal fun VoiceBackendSettings.synthesisProfile(synthesis: VoiceSynthesisPreferences): SpeechLanguage =
+    backend.streamingEngine()?.takeUnless { it.isKokoro }?.let { engine ->
+        MediaPipeSpeechVoices.profile(engine, MediaPipeSpeechVoices.selected(engine, streamingVoiceId))
+    } ?: synthesis.profile
+
 internal fun VoiceSynthesisPreferences.nativeVoice(previous: KokoroVoice?): KokoroVoice =
     KokoroVoice.fromStreamingId(voiceId) ?: previous ?: KokoroVoice.HEART
 
 internal fun VoiceSpeechBackend.forSynthesis(synthesis: VoiceSynthesisPreferences): VoiceSpeechBackend {
-    if (synthesis.profile.tag.startsWith("en-") || isLiteRtKokoro) return this
+    if (synthesis.profile.tag.startsWith("en-") || isStreamingLocal) return this
     return when (this) {
         VoiceSpeechBackend.QNN_GPU -> VoiceSpeechBackend.LITERT_KOKORO_GPU
         VoiceSpeechBackend.QNN_HTP -> VoiceSpeechBackend.LITERT_KOKORO_NPU
@@ -149,10 +158,21 @@ internal class VoiceBackendViewModel internal constructor(
 
     fun selectBackend(backend: VoiceSpeechBackend) {
         if (!mutable.value.loaded) return
-        val value = VoiceBackendPreference(backend, mutable.value.gatewayUid)
+        val value = (saved?.value ?: VoiceBackendPreference()).copy(backend = backend, gatewayUid = mutable.value.gatewayUid)
         preferences.save(value)
         saved = preferences.state.value
         if (catalogError != null) observeConnections()
+        reconcile(force = true)
+    }
+
+    fun selectStreamingVoice(voiceId: String) {
+        if (!mutable.value.loaded) return
+        val engine = mutable.value.backend.streamingEngine()?.takeUnless { it.isKokoro } ?: return
+        if (MediaPipeSpeechVoices.profile(engine, voiceId) == null) return
+        val previous = saved?.value ?: return
+        if (previous.streamingVoice(engine) == voiceId) return
+        preferences.save(previous.copy(streamingVoices = previous.streamingVoices + (engine.name to voiceId)))
+        saved = preferences.state.value
         reconcile(force = true)
     }
 
@@ -255,7 +275,7 @@ internal class VoiceBackendViewModel internal constructor(
 
     fun selectGateway(uid: String) {
         if (!mutable.value.loaded || mutable.value.gateways.none { it.uid == uid }) return
-        preferences.save(VoiceBackendPreference(mutable.value.backend, uid))
+        preferences.save((saved?.value ?: VoiceBackendPreference()).copy(backend = mutable.value.backend, gatewayUid = uid))
         saved = preferences.state.value
         reconcile(force = true)
     }
@@ -264,7 +284,12 @@ internal class VoiceBackendViewModel internal constructor(
         val requested = saved?.value ?: return
         val effective = requested.backend.forSynthesis(synthesis)
         val preference = requested.copy(backend = effective)
-        mutable.value = mutable.value.copy(backend = preference.backend, gatewayUid = preference.gatewayUid)
+        val engine = preference.backend.streamingEngine()
+        mutable.value = mutable.value.copy(
+            backend = preference.backend,
+            gatewayUid = preference.gatewayUid,
+            streamingVoiceId = engine?.takeUnless { it.isKokoro }?.let(preference::streamingVoice)
+        )
         if (preference.backend == VoiceSpeechBackend.GATEWAY_CUDA && !catalogLoaded) {
             backendStatus = "Loading Gateway connections…"
             publishStatus()
@@ -357,7 +382,7 @@ internal class VoiceBackendViewModel internal constructor(
         }
         VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU,
         VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_SM8750,
-        VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.POCKET_CPU -> {
+        VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.POCKET_CPU, VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU -> {
             val engine = requireNotNull(value.backend.streamingEngine())
             val descriptor = MediaPipeSpeechCatalog.model(engine)
             val models = streamingModels()
@@ -373,7 +398,7 @@ internal class VoiceBackendViewModel internal constructor(
             } else {
                 "Audio streams on this phone using ${descriptor.title}. It works offline once its voice pack is installed."
             }
-            val selectedId = if (engine.isKokoro) streamingVoiceId else descriptor.defaultVoice
+            val selectedId = if (engine.isKokoro) streamingVoiceId else value.streamingVoice(engine)
             val evidence = runCatching { SpeechVoiceEvidence(context, models.acceleratorEnvironment) }.getOrNull()
             fun modelUsed(configured: VoiceSpeechBackend) = MediaPipeSpeechCatalog.model(requireNotNull(configured.streamingEngine()))
             fun evidenceStatus(configured: VoiceSpeechBackend, usedId: String = selectedId): String {

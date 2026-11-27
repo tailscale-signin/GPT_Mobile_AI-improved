@@ -10,6 +10,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeferredKokoroOutputTest {
+    @Test fun explicitCaptionEditSurvivesDeferredInitializationWithoutHydrationBecomingAnEdit() {
+        for (edited in listOf(false, true)) {
+            val configured = mutableListOf<Int>()
+            val requested = mutableListOf<Int>()
+            val output = DeferredKokoroOutput {
+                object : KokoroOutput {
+                    override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+                    override fun configureCaptionOffset(milliseconds: Int) {
+                        configured += milliseconds
+                    }
+                    override fun calibrateCaptionOffset(milliseconds: Int) {
+                        requested += milliseconds
+                    }
+                    override fun stop() = Unit
+                    override fun close() = Unit
+                }
+            }
+            output.configureCaptionOffset(180)
+            if (edited) output.calibrateCaptionOffset(180)
+            output.configureCaptionOffset(180)
+            assertTrue(configured.isEmpty() && requested.isEmpty())
+            output.prewarm(KokoroVoice.HEART)
+            output.prewarm(KokoroVoice.HEART)
+            assertEquals(listOf(180), configured)
+            assertEquals(if (edited) listOf(180) else emptyList<Int>(), requested)
+            output.close()
+        }
+    }
+
     @Test fun deferredCloseRetainsTheNativeOwnerUntilItsWorkersActuallyRetire() {
         var closed = false
         var retired = false

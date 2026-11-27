@@ -87,9 +87,11 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                         voiceSettings.save(saved.copy(language = tag, recognitionBackend = engine))
                     }
                     if (androidRecognition && !offlineService) androidx.compose.material3.Text("Android offline recognition is unavailable on this phone. Choose English and the Moonshine engine to use the bundled recognizer.")
-                    SynthesisLanguageChoices(saved.synthesis, backend.backend.usesKokoroVoices) {
-                        val native = it.nativeVoice(saved.kokoroVoice)
-                        voiceSettings.save(saved.copy(synthesis = it, kokoroVoice = native))
+                    if (backend.backend.usesKokoroVoices) {
+                        SynthesisLanguageChoices(saved.synthesis, backend.backend.usesKokoroVoices) {
+                            val native = it.nativeVoice(saved.kokoroVoice)
+                            voiceSettings.save(saved.copy(synthesis = it, kokoroVoice = native))
+                        }
                     }
                 }
                 VoiceEntrySpeechSettings(backend, backendOwner::selectBackend, backendOwner::selectGateway)
@@ -125,6 +127,8 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                             standardPack = backend.streamingModels[MediaPipeSpeechEngine.KOKORO],
                             preparingNpuBase = backend.preparingNpuBase,
                             npuBaseError = backend.npuBaseError,
+                            voiceId = backend.streamingVoiceId,
+                            selectVoice = backendOwner::selectStreamingVoice,
                             enabled = backend.loaded,
                             install = backendOwner::installStreamingModel,
                             importCompiled = backendOwner::importSm8750Model,

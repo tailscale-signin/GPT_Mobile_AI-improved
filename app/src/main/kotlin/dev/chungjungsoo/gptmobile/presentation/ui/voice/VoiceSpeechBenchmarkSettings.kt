@@ -33,6 +33,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkAudioReference
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendResult
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkConfiguration
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEnergyObservation
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkFixture
@@ -47,7 +48,10 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechRejectedOutput
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisFeedback
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTempoProcessor
+import dev.chungjungsoo.gptmobile.data.voice.measuredStreamingCandidate
 import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
+import dev.chungjungsoo.gptmobile.data.voice.streamingComparisons
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.BenchmarkExportContent
 import java.text.DateFormat
 import java.util.Date
@@ -125,6 +129,7 @@ internal fun VoiceSpeechBenchmarkSettings(
                 suite.results.forEach { row ->
                     Text("${row.label} · ${row.status.display()}" + (row.reason?.let { " · ${it.lowercase(Locale.ROOT).replace('_', ' ')}" } ?: ""), style = MaterialTheme.typography.bodySmall)
                     row.recommendedRoute?.let { Text("Qualified choice for this test · $it", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+                    row.measuredLatencyCandidate?.let { Text("Lowest measured streaming delay · $it. Acoustic quality requires independent measurements.", style = MaterialTheme.typography.bodySmall) }
                     row.metrics.forEach { metric ->
                         val value = String.format(locale, "%.1f", metric.value)
                         Text("${metric.label} · $value ${metric.unit} · n=${metric.samples}", style = MaterialTheme.typography.bodySmall)
@@ -184,6 +189,14 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         Text("${report.configuration.nativeModelVariant.displayName} · HTP policy: ${report.configuration.htpPerformanceMode.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
     } else {
         Text("SDK input: ${if (report.configuration.incrementalInput) "incremental reply stream" else "separate phrase streams"}${if (report.configuration.engine.mediaPipeEngine()?.isKokoro == true) " · ${report.configuration.kokoroBucket.label}" else ""}", style = MaterialTheme.typography.bodySmall)
+        report.measuredStreamingCandidate()?.let { Text("Lowest measured streaming delay · ${it.label}", style = MaterialTheme.typography.bodyMedium) }
+        report.streamingComparisons().forEach { comparison ->
+            val latency = comparison.medianFirstPresentedMs?.let { "${format(it)} ms median warm start" } ?: "Warm start not measured"
+            val coverage = comparison.captionCoverage?.let { "${format(it * 100)}% caption boundary coverage" } ?: "Caption coverage not measured"
+            Text("${comparison.backend.label} · $latency · $coverage", style = MaterialTheme.typography.bodySmall)
+            Text("Independent speech quality: ${comparison.independentQualityStatus.lowercase(Locale.ROOT).replace('_', ' ')}. Caption coverage does not measure acoustic word accuracy.", style = MaterialTheme.typography.bodySmall)
+            if (comparison.exclusions.isNotEmpty()) Text("Comparison pending: ${comparison.exclusions.joinToString { it.lowercase(Locale.ROOT).replace('_', ' ') }}", style = MaterialTheme.typography.bodySmall)
+        }
     }
     Text(
         "${report.configuration.engine.label} · ${if (nativeEngine) "${report.configuration.voice.label} · ${report.configuration.threads} threads" else "voice ${report.configuration.engineVoiceId ?: "unknown"} · SDK threads unobserved"} · ${format(report.configuration.speechRate.toDouble())}× · build ${report.configuration.appBuild}",
@@ -200,6 +213,14 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
     }
     notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     report.recommendation()?.let { Text("Recommendation for this test: ${it.label}. An accelerator needs at least a ten percent gain across the same qualified workload, including startup cost.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
+    if (!nativeEngine) {
+        val scope = if (report.configuration.pcmProcessingId == VoiceTempoProcessor.IMPLEMENTATION_ID) {
+            "PCM timing and signal are measured after app tempo processing and before playback pause trimming."
+        } else {
+            "PCM processing scope is unqualified for this saved report."
+        }
+        Text(scope, style = MaterialTheme.typography.bodySmall)
+    }
     val order = report.configuration.plannedBackendOrder.joinToString(" → ") { it.label }
     val schedule = if (report.configuration.comparesColdStartsFirst) "Each processor runs one fresh trial in this order, then the remaining trials follow the same order." else "Repeat runs rotate the starting processor."
     Text("$order. $schedule", style = MaterialTheme.typography.bodySmall)
@@ -239,7 +260,7 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
                         TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide samples" else "Inspect samples and causes") }
                     }
                 }
-                if (expanded) rows.forEach { VoiceSpeechPlaybackResultCard(it) }
+                if (expanded) rows.forEach { VoiceSpeechPlaybackResultCard(it, report.configuration) }
             }
         }
     } else if (nativeEngine) {
@@ -264,7 +285,7 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         } else if (nativeEngine) {
             "First PCM is the first complete native chunk; total synthesis includes every chunk. Accelerator ranking requires comparable duration, token timing and signal against CPU for the same input and settings. This numerical check does not establish listening quality. Playback and acoustic latency, underruns and energy attributable to an engine are unmeasured. First use retains the phone's file cache. Medians average the middle pair; p95 is withheld below twenty samples."
         } else {
-            "First PCM is the first nonempty SDK callback. Timings include the engine's stream calls and callback delivery. The spoken fixtures are shared, but each engine has its own voice and internal timing. Intelligibility, listening quality, acoustic latency, energy attributable to an engine and actual processor placement remain unmeasured. These results do not select a cross-engine winner."
+            "First PCM is the first nonempty engine output callback. Timings include the engine's stream calls and callback delivery. The spoken fixtures are shared, but each engine has its own voice and internal timing. Intelligibility, listening quality, acoustic latency, energy attributable to an engine and actual processor placement remain unmeasured. These results do not select a cross-engine winner."
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -406,7 +427,7 @@ private fun VoiceSpeechBenchmarkResultCard(
 }
 
 @Composable
-private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult) {
+private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult, configuration: VoiceSpeechBenchmarkConfiguration) {
     OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("${result.requestedBackend.label} · ${result.scenario.label} · sample ${result.repeat + 1}${if (result.warmup) " · warm-up" else ""}", style = MaterialTheme.typography.titleSmall)
@@ -430,8 +451,12 @@ private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult) {
                 val outcome = if (result.prewarmCompleted == true) "completed" else "incomplete"
                 Text("Prewarm ${mode.name.lowercase(Locale.ROOT).replace('_', ' ')} · $outcome · ${result.prewarmElapsedMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall)
             }
+            result.firstSdkPcmAfterStreamStartMs?.let { milliseconds ->
+                Text("Stream call to first engine PCM · $milliseconds ms", style = MaterialTheme.typography.bodySmall)
+            }
             result.sdkPcm?.let { pcm ->
-                Text("Peak ${format(pcm.peak)} · RMS ${format(pcm.rms)} · ${pcm.clipped} clipped samples", style = MaterialTheme.typography.bodySmall)
+                val scope = if (configuration.pcmProcessingId == VoiceTempoProcessor.IMPLEMENTATION_ID) "After app tempo, before pause trimming" else "Engine output · processing version unqualified"
+                Text("$scope · peak ${format(pcm.peak)} · RMS ${format(pcm.rms)} · ${pcm.clipped} clipped samples", style = MaterialTheme.typography.bodySmall)
             }
             result.stopOrigin?.let { origin ->
                 Text("Stop requested by ${origin.name.lowercase(Locale.ROOT)} · audio stopped in ${result.cancellationMs ?: "—"} ms · engine retired in ${result.nativeRetirementMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall)
@@ -439,9 +464,9 @@ private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult) {
             Text("AudioTrack write ${result.firstAudioTrackWriteMs ?: "unmeasured"} ms · play requested ${result.trackPlayRequestedMs ?: "unmeasured"} ms · model preparation ${result.sessionPrepareMs ?: "unmeasured"} ms", style = MaterialTheme.typography.bodySmall)
             Text(if (result.requestedDelegate == null) "Requested/effective threads ${result.requestedThreads ?: "unknown"}/${result.effectiveThreads ?: "unknown"} · engine reused ${result.engineReused ?: "unknown"}" else "${result.requestedDelegate} delegate requested · actual processor and threads unobserved · engine reused ${result.engineReused ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
             Text("${if (result.requestedDelegate == null) "${result.validatedChunks}/${result.chunks} native chunks verified · completed generation" else "${result.chunks} delivered sections · PCM production intervals"} ${result.totalSynthesisMs} ms · audio ${result.totalAudioMs} ms · elapsed ${result.elapsedMs} ms", style = MaterialTheme.typography.bodySmall)
-            if (result.requestedDelegate != null) Text("${result.engineStreamCalls ?: "unknown"} SDK stream calls · structural audio ${if (result.streamedAudioValidated == true) "validated" else "not established"}", style = MaterialTheme.typography.bodySmall)
+            if (result.requestedDelegate != null) Text("${result.engineStreamCalls ?: "unknown"} engine stream calls · structural audio ${if (result.streamedAudioValidated == true) "validated" else "not established"}", style = MaterialTheme.typography.bodySmall)
             if (result.requestedDelegate != null) Text("PCM production intervals exclude callback backpressure and work after the last retained callback; they are not complete stream-call wall time.", style = MaterialTheme.typography.bodySmall)
-            result.engineStreamWallMs?.let { Text("Complete SDK stream calls: $it ms, including consumer callback waits.", style = MaterialTheme.typography.bodySmall) }
+            result.engineStreamWallMs?.let { Text("Complete engine stream calls: $it ms, including processing and consumer callback waits.", style = MaterialTheme.typography.bodySmall) }
             if (result.omittedPcmRecords > 0) Text("${result.omittedPcmRecords} later PCM receipts omitted from the bounded trace; their timing and audio remain in the totals.", style = MaterialTheme.typography.bodySmall)
             if (result.requestedDelegate == null) Text("Completed generation includes graph preparation within each chunk. Session loading and failed attempts are recorded separately.", style = MaterialTheme.typography.bodySmall)
             Text("Underruns ${result.underruns ?: "unmeasured"} · refills ${result.bufferRestarts} · longest refill ${result.longestRefillMs} ms", style = MaterialTheme.typography.bodySmall)

@@ -1043,7 +1043,7 @@ class ChatViewModel @Inject constructor(
             attempt.finish("TASK_CONTROL_HANDLED")
             return
         }
-        if (_combinedSettingsSaveState.value.isCommitting) {
+        if (_combinedSettingsSaveState.value.isCommitting && attempt.voiceResponsePolicy?.translationOnly != true) {
             _attachmentNotice.value = "Saving the Combined setup. Your message draft is kept."
             attempt.finish("VALIDATION_REJECTED")
             return
@@ -1055,7 +1055,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         val room = _chatRoom.value
-        if (room.conversationMode == ConversationMode.COMBINED && room.id > 0 && combinedPrior == null) {
+        if (room.conversationMode == ConversationMode.COMBINED && room.id > 0 && combinedPrior == null && attempt.voiceResponsePolicy?.translationOnly != true) {
             if (SendPreparation.HISTORY_LOAD in _sendPreparation.value) return
             val composerAtCheck = question.text.toString()
             val attachmentsAtCheck = _selectedAttachments.value
@@ -1080,7 +1080,11 @@ class ChatViewModel @Inject constructor(
             return
         }
         val acceptedTools = try {
-            captureCombinedTools(questionText, combinedPrior?.userMessages.orEmpty()).withVoicePolicy(attempt.voiceResponsePolicy)
+            if (attempt.voiceResponsePolicy?.translationOnly == true) {
+                _chatToolConfig.value.withVoicePolicy(attempt.voiceResponsePolicy)
+            } else {
+                captureCombinedTools(questionText, combinedPrior?.userMessages.orEmpty()).withVoicePolicy(attempt.voiceResponsePolicy)
+            }
         } catch (error: IllegalArgumentException) {
             _attachmentNotice.value = error.message ?: "Could not accept the Combined setup. Your draft is kept."
             attempt.finish("VALIDATION_REJECTED")
@@ -3748,12 +3752,16 @@ class ChatViewModel @Inject constructor(
                             )
                         }
                         dispatchTools = dispatchTools.copy(combined = dispatchTools.combined?.copy(chatId = persisted.chatRoom.id))
-                        val contextMessages = priorToCombined?.let { prior ->
-                            GroupedMessages(
-                                prior.userMessages + persisted.userMessage,
-                                prior.assistantMessages + listOf(normalizeAssistantRow(persisted.assistantMessages, enabledPlatformsInChat, persisted.chatRoom.id))
-                            )
-                        } ?: acceptedHistoryWithPersistedTurn(persisted)
+                        val contextMessages = if (dispatchTools.voiceResponsePolicy?.translationOnly == true) {
+                            GroupedMessages(listOf(persisted.userMessage), listOf(persisted.assistantMessages))
+                        } else {
+                            priorToCombined?.let { prior ->
+                                GroupedMessages(
+                                    prior.userMessages + persisted.userMessage,
+                                    prior.assistantMessages + listOf(normalizeAssistantRow(persisted.assistantMessages, enabledPlatformsInChat, persisted.chatRoom.id))
+                                )
+                            } ?: acceptedHistoryWithPersistedTurn(persisted)
+                        }
                         dispatchTools.combined?.let {
                             chatRepository.prepareCombinedTurn(
                                 it,
@@ -3827,7 +3835,7 @@ class ChatViewModel @Inject constructor(
                                             platform.uid
                                         )
                                     ),
-                                    gatewayAdmissionAllowed = { !_chatToolConfig.value.allToolsDisabled }
+                                    gatewayAdmissionAllowed = { dispatchTools.voiceResponsePolicy?.translationOnly != true && !_chatToolConfig.value.allToolsDisabled }
                                 )
                             }
                         )

@@ -31,7 +31,7 @@ internal object VoiceExecutionDiagnostics {
         "voice_fallback_source_observation",
         "voice_system_error_code"
     )
-    private val requestedBackends = setOf("AUTO", "CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU")
+    private val requestedBackends = setOf("AUTO", "CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_MULTILINGUAL_CPU")
     val enums = mapOf(
         "voice_selected_backend" to requestedBackends,
         "voice_effective_provider" to setOf("SYSTEM", "KOKORO_CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA"),
@@ -53,7 +53,7 @@ internal object VoiceExecutionDiagnostics {
 
     private val streamingBackendValues = mapOf(
         "voice_engine" to setOf("MEDIAPIPE"),
-        "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
+        "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_MULTILINGUAL_CPU"),
         "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
     )
 

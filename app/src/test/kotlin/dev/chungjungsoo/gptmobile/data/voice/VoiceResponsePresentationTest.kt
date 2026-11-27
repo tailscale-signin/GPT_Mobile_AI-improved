@@ -81,6 +81,22 @@ class VoiceResponsePresentationTest {
         assertFalse(Json.encodeToString(ChatMcpToolConfig()).contains("voiceResponsePolicy"))
     }
 
+    @Test fun aTranslationPolicyCannotRegainToolsThroughSavedOrLaterToggleSettings() {
+        val translation = VoiceResponsePolicy.TRANSLATE_FRENCH
+        val direct = ChatMcpToolConfig(enabledToolIds = setOf("search", "send_email"), allowAllByDefault = true, voiceResponsePolicy = translation)
+        for (tools in listOf(direct, direct.withToolEnabled("search"), direct.copy(allToolsDisabled = false, maxTools = 99, maxToolCalls = 99))) {
+            assertFalse(tools.isToolEnabled("search"))
+            assertFalse(tools.isToolEnabled(listOf("search", "send_email")))
+            assertTrue(tools.limitTools(listOf("search", "send_email")).isEmpty())
+            val delegation = tools.effectiveDelegation(dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(enabled = true, reviewerEnabled = true, researchEnabled = true, automaticResearch = true))
+            assertFalse(delegation.enabled)
+            assertFalse(delegation.reviewerEnabled)
+            assertFalse(delegation.researchEnabled)
+            assertFalse(delegation.automaticResearch)
+        }
+        assertTrue(ChatMcpToolConfig().isToolEnabled("search"))
+    }
+
     @Test fun retryUsesItsPersistedUserPolicyAndKeepsTheSelectedProfilePrompt() {
         val original = VoiceResponsePresentation.attach(user(10, "Explain the result"), policy)
         val reloaded = Json.decodeFromString<MessageV2>(Json.encodeToString(original))

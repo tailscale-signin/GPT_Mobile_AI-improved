@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import io
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -76,6 +77,25 @@ class ControlledTask:
         stream = ControlledStream(self.events, **self.options)
         stream.finished = finish_input
         return stream
+
+
+class VoiceCatalogCheckpointTest(unittest.TestCase):
+    def test_pinned_multilingual_pack_and_language_specific_voice_probes_are_complete(self):
+        model = smoke.MODELS["pocket-multilingual"]
+        smoke.verify_catalog(model)
+        selected = []
+        def consume(task, text, np, **options):
+            selected.append((options["voice_id"], options["locale"], text))
+            return {"word_cues": [{"utf8_start": 0, "utf8_end": 1}]}
+        with patch.object(smoke, "consume", side_effect=consume):
+            rows = smoke.consume_selectable_voices(None, model, None)
+        self.assertEqual(set(model["required_voices"]), {row["voice_id"] for row in rows})
+        self.assertEqual(14, len(selected))
+        self.assertEqual({"en", "fr", "de", "es", "it", "pt", "nl"}, {locale for _, locale, _ in selected})
+        self.assertIn(("estelle", "fr", smoke.FRENCH_CORPUS), selected)
+        for engine, count in (("pocket", 8), ("phonon", 5)):
+            smoke.verify_catalog(smoke.MODELS[engine])
+            self.assertEqual(count, len(smoke.MODELS[engine]["required_voices"]))
 
 
 class IncrementalCheckpointProtocolTest(unittest.TestCase):

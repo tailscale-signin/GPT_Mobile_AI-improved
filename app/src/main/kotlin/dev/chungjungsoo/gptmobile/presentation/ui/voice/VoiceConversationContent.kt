@@ -145,8 +145,12 @@ internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: V
     ) {
         VoiceConversationHeader(state, actions)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val compact = maxHeight < 420.dp || LocalDensity.current.fontScale > 1.3f
-            val sourceHeight = maxHeight * .30f
+            val density = LocalDensity.current
+            val compact = maxHeight < 420.dp || density.fontScale > 1.3f
+            val typography = MaterialTheme.typography
+            // The scrollable prompt must initially show its label and at least one line of dictation.
+            val firstSourceLine = with(density) { typography.labelMedium.lineHeight.toDp() + typography.bodyLarge.lineHeight.toDp() } + 8.dp
+            val sourceHeight = maxOf(maxHeight * .30f, firstSourceLine.coerceAtMost(maxHeight))
             val replyHeight = maxHeight * .48f
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 VoiceTranslationSource(state.session.translationPrompt.takeIf { state.translationMode }, Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = sourceHeight))
@@ -410,7 +414,7 @@ private fun VoiceControl(label: String, image: ImageVector, click: () -> Unit, m
     TextButton(onClick = click, enabled = enabled, modifier = modifier) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(image, null, Modifier.size(22.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+            Text(label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

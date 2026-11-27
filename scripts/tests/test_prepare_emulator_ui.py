@@ -791,6 +791,9 @@ esac
             self.assertEqual(56, result.returncode, result.stderr)
             invocations = [command for command in commands if 'am instrument' in command and 'VoiceConversationInstrumentedTest' in command]
             self.assertEqual(1, len(invocations))
+            voice_index = commands.index(invocations[0])
+            self.assertLess(commands.index('adb shell settings put global animator_duration_scale 1'), voice_index)
+            self.assertLess(voice_index, commands.index('adb shell settings put global animator_duration_scale 0'))
             for name in ('voice-conversation-instrumentation.txt', 'logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
                 self.assertIn('retained emulator evidence', (artifacts / name).read_text())
 

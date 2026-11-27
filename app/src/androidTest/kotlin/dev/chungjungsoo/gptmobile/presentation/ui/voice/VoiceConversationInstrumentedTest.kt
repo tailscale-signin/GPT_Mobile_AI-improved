@@ -17,18 +17,22 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
@@ -163,16 +167,18 @@ class VoiceConversationInstrumentedTest {
         compose.onNodeWithText("Audio").assertDoesNotExist()
         language.assertIsNotEnabled()
         compose.runOnIdle { current.value = current.value.copy(preferencesApplied = true) }
-        val chat = compose.onNodeWithText("Text chat").fetchSemanticsNode().boundsInRoot
-        val mic = microphone.assertContentDescriptionEquals("Start listening").fetchSemanticsNode().boundsInRoot
-        assertTrue(mic.width > chat.height && mic.bottom <= chat.top)
+        val chat = compose.onNodeWithText("Text chat").assertIsDisplayed().assertHeightIsAtLeast(48.dp).fetchSemanticsNode().boundsInRoot
+        val mic = microphone.assertContentDescriptionEquals("Start listening").assertIsDisplayed()
+            .assertWidthIsAtLeast(88.dp).assertHeightIsAtLeast(88.dp).fetchSemanticsNode().boundsInRoot
+        assertTrue("The microphone $mic must sit above Text chat $chat", mic.bottom <= chat.top)
         assertEquals(mic.center.x, chat.center.x, 2f)
         assertTrue(language.fetchSemanticsNode().boundsInRoot.center.x > chat.center.x)
         microphone.performClick()
         language.performClick()
         val translate = compose.onNodeWithTag("voice_translation_mode")
         translate.assertIsOff().performClick().assertIsOn()
-        compose.onNodeWithTag("voice_reply_language_fr").performClick()
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_reply_language_fr"))
+        compose.onNodeWithTag("voice_reply_language_fr").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals("fr", current.value.replyLanguage) }
         language.performClick()
         translate.assertIsOn()
@@ -238,6 +244,7 @@ class VoiceConversationInstrumentedTest {
         }
         val top = compose.onNodeWithTag("voice_translation_source")
         fun ink(): Int {
+            compose.waitForIdle()
             val bitmap = top.captureToImage().asAndroidBitmap()
             var darkest = 0
             for (y in 0 until bitmap.height) {

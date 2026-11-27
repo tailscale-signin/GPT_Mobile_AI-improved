@@ -174,6 +174,7 @@ class GitHubProgressSummaryRegressionTest {
 
     @Test fun sessionQuestionDoesNotBecomeATruncatedImplementationSubject() {
         val text = GitHubProgressPresentation.introduction("What issues have you discovered this session that prevented you from doing what I asked?")
+        assertTrue(text.contains("earlier runs"))
         assertTrue(text.contains("findings and blockers recorded in this conversation"))
         assertFalse(text.contains("work through What issues") || text.contains("in the current branch"))
     }

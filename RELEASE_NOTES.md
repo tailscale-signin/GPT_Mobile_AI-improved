@@ -6,6 +6,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Voice translation reserves space for the first line of dictation at the selected text size. Long control labels stay within two lines, and the reply-language list scrolls with its explanation.
 - Recover saved GitHub pages displaced by chat history, fit required read schemas to small models, name missing evidence in partial reports, and cite CI failures beyond the first log page.
 - Translation mode shows your words at the top and the translated reply below. The prompt fades in as you speak, stays through playback, and fades away when the microphone starts listening again.
 - GitHub chat answers questions about problems experienced in the conversation from earlier run outcomes. Interrupted branch reviews show revision-bound coverage and remaining files. Private page reads retain bounded notes, and claim verification resumes at the smaller request after an output limit.

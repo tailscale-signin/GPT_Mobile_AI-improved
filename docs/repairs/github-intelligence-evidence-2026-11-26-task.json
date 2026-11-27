@@ -64,6 +64,23 @@
       "state": "GATEWAY_DIAGNOSTIC_RELEASE_SCOPE",
       "sourceSha": "3d7bdace1c9b53a75c058fbdd88ed0cd27ccfaa8",
       "details": "The release scope check rejected five exact paths from the concurrent Gateway reasoning and continuation repair. Reviewed the checklist and budget implementation, the two named regression files and their diagnostic record. Include these paths and describe the user-visible change in the coordinated release."
+    },
+    {
+      "state": "NATIVE_TRANSLATION_ACCESSIBILITY_REPAIR",
+      "sourceSha": "76ba62867e47dc75d57bcdbcd89907d3518b41eb",
+      "observedHead": "21e17472811a60ba8411cf745b4a81a249eb0974",
+      "workflowRun": 45928909547,
+      "job": 140277411080,
+      "details": "At 320 dp width and 2x font scale the API 34 device recorded identical translation prompt fade samples (4, 4, 4) and rejected the comparison of microphone width with a wrapping text button’s height. The runner restored animation duration to zero before the voice motion suite. Run the suite with motion enabled, allow room for rendered prompt text at the active font scale, and verify the microphone target and control positions independently of label wrapping. API 36 independently failed the same microphone geometry assertion. The language picker uses one scrollable area for its explanation and available languages.",
+      "api36Job": 140277411370
+    },
+    {
+      "state": "INTEGRATED_ANDROID_CONTRACT_REPAIR",
+      "sourceSha": "76ba62867e47dc75d57bcdbcd89907d3518b41eb",
+      "workflowRun": 45929576752,
+      "job": 140278908025,
+      "junitArtifact": 15169116815,
+      "details": "The hosted GenieX unit run reported four failures in 15,168 tests. Its JUnit evidence identifies a status schema now restricted to runs, a model fixture missing an explicit low-effort capability, changed retrospective introduction wording, and a real-I/O workspace coroutine that resumed after its test reset Dispatchers.Main. Preserve the intended catalog, provider and retrospective behavior and retire the originating view model before restoring the dispatcher."
     }
   ],
   "verification": {

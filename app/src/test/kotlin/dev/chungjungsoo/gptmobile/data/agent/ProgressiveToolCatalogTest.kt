@@ -266,11 +266,12 @@ class ProgressiveToolCatalogTest {
     }
 
     @Test fun fullFirstGitHubDefinitionsPreferCompactInitialContracts() {
+        val statusPrompt = dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
         val requests = mapOf(
             "check repo status" to setOf("github_context_inspect", "github_pr_inspect"),
             "show git branches" to setOf("github_context_inspect", "github_search", "github_read"),
             "inspect commits" to setOf("github_context_inspect", "github_search", "github_read"),
-            dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt to setOf("github_context_inspect", "github_pr_inspect", "github_ci")
+            statusPrompt to setOf("github_context_inspect", "github_pr_inspect", "github_ci")
         )
         for (suffix in listOf("", "__native")) {
             val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it, it + suffix) }.sortedBy { it.name }
@@ -283,7 +284,12 @@ class ProgressiveToolCatalogTest {
                 assertTrue(selected.sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
                 selected.filterNot { it.name == ProgressiveToolCatalog.NAME }.forEach { definition ->
                     val source = definitions.single { it.name == definition.name }
-                    if (lookup != null) assertEquals(GitHubActionSchema.project(source, lookup.action), definition) else assertSame(source, definition)
+                    when {
+                        lookup != null -> assertEquals(GitHubActionSchema.project(source, lookup.action), definition)
+                        suffix.isNotEmpty() && task == statusPrompt && definition.name == "github_ci$suffix" ->
+                            assertEquals(GitHubActionSchema.project(source, "runs"), definition)
+                        else -> assertSame(source, definition)
+                    }
                 }
             }
         }

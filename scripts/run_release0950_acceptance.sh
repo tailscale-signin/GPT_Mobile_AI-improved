@@ -97,7 +97,7 @@ fi
 if [ "$settings_home_restore_status" -ne 0 ]; then
   printf 'Settings Home 320 dp viewport restore failed (exit %s).\n' "$settings_home_restore_status" >&2
 fi
-# The workflow disables animations. These suites measure intermediate navigation/chat frames.
+# These device suites measure intermediate navigation, chat and voice translation frames.
 navigation_setup_status=0
 for navigation_scale in animator_duration_scale window_animation_scale transition_animation_scale; do
   timeout 30s adb shell settings put global "$navigation_scale" 1
@@ -118,6 +118,8 @@ if [ "$navigation_setup_status" -eq 0 ]; then
   timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatBottomAutoScrollerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/chat-bottom-scroll-instrumentation.txt"
   chat_bottom_scroll_status=${PIPESTATUS[0]}
 fi
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-conversation-instrumentation.txt"
+voice_conversation_status=${PIPESTATUS[0]}
 navigation_restore_status=0
 for navigation_scale in animator_duration_scale window_animation_scale transition_animation_scale; do
   timeout 30s adb shell settings put global "$navigation_scale" 0
@@ -140,8 +142,6 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 local_voice_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceEntryInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-entry-instrumentation.txt"
 voice_entry_status=${PIPESTATUS[0]}
-timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-conversation-instrumentation.txt"
-voice_conversation_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMessageControlsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-message-controls-instrumentation.txt"
 voice_message_controls_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTranscriptInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-transcript-instrumentation.txt"

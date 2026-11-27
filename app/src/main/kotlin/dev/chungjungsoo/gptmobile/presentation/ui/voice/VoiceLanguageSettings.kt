@@ -118,27 +118,27 @@ internal fun VoiceReplyLanguageDialog(
             }
         },
         text = {
-            Column {
-                Text(
-                    if (translationMode) {
-                        "Translate everything you say into the selected language, including questions."
-                    } else {
-                        "Answer in the selected language and use its voice for playback."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    items(SpeechLanguages.synthesis, key = { it.tag }) { language ->
-                        Row(
-                            Modifier.fillMaxWidth().selectable(language.tag == selected, role = Role.RadioButton, onClick = { select(language.tag) })
-                                .testTag("voice_reply_language_${language.tag}").padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            RadioButton(selected = language.tag == selected, onClick = null)
-                            Text(language.label)
-                        }
+            LazyColumn(Modifier.heightIn(max = 360.dp).testTag("voice_reply_language_list")) {
+                item {
+                    Text(
+                        if (translationMode) {
+                            "Translate everything you say into the selected language, including questions."
+                        } else {
+                            "Answer in the selected language and use its voice for playback."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                items(SpeechLanguages.synthesis, key = { it.tag }) { language ->
+                    Row(
+                        Modifier.fillMaxWidth().selectable(language.tag == selected, role = Role.RadioButton, onClick = { select(language.tag) })
+                            .testTag("voice_reply_language_${language.tag}").padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        RadioButton(selected = language.tag == selected, onClick = null)
+                        Text(language.label)
                     }
                 }
             }

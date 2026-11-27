@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -69,8 +70,11 @@ class GitHubWorkspaceAdmissionTest {
     }
 
     @After fun cleanup() {
-        model.viewModelScope.cancel()
-        Dispatchers.resetMain()
+        try {
+            runTest(dispatcher) { requireNotNull(model.viewModelScope.coroutineContext[Job]).cancelAndJoin() }
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun aFailedLazySectionDoesNotAutomaticallyRedispatchAfterBusyBecomesFalse() {

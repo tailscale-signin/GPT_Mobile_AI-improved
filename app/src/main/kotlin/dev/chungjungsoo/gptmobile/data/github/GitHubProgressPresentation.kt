@@ -39,7 +39,7 @@ internal object GitHubProgressPresentation {
     fun introduction(rawTask: String): String {
         val task = GitHubTaskContinuity.request(rawTask)
         if (GitHubTaskContinuity.sessionAdvice(task)) return "I’ll review where this chat lost progress and use those findings to suggest changes to the GitHub integration."
-        if (GitHubTaskContinuity.sessionAudit(task)) return "I’ll check the earlier runs in this chat for recorded failures and interruptions."
+        if (GitHubTaskContinuity.sessionAudit(task)) return "I’ll review earlier runs for the findings and blockers recorded in this conversation and explain what they prevented."
         if (GitHubTaskContinuity.analysisReport(task)) return "I’ll summarize the available findings and identify what still needs verification."
         if (Regex("""(?i)^\s*(?:what|which)\b.*\b(?:this session|this conversation|so far)\b""").containsMatchIn(task)) {
             return "I’ll review the findings and blockers recorded in this conversation and explain what they prevented."

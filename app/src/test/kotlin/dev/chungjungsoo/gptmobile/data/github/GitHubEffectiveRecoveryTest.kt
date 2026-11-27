@@ -13,7 +13,7 @@ class GitHubEffectiveRecoveryTest {
     @Test fun completedClaimExtractionLimitAllowsSmallerBatchResumeWithoutReplayingProviderRequest() {
         val action = "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
         val decision = GitHubEffectiveRecovery.resolve(
-            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","logical_continuation_allowed":false,"request_replay_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}""")
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","generation_completed":true,"remote_acceptance":"YES","logical_continuation_allowed":false,"request_replay_allowed":false,"recovery_action":"$action","batch":{"max_claims":8,"requirement_ids":["REQ-1"]}}}""")
         )
 
         assertEquals(GitHubEffectiveRecovery.Kind.CONTINUE_WORK, decision.kind)

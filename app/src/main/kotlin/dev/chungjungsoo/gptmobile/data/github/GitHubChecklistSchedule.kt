@@ -26,7 +26,8 @@ internal object GitHubChecklistSchedule {
         acquisitionAllowed: Boolean
     ): Plan {
         fun authorizedCall(call: ProviderEvent.ToolCall) = authorized.any { tool ->
-            tool.modelVisible && tool.name == call.name &&
+            tool.modelVisible &&
+                tool.name == call.name &&
                 (
                     GitHubSelfTestReads.valid(tool, call.arguments) ||
                         (

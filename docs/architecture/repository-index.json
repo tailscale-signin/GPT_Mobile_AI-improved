@@ -122,6 +122,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubComparisonCoverage.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubComparisonPage.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubContentFixture.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubContinuationBudget.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotDefaults.kt",

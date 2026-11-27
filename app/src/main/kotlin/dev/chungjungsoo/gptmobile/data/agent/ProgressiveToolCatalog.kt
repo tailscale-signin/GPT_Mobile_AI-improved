@@ -105,14 +105,14 @@ class ProgressiveToolCatalog(
                         )
                 )
     }.let { preferredInitialContracts(it, initialNames) }.also { initial ->
-        if (lookup != null) {
-            for (tool in initial) {
-                if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name) == lookup.operation &&
-                    GitHubActionSchema.project(tool, lookup.action) != null
-                ) {
-                    actionSelections[tool.name] = contractFingerprint(tool) to lookup.action
-                }
+        for (tool in initial) {
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+            val action = when {
+                lookup != null && operation == lookup.operation -> lookup.action
+                scopedGitHubStatus && operation == "github_ci" -> "runs"
+                else -> continue
             }
+            if (GitHubActionSchema.project(tool, action) != null) actionSelections[tool.name] = contractFingerprint(tool) to action
         }
     }
     private val implementationTools = if (upfrontEngineering.isEmpty()) {

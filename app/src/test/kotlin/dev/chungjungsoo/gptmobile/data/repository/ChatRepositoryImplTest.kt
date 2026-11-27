@@ -207,6 +207,24 @@ class ChatRepositoryImplTest {
         io.mockk.coVerify(exactly = 0) { persistence.markPrivacyModeUsed(52) }
     }
 
+    @Test fun gatewayChatUsesTheSavedReasoningModeAndAnExplicitChatOverride() = runBlocking {
+        val profile = customPlatform().copy(compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8090/v1", reasoning = false)
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            llamaReasoningModes = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO)
+        )
+        coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+        val reply = flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "A model is ready."), finishReason = "stop"))))
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(reply, reply)))
+        val repository = createRepository(settingsOverride = settings, openAIAPI = api)
+        val user = MessageV2(id = 1, chatId = 1, content = "Explain what a local model does.", platformType = null)
+        for ((index, override) in listOf(null, false).withIndex()) {
+            val states = repository.completeChat(listOf(user), emptyList(), profile, "reasoning-$index", ChatMcpToolConfig(reasoning = override)).toList()
+            assertTrue(states.toString(), states.any { it is ApiState.Success })
+        }
+        assertEquals(listOf(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF), api.reasoningModes)
+    }
+
     @Test
     fun missingConversationPolicyCannotFallBackToAnOrdinarySend() = runBlocking {
         val persistence = persistenceFixture()
@@ -3306,6 +3324,7 @@ class ChatRepositoryImplTest {
         var streamChatCompletionCalls = 0
         val requests = mutableListOf<ChatCompletionRequest>()
         val requestPrivacy = mutableListOf<Boolean>()
+        val reasoningModes = mutableListOf<dev.chungjungsoo.gptmobile.data.context.ReasoningMode>()
 
         override fun streamChatCompletion(
             request: ChatCompletionRequest,
@@ -3314,6 +3333,7 @@ class ChatRepositoryImplTest {
         ): Flow<ChatCompletionChunk> {
             streamChatCompletionCalls += 1
             requests += request
+            reasoningModes += config.reasoningMode
             requestPrivacy += dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
             return chatRounds.removeFirstOrNull() ?: emptyFlow()
         }

@@ -60,6 +60,7 @@ internal class GitHubVerifiedSession(
     private val independentPatchReview: (suspend (JsonObject) -> AgentProviderSession?)? = null,
     measuredRoutingTokens: suspend () -> Int? = { null },
     private val workspaceHead: String? = null,
+    private val continuationBudget: (() -> GitHubContinuationBudget)? = null,
     private val sourceDeliveryRecords: suspend () -> List<String> = { emptyList() }
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
@@ -869,8 +870,7 @@ internal class GitHubVerifiedSession(
         }
         if (selectedReviewer == null && openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
             val saved = evidence.snapshot().first
-            val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic()) +
-                "\n" + GitHubExecutionContinuation.replanInstruction(task, currentRequest)
+            val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic(), budget = continuationBudget?.invoke(), additionalInstruction = "\n" + GitHubExecutionContinuation.replanInstruction(task, currentRequest))
             progress("Reusing the saved findings and checking the remaining evidence")
             replannedReader = openExecutionContinuation.invoke(prompt)
             replanBoundary = latest.calls.first().callId
@@ -909,7 +909,7 @@ internal class GitHubVerifiedSession(
             executionCorrectionAttempted = true
             readOnlyEvidenceRecovery = missingReviewEvidence || ciDiagnosis || GitHubRequestCompletion.requiresRepositoryEvidence(task) && GitHubRequestCompletion.informational(task)
             progress("The response proposed work without new execution evidence. Resuming the accepted task once with its tools and receipts")
-            val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, retained, evidence.diagnostic(), readOnlyRefresh = readOnlyEvidenceRecovery)
+            val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, retained, evidence.diagnostic(), readOnlyRefresh = readOnlyEvidenceRecovery, budget = continuationBudget?.invoke())
             round = collectDraft(openExecutionContinuation.invoke(prompt), tools, exchanges)
             if (!round.calls && round.completed && !round.failed) {
                 // If neither attempt started work, establish the selected repository through its
@@ -1849,7 +1849,8 @@ internal class GitHubVerifiedSession(
                         currentRequest,
                         retained,
                         report,
-                        readOnlyRefresh = currentSessionReview || readOnlyEvidenceRecovery
+                        readOnlyRefresh = currentSessionReview || readOnlyEvidenceRecovery,
+                        budget = continuationBudget?.invoke()
                     )
                 ),
                 continuationTools,

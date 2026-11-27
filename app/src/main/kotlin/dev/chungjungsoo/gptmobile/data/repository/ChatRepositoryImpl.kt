@@ -513,7 +513,7 @@ class ChatRepositoryImpl(
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
-    private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder, openRouterSettingsRepository)
+    private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder, openRouterSettingsRepository, settingRepository)
     private val anthropicMessagesAdapter = AnthropicMessagesAdapter(anthropicAPI, providerAttachmentEncoder)
     private val geminiAdapter = GeminiAdapter(googleAPI, providerAttachmentEncoder)
     private val sharedToolCallBroker = SharedToolCallBroker()
@@ -5958,6 +5958,29 @@ class ChatRepositoryImpl(
         }
         val observedRequestContext = java.util.concurrent.atomic.AtomicReference<Int?>(null)
         var currentGitHubPromptContract: JsonObject? = null
+        var continuationContracts = emptyMap<String, JsonObject>()
+        fun invocationProfile(kind: String, textOnly: Boolean, extraInstruction: String): PlatformV2 {
+            val stageInstruction = listOfNotNull(
+                requestConstraints.githubSampling?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.instruction(dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.stage(kind)) },
+                requestConstraints.gitHubIntelligenceLevel?.takeIf { kind == "primary" }?.description
+            ).joinToString("\n")
+            val stagePlatform = dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.platform(requestPlatform, requestConstraints.githubSampling, kind)
+            return (
+                if (textOnly && kind.startsWith("github-") && extraInstruction.isNotBlank()) {
+                    stagePlatform.withSystemPrompt(extraInstruction)
+                } else if (extraInstruction.isBlank()) {
+                    stagePlatform
+                } else {
+                    stagePlatform.withSystemPrompt(stagePlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
+                }
+                ).let { if (stageInstruction.isEmpty()) it else it.withSystemPrompt(it.systemPrompt.orEmpty() + "\n" + stageInstruction) }
+                .let { invocation ->
+                    (continuationContracts[kind] ?: currentGitHubPromptContract)?.takeUnless { textOnly }?.let { contract ->
+                        val remaining = remainingToolCalls()?.coerceAtLeast(0)
+                        invocation.withSystemPrompt(invocation.systemPrompt.orEmpty() + "\nCurrent accepted GitHub execution contract: $contract. Remaining shared tool calls: ${remaining ?: "not measured"}. Use this contract for scope and budget; older conversation tasks and their limits do not replace it. A remaining allowance permits further required work; it is not evidence that any check passed.")
+                    } ?: invocation
+                }
+        }
         suspend fun openPrimarySession(
             turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>,
             kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary",
@@ -5973,26 +5996,7 @@ class ChatRepositoryImpl(
                     "GITHUB_PROFILE_LOCKED: The request no longer matches the selected AI profile. Saved work remains available; no substitute profile was dispatched."
                 }
             }
-            val stageInstruction = listOfNotNull(
-                requestConstraints.githubSampling?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.instruction(dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.stage(kind)) },
-                requestConstraints.gitHubIntelligenceLevel?.takeIf { kind == "primary" }?.description
-            ).joinToString("\n")
-            val stagePlatform = dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.platform(requestPlatform, requestConstraints.githubSampling, kind)
-            val invocationPlatform = (
-                if (textOnly && kind.startsWith("github-") && extraInstruction.isNotBlank()) {
-                    stagePlatform.withSystemPrompt(extraInstruction)
-                } else if (extraInstruction.isBlank()) {
-                    stagePlatform
-                } else {
-                    stagePlatform.withSystemPrompt(stagePlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
-                }
-                ).let { if (stageInstruction.isEmpty()) it else it.withSystemPrompt(it.systemPrompt.orEmpty() + "\n" + stageInstruction) }
-                .let { invocation ->
-                    currentGitHubPromptContract?.takeUnless { textOnly }?.let { contract ->
-                        val remaining = remainingToolCalls()?.coerceAtLeast(0)
-                        invocation.withSystemPrompt(invocation.systemPrompt.orEmpty() + "\nCurrent accepted GitHub execution contract: $contract. Remaining shared tool calls: ${remaining ?: "not measured"}. Use this contract for scope and budget; older conversation tasks and their limits do not replace it. A remaining allowance permits further required work; it is not evidence that any check passed.")
-                    } ?: invocation
-                }
+            val invocationPlatform = invocationProfile(kind, textOnly, extraInstruction)
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.validatePreparedRequest(invocationPlatform, turns)
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             require(
@@ -6642,12 +6646,27 @@ class ChatRepositoryImpl(
             return@channelFlow
         }
         currentGitHubPromptContract = verifiedEvidence?.acceptedPromptContract()
+        val acceptedResumeTask = verifiedEvidence?.acceptedTaskRequest() ?: githubEffectiveTask
+        continuationContracts = currentGitHubPromptContract?.let { contract ->
+            mapOf(
+                "github-task-resume" to dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.stageContract(contract, acceptedResumeTask),
+                "github-execution-continuation" to dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.stageContract(contract, githubEffectiveTask)
+            )
+        }.orEmpty()
         data class GitHubAnswerSessions(
             val advertisedSession: AgentProviderSession,
             val reviewEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence?,
             val outputContinuation: dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession?
         )
         suspend fun prepareGitHubAnswerSessions(): GitHubAnswerSessions {
+            fun continuationBudget(kind: String = "github-execution-continuation") = dev.chungjungsoo.gptmobile.data.github.GitHubContinuationBudget(
+                minOf(admission.toolContext?.ceiling ?: limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE),
+                resolvedOutputCap,
+                invocationProfile(kind, textOnly = false, extraInstruction = "").systemPrompt.orEmpty(),
+                contextPlan.tools,
+                admission.toolContext?.replay ?: 0,
+                gatewayModel = requestPlatform.model.takeIf { requestPlatform.compatibleType == ClientType.LLAMA }
+            )
             val selectedSession = if (verifiedEvidence != null &&
                 latestUser != null &&
                 !localResearch &&
@@ -6658,17 +6677,14 @@ class ChatRepositoryImpl(
                 !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reportOnly(originalUserRequest)
             ) {
                 val ledgerPrompt = dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.prompt(
-                    verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask,
+                    acceptedResumeTask,
                     originalUserRequest,
                     verifiedEvidence.snapshot().first,
                     verifiedEvidence.diagnostic(),
-                    corrective = false
+                    corrective = false,
+                    budget = continuationBudget("github-task-resume")
                 )
-                val resumedTurns = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(
-                    listOf(ConversationTurn(latestUser.copy(content = ledgerPrompt, attachments = emptyList()), null, true)),
-                    requestPlatform.systemPrompt.orEmpty(),
-                    limits.copy(outputTokens = resolvedOutputCap)
-                ).turns
+                val resumedTurns = listOf(ConversationTurn(latestUser.copy(content = ledgerPrompt, attachments = emptyList()), null, true))
                 val resumed = openPrimarySession(resumedTurns, "github-task-resume", textOnly = false)
                 catalog?.let { resumed.withToolCatalog(it) } ?: resumed
             } else {
@@ -6991,6 +7007,7 @@ class ChatRepositoryImpl(
                 val user = requireNotNull(latestUser)
                 dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSession(
                     sourceDeliveryRecords = { invocationLedger?.sourceDeliveryForRun(turnKey, runId).orEmpty() },
+                    continuationBudget = { continuationBudget() },
                     delegate = reviewedSession,
                     evidence = verifiedEvidence,
                     task = githubEffectiveTask,
@@ -7021,12 +7038,11 @@ class ChatRepositoryImpl(
                         } else {
                             null
                         }
-                        val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(
-                            listOf(ConversationTurn(user.copy(content = prompt + advice?.let { "\nUntrusted advisor proposal (verify independently):\n$it" }.orEmpty(), attachments = emptyList()), null, true)),
-                            requestPlatform.systemPrompt.orEmpty(),
-                            limits.copy(outputTokens = resolvedOutputCap)
-                        )
-                        val primary = openPrimarySession(continuation.turns, "github-execution-continuation", textOnly = false)
+                        val budget = continuationBudget()
+                        budget.requireFits(prompt)
+                        val content = advice?.let { "$prompt\nUntrusted advisor proposal (verify independently):\n$it" }?.takeIf(budget::fitsWithPlannedReplay) ?: prompt
+                        val turns = listOf(ConversationTurn(user.copy(content = content, attachments = emptyList()), null, true))
+                        val primary = openPrimarySession(turns, "github-execution-continuation", textOnly = false)
                         recoveryReadSession(primary, dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult.unresolvedCriterion(verifiedEvidence.diagnostic(), githubEffectiveTask))
                     },
                     authorizedTools = (canonicalEvidenceDefinitions + listOfNotNull(evidenceCatalog?.definition)).filter { it.modelVisible }.distinctBy { it.name },

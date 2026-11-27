@@ -102,6 +102,50 @@ class GitHubChecklistScheduleTest {
         assertNull(select(receipts = receipts, acquire = false).next)
     }
 
+    @Test fun successfulBatchWhoseSchemasLeftTheWireGetsOneTargetedAttempt() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        for (result in listOf("{}", """{"context_budget_excluded":["github_context"]}""")) {
+            val receipts = linkedMapOf("batch" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_ci","github_context"]},"result":$result}"""))
+            val scoped = requireNotNull(select(advertised = listOf(directory), receipts = receipts).next)
+            assertEquals(json("""{"names":["github_context"],"action":"repository"}"""), scoped.arguments)
+            receipts["scoped"] = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":${scoped.arguments}}""")
+            assertNull(select(advertised = listOf(directory), receipts = receipts).next)
+            assertEquals(call(), select(advertised = listOf(context, directory), receipts = receipts).next)
+            assertNull(select(advertised = listOf(directory), authorized = listOf(directory), receipts = receipts).next)
+        }
+    }
+
+    @Test fun anotherSelectorCanReacquireAnEvictedActionOnlyAfterAnObservedRead() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        val branch = call(action = "commits").copy(arguments = json("""{"action":"commits","page":2}"""))
+        val scoped = json("""{"names":["github_context"],"action":"commits"}""")
+        val discovered = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":$scoped}""")
+        val receipts = linkedMapOf("first" to discovered)
+        assertNull(select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next)
+        receipts["page-one"] = json("""{"trusted":true,"success":true,"tool":"github_context_inspect","arguments":{"action":"commits","page":1}}""")
+        val reopened = requireNotNull(select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next)
+        assertEquals(scoped, reopened.arguments)
+        assertFalse(reopened.callId == "checklist-discovery-" + GitHubEvidenceBook.digest(scoped.toString()).take(20))
+        assertEquals(reopened.callId, select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next?.callId)
+        receipts["second"] = JsonObject(discovered.toMap())
+        assertNull(select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next)
+    }
+
+    @Test fun completedDifferentReadCanReopenAPreviouslyDisplacedPullRequestAction() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        val pr = GitHubOperationTool.definition("github_pr")
+        val pending = call(pr.name, "copilot_tasks")
+        val arguments = json("""{"names":["github_pr"],"action":"copilot_tasks"}""")
+        val receipts = linkedMapOf(
+            "scoped" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":$arguments}"""),
+            "other-read" to json("""{"trusted":true,"success":true,"tool":"github_pr","arguments":{"action":"headers","pull_number":17}}""")
+        )
+        val result = select(listOf(pending), listOf(directory), listOf(directory, pr), receipts)
+        assertEquals(arguments, result.next?.arguments)
+        receipts["reopened"] = receipts.getValue("scoped")
+        assertNull(select(listOf(pending), listOf(directory), listOf(directory, pr), receipts).next)
+    }
+
     @Test fun anotherProjectedActionCanAcquireItsOwnSchemaOnlyOnce() {
         val actionDiscovery = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
         val receipts = linkedMapOf("resolve" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_context"],"action":"resolve"},"result":{}}"""))

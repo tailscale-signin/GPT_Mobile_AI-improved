@@ -12,6 +12,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubExecutionContinuationFindingTest {
+    @Test fun continuationOnlyElidesExactlyDuplicatedContractText() {
+        val original = Json.parseToJsonElement("""{"accepted_head_sha":"pinned","acceptance_criteria":["Read first"],"acceptance_contract":{"original_request":"Read within scope","criteria":[{"text":"Read first","depends_on":["prior"]}],"constraint_scope":"preserve authority"}}""") as JsonObject
+        val reduced = GitHubExecutionContinuation.stageContract(original, "Read within scope")
+        assertEquals(original["accepted_head_sha"], reduced["accepted_head_sha"])
+        assertFalse("acceptance_criteria" in reduced)
+        val nested = reduced.getValue("acceptance_contract") as JsonObject
+        assertFalse("original_request" in nested)
+        assertEquals(JsonObject((original.getValue("acceptance_contract") as JsonObject) - "original_request"), nested)
+        val distinct = JsonObject(original + ("acceptance_criteria" to JsonArray(listOf(JsonPrimitive("Also verify")))))
+        assertEquals(distinct, GitHubExecutionContinuation.stageContract(distinct, "Read a different request"))
+    }
+
+    @Test fun smallGatewayResumeKeepsTheExactRequestAndCompleteReceiptSelectorsInsideItsWireBudget() {
+        val task = "Inspect the selected revision. Keep already verified evidence."
+        val current = "Continue with the missing checks."
+        val records = (1..38).associate { index ->
+            "ev_$index" to buildJsonObject {
+                put("tool", "github_context")
+                put("success", true)
+                put("arguments", buildJsonObject { put("action", "checks") })
+            }
+        }
+        val budget = GitHubContinuationBudget(5632, 1292, "s".repeat(2253), emptyList(), 1800, gatewayModel = "local-test-model")
+        val full = GitHubExecutionContinuation.prompt(task, current, records, null, readOnlyRefresh = true)
+        assertFalse(budget.fitsWithPlannedReplay(full))
+        val prompt = GitHubExecutionContinuation.prompt(task, current, records, null, readOnlyRefresh = true, budget = budget, additionalInstruction = "Only inspect the pinned head.")
+        assertTrue(budget.fits(prompt))
+        assertTrue(listOf(task, current, "Retained receipts: 38", "Read-only refresh", "Only inspect the pinned head.").all { it in prompt })
+        val receiptRows = prompt.lineSequence().filter { it.startsWith("Receipt: ") }.map { Json.parseToJsonElement(it.removePrefix("Receipt: ")) as JsonObject }.toList()
+        assertTrue(receiptRows.isNotEmpty() && receiptRows.size < records.size)
+        assertEquals(JsonPrimitive("ev_38"), receiptRows.first()["id"])
+        val failure = org.junit.Assert.assertThrows(dev.chungjungsoo.gptmobile.data.context.RequestCapacityException::class.java) {
+            GitHubExecutionContinuation.prompt(task.repeat(500), current, records, null, budget = budget)
+        }
+        assertEquals("CONTEXT_CAPACITY_EXCEEDED", failure.code)
+        assertEquals(5632L, failure.capacityTokens)
+    }
+
     @Test fun searchResumePreservesExactCursorsAndSeparatesChangedQueryCoverage() {
         val records = (1..2).associate { index ->
             val arguments = buildJsonObject {

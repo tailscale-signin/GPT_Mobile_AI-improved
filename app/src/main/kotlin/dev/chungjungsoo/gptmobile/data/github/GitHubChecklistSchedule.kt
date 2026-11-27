@@ -39,30 +39,53 @@ internal object GitHubChecklistSchedule {
         val admittedPlanned = planned?.let(::advertisedRead)
         val unique = (listOfNotNull(planned) + candidates).map(::advertisedRead).distinctBy { it.name to it.arguments }
         val discovery = advertised.firstOrNull { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible }
-        val attempts = receipts.values.filter {
+        val attempts = receipts.filterValues {
             it.text("tool") == GitHubAuthorizedCatalog.TOOL &&
                 it["trusted"] == JsonPrimitive(true) &&
                 it["verification_eligible"] != JsonPrimitive(false)
         }
-        fun attemptsFor(name: String) = attempts.filter { receipt ->
+        fun attemptsFor(name: String) = attempts.entries.filter { (_, receipt) ->
             ((receipt["arguments"] as? JsonObject)?.get("names") as? JsonArray)?.contains(JsonPrimitive(name)) == true
         }
-        fun attempted(call: ProviderEvent.ToolCall) = attemptsFor(call.name).lastOrNull { receipt ->
+        fun attempted(call: ProviderEvent.ToolCall) = attemptsFor(call.name).lastOrNull { (_, receipt) ->
             val action = (receipt["arguments"] as? JsonObject)?.text("action").orEmpty()
             action.isBlank() || action == call.arguments.text("action")
-        }
+        }?.value
         val supportsAction = (discovery?.inputSchema?.get("properties") as? JsonObject)?.containsKey("action") == true
         fun scopedArguments(call: ProviderEvent.ToolCall) = buildJsonObject {
             put("names", JsonArray(listOf(JsonPrimitive(call.name))))
             if (supportsAction && call.arguments.text("action").isNotBlank()) put("action", call.arguments.getValue("action"))
         }
-        fun scopedAttempted(call: ProviderEvent.ToolCall) = attemptsFor(call.name).any { it["arguments"] == scopedArguments(call) }
-        fun budgetExcluded(receipt: JsonObject?, name: String) = receipt?.get("success") == JsonPrimitive(true) &&
-            (GitHubInventoryObservation.planningRoot(receipt)?.get("schema_budget_excluded") as? JsonArray)?.contains(JsonPrimitive(name)) == true
+        val lastScoped = unique.associateWith { call -> attemptsFor(call.name).lastOrNull { it.value["arguments"] == scopedArguments(call) } }
+        // A different completed read can displace the schema before another action, page or PR needs it.
+        // Bind that reacquisition to the observed progress so the evidence store records a new call exactly once.
+        val consumedAt = unique.associateWith { call ->
+            val previous = lastScoped[call] ?: return@associateWith null
+            if (previous.value["success"] != JsonPrimitive(true) || !GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)) return@associateWith null
+            receipts.entries.asSequence().dropWhile { it.key != previous.key }.drop(1).lastOrNull { (_, receipt) ->
+                val args = receipt["arguments"] as? JsonObject
+                receipt["trusted"] == JsonPrimitive(true) &&
+                    receipt["success"] == JsonPrimitive(true) &&
+                    receipt["verification_eligible"] != JsonPrimitive(false) &&
+                    (receipt.text("tool") == call.name || call.name.githubReadFacadeMatches(receipt.text("tool"))) &&
+                    args != null &&
+                    args != call.arguments &&
+                    GitHubAuthorizationBoundary.isReplayableRead(receipt.text("tool"), args) &&
+                    !GitHubActionIdentity.matches(receipt.text("tool"), call.arguments, receipt)
+            }?.key
+        }
+        fun scopedAttempted(call: ProviderEvent.ToolCall) = lastScoped[call] != null && consumedAt[call] == null
+        fun budgetExcluded(receipt: JsonObject?, name: String): Boolean {
+            if (receipt == null || receipt["success"] != JsonPrimitive(true)) return false
+            val result = GitHubInventoryObservation.planningRoot(receipt) ?: return false
+            return listOf("schema_budget_excluded", "context_budget_excluded").any { key ->
+                (result[key] as? JsonArray)?.contains(JsonPrimitive(name)) == true
+            }
+        }
         fun allowed(call: ProviderEvent.ToolCall) = acquisitionAllowed || admittedPlanned?.let { it.name == call.name && it.arguments == call.arguments } == true
         val reasons = unique.associateWith { call ->
             val prior = attempted(call)
-            val projectedElsewhere = attemptsFor(call.name).lastOrNull()?.let { receipt ->
+            val projectedElsewhere = attemptsFor(call.name).lastOrNull()?.value?.let { receipt ->
                 val action = (receipt["arguments"] as? JsonObject)?.text("action").orEmpty()
                 receipt["success"] == JsonPrimitive(true) && action.isNotBlank() && action != call.arguments.text("action")
             } == true
@@ -74,6 +97,7 @@ internal object GitHubChecklistSchedule {
                 !acquisitionAllowed -> "SCHEMA_ACQUISITION_RESERVE_ACTIVE"
                 discovery == null -> "DISCOVERY_TOOL_NOT_ADVERTISED"
                 budgetExcluded(prior, call.name) && !scopedAttempted(call) -> "SCHEMA_BUDGET_RECOVERY_REQUIRED"
+                prior?.get("success") == JsonPrimitive(true) && !scopedAttempted(call) -> "ACTION_SCHEMA_DISCOVERY_REQUIRED"
                 projectedElsewhere && supportsAction && !scopedAttempted(call) -> "ACTION_SCHEMA_DISCOVERY_REQUIRED"
                 budgetExcluded(prior, call.name) -> "SCHEMA_BUDGET_RECOVERY_EXHAUSTED"
                 prior?.get("success") == JsonPrimitive(true) -> "TOOL_NOT_ADVERTISED_AFTER_DISCOVERY"
@@ -88,7 +112,9 @@ internal object GitHubChecklistSchedule {
         val arguments = scoped?.let(::scopedArguments) ?: buildJsonObject { put("names", JsonArray(names.map(::JsonPrimitive))) }
         val discoveryAllowed = discovery != null && names.isNotEmpty() && ToolArgumentValidator.errors(arguments, discovery.inputSchema).isEmpty()
         val discover = if (discoveryAllowed) {
-            ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(arguments.toString()).take(20), requireNotNull(discovery).name, arguments)
+            val checkpoint = scoped?.let { consumedAt[it] }
+            val identity = arguments.toString() + checkpoint?.let { "|after:$it" }.orEmpty()
+            ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(identity).take(20), requireNotNull(discovery).name, arguments)
         } else {
             null
         }

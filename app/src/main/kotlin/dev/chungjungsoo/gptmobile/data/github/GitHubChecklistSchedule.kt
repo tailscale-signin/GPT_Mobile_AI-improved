@@ -144,7 +144,10 @@ internal object GitHubChecklistSchedule {
             it.name.githubOperationFamily() == "github_commit" && it.arguments["action"] in setOf(JsonPrimitive("delete_branch"), JsonPrimitive("delete_fixture_branch"))
         }
         val cleanupPrerequisite = admittedPlanned?.takeIf { it in ready && it.callId.startsWith("fixture-") && GitHubChecklistBudget.cleanupReserve(receipts) > 0 }
-        val next = cleanup ?: cleanupPrerequisite ?: ready.firstOrNull() ?: discover ?: catalog?.takeIf { acquisitionAllowed && executable(it) }
+        // A targeted reacquisition belongs to the pending action; do not let an unrelated
+        // ready inventory read displace its exact schema. Broad discovery still yields to
+        // independent executable reads so one hidden tool cannot starve the rest.
+        val next = cleanup ?: cleanupPrerequisite ?: discover?.takeIf { scoped != null } ?: ready.firstOrNull() ?: discover ?: catalog?.takeIf { acquisitionAllowed && executable(it) }
         val snapshot = buildJsonObject {
             put("schema", "github.checklist-schedule.v1")
             put("receipt_set_digest", receiptSetDigest(receipts))

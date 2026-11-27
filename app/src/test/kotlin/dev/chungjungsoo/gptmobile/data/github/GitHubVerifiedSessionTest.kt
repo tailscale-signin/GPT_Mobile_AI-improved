@@ -215,6 +215,51 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonObject(args + ("verify_live" to JsonPrimitive(true))), calls.single().arguments)
     }
 
+    @Test fun reservedProofRoundAdmitsOnlyReadCallsAndMarksDeclaredLiveVerification() = runBlocking {
+        for (action in listOf("jobs", "rerun")) {
+            val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_ci")
+            val checkpoint = Json.parseToJsonElement(
+                """{"binding":"proof-reserve","next_action_decision":{},"stage_budget":{"remaining_calls":1,"cleanup_reserve":0,"acquisition_allowed":false,"verification_acquisition_allowed":true},"acceptance_ledger":{"requirements":[{"id":"github_ci:jobs","required":true,"state":"NOT_TESTED"}]}}"""
+            ).jsonObject
+            val book = GitHubEvidenceBook(
+                "proof-reserve",
+                "o/r",
+                "main",
+                setOf(definition.name),
+                latestVerdict = { checkpoint },
+                chooseNextAction = { report -> dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.decide(report) { name, _ -> name == definition.name } }
+            )
+            val delegate = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                    ProviderEvent.ToolCall(
+                        "proof",
+                        definition.name,
+                        buildJsonObject {
+                            put("action", action)
+                            put("run_id", 7)
+                        }
+                    ),
+                    ProviderEvent.Completed
+                )
+            }
+            val session = GitHubVerifiedSession(
+                delegate, book, "Implement the requested repair and verify its tests", { 8192 },
+                { answer("""{"claims":[{"kind":"not_measured","subject":"Missing proof"}]}""") }, {}, {},
+                authorizedTools = listOf(definition), remainingToolCalls = { 1 }, executionCallLimit = 32
+            )
+            val events = session.streamRound(listOf(definition), emptyList()).toList()
+            val calls = events.filterIsInstance<ProviderEvent.ToolCall>()
+            if (action == "jobs") {
+                assertEquals(1, calls.size)
+                assertEquals(JsonPrimitive(true), calls.single().arguments["verify_live"])
+                assertEquals(JsonPrimitive(7), calls.single().arguments["run_id"])
+            } else {
+                assertTrue(calls.isEmpty())
+                assertTrue(events.last() is ProviderEvent.Failed)
+            }
+        }
+    }
+
     @Test fun immutableCheckpointConflictKeepsItsApplicationFailureClassification() = runBlocking {
         val conflict = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED")
         val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { _, _ -> throw conflict })
@@ -284,6 +329,31 @@ class GitHubVerifiedSessionTest {
         assertEquals("VERIFICATION_RESERVE_REACHED", (events.last() as ProviderEvent.Failed).errorCode)
         assertEquals(JsonPrimitive(false), verdict?.get("completion_verified"))
         assertEquals(JsonPrimitive(true), verdict?.get("resume_required"))
+    }
+
+    @Test fun aLargeAcceptedTaskReservesProofBeforeItsFirstVerificationReportExists() = runTest {
+        val task = "Implement the requested changes.\n" + (1..33).joinToString("\n") { "Requirement $it must remain covered" }
+        val stored = mutableMapOf<String, JsonObject>()
+        val definition = AgentToolDefinition("github_context", "Read status", buildJsonObject {})
+        val book = GitHubEvidenceBook("initial-reserve", "owner/repo", "main", setOf(definition.name), load = { stored[it] }, save = { key, row -> stored[key] = row })
+        book.retainTaskContract(task, 7, listOf(definition), 32, 32)
+        assertEquals(null, book.diagnostic())
+        val forbidden = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> =
+                error("Ordinary acquisition cannot spend the accepted task's eight-call proof reserve")
+        }
+        val criterionUpdates = mutableListOf<Int>()
+        val session = GitHubVerifiedSession(
+            forbidden, book, task, { 8192 }, { error("No draft requires extraction") }, {}, {},
+            authorizedTools = listOf(definition), remainingToolCalls = { 8 }, executionCallLimit = 32,
+            verificationBudgetChanged = { criteria, _ -> criterionUpdates += criteria }
+        )
+        val events = session.streamRound(listOf(definition), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertEquals("VERIFICATION_RESERVE_REACHED", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertEquals(GitHubRequestCompletion.requirements(task).size, criterionUpdates.first())
+        val report = requireNotNull(stored.values.lastOrNull { it["stage_budget"] is JsonObject })
+        assertEquals(JsonPrimitive(8), (report.getValue("stage_budget") as JsonObject)["verification_reserve"])
     }
 
     @Test fun verificationReserveCollectsExactCommitJobsThenPublishesThroughTheExistingAcceptanceGate() = runTest {
@@ -1224,6 +1294,11 @@ class GitHubVerifiedSessionTest {
         val terminal = events.filterIsInstance<ProviderEvent.Failed>().single()
         assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", terminal.errorCode)
         assertEquals(JsonPrimitive("CATALOG_TOOL_NOT_EXPOSED"), terminal.failureDetails?.get("github_prerequisite_observation"))
+        assertEquals(JsonPrimitive(0), terminal.failureDetails?.get("github_authorized_tool_count"))
+        assertEquals(JsonPrimitive(0), terminal.failureDetails?.get("github_advertised_tool_count"))
+        assertEquals(JsonPrimitive("RESTORE_AUTHORIZED_CONFIGURATION"), terminal.failureDetails?.get("recovery_action"))
+        assertEquals(JsonPrimitive(false), terminal.failureDetails?.get("permission_bypass_allowed"))
+        assertTrue(terminal.message.contains("Review the selected GitHub connection"))
         assertTrue(events.none { it is ProviderEvent.ToolCall })
     }
 
@@ -1236,7 +1311,10 @@ class GitHubVerifiedSessionTest {
             {}, {}, authorizedTools = listOf(deferred), remainingToolCalls = { 256 }
         )
         val events = gate.streamRound(listOf(unrelated), emptyList()).toList()
-        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", failure.errorCode)
+        assertEquals(JsonPrimitive(1), failure.failureDetails?.get("github_authorized_tool_count"))
+        assertEquals(JsonPrimitive(0), failure.failureDetails?.get("github_advertised_tool_count"))
         assertTrue(events.none { it is ProviderEvent.ToolCall })
         assertTrue(book.snapshot().first.isEmpty())
     }
@@ -2384,33 +2462,102 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive(2), (published?.get("execution_ledger") as? JsonObject)?.get("receipt_count"))
     }
 
-    @Test fun extractionBatchLimitCannotSilentlyDropRequirements() = runBlocking {
-        val task = (1..(GitHubClaimBatches.REQUIREMENTS_PER_BATCH * GitHubClaimBatches.MAX_BATCHES + 1))
-            .joinToString("\n") { "Requirement $it must remain covered" }
-        var extractions = 0
-        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"))
-        book.observe(
-            ProviderEvent.ToolCall("context", "github_context", Json.parseToJsonElement("""{"action":"resolve"}""").jsonObject),
-            AgentToolResult("context", ToolResultContent.Json(Json.parseToJsonElement("""{"data":{"repository":{"full_name":"o/r"}}}""").jsonObject), false)
-        )
-        val gate = GitHubVerifiedSession(
+    @Test fun largeAcceptedPlansVerifyEveryCriterionThroughBoundedDurableWindows() = runBlocking {
+        for (count in listOf(33, 64, 169)) {
+            val task = (1..count).joinToString("\n") { "Requirement $it must remain covered" }
+            val stored = mutableMapOf<String, JsonObject>()
+            val book = GitHubEvidenceBook("b-$count", "o/r", "main", emptySet(), load = { stored[it] }, save = { key, value -> stored[key] = value })
+            val requested = mutableSetOf<String>()
+            val batchNumbers = mutableListOf<Int>()
+            var published: JsonObject? = null
+            val gate = GitHubVerifiedSession(
+                answer("Private draft"),
+                book,
+                task,
+                { 8192 },
+                { prompt ->
+                    val request = Json.parseToJsonElement(prompt).jsonObject
+                    val requirements = request.getValue("requirements").jsonArray
+                    val ids = requirements.map { (it.jsonObject.getValue("id") as JsonPrimitive).content }
+                    assertTrue(ids.size <= GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
+                    requested += ids
+                    val batch = (request.getValue("batch") as JsonPrimitive).content.toInt()
+                    batchNumbers += batch
+                    assertEquals(JsonPrimitive((batch - 1) / GitHubClaimBatches.MAX_BATCHES + 1), request["window"])
+                    answer(
+                        buildJsonObject {
+                            put(
+                                "claims",
+                                JsonArray(
+                                    ids.map { id ->
+                                        buildJsonObject {
+                                            put("kind", "not_measured")
+                                            put("subject", id)
+                                        }
+                                    }
+                                )
+                            )
+                        }.toString()
+                    )
+                },
+                {},
+                {},
+                onPublication = { published = it }
+            )
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(GitHubRequestCompletion.requirements(task).map(GitHubRequestCompletion::id).toSet(), requested)
+            val expectedBatches = (count + GitHubClaimBatches.REQUIREMENTS_PER_BATCH - 1) / GitHubClaimBatches.REQUIREMENTS_PER_BATCH
+            assertEquals((1..expectedBatches).toList(), batchNumbers)
+            assertEquals(JsonPrimitive(expectedBatches), published?.get("extraction_batches_completed"))
+            assertEquals(count, requireNotNull(published).getValue("requirements").jsonArray.size)
+            assertEquals(JsonPrimitive(false), published?.get("completion_verified"))
+            assertTrue(events.last() is ProviderEvent.Failed)
+            val retained = requireNotNull(book.retainedClaimExtraction())
+            assertEquals(expectedBatches, retained.getValue("batches").jsonArray.size)
+            assertEquals(JsonPrimitive(expectedBatches + 1), retained["next_batch"])
+            assertEquals(JsonPrimitive(false), retained["pending"])
+        }
+    }
+
+    @Test fun interruptedLargePlanResumesAfterTheLastDurablyVerifiedBatch() = runBlocking {
+        val task = (1..64).joinToString("\n") { "Requirement $it must remain covered" }
+        val stored = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("resumable", "o/r", "main", emptySet(), load = { stored[it] }, save = { key, value -> stored[key] = value })
+        val initial = mutableListOf<Int>()
+        val resumed = mutableListOf<Int>()
+        fun session(restart: Boolean) = GitHubVerifiedSession(
             answer("Private draft"),
             book,
             task,
             { 8192 },
-            {
-                extractions++
-                error("An incomplete bounded plan must not be dispatched")
+            { prompt ->
+                val request = Json.parseToJsonElement(prompt).jsonObject
+                val batch = (request.getValue("batch") as JsonPrimitive).content.toInt()
+                (if (restart) resumed else initial) += batch
+                if (!restart && batch == 10) {
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                            ProviderEvent.Failed("Interrupted extraction", errorCode = "CONNECTION_ABORTED", transportComplete = false)
+                        )
+                    }
+                } else {
+                    answer("""{"claims":[{"kind":"not_measured","subject":"Batch $batch"}]}""")
+                }
             },
             {},
-            {}
+            {},
+            resumeClaimExtraction = restart
         )
-
-        val events = gate.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(0, extractions)
-        val failure = events.last() as ProviderEvent.Failed
-        assertEquals(failure.message, "GITHUB_EXTRACTION_UNAVAILABLE", failure.errorCode)
-        assertEquals("PARTIAL", failure.taskOutcome)
+        val failed = session(false).streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals("CONNECTION_ABORTED", failed.errorCode)
+        assertEquals((1..10).toList(), initial)
+        assertEquals(JsonPrimitive(10), requireNotNull(book.retainedClaimExtraction())["next_batch"])
+        session(true).streamRound(emptyList(), emptyList()).toList()
+        assertEquals((10..16).toList(), resumed)
+        val retained = requireNotNull(book.retainedClaimExtraction())
+        assertEquals(JsonPrimitive(17), retained["next_batch"])
+        assertEquals(JsonPrimitive(16), retained["completed_batches"])
+        assertEquals(JsonPrimitive(false), retained["pending"])
     }
 
     @Test fun claimBatchesRemapCoverageAfterDeduplicatingSharedFacts() {

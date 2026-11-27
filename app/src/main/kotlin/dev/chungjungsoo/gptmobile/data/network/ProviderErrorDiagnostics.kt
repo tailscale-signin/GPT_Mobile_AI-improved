@@ -73,6 +73,7 @@ internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): J
     val fields = error.orEmpty().filter { (key, value) ->
         key in setOf(
             "code", "failed_stage", "request_id", "job_id", "dispatch_state", "retryable", "dispatched", "inference_dispatched",
+            "http_request_dispatched", "upstream_inference_dispatched", "dispatch_scope",
             "http_status", "backend_status", "backend_error_code", "backend_error_type", "origin", "failureCode", "cause_code", "backend_error_digest",
             "terminal_status", "terminal_status_code", "status_code", "result_available", "recovery_code", "recovery_http_status",
             "active_job_id", "active_job_kind", "active_job_state", "conversation_id", "conversation_revision", "recovery_action", "retryable_without_new_input"

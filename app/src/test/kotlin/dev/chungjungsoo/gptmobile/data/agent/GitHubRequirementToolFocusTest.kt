@@ -221,6 +221,34 @@ class GitHubRequirementToolFocusTest {
         assertTrue(catalog.nextAction(saved).focus?.operations?.isEmpty() == true)
     }
 
+    @Test fun reservedCallsSelectMissingReadProofWithoutAdmittingWritesOrCleanupSpend() {
+        val catalog = ProgressiveToolCatalog(definitions("github_ci", "github_commit"), "Implement and verify the repair", githubMode = true)
+        val base = checkpoint(row("github_commit:commit_staged_patch"), row("github_ci:jobs"))
+        fun reserved(allowed: Boolean) = JsonObject(
+            base + (
+                "stage_budget" to buildJsonObject {
+                    put("remaining_calls", 1)
+                    put("cleanup_reserve", if (allowed) 0 else 1)
+                    put("acquisition_allowed", false)
+                    put("verification_acquisition_allowed", allowed)
+                }
+                )
+        )
+        val selected = catalog.nextAction(reserved(true))
+        assertEquals(GitHubNextActionPolicy.Action.ACQUIRE, selected.action)
+        assertEquals("github_ci:jobs", selected.focus?.criterion)
+        assertTrue(selected.verificationOnly)
+        assertEquals("ACQUIRE_MISSING_VERIFICATION_EVIDENCE", selected.reason)
+        assertEquals("PRESERVE_VERIFICATION_RESERVE", catalog.nextAction(reserved(false)).reason)
+        val writesOnly = JsonObject(reserved(true) + ("acceptance_ledger" to checkpoint(row("github_commit:commit_staged_patch")).getValue("acceptance_ledger")))
+        assertEquals(GitHubNextActionPolicy.Action.VERIFY, catalog.nextAction(writesOnly).action)
+        val active = JsonObject(reserved(true) + ("next_action_decision" to selected.snapshot(GitHubNextActionMode.ACTIVE, null)))
+        assertTrue(GitHubNextActionPolicy.verificationOnly(active))
+        assertTrue(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.hasAcquisitionBudget(1, 1000, active))
+        assertFalse(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.hasAcquisitionBudget(0, 1000, active))
+        assertFalse(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.hasAcquisitionBudget(1, 0, active))
+    }
+
     @Test fun liveCiWatchYieldsOnlyToIndependentSourceWork() {
         val catalog = ProgressiveToolCatalog(definitions("github_ci", "github_commit", "github_read"), "Fix and verify the repository", githubMode = true)
         fun waiting(vararg rows: JsonObject) = JsonObject(checkpoint(*rows) + ("observation_state" to JsonPrimitive("WAITING_FOR_CI")))

@@ -22,6 +22,59 @@ class IntelligentToolBatchTest {
         override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text(callId), false)
     }
 
+    @Test fun failedCatalogSelectionDoesNotBlockAlreadyAdmittedSearchAndGraphReads() = runTest {
+        val discovery = call("catalog", ProgressiveToolCatalog.NAME)
+        val search = call("search", "github_search", "search")
+        val graph = call("graph", "repository_graph", "query")
+        val calls = listOf(discovery, search, graph)
+        val tools = calls.map { tool(it.name) }.associateBy { it.definition.name }
+        val plan = planIntelligentBatch(calls, tools)
+        for (read in plan.drop(1)) {
+            assertEquals(setOf(discovery.callId), read.dependencies)
+            assertTrue(read.failureDependencies.isEmpty())
+        }
+        val dispatched = mutableListOf<String>()
+        val results = IntelligentToolBatch(AdaptiveBatchWindow(3)).execute(
+            plan,
+            dispatch = {
+                dispatched += it.callId
+                if (it == discovery) ToolResultEnvelope.error(it.callId, "INVALID_ARGUMENTS", "No action was selected") else tools.getValue(it.name).execute(it.callId, it.arguments)
+            },
+            completed = { _, _ -> },
+            progress = {}
+        )
+        assertEquals(calls.map { it.callId }.toSet(), dispatched.toSet())
+        assertEquals("INVALID_ARGUMENTS", results.first().errorCode)
+        assertTrue(results.drop(1).none { it.isError })
+    }
+
+    @Test fun catalogFailureIsolationKeepsEarlierWorkspaceWritesAndUnknownToolsAsPrerequisites() = runTest {
+        val write = call("write", "github_commit")
+        val discovery = call("catalog", ProgressiveToolCatalog.NAME)
+        val search = call("search", "github_search", "search")
+        val calls = listOf(write, discovery, search)
+        val tools = calls.map { tool(it.name) }.associateBy { it.definition.name }
+        val plan = planIntelligentBatch(calls, tools)
+        assertEquals(setOf(write.callId), plan.last().failureDependencies)
+        val dispatched = mutableListOf<String>()
+        val results = IntelligentToolBatch(AdaptiveBatchWindow(3)).execute(
+            plan,
+            dispatch = {
+                dispatched += it.callId
+                if (it == write) ToolResultEnvelope.error(it.callId, "WRITE_FAILED", "Write did not complete") else tools.getValue(it.name).execute(it.callId, it.arguments)
+            },
+            completed = { _, _ -> },
+            progress = {}
+        )
+        assertEquals(listOf(write.callId, discovery.callId), dispatched)
+        assertEquals("DEPENDENCY_FAILED", results.last().errorCode)
+        assertFalse(results.last().dispatched)
+        val unknown = call("unknown", "github_read__unregistered")
+        assertEquals(setOf(discovery.callId), planIntelligentBatch(listOf(discovery, unknown), tools).last().failureDependencies)
+        val saved = search.copy(arguments = buildJsonObject { put("view_cursor", "issued-cursor") })
+        assertEquals(setOf(discovery.callId), planIntelligentBatch(listOf(discovery, saved), tools).last().failureDependencies)
+    }
+
     @Test fun failedWatchDoesNotCancelAnIndependentPinnedCommitRead() = runTest {
         val watch = ProviderEvent.ToolCall(
             "watch",

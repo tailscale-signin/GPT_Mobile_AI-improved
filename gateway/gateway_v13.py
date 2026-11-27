@@ -865,11 +865,9 @@ async def cancel_orphaned_singleflight_after_grace(
         return
 
     cancel_event.set()
-
-    try:
-        task.cancel()
-    except Exception:
-        pass
+    # Cancelling asyncio.to_thread only cancels its awaitable, not the physical
+    # worker. Keep that task registered until the worker observes cancellation
+    # and commits its terminal state, so a reconnect cannot start a replacement.
 
     _singleflight_metric(
         "orphan_cancellations"
@@ -877,7 +875,7 @@ async def cancel_orphaned_singleflight_after_grace(
 
     logger.info(
         "Single-flight orphan grace expired; "
-        f"cancelled interactive job {job_id}"
+        f"requested cancellation of interactive job {job_id}"
     )
 
 
@@ -2073,7 +2071,21 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
         if not pending:
             return job_id
         metadata = {"job_id": job_id, "pending_client_tool_call_ids": list(pending),
-                    "failed_stage": "tool_continuation", "dispatch_state": "not_dispatched"}
+                    "failed_stage": "tool_continuation", "dispatch_state": "not_dispatched",
+                    "remote_acceptance": "NO", "retryable": False,
+                    "retryable_without_new_input": False, "request_replay_allowed": False,
+                    "requires_reconciliation": True,
+                    "recovery_action": "open_active_job", "allowed_recovery_actions": ["open_active_job"]}
+        # The owned journal entry, not the incoming request or its tool text,
+        # identifies this handoff. Retain the same bounded recovery observations
+        # used for conversation conflicts without inventing a new admission.
+        from v14.conversations import Conversations
+        metadata.update(Conversations._client_tool_conflict_evidence(existing))
+        if existing.get("status") == "waiting_for_client_tool":
+            metadata.update(active_job_id=job_id, active_job_kind="generation",
+                            active_job_state="WAITING_FOR_CLIENT_TOOL",
+                            recovery_action="return_client_tool_results",
+                            allowed_recovery_actions=["open_active_job", "return_client_tool_results"])
         try:
             completed = validate_tool_message_pairs(
                 normalize_backend_messages(incoming_payload.get("messages", [])), pending_call_ids=pending,
@@ -19043,16 +19055,39 @@ async def stream_chat_with_keepalive(
                 pass
 
         delivery = TextDelivery()
+        persistence_state = {}
+
+        def run_stream_worker():
+            # Journal commits may wait on SQLite and filesystem flushes. Keep
+            # them on the same worker as generation, never the asyncio loop.
+            # The shared task is complete only after its terminal state commits.
+            try:
+                status_code, result = process_chat_payload(
+                    incoming_payload, cancel_event, progress_callback, hard_cancel_event)
+            except Exception as error:
+                try:
+                    finish_gateway_job(gateway_job_id, 500, None, error=error,
+                                       expected_generation=admitted_generation)
+                except Exception as commit_error:
+                    persistence_state['persistence_error'] = commit_error
+                    raise
+                raise
+            try:
+                finish_gateway_job(gateway_job_id, status_code, result,
+                                   expected_generation=admitted_generation)
+            except Exception as commit_error:
+                persistence_state['persistence_error'] = commit_error
+                raise
+            return status_code, result
+
         marker = current_delivery.set(delivery)
         try:
-            task = asyncio.create_task(asyncio.to_thread(
-                process_chat_payload, incoming_payload, cancel_event,
-                progress_callback, hard_cancel_event,
-            ))
+            task = asyncio.create_task(asyncio.to_thread(run_stream_worker))
         finally:
             current_delivery.reset(marker)
 
-        worker_entry = {
+        worker_entry = persistence_state
+        worker_entry.update({
             "text_delivery": delivery,
             "task":
                 task,
@@ -19068,7 +19103,7 @@ async def stream_chat_with_keepalive(
                 time.time(),
             "finished_at":
                 None,
-        }
+        })
 
         if SINGLEFLIGHT_ENABLED:
             with singleflight_lock:
@@ -19079,24 +19114,11 @@ async def stream_chat_with_keepalive(
         def capture_job_result(
             done_task,
         ):
-            try:
-                try:
-                    status_code, result = done_task.result()
-                except asyncio.CancelledError:
-                    finish_gateway_job(gateway_job_id, 499, None, error="Worker task cancelled", expected_generation=admitted_generation)
-                except Exception as e:
-                    finish_gateway_job(gateway_job_id, 500, None, error=e, expected_generation=admitted_generation)
-                else:
-                    finish_gateway_job(gateway_job_id, status_code, result, expected_generation=admitted_generation)
-            except Exception as e:
-                # A failed commit is not a model failure to overwrite or a
-                # successful answer to stream. Share the failure with followers.
-                worker_entry["persistence_error"] = e
-            finally:
-                mark_singleflight_worker_finished(
-                    gateway_job_id,
-                    done_task,
-                )
+            # Observe exceptions even when the subscriber disconnected. All
+            # persistence has already finished on the physical worker thread.
+            if not done_task.cancelled():
+                done_task.exception()
+            mark_singleflight_worker_finished(gateway_job_id, done_task)
 
         task.add_done_callback(
             capture_job_result

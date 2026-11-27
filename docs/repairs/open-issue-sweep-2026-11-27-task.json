@@ -1,0 +1,80 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 2651,
+  "base_branch": "main",
+  "observed_base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "local_working_branch": "repair/open-issues-20261127",
+  "starting_head_sha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+  "intent": "Examine every open issue, implement remaining defects on the latest PR branch, validate the affected behavior and close each report after concrete documented action as explicitly requested by the repository owner.",
+  "state": "actions_completed",
+  "intake": {
+    "count": 54,
+    "first_issue": 2705,
+    "last_issue": 2758,
+    "report_commit": "d1f13f849f467b5b90d8c85beaa7d5ddf8dee86f",
+    "latest_count": 56,
+    "latest_last_issue": 2760
+  },
+  "concurrency": "Use isolated worktrees, recheck the live PR head, preserve incoming commits, publish through fast-forward updates only.",
+  "closure_policy": "An issue closure records the concrete code, regression, duplicate reconciliation or diagnostic action. Closure is not a claim that physical device behavior or an unpublished release has been verified.",
+  "validation": [
+    {
+      "check": "Exact-source portable JVM suites",
+      "status": "passed",
+      "tests": 186,
+      "scope": "Exact selected production sources/functions and existing tests with explicit boundary ports;58 rerun cases replace the earlier54, so they are not counted twice. Not a full Android Gradle or physical-device build."
+    },
+    {
+      "check": "Authentication unittest discovery",
+      "status": "passed",
+      "tests": 249
+    },
+    {
+      "check": "Final canonical Gateway gate",
+      "status": "passed",
+      "tests": 2324,
+      "skips": 40,
+      "modules": 166,
+      "scope": "Seven browser bridge checks and50000-event journal stress passed; all578 Gateway source hashes unchanged during the final run."
+    },
+    {
+      "check": "Orphaned physical worker cancellation behavior",
+      "status": "passed",
+      "tests": 22,
+      "scope": "Both nondurable and temporary/private held-worker regressions fail before the repair, pass afterward."
+    },
+    {
+      "check": "Gradle focused Android voice tests",
+      "status": "blocked",
+      "reason": "SDK location unavailable; build stopped before test execution."
+    },
+    {
+      "check": "Canonical host gate",
+      "status": "passed",
+      "tests": 848,
+      "skips": 1
+    },
+    {
+      "check": "Changed Kotlin",
+      "status": "passed",
+      "files": 149
+    }
+  ],
+  "unmeasured": [
+    "physical Android handset execution",
+    "live provider generation",
+    "published release behavior"
+  ],
+  "current_source_head": "7569e3fd0c7956a70286c808281171f54058ed32",
+  "ledger": "docs/repairs/open-issue-sweep-2026-11-27.json",
+  "review_summary": "All56 reports have individual actions and limits. Independent final review also fixed a reproducible orphaned-worker cancellation race before publication.",
+  "publication": {
+    "target_branch": "feature/windows-native-benchmark-kit",
+    "evidence": "Exact published commit is recorded in the issue closure comments and PR conversation."
+  },
+  "issue_closures": {
+    "expected_count": 56,
+    "evidence": "Each issue comment records its action, validation limits and published source before closure."
+  }
+}

@@ -49,6 +49,23 @@ class ResponseRecoveryContextTest {
         assertEquals(recovery.prefix(384, pagingAvailable = false), prefix.text)
     }
 
+    @Test fun explicitContinueRestoresAnsweredChoicesBeforeItsFirstToolRoundEvenWithATinyOptionalPrefix() = runTest {
+        var allowed = true
+        val result = buildJsonObject {
+            put("question", "Which failures should be repaired?")
+            put("user_answer", "Repair context recovery and saved-page delivery.")
+            put("cancelled", false)
+        }
+        val decision = ToolEvent("decision", run.runId, 0, "choice", null, "Decision", "github_decide", "github_decide", "{}", result.toString(), "JSON", "COMPLETED")
+        val recovery = ResponseRecoveryContext(listOf(run), emptyList(), listOf(decision), rootWorkId = "same-task", authorization = { allowed })
+        val prefix = recovery.authorizedPrefix(128, pagingAvailable = false) as RecoveryPrefix.Allowed
+        assertTrue(prefix.text.contains("Which failures should be repaired?"))
+        assertTrue(prefix.text.contains("Repair context recovery and saved-page delivery."))
+        assertTrue(prefix.text.contains("not write approval or current verification"))
+        allowed = false
+        assertTrue(recovery.authorizedPrefix(128) is RecoveryPrefix.Blocked)
+    }
+
     @Test fun aContinuationDraftRetainsExactWhitespaceForItsSavedPrefixIdentity() = runTest {
         val retained = "  Retained paragraph.\n\n"
         val message = MessageV2(id = 2, chatId = 1, content = retained, platformType = run.profileUid, currentRunId = run.runId)
@@ -173,6 +190,52 @@ class ResponseRecoveryContextTest {
             assertFalse(wrapper.execute("new", arguments).isError)
             assertEquals(1, reads)
         }
+    }
+
+    @Test fun unchangedNativeReadRejectionSurvivesContinueWhileANewContractRemainsEligible() = runTest {
+        val originalDefinition = AgentToolDefinition("github_read", "Read", buildJsonObject { put("type", "object") })
+        val receipt = buildJsonObject {
+            put("error_code", "INVALID_ARGUMENTS")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+            put("tool_schema_hash", ToolContractFingerprint.schema(originalDefinition.inputSchema))
+            put("argument_repair_signature_hash", "a".repeat(64))
+            put("argument_repair_attempt", 1)
+        }
+        val event = ToolEvent("rejected-read", run.runId, 0, "old", "connection", "GitHub", "github_read", "github_read", "{}", ToolResultCheckpoint.encode("Supply ranges or evidence_id.", "TEXT", "Read rejected", executionReceipt = receipt), "CHECKPOINT_V1", "FAILED", isError = true)
+        val recovery = ResponseRecoveryContext(listOf(run), emptyList(), listOf(event), rootWorkId = "root")
+        var reads = 0
+        fun reader(changed: Boolean) = object : AgentTool {
+            override val definition = if (changed) {
+                originalDefinition.copy(
+                    inputSchema = buildJsonObject {
+                        put("type", "object")
+                        put("additionalProperties", false)
+                    }
+                )
+            } else {
+                originalDefinition
+            }
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                reads++
+                return AgentToolResult(callId, ToolResultContent.Text("Revalidated under the changed contract."), false)
+            }
+        }
+        val restored = recovery.reuseCompletedTool(reader(false), "github_read", "connection").execute("continued", buildJsonObject {})
+        assertEquals("INVALID_ARGUMENTS", restored.errorCode)
+        assertFalse(restored.dispatched)
+        assertEquals(0, reads)
+        assertEquals(listOf(receipt), recovery.argumentRepairReceipts())
+        assertEquals("continued", restored.callId)
+        assertEquals(receipt, restored.executionReceipt)
+
+        val changed = recovery.reuseCompletedTool(reader(true), "github_read", "connection").execute("new-contract", buildJsonObject {})
+        assertFalse(changed.isError)
+        assertEquals(1, reads)
+        val denied = ResponseRecoveryContext(listOf(run), emptyList(), listOf(event), rootWorkId = "root", authorization = { false })
+        assertTrue(runCatching { denied.argumentRepairReceipts() }.exceptionOrNull() is SavedEvidenceAccessDenied)
+        assertTrue(runCatching { denied.investigationExchanges() }.exceptionOrNull() is SavedEvidenceAccessDenied)
     }
 
     @Test fun blockedSavedMutationIsTypedAndNeverDispatched() = runTest {

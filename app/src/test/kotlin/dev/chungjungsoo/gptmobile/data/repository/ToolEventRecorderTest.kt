@@ -1298,6 +1298,10 @@ private class FakeAgentRunDao :
         advancedSequence = runId to sequence
         return 1
     }
+    override suspend fun advanceGatewayJobSequence(runId: String, jobId: String, sequence: Int): Int {
+        advancedSequence = runId to sequence
+        return 1
+    }
     override suspend fun updateUsage(
         runId: String,
         inputTokens: Int?,

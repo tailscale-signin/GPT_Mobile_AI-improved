@@ -5,6 +5,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePlaybackStartTest {
+    @Test fun failedFallbackReplaysTheSavedAnswerWithoutSubmittingAnotherPromptAndFencesCaptionTiming() {
+        val system = ObservedAudio()
+        val output = ObservedKokoro()
+        val plugin = plugin(system, output).apply { recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE }
+        var submissions = 0
+        val session = VoiceSession(plugin, {
+            submissions++
+            true
+        }, {}).apply {
+            autoContinue = true
+            access(true, true, true)
+            resume()
+        }
+        system.listeners.last().final("Read this")
+        session.reply("first", "The retained answer.")
+        output.errors.single().invoke("Primary failed before audio", true)
+        val staleStart = system.starts.single()
+        val staleRange = system.ranges.last()
+        system.errors.single().invoke("Offline voice unavailable")
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertEquals("The retained answer.", session.state.reply)
+        val originalSubmissions = submissions
+        plugin.kokoroVoice = null
+        session.replay()
+        assertEquals(originalSubmissions, submissions)
+        assertEquals(listOf("The retained answer.", "The retained answer."), system.spoken)
+        assertEquals(VoicePhase.PREPARING, session.state.phase)
+        staleStart()
+        staleRange(0, "The retained answer.", 0..2)
+        assertEquals(VoicePhase.PREPARING, session.state.phase)
+        assertEquals(null, session.state.spokenRange)
+        system.starts.last().invoke()
+        system.ranges.last()(0, "The retained answer.", 4..11)
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        assertEquals(4..11, session.state.spokenRange)
+        session.close()
+    }
+
     @Test fun timedCaptionRefreshesOnlyPresentationSignalsAndRejectsCancelledPlayback() {
         val audio = ObservedAudio()
         val session = session(audio)
@@ -276,7 +314,7 @@ class VoicePlaybackStartTest {
             override fun stop() = Unit
             override fun close() = Unit
         }
-        return VoicePluginAudio(system, local, output, system::speak) {}.apply { kokoroVoice = KokoroVoice.HEART }
+        return VoicePluginAudio(system, local, output, system::speakWithFailure) {}.apply { kokoroVoice = KokoroVoice.HEART }
     }
 
     private class ObservedAudio : VoiceAudio {
@@ -294,6 +332,7 @@ class VoicePlaybackStartTest {
         }
         val starts = mutableListOf<() -> Unit>()
         val completions = mutableListOf<() -> Unit>()
+        val errors = mutableListOf<(String) -> Unit>()
         val spoken = mutableListOf<String>()
         override fun bindPlaybackStarted(started: (() -> Unit)?) {
             observer = started
@@ -305,6 +344,7 @@ class VoicePlaybackStartTest {
         override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) {
             starts += requireNotNull(observer)
             completions += complete
+            errors += error
             spoken += text
         }
         override fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? {

@@ -141,6 +141,8 @@ internal class IssueReportSubmission(
             ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
             IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE,
             VoiceExecutionDiagnostics.FEATURE,
+            VoiceExecutionDiagnostics.FALLBACK_CAUSES_FEATURE,
+            DispatchStageDiagnostics.FEATURE,
             VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE,
             VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE,
             VoiceExecutionDiagnostics.STREAMING_PACK_FEATURE,

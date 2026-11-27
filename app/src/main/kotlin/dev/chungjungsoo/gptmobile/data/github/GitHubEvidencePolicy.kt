@@ -189,7 +189,14 @@ internal object GitHubEvidencePolicy {
 
     fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, issueWork: GitHubIssueRemediation.Context? = null, executionPlan: JsonObject? = null): Pair<String, JsonObject> {
         val claims = answer["claims"] as? JsonArray ?: error("Missing claim-level evidence response")
-        require(claims.size in 1..128) { "Claim count exceeds the verification bound" }
+        // A large accepted task can contain more than 128 supported claims. Bound the
+        // combined result by its complete criterion plan, while each extraction still
+        // validates the original eight-claim maximum before entering this renderer.
+        val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.size ?: 0
+        val criterionCount = maxOf(acceptedCriteria, GitHubRequestCompletion.requirements(task, issueWork).distinct().size)
+        val batches = (criterionCount + GitHubClaimBatches.REQUIREMENTS_PER_BATCH - 1) / GitHubClaimBatches.REQUIREMENTS_PER_BATCH
+        val claimBound = maxOf(128, batches * GitHubClaimBatches.MAX_CLAIMS)
+        require(claims.size in 1..claimBound) { "Claim count exceeds the accepted verification plan" }
         val checked = mutableListOf<JsonObject>()
         val excerpts = mutableListOf<String>()
         val observations = mutableMapOf<String, Map<String, JsonElement>>()
@@ -384,15 +391,7 @@ internal object GitHubEvidencePolicy {
                 }
             }.orEmpty()
         }
-        val remaining = completion["remaining_requirements"] as? JsonArray
-        val output = if (!GitHubTaskCoverage.matches(task) && !remaining.isNullOrEmpty()) {
-            text + "\n\n## Remaining work\n\n" + remaining.joinToString("\n") { row ->
-                val item = row as JsonObject
-                "- **${item.string("status").lowercase()}:** ${safe(item.string("requirement"))} — ${safe(item.string("acceptance"))}"
-            }
-        } else {
-            text
-        }
+        val output = if (!GitHubTaskCoverage.matches(task)) text + GitHubAnswerPresentation.remainingWork(completion) else text
         return output to report
     }
 

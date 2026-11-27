@@ -38,6 +38,13 @@ class CommandIdentityConflict(ConversationConflict):
     """A reused ID cannot establish the outcome of the altered payload."""
 
 
+def generation_command_request(request):
+    """Use the same identity at initial admission, tool continuation and rejection."""
+    metadata = request.get('gateway') or {}
+    return dict(request, **{key: metadata[key] for key in (
+        'conversation_id', 'client_conversation_id', 'expected_revision') if key in metadata})
+
+
 class QueueFull(ValueError):
     def __init__(self, message, dimension='outcome_history', occupied=None, capacity=None, recovery='Wait for retained command outcomes to expire.'):
         super().__init__(message)
@@ -471,7 +478,7 @@ class Conversations:
                        'model': public.get('model'), 'repository': None, 'branch': None, 'base': None}
             visible = self.runtime.get_effective_user_text(request.get('messages', []))
             receipt = self.admission(db, context['principal'], command, 'generation', public['job_id'],
-                                     dict(request, **{k: metadata[k] for k in ('conversation_id', 'client_conversation_id', 'expected_revision') if k in metadata}), binding, visible,
+                                     generation_command_request(request), binding, visible,
                                      now=public.get('created_at') or self.now())
             self.check_generation_capacity(db)
             seconds = ((metadata.get('budget') or {}).get('totalDeadlineMs', 900000)) / 1000
@@ -502,11 +509,13 @@ class Conversations:
             now = self.now()
             segment_command = metadata.get('command_id') or context['command_id']
             if segment_command != public['command_id']:
-                request_hash = fingerprint(request)
+                request_hash = fingerprint(generation_command_request(request))
                 previous = db.execute('SELECT fingerprint,job_id FROM gateway_commands WHERE principal=? AND id=?', (context['principal'], segment_command)).fetchone()
-                if previous and (previous[0] != request_hash or previous[1] != public['job_id']):
+                if previous and (previous[0] not in {request_hash, fingerprint(request)} or previous[1] != public['job_id']):
                     raise ConversationConflict('Continuation command identity was reused')
                 if not previous:
+                    if db.execute('SELECT 1 FROM gateway_command_rejections WHERE principal=? AND id=?', (context['principal'], segment_command)).fetchone():
+                        raise ConversationConflict('This continuation command was definitively rejected. Repair its prerequisite and use a new command identity.')
                     base = db.execute('SELECT receipt FROM gateway_commands WHERE principal=? AND id=?', (context['principal'], public['command_id'])).fetchone()
                     receipt = dict(json.loads(base[0]), command_id=segment_command, request_fingerprint=request_hash, command_accepted_at=now, server_now=now, turn_id=public['command_id'])
                     db.execute('INSERT INTO gateway_commands VALUES(?,?,?,?,?,?,?,?)', (context['principal'], segment_command, request_hash, public['conversation_id'], 'generation', public['job_id'], json.dumps(receipt), now))
@@ -593,12 +602,12 @@ class Conversations:
             from v14.engineering import validate_request, digest
             from v14.engineering_defaults import new_request_defaults, retained_request_defaults
         def save(db):
-            normalized = validate_request(new_request_defaults(request, self.engineering_next_action_policy(db, principal, request))) if kind == 'engineering' else request
+            normalized = validate_request(new_request_defaults(request, self.engineering_next_action_policy(db, principal, request))) if kind == 'engineering' else generation_command_request(request)
             request_hash = fingerprint(normalized)
             accepted = db.execute('SELECT receipt,fingerprint FROM gateway_commands WHERE principal=? AND id=?', (principal, command_id)).fetchone()
             if accepted:
                 receipt = json.loads(accepted[0])
-                matches = accepted[1] == request_hash
+                matches = accepted[1] == request_hash or kind == 'generation' and accepted[1] == fingerprint(request)
                 if kind == receipt['job_kind'] == 'engineering':
                     # Accepted jobs can contain host-expanded acceptance. Compare
                     # the frozen original request digest, including its defaults.

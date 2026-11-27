@@ -23,6 +23,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun gatewayHttpRejectionKeepsStageScopedDispatchThroughAccountingAndFailureSummary() = runTest {
+        val saved = mutableListOf<ModelInvocation>()
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val ledger = InvocationLedger(database)
+        val details = dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure(
+            """{"error":{"code":"CONVERSATION_CONFLICT","failed_stage":"conversation_admission","dispatch_state":"not_dispatched","retryable":false,"request_replay_allowed":false}}""",
+            409
+        )
+        val error = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event("CONVERSATION_CONFLICT", "Review the saved conversation", details = details, httpStatus = 409)
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                ProviderEvent.Failed(error.message, errorCode = error.code, failureDetails = error.failureDetails)
+            )
+        }
+        ledger.wrap(session, "run", "turn", "LLAMA", "model", "primary", 10, 100, 1000).streamRound(emptyList(), emptyList()).toList()
+        val record = saved.last { it.status == "FAILED" }
+        val json = kotlinx.serialization.json.Json
+        val failure = json.parseToJsonElement(requireNotNull(record.usageEvidenceJson)).jsonObject.getValue("failure").jsonObject
+        assertEquals("false", failure.getValue("dispatched").jsonPrimitive.content)
+        assertEquals("true", failure.getValue("httpRequestDispatched").jsonPrimitive.content)
+        assertEquals("false", failure.getValue("upstreamInferenceDispatched").jsonPrimitive.content)
+        val timeline = kotlinx.serialization.json.JsonArray(
+            listOf(kotlinx.serialization.json.JsonObject(mapOf("type" to kotlinx.serialization.json.JsonPrimitive("NOTICE"), "profileFailure" to failure)))
+        )
+        val evidence = requireNotNull(dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticMessageFailureEvidence(17, timeline))
+        val summary = dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticFailureSummary("run", "FAILED", null, "test", 1, "build", listOf(evidence))
+        assertEquals("false", summary.getValue("dispatched").jsonPrimitive.content)
+        assertEquals("true", summary.getValue("http_request_dispatched").jsonPrimitive.content)
+        assertEquals("false", summary.getValue("upstream_inference_dispatched").jsonPrimitive.content)
+        assertEquals("UPSTREAM_INFERENCE", summary.getValue("dispatch_scope").jsonPrimitive.content)
+        assertEquals("NOT_DISPATCHED", summary.getValue("dispatch_state").jsonPrimitive.content)
+        assertEquals("NO", summary.getValue("remote_acceptance").jsonPrimitive.content)
+    }
+
     @Test fun nativeTransportFailurePersistsEachAdmittedProfileWithoutNeedingAProviderUsageEvent() = runTest {
         val saved = mutableListOf<ModelInvocation>()
         val dao = mockk<InvocationDao>(relaxed = true)

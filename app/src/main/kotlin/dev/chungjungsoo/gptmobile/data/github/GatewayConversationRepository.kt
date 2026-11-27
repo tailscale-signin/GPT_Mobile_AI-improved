@@ -592,14 +592,29 @@ class GatewayConversationRepository @Inject constructor(
                 commands.instruction(route.config.withGatewayIdentity(identity), conversationId, command)
             }
         } catch (conflict: GatewayConversationConflict) {
-            database.withTransaction {
+            val accepted = database.withTransaction {
                 val accepted = acceptedInstructionReceipt(reservation)
                 if (accepted == null) {
                     dao.submission(commandId)?.takeIf { it.payload == reservation.payload && it.fingerprint == reservation.fingerprint && it.state == "PENDING_INSTRUCTION" }
                         ?.let { dao.saveSubmission(it.copy(state = "INSTRUCTION_CONFLICT")) }
                 }
                 accepted
-            } ?: throw conflict
+            }
+            if (accepted == null) {
+                // Refresh only authenticated state. The rejected command remains
+                // fenced; a new revision never silently resubmits its POST.
+                try {
+                    val refreshed = client.conversation(route.config, conversationId)
+                    requireSameIdentity(refreshed, local.gatewayId, local.principalId, local.conversationId)
+                    sync(local, refreshed)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Preserve the definite conflict if the recovery read is offline.
+                }
+                throw conflict
+            }
+            accepted
         }
         acceptInstruction(local, commandId, receipt, record.remoteJobId)
         try {

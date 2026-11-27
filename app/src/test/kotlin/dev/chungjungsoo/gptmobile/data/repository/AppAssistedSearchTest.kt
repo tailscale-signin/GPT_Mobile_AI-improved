@@ -94,6 +94,26 @@ class AppAssistedSearchTest {
         assertFalse(events.any { it is ApiState.Done })
     }
 
+    @Test fun explicitlyDisabledSearchHasAnActionablePreflightWithoutPreparingTools() {
+        for ((disabled, reason) in listOf(
+            (true to false) to AppAssistedSearch.Readiness.CHAT_TOOLS_DISABLED,
+            (false to true) to AppAssistedSearch.Readiness.PROFILE_TOOLS_DISABLED,
+            (true to true) to AppAssistedSearch.Readiness.CHAT_TOOLS_DISABLED
+        )) {
+            val error = requireNotNull(AppAssistedSearch.configurationBlock(disabled.first, disabled.second))
+            assertEquals("TOOL_UNAVAILABLE", error.errorCode)
+            assertEquals("BLOCKED", error.taskOutcome)
+            val details = requireNotNull(error.failureDetails)
+            assertEquals(JsonPrimitive(reason.name), details["search_readiness_observation"])
+            assertEquals(JsonPrimitive(reason.settingsScope), details["settings_scope"])
+            assertEquals(JsonPrimitive(reason.userAction), details["user_action"])
+            assertEquals(JsonPrimitive(false), details["permission_bypass_allowed"])
+            assertEquals(JsonPrimitive(false), details["dispatched"])
+            assertEquals(JsonPrimitive("NO"), details["remote_acceptance"])
+        }
+        assertEquals(null, AppAssistedSearch.configurationBlock(false, false))
+    }
+
     @Test fun searchReadinessIdentifiesTheFirstInventoryThatLostAnEngine() {
         val engine = mockk<dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool>()
         io.mockk.every { engine.modelToolName } returns "web_search"

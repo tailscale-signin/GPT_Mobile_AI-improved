@@ -247,6 +247,7 @@ POLICY_DIAGNOSTICS = POLICY_COUNTS | {'changed_policy_fields', 'changed_policy_o
 
 FAILED_EVENT_FIELDS = {'failed_event_provider_text_seen', 'failed_event_answer_emitted', 'failed_event_code_present', 'failed_event_invocation_present', 'failed_event_details_present'}
 COMMON = {
+    'http_request_dispatched', 'upstream_inference_dispatched', 'dispatch_scope',
     'sqlite_constraint_kind',
     'dispatch_policy_sections',
     'dispatch_policy_stage',
@@ -365,6 +366,8 @@ VOICE_PLAYBACK_FAILURES = {
     'AUDIO_FOCUS_DENIED', 'AUDIO_FOCUS_LOST', 'AUDIO_FOCUS_TIMEOUT', 'AUDIO_FOCUS_RESUME_FAILED',
     'TIMEOUT', 'MEMORY_PRESSURE', 'TEXT_QUEUE_FULL', 'SYNTHESIS_FAILED', 'ENGINE_FAILED', 'AUDIO_FAILED',
     'PRONUNCIATION_UNAVAILABLE', 'LEXICON_UNAVAILABLE',
+    'INITIALIZATION_FAILED', 'CATALOG_UNAVAILABLE', 'OFFLINE_VOICE_UNAVAILABLE', 'LANGUAGE_UNAVAILABLE', 'VOICE_UNAVAILABLE',
+    'SERVICE_FAILED', 'NETWORK_FAILED', 'NETWORK_TIMEOUT', 'INVALID_REQUEST', 'VOICE_NOT_INSTALLED',
 }
 VOICE_EXECUTION_ENUMS = {
     'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO_CPU', 'LITERT_KOKORO_GPU', 'LITERT_KOKORO_NPU', 'LITERT_KOKORO_GPU_OPTIMIZED', 'LITERT_KOKORO_SM8750', 'PHONON_CPU', 'POCKET_CPU'},
@@ -373,8 +376,14 @@ VOICE_EXECUTION_ENUMS = {
     'voice_fallback_target': {'SYSTEM', 'KOKORO_CPU'},
     'voice_fallback_outcome': {'STARTED', 'SUCCEEDED', 'FAILED'},
     'voice_fallback_failure': VOICE_PLAYBACK_FAILURES,
+    'voice_primary_failure_stage': {'PREPARATION', 'SYNTHESIS', 'PLAYBACK', 'INITIALIZATION', 'CATALOG', 'AUDIO_FOCUS'},
+    'voice_fallback_failure_stage': {'PREPARATION', 'SYNTHESIS', 'PLAYBACK', 'INITIALIZATION', 'CATALOG', 'AUDIO_FOCUS'},
+    'voice_fallback_terminal_failure': VOICE_PLAYBACK_FAILURES,
+    'voice_fallback_source_observation': {'INITIALIZED', 'NOT_INITIALIZED'},
 }
-VOICE_EXECUTION_FIELDS = set(VOICE_EXECUTION_ENUMS) | {'voice_fallback_count'}
+VOICE_EXECUTION_ENUMS['voice_failure_requested_backend'] = VOICE_EXECUTION_ENUMS['voice_selected_backend']
+VOICE_CAUSE_HASHES = {'voice_primary_cause_fingerprint', 'voice_fallback_cause_fingerprint'}
+VOICE_EXECUTION_FIELDS = set(VOICE_EXECUTION_ENUMS) | VOICE_CAUSE_HASHES | {'voice_fallback_count', 'voice_system_error_code'}
 VOICE_FIELDS = VOICE_EXECUTION_FIELDS | {'voice_pronunciation_unknown_word_length', 'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase', 'voice_focus_last_transition', 'voice_focus_transition_count', 'voice_pronunciation_unknown_words', 'voice_pronunciation_initialisms', 'voice_pronunciation_failure_kind', 'voice_pronunciation_audio_queued', 'voice_pronunciation_first_audio_observed'}
 
 GATEWAY_FIELDS = {
@@ -402,7 +411,7 @@ HASHES = {
     'saved_view_cursor_hash',
     'saved_view_source_hash',
     'server_request_id_hash',
-} | HANDOFF_RECONCILIATION_HASHES
+} | HANDOFF_RECONCILIATION_HASHES | VOICE_CAUSE_HASHES
 
 HASH_LISTS = {
     'dependency_call_id_hashes', 'pending_tool_identity_hashes',
@@ -412,7 +421,7 @@ HASH_LISTS = {
     'validation_path_hashes',
 }
 
-FLAGS = FAILED_EVENT_FIELDS | REMOTE_PAGINATION_FLAGS | {
+FLAGS = FAILED_EVENT_FIELDS | REMOTE_PAGINATION_FLAGS | {'http_request_dispatched', 'upstream_inference_dispatched'} | {
     'inventory_restart_offered',
     'tool_event_write_attempted',
     'chat_delivery_counts_capped',
@@ -654,6 +663,7 @@ ENUMS = {
 }
 
 ENUMS.update(VOICE_EXECUTION_ENUMS)
+ENUMS['dispatch_scope'] = {'HTTP_REQUEST', 'UPSTREAM_INFERENCE'}
 
 ENUM_LISTS = {
     'status_policy_protection_permission_header_names': set(POLICY_RESPONSE_HEADER_ORDER),
@@ -789,11 +799,28 @@ ENUMS['checkpoint_mismatch_reason'].update({
 ENUMS['observed_checkpoint_state'].update({'GENERATING', 'WRITING', 'NO_OUTPUT_REPAIR', 'OUTPUT_LIMIT', 'INTERRUPTED', 'BLOCKED_NO_PROGRESS'})
 
 
+RESEARCH_RECOVERY_FIELDS = {'research_recovery_changed_fields', 'research_recovery_resolution', 'research_recovery_saved_action_preserved'}
+EXECUTION_COMPLETION_FIELDS.update(RESEARCH_RECOVERY_FIELDS)
+ENUM_LISTS['research_recovery_changed_fields'] = {'TASK_ID', 'ROOT_WORK_ID', 'ACTION_ID', 'REQUESTED_STAGE', 'DESTINATION_PROFILE', 'POLICY_REVISION', 'CHECKPOINT_ID', 'EVIDENCE_REVISION'}
+ENUMS['research_recovery_resolution'] = {'REVIEW_CURRENT_SETTINGS_AND_START_NEW_ACTION'}
+FLAGS.add('research_recovery_saved_action_preserved')
+
+CAPABILITY_READINESS_FIELDS = {'github_authorized_tool_count', 'github_advertised_tool_count'}
+COUNTS.update(CAPABILITY_READINESS_FIELDS)
+ENUMS['github_prerequisite_observation'].update({'CATALOG_NO_GITHUB_CAPABILITIES', 'CATALOG_CAPABILITIES_NOT_ADVERTISED'})
+
+
 def fields_for(area):
-    return COMMON | (EXECUTION_COMPLETION_FIELDS if area in {'INCIDENT', 'PROVIDER'} else set()) | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS | RECONCILIATION_IDENTITY_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | ACCEPTANCE_EXPLANATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | (EXECUTION_COMPLETION_FIELDS if area in {'INCIDENT', 'PROVIDER'} else set()) | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS | RECONCILIATION_IDENTITY_FIELDS, 'INCIDENT': CAPABILITY_READINESS_FIELDS | {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': CAPABILITY_READINESS_FIELDS | {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | ACCEPTANCE_EXPLANATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
+    if key == 'research_recovery_changed_fields':
+        return isinstance(value, list) and 1 <= len(value) <= 8 and all(
+            isinstance(item, str) and item in ENUM_LISTS[key] for item in value
+        ) and len(set(value)) == len(value)
+    if key == 'research_recovery_saved_action_preserved':
+        return value is True
     if key == 'search_validation_field_names':
         return isinstance(value, list) and 1 <= len(value) <= 4 and all(
             isinstance(item, str) and item in ENUM_LISTS[key] for item in value
@@ -847,6 +874,8 @@ def valid_value(key, value):
         return value == 429
     if key == 'voice_pronunciation_unknown_word_length':
         return 1 <= value <= 256
+    if key == 'voice_system_error_code':
+        return -9 <= value <= -1
     if key == 'voice_fallback_count':
         return 0 <= value <= 100
     if key in {'retry_delay_ms', 'privacy_metadata_age_ms', 'mcp_health_age_ms'}:

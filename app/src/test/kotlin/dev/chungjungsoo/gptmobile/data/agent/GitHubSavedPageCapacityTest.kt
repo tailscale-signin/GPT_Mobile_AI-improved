@@ -138,7 +138,8 @@ class GitHubSavedPageCapacityTest {
     @Test fun onlyAnIssuedLargerPageWithinTheChangedAllowanceCanResumeAndKeepRemoteContinuations() {
         val fixture = Fixture()
         assertNull(fixture.next())
-        assertNull(fixture.next(tokens = 1400))
+        val intermediate = requireNotNull(fixture.next(tokens = 1400))
+        assertEquals(4096, requireNotNull(GitHubSavedReadProgress.cursor(intermediate.arguments)).bytes)
         val larger = requireNotNull(fixture.next(tokens = 3000))
         val selected = requireNotNull(GitHubSavedReadProgress.cursor(larger.arguments))
         val refused = requireNotNull(GitHubSavedReadProgress.cursor(fixture.cursor))
@@ -225,7 +226,7 @@ class GitHubSavedPageCapacityTest {
         assertNull(fixture.next(tokens = 3000))
     }
 
-    @Test fun compactedRefusalsKeepTheirNativeCorrectionAndOmittedBodiesCannotInventOne() {
+    @Test fun compactedRefusalsKeepTheirNativeCorrectionAcrossReplayEvictionAndRestart() {
         val fixture = Fixture()
         val compacted = fixture.refused.copy(content = requireNotNull(GitHubReplayRecovery.compact(fixture.refused.content, 1000)))
         assertEquals(JsonPrimitive(true), (compacted.content as ToolResultContent.Json).value.jsonObject["replay_compacted"])
@@ -243,8 +244,12 @@ class GitHubSavedPageCapacityTest {
         assertFalse(fixture.read(requireNotNull(fixture.next(tokens = 3000, exchanges = earlier))).isError)
         val missingRecipeHistory = earlier + AgentToolExchange(listOf(fixture.blocked), listOf(omitted))
         val missingRecipe = GitHubReplayRecovery.State(missingRecipeHistory.flatMap { it.calls }, missingRecipeHistory.flatMap { it.results })
-        assertNull(fixture.next(tokens = 3000, state = missingRecipe, exchanges = missingRecipeHistory))
+        assertFalse(fixture.read(requireNotNull(fixture.next(tokens = 3000, state = missingRecipe, exchanges = missingRecipeHistory))).isError)
         assertFalse(missingRecipe.hasRead(fixture.route, fixture.cursor))
+        val withoutIssuance = omitted.copy(executionReceipt = JsonObject(requireNotNull(omitted.executionReceipt) - "saved_view_recovery_call" - "saved_view_recovery_options"))
+        val unissuedHistory = earlier + AgentToolExchange(listOf(fixture.blocked), listOf(withoutIssuance))
+        val unissued = GitHubReplayRecovery.State(unissuedHistory.flatMap { it.calls }, unissuedHistory.flatMap { it.results })
+        assertNull(fixture.next(tokens = 3000, state = unissued, exchanges = unissuedHistory))
     }
 
     @Test fun aCapacityReceiptCannotAuthorizeAnotherViewOffsetRouteOrInventedIntermediateSize() {
@@ -255,6 +260,7 @@ class GitHubSavedPageCapacityTest {
             JsonObject(original + ("tool" to JsonPrimitive("github_ci"))),
             JsonObject(original + ("arguments" to buildJsonObject { put("view_cursor", "foreign:" + cursor.substringAfter(':')) })),
             JsonObject(original + ("arguments" to buildJsonObject { put("view_cursor", cursor.substringBefore(':') + ":999:8192") })),
+            JsonObject(original + ("arguments" to buildJsonObject { put("view_cursor", cursor.substringBeforeLast(':') + ":3072") })),
             JsonObject(original + ("arguments" to fixture.blocked.arguments))
         )
         for (correction in alternatives) {
@@ -264,8 +270,9 @@ class GitHubSavedPageCapacityTest {
             assertNull(fixture.next(tokens = 3000, state = state, exchanges = history))
             assertFalse(state.hasRead(fixture.route, fixture.cursor))
         }
-        // A larger allowance does not create an unissued 4096-byte handle at this offset.
-        assertNull(fixture.next(tokens = 1400))
+        val issued = requireNotNull(fixture.next(tokens = 1400))
+        assertEquals(4096, requireNotNull(GitHubSavedReadProgress.cursor(issued.arguments)).bytes)
+        assertTrue((fixture.refused.executionReceipt?.get("saved_view_recovery_options") as JsonArray).any { (it as JsonObject)["arguments"] == issued.arguments })
     }
 
     @Test fun issuedCapacityRecoveryUsesExistingRoundAllowanceAndDeliversTheWholePage() {
@@ -286,8 +293,11 @@ class GitHubSavedPageCapacityTest {
 
     @Test fun capacityAdmissionCannotIncreaseContextOutputOrAttemptBudgets() {
         val fixture = Fixture()
-        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 2000, maxOutputBytes = 8192))
-        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 4000, maxOutputBytes = 4096))
+        val contextBound = requireNotNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 2000, maxOutputBytes = 8192))
+        assertTrue(requireNotNull(GitHubSavedReadProgress.cursor(contextBound.arguments)).bytes <= (2000 - 512) * 3)
+        val outputBound = requireNotNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 4000, maxOutputBytes = 4096))
+        assertEquals(4096, requireNotNull(GitHubSavedReadProgress.cursor(outputBound.arguments)).bytes)
+        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 1000, maxOutputBytes = 1536))
         assertFalse(fixture.state.hasRead(fixture.route, fixture.cursor))
         val call = requireNotNull(fixture.next(tokens = 3000))
         val refusal = fixture.refused.copy(callId = call.callId)

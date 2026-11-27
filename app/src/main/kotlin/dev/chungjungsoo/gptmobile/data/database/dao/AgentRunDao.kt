@@ -133,11 +133,14 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     )
     suspend fun interruptActiveRuns(completedAt: Long): Int
 
-    @Query("UPDATE agent_runs SET gateway_job_id = :jobId, gateway_base_url = :baseUrl WHERE run_id = :runId")
+    @Query("UPDATE agent_runs SET gateway_last_sequence = CASE WHEN gateway_job_id = :jobId THEN gateway_last_sequence ELSE 0 END, gateway_job_id = :jobId, gateway_base_url = :baseUrl WHERE run_id = :runId AND status != 'CANCELED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
     suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Int
 
     @Query("UPDATE agent_runs SET gateway_last_sequence = :sequence WHERE run_id = :runId AND gateway_last_sequence < :sequence")
     suspend fun advanceGatewaySequence(runId: String, sequence: Int): Int
+
+    @Query("UPDATE agent_runs SET gateway_last_sequence = :sequence WHERE run_id = :runId AND gateway_job_id = :jobId AND gateway_last_sequence < :sequence AND status != 'CANCELED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
+    suspend fun advanceGatewayJobSequence(runId: String, jobId: String, sequence: Int): Int
 
     @Query(
         "UPDATE agent_runs SET input_tokens = COALESCE(:inputTokens, input_tokens), " +

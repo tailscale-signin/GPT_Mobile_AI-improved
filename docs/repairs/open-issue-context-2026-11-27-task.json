@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "open-issue-context-2026-11-27",
+  "pullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "localWorkingBranch": "repair/issue-context-20261127",
+  "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+  "intent": "Inspect open context, replay and acceptance reports and repair remaining ordinary-chat adaptive output planning without altering explicit output, input, evidence or permission requirements.",
+  "issues": [
+    2706,
+    2712,
+    2714,
+    2719,
+    2731,
+    2735,
+    2736,
+    2737,
+    2749,
+    2752,
+    2754,
+    2755
+  ],
+  "state": "LOCAL_VALIDATED",
+  "checkpoints": [
+    {
+      "state": "INTAKE",
+      "details": "All assigned issue payloads inspected. Reports originate from d1f13f849f46 build 153. Concurrent implementation owns native saved-page replay, continuation preparation, claim windows, verification reserve and retained blocked drafts; preserve those changes when reconciling."
+    },
+    {
+      "state": "REPRODUCED_SOURCE_PATH",
+      "details": "Ordinary preparation freezes an adaptive output target, while only GitHub schema planning consumes allowOutputReduction. The reported 5632-token route then rejects 3344 fixed input + 704 result reserve + 1012 safety + 1408 output before it can synthesize retained search evidence."
+    },
+    {
+      "state": "LOCAL_VALIDATED",
+      "details": "Reported ordinary 5632-token planning failure reproduced and fixed through explicit adaptive-budget authority. Exact current input retained; required schemas retained; explicit output unchanged; result reserve never raised; impossible inputs remain blocked. Eight focused behavioral regressions pass."
+    }
+  ],
+  "validation": {
+    "focusedJvm": {
+      "tests": 8,
+      "status": "PASS",
+      "scope": "Complete ContextBudgetService, RequestAdmission, typed capacity exception and diagnostics plus exact ordinary planAuthorizedToolContext source with application/Android/history/catalog boundary doubles. No provider requests. Not a full Android build."
+    },
+    "androidHosted": "REQUIRED_ON_CONTAINING_COMMIT",
+    "kotlinFormatting": {
+      "files": 5,
+      "tool": "ktlint 1.3.1",
+      "status": "PASS"
+    }
+  }
+}

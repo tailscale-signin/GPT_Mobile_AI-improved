@@ -27,6 +27,22 @@ class GitHubAcceptanceRecoveryEvidenceTest {
         assertTrue(GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"OTHER","task_deadline_check":"BEFORE_TOOL_RESTORE"}}""")).isEmpty())
     }
 
+    @Test fun deadlineProvenanceSurvivesRetentionOnlyForAcceptedSources() {
+        for (source in GitHubExecutionLimits.deadlineSources) {
+            val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000,"deadline_source":"$source"}""")
+            val timing = GitHubExecutionLimits.deadlineTiming(contract, 66000)
+            assertEquals(JsonPrimitive(source), timing["task_deadline_source"])
+            val retained = GitHubAcceptanceRecoveryEvidence.fields(JsonObject(mapOf("original_failure" to JsonObject(timing + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"))))))
+            assertEquals(JsonPrimitive(source), retained["task_deadline_source"])
+        }
+        for (source in listOf("\"private task text\"", "false", "42", "null", "{}")) {
+            val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000,"deadline_source":$source}""")
+            assertNull(GitHubExecutionLimits.deadlineTiming(contract, 66000)["task_deadline_source"])
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":$source}}""")
+            assertNull(GitHubAcceptanceRecoveryEvidence.fields(verdict)["task_deadline_source"])
+        }
+    }
+
     @Test fun missingProtectionIsNotInferredFromUnprotectedBranchAndObservedRules() {
         val policy = json("""{"branch":{"protected":false},"protection":{"available":false,"http_status":404},"rules":{"available":true,"data":[]},"policy":{"required_checks_complete":false}}""")
         val evidence = GitHubStatusPolicyEvidence.snapshot(policy)

@@ -100,6 +100,56 @@ class GitHubRecoveryCheckpointProjectionTest {
         assertEquals(JsonPrimitive(true), task["response_delivered"])
     }
 
+    @Test fun capacityRefusalOverridesBothAnEarlierCooldownAndGenericContinueAction() {
+        val unfinished = JsonObject(
+            (waitingVerdict() - setOf("original_failure", "failure_code")) +
+                buildJsonObject {
+                    put("resume_allowed", true)
+                    put("recovery_action", "RESUME_UNFINISHED_WORK")
+                }
+        )
+        val blocked = capacityOutput()
+        for (report in listOf(waitingVerdict(), unfinished)) {
+            val updated = GitHubEffectiveRecovery.withOutputCheckpoint(report, blocked, binding)
+            val decision = GitHubEffectiveRecovery.resolve(updated)
+            assertEquals(GitHubEffectiveRecovery.Kind.INSPECT_FAILURE, decision.kind)
+            assertEquals("CHANGE_CONTEXT_PLAN", decision.action)
+            assertFalse(decision.continueWork)
+            assertEquals(null, decision.retryAtMillis)
+            assertEquals(JsonPrimitive("CONTEXT_CAPACITY_EXCEEDED"), updated["current_failure_code"])
+            assertEquals(JsonPrimitive(false), updated["resume_allowed"])
+            assertEquals(JsonPrimitive("BLOCKED"), updated["task_outcome"])
+            assertEquals(report["original_failure"], updated["original_failure"])
+            assertEquals(report["remaining_requirements"], updated["remaining_requirements"])
+            val task = updated["task_recovery_checkpoint"] as JsonObject
+            assertEquals(JsonPrimitive("BLOCKED_CONTEXT_CAPACITY"), task["output_attempt_state"])
+            assertEquals(JsonPrimitive("USER_ACTION"), task["wake_owner"])
+            assertEquals(JsonPrimitive(false), task["task_complete"])
+        }
+    }
+
+    @Test fun capacityRefusalCannotBorrowAnotherTaskOrAnUnverifiedFailureState() {
+        val invalid = listOf(
+            JsonObject(capacityOutput() + ("context" to buildJsonObject { put("task_binding", "other-task") })),
+            JsonObject(capacityOutput() + ("resume_allowed" to JsonPrimitive(true))),
+            JsonObject(capacityOutput() + ("failure_code" to JsonPrimitive("UNRELATED_FAILURE")))
+        )
+        for (output in invalid) {
+            val updated = GitHubEffectiveRecovery.withOutputCheckpoint(waitingVerdict(), output, binding)
+            assertFalse(updated.containsKey("current_failure_code"))
+            assertEquals(GitHubEffectiveRecovery.Kind.WAIT_FOR_PROVIDER, GitHubEffectiveRecovery.resolve(updated).kind)
+        }
+    }
+
+    private fun capacityOutput() = buildJsonObject {
+        put("schema", "github.output-checkpoint.v1")
+        put("state", "BLOCKED_CONTEXT_CAPACITY")
+        put("resume_allowed", false)
+        put("failure_code", "CONTEXT_CAPACITY_EXCEEDED")
+        put("next_action", "CHANGE_CONTEXT_PLAN")
+        put("context", buildJsonObject { put("task_binding", binding) })
+    }
+
     private fun waitingVerdict() = buildJsonObject {
         put("binding", binding)
         put("phase", "INTERRUPTED")

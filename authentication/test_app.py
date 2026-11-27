@@ -598,6 +598,10 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.append("PROVIDER_QUOTA_GROUP_V1")
         additions.extend(["GITHUB_POLICY_SELECTION_FIELDS_V1", "VOICE_FOCUS_RETRY_COUNT_V1", "FAILED_EVENT_OUTPUT_FIELDS_V1"])
         additions.append("DEVICE_PRIVACY_POLICY_CHANGE_V1")
+        additions.append("VOICE_FALLBACK_CAUSES_V1")
+        additions.append("STAGED_DISPATCH_EVIDENCE_V1")
+        additions.insert(additions.index("GITHUB_VALIDATION_CONTEXT_V1") + 1, "CAPABILITY_READINESS_EVIDENCE_V1")
+        additions.insert(additions.index("CAPABILITY_READINESS_EVIDENCE_V1") + 1, "RESEARCH_RECOVERY_EVIDENCE_V1")
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,

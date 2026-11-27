@@ -38,7 +38,7 @@ internal interface KokoroOutput {
     fun awaitClosed(timeoutMs: Long): Boolean = true
 }
 
-internal typealias VoiceOfflineSpeech = (String, () -> Unit, (String) -> Unit) -> Unit
+internal typealias VoiceOfflineSpeech = (String, () -> Unit, (VoicePlaybackFailure) -> Unit) -> Unit
 
 /** Owns the microphone and playback backend for the visible voice session. */
 internal class VoicePluginAudio(
@@ -52,7 +52,9 @@ internal class VoicePluginAudio(
         system: VoiceAudio,
         local: VoiceRecognitionInput,
         kokoro: KokoroOutput? = null,
-        offlineSpeech: VoiceOfflineSpeech = { _, _, error -> error("No offline Android voice is available.") },
+        offlineSpeech: VoiceOfflineSpeech = { _, _, error ->
+            error(VoicePlaybackFailure("No offline Android voice is available.", code = "OFFLINE_VOICE_UNAVAILABLE", sourceProvider = "system", stage = VoicePlaybackFailureStage.CATALOG))
+        },
         releaseSystemRecognition: () -> Unit
     ) : this(system, local, kokoro, captureOfflineSpeech = { offlineSpeech }, releaseSystemRecognition)
 
@@ -194,8 +196,9 @@ internal class VoicePluginAudio(
                 if (current()) origin?.playbackFallback(original, "SUCCEEDED")
                 playbackFinished(ticket, complete)
             }, {
-                if (current()) origin?.playbackFallback(original, "FAILED")
-                playbackFinished(ticket) { error(VoicePlaybackFailure(it, original.cause, original.code, original.sourceProvider)) }
+                val chain = original.afterFallback(it)
+                if (current()) origin?.playbackFallback(chain, "FAILED")
+                playbackFinished(ticket) { error(chain) }
             })
         }
         val reply = output.openReplyWithFailure(voice, complete = {
@@ -284,7 +287,7 @@ internal class VoicePluginAudio(
                 error(VoicePlaybackFailure("Local voice playback is unavailable. Check Kokoro in Voice settings; your response is kept in chat."))
                 return
             }
-            offlineSpeech(text, { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(VoicePlaybackFailure(it)) } })
+            offlineSpeech(text, { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(it) } })
             return
         }
         system.stop()
@@ -307,8 +310,9 @@ internal class VoicePluginAudio(
                         if (fallbackCurrent()) origin?.playbackFallback(failure, "SUCCEEDED")
                         playbackFinished(fallbackTicket, complete)
                     }, {
-                        if (fallbackCurrent()) origin?.playbackFallback(failure, "FAILED")
-                        playbackFinished(fallbackTicket) { error(VoicePlaybackFailure(it, failure.cause, failure.code, failure.sourceProvider)) }
+                        val chain = failure.afterFallback(it)
+                        if (fallbackCurrent()) origin?.playbackFallback(chain, "FAILED")
+                        playbackFinished(fallbackTicket) { error(chain) }
                     })
                 } else {
                     error(failure)

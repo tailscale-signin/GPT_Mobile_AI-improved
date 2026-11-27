@@ -11,6 +11,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceExecutionDiagnosticsTest {
+    @Test fun fallbackCauseCapabilityAndHashesAreStrictlyBounded() {
+        assertTrue(VoiceExecutionDiagnostics.requiresFallbackCauseSupport(mapOf("voice_playback_failure" to JsonPrimitive("SERVICE_FAILED")), emptyList()))
+        assertFalse(VoiceExecutionDiagnostics.requiresFallbackCauseSupport(mapOf("voice_playback_failure" to JsonPrimitive("SYNTHESIS_FAILED")), emptyList()))
+        assertTrue(VoiceExecutionDiagnostics.requiresFallbackCauseSupport(emptyMap(), listOf("voice_fallback_terminal_failure")))
+        for (field in VoiceExecutionDiagnostics.causeHashes) {
+            assertEquals(JsonPrimitive("a".repeat(64)), VoiceExecutionDiagnostics.validValue(field, JsonPrimitive("a".repeat(64))))
+            assertNull(VoiceExecutionDiagnostics.validValue(field, JsonPrimitive("private exception text")))
+        }
+        for (code in -9..-1) assertEquals(JsonPrimitive(code), VoiceExecutionDiagnostics.validValue("voice_system_error_code", JsonPrimitive(code)))
+        for (invalid in listOf(JsonPrimitive("-4"), JsonPrimitive(-10), JsonPrimitive(0), JsonPrimitive(true))) {
+            assertNull(VoiceExecutionDiagnostics.validValue("voice_system_error_code", invalid))
+        }
+    }
+
     @Test fun streamingCapabilityIsRequiredOnlyForNewClosedValuesInTheirOwnFields() {
         val additions = mapOf(
             "voice_engine" to setOf("MEDIAPIPE"),

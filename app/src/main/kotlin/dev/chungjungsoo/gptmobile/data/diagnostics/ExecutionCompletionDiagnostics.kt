@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure
+import dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -77,13 +78,14 @@ internal object ExecutionCompletionDiagnostics {
         "provider_wait_state" to setOf("WAITING_PROVIDER_LIMIT", "CHECKPOINT_UNAVAILABLE", "AUTHORITY_CHANGED", "PERSIST_FAILED", "NOT_SCHEDULED", "RESUMED")
     )
     private val correlationHashes = setOf("provider_response_id_hash", "no_output_parent_invocation_hash")
-    val fields = digestAliases.values.toSet() + correlationHashes + countAliases.values + enums.keys + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields + setOf("provider_semantic_status", "no_output_repair_scheduled", "provider_wait_persisted", "ownership_fence")
+    val fields = ResearchRecoveryEvidence.fields + digestAliases.values.toSet() + correlationHashes + countAliases.values + enums.keys + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields + setOf("provider_semantic_status", "no_output_repair_scheduled", "provider_wait_persisted", "ownership_fence")
     val newFields = fields - setOf("provider_wait_decision_state", "provider_wait_state", "provider_wait_persisted")
     val newWaitStates = setOf("DURABLE_WAIT", "NOT_SCHEDULED", "PERSISTENCE_UNCERTAIN")
-    val compactFields = digestAliases.keys + correlationHashes + countAliases.keys + enums.keys + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields + setOf("provider_semantic_status", "repair_scheduled", "http_status", "provider_wait_persisted", "ownership_fence", "original_error_code_hash")
+    val compactFields = ResearchRecoveryEvidence.fields + digestAliases.keys + correlationHashes + countAliases.keys + enums.keys + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields + setOf("provider_semantic_status", "repair_scheduled", "http_status", "provider_wait_persisted", "ownership_fence", "original_error_code_hash")
     private val hash = Regex("[a-f0-9]{64}")
 
     fun validValue(key: String, value: JsonElement): JsonElement? {
+        if (key in ResearchRecoveryEvidence.fields) return ResearchRecoveryEvidence.validValue(key, value)
         if (key in dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields) return dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.validValue(key, value)
         val primitive = value as? JsonPrimitive ?: return null
         if (key in digestAliases.values || key in correlationHashes) return primitive.takeIf { it.isString && hash.matches(it.content) }
@@ -108,6 +110,7 @@ internal object ExecutionCompletionDiagnostics {
         val waitDecision = details["provider_wait_decision_state"]?.let { validValue("provider_wait_decision_state", it) } != null
         if (persistence) put("failure_origin", "local_persistence")
         if (recovery) put("failure_origin", "local_recovery")
+        if (recovery && code == "RESEARCH_RECOVERY_ACTION_CHANGED") ResearchRecoveryEvidence.retained(details).forEach { (key, value) -> put(key, value) }
         if (provider) {
             ProviderStreamFailure.retained(details)?.get("provider_response_id_hash")?.let { put("provider_response_id_hash", it) }
             // Use the existing public correlation key, preserving it when this

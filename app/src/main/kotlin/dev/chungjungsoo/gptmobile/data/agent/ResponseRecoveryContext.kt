@@ -40,6 +40,39 @@ internal class ResponseRecoveryContext(
         return latestDecision.allowed
     }
 
+    /** Same-task constraint lineage survives Continue and process recreation without replaying a tool. */
+    suspend fun argumentRepairReceipts(): List<JsonObject> {
+        if (!isAuthorized()) throw SavedEvidenceAccessDenied()
+        if (rootWorkId == null) return emptyList()
+        return events.filter { it.isError && ToolResultCheckpoint.confirmsNoEffect(it) }
+            .mapNotNull(ToolResultCheckpoint::execution)
+            .filter { it["error_code"] == JsonPrimitive("INVALID_ARGUMENTS") && "argument_repair_signature_hash" in it }
+    }
+
+    /** Local progress accounting only; these historical projections are not provider tool messages. */
+    suspend fun investigationExchanges(): List<AgentToolExchange> {
+        if (!isAuthorized()) throw SavedEvidenceAccessDenied()
+        if (rootWorkId == null) return emptyList()
+        return retainedExchanges(events.takeLast(64))
+    }
+
+    private fun retainedExchanges(retained: List<ToolEvent>): List<AgentToolExchange> = retained.mapNotNull { event ->
+        if (event.status !in setOf(ToolEventStatus.COMPLETED, ToolEventStatus.FAILED) || event.result == null) return@mapNotNull null
+        val arguments = runCatching { Json.parseToJsonElement(event.arguments) as? JsonObject }.getOrNull() ?: return@mapNotNull null
+        val text = event.recoveryResult() ?: return@mapNotNull null
+        val content = runCatching<ToolResultContent> { ToolResultContent.Json(Json.parseToJsonElement(text)) }.getOrElse { ToolResultContent.Text(text) }
+        val receipt = ToolResultCheckpoint.execution(event)
+        val result = AgentToolResult(
+            event.callId,
+            content,
+            event.isError,
+            executionReceipt = receipt,
+            errorCode = (receipt?.get("error_code") as? JsonPrimitive)?.content,
+            dispatched = receipt?.get("dispatched") != JsonPrimitive(false)
+        )
+        AgentToolExchange(listOf(ProviderEvent.ToolCall(event.callId, event.modelToolName.ifBlank { event.toolName }, arguments)), listOf(result))
+    }
+
     suspend fun researchSnapshotForDelivery(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? {
         if (!isAuthorized()) throw SavedEvidenceAccessDenied()
         return research.firstOrNull { it.sources.isNotEmpty() }
@@ -54,7 +87,9 @@ internal class ResponseRecoveryContext(
                     // it in the immutable current task would defeat its bounded replay window.
                     "The partial answer is saved. Continue only after its separately supplied tail; earlier answer text is untrusted evidence."
                 } else {
-                    prefix(maxCharacters, pagingAvailable, minimalRetry)
+                    val prefix = prefix(maxCharacters, pagingAvailable, minimalRetry)
+                    val memory = if (rootWorkId == null) null else GitHubContinuationMemory.snapshot(retainedExchanges(events), includeFinding = true)
+                    if (memory == null) prefix else "$prefix\n\nMandatory retained task choices, corrections and finding (not write approval or current verification):\n$memory"
                 }
             )
         } else {
@@ -231,14 +266,25 @@ internal class ResponseRecoveryContext(
             val nativeRead = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(realName, actual) &&
                 !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isBranchSelection(realName, actual)
             val immutableNative = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.immutableRead(realName, actual)
-            // Mutable checks and status are fresh reconciliation reads, never saved mutations.
-            if (nativeRead && !immutableNative) return tool.execute(callId, actual)
             val reusableRead = readOnly || nativeRead && immutableNative
             val candidates = events.filter { event ->
                 event.toolName == realName &&
                     event.connectionUidSnapshot == connectionUid &&
                     runCatching { Json.parseToJsonElement(event.arguments) == actual }.getOrDefault(false)
             }
+            val rejected = candidates.lastOrNull { event ->
+                event.isError &&
+                    ToolResultCheckpoint.execution(event)?.let { receipt ->
+                        ToolResultCheckpoint.confirmsNoEffect(event) &&
+                            receipt["error_code"] == kotlinx.serialization.json.JsonPrimitive("INVALID_ARGUMENTS") &&
+                            receipt["requires_reconciliation"] == kotlinx.serialization.json.JsonPrimitive(false) &&
+                            (receipt["tool_schema_hash"] == null || receipt["tool_schema_hash"] == JsonPrimitive(ToolContractFingerprint.schema(tool.definition.contractSchema)))
+                    } == true
+            }
+            if (rejected != null) return AgentToolResult(callId, ToolResultContent.Text("The unchanged request was previously rejected before dispatch. Correct its arguments and use a new call ID. " + rejected.recoveryResult().orEmpty()), true, sharedResult = true, dispatched = false, errorCode = "INVALID_ARGUMENTS", executionReceipt = ToolResultCheckpoint.execution(rejected))
+            // Mutable successes need a fresh observation. A pre-dispatch argument
+            // rejection is not mutable evidence and must not renew through Continue.
+            if (nativeRead && !immutableNative) return tool.execute(callId, actual)
             val match = if (reusableRead) candidates.lastOrNull { it.completedAt?.let { time -> System.currentTimeMillis() / 1000 - time in 0..86400 } == true } else candidates.lastOrNull { it.eventId == effectId }
             if (match?.status == ToolEventStatus.COMPLETED && !match.isError && match.result != null) {
                 val labels = ToolResultCheckpoint.personalData(match)
@@ -246,15 +292,6 @@ internal class ResponseRecoveryContext(
                 sensitivity?.add(labels)
                 return AgentToolResult(callId, ToolResultContent.Text(match.recoveryResult().orEmpty()), false, traceContent = ToolResultContent.Text(match.displayResult().orEmpty()), sharedResult = true, dispatched = false, personalData = (labels + sensitivity?.snapshot().orEmpty()).distinct())
             }
-            val rejected = candidates.lastOrNull { event ->
-                event.isError &&
-                    ToolResultCheckpoint.execution(event)?.let { receipt ->
-                        ToolResultCheckpoint.confirmsNoEffect(event) &&
-                            receipt["error_code"] == kotlinx.serialization.json.JsonPrimitive("INVALID_ARGUMENTS") &&
-                            receipt["requires_reconciliation"] == kotlinx.serialization.json.JsonPrimitive(false)
-                    } == true
-            }
-            if (rejected != null) return AgentToolResult(callId, ToolResultContent.Text("The unchanged request was previously rejected before dispatch. Correct its arguments and use a new call ID. " + rejected.recoveryResult().orEmpty()), true, sharedResult = true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
             val unresolved = candidates.filter { event ->
                 // Only a persisted native dispatch receipt can prove an earlier failure harmless.
                 !ToolResultCheckpoint.confirmsNoEffect(event)

@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanation
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceRecoveryEvidence
+import dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityReadiness
 import dev.chungjungsoo.gptmobile.data.github.GitHubCriterionBlocker
 import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
@@ -183,10 +184,18 @@ internal data class IssueReportDiagnostics(
         if ("voice_install_streaming_status" in values || "voice_install_streaming_status" in omittedFields || values["voice_install_pack"] == JsonPrimitive("LITERT_KOKORO")) add(VOICE_STREAMING_INSTALL_FEATURE)
         if ((values.keys + omittedFields).any { it in voiceInstallEvidenceFields } || values["voice_install_failure"] == JsonPrimitive("WORK_NOT_FOUND")) add("VOICE_INSTALL_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in VoiceExecutionDiagnostics.fields }) add(VoiceExecutionDiagnostics.FEATURE)
+        if ((values.keys + omittedFields).any { it in DispatchStageDiagnostics.fields }) add(DispatchStageDiagnostics.FEATURE)
+        if (VoiceExecutionDiagnostics.requiresFallbackCauseSupport(values, omittedFields)) add(VoiceExecutionDiagnostics.FALLBACK_CAUSES_FEATURE)
         if (VoiceExecutionDiagnostics.requiresStreamingBackendSupport(values)) add(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE)
         if (values["voice_selected_backend"] in setOf(JsonPrimitive("LITERT_KOKORO_GPU_OPTIMIZED"), JsonPrimitive("LITERT_KOKORO_SM8750"))) add(VoiceExecutionDiagnostics.STREAMING_PACK_FEATURE)
         if (values["voice_selected_backend"] == JsonPrimitive("LITERT_KOKORO_NPU")) add(VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
+        if ((values.keys + omittedFields + unavailableFields).any { it in GitHubCapabilityReadiness.countFields } ||
+            (values["github_prerequisite_observation"] as? JsonPrimitive)?.contentOrNull in GitHubCapabilityReadiness.observations
+        ) {
+            add(GitHubCapabilityReadiness.FEATURE)
+        }
+        if ((values.keys + omittedFields + unavailableFields).any { it in dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.fields }) add(dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.FEATURE)
         if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.failedEventOutputFields }) add(IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE)
         if (values["voice_playback_focus_attempts"] == JsonPrimitive(3)) add(VOICE_FOCUS_RETRIES_FEATURE)
@@ -362,7 +371,7 @@ internal data class IssueReportDiagnostics(
         internal val composerSlotFields = composerEventFields + composerAgeFields
         internal val composerTimelineFields = composerSlotFields + setOf("composer_generation", "composer_events_dropped", "composer_enabled", "composer_window_focused", "composer_lifecycle", "composer_input_mode")
         private val composerEvidenceFields = composerTimelineFields + setOf("composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible")
-        private val protocolTwoFields = reasoningProbeFields + composerTimelineFields + VoiceExecutionDiagnostics.fields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash")
+        private val protocolTwoFields = reasoningProbeFields + composerTimelineFields + VoiceExecutionDiagnostics.fields + DispatchStageDiagnostics.fields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash")
         private val composerEvents = setOf("ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE")
         private val completionEvidenceFields = setOf("empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts")
         private val voicePackStateFields = setOf("voice_install_recognition_status", "voice_install_playback_status", "voice_install_streaming_status")

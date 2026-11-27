@@ -12,8 +12,19 @@ internal object GitHubChecklistBudget {
     const val VERIFICATION_RESERVE = 2
 
     // A one- or two-call task can spend its approved allowance on the requested read.
-    fun ordinaryVerificationReserve(callLimit: Int?): Int =
-        if (callLimit != null && callLimit <= VERIFICATION_RESERVE) 0 else VERIFICATION_RESERVE
+    fun ordinaryVerificationReserve(callLimit: Int?, outstandingCriteria: Int = 0): Int {
+        if (callLimit != null && callLimit <= VERIFICATION_RESERVE) return 0
+        val proofWindows = (outstandingCriteria.coerceAtLeast(0).toLong() + GitHubClaimBatches.REQUIREMENTS_PER_BATCH - 1) / GitHubClaimBatches.REQUIREMENTS_PER_BATCH
+        val ceiling = minOf(GitHubClaimBatches.MAX_BATCHES, callLimit?.div(4)?.coerceAtLeast(VERIFICATION_RESERVE) ?: GitHubClaimBatches.MAX_BATCHES)
+        return maxOf(VERIFICATION_RESERVE, minOf(proofWindows, ceiling.toLong()).toInt())
+    }
+
+    fun pendingCriteria(acceptedContract: JsonObject?, verificationReport: JsonObject?): Int =
+        if (verificationReport != null) {
+            GitHubAcceptanceWork.outstanding(verificationReport).count { !GitHubAcceptanceWork.deferred(it) }
+        } else {
+            (acceptedContract?.get("acceptance_criteria") as? kotlinx.serialization.json.JsonArray)?.size ?: 0
+        }
 
     /** Once a fixture exists, optional reads cannot spend its reconciliation/cleanup allowance. */
     fun cleanupReserve(receipts: Map<String, JsonObject>): Int =
@@ -41,7 +52,7 @@ internal object GitHubChecklistBudget {
     }
 
     fun afterDeadline(budget: JsonObject): JsonObject = JsonObject(
-        budget + mapOf("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), "acquisition_allowed" to JsonPrimitive(false))
+        budget + mapOf("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), "acquisition_allowed" to JsonPrimitive(false), "verification_acquisition_allowed" to JsonPrimitive(false))
     )
 
     fun checkpoint(
@@ -49,7 +60,8 @@ internal object GitHubChecklistBudget {
         current: Int? = null,
         fixtureCalls: Int = FIXTURE_CALLS,
         acceptedContract: JsonObject? = null,
-        retainedBudget: JsonObject? = null
+        retainedBudget: JsonObject? = null,
+        verificationReport: JsonObject? = null
     ): JsonObject = buildJsonObject {
         val receipt = recorded(receipts)
         val observed = receipt?.get("tool_budget") as? JsonObject
@@ -99,11 +111,16 @@ internal object GitHubChecklistBudget {
         receipt?.get("receipt_id")?.let { put("observed_counter_receipt_id", it) }
         put("counter_scope", "Shared task allowance, including automatic result paging and recovery; live execution remaining supersedes receipt snapshots.")
         put("remaining_known", remaining != null)
-        put("verification_reserve", minOf(remaining ?: VERIFICATION_RESERVE, VERIFICATION_RESERVE))
+        val outstanding = pendingCriteria(acceptedContract, verificationReport)
+        val verificationReserve = ordinaryVerificationReserve(limit, outstanding)
+        put("verification_reserve", minOf(remaining ?: verificationReserve, verificationReserve))
+        put("verification_pending_criteria", outstanding)
+        put("verification_reserve_scope", "Read missing proof for accepted criteria; extraction and final response do not consume tool calls.")
+        put("verification_acquisition_allowed", remaining?.let { it > cleanupReserve(receipts) } == true)
         put("cleanup_reserve", minOf(remaining ?: FIXTURE_CALLS, cleanupReserve(receipts)))
         put("cleanup_reserve_scope", "Remaining reconciliation and verified cleanup of the existing task-owned fixture; does not raise the accepted allowance.")
-        put("fixture_start_minimum", fixtureCalls + VERIFICATION_RESERVE)
-        put("acquisition_allowed", remaining?.let { it > VERIFICATION_RESERVE + cleanupReserve(receipts) } != false)
+        put("fixture_start_minimum", fixtureCalls + verificationReserve)
+        put("acquisition_allowed", remaining?.let { it > verificationReserve + cleanupReserve(receipts) } != false)
         put("hard_limit_policy", "Use the authorized execution ceiling; never expand it to finish a checklist.")
         put("reporting", "Final response capacity remains separately reserved by the run budget.")
     }

@@ -330,7 +330,7 @@ class VoicePluginAudioTest {
             val output = StreamingOutput()
             val fallbackText = mutableListOf<String>()
             var offlineComplete: (() -> Unit)? = null
-            var offlineError: ((String) -> Unit)? = null
+            var offlineError: ((VoicePlaybackFailure) -> Unit)? = null
             var completed = 0
             val failures = mutableListOf<VoicePlaybackFailure>()
             val originalCause = IllegalStateException("Original native failure")
@@ -354,7 +354,9 @@ class VoicePluginAudioTest {
             assertEquals(0, completed)
             assertTrue(failures.isEmpty())
 
-            requireNotNull(offlineError)("Android voice failed")
+            val fallbackCause = IllegalArgumentException("Private fallback failure")
+            val fallback = VoicePlaybackFailure("Android voice failed", fallbackCause, "SERVICE_FAILED", "system", stage = VoicePlaybackFailureStage.PLAYBACK, platformErrorCode = -4)
+            requireNotNull(offlineError)(fallback)
             requireNotNull(offlineComplete)()
             requireNotNull(output.onComplete)()
             requireNotNull(output.onError)(original, true)
@@ -364,6 +366,8 @@ class VoicePluginAudioTest {
             assertEquals(originalCause, failures.single().cause)
             assertEquals("SYNTHESIS_FAILED", failures.single().code)
             assertEquals("qnn-gpu", failures.single().sourceProvider)
+            assertEquals(fallback, failures.single().fallbackFailure)
+            assertEquals(fallbackCause, failures.single().fallbackFailure?.cause)
             assertEquals(listOf("First second."), fallbackText)
             plugin.close()
         }
@@ -373,7 +377,7 @@ class VoicePluginAudioTest {
         val output = StreamingOutput()
         var fallbackCalls = 0
         var offlineComplete: (() -> Unit)? = null
-        var offlineError: ((String) -> Unit)? = null
+        var offlineError: ((VoicePlaybackFailure) -> Unit)? = null
         var completed = 0
         val failures = mutableListOf<VoicePlaybackFailure>()
         val plugin = VoicePluginAudio(system, local, output, { _, complete, error ->
@@ -388,7 +392,7 @@ class VoicePluginAudioTest {
         assertEquals(1, fallbackCalls)
         plugin.stop()
         requireNotNull(offlineComplete)()
-        requireNotNull(offlineError)("Stale Android callback")
+        requireNotNull(offlineError)(VoicePlaybackFailure("Stale Android callback"))
         requireNotNull(output.onComplete)()
         requireNotNull(output.onError)(VoicePlaybackFailure("Stale Kokoro callback"), true)
         reply.finish()

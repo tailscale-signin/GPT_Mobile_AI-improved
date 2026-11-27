@@ -393,7 +393,12 @@ internal class GitHubResultViews(
                 errorCode = "SAVED_VIEW_PAGE_CAPACITY",
                 sharedResult = true,
                 dispatched = false,
-                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
+                executionReceipt = JsonObject(
+                    savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256) + buildJsonObject {
+                        page["recovery_call"]?.let { put("saved_view_recovery_call", it) }
+                        page["recovery_options"]?.let { put("saved_view_recovery_options", it) }
+                    }
+                )
             )
         }
         return AgentToolResult(
@@ -545,7 +550,9 @@ internal class GitHubResultViews(
                 put("schema", SCHEMA)
                 put("operation", entry.operation)
                 put("page_capacity_exceeded", true)
+                put("requested_page_bytes", pageBytes)
                 put("recovery_call", savedCall(modelName, "$id:$offset:${entry.pageBytes}"))
+                put("recovery_options", largerSavedOptions(modelName, id, offset, pageBytes, entry.pageBytes))
                 put("original_call", savedCall(modelName, "$id:0:${entry.pageBytes}"))
             }
         }
@@ -635,13 +642,19 @@ internal class GitHubResultViews(
                 put("page_capacity_exceeded", true)
                 put("requested_page_bytes", pageBytes)
                 put("fragment_offset", offset)
-                if (pageBytes < entry.pageBytes) put("recovery_call", savedCall(modelName, "$id:$offset:${entry.pageBytes}"))
+                if (pageBytes < entry.pageBytes) {
+                    put("recovery_call", savedCall(modelName, "$id:$offset:${entry.pageBytes}"))
+                    put("recovery_options", largerSavedOptions(modelName, id, offset, pageBytes, entry.pageBytes))
+                }
                 entry.sourceRecovery?.takeIf { it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
                 put("message", "This saved record exceeds the admitted page allowance. Increase the result/context allowance or narrow the immutable read; no cursor advanced and no upstream action was repeated.")
             }
         }
         return envelope()
     }
+
+    private fun largerSavedOptions(modelName: String, id: String, offset: Int, requested: Int, maximum: Int): JsonArray =
+        JsonArray(listOf(2048, 4096, 8192).filter { it > requested && it < maximum }.map { bytes -> savedCall(modelName, "$id:$offset:$bytes") })
 
     private fun retainContinuations(value: JsonElement, pointer: String, operation: String, modelName: String, request: JsonObject, target: MutableList<JsonObject>): JsonElement = when (value) {
         is JsonObject -> JsonObject(

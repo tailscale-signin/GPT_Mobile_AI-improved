@@ -32,6 +32,9 @@ internal data class ProviderCallReceipt(
     val reasoningTokens: Int? = null,
     val usageObservations: JsonObject? = null,
     val dispatchEvidence: String = "UNKNOWN",
+    val httpRequestDispatched: Boolean? = null,
+    val upstreamInferenceDispatched: Boolean? = null,
+    val dispatchScope: String? = null,
     val failurePhase: String? = null,
     val reasonCode: String? = null,
     val remoteAcceptance: String = "UNKNOWN",
@@ -59,6 +62,9 @@ internal data class ProviderCallReceipt(
             put("finishReason", finishReason?.let(::JsonPrimitive) ?: JsonNull)
             put("roundOutcome", roundOutcome)
             put("dispatchEvidence", dispatchEvidence)
+            put("httpRequestDispatched", httpRequestDispatched?.let(::JsonPrimitive) ?: JsonNull)
+            put("upstreamInferenceDispatched", upstreamInferenceDispatched?.let(::JsonPrimitive) ?: JsonNull)
+            put("dispatchScope", dispatchScope?.takeIf { it in setOf("HTTP_REQUEST", "UPSTREAM_INFERENCE") }?.let(::JsonPrimitive) ?: JsonNull)
             put("failurePhase", failurePhase?.let(::JsonPrimitive) ?: JsonNull)
             put("reasonCode", reasonCode?.let(::JsonPrimitive) ?: JsonNull)
             put("remoteAcceptance", remoteAcceptance.takeIf { it in setOf("YES", "NO", "UNKNOWN") } ?: "UNKNOWN")

@@ -286,6 +286,7 @@ class ProgressiveToolCatalog(
                         "action",
                         buildJsonObject {
                             put("type", "string")
+                            put("description", "Select an action only with exactly one tool in names. Omit for inventory or query discovery.")
                         }
                     )
                     put(
@@ -318,9 +319,16 @@ class ProgressiveToolCatalog(
                 JsonArray(
                     listOf(
                         buildJsonObject {
-                            // The global action:string constraint makes this
-                            // branch valid only when action is absent.
-                            put("properties", buildJsonObject { put("action", buildJsonObject { put("type", "null") }) })
+                            // Express absence directly; advertising action:null here
+                            // encourages proposals that contradict action:string above.
+                            put(
+                                "properties",
+                                buildJsonObject {
+                                    for (field in listOf("query", "names", "catalog_only", "inventory_cursor", "inventory_version")) put(field, buildJsonObject {})
+                                    if (githubMode) put("repository_hint", buildJsonObject {})
+                                }
+                            )
+                            put("additionalProperties", false)
                         },
                         buildJsonObject {
                             put("required", JsonArray(listOf(JsonPrimitive("action"), JsonPrimitive("names"))))
@@ -534,6 +542,23 @@ class ProgressiveToolCatalog(
     internal fun canonicalArguments(arguments: JsonObject): JsonObject {
         if (arguments.keys.any { it !in setOf("query", "names", "action", "repository_hint", "catalog_only") }) return arguments
         val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
+        // A null action selects no backend action. Recover only explicit local
+        // queries or exact visible names, without acquiring another connection.
+        if (normalized["action"] == JsonNull &&
+            arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
+            normalized["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            val query = (normalized["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+            val names = normalized["names"] as? JsonArray
+            val exactNames = names?.takeIf { it.size in 1..12 }?.all { name ->
+                val literal = (name as? JsonPrimitive)?.takeIf { it.isString }?.content
+                literal != null && literal in candidates
+            } == true
+            if ((query != null || exactNames) && ("names" !in normalized || exactNames)) {
+                normalized.remove("action")
+                normalized["catalog_only"] = JsonPrimitive(true)
+            }
+        }
         // A query-only search describes local discovery, not a named tool action.
         // Keep the query unchanged and never turn an explicit acquisition choice into a local one.
         val discoveryQuery = (normalized["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }

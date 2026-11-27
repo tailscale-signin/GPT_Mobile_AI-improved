@@ -1105,7 +1105,9 @@ internal class KokoroVoiceOutput(
             } else {
                 loaded?.takeIf { it.key.sameResident(playback.key) }?.engine?.let { publishExecution(playback, it) }
             }
-            main.post { fail(playback, "synthesis_failed", "The selected voice could not synthesize this reply. Your answer remains in chat.", cause = error) }
+            val message = GatewayVoiceCapabilityUnavailable.find(error)?.userMessage
+                ?: "The selected voice could not synthesize this reply. Your answer remains in chat."
+            main.post { fail(playback, "synthesis_failed", message, cause = error) }
         } catch (error: LinkageError) {
             releaseModel()
             main.post { fail(playback, "engine_failed", "Voice playback is unavailable. Your answer remains in chat.", cause = error) }
@@ -1334,7 +1336,9 @@ internal class KokoroVoiceOutput(
                 val failure = VoicePlaybackFailure(
                     "The selected accelerator could not prepare or execute this phrase.",
                     code = if (evidence.failureStage == VoiceSpeechStage.SYNTHESIS) "SYNTHESIS_FAILED" else "ENGINE_FAILED",
-                    sourceProvider = evidence.failedProvider
+                    sourceProvider = evidence.failedProvider,
+                    requestedBackend = evidence.selectedBackend.name,
+                    stage = if (evidence.failureStage == VoiceSpeechStage.SYNTHESIS) VoicePlaybackFailureStage.SYNTHESIS else VoicePlaybackFailureStage.PREPARATION
                 )
                 playback.nativeFallback = failure
                 playback.diagnostics?.playbackFallback(failure, "STARTED", "KOKORO_CPU")
@@ -1805,14 +1809,28 @@ internal class KokoroVoiceOutput(
 
     private fun fail(playback: Playback, reason: String, message: String, canFallback: Boolean = true, cause: Throwable? = null) {
         if (active !== playback) return
-        playback.diagnostics?.playbackFailure(reason.uppercase(java.util.Locale.ROOT))
+        val currentFailure = VoicePlaybackFailure(
+            message,
+            cause,
+            reason.uppercase(java.util.Locale.ROOT),
+            loaded?.takeIf { it.key.sameResident(playback.key) }?.engine?.executionProvider,
+            requestedBackend = playback.key.factory.selectedBackend.name,
+            stage = when {
+                reason.startsWith("audio_focus") -> VoicePlaybackFailureStage.AUDIO_FOCUS
+                playback.preparing -> VoicePlaybackFailureStage.PREPARATION
+                reason == "audio_failed" -> VoicePlaybackFailureStage.PLAYBACK
+                else -> VoicePlaybackFailureStage.SYNTHESIS
+            }
+        )
+        val failure = playback.nativeFallback?.takeUnless { playback.nativeFallbackSucceeded }?.afterFallback(currentFailure) ?: currentFailure
+        playback.diagnostics?.playbackFailure(failure)
         playback.nativeFallback?.takeUnless { playback.nativeFallbackSucceeded }?.let {
-            playback.diagnostics?.playbackFallback(it, "FAILED", "KOKORO_CPU")
+            playback.diagnostics?.playbackFallback(failure, "FAILED", "KOKORO_CPU")
         }
         end(playback, reason)
         // end() waits for an in-flight track write/play to finish. A fallback decision
         // taken before that barrier could replay audio that started during the failure.
-        playback.error(VoicePlaybackFailure(message, cause, reason.uppercase(java.util.Locale.ROOT), loaded?.engine?.executionProvider), canFallback && !playback.queuedAudio)
+        playback.error(failure, canFallback && !playback.queuedAudio)
     }
 
     override fun stop() = stop("audio_stop")

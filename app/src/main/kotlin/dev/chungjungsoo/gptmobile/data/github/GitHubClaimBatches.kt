@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 /** Each extraction is scoped to a small group of acceptance requirements. */
 internal object GitHubClaimBatches {
     const val REQUIREMENTS_PER_BATCH = 4
-    const val MAX_BATCHES = 8
+    const val MAX_BATCHES = 8 // per durable window, never a limit on accepted task criteria
     const val MAX_CLAIMS = 8
 
     data class Request(val payload: String, val requirementIds: Set<String>, val maxClaims: Int = MAX_CLAIMS)

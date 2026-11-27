@@ -12,6 +12,31 @@ import org.junit.Test
 class VoiceDiagnosticTraceTest {
     @After fun clear() = VoiceDiagnosticTrace.clearAll()
 
+    @Test fun failedInitializationKeepsRequestedBackendAndBothFallbackCausesWithoutPrivateText() {
+        val trace = VoiceDiagnosticTrace({ 100 }, { 1_000 }, { true }, {})
+        val probe = trace.beginReply(1)
+        probe.selectedSpeechBackend("GATEWAY_CUDA")
+        val primary = VoicePlaybackFailure("private gateway text", IllegalStateException("private-url"), "SYNTHESIS_FAILED", requestedBackend = "GATEWAY_CUDA", stage = VoicePlaybackFailureStage.PREPARATION)
+        val fallback = VoicePlaybackFailure("private Android text", IllegalArgumentException("private voice"), "SERVICE_FAILED", "system", stage = VoicePlaybackFailureStage.PLAYBACK, platformErrorCode = -4)
+        probe.playbackFallback(primary, "STARTED")
+        probe.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        probe.playbackFallback(primary.afterFallback(fallback), "FAILED")
+        probe.playbackFailure(primary.afterFallback(fallback))
+        val fields = trace.incidentFields()
+        assertEquals("GATEWAY_CUDA", fields["voice_failure_requested_backend"])
+        assertEquals("NOT_INITIALIZED", fields["voice_fallback_source_observation"])
+        assertEquals("SYSTEM", fields["voice_effective_provider"])
+        assertEquals("SYNTHESIS_FAILED", fields["voice_fallback_failure"])
+        assertEquals("SERVICE_FAILED", fields["voice_fallback_terminal_failure"])
+        assertEquals("PREPARATION", fields["voice_primary_failure_stage"])
+        assertEquals("PLAYBACK", fields["voice_fallback_failure_stage"])
+        assertEquals(-4, fields["voice_system_error_code"])
+        assertTrue(fields["voice_primary_cause_fingerprint"].toString().matches(Regex("[a-f0-9]{64}")))
+        assertTrue(fields["voice_fallback_cause_fingerprint"].toString().matches(Regex("[a-f0-9]{64}")))
+        assertFalse(fields.toString().contains("private"))
+        assertTrue("VOICE_FALLBACK_CAUSES_V1" in requireNotNull(VoiceDiagnosticTrace.manualSnapshot()).requiredServiceFeatures())
+    }
+
     @Test fun streamingDelegateRequestCannotInheritObservedNativeExecution() {
         var time = 100L
         val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})

@@ -1027,7 +1027,7 @@ internal class GitHubEvidenceBook(
     }
 
     /** Report the same accepted ceiling and execution counter across process restart. */
-    suspend fun stageBudget(receipts: Map<String, JsonObject>, current: Int?, fixtureCalls: Int): JsonObject {
+    suspend fun stageBudget(receipts: Map<String, JsonObject>, current: Int?, fixtureCalls: Int, verificationReport: JsonObject? = null): JsonObject {
         val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
         val retained = if (current == null) {
             val previous = load("verification_current_" + digest(binding).take(24))
@@ -1036,7 +1036,7 @@ internal class GitHubEvidenceBook(
         } else {
             null
         }
-        return GitHubChecklistBudget.checkpoint(receipts, current, fixtureCalls, contract, retained)
+        return GitHubChecklistBudget.checkpoint(receipts, current, fixtureCalls, contract, retained, verificationReport ?: diagnostic())
     }
 
     /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
@@ -1137,13 +1137,17 @@ internal class GitHubEvidenceBook(
         }
     }
 
+    private val persistedClaimWindowIds = mutableSetOf<String>()
+
     private fun claimBatchKey() = "claim_extraction_current_" + digest(binding).take(24)
 
-    suspend fun retainedClaimExtraction(context: String? = null): JsonObject? = load(claimBatchKey())?.takeIf { saved ->
-        saved["schema"] == JsonPrimitive("github.claim-extraction.v1") &&
+    suspend fun retainedClaimExtraction(context: String? = null): JsonObject? {
+        val saved = load(claimBatchKey())?.takeIf { saved ->
             saved["binding"] == JsonPrimitive(binding) &&
-            (context == null || saved["context"] == JsonPrimitive(context)) &&
-            saved["authorization"] == (authorizationDigest?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                (context == null || saved["context"] == JsonPrimitive(context)) &&
+                saved["authorization"] == (authorizationDigest?.let(::JsonPrimitive) ?: JsonNull)
+        } ?: return null
+        return GitHubClaimWindows.restore(saved, load)
     }
 
     suspend fun retainClaimBatches(
@@ -1156,26 +1160,24 @@ internal class GitHubEvidenceBook(
         singleClaimBatch: Int? = null
     ) {
         require(singleClaimBatch == null || pending && singleClaimBatch in 1..batches.size && batches[singleClaimBatch - 1] == null)
-        require(batches.size <= GitHubClaimBatches.MAX_BATCHES)
         require(batches.size == requirementIds.size)
         require(draft.length <= 1_048_576) { "Claim extraction draft exceeds the accepted session bound" }
-        save(
-            claimBatchKey(),
-            buildJsonObject {
-                put("schema", "github.claim-extraction.v1")
-                put("binding", binding)
-                put("context", context)
-                put("plan", plan)
-                put("authorization", authorizationDigest)
-                put("pending", pending)
-                // Keep the bounded source draft and finished batches after extraction.
-                // A later read can then invalidate only claims that no longer verify.
-                put("draft", draft)
-                singleClaimBatch?.let { put("single_claim_batch", it) }
-                put("batch_requirement_ids", JsonArray(requirementIds.map { ids -> JsonArray(ids.sorted().map(::JsonPrimitive)) }))
-                put("batches", JsonArray(batches.map { it ?: JsonNull }))
+        val metadata = buildJsonObject {
+            put("binding", binding)
+            put("context", context)
+            put("plan", plan)
+            put("authorization", authorizationDigest)
+            put("pending", pending)
+            put("draft", draft)
+            singleClaimBatch?.let { put("single_claim_batch", it) }
+        }
+        val manifest = GitHubClaimWindows.retain(metadata, batches, requirementIds) { id, window ->
+            if (id !in persistedClaimWindowIds) {
+                save(id, window)
+                persistedClaimWindowIds += id
             }
-        )
+        }
+        save(claimBatchKey(), manifest)
     }
 
     suspend fun retainPolicy(revision: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>) {

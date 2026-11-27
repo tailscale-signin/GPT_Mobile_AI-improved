@@ -6,6 +6,15 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Keep orphaned Gateway workers single flight until the physical worker exits, so cancellation and reconnect cannot dispatch a second generation for the same job.
+- Recover malformed local catalog lookups without selecting an action or identifier for the user; preserve independently admitted repository reads after a discovery failure and report missing source selectors explicitly.
+- Verify complete large GitHub plans across durable bounded windows, retaining every criterion, exact receipt and authorization binding across interruption.
+- Preserve accepted controls, pending tool protocols and native saved-page reading evidence through continuation; reserve proof-acquisition calls consistently with the shared task allowance.
+- Fit automatically allocated output to small-model context capacity while retaining required inputs and read schemas; explicit output limits and hard result budgets remain enforced.
+- Return owner-bound recovery guidance for Gateway jobs awaiting client results, including the original job and pending handoff; resume exact retained results without replaying uncertain work.
+- Retain typed research, dispatch and upstream provider failure evidence, and explain settings changes without claiming that an already dispatched request was unsent.
+- Keep dictated words after rejected voice admission and explain read-only or uncertain Gateway conversations; preserve primary and fallback playback causes with bounded CUDA readiness guidance.
+
 - Reopen unread retained CI logs locally, preserve their authorized recovery cursors through reuse and compaction, and distinguish downloaded evidence from evidence actually delivered to the model.
 - Fit exact whole-line source excerpts into small Gateway context windows while keeping omitted lines ineligible for edits.
 - Preserve accepted task authority across a compatible intelligence-level increase after restart, and use the original verification reserve to collect missing CI results for the exact published commit and run attempt.

@@ -84,7 +84,7 @@ object ContextBudgetService {
         history = turns.filterNot { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
         attachments = turns.sumOf { (it.userMessage.attachments.size.toLong() + (it.assistantMessage?.attachments?.size ?: 0)) * 2048 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     )
-    fun plan(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>, settings: TokenBudgetSettings, toolResultReserveCap: Int? = null, planningProvenance: CapacityProvenance = CapacityProvenance.UNKNOWN, safetyReserveTokens: Int? = null, reserveEstimatedSafety: Boolean = false, continuityRequiredSchemas: Set<String>? = null): ContextPlan {
+    fun plan(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>, settings: TokenBudgetSettings, toolResultReserveCap: Int? = null, planningProvenance: CapacityProvenance = CapacityProvenance.UNKNOWN, safetyReserveTokens: Int? = null, reserveEstimatedSafety: Boolean = false, continuityRequiredSchemas: Set<String>? = null, allowOutputReduction: Boolean = false, requiredSchemaNames: Set<String> = emptySet()): ContextPlan {
         val config = settings.normalized()
         val outputLimit = config.outputTokens.takeIf { it > 0 }
         if (config.contextTokens == Int.MAX_VALUE) {
@@ -100,7 +100,7 @@ object ContextBudgetService {
             )
         }
         val requestedOutput = outputLimit ?: minOf(4096, config.contextTokens / 4)
-        val resultReserve = if (tools.isEmpty()) 0 else minOf(config.contextTokens / 8, 8192, toolResultReserveCap?.coerceAtLeast(0) ?: Int.MAX_VALUE)
+        var resultReserve = if (tools.isEmpty()) 0 else minOf(config.contextTokens / 8, 8192, toolResultReserveCap?.coerceAtLeast(0) ?: Int.MAX_VALUE)
         val safety = safetyReserveTokens ?: minOf(256, config.contextTokens / 16)
         fun cost(turn: ConversationTurn): Int {
             val attachments = turn.userMessage.attachments.size.toLong() + (turn.assistantMessage?.attachments?.size ?: 0)
@@ -108,9 +108,26 @@ object ContextBudgetService {
         }
         val current = turns.filter { it.isCurrentTurn }
         val currentTokens = estimate(system).toLong() + current.sumOf { cost(it).toLong() }
-        val inputSafety = if (reserveEstimatedSafety) maxOf(RequestAdmission.estimateSafety(currentTokens + resultReserve), safetyReserveTokens?.toLong() ?: 0L) else safety.toLong()
-        val headroom = config.contextTokens.toLong() - currentTokens - resultReserve - inputSafety
-        val output = if (outputLimit == null && headroom >= minOf(requestedOutput, 512)) {
+        // The caller may have frozen an adaptive target into outputTokens before
+        // retrieval. Preserve explicit output, but let that authorized adaptive
+        // target share capacity with exact required schemas and newly read evidence.
+        val requiredSchemas = tools.filter { it.name in requiredSchemaNames }
+        val requiredSchemaTokens = if (allowOutputReduction) requiredSchemas.sumOf { toolSchemaTokens(it).toLong() + 16 } else 0L
+        val requiredInput = currentTokens + requiredSchemaTokens
+        fun inputSafety() = if (reserveEstimatedSafety) maxOf(RequestAdmission.estimateSafety(requiredInput + resultReserve), safetyReserveTokens?.toLong() ?: 0L) else safety.toLong()
+        val minimumOutput = minOf(requestedOutput, 512)
+        if (allowOutputReduction && config.contextTokens.toLong() - requiredInput - resultReserve - inputSafety() < minimumOutput) {
+            val minimumResults = minOf(resultReserve, 512)
+            val inputAllowance = if (reserveEstimatedSafety) {
+                minOf(RequestAdmission.maximumEstimatedPrompt(config.contextTokens.toLong() - minimumOutput), config.contextTokens.toLong() - minimumOutput - (safetyReserveTokens ?: 0))
+            } else {
+                config.contextTokens.toLong() - minimumOutput - safety
+            }
+            resultReserve = (inputAllowance - requiredInput).coerceIn(minimumResults.toLong(), resultReserve.toLong()).toInt()
+        }
+        val inputSafety = inputSafety()
+        val headroom = config.contextTokens.toLong() - requiredInput - resultReserve - inputSafety
+        val output = if ((outputLimit == null || allowOutputReduction) && headroom >= minimumOutput) {
             minOf(requestedOutput.toLong(), headroom).toInt()
         } else {
             requestedOutput
@@ -118,15 +135,15 @@ object ContextBudgetService {
         if (output > headroom) {
             throw RequestCapacityException(
                 "CONTEXT_CAPACITY_EXCEEDED",
-                "The current message, system instructions and reserved output exceed the planning context.",
-                currentTokens,
+                "The current message, system instructions, required schemas and reserved output exceed the planning context.",
+                requiredInput,
                 inputSafety,
                 output.toLong(),
                 config.contextTokens.toLong(),
                 TokenMeasurementKind.UTF8_ESTIMATE,
                 planningToolResultReserveTokens = resultReserve,
                 planningInput = RequestCapacityException.PlanningInput(
-                    breakdown(current, system, emptyList()),
+                    breakdown(current, system, if (allowOutputReduction) requiredSchemas else emptyList()),
                     if (config.contextTokens == settings.contextTokens) planningProvenance else CapacityProvenance.UNKNOWN
                 )
             )
@@ -165,7 +182,7 @@ object ContextBudgetService {
             system,
             selectedTools,
             resultReserve * 3,
-            outputLimit ?: output.takeIf { it < requestedOutput },
+            output.takeIf { it < requestedOutput } ?: outputLimit,
             "Context estimate: $used prompt tokens, $output output reserved, $resultReserve tool-result tokens reserved. $omitted earlier turns and ${tools.size - selectedTools.size} tools omitted. Attachment costs are estimates; server limits may differ." +
                 if (continuity != null && continuity !== historical.lastOrNull() && continuity in history) " The previous response is a labelled partial excerpt; its saved original is unchanged." else "",
             promptTokens = used,

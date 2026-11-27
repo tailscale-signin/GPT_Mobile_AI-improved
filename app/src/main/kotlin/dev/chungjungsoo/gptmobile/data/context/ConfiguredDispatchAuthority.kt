@@ -254,5 +254,17 @@ internal object ConfiguredDispatchAuthority {
 internal class DispatchPolicyChangedException(val fields: List<String>, val gatewaySelectionChange: String? = null, val blockedStage: String? = null) :
     IllegalStateException(
         "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
-            "Resume the unfinished task to revalidate saved results under the current settings; no stale request was sent."
-    )
+            "The task is paused. Resume it to revalidate saved results under the current settings. Completed operations remain recorded."
+    ) {
+    /** Explain the changed contract without calling every settings edit a permission revocation. */
+    fun recoveryMessage(): String {
+        val change = when {
+            fields.isNotEmpty() && fields.all { it in setOf("githubProfileOverride", "githubProfileOverride.nextActionPolicy") } && "githubProfileOverride.nextActionPolicy" in fields -> "The next action policy changed."
+            "providerPermissions" in fields || "tools" in fields -> "The permissions or available tools changed."
+            fields.any { it.startsWith("profile.") || it == "githubProfileSelection" } -> "The selected profile or model changed."
+            "budget" in fields || "spend" in fields -> "The accepted execution limits changed."
+            else -> "The task configuration changed."
+        }
+        return "DISPATCH_POLICY_CHANGED: $change Continue the saved task to revalidate its retained results and plan under the current settings. Completed operations remain recorded."
+    }
+}

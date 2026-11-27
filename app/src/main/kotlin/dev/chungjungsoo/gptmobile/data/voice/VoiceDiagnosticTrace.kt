@@ -240,7 +240,28 @@ class VoiceDiagnosticTrace internal constructor(
             owner.values["voice_fallback_target"] = target
             owner.values["voice_fallback_outcome"] = outcome
             owner.values["voice_fallback_failure"] = failure.code?.takeIf { it in VoiceExecutionDiagnostics.playbackFailures } ?: "ENGINE_FAILED"
+            owner.values["voice_fallback_source_observation"] = if (failure.sourceProvider == null) "NOT_INITIALIZED" else "INITIALIZED"
+            recordPlaybackCauses(failure)
             if (outcome == "STARTED") owner.values["voice_fallback_count"] = ((owner.values["voice_fallback_count"] as? Long ?: 0L) + 1).coerceAtMost(100)
+        }
+
+        fun playbackFailure(failure: VoicePlaybackFailure) = owner.record(this) {
+            failure.code?.takeIf { it in VoiceExecutionDiagnostics.playbackFailures }?.let { owner.values["voice_playback_failure"] = it }
+            recordPlaybackCauses(failure)
+        }
+
+        private fun recordPlaybackCauses(failure: VoicePlaybackFailure) {
+            VoiceExecutionDiagnostics.fallbackCauseFields.filterNot { it == "voice_fallback_source_observation" }.forEach(owner.values::remove)
+            failure.requestedBackend?.takeIf { it in VoiceExecutionDiagnostics.enums.getValue("voice_failure_requested_backend") }
+                ?.let { owner.values["voice_failure_requested_backend"] = it }
+            failure.stage?.let { owner.values["voice_primary_failure_stage"] = it.name }
+            failure.cause?.let(IssueReportContext::exceptionFingerprint)?.let { owner.values["voice_primary_cause_fingerprint"] = it }
+            failure.terminalFallback?.let { fallback ->
+                fallback.code?.takeIf { it in VoiceExecutionDiagnostics.playbackFailures }?.let { owner.values["voice_fallback_terminal_failure"] = it }
+                fallback.stage?.let { owner.values["voice_fallback_failure_stage"] = it.name }
+                fallback.cause?.let(IssueReportContext::exceptionFingerprint)?.let { owner.values["voice_fallback_cause_fingerprint"] = it }
+            }
+            (failure.terminalFallback ?: failure).platformErrorCode?.takeIf { it in -9..-1 }?.let { owner.values["voice_system_error_code"] = it }
         }
         fun phase(phase: VoicePhase) = owner.record(this) { owner.values["voice_phase"] = phase.name }
         fun access(permission: Boolean, foreground: Boolean, muted: Boolean) = owner.record(this) {

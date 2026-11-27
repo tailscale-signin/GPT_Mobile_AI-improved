@@ -96,13 +96,15 @@ internal object GitHubNextActionPolicy {
         val dependentCount: Int = 0,
         val deferredCount: Int = 0,
         val unavailableCount: Int = 0,
-        val measurement: RouteMeasurement? = null
+        val measurement: RouteMeasurement? = null,
+        val verificationOnly: Boolean = false
     ) {
         fun snapshot(mode: GitHubNextActionMode, legacy: GitHubRequirementToolFocus.Focus?): JsonObject = buildJsonObject {
             put("schema", "github.next-action.v1")
             put("mode", mode.name)
             put("action", action.name)
             put("reason", reason)
+            if (verificationOnly) put("verification_only", true)
             put("dependent_criteria", dependentCount)
             measurement?.let {
                 put("route_samples", it.samples)
@@ -121,6 +123,18 @@ internal object GitHubNextActionPolicy {
             if (mode == GitHubNextActionMode.SHADOW) put("legacy_choice_differs", focus?.identity != legacy?.identity)
         }
     }
+
+    fun verificationOnly(report: JsonObject?): Boolean = activeDecision(report)?.let {
+        it["verification_only"] == JsonPrimitive(true) && it["action"] in setOf(JsonPrimitive("ACQUIRE"), JsonPrimitive("REUSE_EVIDENCE"))
+    } == true
+
+    private fun proofReadRoute(operation: String, action: String?): Boolean =
+        if (action != null) {
+            GitHubAuthorizationBoundary.isReplayableRead(operation, buildJsonObject { put("action", action) }) &&
+                !GitHubAuthorizationBoundary.isBranchSelection(operation, buildJsonObject { put("action", action) })
+        } else {
+            operation in setOf("github_context", "github_ci", "github_pr", "github_read", "github_search", "github_issue", "github_release", "github_repository", "repository_graph", "repository_workspace")
+        }
 
     private data class Candidate(
         val focus: GitHubRequirementToolFocus.Focus,
@@ -168,7 +182,8 @@ internal object GitHubNextActionPolicy {
                 return Decision(if (recovery == "RESUME_VERIFICATION") Action.VERIFY else Action.WAIT, recovery)
         }
         val budget = (report["stage_budget"] ?: (report["test_checklist"] as? JsonObject)?.get("stage_budget")) as? JsonObject
-        if (budget?.get("acquisition_allowed") == JsonPrimitive(false)) return Decision(Action.VERIFY, "PRESERVE_VERIFICATION_RESERVE")
+        val reserveOnly = budget?.get("acquisition_allowed") == JsonPrimitive(false)
+        if (reserveOnly && budget?.get("verification_acquisition_allowed") != JsonPrimitive(true)) return Decision(Action.VERIFY, "PRESERVE_VERIFICATION_RESERVE")
 
         val rows = GitHubAcceptanceWork.outstanding(report)
         val dependencies = rows.flatMap { row -> (row["pending_dependencies"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>().map { it.content }.distinct() }
@@ -185,7 +200,13 @@ internal object GitHubNextActionPolicy {
                 focus.operations.all { it in setOf("github_search", "github_read") } ||
                 (row["criterion_contract"] as? JsonObject).text("evidence_producer") in setOf("SOURCE_OBSERVATION", "DEFECT_ANALYSIS")
             if (waitingForCi && !reuse && !independentRead) return@mapNotNull null
-            val routes = if (reuse) emptyList() else focus.operations.filter { available(it, focus.actions[it]) }
+            val routes = if (reuse) {
+                emptyList()
+            } else {
+                focus.operations.filter { operation ->
+                    available(operation, focus.actions[operation]) && (!reserveOnly || proofReadRoute(operation, focus.actions[operation]))
+                }
+            }
             if (!reuse && focus.operations.isNotEmpty() && routes.isEmpty()) {
                 unavailable++
                 return@mapNotNull null
@@ -223,6 +244,7 @@ internal object GitHubNextActionPolicy {
                 .thenBy { it.focus.criterion }
         )
             ?: return when {
+                reserveOnly -> Decision(Action.VERIFY, "PRESERVE_VERIFICATION_RESERVE", deferredCount = deferred, unavailableCount = unavailable)
                 waitingForCi -> Decision(Action.WAIT, "WAIT_FOR_BOUND_CI_RUN", deferredCount = deferred, unavailableCount = unavailable)
                 unavailable > 0 -> Decision(Action.DISCOVER, "AUTHORIZED_CAPABILITY_NOT_LOADED", deferredCount = deferred, unavailableCount = unavailable)
                 recovery == "WAITING_FOR_APPROVAL" || deferred > 0 -> Decision(Action.WAIT, "AWAIT_CRITERION_PREREQUISITE", deferredCount = deferred)
@@ -235,11 +257,12 @@ internal object GitHubNextActionPolicy {
             else -> Action.ACQUIRE
         }
         val reason = when {
+            reserveOnly -> "ACQUIRE_MISSING_VERIFICATION_EVIDENCE"
             waitingForCi -> "INDEPENDENT_DURING_CI"
             next.unlocks > 0 -> "UNBLOCKS_DEPENDENTS"
             else -> next.focus.stage.substringBefore(':')
         }
-        return Decision(action, reason, next.focus, next.unlocks, deferred, unavailable, next.measurement)
+        return Decision(action, reason, next.focus, next.unlocks, deferred, unavailable, next.measurement, verificationOnly = reserveOnly)
     }
 
     private fun JsonObject?.text(key: String) = (this?.get(key) as? JsonPrimitive)?.content.orEmpty()

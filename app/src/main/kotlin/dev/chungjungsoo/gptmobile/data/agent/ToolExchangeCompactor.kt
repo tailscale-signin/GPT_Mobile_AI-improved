@@ -92,6 +92,53 @@ internal object ToolExchangeCompactor {
         return Measurement(((bytes.size.toLong() + 2) / 3).toInt(), digest(bytes))
     }
 
+    /**
+     * Project result bodies for a Gateway handoff without evicting any call/result
+     * row or rewriting original invocation identity. Owed raw saved pages must be
+     * admitted separately; a summary is never proof of their delivery.
+     */
+    fun compactProtocol(exchanges: List<AgentToolExchange>, maxReplayTokens: Int, maxResultTokens: Int): List<AgentToolExchange> {
+        if (exchanges.isEmpty()) return exchanges
+        val calls = exchanges.flatMap { it.calls }
+        val results = exchanges.flatMap { it.results }
+        require(calls.map { it.callId }.distinct().size == calls.size && results.map { it.callId }.distinct().size == results.size && results.map { it.callId }.toSet() == calls.map { it.callId }.toSet()) {
+            "Pending protocol must contain unique paired calls and results."
+        }
+        if (estimateTokens(exchanges) <= maxReplayTokens) return exchanges
+        val grouped = compact(listOf(AgentToolExchange(calls, results)), maxReplayTokens, maxResultTokens).single()
+        val projected = grouped.results.associateBy { it.callId }
+        return exchanges.map { exchange ->
+            exchange.copy(
+                results = exchange.results.map { original ->
+                    val result = projected.getValue(original.callId)
+                    if (!original.isError && original.executionReceipt?.get("saved_view_cursor_issued") == JsonPrimitive(true) && original.executionReceipt["saved_view_body_bytes"] != null) {
+                        // This native page may still be owed to the model. A protocol
+                        // projection is never a delivery acknowledgement; admission
+                        // must refuse or privately read an oversized exact page.
+                        original
+                    } else if (result.content == original.content) {
+                        result
+                    } else {
+                        result.copy(
+                            content = ToolResultContent.Json(
+                                buildJsonObject {
+                                    put("schema", JsonPrimitive("github.protocol-result.v1"))
+                                    put("receipt_reference", JsonPrimitive("tool-batch/${result.callId}"))
+                                    put("is_error", JsonPrimitive(result.isError))
+                                    result.errorCode?.let { put("error_code", JsonPrimitive(it)) }
+                                    val sourceDigest = (original.executionReceipt?.get("source_result_sha256") as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+                                    put("source_result_sha256", JsonPrimitive(sourceDigest ?: measurement(render(original.content)).digest))
+                                    put("projection_only", JsonPrimitive(true))
+                                    put("content", (result.content as? ToolResultContent.Json)?.value ?: JsonPrimitive(render(result.content)))
+                                }
+                            )
+                        )
+                    }
+                }
+            )
+        }
+    }
+
     fun compact(
         exchanges: List<AgentToolExchange>,
         maxReplayTokens: Int,
@@ -144,6 +191,7 @@ internal object ToolExchangeCompactor {
                     fingerprintIndex in requiredBodies -> scores[result.callId] = Int.MAX_VALUE
                     result.callId in resultTokenAllowances -> scores[result.callId] = Int.MAX_VALUE - 1
                     result.callId in priorityCallIds -> scores[result.callId] = Int.MAX_VALUE - 2
+                    GitHubContinuationMemory.control(result) != null -> scores[result.callId] = Int.MAX_VALUE - 3
                 }
                 // A missing call is never deduplicated with an unrelated result.
                 fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${measurements[fingerprintIndex++].digest}")
@@ -195,7 +243,7 @@ internal object ToolExchangeCompactor {
         // observations, spend the same fixed budget on task matches, with recency breaking ties.
         val resultBudgets = IntArray(fingerprints.size)
         val newestFirst = fingerprints.indices.reversed()
-        val order = if (relevance == null && resultTokenAllowances.isEmpty() && priorityCallIds.isEmpty()) {
+        val order = if (scores.isEmpty() && resultTokenAllowances.isEmpty() && priorityCallIds.isEmpty()) {
             newestFirst.toList()
         } else {
             newestFirst.sortedWith(
@@ -254,6 +302,7 @@ internal object ToolExchangeCompactor {
 
     /** Small immutable facts survive projection; the hard bound below still governs replay size. */
     private fun semanticContent(result: AgentToolResult, consumed: Boolean): ToolResultContent? {
+        GitHubContinuationMemory.control(result)?.let { return ToolResultContent.Json(it) }
         val source = GitHubReplayRecovery.envelope(result.content) ?: (result.content as? ToolResultContent.Json)?.value as? JsonObject
         val summary = (result.executionReceipt?.get("semantic_summary") ?: source?.get("semantic_summary")) as? JsonObject ?: return null
         // Retaining a source or rendering its summary is not proof of model delivery.

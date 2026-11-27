@@ -271,13 +271,7 @@ class VoiceSession(
         } else {
             draftPending = true
             val reason = submissionRejection()
-            val notice = when (reason) {
-                "CONVERSATION_STARTING" -> "Your words are saved. Retry when this conversation finishes opening."
-                "PROFILE_UNAVAILABLE" -> "Choose an enabled voice profile, then retry this message."
-                "QUEUE_SAVE_IN_PROGRESS" -> "The previous voice message is still being accepted. Your words are ready to retry."
-                "VOICE_CHAT_DISABLED" -> "Enable Voice Chat to send this message."
-                else -> "Could not send this turn. Open chat to review your profile and connection."
-            }
+            val notice = VoiceAdmissionFailureDiagnostics.notice(reason)
             fail(notice, failureFields = reason?.let(VoiceAdmissionFailureDiagnostics::rejected) ?: VoiceAdmissionFailureDiagnostics.submission())
         }
     }
@@ -302,7 +296,7 @@ class VoiceSession(
             VoiceAdmissionStage.FAILED -> {
                 submittedDraft = null
                 draftPending = true
-                val message = "This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}"
+                val message = VoiceAdmissionFailureDiagnostics.notice(reason, asynchronous = true)
                 val ownsCaptureWait = waiting && streamId == null
                 if (submitted.probe === diagnosticProbe && ownsCaptureWait) {
                     fail(message, failureFields = VoiceAdmissionFailureDiagnostics.rejected(reason))
@@ -868,6 +862,7 @@ class VoiceSession(
 
     private fun playbackFailed(failure: VoicePlaybackFailure, origin: VoiceDiagnosticTrace.Probe) {
         // Audio can fail while the model is still streaming. Keep its turn and captions alive.
+        origin.playbackFailure(failure)
         val diagnosticFields = diagnosticTrace.incidentFields() + streamDiagnosticId?.let { mapOf("run_id" to it) }.orEmpty()
         origin.reportFailure("VOICE_PLAYBACK_FAILED", failure.cause, diagnosticFields + mapOf("failed_stage" to "voice_playback", "operation" to "voice_playback"))
         stopAudio()

@@ -34,6 +34,19 @@ class GatewayVoiceProtocolTest {
         assertThrows(IllegalStateException::class.java) { GatewayVoiceProtocol.capabilityModel(capable) }
     }
 
+    @Test fun `unready capabilities keep only an allowlisted readiness reason`() {
+        val unavailable = envelope().put("ready", false).put("reason", "VOICE_WARMING")
+        unavailable.remove("model_sha256")
+        val failure = assertThrows(GatewayVoiceCapabilityUnavailable::class.java) { GatewayVoiceProtocol.capabilityModel(unavailable) }
+        assertEquals("VOICE_WARMING", failure.reason)
+        unavailable.put("reason", "PRIVATE_REMOTE_TEXT")
+        assertEquals("VOICE_UNAVAILABLE", assertThrows(GatewayVoiceCapabilityUnavailable::class.java) { GatewayVoiceProtocol.capabilityModel(unavailable) }.reason)
+    }
+
+    @Test fun `string readiness cannot claim successful CUDA qualification`() {
+        assertThrows(IllegalStateException::class.java) { GatewayVoiceProtocol.capabilityModel(envelope().put("ready", "true")) }
+    }
+
     @Test fun `aligned PCM and durations survive the Gateway wire format`() {
         val result = GatewayVoiceProtocol.response(response(), "turn", model, 3, words)
         assertEquals(1800, result.samples.size)

@@ -256,7 +256,8 @@ class ToolEventRecorder @Inject constructor(
 
     suspend fun applyGatewayProgress(runId: String, progress: GatewayProgress) {
         val seq = progress.sequence ?: return
-        agentRunDao.advanceGatewaySequence(runId, seq)
+        val jobId = progress.jobId ?: return
+        agentRunDao.advanceGatewayJobSequence(runId, jobId, seq)
     }
 
     suspend fun cancelRun(runId: String, completedAt: Long) {

@@ -19,6 +19,34 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class InterruptedRunDiscardTest {
+    @Test fun gatewayCursorBelongsToTheCurrentJobAndMessageOwner() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
+        try {
+            db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Saved task"))
+            db.messageDao().addMessages(MessageV2(id = 1, chatId = 1, content = "Continue", platformType = null))
+            val reply = MessageV2(id = 2, chatId = 1, content = "Saved", platformType = "profile", linkedMessageId = 1, currentRunId = "run", ownershipFence = 4)
+            db.messageDao().addMessages(reply)
+            val runs = db.agentRunDao()
+            runs.upsert(AgentRun("run", 1, 1, 2, "profile", "LLAMA", "original-model", status = "RUNNING", ownershipFence = 4))
+            assertEquals(1, runs.bindGatewayJob("run", "first-job", "https://gateway.example"))
+            assertEquals(1, runs.advanceGatewayJobSequence("run", "first-job", 100))
+            assertEquals(1, runs.bindGatewayJob("run", "first-job", "https://gateway.example"))
+            assertEquals(100, runs.getById("run")?.gatewayLastSequence)
+            assertEquals(1, runs.bindGatewayJob("run", "next-job", "https://gateway.example"))
+            assertEquals(0, runs.getById("run")?.gatewayLastSequence)
+            assertEquals(0, runs.advanceGatewayJobSequence("run", "first-job", 101))
+            assertEquals(1, runs.advanceGatewayJobSequence("run", "next-job", 2))
+            assertEquals(0, runs.advanceGatewayJobSequence("run", "next-job", 1))
+            db.messageDao().addMessages(reply.copy(currentRunId = "new-owner", ownershipFence = 5))
+            assertEquals(0, runs.bindGatewayJob("run", "stale-job", "https://gateway.example"))
+            assertEquals(0, runs.advanceGatewayJobSequence("run", "next-job", 3))
+            assertEquals("next-job", runs.getById("run")?.gatewayJobId)
+            assertEquals(2, runs.getById("run")?.gatewayLastSequence)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun discardingStoppedGenerationPreservesItsResponseAndMutationReceipt() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         try {

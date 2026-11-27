@@ -191,11 +191,19 @@ internal object SavedPageReading {
         if (tokens > allowance) {
             if (projected.none { exchange -> exchange.results.any { it.optionalAssistKey != null && it.assistMetadata.isNotEmpty() } }) return projected to tokens
             val required = projected.map { exchange ->
-                exchange.copy(results = exchange.results.map { if (it.optionalAssistKey != null) it.copy(assistMetadata = emptyList()) else it })
+                exchange.copy(results = exchange.results.map { if (it.optionalAssistKey != null) it.copy(assistMetadata = it.assistMetadata.filter(GitHubContinuationMemory::isRequiredAnnotation)) else it })
             }
             return required to projectionTokens(required, cache)
         }
-        val annotated = projected.map { exchange -> exchange.copy(results = exchange.results.map { ready(it) }) }
+        val annotated = projected.map { exchange ->
+            exchange.copy(
+                results = exchange.results.map { result ->
+                    val required = result.assistMetadata.filter(GitHubContinuationMemory::isRequiredAnnotation)
+                    val prepared = ready(result)
+                    prepared.copy(assistMetadata = (required + prepared.assistMetadata).distinct())
+                }
+            )
+        }
         val annotatedTokens = projectionTokens(annotated, cache)
         return if (annotatedTokens <= allowance) annotated to annotatedTokens else projected to tokens
     }

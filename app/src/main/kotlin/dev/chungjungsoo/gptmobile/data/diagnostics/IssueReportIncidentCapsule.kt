@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteConstraintException
 import dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanation
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
+import dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityReadiness
 import java.util.Locale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -74,7 +75,7 @@ internal object IssueReportIncidentCapsule {
     private val recoveryCauseFields = setOf("verification_phase", "continuation_cause", "continuation_trigger", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "checkpoint_mismatch_reason", "observed_checkpoint_state", "provider_wait_observed_checkpoint_hash")
     const val CONVERSATION_RECOVERY_FEATURE = "CONVERSATION_RECOVERY_DIAGNOSTICS_V1"
     val conversationRecoveryFields = recoveryCauseFields + setOf("issue_continuation_state", "acceptance_advertised_tool_count")
-    private val common = failedEventFields + recoveryCauseFields + setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
+    private val common = DispatchStageDiagnostics.fields + failedEventFields + recoveryCauseFields + setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
     val toolFailureFields = setOf("round_catalog_tool_count", "url_reader_dns_state", "url_reader_availability", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     const val TLS_TRANSPORT_PHASE_FEATURE = "TLS_TRANSPORT_PHASE_EVIDENCE_V1"
@@ -174,7 +175,7 @@ internal object IssueReportIncidentCapsule {
         "provider_error_code_state" to setOf("ABSENT"),
         "provider_error_origin" to setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
         "claim_extraction_validation_stage" to setOf("CLAIM_LIST", "CLAIM_COUNT", "CLAIM_RECORD", "REQUIREMENT_MAP", "QUESTIONS"),
-        "github_prerequisite_observation" to setOf("CATALOG_TOOL_NOT_EXPOSED", "CATALOG_INITIAL_REQUEST_UNAVAILABLE", "STATUS_TOOL_NOT_EXPOSED", "STATUS_ARGUMENTS_UNAVAILABLE", "STATUS_READ_FAILED", "STATUS_RECEIPT_UNUSABLE") + reviewCatalogObservations,
+        "github_prerequisite_observation" to setOf("CATALOG_TOOL_NOT_EXPOSED", "CATALOG_INITIAL_REQUEST_UNAVAILABLE", "STATUS_TOOL_NOT_EXPOSED", "STATUS_ARGUMENTS_UNAVAILABLE", "STATUS_READ_FAILED", "STATUS_RECEIPT_UNUSABLE") + reviewCatalogObservations + GitHubCapabilityReadiness.observations,
         "claim_extraction_failure_kind" to setOf("INVALID_JSON", "NON_OBJECT", "SCHEMA_REJECTED"),
         "inventory_pagination_reason" to setOf("MISSING_VERSION", "VERSION_MISMATCH"),
         "remote_pagination_reason" to setOf("INCOMPLETE", "STALLED"),
@@ -288,7 +289,7 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + VoiceExecutionDiagnostics.fields + ExecutionCompletionDiagnostics.fields + recoveryCauseFields + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + remotePaginationFields + prContextRaceFields + GitHubAcceptancePublicationEvidence.fields + GitHubAcceptanceExplanation.fields
+    val priorityFields = coreFields.toSet() + DispatchStageDiagnostics.fields + GitHubCapabilityReadiness.countFields + VoiceExecutionDiagnostics.fields + ExecutionCompletionDiagnostics.fields + recoveryCauseFields + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + remotePaginationFields + prContextRaceFields + GitHubAcceptancePublicationEvidence.fields + GitHubAcceptanceExplanation.fields
 
     enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE, CHAT_FLOW_EMPTY_ANSWER, AGENT_FAILED_EVENT, AGENT_ROUND_CATCH, GITHUB_VERIFICATION_CATCH, OUTPUT_CONTINUATION_OPEN_CATCH, REPOSITORY_GRAPH_CATCH }
 
@@ -352,8 +353,8 @@ internal object IssueReportIncidentCapsule {
 
     fun fieldsFor(area: String): Set<String> = common + (if (area in setOf("INCIDENT", "PROVIDER")) ExecutionCompletionDiagnostics.fields else emptySet()) + when (area) {
         "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + LAST_UNSENT_CODE + inventoryPaginationFields + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields
-        "INCIDENT" -> setOf("github_prerequisite_observation", "app_search_readiness", "app_search_settings_scope", "app_search_user_action", "app_search_permission_bypass_allowed") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
-        "ACCEPTANCE" -> setOf("github_prerequisite_observation") + acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + GitHubAcceptanceExplanation.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
+        "INCIDENT" -> GitHubCapabilityReadiness.countFields + setOf("github_prerequisite_observation", "app_search_readiness", "app_search_settings_scope", "app_search_user_action", "app_search_permission_bypass_allowed") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
+        "ACCEPTANCE" -> GitHubCapabilityReadiness.countFields + setOf("github_prerequisite_observation") + acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + GitHubAcceptanceExplanation.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields + setOf("provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash")
         "APP" -> setOf("crash_surface", "crash_boundary")
@@ -362,7 +363,9 @@ internal object IssueReportIncidentCapsule {
     }
 
     fun validValue(key: String, value: JsonElement): JsonElement? {
+        if (key in DispatchStageDiagnostics.fields) return DispatchStageDiagnostics.validValue(key, value)
         if (key in VoiceExecutionDiagnostics.fields) return VoiceExecutionDiagnostics.validValue(key, value)
+        if (key in GitHubCapabilityReadiness.countFields) return GitHubCapabilityReadiness.validValue(key, value)
         if (key in ExecutionCompletionDiagnostics.fields) return ExecutionCompletionDiagnostics.validValue(key, value)
         if (key in GitHubAcceptancePublicationEvidence.fields) return GitHubAcceptancePublicationEvidence.validValue(key, value)
         if (key in GitHubAcceptanceExplanation.fields) return GitHubAcceptanceExplanation.validValue(key, value)

@@ -112,7 +112,7 @@ internal class GitHubOutputContinuationSession(
         if (sameEvidence &&
             !revised &&
             previous?.get("resume_allowed") == JsonPrimitive(false) &&
-            previous["state"] in setOf(JsonPrimitive("OUTPUT_LIMIT"), JsonPrimitive("INTERRUPTED"))
+            previous["state"] in setOf(JsonPrimitive("OUTPUT_LIMIT"), JsonPrimitive("INTERRUPTED"), JsonPrimitive("BLOCKED_CONTEXT_CAPACITY"))
         ) {
             emit(
                 ProviderEvent.Failed(
@@ -152,7 +152,9 @@ internal class GitHubOutputContinuationSession(
             }
         } else {
             previous?.takeIf {
-                sameEvidence &&
+                it["state"] == JsonPrimitive("BLOCKED_CONTEXT_CAPACITY") &&
+                    (revised || !sameEvidence) ||
+                    sameEvidence &&
                     (it["resume_allowed"] != JsonPrimitive(false) && (it["state"] == JsonPrimitive("OUTPUT_LIMIT") || it["resume_allowed"] == JsonPrimitive(true)) || revised && it["state"] == JsonPrimitive("BLOCKED_NO_PROGRESS"))
             }
         }
@@ -319,6 +321,9 @@ internal class GitHubOutputContinuationSession(
                     if (authorityFailure != null) throw authorityFailure
                     val original = dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, partialOutput = false)
                     val contextBlocked = error is IllegalArgumentException && error.message?.startsWith("CONTINUATION_CONTEXT_CAPACITY:") == true
+                    // Planning failed before a physical request existed. Retain the
+                    // prefix and budget so changed evidence can produce one new plan.
+                    if (contextBlocked && claimContinuation) attempts--
                     val failure = ProviderRecoveryFailure.withInterruption(
                         ProviderEvent.Failed(
                             original?.message ?: if (contextBlocked) error.message.orEmpty() else "The saved GitHub draft could not be reopened. Draft and operation receipts remain available.",
@@ -334,6 +339,9 @@ internal class GitHubOutputContinuationSession(
                                     if (contextBlocked) {
                                         put("dispatched", false)
                                         put("retryable", false)
+                                        put("resume_allowed", false)
+                                        put("next_action", "CHANGE_CONTEXT_PLAN")
+                                        put("capacity_fingerprint", GitHubEvidenceBook.digest("$continuationRevision:$providerEvidenceDigest:${GitHubEvidenceBook.digest(draft)}"))
                                     }
                                 }
                             )
@@ -341,7 +349,7 @@ internal class GitHubOutputContinuationSession(
                         currentCheckpoint,
                         currentFailureIsCause = true
                     )
-                    save("INTERRUPTED", resumable = true, failure = failure)
+                    save(if (contextBlocked) "BLOCKED_CONTEXT_CAPACITY" else "INTERRUPTED", resumable = !contextBlocked, failure = failure)
                     emit(failure)
                     return@flow
                 }
@@ -357,6 +365,7 @@ internal class GitHubOutputContinuationSession(
                 // process stop must not turn the same logical repair into a new POST.
                 save("NO_OUTPUT_REPAIR", resumable = true)
             }
+            if (needsContinuation) kotlinx.coroutines.currentCoroutineContext()[ToolReplayDeliveryScope]?.replaySubstituted()
             val generated = collectSegment(active, tools, if (needsContinuation) emptyList() else exchanges, draft) { state, text, resumable ->
                 save(state, text, resumable)
             }

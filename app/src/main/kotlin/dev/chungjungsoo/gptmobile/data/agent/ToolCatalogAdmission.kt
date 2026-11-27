@@ -279,7 +279,7 @@ internal fun planAuthorizedToolContext(
     val lookup = if (effectiveGitHubMode) GitHubLookupRoute.from(task) else null
     val fullGitHubCatalog = effectiveGitHubMode && !scopedGitHubStatus && lookup == null
     // Current user intent wins over repository keywords in memory or workspace instructions.
-    if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits, planningProvenance = planningProvenance)
+    if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits, planningProvenance = planningProvenance, allowOutputReduction = allowOutputReduction)
     val definitions = tools.map { it.tool.definition }
     val recovery = definitions.filter { it.modelVisible && it.name == "read_recovery_context" }
     val required = (
@@ -363,7 +363,9 @@ internal fun planAuthorizedToolContext(
         admittedGitHubBudget?.toolResults,
         if (effectiveLimits.contextTokens == limits.contextTokens) planningProvenance else CapacityProvenance.UNKNOWN,
         reserveEstimatedSafety = prioritized.isNotEmpty(),
-        continuityRequiredSchemas = pinnedSchemas.mapTo(hashSetOf()) { it.name }.takeIf { effectiveGitHubMode }
+        continuityRequiredSchemas = pinnedSchemas.mapTo(hashSetOf()) { it.name }.takeIf { effectiveGitHubMode },
+        allowOutputReduction = allowOutputReduction,
+        requiredSchemaNames = pinnedSchemas.mapTo(hashSetOf()) { it.name }
     )
     val omittedRequired = pinnedSchemas.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {

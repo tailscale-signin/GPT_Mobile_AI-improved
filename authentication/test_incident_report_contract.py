@@ -257,6 +257,26 @@ class IncidentReportContractTest(unittest.TestCase):
             capture = self.capture("ACCEPTANCE", {"unmet_criterion_blockers": [blocker]})
             self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
 
+    def test_voice_fallback_causes_keep_both_stages_without_arbitrary_exception_text(self):
+        values = {
+            "voice_failure_requested_backend": "GATEWAY_CUDA",
+            "voice_fallback_source_observation": "NOT_INITIALIZED",
+            "voice_primary_failure_stage": "PREPARATION",
+            "voice_fallback_failure_stage": "PLAYBACK",
+            "voice_fallback_terminal_failure": "SERVICE_FAILED",
+            "voice_primary_cause_fingerprint": "a" * 64,
+            "voice_fallback_cause_fingerprint": "b" * 64,
+            "voice_system_error_code": -4,
+        }
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for field in values:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, field: "private service detail"}))
+        for code in (-10, 0, "-4", True):
+            with self.subTest(code=code), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, "voice_system_error_code": code}))
+
     def test_voice_execution_and_original_fallback_failure_survive_system_engine_change(self):
         values = {
             "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
@@ -274,7 +294,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertIn("| voice_fallback_failure | `SYNTHESIS_FAILED` |", issue["body"])
         self.assertIn("| voice_fallback_outcome | `SUCCEEDED` |", issue["body"])
         self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
-        for field in capsule.VOICE_EXECUTION_FIELDS:
+        for field in values.keys() & capsule.VOICE_EXECUTION_FIELDS:
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {**values, field: "private speech or request-id"}))
             with self.subTest(field=field), self.assertRaises(ValueError):
@@ -370,13 +390,22 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {"voice_fallback_count": invalid}))
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt").read_text()
+        def constant_choices(name):
+            match = re.search(r"val " + name + r" = setOf\((.*?)\)", source, re.S)
+            self.assertIsNotNone(match, name)
+            return set(re.findall(r'"([^"\n]+)"', match.group(1)))
+
         for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():
-            if field == "voice_fallback_failure":
-                match = re.search(r"val playbackFailures = setOf\((.*?)\n    \)", source, re.S)
-            else:
-                match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
+            match = re.search(r'"' + field + r'" to (setOf\([^)]*\)|[A-Za-z]+)', source)
             self.assertIsNotNone(match, field)
-            self.assertEqual(choices, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+            expression = match.group(1)
+            if expression.startswith("setOf("):
+                observed = set(re.findall(r'"([^"\n]+)"', expression))
+            else:
+                observed = constant_choices(expression)
+                if expression == "playbackFailures":
+                    observed |= constant_choices("systemFailures")
+            self.assertEqual(choices, observed, field)
 
     def test_gateway_fallback_preserves_remote_source_after_system_recovery(self):
         values = {
@@ -718,6 +747,39 @@ class IncidentReportContractTest(unittest.TestCase):
         ):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture(area, {key: invalid}))
+
+    def test_research_recovery_changes_survive_receiver_without_private_values_or_replay(self):
+        values = {"research_recovery_changed_fields": ["REQUESTED_STAGE", "POLICY_REVISION", "CHECKPOINT_ID", "EVIDENCE_REVISION"],
+                  "research_recovery_resolution": "REVIEW_CURRENT_SETTINGS_AND_START_NEW_ACTION",
+                  "research_recovery_saved_action_preserved": True}
+        for area in ("INCIDENT", "PROVIDER"):
+            capture = self.capture(area, values)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("ACCEPTANCE", values))
+        for key, value in (("research_recovery_changed_fields", []),
+                           ("research_recovery_changed_fields", ["POLICY_REVISION"] * 2),
+                           ("research_recovery_changed_fields", ["private setting value"]),
+                           ("research_recovery_changed_fields", "POLICY_REVISION"),
+                           ("research_recovery_resolution", "REPLAY_WITH_NEW_AUTHORITY"),
+                           ("research_recovery_saved_action_preserved", False),
+                           ("research_recovery_saved_action_preserved", 1)):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: value}))
+
+    def test_capability_readiness_preserves_closed_cause_and_inventory_counts(self):
+        for reason in ("CATALOG_NO_GITHUB_CAPABILITIES", "CATALOG_CAPABILITIES_NOT_ADVERTISED"):
+            values = {"github_prerequisite_observation": reason, "github_authorized_tool_count": 3, "github_advertised_tool_count": 0}
+            for area in ("INCIDENT", "ACCEPTANCE"):
+                capture = self.capture(area, values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", values))
+        for key, value in (("github_authorized_tool_count", -1), ("github_advertised_tool_count", True),
+                           ("github_advertised_tool_count", "private tool name"), ("github_authorized_tool_count", 16_000_001),
+                           ("github_prerequisite_observation", "CATALOG_PRIVATE_CONNECTION")):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: value}))
 
     def test_selected_model_and_review_prerequisites_survive_submission(self):
         model = {"provider_failure_code": "SELECTED_MODEL_LOADING", "gateway_model_state": "LOADING",
@@ -1924,6 +1986,23 @@ class IncidentReportContractTest(unittest.TestCase):
                 validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
             with self.subTest(wrong_area=field), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
+
+    def test_deadline_provenance_is_closed_and_matches_android_producer(self):
+        sources = {"ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"}
+        for source in sources:
+            capture = self.capture("ACCEPTANCE", {"task_deadline_source": source})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for source in ("private task text", "accepted_task_contract", True, 0, None, [], {}):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {"task_deadline_source": source}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"task_deadline_source": "ACCEPTED_TASK_CONTRACT"}))
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt").read_text()
+        match = re.search(r"val deadlineSources = setOf\(([^\n]*)\)", source)
+        self.assertIsNotNone(match)
+        self.assertEqual(sources, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+        self.assertEqual(sources, diagnostics.ENUMS["task_deadline_source"])
 
     def test_empty_acceptance_explanation_is_closed_and_cannot_expose_contract_text(self):
         fields = {

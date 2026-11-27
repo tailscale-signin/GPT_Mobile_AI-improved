@@ -23,11 +23,13 @@ internal fun capacityAdmissionEvidence(error: RequestCapacityException, monotoni
     }
     error.planningInput?.let { plan ->
         put("admission_capacity_provenance", plan.provenance.name)
-        // At this boundary only the instructions and current turns have been charged.
+        // Planning charges exact current inputs and, when pinned for adaptive
+        // fitting, the required schemas. Optional history remains unselected.
         if (plan.costs.total.toLong() == error.promptTokens) {
             observedCount("admission_system_tokens", plan.costs.system.toLong())
             observedCount("admission_current_request_tokens", plan.costs.currentMessage.toLong())
             observedCount("admission_attachment_reserve_tokens", plan.costs.attachments.toLong())
+            plan.costs.toolSchemas.takeIf { it > 0 }?.let { observedCount("admission_tool_schema_tokens", it.toLong()) }
         }
     }
     error.planningObservation?.let { observation ->

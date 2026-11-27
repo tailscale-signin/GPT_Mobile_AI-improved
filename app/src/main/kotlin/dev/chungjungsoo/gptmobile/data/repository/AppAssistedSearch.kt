@@ -82,34 +82,40 @@ internal object AppAssistedSearch {
         }
     }
 
+    /** Explicitly disabled tools can be explained before any optional assist runtime is prepared. */
+    fun configurationBlock(chatDisabled: Boolean, profileDisabled: Boolean): ApiState.Error? = when {
+        chatDisabled -> unavailable(Readiness.CHAT_TOOLS_DISABLED)
+        profileDisabled -> unavailable(Readiness.PROFILE_TOOLS_DISABLED)
+        else -> null
+    }
+
+    private fun unavailable(observed: Readiness) = ApiState.Error(
+        "Web search is unavailable. ${observed.guidance}",
+        errorCode = "TOOL_UNAVAILABLE",
+        taskOutcome = "BLOCKED",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "tool_readiness")
+            put("operation", "web_search")
+            put("capability", "WEB_SEARCH")
+            put("search_readiness_observation", observed.name)
+            put("readiness_state", "CONFIGURATION_BLOCKED")
+            put("settings_scope", observed.settingsScope)
+            put("settings_path", observed.settingsPath)
+            put("user_action", observed.userAction)
+            put("permission_bypass_allowed", false)
+            put("failure_origin", "APPLICATION")
+            put("dispatched", false)
+            put("remote_acceptance", "NO")
+            put("retryable", false)
+        }
+    )
+
     suspend fun prepare(messages: List<MessageV2>, tools: List<ResolvedAgentTool>, trace: ToolTraceSession, runId: String, maxCharacters: Int, emit: suspend (ApiState) -> Unit, unavailableReason: () -> Readiness = { Readiness.AGGREGATE_NOT_CREATED }): String? {
         val state = kotlinx.coroutines.currentCoroutineContext()[AppSearchContext]
         state?.attempted = true
         val search = tools.firstOrNull { it.modelToolName == "web_search" }
         if (search == null) {
-            val observed = unavailableReason()
-            emit(
-                ApiState.Error(
-                    "Web search is unavailable. ${observed.guidance}",
-                    errorCode = "TOOL_UNAVAILABLE",
-                    taskOutcome = "BLOCKED",
-                    failureDetails = buildJsonObject {
-                        put("failed_stage", "tool_readiness")
-                        put("operation", "web_search")
-                        put("capability", "WEB_SEARCH")
-                        put("search_readiness_observation", observed.name)
-                        put("readiness_state", "CONFIGURATION_BLOCKED")
-                        put("settings_scope", observed.settingsScope)
-                        put("settings_path", observed.settingsPath)
-                        put("user_action", observed.userAction)
-                        put("permission_bypass_allowed", false)
-                        put("failure_origin", "APPLICATION")
-                        put("dispatched", false)
-                        put("remote_acceptance", "NO")
-                        put("retryable", false)
-                    }
-                )
-            )
+            emit(unavailable(unavailableReason()))
             return null
         }
         val task = question(messages)

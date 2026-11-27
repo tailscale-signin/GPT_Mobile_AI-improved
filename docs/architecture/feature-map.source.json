@@ -516,7 +516,8 @@
         "authentication/test_incident_report_contract.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt",
-        "scripts/tests/test_prepare_emulator_action.py"
+        "scripts/tests/test_prepare_emulator_action.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailureTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -570,7 +571,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/GatewayVoiceCapabilityUnavailable.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/VoiceProfilePreparationTest.kt",
@@ -580,7 +582,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePreparationPolicyTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSilentWarmupTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStoreTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionAdmissionRecoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/GatewayVoiceCapabilityUnavailableTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -678,7 +682,9 @@
         "scripts/tests/test_secret_history_reporting.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageStatelessContinuityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderCooldownContinuationTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogNullActionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/DispatchPolicyRecoveryTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -695,7 +701,9 @@
         "docs/repairs/checksum-history-recovery-2026-11-24-task.json",
         "docs/repairs/heap-worker-observability-2026-11-24-task.json",
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
-        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+        "docs/repairs/github-mode-intelligence-2026-11-26.md",
+        "docs/repairs/open-issue-sweep-2026-11-27.md",
+        "docs/repairs/open-issue-sweep-2026-11-27-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -1343,7 +1351,9 @@
         "scripts/check_chat_method_size.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderDispatchEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DispatchStageDiagnostics.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt",
@@ -1356,7 +1366,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeoutTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlanTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlanTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderDispatchEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DispatchStageDiagnosticsTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -2130,7 +2142,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventoryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventoryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubStatusCatalogTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewCompatibilityCacheTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
@@ -2568,13 +2581,15 @@
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchImplementationArtifact.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSessionStore.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSessionStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchRecoveryEvidence.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceAdmissionRegressionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchImplementationArtifactTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/DirectResearchModelFactoryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/DirectResearchModelFactoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchRecoveryEvidenceTest.kt"
       ],
       "commands": [],
       "documents": [
@@ -2945,7 +2960,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/UniversalToolRegistry.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/readiness/ChatReadinessCoordinator.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/readiness/ChatReadinessCoordinator.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspacePickerTest.kt",
@@ -2970,7 +2986,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositoryCopilotDefaultsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayEngineeringSettingsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/UniversalToolRegistryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/UniversalToolRegistryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadinessTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
@@ -3047,7 +3064,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/PreparedContextBudgetTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaBudgetWireTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AdaptiveToolCatalogContextTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/AdaptivePreparedContextTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3114,7 +3133,14 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ToolEvent.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubContinuationMemory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubContinuationTools.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PreparedContinuationSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageInstruction.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GatewayTaskMetadataBinding.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplayDeliveryScope.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GatewaySessionJobIdentity.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt",
@@ -3132,7 +3158,13 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayContinuationIntegrationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayTaskMetadataBindingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubContinuationStateTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplayDeliveryRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplayDeliveryScopeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GatewaySessionJobIdentityTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3190,7 +3222,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplay.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReserve.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimWindows.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt",
@@ -3204,7 +3237,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRetainedSourceDeliveryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReserveTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCallBudgetCheckpointTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCallBudgetCheckpointTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimWindowsTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3307,7 +3341,8 @@
         "gateway/v14/jobs.py",
         "gateway/v14/activity.py",
         "gateway/desktop/control_store.py",
-        "gateway/gateway_v13_transport.py"
+        "gateway/gateway_v13_transport.py",
+        "gateway/v14/generation_outcomes.py"
       ],
       "tests": [
         "gateway/tests/test_gateway_checkpoint_capacity.py",
@@ -3321,7 +3356,8 @@
         "gateway/tests/test_gateway_scheduler_recovery.py",
         "gateway/tests/test_gateway_queue_controls.py",
         "gateway/tests/test_gateway_incremental_delivery.py",
-        "gateway/tests/test_gateway_message_contract.py"
+        "gateway/tests/test_gateway_message_contract.py",
+        "gateway/tests/test_gateway_generation_outcomes.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",

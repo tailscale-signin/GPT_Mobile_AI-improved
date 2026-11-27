@@ -27,6 +27,14 @@ class GatewayContinuationBinding private constructor(
         requireResults(latest?.calls.orEmpty().map { call -> call.providerInvocation().let { Triple(call.callId, it.name, it.arguments) } }, latest?.results.orEmpty().map { it.callId })
     }
 
+    /** Return only the verified pending protocol and its local reading suffix, never older calls. */
+    fun pendingReplay(exchanges: List<AgentToolExchange>): List<AgentToolExchange> {
+        val restored = restoreProviderInvocations(exchanges)
+        val index = restored.indexOfLast { !SavedViewRecoveryBatch.isComplete(it, pending.keys) }
+        check(index >= 0) { "CLIENT_TOOL_RESULTS_REQUIRED: The exact saved handoff is unavailable." }
+        return restored.drop(index)
+    }
+
     /** A legacy normalized journal may recover only from this verified pending handoff and its saved hash. */
     fun restoreProviderInvocations(exchanges: List<AgentToolExchange>): List<AgentToolExchange> {
         val index = exchanges.indexOfLast { !SavedViewRecoveryBatch.isComplete(it, pending.keys) }

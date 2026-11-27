@@ -15,6 +15,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderStreamFailureTest {
+    @Test fun gatewayAdmissionRejectionDoesNotBecomeAnInferenceDispatchAfterHttpNormalization() {
+        val details = dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure(
+            """{"error":{"code":"CONVERSATION_CONFLICT","failed_stage":"conversation_admission","dispatch_state":"not_dispatched","retryable":false,"request_replay_allowed":false}}""",
+            409
+        )
+        val event = ProviderStreamFailure.event("CONVERSATION_CONFLICT", "Review the saved conversation", details = details, httpStatus = 409)
+        val failure = ProfileFailureRecord.fromProvider(event.message, event.code, event.failureDetails)
+        assertEquals(false, failure.dispatched)
+        assertEquals(true, failure.httpRequestDispatched)
+        assertEquals(false, failure.upstreamInferenceDispatched)
+        assertEquals("UPSTREAM_INFERENCE", failure.dispatchScope)
+        assertEquals("NOT_DISPATCHED", failure.dispatchState)
+        assertEquals(RemoteRequestAcceptance.NO, failure.remoteAcceptance)
+        assertEquals(false, failure.requestReplayAllowed)
+        assertFalse(failure.retryAllowed)
+    }
+
+    @Test fun anHttpErrorWithoutInferenceEvidenceKeepsThatStageUnknown() {
+        val event = ProviderStreamFailure.event("server_error", "Failure", httpStatus = 502)
+        val failure = ProfileFailureRecord.fromProvider(event.message, event.code, event.failureDetails)
+        assertEquals(true, failure.httpRequestDispatched)
+        assertEquals(null, failure.upstreamInferenceDispatched)
+        assertEquals("HTTP_REQUEST", failure.dispatchScope)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
+    }
+
     @Test fun malformedBudgetReasonsAndContradictoryAcceptanceNeverAcquireManualRetryTiming() {
         for (source in ProviderBudgetEvidence.LIMIT_SOURCES) {
             for (reason in listOf(kotlinx.serialization.json.JsonNull, JsonPrimitive(true), JsonPrimitive(7), JsonObject(emptyMap()), kotlinx.serialization.json.JsonArray(emptyList()))) {

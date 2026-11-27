@@ -78,7 +78,7 @@ class AndroidVoiceAudio internal constructor(
         diagnosticProbe = probe
     }
     private var pendingSpeech: (() -> Unit)? = null
-    private var playbackError: ((String) -> Unit)? = null
+    private var playbackError: ((VoicePlaybackFailure) -> Unit)? = null
     private var speechInitializationTimeout: Runnable? = null
     private class SpeechInitialization(val generation: Long) {
         val result = java.util.concurrent.atomic.AtomicReference<Int?>()
@@ -157,12 +157,13 @@ class AndroidVoiceAudio internal constructor(
         mutableVoiceCatalog.value = SpeechVoiceCatalogState.CHECKING
         speechWork.execute {
             if (closed || version != speechGeneration || tts !== engine || !speechReady) return@execute
-            val catalog = runCatching { engine.voices?.toSet() }.getOrNull()
+            val catalogResult = runCatching { engine.voices?.toSet() }
+            val catalog = catalogResult.getOrNull()
             main.post {
                 if (!closed && version == speechGeneration && tts === engine) {
                     voiceQueryInFlight = null
                     if (catalog == null) {
-                        unavailableSpeechCatalog(engine, version)
+                        unavailableSpeechCatalog(engine, version, catalogResult.exceptionOrNull())
                         return@post
                     }
                     installedVoices = catalog
@@ -173,7 +174,7 @@ class AndroidVoiceAudio internal constructor(
         }
     }
 
-    private fun unavailableSpeechCatalog(engine: TextToSpeech, version: Long) {
+    private fun unavailableSpeechCatalog(engine: TextToSpeech, version: Long, cause: Throwable? = null) {
         if (closed || version != speechGeneration || tts !== engine) return
         val failed = playbackError
         val wasPlaying = operation?.first == "tts"
@@ -185,7 +186,7 @@ class AndroidVoiceAudio internal constructor(
         if (wasPlaying) {
             terminal("catalog_unavailable")
             stop()
-            failed?.invoke("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.")
+            failed?.invoke(systemFailure("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.", "CATALOG_UNAVAILABLE", VoicePlaybackFailureStage.CATALOG, cause))
         }
     }
     private fun event(name: String, ticket: Long = generation) = diagnostics("VoiceTiming", "$name · incidentId=voice:$sessionId:$ticket · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}", "I")
@@ -583,6 +584,9 @@ class AndroidVoiceAudio internal constructor(
         .build()
 
     override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) =
+        speakWithFailure(text, complete) { error(it.message) }
+
+    override fun speakWithFailure(text: String, complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit) =
         speak(text, allowOnlineSpeech, complete, error)
 
     internal fun captureOfflineSpeech(): VoiceOfflineSpeech {
@@ -590,7 +594,21 @@ class AndroidVoiceAudio internal constructor(
         return { text, complete, error -> speak(text, false, complete, error, dictionary) }
     }
 
-    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit, pronunciation: VoicePronunciationDictionary = pronunciations) {
+    private fun systemFailure(message: String, code: String, stage: VoicePlaybackFailureStage, cause: Throwable? = null, platformErrorCode: Int? = null) =
+        VoicePlaybackFailure(message, cause, code, "system", stage = stage, platformErrorCode = platformErrorCode)
+
+    private fun androidSpeechFailureCode(code: Int): String = when (code) {
+        TextToSpeech.ERROR_SYNTHESIS -> "SYNTHESIS_FAILED"
+        TextToSpeech.ERROR_SERVICE -> "SERVICE_FAILED"
+        TextToSpeech.ERROR_OUTPUT -> "AUDIO_FAILED"
+        TextToSpeech.ERROR_NETWORK -> "NETWORK_FAILED"
+        TextToSpeech.ERROR_NETWORK_TIMEOUT -> "NETWORK_TIMEOUT"
+        TextToSpeech.ERROR_INVALID_REQUEST -> "INVALID_REQUEST"
+        TextToSpeech.ERROR_NOT_INSTALLED_YET -> "VOICE_NOT_INSTALLED"
+        else -> "ENGINE_FAILED"
+    }
+
+    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit, pronunciation: VoicePronunciationDictionary = pronunciations) {
         val privacy = conversationPrivacy()
         stop()
         if (closed) return
@@ -608,10 +626,11 @@ class AndroidVoiceAudio internal constructor(
                 if (change < 0 && !closed && ticket == generation) {
                     observations?.playbackFailure("AUDIO_FOCUS_LOST")
                     stop()
-                    error("Audio paused because another app needs the speaker.")
+                    error(systemFailure("Audio paused because another app needs the speaker.", "AUDIO_FOCUS_LOST", VoicePlaybackFailureStage.AUDIO_FOCUS))
                 }
             }, main).build()
-        val focusResult = runCatching { audioManager?.requestAudioFocus(request) }.getOrNull()
+        val focusAttempt = runCatching { audioManager?.requestAudioFocus(request) }
+        val focusResult = focusAttempt.getOrNull()
         observations?.playbackFocus(
             when (focusResult) {
                 AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
@@ -623,13 +642,20 @@ class AndroidVoiceAudio internal constructor(
         if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             playbackError = null
             observations?.playbackFailure("AUDIO_FOCUS_DENIED")
-            error("Audio output is unavailable. Your answer is available in captions.")
+            error(systemFailure("Audio output is unavailable. Your answer is available in captions.", "AUDIO_FOCUS_DENIED", VoicePlaybackFailureStage.AUDIO_FOCUS, focusAttempt.exceptionOrNull()))
             return
         }
         focus = request
         observations?.warmupStarted()
         started("tts", ticket)
-        fun fail(message: String, retireEngine: Boolean = false) {
+        fun fail(
+            message: String,
+            retireEngine: Boolean = false,
+            code: String = "ENGINE_FAILED",
+            stage: VoicePlaybackFailureStage = VoicePlaybackFailureStage.PREPARATION,
+            cause: Throwable? = null,
+            platformErrorCode: Int? = null
+        ) {
             main.post {
                 if (!closed && ticket == generation) {
                     terminal("failed")
@@ -638,7 +664,8 @@ class AndroidVoiceAudio internal constructor(
                     // initialize a fresh engine without repeated stop warnings.
                     if (retireEngine) releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
                     stop()
-                    error(message)
+                    observations?.playbackFailure(code)
+                    error(systemFailure(message, code, stage, cause, platformErrorCode))
                 }
             }
         }
@@ -651,7 +678,8 @@ class AndroidVoiceAudio internal constructor(
                 if (!closed && ticket == generation) {
                     terminal("timeout_start")
                     stop()
-                    error("Speech playback did not start. Your answer remains in chat.")
+                    observations?.playbackFailure("TIMEOUT")
+                    error(systemFailure("Speech playback did not start. Your answer remains in chat.", "TIMEOUT", VoicePlaybackFailureStage.PREPARATION))
                 }
             }
             speechWork.execute work@{
@@ -668,10 +696,11 @@ class AndroidVoiceAudio internal constructor(
                             fail("The speech engine is unavailable. Captions remain available.", retireEngine = true)
                             return@work
                         }
-                        val voices = runCatching { engine.voices?.toSet() }.getOrNull()
+                        val voiceResult = runCatching { engine.voices?.toSet() }
+                        val voices = voiceResult.getOrNull()
                         if (voices == null) {
                             main.post {
-                                if (ticket == generation) unavailableSpeechCatalog(engine, engineVersion)
+                                if (ticket == generation) unavailableSpeechCatalog(engine, engineVersion, voiceResult.exceptionOrNull())
                             }
                             return@work
                         }
@@ -684,17 +713,17 @@ class AndroidVoiceAudio internal constructor(
                         }
                         val locale = Locale.forLanguageTag(config.language)
                         if (engine.setLanguage(locale) < 0) {
-                            fail("A voice for this language is not installed. Captions are still available.")
+                            fail("A voice for this language is not installed. Captions are still available.", code = "LANGUAGE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         val eligible = eligibleVoices(voices, config.language, config.online)
                         val voice = eligible.firstOrNull { it.name == config.voice } ?: eligible.firstOrNull()
                         if (!config.online && voice == null) {
-                            fail("No offline voice is installed for this language. Your answer remains in chat.")
+                            fail("No offline voice is installed for this language. Your answer remains in chat.", code = "OFFLINE_VOICE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         if (voice != null && engine.setVoice(voice) == TextToSpeech.ERROR) {
-                            fail("The selected voice is unavailable. Choose an installed voice; captions remain available.")
+                            fail("The selected voice is unavailable. Choose an installed voice; captions remain available.", code = "VOICE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         if (engine.setSpeechRate(config.rate) == TextToSpeech.ERROR) {
@@ -733,7 +762,8 @@ class AndroidVoiceAudio internal constructor(
                                         if (!closed && ticket == generation) {
                                             terminal("timeout_playback")
                                             stop()
-                                            error("Speech playback stopped responding. Your answer remains in chat.")
+                                            observations?.playbackFailure("TIMEOUT")
+                                            error(systemFailure("Speech playback stopped responding. Your answer remains in chat.", "TIMEOUT", VoicePlaybackFailureStage.PLAYBACK))
                                         }
                                     }
                                     if (!reportedStart) {
@@ -790,7 +820,19 @@ class AndroidVoiceAudio internal constructor(
                         @Deprecated("Platform compatibility callback")
                         override fun onError(utteranceId: String?) {
                             if (engineVersion == speechGeneration && tts === engine && (utteranceId == null || utteranceId in utteranceIds)) {
-                                fail("Could not play this response. Turn off the speaker to continue with captions.", retireEngine = true)
+                                fail("Could not play this response. Turn off the speaker to continue with captions.", retireEngine = true, code = "AUDIO_FAILED", stage = VoicePlaybackFailureStage.PLAYBACK)
+                            }
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            if (engineVersion == speechGeneration && tts === engine && (utteranceId == null || utteranceId in utteranceIds)) {
+                                fail(
+                                    "Could not play this response. Turn off the speaker to continue with captions.",
+                                    retireEngine = true,
+                                    code = androidSpeechFailureCode(errorCode),
+                                    stage = VoicePlaybackFailureStage.PLAYBACK,
+                                    platformErrorCode = errorCode
+                                )
                             }
                         }
                     })
@@ -804,17 +846,17 @@ class AndroidVoiceAudio internal constructor(
                             }
                         }
                         if (!admitted) return@work
-                        if (privacy?.enabled == true && engine.voice?.isNetworkConnectionRequired != false) {
-                            fail("Choose an offline voice for Privacy Mode. Captions are still available.", retireEngine = true)
+                        if (!config.online && engine.voice?.isNetworkConnectionRequired != false) {
+                            fail("Choose an installed offline voice. Captions are still available.", retireEngine = true, code = "OFFLINE_VOICE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
-                            fail("Could not play this response. Captions are still available.", retireEngine = true)
+                            fail("Could not play this response. Captions are still available.", retireEngine = true, code = "AUDIO_FAILED", stage = VoicePlaybackFailureStage.PLAYBACK, platformErrorCode = TextToSpeech.ERROR)
                             break
                         }
                     }
-                } catch (_: Exception) {
-                    fail("The speech engine stopped. Turn off the speaker or try again.", retireEngine = true)
+                } catch (failure: Exception) {
+                    fail("The speech engine stopped. Turn off the speaker or try again.", retireEngine = true, cause = failure)
                 }
             }
         }
@@ -844,7 +886,7 @@ class AndroidVoiceAudio internal constructor(
                 if (pending != null) {
                     terminal("timeout_initialization")
                     stop()
-                    failed?.invoke("The speech engine did not initialize. Your answer remains in chat.")
+                    failed?.invoke(systemFailure("The speech engine did not initialize. Your answer remains in chat.", "TIMEOUT", VoicePlaybackFailureStage.INITIALIZATION))
                 }
             }
         }.also { main.postDelayed(it, 10_000) }
@@ -861,7 +903,7 @@ class AndroidVoiceAudio internal constructor(
             // Test doubles and vendor engines may call onInit before their constructor returns.
             // Re-dispatch after publishing engine/tts; handled fences the normal async path.
             initializationLease.result.get()?.let { dispatchSpeechInitialization(initializationLease, it) }
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             speechInitialization = null
             val failed = playbackError
             val pending = pendingSpeech
@@ -873,7 +915,7 @@ class AndroidVoiceAudio internal constructor(
                 // focus as an asynchronous initialization failure before notifying.
                 terminal("initialization_failed")
                 stop()
-                failed?.invoke("Could not start text-to-speech. Install a voice or continue with captions.")
+                failed?.invoke(systemFailure("Could not start text-to-speech. Install a voice or continue with captions.", "INITIALIZATION_FAILED", VoicePlaybackFailureStage.INITIALIZATION, failure))
             }
         }
     }
@@ -913,7 +955,7 @@ class AndroidVoiceAudio internal constructor(
                 if (pending != null) {
                     terminal("initialization_failed")
                     stop()
-                    failed?.invoke("Text-to-speech is unavailable. Install a voice or continue with captions.")
+                    failed?.invoke(systemFailure("Text-to-speech is unavailable. Install a voice or continue with captions.", "INITIALIZATION_FAILED", VoicePlaybackFailureStage.INITIALIZATION, platformErrorCode = status))
                 }
             }
         }

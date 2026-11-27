@@ -12,7 +12,10 @@ import io.ktor.http.headersOf
 import java.io.EOFException
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,6 +31,42 @@ class GatewayAdmissionClientTest {
     private val conversations = """{"schema_version":1,"gateway_id":"original-installation","principal_id":"network:shared","items":[]}"""
     private val catalog = """{"schema_version":1,"gateway_id":"original-installation","principal_id":"network:shared","server_now":1,"items":[],"complete":true}"""
     private fun capabilities(source: String = sha) = """{"gatewayVersion":"15.0.0","contractVersion":1,"gateway_id":"original-installation","principal_id":"network:shared","instanceId":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","build":{"sourceCommit":"$source"},"features":{"conversation_sync_v1":true,"job_catalog_v1":true},"contracts":{"gatewayConversations":["gptmobile.gateway.conversations.v1"],"gatewayJobCatalog":["gptmobile.gateway.job-catalog.v1"]}}"""
+
+    @Test fun overlappingCapabilityReadsShareTransportButEachCallerChecksItsExpectedRevision() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var capabilityReads = 0
+        HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath.endsWith("capabilities") -> {
+                        capabilityReads++
+                        if (capabilityReads == 1) {
+                            entered.complete(Unit)
+                            release.await()
+                        }
+                        respond(capabilities())
+                    }
+                    request.url.encodedPath.endsWith("identity") -> respond(identity)
+                    else -> error("Unexpected history read")
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http)
+            val first = async { client.verifySavedWorkContract(config, sha, verifyHistorySurfaces = false) }
+            entered.await()
+            val differentExpectation = async {
+                runCatching { client.verifySavedWorkContract(config, "c".repeat(40), verifyHistorySurfaces = false) }.exceptionOrNull()
+            }
+            yield()
+            release.complete(Unit)
+            assertEquals("original-installation", first.await().identity.gatewayId)
+            assertEquals(GatewayAdmissionReason.SOURCE_MISMATCH, (differentExpectation.await() as GatewayAdmissionException).reason)
+            assertEquals(1, capabilityReads)
+            client.verifySavedWorkContract(config, sha, verifyHistorySurfaces = false)
+            assertEquals("A later admission obtains a new live response", 2, capabilityReads)
+        }
+    }
 
     @Before
     @After

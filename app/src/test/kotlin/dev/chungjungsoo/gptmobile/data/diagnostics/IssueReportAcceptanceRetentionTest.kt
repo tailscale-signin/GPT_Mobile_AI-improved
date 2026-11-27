@@ -66,6 +66,37 @@ class IssueReportAcceptanceRetentionTest {
         }
     }
 
+    @Test fun deadlineProvenanceSurvivesSanitizationAndSerializationWithoutAcceptingFreeText() {
+        for (source in dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.deadlineSources) {
+            val report = requireNotNull(
+                IssueReportDiagnostics.fromFields(
+                    "CHAT_FAILURE",
+                    mapOf(
+                        "diagnostic_area" to "ACCEPTANCE",
+                        "task_deadline_source" to source,
+                        "task_deadline_observation" to "WINDOW_EXPIRED"
+                    ),
+                    1_000L
+                )
+            )
+            assertEquals(JsonPrimitive(source), report.values["task_deadline_source"])
+            assertTrue(report.isValid())
+            val encoded = IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), report)
+            assertEquals(report, IssueReportDiagnostics.fromJson(encoded))
+        }
+        val invalid = requireNotNull(
+            IssueReportDiagnostics.fromFields(
+                "CHAT_FAILURE",
+                mapOf(
+                    "diagnostic_area" to "ACCEPTANCE",
+                    "task_deadline_source" to "private task text"
+                ),
+                1_000L
+            )
+        )
+        assertFalse("task_deadline_source" in invalid.values)
+    }
+
     @Test fun malformedCriterionAlignmentIsRejectedBeforeRetentionPriorityApplies() {
         val fields = saturatedFields(2) + ("unmet_criterion_states" to listOf("NOT_TESTED"))
         val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1_000L))

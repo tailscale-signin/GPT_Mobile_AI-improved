@@ -130,7 +130,9 @@ class AgentRunner(
     private val prepareToolSelection: (suspend () -> Unit)? = null,
     private val verificationOnlyRequested: Boolean = false,
     private val taskAdmissionFailure: (suspend () -> ProviderEvent.Failed?)? = null,
-    private val replayPriorityCallIds: () -> Set<String> = { emptySet() }
+    private val replayPriorityCallIds: () -> Set<String> = { emptySet() },
+    private val recoveredArgumentRepairReceipts: List<JsonObject> = emptyList(),
+    private val recoveredInvestigationExchanges: List<AgentToolExchange> = emptyList()
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -150,24 +152,27 @@ class AgentRunner(
         deliveredResultDigests: Map<String, String> = emptyMap(),
         requiredSavedPageDigests: Map<String, String?> = emptyMap()
     ): ReplayProjection = withContext(replayDispatcher) {
-        val rawTokens = ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache)
+        val memory = if (limits.githubTask) GitHubContinuationMemory.snapshot(exchanges, limits.githubTaskRequest, includeFinding = true) else null
+        val memoryTokens = GitHubContinuationMemory.reservation(memory)
+        val sourceBudget = (maxReplayTokens.toLong() - memoryTokens).coerceAtLeast(0).toInt()
+        val rawTokens = (ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache).toLong() + memoryTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val started = System.nanoTime()
         val consumed = ToolResultDeliveryProof.qualifiedConsumed(exchanges, consumedCallIds, deliveredResultDigests, replayRenderCache)
         val compacted = ToolExchangeCompactor.compact(
             exchanges,
-            maxReplayTokens,
-            if (rawTokens <= maxReplayTokens) maxReplayTokens else maxResultTokens,
+            sourceBudget,
+            if (rawTokens <= maxReplayTokens) sourceBudget else maxResultTokens,
             consumed,
             replayRenderCache,
-            if (limits.githubTask) GitHubReplayRecovery.savedPageResultAllowances(exchanges, consumed, maxReplayTokens, maxResultTokens) else emptyMap(),
+            if (limits.githubTask) GitHubReplayRecovery.savedPageResultAllowances(exchanges, consumed, sourceBudget, maxResultTokens) else emptyMap(),
             taskRequest = limits.githubTaskRequest.takeIf { limits.githubTask },
             priorityCallIds = if (limits.githubTask) replayPriorityCallIds() else emptySet(),
             requiredSavedPageDigests = requiredSavedPageDigests
         )
         ReplayProjection(
-            exchanges = compacted,
+            exchanges = GitHubContinuationMemory.project(compacted, memory),
             rawTokens = rawTokens,
-            compactedTokens = ToolExchangeCompactor.estimateTokens(compacted, replayRenderCache),
+            compactedTokens = (ToolExchangeCompactor.estimateTokens(compacted, replayRenderCache).toLong() + memoryTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             compactionMicros = ((System.nanoTime() - started) / 1000).coerceAtLeast(0)
         )
     }
@@ -235,6 +240,9 @@ class AgentRunner(
         var rounds = 0
         if (!verificationOnlyRequested && retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
+        kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]?.budget?.restore(
+            recoveredArgumentRepairReceipts + (recovery?.completedExchanges.orEmpty() + listOfNotNull(recovery?.pendingCompletedExchange)).flatMap { it.results }.mapNotNull { it.executionReceipt }
+        )
         // Reopening an undispatched refusal does not renew the accepted allowance.
         // Only a separate explicit grant may start a new bounded tranche.
         var toolCallCount = initialToolCallCountOverride?.coerceAtLeast(0) ?: if (resumeToolBudget) 0 else recovery?.dispatchedCount ?: 0
@@ -291,7 +299,7 @@ class AgentRunner(
         val initialSchemaTokens = limits.initialGitHubSchemaTokens ?: initialSelectedDefinitions.sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
         val ciInvestigation = GitHubCiInvestigationRecovery(limits.githubTaskRequest)
-        val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome, diagnosticRunId, limits.githubTaskRequest.orEmpty())
+        val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome, diagnosticRunId, limits.githubTaskRequest.orEmpty(), recoveredInvestigationExchanges)
         if (state.restoredCalls.isNotEmpty() && recovery != null) {
             AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${state.restoredCalls.size} · previouslyDispatched=${state.restoredDispatched.size} · completed=${recovery.completedCount} · failed=${recovery.failedCount} · uncertain=${recovery.unknownCount} · queued=${recovery.queuedCount} · rejected=${recovery.rejectedCount} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
         }
@@ -949,7 +957,8 @@ class AgentRunner(
         recovery: ToolBatchRecoverySnapshot?,
         val retainedUnknownOutcome: Boolean,
         diagnosticRunId: String?,
-        acceptedTask: String
+        acceptedTask: String,
+        recoveredInvestigationExchanges: List<AgentToolExchange> = emptyList()
     ) {
         var executableToolByName = initialExecutableToolByName
         var exposedDefinitions = initialExposedDefinitions
@@ -991,6 +1000,7 @@ class AgentRunner(
             recovery?.completedExchanges.orEmpty().flatMap { it.results } + recovery?.pendingCompletedExchange?.results.orEmpty()
         )
         init {
+            investigation.restore(recoveredInvestigationExchanges + recovery?.completedExchanges.orEmpty())
             if (recovery != null) restoreReadingState(recovery)
         }
 
@@ -1550,6 +1560,7 @@ class AgentRunner(
             unproductiveDiscoveryRounds >= 2 && roundDefinitions.none { it.name == ProgressiveToolCatalog.NAME } -> roundTools - ProgressiveToolCatalog.NAME
             else -> roundTools
         }
+        val decisionDeferredIds = if (decisionCalls.isEmpty()) emptySet() else calls.filter { it.name in roundTools && it.name !in questionNames }.mapTo(hashSetOf()) { it.callId }
         val batchAllowance = when {
             decisionCalls.any { it.callId in restoredCompleted } -> 0
             decisionCalls.isNotEmpty() -> minOf(1, remainingCalls)
@@ -1678,12 +1689,14 @@ class AgentRunner(
         val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, availableCatalog, exchanges, pausedGitHubNames, catalogHash, reusableReads.filterKeys { it in plan.reusedReadIds }, deliveredResultDigests).map { result ->
             fun admissionReason(id: String) = when (id) {
                 in plan.dependencyDeferredIds -> ToolDependencyDiagnostics.Admission.PREREQUISITE_DEFERRED
-                in plan.unavailableIds -> if (decisionCalls.isEmpty()) ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE else ToolDependencyDiagnostics.Admission.DECISION_REQUIRED
+                in plan.unavailableIds -> if (id in decisionDeferredIds) ToolDependencyDiagnostics.Admission.DECISION_REQUIRED else ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE
                 in hostSuppressedIds -> ToolDependencyDiagnostics.Admission.REPEATED_FAILURE
                 in perToolSuppressedIds -> ToolDependencyDiagnostics.Admission.REPEAT_LIMIT
                 else -> ToolDependencyDiagnostics.Admission.CALL_ALLOWANCE
             }
-            if (result.callId in plan.dependencyDeferredIds) {
+            if (result.callId in decisionDeferredIds && result.callId in plan.unavailableIds) {
+                ToolDependencyDiagnostics.decisionDeferred(result.callId, decisionCalls, executedResults)
+            } else if (result.callId in plan.dependencyDeferredIds) {
                 val dependencies = dependencyPlan.single { it.call.callId == result.callId }.failureDependencies
                 val blocked = dependencies - admittedIds
                 ToolDependencyDiagnostics.rejection(
@@ -2304,6 +2317,7 @@ class AgentRunner(
         var completedReading: JsonObject? = null
         var invocationStage = "planning"
         var invocationStarted = false
+        val replayDelivery = ToolReplayDeliveryScope()
 
         suspend fun emitRoundUsage() {
             if (roundInput.value == null && roundOutput.value == null && roundTotal.value == null && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed && roundReasoningTokens == null) return
@@ -2637,7 +2651,7 @@ class AgentRunner(
                         .withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText)
                 )
             }
-        }.catch { error ->
+        }.flowOn(replayDelivery).catch { error ->
             if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath) throw error
             // Preparation may rebuild before any work. Once an earlier operation
             // is uncertain, retain this upstream failure for reconciliation instead
@@ -2816,6 +2830,14 @@ class AgentRunner(
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
         if (unacknowledgedSavedPages.isNotEmpty()) return RoundResult(unacknowledgedSavedPages = unacknowledgedSavedPages)
+        if (!replayDelivery.acknowledgesCallerBodies) {
+            // A nested continuation can replace replay with a projected protocol
+            // or prose. Its completion proves neither these original bodies nor
+            // private notes derived from them reached the provider unchanged.
+            if (deliveryOnly) return RoundResult(unacknowledgedSavedPages = requiredSavedPageDigests.keys)
+            deliveredCallIds = emptySet()
+            deliveredBodies = emptyMap()
+        }
         if (!verificationOnlyRequested &&
             completed &&
             failure == null &&
@@ -3054,6 +3076,7 @@ class AgentRunner(
     }
 
     private fun appendInstruction(result: AgentToolResult, instruction: String): AgentToolResult {
+        SavedPageInstruction.append(result, instruction)?.let { return it }
         GitHubReplayRecovery.envelope(result.content)?.let { envelope ->
             val previous = (envelope["agent_instruction"] as? JsonPrimitive)?.content.orEmpty()
             if (previous.contains(instruction)) return result

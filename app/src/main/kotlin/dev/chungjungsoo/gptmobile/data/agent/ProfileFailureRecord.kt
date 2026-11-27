@@ -51,7 +51,13 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val outputProgress: JsonObject? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val toolReconciliation: JsonObject? = null
+    val toolReconciliation: JsonObject? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val httpRequestDispatched: Boolean? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val upstreamInferenceDispatched: Boolean? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val dispatchScope: String? = null
 ) {
     val isUserInputRequired: Boolean get() = dispatched == false &&
         (
@@ -136,6 +142,9 @@ data class ProfileFailureRecord(
             val recoveryActions = (listOfNotNull(details?.get("recovery_action") ?: details?.get("next_action")) + ((details?.get("recovery_actions") ?: details?.get("allowed_recovery_actions")) as? JsonArray).orEmpty()).mapNotNull { item ->
                 (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("ANSWER_SAVED_CHOICE", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE", "RESUME_VERIFICATION", "RESTORE_AUTHORIZED_CONFIGURATION", "WAIT_PROVIDER_DEADLINE", "INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST", "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS", "REVIEW_APPLICATION_EVIDENCE", "RESTORE_ACCEPTED_TASK_CONTRACT", "RESTORE_ACCEPTED_TASK_CRITERIA", "AUTHORIZE_NEW_TIME_WINDOW", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", "INSPECT_SAVED_PROVIDER_ATTEMPT") }
             }.distinct()
+            val dispatchScope = (details?.get("dispatch_scope") as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("HTTP_REQUEST", "UPSTREAM_INFERENCE") }
+            val httpRequestDispatched = (details?.get("http_request_dispatched") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+            val upstreamInferenceDispatched = (details?.get("upstream_inference_dispatched") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             // A local rejection must not replace an already ambiguous remote operation.
             if (observed.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")) {
                 // Positive acceptance and identity are useful observations, not proof
@@ -143,6 +152,10 @@ data class ProfileFailureRecord(
                 // receipt cannot establish that the earlier operation was never sent.
                 return observed.copy(
                     retryAllowed = false,
+                    httpRequestDispatched = httpRequestDispatched,
+                    upstreamInferenceDispatched = upstreamInferenceDispatched?.takeIf { it },
+                    dispatchScope = if (upstreamInferenceDispatched == true) "UPSTREAM_INFERENCE" else "HTTP_REQUEST".takeIf { httpRequestDispatched == true },
+                    dispatchState = "UNKNOWN",
                     dispatched = true.takeIf { observed.category == GatewayOutcomeRecovery.ERROR_CODE || details?.get("dispatched") == JsonPrimitive(true) },
                     remoteAcceptance = if ((details?.get("remote_acceptance") as? JsonPrimitive)?.contentOrNull in setOf("YES", "ACCEPTED")) RemoteRequestAcceptance.YES else observed.remoteAcceptance,
                     invocationId = invocationId,
@@ -237,6 +250,9 @@ data class ProfileFailureRecord(
                 phase = stage ?: legacy.phase.ifBlank { "stage_not_recorded" },
                 retryAllowed = !claimCheckpoint && legacy.retryAllowed && (logicalContinuation || details?.get("retryable") != JsonPrimitive(false)),
                 dispatched = dispatched.takeUnless { finalRequestUncertain && it == false },
+                httpRequestDispatched = httpRequestDispatched,
+                upstreamInferenceDispatched = upstreamInferenceDispatched.takeUnless { finalRequestUncertain && it == false },
+                dispatchScope = dispatchScope,
                 remoteAcceptance = when {
                     finalRequestPriorAcceptance -> RemoteRequestAcceptance.YES
                     finalRequestUncertain -> RemoteRequestAcceptance.UNKNOWN

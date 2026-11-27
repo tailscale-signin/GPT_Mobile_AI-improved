@@ -1,12 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.modelText
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -70,10 +70,9 @@ class GitHubSavedPageAdmissionRunnerTest {
                 assertFalse("The native reader does not supply the runner's instruction", "agent_instruction" in nativeBody)
                 val nativeBytes = ToolHandoffReceipt.payload(native.content).encodeToByteArray().size
                 assertTrue(nativeBytes <= cursor.bytes)
-                val wrapped = native.copy(
-                    content = ToolResultContent.Json(JsonObject(nativeBody + ("agent_instruction" to JsonPrimitive(ToolBudgetPolicy.buildWrapUpPrompt(1)))))
-                )
-                val wrappedBytes = ToolHandoffReceipt.payload(wrapped.content).encodeToByteArray().size
+                val wrapped = requireNotNull(SavedPageInstruction.append(native, ToolBudgetPolicy.buildWrapUpPrompt(1)))
+                assertEquals("The persisted native page remains byte-for-byte stable", native.content, wrapped.content)
+                val wrappedBytes = wrapped.modelText().encodeToByteArray().size
                 assertTrue("The real wrap-up must outgrow the cursor-only allowance", wrappedBytes > cursor.bytes)
                 assertTrue(wrappedBytes <= outputLimit)
                 val wrappedTokens = (wrappedBytes + 2) / 3
@@ -103,7 +102,8 @@ class GitHubSavedPageAdmissionRunnerTest {
                     3 -> {
                         val expected = requireNotNull(finalPage)
                         val delivered = exchanges.flatMap { it.results }.single { it.callId == pageCall.callId }
-                        assertEquals("The actual finishBatch body, including its instruction, must arrive intact", expected.content, delivered.content)
+                        assertEquals("The immutable finishBatch body must arrive intact", expected.content, delivered.content)
+                        assertEquals(expected.assistMetadata, delivered.assistMetadata)
                         assertEquals(ToolResultDeliveryProof.digest(expected.content), ToolResultDeliveryProof.digest(delivered.content))
                         assertEquals(2, requireNotNull(delivered.toolCallBudgetUsed))
                         val required = (ToolHandoffReceipt.payload(delivered.content).encodeToByteArray().size + 2) / 3

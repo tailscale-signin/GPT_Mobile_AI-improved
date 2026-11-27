@@ -9,6 +9,8 @@ import kotlinx.serialization.json.put
 
 /** One policy is applied before binding tools and again before opening the model loop. */
 internal object GitHubExecutionLimits {
+    val deadlineSources = setOf("ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION")
+
     enum class DeadlineCheck { ADMISSION, BEFORE_TOOL_RESTORE, BEFORE_MODEL_LOOP, MODEL_LOOP_TIMEOUT, VERIFIED_SESSION_ENTRY }
 
     data class Admission(val observation: String, val remainingMillis: Long?, val timing: JsonObject, val contractRequired: Boolean) {
@@ -67,7 +69,12 @@ internal object GitHubExecutionLimits {
         put("task_deadline_observation", state)
         if (start != null && end != null && end >= start && start >= 0) {
             put("task_deadline_clock", "WALL_CLOCK")
-            put("task_deadline_source", (contract?.get("deadline_source") as? JsonPrimitive)?.content ?: "ACCEPTED_TASK_CONTRACT")
+            val source = if (contract?.containsKey("deadline_source") == true) {
+                (contract["deadline_source"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            } else {
+                "ACCEPTED_TASK_CONTRACT"
+            }
+            source?.takeIf { it in deadlineSources }?.let { put("task_deadline_source", it) }
             put("task_deadline_renewed", (contract?.get("grant_message_id") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.let { it > 0 } == true)
             ((end - start) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_window_seconds", it) }
             if (observedAt >= start) {

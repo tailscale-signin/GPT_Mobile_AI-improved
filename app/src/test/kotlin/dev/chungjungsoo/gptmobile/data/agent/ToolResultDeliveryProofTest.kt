@@ -61,6 +61,33 @@ class ToolResultDeliveryProofTest {
         assertTrue(ToolResultDeliveryProof.capture(listOf(source.copy(isError = true))).isEmpty())
     }
 
+    @Test fun mandatoryTaskStateAndRunnerInstructionsSurviveOptionalAssistReplacementAndTightReplay() = kotlinx.coroutines.test.runTest {
+        val call = ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap()))
+        val memory = buildJsonObject {
+            put("schema", "github.continuation-control.v1")
+            put("decisions", "Keep the exact accepted choice.")
+        }
+        val instruction = buildJsonObject {
+            put("schema", "github.runner-instruction.v1")
+            put("instruction", "Finish from retained evidence.")
+        }
+        val required = listOf(memory, instruction)
+        val source = AgentToolResult(call.callId, ToolResultContent.Text("Exact saved source"), false, optionalAssistKey = "annotation", assistMetadata = required)
+        val exchanges = listOf(AgentToolExchange(listOf(call), listOf(source)))
+        val cache = ToolExchangeCompactor.RenderCache()
+        val budget = SavedPageReading.projectionTokens(exchanges, cache)
+        val optional = buildJsonObject { put("note", "Optional model notes ".repeat(100)) }
+        val (ample, _) = SavedPageReading.providerProjection(exchanges, null, null, budget + 4096, cache) { it.copy(assistMetadata = listOf(optional)) }
+        assertEquals(required + optional, ample.single().results.single().assistMetadata)
+        val (tight, used) = SavedPageReading.providerProjection(ample, null, null, budget, cache) { it }
+        assertEquals(exchanges, tight)
+        assertEquals(budget, used)
+        val (overCapacity, actual) = SavedPageReading.providerProjection(ample, null, null, 1, cache) { it }
+        assertEquals(exchanges, overCapacity)
+        assertTrue(actual > 1)
+        assertEquals(ToolResultDeliveryProof.digest(source.content), ToolResultDeliveryProof.digest(tight.single().results.single().content))
+    }
+
     @Test fun captureIsBoundedAndRetainsTheNewestSuccessfulResults() {
         val results = (0..ToolResultDeliveryProof.MAX_RESULTS).map { AgentToolResult("page-$it", ToolResultContent.Text("page $it"), false) }
         val proof = ToolResultDeliveryProof.capture(results)

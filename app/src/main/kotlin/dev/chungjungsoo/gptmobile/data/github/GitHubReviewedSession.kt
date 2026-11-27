@@ -176,7 +176,8 @@ internal class GitHubReviewedSession(
     private val inputLimitForPass: (String) -> Int = { inputTokenLimit },
     private val compatibilityRevision: String = reviewerRevision,
     private val acceptedExecutionContract: () -> JsonObject? = { null },
-    private val outputLimitForPass: (String) -> Int? = { null }
+    private val outputLimitForPass: (String) -> Int? = { null },
+    private val compatibilityObserved: (GitHubReviewCompatibility.Observation) -> Unit = {}
 ) : AgentProviderSession by delegate {
     private val repositoryEvidenceFailure = AtomicReference<ProviderEvent.Failed?>()
 
@@ -226,8 +227,8 @@ internal class GitHubReviewedSession(
             return@flow
         }
         if (compatibility != null) {
-            progress("Checking the selected profile's review format before repository work")
-            val compatible = compatibility.check(compatibilityRevision) {
+            val compatible = compatibility.check(compatibilityRevision, observe = compatibilityObserved) {
+                progress("Checking the selected profile's review format before repository work")
                 val response = try {
                     collectPreflight()
                 } catch (cancelled: CancellationException) {

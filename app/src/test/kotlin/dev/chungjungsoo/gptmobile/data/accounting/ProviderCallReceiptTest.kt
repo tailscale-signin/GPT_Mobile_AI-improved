@@ -7,6 +7,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderCallReceiptTest {
+    @Test fun rejectedInferenceRetainsTheSuccessfulHttpDispatchAsASeparateObservation() {
+        val receipt = ProviderCallReceipt("round", dispatchEvidence = "NOT_DISPATCHED", httpRequestDispatched = true, upstreamInferenceDispatched = false, dispatchScope = "UPSTREAM_INFERENCE", remoteAcceptance = "NO").json()
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), receipt["dispatchEvidence"])
+        assertEquals(JsonPrimitive(true), receipt["httpRequestDispatched"])
+        assertEquals(JsonPrimitive(false), receipt["upstreamInferenceDispatched"])
+        assertEquals(JsonPrimitive("UPSTREAM_INFERENCE"), receipt["dispatchScope"])
+    }
+
     @Test fun toolOnlyRoundRetainsFinishReasonCountsAndUnavailableBreakdown() {
         val receipt = ProviderCallReceipt("round", finishReason = "tool_calls", roundOutcome = "TOOL_CALLS_PRODUCED", toolCallCount = 2, reasoningBytes = 128).json()
         assertEquals(JsonPrimitive("tool_calls"), receipt["finishReason"])

@@ -18,7 +18,7 @@ internal object GitHubReplayRecovery {
     fun sourceRestoreCursor(callId: String): String? =
         callId.takeIf { it.startsWith(SOURCE_RESTORE_PREFIX) }?.removePrefix(SOURCE_RESTORE_PREFIX)?.let { GitHubSavedReadProgress.cursor(it)?.value }
 
-    private data class CapacityRefusal(val page: String, val bytes: Int, val source: String, val scope: String, val recovery: JsonObject?)
+    private data class CapacityRefusal(val page: String, val bytes: Int, val source: String, val scope: String, val recovery: JsonObject?, val options: List<JsonObject> = emptyList())
 
     /** Keep recovery allowance, native reads and delivery witnesses outside the evictable provider replay. */
     class State(calls: Collection<ProviderEvent.ToolCall> = emptyList(), results: Collection<AgentToolResult> = emptyList()) {
@@ -59,9 +59,9 @@ internal object GitHubReplayRecovery {
                         capacityRefusals.remove(call.callId)
                     } else {
                         val previousCapacity = capacityRefusals[call.callId]?.takeIf {
-                            it.first == call && it.second.copy(recovery = null) == capacity.copy(recovery = null)
+                            it.first == call && it.second.copy(recovery = null, options = emptyList()) == capacity.copy(recovery = null, options = emptyList())
                         }?.second
-                        capacityRefusals[call.callId] = call to capacity.copy(recovery = capacity.recovery ?: previousCapacity?.recovery)
+                        capacityRefusals[call.callId] = call to capacity.copy(recovery = capacity.recovery ?: previousCapacity?.recovery, options = capacity.options.ifEmpty { previousCapacity?.options.orEmpty() })
                     }
                     val page = result?.let { savedPageKey(call, it) }
                     val previous = verifiedReads[call.callId]?.takeIf {
@@ -98,7 +98,12 @@ internal object GitHubReplayRecovery {
             return capacityRefusals.values.any { it.second.page == page && parsed.bytes <= it.second.bytes }
         }
         fun capacityRecoveries(): List<Pair<ProviderEvent.ToolCall, JsonObject>> = capacityRefusals.values.mapNotNull { (call, refusal) ->
-            refusal.recovery?.let { call to buildJsonObject { put("recovery_call", it) } }
+            refusal.recovery?.let {
+                call to buildJsonObject {
+                    put("recovery_call", it)
+                    if (refusal.options.isNotEmpty()) put("recovery_options", JsonArray(refusal.options))
+                }
+            }
         }
         fun select(call: ProviderEvent.ToolCall) {
             selectedReads[call.callId] = call.name to call.arguments
@@ -400,11 +405,19 @@ internal object GitHubReplayRecovery {
         val compactedRecovery = body?.takeIf {
             it["replay_compacted"] == JsonPrimitive(true) && it["previously_delivered"] == JsonPrimitive(false) && it["recovery_required"] == JsonPrimitive(true)
         }?.get("continuation_call") as? JsonObject
-        val recovery = ((body?.get("recovery_call") as? JsonObject) ?: compactedRecovery)?.takeIf { recipe ->
+        fun validRecovery(recipe: JsonObject): Boolean {
             val corrected = GitHubSavedReadProgress.recipeCursor(recipe, call.name)
-            corrected != null && corrected.view == cursor.view && corrected.offset == cursor.offset && corrected.bytes > cursor.bytes
+            return corrected != null && corrected.view == cursor.view && corrected.offset == cursor.offset && corrected.bytes > cursor.bytes
         }
-        return CapacityRefusal(pageKey(call.name, value), cursor.bytes, source, requireNotNull(text("saved_view_scope_hash")), recovery)
+        // Intermediate handles need the native receipt's issuance list. A model
+        // projection cannot authorize a new byte size by editing cursor text.
+        val options = (receipt["saved_view_recovery_options"] as? JsonArray).orEmpty()
+            .filterIsInstance<JsonObject>().filter(::validRecovery).distinct()
+        val issuedRecovery = receipt["saved_view_recovery_call"] as? JsonObject
+        val recovery = ((body?.get("recovery_call") as? JsonObject) ?: compactedRecovery ?: issuedRecovery)?.takeIf {
+            validRecovery(it) && (issuedRecovery == null || it == issuedRecovery || it in options)
+        }
+        return CapacityRefusal(pageKey(call.name, value), cursor.bytes, source, requireNotNull(text("saved_view_scope_hash")), recovery, options)
     }
 
     /** Advance only native-issued reads; exhaustive search is an explicit task policy. */
@@ -506,7 +519,7 @@ internal object GitHubReplayRecovery {
     ): ProviderEvent.ToolCall? {
         exchanges.forEach { state?.record(it.calls, it.results) }
         val calls = exchanges.flatMap { it.calls }
-        val maximumBytes = (maxReplayResultTokens.toLong().coerceAtLeast(0) * 3).coerceAtMost(8192).toInt()
+        val maximumBytes = (maxReplayResultTokens.toLong().coerceAtLeast(0) * 3).coerceAtMost(8192).coerceAtMost(maxOutputBytes.toLong().coerceAtLeast(0)).toInt()
         // A proven native capacity refusal may use more of the existing round's
         // allowance. Reserve room for its call, controls and other evidence; do
         // not enlarge the accepted context or tool-output budget.
@@ -550,7 +563,10 @@ internal object GitHubReplayRecovery {
                 }
                 val recoverySource = if (capacity != null) {
                     val recovery = capacity.recovery ?: return@mapNotNull null
-                    buildJsonObject { put("recovery_call", recovery) }
+                    buildJsonObject {
+                        put("recovery_call", recovery)
+                        if (capacity.options.isNotEmpty()) put("recovery_options", JsonArray(capacity.options))
+                    }
                 } else {
                     source
                 }

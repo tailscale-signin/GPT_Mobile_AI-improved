@@ -21,6 +21,40 @@ import org.junit.Test
 class ToolCatalogSelectorRecoveryTest {
     private fun reader(name: String, visible: Boolean = true) = AgentToolDefinition(name, "Read document status", JsonObject(emptyMap()), modelVisible = visible)
 
+    @Test fun mixedActionSelectionOffersLocalContractLookupWithoutDroppingAnyRequestedName() = runTest {
+        val definitions = listOf("github_context", "github_pr", "github_read", "github_ci", "github_issue", "github_search").map {
+            GitHubOperationTool.definition(it, "${it}__selected")
+        }
+        var acquisitions = 0
+        val catalog = ProgressiveToolCatalog(definitions, "Review repository", githubMode = true, acquireCold = { _, _ ->
+            acquisitions++
+            emptyList()
+        })
+        val names = JsonArray(definitions.map { JsonPrimitive(it.name) })
+        val original = buildJsonObject {
+            put("names", names)
+            put("action", "context")
+        }
+        val rejected = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4)).bind(catalog).execute("mixed-action", original)
+        assertTrue(rejected.isError)
+        assertFalse(rejected.dispatched)
+        val body = (rejected.content as ToolResultContent.Json).value.jsonObject
+        assertFalse(body.containsKey("correction_calls"))
+        val correction = body.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive(ProgressiveToolCatalog.NAME), correction["tool"])
+        val corrected = correction.getValue("arguments").jsonObject
+        assertEquals(names, corrected["names"])
+        assertEquals(JsonPrimitive(true), corrected["catalog_only"])
+        assertFalse(corrected.containsKey("action"))
+        val lookup = catalog.execute("inspect-declared-actions", corrected)
+        assertFalse(lookup.toString(), lookup.isError)
+        assertFalse(lookup.dispatched)
+        assertEquals(0, acquisitions)
+        val explicitAcquisition = JsonObject(original + ("catalog_only" to JsonPrimitive(false)))
+        val blocked = ToolArgumentValidator.rejection("explicit", catalog.definition.name, explicitAcquisition, catalog.definition.inputSchema, catalog = catalog)
+        assertFalse((blocked.content as ToolResultContent.Json).value.jsonObject.containsKey("correction_call"))
+    }
+
     @Test fun searchActionWithoutNamesPreservesQueryAndUsesOnlyLocalDiscovery() = runTest {
         val definitions = listOf(reader("read_document"), reader("private_reader", visible = false))
         var coldCalls = 0
@@ -81,6 +115,7 @@ class ToolCatalogSelectorRecoveryTest {
         assertTrue(rejected.isError)
         assertFalse(rejected.dispatched)
         val payload = (rejected.content as ToolResultContent.Json).value.jsonObject
+        assertFalse(payload.containsKey("correction_call"))
         val selectors = payload.getValue("correction_calls") as JsonArray
         assertEquals(2, selectors.size)
         selectors.forEachIndexed { index, value ->

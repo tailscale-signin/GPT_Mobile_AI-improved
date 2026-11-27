@@ -83,6 +83,12 @@ internal object GitHubEffectiveRecovery {
             !anyTrue("user_input_required") &&
             report.text("task_outcome") !in setOf("PARTIAL", "BLOCKED", "REJECTED", "WAITING_PROVIDER_LIMIT", "WAITING_FOR_CONNECTION") &&
             (ledger == null || ledger.text("requested_task") == "VERIFIED_COMPLETE")
+        val capacityBlocked = report.text("current_failure_code") == "CONTEXT_CAPACITY_EXCEEDED" &&
+            report["resume_allowed"] == JsonPrimitive(false) &&
+            (report["output_checkpoint"] as? JsonObject)?.let { output ->
+                output["state"] == JsonPrimitive("BLOCKED_CONTEXT_CAPACITY") &&
+                    output["task_binding"] == report["binding"]
+            } == true
         return when {
             (ledger?.get("unresolved_remote_outcomes") as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true ||
                 anyTrue("requires_reconciliation") ||
@@ -96,6 +102,7 @@ internal object GitHubEffectiveRecovery {
             pendingApproval -> Decision(Kind.REVIEW_APPROVAL, "WAITING_FOR_APPROVAL", "Review approval")
             currentRecoveryCode != null && !completedClaimExtractionRepair ->
                 if (currentRecoveryCode == "PROVIDER_WAIT_OUTCOME_UNKNOWN") Decision(Kind.RECONCILE_REMOTE_OUTCOME, "RECONCILE_REMOTE_OUTCOME", "Review uncertain write") else inspection(recoveryAttempt.text("next_action").ifBlank { "REVIEW_SAVED_RECOVERY" })
+            capacityBlocked -> inspection("CHANGE_CONTEXT_PLAN")
             // Durable completion supersedes a retained provider cooldown. Current
             // authority, approval and uncertain-outcome blockers above still win.
             verifiedCompletion -> Decision(Kind.NONE, "NONE", "Completed")
@@ -132,19 +139,30 @@ internal object GitHubEffectiveRecovery {
             current["resume_allowed"]?.let { put("resume_allowed", it) }
             put("task_binding", binding)
         }
-        val refusal = if (current["state"] == JsonPrimitive("BLOCKED_RECOVERY") &&
-            code != null &&
-            (attempt?.get("checkpoint_binding") == null || attempt["checkpoint_binding"] == JsonPrimitive(binding))
-        ) {
-            buildJsonObject {
-                put("current_failure_code", code)
-                attempt?.let { put("latest_recovery_failure", it) }
-                put("task_outcome", "BLOCKED")
-                put("completion_verified", false)
-                put("resume_allowed", false)
+        val refusal = when {
+            current["state"] == JsonPrimitive("BLOCKED_RECOVERY") &&
+                code != null &&
+                (attempt?.get("checkpoint_binding") == null || attempt["checkpoint_binding"] == JsonPrimitive(binding)) -> {
+                buildJsonObject {
+                    put("current_failure_code", code)
+                    attempt?.let { put("latest_recovery_failure", it) }
+                    put("task_outcome", "BLOCKED")
+                    put("completion_verified", false)
+                    put("resume_allowed", false)
+                }
             }
-        } else {
-            JsonObject(emptyMap())
+            current["state"] == JsonPrimitive("BLOCKED_CONTEXT_CAPACITY") &&
+                current["resume_allowed"] == JsonPrimitive(false) &&
+                current["failure_code"] == JsonPrimitive("CONTEXT_CAPACITY_EXCEEDED") -> {
+                buildJsonObject {
+                    put("current_failure_code", "CONTEXT_CAPACITY_EXCEEDED")
+                    put("recovery_action", "CHANGE_CONTEXT_PLAN")
+                    put("task_outcome", "BLOCKED")
+                    put("completion_verified", false)
+                    put("resume_allowed", false)
+                }
+            }
+            else -> JsonObject(emptyMap())
         }
         return attach(JsonObject(report + refusal + ("output_checkpoint" to projection)))
     }

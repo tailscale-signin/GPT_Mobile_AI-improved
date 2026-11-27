@@ -43,6 +43,14 @@
       "mainSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
       "predecessorReleaseWorkflowRun": 45919342950,
       "details": "PR 2646 reached main with the Android 0.9.66.18 build 152 and Gateway 18.1.5 publication request. With the same versions, both release trigger decisions were false for PR 2651. Reserve Android 0.9.66.19 build 153 and Gateway 18.1.6 for this PR so the signed assets can identify its own qualified merge."
+    },
+    {
+      "state": "ANDROID_UNIT_REPAIR",
+      "sourceSha": "f987835a1bd3604ba075bc6b0b61db72427b75c2",
+      "observedHead": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
+      "workflowRun": 45918575936,
+      "job": 140244972763,
+      "details": "The Android unit suite reported two failures in 15,118 tests. The integrated phone enum added ISSUE_INTAKE while the service contract and count assertion still described the earlier wire format. A truncated tree read with no directory identity threw a generic exception before the incomplete-tree result could be returned. Both paths remain present at the source revision."
     }
   ],
   "verification": {

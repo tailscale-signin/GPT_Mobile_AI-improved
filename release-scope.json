@@ -43,7 +43,8 @@
     "Default new Gateway tasks to evidence-guided next actions while retaining accepted request, conversation, recovery and rejection identities.",
     "Use a fresh empty issue inventory to complete issue-only repair requests. Base session reports and progress previews on retained tool events and carry verified obligations into continuation.",
     "Keep GitHub session reports within the requesting turn and selected profile, preserve attachment and repair workflows, and resume previously accepted Gateway jobs.",
-    "Streaming voice replies preload the selected local speech library, keep nearby sentence endings together, and play completed words while additional reply text is pending."
+    "Streaming voice replies preload the selected local speech library, keep nearby sentence endings together, and play completed words while additional reply text is pending.",
+    "Carry issue-intake evidence through Android and the report service. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -410,6 +411,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMeaningfulProgressTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPullFileInventoryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSchedulerAndPaginationTest.kt",

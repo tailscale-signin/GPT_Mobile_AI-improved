@@ -193,8 +193,12 @@ internal class GitHubRepositorySession(
                 val entries = directories[sha] ?: run {
                     if (directories.size >= 32) return@run emptyList()
                     val tree = GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/$sha").jsonObject, sha)
-                    require(tree.s("sha") == sha) { "The directory identity differs from the pinned tree." }
-                    tree.getValue("tree").jsonArray.map { it.jsonObject }.also { directories[sha] = it }
+                    val children = if (tree.s("sha").equals(sha, ignoreCase = true)) {
+                        tree.getValue("tree").jsonArray.map { it.jsonObject }
+                    } else {
+                        emptyList()
+                    }
+                    children.also { directories[sha] = it }
                 }
                 val entry = entries.singleOrNull { it.s("path") == component } ?: break
                 if (index == parts.lastIndex && entry.s("type") == "blob" && entry.s("mode") in setOf("100644", "100755") && entry.s("sha").sha()) {

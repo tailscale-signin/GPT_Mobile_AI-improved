@@ -6,6 +6,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Carry issue-intake evidence through Android and the report service. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request.
 - Session reports use earlier turns in the same chat. A resumed Gateway job keeps its original owner, and attached evidence or an explicit repair follows the selected workflow.
 - Use a fresh empty issue inventory to complete issue-only repair requests. Base session reports and progress previews on retained tool events and carry verified obligations into continuation.
 - Open GitHub mode directly for one eligible account, require an explicit account and host when several are available, restore later-page installation access without losing drafts, and identify unavailable explicit Gateway routes.

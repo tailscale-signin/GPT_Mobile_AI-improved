@@ -1520,6 +1520,9 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
 
     def test_acceptance_observation_causes_keep_closed_entries_and_comparison_policy(self):
+        intake = self.capture("ACCEPTANCE", {"acceptance_publication_source": "ISSUE_INTAKE",
+                                              "acceptance_publication_entry": "ISSUE_INTAKE"})
+        self.assertEqual(intake, validate_diagnostics(copy.deepcopy(intake)))
         reasons = ["TOOL_NOT_IN_AUTHORIZED_CATALOG", "UNRECOGNIZED_EVIDENCE_OPERATION", "TARGET_OUTSIDE_ACCEPTED_SCOPE"]
         for entry in capsule.ENUMS["acceptance_publication_entry"]:
             for observed in ([reason] for reason in reasons):

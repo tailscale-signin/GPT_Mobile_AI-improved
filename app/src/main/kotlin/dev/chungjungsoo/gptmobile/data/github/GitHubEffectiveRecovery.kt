@@ -73,7 +73,7 @@ internal object GitHubEffectiveRecovery {
             codeCandidates.any { it in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "OUTPUT_LIMIT") } &&
                 action in setOf("RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT", "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT") &&
                 layers.any { it.text("stage").equals("claim_extraction", ignoreCase = true) || it.text("failed_stage").equals("claim_extraction", ignoreCase = true) } &&
-                anyTrue("transport_complete", "generation_completed") &&
+                (anyTrue("transport_complete") || anyTrue("generation_completed")) &&
                 layers.any { it.text("remote_acceptance").equals("YES", ignoreCase = true) || it.text("remote_acceptance").equals("ACCEPTED", ignoreCase = true) } &&
                 (anyTrue("evidence_retention_complete") || layers.any { (it["batch"] as? JsonObject)?.isNotEmpty() == true || (it["extraction_batch"] as? JsonObject)?.isNotEmpty() == true }) &&
                 !anyFalse("automatic_retry_allowed")

@@ -312,7 +312,7 @@ internal data class IssueReportDiagnostics(
 
         // A single retained criterion must not hide the other observed blocker categories.
         private val acceptanceBlockerTotals = setOf("acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total")
-        private val githubPrerequisiteFields = setOf("repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation", "acceptance_prerequisite_blockers", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count", "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_preparation_state")
+        private val githubPrerequisiteFields = setOf("repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation", "acceptance_prerequisite_blockers", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count", "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_preparation_state", "acceptance_fixture_creation_admissible", "acceptance_acquisition_allowed", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum")
         private val graphPolicyFields = setOf("branch_protection_http_status", "branch_rules_http_status")
         private val graphPolicyBlockers = setOf("GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED")
         private val conflictEvidenceFields = setOf(

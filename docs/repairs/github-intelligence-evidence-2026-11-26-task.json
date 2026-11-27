@@ -24,6 +24,12 @@
       "state": "REBASED",
       "sourceSha": "cb6518738c3d9cf6c6315b1a9d379811ca924dc7",
       "details": "Preserved incoming microphone routing and regenerated both Android inventory files from the combined tree."
+    },
+    {
+      "state": "ANDROID_ACCEPTANCE_REPAIR",
+      "sourceSha": "dd9c93d5720d5e74412b40d9796206add3748f35",
+      "observedHead": "d94cadd78dd1ac1c0ad1998e8c4bbca42a749ddb",
+      "details": "The API 34 emulator on workflow 45913191695, job 140226354255, could not find Stop benchmark after the test clicked Start without first bringing it into view. The API 36 matrix job 140226354564 passed on the same source. The acceptance harness sets a 320 dp wide viewport and 2x font scale. The integrated head retains the same benchmark screen and test. Bring both controls into view, wait for the running state and retain the terminal state and readable export assertions."
     }
   ],
   "verification": {

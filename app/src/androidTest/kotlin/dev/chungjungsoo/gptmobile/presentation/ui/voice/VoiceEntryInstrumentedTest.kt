@@ -54,8 +54,9 @@ class VoiceEntryInstrumentedTest {
                 }
             }
             compose.waitUntil(10_000) { model.state.value.loaded }
-            compose.onNodeWithText("Run full voice benchmark").assertIsEnabled().performClick()
-            compose.onNodeWithText("Stop benchmark").performScrollTo().performClick()
+            compose.onNodeWithText("Run full voice benchmark").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
+            compose.waitUntil(10_000) { model.state.value.running }
+            compose.onNodeWithText("Stop benchmark").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
             compose.waitUntil(20_000) { !model.state.value.running && model.state.value.suite != null }
             compose.onNodeWithTag("voice_benchmark_suite_export").performScrollTo().assertIsEnabled()
             val suite = requireNotNull(model.state.value.suite)

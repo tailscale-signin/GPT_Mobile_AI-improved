@@ -59,6 +59,11 @@
       "workflowRun": 45919757490,
       "job": 140248455283,
       "details": "The API 34 emulator rendered the Stop benchmark button, but the unpacked benchmark finished before Compose injected the tap. The stack identified VoiceEntryInstrumentedTest.kt:59 and the last rendered stop semantics. The same test remains on the integrated head. Hold initial model discovery in the isolated test directory until the real Stop button accepts cancellation, then verify the cancelled run identity and complete stage inventory in its exported JSON."
+    },
+    {
+      "state": "GATEWAY_DIAGNOSTIC_RELEASE_SCOPE",
+      "sourceSha": "3d7bdace1c9b53a75c058fbdd88ed0cd27ccfaa8",
+      "details": "The release scope check rejected five exact paths from the concurrent Gateway reasoning and continuation repair. Reviewed the checklist and budget implementation, the two named regression files and their diagnostic record. Include these paths and describe the user-visible change in the coordinated release."
     }
   ],
   "verification": {

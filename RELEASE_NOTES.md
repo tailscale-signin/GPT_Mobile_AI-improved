@@ -6,6 +6,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Gateway GitHub chats honor the saved reasoning preference and request the CI tools needed for the current task. Continue keeps the accepted request and verified evidence within the selected model’s context limit, and can restore a displaced tool after verified progress.
 - While the microphone is active, Voice Mode prepares authorized tool catalogues and searches saved memory locally as words settle. Later turns reuse session metadata and exact matching recall. Translation skips these preparations.
 - Tap the central microphone to listen or finish speaking. Stop cancels the current voice turn and playback. Choose a reply language beside Text chat to switch the written and spoken reply together, or select Translate only to hear a direct translation.
 - Carry issue-intake evidence through Android and the report service. Android checks for service support before sending a report containing this evidence. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request.

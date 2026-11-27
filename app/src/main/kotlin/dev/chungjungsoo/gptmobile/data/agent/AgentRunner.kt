@@ -2803,7 +2803,12 @@ class AgentRunner(
             }
             consumedCallIds += deliveredCallIds
             deliveredResultDigests.putAll(deliveredBodies)
-            while (deliveredResultDigests.size > ToolResultDeliveryProof.MAX_RESULTS) deliveredResultDigests.remove(deliveredResultDigests.keys.first())
+            val retainedDigests = SavedPageReading.retainDeliveryDigests(
+                deliveredResultDigests,
+                completedReading.takeIf { deliveryOnly } ?: savedPageReading
+            )
+            deliveredResultDigests.clear()
+            deliveredResultDigests.putAll(retainedDigests)
         }
         return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted, evidenceCorrectionEligible = evidenceCorrectionEligible, savedPageDelivery = deliveryOnly && completed && failure == null, savedPageReading = completedReading)
     }

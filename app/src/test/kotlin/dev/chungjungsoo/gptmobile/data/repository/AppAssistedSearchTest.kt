@@ -201,7 +201,7 @@ class AppAssistedSearchTest {
             events::add
         )
 
-        assertNotNull(packet)
+        assertTrue(packet != null)
         assertTrue(requireNotNull(packet).contains("Launch scheduled for October 27."))
         assertEquals(1, pageReads)
         assertTrue(events.any { it is ApiState.Notice })

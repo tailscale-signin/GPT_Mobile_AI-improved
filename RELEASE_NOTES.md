@@ -6,6 +6,7 @@ This release implements the sixteen findings from the November 26 build-151 runt
 
 ## Changes
 
+- Use a fresh empty issue inventory to complete issue-only repair requests. Base session reports and progress previews on retained tool events and carry verified obligations into continuation.
 - Open GitHub mode directly for one eligible account, require an explicit account and host when several are available, restore later-page installation access without losing drafts, and identify unavailable explicit Gateway routes.
 - Fit pinned repository excerpts to the actual remaining request capacity while preserving bounded memory capture, source identity, whole-line ranges and explicit unread pointers.
 - Reuse identical retained evidence at capacity and pause a Gateway job durably when a new stage result cannot be saved, preserving original operation receipts without automatic replay.

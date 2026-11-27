@@ -51,6 +51,36 @@ class GitHubChecklistScheduleTest {
         assertEquals(JsonPrimitive("ACTION_SCHEMA_DISCOVERY_REQUIRED"), plan.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
     }
 
+    @Test fun partialReadSchemaDiscoveryValidatesSuppliedFieldsWithoutRequiringSelectors() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
+        val pullRequest = GitHubOperationTool.definition("github_pr")
+        val pending = call(pullRequest.name, "comments")
+        val plan = GitHubChecklistSchedule.select(
+            listOf(context, pullRequest, directory),
+            listOf(directory, context),
+            emptyMap(),
+            listOf(pending),
+            null,
+            call(context.name, "repository"),
+            true
+        )
+        assertEquals(directory.name, plan.next?.name)
+        assertEquals(JsonPrimitive("ACTION_SCHEMA_DISCOVERY_REQUIRED"), plan.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+
+        val invalid = pending.copy(arguments = json("""{"action":"comments","page":"two"}"""))
+        val rejected = GitHubChecklistSchedule.select(
+            listOf(context, pullRequest, directory),
+            listOf(directory, context),
+            emptyMap(),
+            listOf(invalid),
+            null,
+            null,
+            true
+        )
+        assertNull(rejected.next)
+        assertEquals(JsonPrimitive("ACTION_ARGUMENTS_REJECTED"), rejected.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+    }
+
     @Test fun sixPreparedIndependentReadsContinueAfterUnrelatedOperationFailures() {
         val actions = listOf("resolve", "index", "efficiency", "capabilities", "repository", "recovery")
         val tools = listOf(context)

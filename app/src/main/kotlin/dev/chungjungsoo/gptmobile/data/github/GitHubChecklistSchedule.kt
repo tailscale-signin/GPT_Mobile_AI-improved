@@ -37,7 +37,11 @@ internal object GitHubChecklistSchedule {
                             GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) &&
                                 call.arguments.text("action").isNotBlank() &&
                                 GitHubActionSchema.project(tool, call.arguments.text("action"))?.let { projected ->
-                                    ToolArgumentValidator.errors(call.arguments, projected.inputSchema).isEmpty()
+                                    // Schema acquisition precedes selector completion. Validate every
+                                    // supplied field and the action enum, but defer selector requirements
+                                    // until the discovered action schema is used for execution.
+                                    val partialSchema = JsonObject(projected.filterKeys { it !in setOf("required", "anyOf", "oneOf", "allOf") })
+                                    ToolArgumentValidator.errors(call.arguments, partialSchema).isEmpty()
                                 } == true
                             )
                     )

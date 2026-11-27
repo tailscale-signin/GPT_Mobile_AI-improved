@@ -52,7 +52,8 @@
     "Translation mode shows your words at the top and the translated reply below. The prompt fades in as you speak, stays through playback, and fades away when the microphone starts listening again.",
     "Recover saved GitHub pages displaced by chat history, fit required read schemas to small models, name missing evidence in partial reports, and cite CI failures beyond the first log page.",
     "Voice translation reserves space for the first line of dictation at the selected text size. Long control labels stay within two lines, and the reply-language list scrolls with its explanation.",
-    "Gateway keeps the completed answer and any received usage when its stream watchdog closes a Windows connection after the finish marker."
+    "Gateway keeps the completed answer and any received usage when its stream watchdog closes a Windows connection after the finish marker.",
+    "GitHub requests retain accepted-task deadline provenance, bound retries and circuit state across interruption. Checklist reads reacquire the exact action schema before execution and diagnostics preserve the recovery evidence."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -542,6 +543,15 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceFullBenchmarkViewModelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOpeningEffectTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOpeningTimerTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetry.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCircuit.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestScheduler.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDeadlineAdmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestSchedulerStressTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskTrustTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt",
     "app/src/test/resources/gateway-v18-capabilities-full.json",
     "authentication/incident_report_contract.py",
@@ -556,6 +566,7 @@
     "docs/architecture/repository-guide.md",
     "docs/architecture/repository-index.json",
     "docs/architecture/runtime-audit-20261126.md",
+    "docs/architecture/intelligence-execution-v2-diagnostic-follow-up-2026-11-27.md",
     "docs/repairs/gateway-github-diagnostics-2026-11-26-task.json",
     "docs/repairs/github-build152-issue-intake-task.json",
     "docs/repairs/github-intelligence-evidence-2026-11-26-task.json",

@@ -16,7 +16,7 @@ class GitHubAcceptanceRecoveryEvidenceTest {
     @Test fun retainedDeadlineReportsRelativeTimeOnlyWhenObserved() {
         val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000}""")
         val expired = GitHubExecutionLimits.deadlineTiming(contract, 66000)
-        assertEquals(json("""{"task_deadline_observation":"WINDOW_EXPIRED","task_deadline_clock":"WALL_CLOCK","task_deadline_renewed":false,"task_deadline_window_seconds":60,"task_deadline_elapsed_seconds":65,"task_deadline_remaining_seconds":0,"task_deadline_overdue_seconds":5}"""), expired)
+        assertEquals(json("""{"task_deadline_observation":"WINDOW_EXPIRED","task_deadline_clock":"WALL_CLOCK","task_deadline_source":"ACCEPTED_TASK_CONTRACT","task_deadline_renewed":false,"task_deadline_window_seconds":60,"task_deadline_elapsed_seconds":65,"task_deadline_remaining_seconds":0,"task_deadline_overdue_seconds":5}"""), expired)
         val open = GitHubExecutionLimits.deadlineTiming(contract, 60000)
         assertEquals(JsonPrimitive("WINDOW_OPEN"), open["task_deadline_observation"])
         assertNull(open["task_deadline_overdue_seconds"])

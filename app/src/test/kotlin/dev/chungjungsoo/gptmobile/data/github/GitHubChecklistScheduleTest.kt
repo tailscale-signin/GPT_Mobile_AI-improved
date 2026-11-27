@@ -65,7 +65,8 @@ class GitHubChecklistScheduleTest {
             true
         )
         assertEquals(directory.name, plan.next?.name)
-        assertEquals(JsonPrimitive("ACTION_SCHEMA_DISCOVERY_REQUIRED"), plan.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+        assertEquals(json("""{"names":["github_pr"]}"""), plan.next?.arguments)
+        assertEquals(JsonPrimitive("EXACT_SCHEMA_DISCOVERY_REQUIRED"), plan.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
 
         val invalid = pending.copy(arguments = json("""{"action":"comments","page":"two"}"""))
         val rejected = GitHubChecklistSchedule.select(

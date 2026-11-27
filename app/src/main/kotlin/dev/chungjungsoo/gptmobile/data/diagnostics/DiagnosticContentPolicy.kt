@@ -290,7 +290,7 @@ internal class DiagnosticContentRedactor(
 
         // Repository checkpoints contain relative paths that local filesystem
         // matching cannot identify. Keep schema objects and numeric evidence.
-        private val privateRepositoryPathFields = setOf("path", "filename", "previousfilename", "pathprefix", "selectedpaths", "pendingsourcepaths")
+        private val privateRepositoryPathFields = setOf("path", "filename", "previousfilename", "pathprefix", "selectedpaths", "pendingsourcepaths", "qualificationpaths", "qualificationcandidatepaths")
         private val configuredTopologyFields = setOf(
             "apiurl", "batchapiurl", "baseurl", "apibaseurl", "gatewaybaseurl", "endpoint", "endpointurl", "serverurl", "gatewayurl", "connectionurl",
             "host", "hostname", "hostaddress", "serverhost", "serverhostname", "localhostname", "remotehost", "bindhost", "bindaddress",

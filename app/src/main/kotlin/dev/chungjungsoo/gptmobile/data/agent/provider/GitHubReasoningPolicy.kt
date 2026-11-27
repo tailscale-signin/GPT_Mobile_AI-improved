@@ -43,7 +43,7 @@ internal object GitHubReasoningPolicy {
         val last = exchanges.lastOrNull() ?: return false
         if (last.calls.isEmpty() || last.calls.size != last.results.size) return false
         return last.calls.all { call ->
-            if (!call.callId.startsWith("saved-result-consume-") || call.name.githubOperationFamily() !in setOf("github_read", "github_search", "github_context") || call.arguments.keys != setOf("view_cursor")) return@all false
+            if (call.name.githubOperationFamily() !in setOf("github_read", "github_search", "github_context") || call.arguments.keys != setOf("view_cursor")) return@all false
             if (tools.none { it.modelVisible && it.name == call.name }) return@all false
             val current = (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.split(':') ?: return@all false
             val result = last.results.singleOrNull { it.callId == call.callId }?.takeUnless { it.isError || it.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(true) } ?: return@all false
@@ -83,6 +83,20 @@ internal object GitHubReasoningPolicy {
 
     fun outputBudget(contextTokens: Int, configured: Int, profile: Int?): Int =
         if (configured > 0) configured else minOf(16_384, (contextTokens / 3).coerceAtLeast(1), profile?.takeIf { it > 0 } ?: Int.MAX_VALUE)
+
+    fun automaticVisibleDelivery(constraints: RequestConstraints): Boolean =
+        constraints.allowReasoning &&
+            constraints.reasoningModeOverride in setOf(null, ReasoningMode.AUTO) &&
+            constraints.gitHubIntelligenceLevel !in setOf(dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.DEEP_ENGINEERING, dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE) &&
+            constraints.gitHubEffort != dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM &&
+            constraints.requestRole in setOf(dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE, "github-final-summary")
+
+    /** Reserve the most room for visible text that this route explicitly supports. */
+    fun visibleOutputEffort(constraints: RequestConstraints, advertised: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.Limits?): String? {
+        if (!automaticVisibleDelivery(constraints) || advertised?.reasoningControlAdvertised != true) return null
+        if (advertised.reasoningMandatory == false && "none" in advertised.reasoningEfforts) return "none"
+        return listOf("minimal", "low").firstOrNull { it in advertised.reasoningEfforts }
+    }
 
     fun manualThinkingBudget(outputTokens: Int, role: String? = null): Int {
         val visibleReserve = maxOf(

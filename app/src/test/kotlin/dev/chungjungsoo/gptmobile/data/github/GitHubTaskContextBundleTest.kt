@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -14,6 +18,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,6 +28,80 @@ class GitHubTaskContextBundleTest {
     private val test = "app/src/test/RepairStoreTest.kt"
     private val guide = "docs/architecture/repository-guide.md"
     private val code = "package sample\n\nclass RepairStore {\n    fun repairReceipt() = true\n}\n"
+
+    @Test fun cancellationAfterSourceLoadStopsNeighborhoodPreparationWithoutPublishingAPacket() = runBlocking {
+        val cancelled = CancellationException("Repository preparation was cancelled")
+        var returnedPacket = false
+        var observedCancellation: CancellationException? = null
+        val preparation = launch {
+            try {
+                GitHubTaskContextBundle.build(
+                    "owner/repo",
+                    commit,
+                    "main",
+                    listOf(GitHubContextFile(implementation, "b".repeat(40))),
+                    "repairReceipt in $implementation",
+                    load = { path ->
+                        currentCoroutineContext().cancel(cancelled)
+                        GitHubContextSource(path, "b".repeat(40), code)
+                    }
+                )
+                returnedPacket = true
+            } catch (failure: CancellationException) {
+                observedCancellation = failure
+            }
+        }
+        preparation.join()
+        assertTrue(preparation.isCancelled)
+        assertFalse(returnedPacket)
+        assertSame(cancelled, observedCancellation)
+    }
+
+    @Test fun retainedReferenceCatalogEvictsOldRowsByUtf8BytesAndKeepsTheCurrentBlob() {
+        val large = buildJsonObject {
+            put("definitions", "界".repeat(4000))
+            put("references", "repairReceipt\n".repeat(1000))
+        }
+        val prior = JsonObject((1..256).associate { "%040x".format(it) to large })
+        val newest = "f".repeat(40)
+        val result = GitHubTaskContextBundle.boundedSymbolCatalog(prior, newest, large)
+        assertTrue(result.toString().encodeToByteArray().size <= GitHubTaskContextBundle.MAX_SYMBOL_CATALOG_BYTES)
+        assertEquals(large, result[newest])
+        assertEquals(newest, result.keys.last())
+        assertTrue(result.size < prior.size)
+        assertFalse(result.containsKey("%040x".format(1)))
+    }
+
+    @Test fun taskNeighborhoodReusesIndexedCallersAndReadsOnlyTheNearestConfiguration() = runBlocking {
+        val target = "app/src/main/RepairStore.kt"
+        val caller = "app/src/main/Screen.kt"
+        val config = "app/build.gradle.kts"
+        val texts = mapOf(
+            target to "class RepairStore { fun repairReceipt() = true }",
+            caller to "fun refreshScreen() = RepairStore().repairReceipt()",
+            config to "plugins { kotlin(\"android\") }",
+            "other/build.gradle.kts" to "UNRELATED_CONFIGURATION",
+            "other/Unrelated.kt" to "UNRELATED_SOURCE"
+        )
+        val files = texts.keys.mapIndexed { index, path ->
+            GitHubContextFile(path, "%040x".format(index + 1), references = if (path == caller) "RepairStore\nrepairReceipt" else "")
+        }
+        val reads = mutableListOf<String>()
+        val result = GitHubTaskContextBundle.build("owner/repo", commit, "main", files, "repairReceipt in $target", budgetBytes = 24_000, load = { path ->
+            reads += path
+            GitHubContextSource(path, files.single { it.path == path }.blobSha, texts.getValue(path), cacheHit = true)
+        })
+        assertEquals(setOf(target, caller, config), reads.toSet())
+        val ranges = result.getValue("selected_ranges").jsonArray.map { it.jsonObject }
+        assertEquals(JsonPrimitive("RETAINED_LEXICAL_CALLER"), ranges.single { it["path"] == JsonPrimitive(caller) }["reason"])
+        assertEquals(JsonPrimitive("BUILD_CONFIGURATION"), ranges.single { it["path"] == JsonPrimitive(config) }["reason"])
+        val coverage = result.getValue("coverage").jsonObject
+        assertEquals(JsonPrimitive(1), coverage["caller_files"])
+        assertEquals(JsonPrimitive(1), coverage["configuration_files"])
+        assertEquals(JsonPrimitive(ranges.sumOf { it.getValue("excerpt").jsonPrimitive.content.encodeToByteArray().size }), coverage["selected_source_bytes"])
+        assertEquals(JsonPrimitive(false), coverage["exhaustive"])
+        assertEquals(JsonPrimitive("ATTEMPTED_TASK_SELECTION_ONLY"), result["source_completeness_scope"])
+    }
 
     @Test fun smallProfileReceivesOnlyRankedUnreadPathsWithinItsUtf8Budget() {
         val tree = buildJsonObject {

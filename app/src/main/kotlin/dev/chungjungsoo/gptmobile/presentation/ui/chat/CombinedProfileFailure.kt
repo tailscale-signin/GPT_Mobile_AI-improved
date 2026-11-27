@@ -4,6 +4,9 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetKind
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** One decision queue derived from durable current attempts; successful replies are never replaced. */
 data class CombinedProfileFailure(
@@ -19,14 +22,26 @@ data class CombinedProfileFailure(
     val retryAfterMillis: Long? = null,
     val category: String = "INCOMPLETE",
     val retrying: Boolean = false,
-    val waitingForApproval: Boolean = false
+    val waitingForApproval: Boolean = false,
+    val budgetKind: ProviderBudgetKind? = null
+)
+
+// Older saved runs have only the terminal message. A bare 402 or billing category
+// does not distinguish an account balance from a key or request-level limit.
+private val legacyCreditDenial = Regex(
+    """\b(?:credit balance (?:is |was )?too low|no credits remaining|insufficient credits|account credits cannot cover this request)\b""",
+    RegexOption.IGNORE_CASE
 )
 
 internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     retrying -> "Retrying…"
     category == "WAITING_FOR_APPROVAL" -> "Waiting for approval"
     category == "ENDPOINT_RETIRED" -> "Endpoint retired"
-    category == "BILLING_UNAVAILABLE" -> "Provider credits unavailable"
+    category == "BILLING_UNAVAILABLE" -> when (budgetKind) {
+        ProviderBudgetKind.ACCOUNT_CREDITS -> "Provider credits unavailable"
+        null, ProviderBudgetKind.UNKNOWN -> if (legacyCreditDenial.containsMatchIn(details)) "Provider credits unavailable" else "Provider allowance unavailable"
+        else -> "Provider allowance unavailable"
+    }
     category == "QUEUED_JOB" -> "Waiting for remote job"
     category == "CACHED_UNUSABLE_RESPONSE" -> "Cached answer unavailable"
     category == "HOSTED_GENERATION_FAILED" -> "Provider generation failed"
@@ -102,7 +117,7 @@ internal fun combinedProfileFailures(
     val retryAt = savedDeadline?.effectiveRetryAt ?: classified.retryAfterMillis
     val reason = when {
         classified.category == "ENDPOINT_RETIRED" -> "The provider retired this endpoint. Update the endpoint or model before starting a new turn."
-        classified.category == "BILLING_UNAVAILABLE" -> "The provider cannot generate with the current account balance. Restore credits before starting a new turn."
+        classified.category == "BILLING_UNAVAILABLE" -> PROVIDER_ALLOWANCE_GUIDANCE
         waitingForLimit -> "This profile is paused by a provider limit. Wait for its allowance or combine the available replies without this profile for this turn."
         waitingForApproval -> "This GitHub task is paused until you resolve its existing Approve & Commit card. Generic Continue is disabled while the approval is pending."
         run.status == AgentRunStatus.WAITING_REMOTE_JOB || classified.category == "QUEUED_JOB" -> "The remote job is still queued or generating. Check its saved status or continue without this profile."
@@ -134,5 +149,7 @@ internal fun combinedProfileFailures(
             else -> classified.category
         }
     }
-    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category, waitingForApproval = waitingForApproval)
+    val budgetName = (classified.providerFailure?.get("provider_budget_kind") as? JsonPrimitive)?.contentOrNull
+    val budgetKind = budgetName?.let { name -> ProviderBudgetKind.entries.firstOrNull { it.name == name } }
+    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category, waitingForApproval = waitingForApproval, budgetKind = budgetKind)
 }

@@ -149,6 +149,10 @@ internal object GitHubIntegrationReport {
         }
         append("**Task outcome: ${if (complete) "acceptance verified" else "partial acceptance"}.** $accepted/${requiredCriteria.size} required task criteria verified. ")
         append("${passedCapabilities.size}/${requiredCapabilities.size} required API capabilities verified; ${capabilities.size - requiredCapabilities.size} capability rows are excluded from that denominator. Task criteria and API capabilities are independent counts.\n\n")
+        val qualification = GitHubQualificationSummary.snapshot(task, JsonArray(capabilities))
+        append("**Qualification scope: ${qualification.text("scope_label")}.** ")
+        append("${qualification.text("passed")} passed · ${qualification.text("blocked")} blocked by prerequisites · ${qualification.text("untested")} untested · ${qualification.text("failed")} failed · ${qualification.text("excluded")} excluded. ")
+        append("The ${qualification.text("remaining")} remaining required capabilities retain their exact prerequisites below. Scope does not grant additional permissions or prove current device execution.\n\n")
         val budget = checkpoint["stage_budget"] as JsonObject
         val stop = stopReason(task, receipts, tools, budget.number("remaining_calls"), checkpoint)
         if (!complete) {

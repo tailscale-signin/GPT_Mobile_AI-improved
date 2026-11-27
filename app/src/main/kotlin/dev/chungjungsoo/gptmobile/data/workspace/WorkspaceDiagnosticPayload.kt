@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.workspace
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticJsonShapeFailure
@@ -42,12 +43,14 @@ internal suspend fun readWorkspaceDiagnosticPayload(
     timings: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings? = null
 ): WorkspaceDiagnosticPayload {
     require(maximumBytes in 1024..1_048_576)
+    fun <T> measure(phase: DiagnosticCaptureTimings.Phase, work: () -> T): T = if (timings == null) work() else timings.measure(phase, work)
+    suspend fun <T> measureSuspending(phase: DiagnosticCaptureTimings.Phase, work: suspend () -> T): T = if (timings == null) work() else timings.measureSuspending(phase, work)
     val chunks = metadata["protectedChunks"]
     val single = metadata["protectedReference"]
     if (chunks == null && (single == null || single.toString() == "null")) return WorkspaceDiagnosticPayload(false)
     fun missing(reason: String) = WorkspaceDiagnosticPayload(true, omissionReason = reason)
     beforeRead()
-    if (chatId <= 0 || !authorized()) return missing("PROTECTED_SOURCE_UNAVAILABLE")
+    if (chatId <= 0 || !measureSuspending(DiagnosticCaptureTimings.Phase.PROTECTED_AUTHORIZATION, authorized)) return missing("PROTECTED_SOURCE_UNAVAILABLE")
     val references = when {
         chunks is JsonArray && chunks.size in 1..25 -> chunks.map { (it as? JsonPrimitive)?.contentOrNull }
         chunks != null -> return missing("PROTECTED_REFERENCE_INVALID")
@@ -66,7 +69,7 @@ internal suspend fun readWorkspaceDiagnosticPayload(
     for (reference in references) {
         beforeRead()
         val size = try {
-            storedSize(requireNotNull(reference))
+            measureSuspending(DiagnosticCaptureTimings.Phase.PROTECTED_STORAGE_STAT) { storedSize(requireNotNull(reference)) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -87,7 +90,7 @@ internal suspend fun readWorkspaceDiagnosticPayload(
         for (reference in references) {
             beforeRead()
             val chunk = try {
-                read(requireNotNull(reference))
+                measureSuspending(DiagnosticCaptureTimings.Phase.PROTECTED_READ_DECRYPT) { read(requireNotNull(reference)) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -102,7 +105,9 @@ internal suspend fun readWorkspaceDiagnosticPayload(
             }
         }
         if (expectedDigest != null) {
-            val digest = DiagnosticRecordChunks.hex(MessageDigest.getInstance("SHA-256").apply { update(output, 0, used) }.digest())
+            val digest = measure(DiagnosticCaptureTimings.Phase.PROTECTED_DIGEST) {
+                DiagnosticRecordChunks.hex(MessageDigest.getInstance("SHA-256").apply { update(output, 0, used) }.digest())
+            }
             if (digest != expectedDigest) return missing("PROTECTED_DIGEST_MISMATCH")
         }
         val nodes = diagnosticNodeBudget(maximumBytes)
@@ -111,8 +116,10 @@ internal suspend fun readWorkspaceDiagnosticPayload(
         if (expectedDigest == null || timings?.hasVerifiedShape(nodes, expectedDigest) != true) {
             val shapeFailure = try {
                 val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
-                InputStreamReader(ByteArrayInputStream(output, 0, used), decoder).use { reader ->
-                    diagnosticJsonShapeFailure(reader, nodes)
+                measure(DiagnosticCaptureTimings.Phase.PROTECTED_SHAPE) {
+                    InputStreamReader(ByteArrayInputStream(output, 0, used), decoder).use { reader ->
+                        diagnosticJsonShapeFailure(reader, nodes)
+                    }
                 }
             } catch (_: CharacterCodingException) {
                 return missing("PROTECTED_PAYLOAD_INVALID_UTF8")
@@ -121,14 +128,19 @@ internal suspend fun readWorkspaceDiagnosticPayload(
             if (expectedDigest != null) timings?.retainVerifiedShape(nodes, expectedDigest)
         }
         val value = try {
-            ByteArrayInputStream(output, 0, used).use { Json.decodeFromStream(JsonElement.serializer(), it) as? JsonObject }
+            measure(DiagnosticCaptureTimings.Phase.PROTECTED_JSON_PARSE) {
+                ByteArrayInputStream(output, 0, used).use { Json.decodeFromStream(JsonElement.serializer(), it) as? JsonObject }
+            }
         } catch (_: IllegalArgumentException) {
             null
         } ?: return missing("PROTECTED_PAYLOAD_INVALID_JSON")
         beforeRead()
-        if (!authorized()) return missing("PROTECTED_SOURCE_CHANGED")
-        val projected = (projector ?: DiagnosticValueProjector(maximumBytes, omitted)).element(value)
-        return WorkspaceDiagnosticPayload(true, redactChatDebugData(projected), decodedBytes = used)
+        if (!measureSuspending(DiagnosticCaptureTimings.Phase.PROTECTED_AUTHORIZATION, authorized)) return missing("PROTECTED_SOURCE_CHANGED")
+        val projected = measure(DiagnosticCaptureTimings.Phase.PROTECTED_PROJECTION) {
+            (projector ?: DiagnosticValueProjector(maximumBytes, omitted)).element(value)
+        }
+        val safe = measure(DiagnosticCaptureTimings.Phase.PROTECTED_REDACTION) { redactChatDebugData(projected) }
+        return WorkspaceDiagnosticPayload(true, safe, decodedBytes = used)
     } finally {
         output.fill(0)
     }

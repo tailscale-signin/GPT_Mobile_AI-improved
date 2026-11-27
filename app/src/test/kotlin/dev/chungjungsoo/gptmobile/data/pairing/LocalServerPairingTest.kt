@@ -25,6 +25,7 @@ class LocalServerPairingTest {
     @Test fun importedConfigurationCreatesDisabledProfileWithoutCredentials() {
         val profile = PairedServer(1, "Computer", "LLAMA", "http://192.168.1.4:8080/v1", "model", 1200).profile(1000)
         assertFalse(profile.enabled)
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO, dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, null))
         assertTrue(profile.token.isNullOrBlank())
         assertEquals(Int.MAX_VALUE, profile.maxToolCalls)
         assertEquals(Int.MAX_VALUE, Json.decodeFromString<PlatformV2>(Json.encodeToString(profile)).maxToolCalls)

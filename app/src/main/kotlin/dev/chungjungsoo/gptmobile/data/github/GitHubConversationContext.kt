@@ -51,6 +51,14 @@ data class GitHubConversationContext(
         }
         val status = GitHubStatusRequest.matches(request)
         val review = GitHubReviewComparison.matches(request)
+        if (contextTokens <= 8192) {
+            return buildString {
+                append("GitHub workspace: $workspace\nBranch: $branch\nHead observed at chat binding: $commitSha.\n")
+                append("Refresh mutable state before writes/current claims. Reconcile uncertain writes; honor approvals, budgets and cancellation. Cite pinned source and matching test receipts. Report incomplete coverage and the next unfinished item.\n")
+                if (status) appendLine(GitHubStatusRequest.INSTRUCTION)
+                if (review) appendLine(GitHubReviewComparison.CORE_INSTRUCTION)
+            }.trimEnd()
+        }
         return buildString {
             append("GitHub workspace: $workspace\nBranch: $branch\nCaptured head at chat binding: $commitSha (newer explicit tool receipts supersede this snapshot)\n")
             append("Refresh before writes/claims. Reconcile uncertain writes. Respect approvals, budgets and cancellation. Use github_decide for consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.\n")

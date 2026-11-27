@@ -290,3 +290,29 @@ class GatewayModelPreparationRepository internal constructor(
         )
     }
 }
+
+/** A user Send can wake only the selected local model after its gateway reported a loadable state. */
+internal suspend fun ReasoningCapabilityRepository.checkForSelectedSend(
+    profile: PlatformV2,
+    mode: ReasoningMode,
+    preparation: GatewayModelPreparationRepository?,
+    forceRefresh: Boolean,
+    validateSelection: suspend () -> Unit,
+    onState: (GatewayModelPreparationState?) -> Unit = {}
+): ReasoningCapabilityObservation {
+    val observation = check(profile, mode, forceRefresh)
+    if (preparation == null ||
+        !profile.enabled ||
+        profile.compatibleType != ClientType.LLAMA ||
+        observation.profileUid != profile.uid ||
+        observation.model != profile.model ||
+        observation.requested != mode ||
+        observation.safeReasonCode !in setOf("SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_LOADING")
+    ) {
+        return observation
+    }
+    validateSelection()
+    val prepared = preparation.prepareSelectedWhile(profile, mode, forceRefresh = true, validateSelection = validateSelection, onState = onState)
+    validateSelection()
+    return prepared?.observation ?: observation
+}

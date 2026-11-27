@@ -21,6 +21,7 @@ data class OpenRouterModelItem(
     @SerialName("canonical_slug") val canonicalSlug: String? = null,
     @SerialName("supported_parameters") val supportedParameters: List<String>? = null,
     val architecture: kotlinx.serialization.json.JsonObject? = null,
+    val reasoning: OpenRouterReasoningCapabilities? = null,
     @SerialName("per_request_limits") val perRequestLimits: kotlinx.serialization.json.JsonObject? = null
 )
 
@@ -40,4 +41,13 @@ data class OpenRouterPricing(
 data class OpenRouterTopProvider(
     @SerialName("context_length") val contextLength: Int? = null,
     @SerialName("max_completion_tokens") val maxCompletionTokens: Int? = null
+)
+
+/** Advertised controls for this exact catalog ID, including rotating latest aliases. */
+@Serializable
+data class OpenRouterReasoningCapabilities(
+    val mandatory: Boolean? = null,
+    @SerialName("default_enabled") val defaultEnabled: Boolean? = null,
+    @SerialName("supported_efforts") val supportedEfforts: List<String> = emptyList(),
+    @SerialName("default_effort") val defaultEffort: String? = null
 )

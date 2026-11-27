@@ -360,6 +360,78 @@ class ProviderAdaptersTest {
         assertEquals("low", request.reasoning?.effort)
     }
 
+    @Test fun recordedReasoningOnlyRepairUsesSupportedLowEffortWithoutInventingANumericReasoningBudget() = runBlocking {
+        val alias = "~deepseek/deepseek-v4-flash-latest"
+        OpenRouterCatalogLimits.remember(
+            listOf(
+                OpenRouterModelItem(
+                    alias,
+                    contextLength = 1_048_576,
+                    supportedParameters = listOf("reasoning", "reasoning_effort", "max_tokens"),
+                    reasoning = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoningCapabilities(supportedEfforts = listOf("max", "high", "low", "none"), defaultEffort = "high")
+                )
+            )
+        )
+        for (mode in dev.chungjungsoo.gptmobile.data.context.ReasoningMode.entries) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            val constraints = RequestConstraints(
+                maxOutputTokens = 4096,
+                allowReasoning = mode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF,
+                reasoningModeOverride = mode,
+                maximizeReasoning = true,
+                lockSelectedRoute = true,
+                contextCeiling = 8192,
+                plannedContextCapacity = dev.chungjungsoo.gptmobile.data.context.PlannedContextCapacity(8192, dev.chungjungsoo.gptmobile.data.context.CapacityProvenance.DECLARED)
+            ).forRole(dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE)
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.OPENROUTER).copy(apiUrl = "https://openrouter.ai/api/v1", model = alias, reasoning = true, maxTokens = 4096), constraints)
+                .streamRound(emptyList(), emptyList()).toList()
+            val request = api.chatRequests.single()
+            val wire = requestJson(request)
+            val reasoning = wire.getValue("reasoning").jsonObject
+            assertEquals(4096, request.maxTokens)
+            assertEquals(alias, request.model)
+            assertFalse(reasoning.containsKey("max_tokens"))
+            assertEquals(constraints.plannedContextCapacity, api.configs.single().plannedContextCapacity)
+            when (mode) {
+                dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO -> {
+                    assertEquals("low", request.reasoning?.effort)
+                    assertFalse(api.configs.single().maximizeReasoning)
+                }
+                dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON -> {
+                    assertEquals("high", request.reasoning?.effort)
+                    assertTrue(api.configs.single().maximizeReasoning)
+                }
+                dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF -> assertEquals(false, request.reasoning?.enabled)
+            }
+        }
+    }
+
+    @Test fun automaticOutputRepairUsesProviderDefaultWhenThereIsNoBoundedEffort() = runBlocking {
+        val model = "fixture/high-only"
+        OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem(model, supportedParameters = listOf("reasoning"), reasoning = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoningCapabilities(supportedEfforts = listOf("high")))))
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        val profile = platform(ClientType.OPENROUTER).copy(apiUrl = "https://openrouter.ai/api/v1", model = model, reasoning = true)
+        val constraints = RequestConstraints(maxOutputTokens = 4096, maximizeReasoning = true).forRole(dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE)
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, constraints).streamRound(emptyList(), emptyList()).toList()
+        assertFalse(requestJson(api.chatRequests.single()).containsKey("reasoning"))
+        assertFalse(api.configs.single().maximizeReasoning)
+        assertEquals(4096, api.chatRequests.single().maxTokens)
+    }
+
+    @Test fun conservativeContextIdentityReachesTheSerializedRequestConfiguration() = runBlocking {
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        val capacity = dev.chungjungsoo.gptmobile.data.context.PlannedContextCapacity(4096, dev.chungjungsoo.gptmobile.data.context.CapacityProvenance.CONSERVATIVE_POLICY)
+        val constraints = RequestConstraints(contextCeiling = capacity.tokens, plannedContextCapacity = capacity, maxOutputTokens = 768)
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OPENROUTER).copy(apiUrl = "https://openrouter.ai/api/v1", model = "audit/unknown-capacity"), constraints.forRole("github-output-continuation"))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(4096, api.configs.single().contextCeiling)
+        assertEquals(capacity, api.configs.single().plannedContextCapacity)
+        assertEquals(768, api.chatRequests.single().maxTokens)
+    }
+
     @Test fun issuedSourcePageRoundsLowerAdvertisedEffortAndRestoreItAfterTheLastPage() = runBlocking {
         OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem("audit/source-cursor", supportedParameters = listOf("reasoning"))))
         val definition = AgentToolDefinition("github_read", "Read source", buildJsonObject { put("type", "object") })

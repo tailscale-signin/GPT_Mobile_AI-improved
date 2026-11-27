@@ -17,6 +17,47 @@ class GitHubChecklistPaginationTest {
     private fun source() = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","per_page":5},"result":{"local_page_complete":false,"continuation_call":$page}}""")
     private fun failed(recipe: JsonObject = recovery) = json("""{"trusted":true,"success":false,"tool":"github_context","arguments":{"view_cursor":"saved:1"},"error_code":"SAVED_VIEW_UNAVAILABLE","result":{"reason":"CAPACITY_EVICTED","recovery_call":$recipe}}""")
 
+    @Test fun incompletePullListFollowsItsExactGapOnceAndKeepsItsFilters() {
+        val request = json("""{"action":"list","owner":"owner","repo":"project","state":"closed","sort":"created","direction":"desc","page":7,"per_page":100}""")
+        val args = JsonObject(request + ("page" to JsonPrimitive(2)))
+        val repair = json("""{"tool":"github_pr","arguments":$args}""")
+        val result = json("""{"correction_call":$repair,"pagination_progress":{"schema":"github.pagination-progress.v1","first_unobserved_page":2,"remote_page":7,"upstream_changed_during_traversal":false,"complete":false}}""")
+        val row = json("""{"trusted":true,"success":false,"error_code":"GITHUB_PAGINATION_INCOMPLETE","tool":"github_pr","binding":"task","repository":"owner/project","arguments":$request,"result":$result}""")
+        val records = linkedMapOf("failed" to row)
+        assertEquals(listOf(repair), GitHubTestChecklist.pendingPages(records))
+        val largePage = JsonObject(mapOf("items" to kotlinx.serialization.json.JsonArray(List(100) { JsonPrimitive("x".repeat(1024)) })) + result)
+        val projected = GitHubEvidenceProjection.receipt(JsonObject(row + ("result" to largePage)))
+        assertEquals(listOf(repair), GitHubTestChecklist.pendingPages(mapOf("failed" to projected)))
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr")
+        val task = "Test all tools and complete remaining pagination"
+        assertEquals(args, GitHubTestChecklist.nextCall(task, listOf(tool), records)?.arguments)
+        records["recovered"] = JsonObject(row + mapOf("success" to JsonPrimitive(true), "arguments" to args, "result" to json("{}")))
+        assertTrue(GitHubTestChecklist.pendingPages(records).isEmpty())
+        assertFalse(GitHubTestChecklist.nextCall(task, listOf(tool), records)?.arguments == args)
+        val changed = JsonObject(repair + ("arguments" to JsonObject(args + ("state" to JsonPrimitive("open")))))
+        val wrong = JsonObject(row + ("result" to JsonObject(result + ("correction_call" to changed))))
+        assertTrue(GitHubTestChecklist.pendingPages(mapOf("failed" to wrong)).isEmpty())
+    }
+
+    @Test fun incompletePullFilePageRequiresTheSameObservedBaseAndHead() {
+        val head = "a".repeat(40)
+        val base = "b".repeat(40)
+        val request = json("""{"action":"context","pull_number":12,"page":4,"per_page":30}""")
+        val coverage = json("""{"source":"GITHUB_PR_FILES","reason":"MISSING_PR_FILE_PAGES","first_unobserved_page":2,"base_sha":"$base","head_sha":"$head"}""")
+        val progress = json("""{"schema":"github.pagination-progress.v1","complete":false,"first_unobserved_page":2}""")
+        val data = json("""{"changed_file_coverage":$coverage,"pagination_progress":$progress,"effective_per_page":30}""")
+        val args = requireNotNull(GitHubPullFileInventory.recoveryArguments(request, data, JsonPrimitive(2)))
+        fun recipes(arg: JsonObject): List<JsonObject> {
+            val repair = json("""{"tool":"github_pr","arguments":$arg}""")
+            val result = JsonObject(data + ("correction_call" to repair))
+            val receipt = json("""{"trusted":true,"success":false,"error_code":"GITHUB_PAGINATION_INCOMPLETE","tool":"github_pr","binding":"task","repository":"owner/project","arguments":$request,"result":$result}""")
+            return GitHubTestChecklist.pendingPages(mapOf("failure" to receipt))
+        }
+        assertEquals(args, recipes(args).single()["arguments"])
+        assertTrue(recipes(JsonObject(args - "expected_base_sha")).isEmpty())
+        assertTrue(recipes(JsonObject(args + ("expected_head_sha" to JsonPrimitive("c".repeat(40))))).isEmpty())
+    }
+
     @Test fun cursorOnlyDescendantsRemainInTheBoundComparisonChain() {
         val next = json("""{"tool":"github_context","arguments":{"view_cursor":"comparison:2:8192"}}""")
         val last = json("""{"tool":"github_context","arguments":{"view_cursor":"comparison:3:8192"}}""")

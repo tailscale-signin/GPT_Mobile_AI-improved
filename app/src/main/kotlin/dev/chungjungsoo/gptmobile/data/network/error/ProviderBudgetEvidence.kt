@@ -8,7 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 @Serializable
-enum class ProviderBudgetKind { ACCOUNT_CREDITS, KEY_LIMIT, REQUEST_AFFORDABILITY, IN_FLIGHT_BUDGET, UNKNOWN }
+enum class ProviderBudgetKind { ACCOUNT_CREDITS, KEY_LIMIT, REQUEST_AFFORDABILITY, IN_FLIGHT_BUDGET, PROVIDER_QUOTA, UNKNOWN }
 
 /** Closed OpenRouter metadata; human-readable remedy text and account identifiers are never retained. */
 @Serializable
@@ -24,6 +24,7 @@ data class ProviderBudgetEvidence(val kind: ProviderBudgetKind, val limitSource:
         ProviderBudgetKind.KEY_LIMIT -> "The provider rejected this request at the API key's spending limit. Review that key's allowance or reset time, then retry the saved work."
         ProviderBudgetKind.REQUEST_AFFORDABILITY -> "This request's estimated cost exceeds the provider's per-request budget. Explicitly reduce the input or output allowance, or add credits, then retry the saved work."
         ProviderBudgetKind.IN_FLIGHT_BUDGET -> "The provider's budget is temporarily committed to concurrent or recently completed requests. Allow those requests to settle before explicitly retrying the saved work."
+        ProviderBudgetKind.PROVIDER_QUOTA -> "The provider reported insufficient API quota. Check the API account’s usage limit and billing, or choose another profile before retrying the saved work."
         ProviderBudgetKind.UNKNOWN -> "The provider reported a budget or credit restriction without a specific cause. Check the account and API key allowances before retrying the saved work."
     }
 

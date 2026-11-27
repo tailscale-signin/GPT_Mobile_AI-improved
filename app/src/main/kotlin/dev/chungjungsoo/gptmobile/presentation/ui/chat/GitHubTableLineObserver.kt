@@ -24,7 +24,7 @@ internal fun rememberGitHubTableLayout(key: Any, sourceOffset: Int, source: Stri
                 } else {
                     null
                 }
-                scope.owner.ledger.observe(
+                val changed = scope.owner.ledger.observe(
                     key = layoutKey,
                     document = scope.document,
                     sourceOffset = sourceOffset,
@@ -34,7 +34,7 @@ internal fun rememberGitHubTableLayout(key: Any, sourceOffset: Int, source: Stri
                     previousLinesAtGeometry = previousLines,
                     firstAppearanceAddsLines = firstAppearanceAddsLines
                 )
-                scope.owner.changed.trySend(Unit)
+                if (changed) scope.owner.changed.trySend(Unit)
             }
         }
     }

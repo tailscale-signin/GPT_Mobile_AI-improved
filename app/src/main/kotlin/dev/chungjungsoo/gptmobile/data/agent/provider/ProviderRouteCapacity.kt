@@ -17,10 +17,11 @@ internal object ProviderRouteCapacity {
         val catalogTokens: Int?,
         val provenance: CapacityProvenance
     ) {
-        /** The unknown-route tool policy is the sole transformation between these two planning settings. */
+        /** A finite task target narrows known capacity; the unknown-route fallback remains a conservative policy. */
         fun toolPlanningProvenance(resolvedContext: Int, toolPlanningContext: Int): CapacityProvenance = when {
-            resolvedContext == Int.MAX_VALUE && toolPlanningContext in 1 until Int.MAX_VALUE -> CapacityProvenance.CONSERVATIVE_POLICY
+            tokens == Int.MAX_VALUE && toolPlanningContext in 1 until Int.MAX_VALUE -> CapacityProvenance.CONSERVATIVE_POLICY
             tokens == toolPlanningContext && resolvedContext == tokens -> provenance
+            resolvedContext in 1 until tokens && toolPlanningContext == resolvedContext -> CapacityProvenance.CONSERVATIVE_POLICY
             else -> CapacityProvenance.UNKNOWN
         }
     }

@@ -55,6 +55,11 @@ class ReasoningCapabilityTests(unittest.TestCase):
                 parameter, enabled = next(iter(body['chat_template_kwargs'].items()))
                 if fixture.behavior == 'malformed':
                     return self.reply({'prompt': ['invalid']})
+                if fixture.behavior == 'chatml-system-toggle':
+                    instruction = 'Think before answering.' if enabled else 'Answer directly.'
+                    prefix = '<|im_start|>system\n' + instruction + '<|im_end|>\n'
+                    turn = '<|im_start|>user\nTemplate capability check.<|im_end|>\n<|im_start|>assistant\n'
+                    return self.reply({'prompt': prefix + turn + '<think>' + ('' if enabled else '\n</think>\n')})
                 if fixture.behavior == 'ignored' or fixture.behavior == 'mixed' and parameter == 'enable_thinking':
                     return self.reply({'prompt': 'Synthetic prompt\n<think>'})
                 if fixture.behavior in ('changed-prefix', 'mixed') and not enabled:
@@ -122,9 +127,9 @@ class ReasoningCapabilityTests(unittest.TestCase):
     def test_unproven_control_does_not_invalidate_known_capacity_and_is_negatively_cached(self):
         for behavior, outcome, attempts, state in (
             ('ignored', 'IDENTICAL_PROMPTS', 2, 'UNSUPPORTED'),
-            ('missing-marker', 'MISSING_THINK_MARKER', 2, 'UNSUPPORTED'),
-            ('changed-prefix', 'PREFIX_MISMATCH', 2, 'UNSUPPORTED'),
-            ('changed-suffix', 'SUFFIX_MISMATCH', 2, 'UNSUPPORTED'),
+            ('missing-marker', 'MISSING_THINK_MARKER', 2, 'UNRECOGNIZED'),
+            ('changed-prefix', 'PREFIX_MISMATCH', 2, 'UNRECOGNIZED'),
+            ('changed-suffix', 'SUFFIX_MISMATCH', 2, 'UNRECOGNIZED'),
             ('malformed', 'INVALID_PROMPT', 2, 'UNVERIFIED'),
             ('unsupported', 'PROBE_UNAVAILABLE', 1, 'UNVERIFIED'),
             ('reload', 'METADATA_CHANGED', 2, 'UNVERIFIED'),
@@ -141,6 +146,30 @@ class ReasoningCapabilityTests(unittest.TestCase):
                 count = len(self.calls)
                 self.assertNotIn('reasoningControl', capability.selected_model('A'))
                 self.assertEqual(count, len(self.calls))
+
+    def test_chatml_system_instruction_toggle_is_qualified_for_the_same_synthetic_turn(self):
+        self.behavior = 'chatml-system-toggle'
+        result = self.capabilities.selected_model('A')
+        self.assertEqual('VERIFIED', result['reasoningControlState'])
+        self.assertEqual('VERIFIED', result['reasoningProbe']['outcome'])
+        self.assertEqual(2, result['reasoningProbe']['attempts'])
+        self.assertEqual('enable_thinking', result['reasoningControl']['parameter'])
+        self.assertEqual(result['capabilityRevision'], result['reasoningControl']['capabilityRevision'])
+        self.assertFalse(any('/chat/completions' in call[1] for call in self.calls))
+
+    def test_changed_user_role_or_generation_suffix_cannot_qualify_the_chatml_adapter(self):
+        turn = '<|im_start|>user\nTemplate capability check.<|im_end|>\n<|im_start|>assistant\n'
+        enabled = '<|im_start|>system\nThink.<|im_end|>\n' + turn + '<think>'
+        disabled = '<|im_start|>system\nAnswer.<|im_end|>\n' + turn + '<think>\n</think>\n'
+        self.assertTrue(InferenceCapabilities._verifies_thinking_toggle(enabled, disabled))
+        for invalid in (
+            disabled.replace('Template capability check.', 'A different user request.'),
+            disabled.replace('<|im_start|>user', '<|im_start|>assistant'),
+            '<|im_start|>assistant\nEarlier output.<|im_end|>\n' + disabled,
+            disabled + 'Already generated an answer.',
+            disabled.replace('</think>', ''),
+        ):
+            self.assertFalse(InferenceCapabilities._verifies_thinking_toggle(enabled, invalid))
 
     def test_missing_control_or_wrong_model_never_probes_or_issues_inference(self):
         self.parameter = 'no_control_variable'
@@ -218,7 +247,7 @@ class ReasoningCapabilityTests(unittest.TestCase):
     def test_mixed_candidates_count_each_existing_request_without_assigning_one_negative_cause(self):
         self.parameter, self.behavior = 'enable_thinking or thinking', 'mixed'
         result = self.capabilities.selected_model('A')
-        self.assertEqual('UNSUPPORTED', result['reasoningControlState'])
+        self.assertEqual('UNRECOGNIZED', result['reasoningControlState'])
         self.assertEqual('MIXED_NEGATIVE_RESULTS', result['reasoningProbe']['outcome'])
         self.assertEqual({'enable_thinking': 'IDENTICAL_PROMPTS', 'thinking': 'PREFIX_MISMATCH'},
                          result['reasoningProbe']['candidateOutcomes'])

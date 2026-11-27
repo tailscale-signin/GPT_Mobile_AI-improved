@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
 import io.ktor.http.headersOf
 import java.io.File
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -21,6 +22,7 @@ import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -32,6 +34,43 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportIncidentsTest {
+    @Test fun groupedQuotaReportsKeepImmutableApprovalSnapshotsAndLaterOccurrences() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf(
+            "diagnostic_area" to "PROVIDER",
+            "provider" to "OPENAI",
+            "failed_stage" to "provider_generation",
+            "profile_hash" to "a".repeat(64),
+            "model_hash" to "b".repeat(64),
+            "provider_configuration_hash" to "e".repeat(64),
+            "provider_failure_kind" to "BUDGET",
+            "provider_budget_kind" to "UNKNOWN",
+            "provider_budget_retry" to "AFTER_CONFIGURATION_CHANGE",
+            "request_replay_allowed" to false
+        )
+        IssueReportIncidents.chatFailure("SOURCE_PAYMENT_REQUIRED", false, null, fields + ("run_id" to "quota-run-1"), "quota-invocation-1")
+        val preview = IssueReportIncidents.pending.value.single()
+        IssueReportIncidents.retainCorrelation(preview)
+        IssueReportIncidents.chatFailure("SOURCE_PAYMENT_REQUIRED", false, null, fields + ("run_id" to "quota-run-2"), "quota-invocation-2")
+        val grouped = IssueReportIncidents.pending.value.single()
+        assertNotEquals(preview.reportId, grouped.reportId)
+        assertEquals(JsonPrimitive(2), grouped.context?.diagnostics?.values?.get("provider_quota_occurrences"))
+        IssueReportIncidents.retainCorrelation(grouped)
+        // Completing a Send from an older open preview cannot dismiss newer evidence.
+        IssueReportIncidents.retainCorrelation(preview)
+        IssueReportIncidents.dismiss(preview.reportId)
+        assertEquals(grouped, IssueReportIncidents.pending.value.single())
+        IssueReportIncidents.chatFailure("SOURCE_PAYMENT_REQUIRED", false, null, fields + ("run_id" to "quota-run-3"), "quota-invocation-3")
+        val latest = IssueReportIncidents.pending.value.single()
+        assertNotEquals(grouped.reportId, latest.reportId)
+        assertEquals(JsonPrimitive(3), latest.context?.diagnostics?.values?.get("provider_quota_occurrences"))
+        IssueReportIncidents.retainCorrelation(latest)
+        val retained = IssueReportIncidents.correlationSnapshot().associateBy { it["reportId"] }
+        assertTrue(retained.containsKey(JsonPrimitive(preview.reportId)))
+        assertTrue(retained.containsKey(JsonPrimitive(grouped.reportId)))
+        assertTrue(retained.containsKey(JsonPrimitive(latest.reportId)))
+    }
+
     @Test fun missingSavedReplayPageRetainsTheBoundedSubtypeThroughIncidentCaptureAndRestore() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val fields = mapOf(

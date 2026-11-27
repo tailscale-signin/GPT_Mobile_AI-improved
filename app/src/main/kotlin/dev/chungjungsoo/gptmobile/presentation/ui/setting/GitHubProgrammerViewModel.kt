@@ -87,7 +87,8 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val engineeringClient: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient,
     private val savedStateHandle: androidx.lifecycle.SavedStateHandle = androidx.lifecycle.SavedStateHandle(),
     private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null,
-    private val approvalRecovery: dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalRecovery? = null
+    private val approvalRecovery: dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalRecovery? = null,
+    private val gatewayEngineeringDefaults: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringDefaults? = null
 ) : ViewModel() {
     internal suspend fun admissionSetting(profileUid: String, gatewayUid: String, previous: GatewayAdmissionSetting?): GatewayAdmissionSetting {
         val gateway = settings.engineeringGateway(profileUid)
@@ -547,11 +548,14 @@ class GitHubProgrammerViewModel @Inject constructor(
                         "The approved task's saved AI model or profile settings changed or are unavailable. Restore its original profile and model, then explicitly resume the saved task. Its commit will not be repeated."
                     }
                 }
-                val features = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(settings.getFeatureSettings(), profile.uid, context)
                 require(!settings.providerActivationRequired(profile)) { "Review this AI profile's provider privacy settings before sending." }
                 dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let { error(it.message) }
                 val connection = connections.getConnection(context.connectionUid) ?: error("The GitHub connection was removed.")
                 require(connection.type == "GITHUB" && connection.secretRef != null) { "Connect GitHub before starting an engineering task." }
+                if (publication == null && (repair != null || dev.chungjungsoo.gptmobile.data.github.GatewayOwnedTurnPolicy.startsNewJob(text))) {
+                    gatewayEngineeringDefaults?.discover(profile)
+                }
+                val features = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(settings.getFeatureSettings(), profile.uid, context)
                 var room = if (repair != null) {
                     features.conversationGitHub.entries.firstNotNullOfOrNull { (id, saved) ->
                         if (!saved.sameWorkspace(context) || saved.commitSha != repair.headSha) {

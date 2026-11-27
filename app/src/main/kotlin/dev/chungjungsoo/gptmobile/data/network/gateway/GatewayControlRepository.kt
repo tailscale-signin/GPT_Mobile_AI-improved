@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import java.net.URI
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
@@ -297,9 +299,21 @@ internal class GatewayControlRepository @Inject constructor(
         require(principal == "paired:$deviceId")
         val previous = load(profile.uid)
         require(previous?.pending == null || previous.installationId == pending.installationId && previous.principalId == principal && previous.endpoint == pending.endpoint && previous.fingerprint == pending.fingerprint)
+        val gatewayPort = (data["gateway_port"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 1..65535 }
+        val verifiedEndpoint = gatewayPort?.let { URI("http", null, URI(pending.endpoint).host, it, "/v1", null, null) }
+        val sameOwner = previous?.takeIf {
+            !it.revoked &&
+                !it.revocationPending &&
+                it.role == "owner" &&
+                it.originalEndpoint == pending.originalEndpoint &&
+                it.installationId == pending.installationId &&
+                it.principalId == principal &&
+                it.endpoint == pending.endpoint &&
+                it.fingerprint == pending.fingerprint
+        }
         var binding = GatewayControlBinding(
             profile.uid, pending.originalEndpoint, pending.endpoint, pending.fingerprint, pending.installationId, principal, deviceId, text("role"), text("token"), pending.keyAlias,
-            engineeringBindingConfirmed = (data["engineering_connection"] == JsonPrimitive(true) && text("role") == "owner") || previous?.takeIf { it.installationId == pending.installationId && it.principalId == principal }?.engineeringBindingConfirmed == true,
+            engineeringBindingConfirmed = text("role") == "owner" && (verifiedEndpoint == URI(pending.originalEndpoint) || sameOwner?.engineeringBindingConfirmed == true),
             pending = previous?.pending
         )
         save(binding)

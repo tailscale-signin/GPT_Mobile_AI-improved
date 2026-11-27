@@ -140,7 +140,7 @@ data class GitHubPlanningContext(
         }
 
         /** Repository selection is data, not permission or proof of a fresh head/access check. */
-        fun forRequest(request: String, contexts: List<GitHubPlanningContext>): String {
+        fun forRequest(request: String, contexts: List<GitHubPlanningContext>, compact: Boolean = false): String {
             if (CurrentRequestContract.from(request).conversational || contexts.isEmpty()) return ""
             val lookup = GitHubLookupRoute.from(request)
             val repositoryIntent = lookup != null ||
@@ -161,6 +161,10 @@ data class GitHubPlanningContext(
                 }
                 if (lookup != null) {
                     append("Use the selected repository for the requested ${lookup.operation} ${lookup.action} read. Use its admitted facade or equivalent official GitHub read with the exact arguments declared by that schema. If none is available, check authorized discovery and report the missing read. Verify the observation and follow its exact continuation when more records are requested.")
+                    return@buildString
+                }
+                if (compact) {
+                    append("Use these selected defaults; newer successful resolve receipts supersede old heads. Ask only for missing or ambiguous targets. Copy exact continuation_call tool/arguments. Preserve approvals, unknown-write reconciliation and scoped receipt evidence. Discovery is not execution or verification. Act on established source when changes are authorized.")
                     return@buildString
                 }
                 append("Use the selected target for omitted owner/repo/ref. A newer successful resolve receipt supersedes the recorded head. Do not ask for a target already selected, invent owner/repo values, or reinterpret a workflow preset as a repository. If selection is missing or ambiguous, use authorized repository discovery or ask the user to select the exact target before dependent calls. Test fixtures are owned disposable branches/files inside the verified target, never guessed repositories.\n")

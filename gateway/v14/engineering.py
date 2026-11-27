@@ -271,8 +271,6 @@ class EngineeringStore:
             grant = ControlStore.device(db, principal)
             if not grant or grant['role'] != 'owner' or not json.loads(grant['repositories']):
                 raise ExecutionBindingError('PAIRED_OWNER_REQUIRED', 'Pair an owner with repository permission on this PC.', 403)
-            if not db.execute('SELECT 1 FROM engineering_admission_settings WHERE principal=?', (principal,)).fetchone():
-                raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs for this paired owner.', 412)
         if not self.admission_settings(db, principal)['enabled']:
             raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs in the Gateway settings for this account.', 412)
 

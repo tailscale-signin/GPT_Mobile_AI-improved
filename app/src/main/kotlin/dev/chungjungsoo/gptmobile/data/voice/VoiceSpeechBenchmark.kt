@@ -61,7 +61,7 @@ internal data class VoiceSpeechBenchmarkConfiguration(
 ) {
     init {
         require(backends.isNotEmpty() && backends.distinct().size == backends.size && backends.all { it in engine.supportedBackends })
-        require(threads in 1..4 && speechRate.isFinite() && speechRate in .5f..2f)
+        require(threads in VoiceCpuSchedulingPolicy.supported && speechRate.isFinite() && speechRate in .5f..2f)
         require(protocolId.matches(Regex("[A-Za-z0-9._-]{1,120}")))
         require(fixtureVersion in 1..1000 && (fixtureHash == null || fixtureHash.matches(Regex("[0-9a-f]{64}"))))
         require(captionOffsetMs in -500..500)

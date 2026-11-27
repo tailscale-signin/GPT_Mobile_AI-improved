@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -14,6 +15,21 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubBoundedCheckWaitTest {
+    @Test fun pendingChecksCanVerifyAnInlineObservationWhileTheirOutcomeRemainsOpen() {
+        val pending = buildJsonObject {
+            put("head_binding_verified", true)
+            put("head_sha", "a".repeat(40))
+            put("background_subscription", false)
+            put("observations", 1)
+            put("status", "PENDING_CHECKS")
+            put("complete", false)
+        }
+        assertTrue(GitHubBoundedCheckWait.hasObservation(pending))
+        assertFalse(GitHubBoundedCheckWait.hasObservation(JsonObject(pending + ("observations" to JsonPrimitive(0)))))
+        assertFalse(GitHubBoundedCheckWait.hasObservation(JsonObject(pending + ("head_sha" to JsonPrimitive("main")))))
+        assertFalse(GitHubBoundedCheckWait.hasObservation(JsonObject(pending + ("background_subscription" to JsonPrimitive(true)))))
+    }
+
     @Test fun completedRunReturnsItsObservedOutcomeWithoutWaitingForDeadline() = runTest {
         var reads = 0
         val result = GitHubBoundedCheckWait.await(30, { testScheduler.currentTime }) {

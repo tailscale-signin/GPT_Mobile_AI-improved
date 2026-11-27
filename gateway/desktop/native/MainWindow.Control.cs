@@ -84,7 +84,7 @@ public partial class MainWindow
                 var input = Ui.Select(body, name + " · effective " + effective.Text(key), values, desired.Text(key));
                 readers[key] = () => JsonValue.Create(input.SelectedItem?.ToString());
             }
-            Toggle("engineering_enabled", "Allow new engineering jobs for this owner");
+            Toggle("engineering_enabled", "Accept new engineering jobs for this owner (pause for maintenance)");
             Integer("workers", "Concurrent workers (1–16)"); Integer("active_chats", "Admitted chats (workers–64)");
             Selection("batch_mode", "Batch mode", ["standard", "smart", "full"]);
             Integer("local_validation_workers", "Local validation workers (1–4)");

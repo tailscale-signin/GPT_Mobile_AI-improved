@@ -86,7 +86,7 @@ class KokoroListeningInstrumentedTest {
             instrumentation.runOnMainSync {
                 output.configureEngine(factory)
                 output.configureThreads(2)
-                output.configurePronunciation(mapOf("Melo" to "mellow"))
+                output.configurePronunciation(mapOf("Melo" to "mellow"), language = "en")
                 reply = checkNotNull(
                     output.openReply(KokoroVoice.HEART, ended::countDown) { message, _ ->
                         failure.compareAndSet(null, message)

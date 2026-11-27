@@ -237,7 +237,7 @@ internal fun VoicePluginSetup(
         androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancel download") }
     } else {
         val remaining = models.filter { it.status != LocalVoiceModelStatus.READY }.sumOf { it.totalBytes }
-        androidx.compose.material3.Text("English · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}", color = accent)
+        androidx.compose.material3.Text("Multilingual speech · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}", color = accent)
         if (installation.failure != null && message == null) {
             androidx.compose.material3.Text(
                 if (installation.failure == "WORK_NOT_FOUND") "Android no longer has this download. Start it again to resume verified files." else "Voice download could not start or finish. Tap to try again.",

@@ -26,6 +26,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -79,6 +80,8 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+        <service android:name=".presentation.service.VoicePlaybackService"
+            android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
         <service android:name=".data.voice.VoicePluginTransferService"
             android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE"
             tools:targetApi="34" />

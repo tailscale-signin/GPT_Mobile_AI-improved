@@ -21,10 +21,26 @@ object EngineeringAdaptivePolicy {
         val text = task.lowercase(java.util.Locale.ROOT)
         return when {
             Regex("multi.file|architecture|dependencies|multiple.*fail|verification.*fail|failed.*test|rebase|migration").containsMatchIn(text) -> EngineeringMode.ENGINEERING_MAX
-            Regex("implement|debug|fix|patch|refactor").containsMatchIn(text) -> EngineeringMode.DEEP
+            Regex("implement|debug|fix|patch|refactor|review|audit|diagnos|investigat|(?:problems|issues|bugs).*?(?:solutions|causes)").containsMatchIn(text) -> EngineeringMode.DEEP
             Regex("list|status|show.*branch|find.*file").containsMatchIn(text) -> EngineeringMode.QUICK
             else -> EngineeringMode.STANDARD
         }
+    }
+
+    /** Resolved tool scope determines whether unknown route capacity needs a bounded reserve. */
+    internal fun forToolContext(config: EngineeringProfileSettings?, task: String, existing: TokenBudgetSettings, boundGitHubWorkspace: Boolean, requireExecution: Boolean = true, availableTools: Int = 0): TokenBudgetSettings =
+        forPreparation(config, task, existing, boundGitHubWorkspace, ReplayAllowance.needsConservativeToolReserve(boundGitHubWorkspace, requireExecution, availableTools))
+
+    /** Resolve newly known tool scope before building its prompt; retain every earlier ceiling. */
+    internal fun forResolvedTools(config: EngineeringProfileSettings?, task: String, prepared: TokenBudgetSettings, routeContextTokens: Int, boundGitHubWorkspace: Boolean, requireExecution: Boolean, availableTools: Int): TokenBudgetSettings {
+        val selected = forToolContext(config, task, prepared.copy(contextTokens = routeContextTokens), boundGitHubWorkspace, requireExecution, availableTools)
+        return selected.copy(contextTokens = minOf(prepared.normalized().contextTokens, selected.contextTokens))
+    }
+
+    /** A task preset cannot turn unknown route capacity into a larger known ceiling. */
+    fun forPreparation(config: EngineeringProfileSettings?, task: String, existing: TokenBudgetSettings, boundGitHubWorkspace: Boolean = false, toolEvidenceRequired: Boolean = false): TokenBudgetSettings {
+        val bounded = ReplayAllowance.conservativeToolPlanningBudget(existing, toolEvidenceRequired)
+        return config?.let { budgets(it, task, bounded, boundGitHubWorkspace) } ?: bounded
     }
 
     fun budgets(config: EngineeringProfileSettings, task: String, existing: TokenBudgetSettings, boundGitHubWorkspace: Boolean = false): TokenBudgetSettings {

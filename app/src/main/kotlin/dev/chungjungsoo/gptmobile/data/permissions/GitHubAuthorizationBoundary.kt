@@ -36,6 +36,10 @@ internal object GitHubAuthorizationBoundary {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
         }
         val action = (native["action"] as? JsonPrimitive)?.content ?: return false
+        if (action == "watch_checks") {
+            val timeout = native["wait_timeout_seconds"] as? JsonPrimitive
+            return timeout != null && !timeout.isString && timeout.content.toIntOrNull() in 1..dev.chungjungsoo.gptmobile.data.github.GitHubBoundedCheckWait.MAX_SECONDS
+        }
         return action in dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.readActions ||
             action in setOf(
                 "read_saved_result", "search_repositories", "search_issues", "search_code", "get_file_contents",

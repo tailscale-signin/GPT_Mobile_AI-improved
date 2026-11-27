@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.context.CapacityProvenance
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
-import dev.chungjungsoo.gptmobile.data.context.ContextCostBreakdown
 import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
@@ -59,7 +58,7 @@ internal class GitHubToolContextBudgetException(
                 put("admission_capacity_tokens", evidence.capacity)
                 put("admission_prompt_tokens", evidence.input)
                 put("admission_output_tokens", evidence.output)
-                put("admission_safety_tokens", evidence.safety)
+                put("admission_safety_tokens", evidence.reservedSafety)
                 evidence.toolResults?.let { put("admission_tool_result_reserve_tokens", it) }
                 put("admission_measurement", "UTF8_ESTIMATE")
                 evidence.promptCosts?.let { costs ->
@@ -84,7 +83,7 @@ private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchem
         it.capacity in 1..16_000_000 &&
             it.input in 0L..16_000_000L &&
             it.output in 0..16_000_000 &&
-            it.safety in 0..16_000_000 &&
+            it.reservedSafety in 0..16_000_000 &&
             (it.toolResults == null || it.toolResults in 0..16_000_000)
     }
     fun observedCount(key: String): Int? = (evidence?.get(key) as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 1..16_000_000 }
@@ -100,12 +99,12 @@ private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchem
         } else {
             append(" This attempt used a context allowance of ${budget.capacity} tokens.")
         }
-        append(" It reserved ${budget.input} for input, ${budget.output} for the reply and ${budget.safety} for safety")
+        append(" It reserved ${budget.input} for input, ${budget.output} for the reply and ${budget.reservedSafety} for safety")
         budget.toolResults?.let { append(", plus $it for tool results") }
         append(" (token estimates).")
         if (requiredSchemaTokens in 0L..16_000_000L && availableSchemaTokens in 0L..16_000_000L && requiredSchemaTokens > availableSchemaTokens) {
             val baseOverrun = if (budget.available == availableSchemaTokens) {
-                (budget.input + budget.output + budget.safety + (budget.toolResults ?: 0) - budget.capacity).coerceAtLeast(0)
+                budget.baseOverrun
             } else {
                 0
             }
@@ -133,25 +132,6 @@ private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchem
     }
 }
 
-internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val output: Int, val safety: Int, val toolResults: Int? = null, val promptCosts: ContextCostBreakdown? = null) {
-    val available: Long get() = (capacity.toLong() - input - output - safety - (toolResults ?: 0)).coerceAtLeast(0)
-
-    /** Share the bounded prompt window between required schemas and the next tool result. */
-    fun fitInitialSchemas(required: Long, allowOutputReduction: Boolean): GitHubSchemaBudget {
-        if (required <= available) return this
-        val minimumOutput = if (allowOutputReduction) minOf(output, 512) else output
-        val reserve = requireNotNull(toolResults)
-        val minimumResults = minOf(reserve, 512)
-        val remaining = capacity.toLong() - input - safety - required
-        if (remaining < minimumOutput.toLong() + minimumResults) {
-            val smallest = copy(output = minimumOutput, toolResults = minimumResults)
-            throw GitHubToolContextBudgetException(required, smallest.available, smallest)
-        }
-        val resultTokens = minOf(reserve.toLong(), remaining - minimumOutput).toInt()
-        return copy(output = minOf(output.toLong(), remaining - resultTokens).toInt(), toolResults = resultTokens)
-    }
-}
-
 internal fun providerSchemaTokens(tool: AgentToolDefinition, githubMode: Boolean): Long = ProgressiveToolCatalog.schemaTokens(tool).toLong() + if (githubMode) 16 else 0
 
 /** Only advance after a delivered success whose native response offers no further page for this operation. */
@@ -174,7 +154,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val visible = definitions.filter { it.modelVisible }
     if (limits.contextTokens == Int.MAX_VALUE && maxSchemaTokens == null) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
-    val budget = GitHubSchemaBudget(limits.contextTokens, base + replayTokens, limits.finalResponseReserveTokens, minOf(256, limits.contextTokens / 16))
+    val budget = GitHubSchemaBudget(limits.contextTokens, base + replayTokens, limits.finalResponseReserveTokens, minOf(256, limits.contextTokens / 16), wireSafety = true)
     var remaining = minOf(budget.available, maxSchemaTokens?.toLong() ?: Long.MAX_VALUE)
     // The native status plan needs every admitted status/health read even when
     // replay grows. Other engineering operations remain staged on demand.
@@ -312,8 +292,14 @@ internal fun planAuthorizedToolContext(
     val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus || lookup != null || integration) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
     val normalized = limits.normalized()
     // Readiness for every explicit tool is validated above, including credentials and ambiguous aliases.
+    // Stage by measured headroom, including verified 5,632-token routes. A capacity
+    // label is not evidence that several operation schemas fit in this request.
+    val currentCosts = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList())
+    val plannedOutput = normalized.outputTokens.takeIf { it > 0 } ?: minOf(4096, normalized.contextTokens / 4)
+    val initialBudget = GitHubSchemaBudget(normalized.contextTokens, currentCosts.total.toLong(), plannedOutput, minOf(256, normalized.contextTokens / 16), minOf(8192, normalized.contextTokens / 8), currentCosts, wireSafety = true)
+    val allRequiredTokens = (required + listOfNotNull(catalog?.definition)).distinctBy { it.name }.sumOf { providerSchemaTokens(it, effectiveGitHubMode) }
     val staged = required.filter { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null }
-        .takeIf { effectiveGitHubMode && fullGitHubCatalog && normalized.contextTokens <= 4096 && it.size > 1 }.orEmpty()
+        .takeIf { effectiveGitHubMode && fullGitHubCatalog && normalized.contextTokens != Int.MAX_VALUE && it.size > 1 && allRequiredTokens > initialBudget.available }.orEmpty()
     catalog?.stageRequiredOperations(staged.map { it.name })
     val immediateRequired = if (staged.isEmpty()) required else required - staged.toSet() + staged.first()
     val advertised = (immediateRequired + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
@@ -347,9 +333,8 @@ internal fun planAuthorizedToolContext(
     var effectiveLimits = normalized
     var admittedGitHubBudget: GitHubSchemaBudget? = null
     if ((requiredGitHubSchemas.isNotEmpty() || requiredDiscovery != null) && normalized.contextTokens != Int.MAX_VALUE) {
-        val output = normalized.outputTokens.takeIf { it > 0 } ?: minOf(4096, normalized.contextTokens / 4)
-        val currentCosts = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList())
-        val requestedBudget = GitHubSchemaBudget(normalized.contextTokens, currentCosts.total.toLong(), output, minOf(256, normalized.contextTokens / 16), minOf(8192, normalized.contextTokens / 8), currentCosts)
+        val output = plannedOutput
+        val requestedBudget = initialBudget
         val requiredTokens = pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }
         val fitted = try {
             requestedBudget.fitInitialSchemas(requiredTokens, allowOutputReduction)
@@ -366,7 +351,9 @@ internal fun planAuthorizedToolContext(
         prioritized,
         effectiveLimits,
         admittedGitHubBudget?.toolResults,
-        if (effectiveLimits.contextTokens == limits.contextTokens) planningProvenance else CapacityProvenance.UNKNOWN
+        if (effectiveLimits.contextTokens == limits.contextTokens) planningProvenance else CapacityProvenance.UNKNOWN,
+        reserveEstimatedSafety = prioritized.isNotEmpty(),
+        continuityRequiredSchemas = pinnedSchemas.mapTo(hashSetOf()) { it.name }.takeIf { effectiveGitHubMode }
     )
     val omittedRequired = pinnedSchemas.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {

@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.IndexedFeatureToolSelection
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.matchesTool
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
 import dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient
 import dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException
@@ -20,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
+import dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryRead
 import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -322,8 +324,13 @@ class AgentToolResolver @Inject constructor(
                 }
             }
 
-        if (allowRemoteMcp) {
-            val mcpGroups = bindings
+        val repositoryRead = if (allowRemoteMcp && chatToolConfig?.github == null && chatToolConfig?.allToolsDisabled != true && platform?.enabled == true) {
+            GitHubMcpRepositoryRead.from(userMessage?.content.orEmpty())
+        } else {
+            null
+        }
+        val mcpGroups = if (allowRemoteMcp) {
+            bindings
                 .filter { it.connection?.type == ToolConnectionType.MCP }
                 .filter { examinationRunKey == null || it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
                 .filter { pluginEnabledForBinding(featureSettings, profileUid, it) }
@@ -332,6 +339,10 @@ class AgentToolResolver @Inject constructor(
                 .toSortedMap()
                 .values
                 .toList()
+        } else {
+            emptyList()
+        }
+        if (mcpGroups.isNotEmpty()) {
             val mcpResults = coroutineScope {
                 mcpGroups.map { mcpBindings ->
                     async {
@@ -473,11 +484,22 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        val finalized = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform, personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]) }
+        suspend fun admittedTools() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform, personalContext = discoveryContext)
+        }
+        var finalized = admittedTools()
+        if (repositoryRead != null && mcpGroups.isNotEmpty() && finalized.none { it.nativeGitHub && it.gitHubPlanningContext?.repository != null }) {
+            val acquired = acquireOfficialRepositoryRead(repositoryRead, mcpGroups, finalized, featureSettings, profileUid, userMessage, consentPlatform, freeProfile)
+            if (acquired.isNotEmpty()) {
+                resolved += acquired
+                finalized = admittedTools()
+            }
+        }
         // Only expose native fallbacks that survived the same filtering and data
         // provenance wrappers as model-visible native operations.
         nativeGraphFallbacks.set(finalized.filter { it.nativeGitHub && it.realToolName == "github_context" })
         val catalogTask = githubCatalogTask(profileUid, scopedGitHubMessage(userMessage, chatToolConfig?.github), hasGitHubRepositoryContext)
+        val githubTaskScope = dev.chungjungsoo.gptmobile.data.agent.GitHubTaskScope.fromTools(userMessage?.content.orEmpty(), chatToolConfig?.github, finalized)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&
@@ -490,7 +512,7 @@ class AgentToolResolver @Inject constructor(
         }
         if (coldBindings.isEmpty()) {
             if (finalized.none { it.nativeGitHub }) return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform)
-            val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, githubMode = chatToolConfig?.github != null)
+            val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, githubMode = githubTaskScope.usesRepositoryIntelligence)
             return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
         }
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
@@ -574,7 +596,7 @@ class AgentToolResolver @Inject constructor(
             }
             dev.chungjungsoo.gptmobile.data.agent.GitHubToolInventory.recordDiscovered(userMessage?.chatId, chatToolConfig?.github, admitted)
             aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
-        }, acquisitionState = acquisitionState, githubMode = chatToolConfig?.github != null)
+        }, acquisitionState = acquisitionState, githubMode = githubTaskScope.usesRepositoryIntelligence)
         return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
     }
 
@@ -1868,6 +1890,32 @@ class AgentToolResolver @Inject constructor(
 
     private val catalogOmissions = McpCatalogOmissions()
 
+    /** A configured native tool may still be excluded by the live chat or data grants. */
+    private suspend fun acquireOfficialRepositoryRead(
+        read: GitHubMcpRepositoryRead,
+        groups: List<List<AgentToolBindingWithConnection>>,
+        admitted: List<ResolvedAgentTool>,
+        features: AppFeatureSettings,
+        profileUid: String,
+        message: MessageV2?,
+        profile: PlatformV2?,
+        freeProfile: Boolean
+    ): List<ResolvedAgentTool> {
+        val selected = groups.filter { GitHubProviderPolicy.isOfficialGitHub(requireNotNull(it.first().connection)) }.associate { group ->
+            val connection = requireNotNull(group.first().connection)
+            connection to group.filter { item ->
+                read.matchesOperation(item.binding.toolName) &&
+                    (!freeProfile || profile != null && freeModelToolConsentStore?.isGranted(profile, "${connection.connectionUid}:${item.binding.toolName}", message?.chatId) == true)
+            }
+        }
+        val connectionUid = GitHubProviderPolicy.repositoryReadConnection(read, selected.mapValues { (_, bindings) -> bindings.mapTo(hashSetOf()) { it.binding.toolName } }) ?: return emptyList()
+        if (admitted.any { it.connectionUid == connectionUid && read.matchesTool(it) }) return emptyList()
+        val (connection, bindings) = selected.entries.single { it.key.connectionUid == connectionUid }
+        return resolveMcpTools(connection, bindings, features, profileUid, cachedOnly = true, userMessage = message, repositoryRead = read)
+            .filter { item -> admitted.none { it.connectionUid == connectionUid && it.realToolName == item.realToolName } }
+            .map { item -> item.copy(tool = observedChild(item.tool, item.realToolName, connectionUid)) }
+    }
+
     private suspend fun resolveMcpTools(
         connection: ToolConnection,
         bindings: List<AgentToolBindingWithConnection>,
@@ -1875,7 +1923,8 @@ class AgentToolResolver @Inject constructor(
         profileUid: String,
         cachedOnly: Boolean = false,
         userMessage: MessageV2? = null,
-        workspaceContext: GitHubConversationContext? = null
+        workspaceContext: GitHubConversationContext? = null,
+        repositoryRead: GitHubMcpRepositoryRead? = null
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val inventoryOnly = workspaceContext != null && GitHubCapabilityRequest.from(userMessage?.content.orEmpty()) != null
@@ -1884,6 +1933,7 @@ class AgentToolResolver @Inject constructor(
             selectedNames,
             githubMode = workspaceContext != null && !inventoryOnly,
             cachedOnly = cachedOnly || inventoryOnly,
+            repositoryRead = repositoryRead,
             cached = { mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() },
             discover = { awaitCompletion -> discoverMcpTools(connection, awaitCompletion = awaitCompletion, passiveBackoff = !awaitCompletion) }
         )

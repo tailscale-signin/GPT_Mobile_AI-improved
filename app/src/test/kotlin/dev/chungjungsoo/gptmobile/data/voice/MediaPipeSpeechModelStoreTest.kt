@@ -38,6 +38,30 @@ class MediaPipeSpeechModelStoreTest {
         sha256 = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     )
 
+    @Test fun warmupReadsOnlyTheVerifiedLocalBundlePrefixAndReleasesItsLease(): Unit = runBlocking {
+        val payload = ByteArray(3 * 1024 * 1024) { 17 }
+        val pack = model.copy(downloadBytes = payload.size.toLong(), sha256 = hash(payload))
+        val opens = AtomicInteger()
+        val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, listOf(pack)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String): LocalVoiceAssetStream {
+                    opens.incrementAndGet()
+                    return LocalVoiceAssetStream(ByteArrayInputStream(payload), payload.size.toLong())
+                }
+                override fun cancel() = Unit
+            }
+        }
+        assertEquals(0, store.prefetchInstalled(pack.engine) { true })
+        assertEquals(0, opens.get())
+        store.install(pack.engine)
+        assertEquals(2 * 1024 * 1024, store.prefetchInstalled(pack.engine) { true })
+        var checks = 0
+        assertEquals(64 * 1024, store.prefetchInstalled(pack.engine) { ++checks <= 2 })
+        assertEquals(1, opens.get())
+        store.remove(pack.engine)
+        assertFalse(store.isReady(pack.engine))
+    }
+
     @Test fun localCompiledPackUsesVerifiedBytesAndAnIndependentLease() = runBlocking {
         val compiled = MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO_SM8750).copy(downloadBytes = bytes.size.toLong(), sha256 = hash(bytes))
         val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, listOf(compiled)) { error("Import must not use the network") }
@@ -694,6 +718,53 @@ class MediaPipeSpeechModelStoreTest {
             executor.shutdownNow()
         }
         store.remove(MediaPipeSpeechEngine.KOKORO)
+    }
+
+    @Test fun specializedGraphsKeepTheirAcceleratorAndFrenchVoiceOnStandardPackRecovery(): Unit = runBlocking {
+        val cases = listOf(
+            Triple(MediaPipeSpeechEngine.KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_GPU),
+            Triple(MediaPipeSpeechEngine.KOKORO_SM8750, VoiceSpeechBackend.LITERT_KOKORO_SM8750, VoiceSpeechBackend.LITERT_KOKORO_NPU)
+        )
+        for ((engine, selected, expected) in cases) {
+            val packs = listOf(MediaPipeSpeechEngine.KOKORO, engine).map {
+                MediaPipeSpeechCatalog.model(it).copy(downloadBytes = bytes.size.toLong(), sha256 = hash(bytes))
+            }
+            val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, packs, requireSm8750 = {}) {
+                object : LocalVoiceAssetSource {
+                    override fun open(url: String) = LocalVoiceAssetStream(ByteArrayInputStream(bytes), bytes.size.toLong())
+                    override fun cancel() = Unit
+                }
+            }
+            for (pack in packs) store.localStore(pack.engine).install()
+            for (missingVoice in listOf(false, true)) {
+                val opened = mutableListOf<MediaPipeSpeechTaskConfiguration>()
+                val reported = mutableListOf<VoiceSpeechBackend>()
+                val spoken = mutableListOf<String>()
+                val factory = MediaPipeVoicePhraseEngineFactory(store, engine, selected, 1f, "ff_siwis", onPlaybackDelegate = { reported += it }) { config ->
+                    opened += config
+                    val specialized = opened.size == 1
+                    if (specialized && !missingVoice) throw IOException("Graph unavailable")
+                    val delegate = sealedTask {
+                        var emitted = false
+                        return@sealedTask { if (emitted) null else AudioChunk(floatArrayOf(.25f)).also { emitted = true } }
+                    }
+                    object : MediaPipeSpeechTask by delegate {
+                        override fun voiceIds() = if (specialized) setOf("af_heart") else setOf("af_heart", "ff_siwis")
+                        override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream {
+                            spoken += voiceId
+                            return delegate.openStream(text, voiceId)
+                        }
+                    }
+                }
+                factory.create(files.root, "", 2).use { it.stream("Bonjour.", 0, 1f) { true } }
+                assertEquals(2, opened.size)
+                assertNotEquals(opened.first().modelFile, opened.last().modelFile)
+                val delegate = if (engine == MediaPipeSpeechEngine.KOKORO_GPU) Delegate.GPU else Delegate.NPU
+                assertEquals(listOf(delegate, delegate), opened.map { it.delegate })
+                assertEquals(listOf(expected), reported)
+                assertEquals(listOf("ff_siwis"), spoken)
+            }
+        }
     }
 
     private fun sealedTask(read: (String) -> (() -> AudioChunk?)): MediaPipeSpeechTask = object : MediaPipeSpeechTask {

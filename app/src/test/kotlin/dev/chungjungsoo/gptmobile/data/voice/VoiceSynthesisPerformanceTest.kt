@@ -338,7 +338,8 @@ class VoiceSynthesisPerformanceTest {
 
     @Test fun pronunciationOverridesRemainBoundedAndKeepSourceWordMapping() {
         assertFalse(VoicePronunciationOverrides.valid("word", "text; other"))
-        assertFalse(VoicePronunciationOverrides.valid("two words", "test"))
+        assertTrue(VoicePronunciationOverrides.valid("one two three four five six", "test"))
+        assertFalse(VoicePronunciationOverrides.valid("one two three four five six seven", "test"))
         val clean = VoicePronunciationOverrides.clean(mapOf("Sentoria" to "sen toria", "bad" to "<script>"))
         assertEquals(mapOf("sentoria" to "sen toria"), clean)
         val result = requireNotNull(KokoroSpeechText.withPolicy("Sentoria is here.", { true }, clean, 16, true).phrases)

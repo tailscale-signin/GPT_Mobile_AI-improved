@@ -6,11 +6,28 @@ import kotlinx.serialization.json.put
 
 /** Scalar-only observations for one capture attempt; no payload, query or credential is retained. */
 internal class DiagnosticCaptureTimings(private val nanoTime: () -> Long = System::nanoTime) {
-    enum class Phase { QUERY_MATERIALIZATION, PROTECTED_HYDRATION, REDACTION, SERIALIZATION, WRITE, CHECKPOINT }
+    enum class Phase {
+        QUERY_MATERIALIZATION,
+        PROTECTED_HYDRATION,
+        PROTECTED_AUTHORIZATION,
+        PROTECTED_STORAGE_STAT,
+        PROTECTED_READ_DECRYPT,
+        PROTECTED_DIGEST,
+        PROTECTED_SHAPE,
+        PROTECTED_JSON_PARSE,
+        PROTECTED_PROJECTION,
+        PROTECTED_REDACTION,
+        REDACTION,
+        PAYLOAD_DEDUPLICATION,
+        SERIALIZATION,
+        WRITE,
+        CHECKPOINT
+    }
 
     private data class Sample(var calls: Long = 0, var nanos: Long = 0)
     private val samples = linkedMapOf<Phase, Sample>()
     private var redactionReuseHits = 0L
+    private var bodyReferenceReuseHits = 0L
     private val verifiedShapes = linkedSetOf<Pair<Int, String>>()
     private var shapeReuseHits = 0L
 
@@ -23,6 +40,10 @@ internal class DiagnosticCaptureTimings(private val nanoTime: () -> Long = Syste
     fun retainVerifiedShape(nodeBudget: Int, digest: String) {
         verifiedShapes.add(nodeBudget to digest)
         if (verifiedShapes.size > 32) verifiedShapes.remove(verifiedShapes.first())
+    }
+
+    fun bodyReferenceReused(count: Int) {
+        bodyReferenceReuseHits += count.coerceAtLeast(0)
     }
 
     fun redactionReused() {
@@ -54,8 +75,9 @@ internal class DiagnosticCaptureTimings(private val nanoTime: () -> Long = Syste
     }
 
     fun json(): JsonObject = buildJsonObject {
-        put("scope", "Current stage attempt only; excludes earlier resumed parts. Query includes bounded cursor materialization; hydration includes protected projection. Timings are elapsed observations, not CPU time or a complete stage sum.")
+        put("scope", "Current stage attempt only; excludes earlier resumed parts. Query includes bounded cursor materialization; hydration includes its separately reported authorization, storage, decryption, digest, shape, parse, projection and redaction child phases. Parent and child timings overlap; they are elapsed observations, not CPU time or a stage sum.")
         put("redactionReuseHits", redactionReuseHits)
+        put("payloadBodyReferenceReuseHits", bodyReferenceReuseHits)
         put("protectedShapeReuseHits", shapeReuseHits)
         put(
             "phases",

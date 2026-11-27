@@ -2,9 +2,11 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.GitHubTargetSelectionRequired
 import dev.chungjungsoo.gptmobile.data.agent.RequiredToolReadinessFailure
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryRead
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import java.net.URI
 import kotlinx.coroutines.CancellationException
@@ -39,30 +41,47 @@ internal object GitHubProviderPolicy {
     fun definition(connection: ToolConnection, definition: AgentToolDefinition): AgentToolDefinition =
         if (isOfficialGitHub(connection)) definition.copy(capabilities = definition.capabilities + AgentToolCapability.GITHUB) else definition
 
+    fun repositoryReadConnection(read: GitHubMcpRepositoryRead, selected: Map<ToolConnection, Set<String>>): String? {
+        val matches = selected.filter { (connection, names) -> isOfficialGitHub(connection) && names.any(read::matchesOperation) }
+        if (matches.size > 1) throw GitHubTargetSelectionRequired(matches.size)
+        return matches.keys.singleOrNull()?.connectionUid
+    }
+
     /** Full GitHub mode waits for every selected schema before any model round. */
     suspend fun acquireCatalog(
         connection: ToolConnection,
         selectedNames: Set<String>,
         githubMode: Boolean,
         cachedOnly: Boolean,
+        repositoryRead: GitHubMcpRepositoryRead? = null,
         cached: suspend () -> List<Tool>,
         discover: suspend (awaitCompletion: Boolean) -> List<Tool>
     ): List<Tool> {
-        val required = githubMode && isOfficialGitHub(connection)
+        val fullCatalog = githubMode && isOfficialGitHub(connection)
+        val requestedReads = if (repositoryRead != null && isOfficialGitHub(connection)) selectedNames.filter(repositoryRead::matchesOperation) else emptyList()
+        val required = fullCatalog || requestedReads.isNotEmpty()
+        val requiredName = (if (fullCatalog) selectedNames else requestedReads).sorted().firstOrNull() ?: "catalog"
         val tools = try {
-            if (cachedOnly && !required) cached() else discover(required)
+            if (cachedOnly && !fullCatalog) {
+                val snapshot = cached()
+                if (requestedReads.isEmpty() || snapshot.any { it.name in requestedReads }) snapshot else snapshot + discover(true).filter { it.name in requestedReads }
+            } else {
+                discover(required)
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             if (!required) throw failure
             throw RequiredToolReadinessFailure(
                 if (failure is McpCatalogueTimeoutException) "ACQUISITION_TIMED_OUT" else "ACQUISITION_FAILED",
-                namespaceMcpToolName(connection.alias, selectedNames.sorted().firstOrNull() ?: "catalog"),
-                "The full authorized GitHub catalog could not be loaded. Refresh this connection before continuing."
+                namespaceMcpToolName(connection.alias, requiredName),
+                "The authorized GitHub catalog could not be loaded. Refresh this connection before continuing."
             ).apply { initCause(failure) }
         }
         if (required) {
-            (selectedNames - tools.map { it.name }.toSet()).sorted().firstOrNull()?.let { missing ->
+            val available = tools.mapTo(hashSetOf()) { it.name }
+            val missing = if (fullCatalog) (selectedNames - available).sorted().firstOrNull() else requiredName.takeIf { requestedReads.none(available::contains) }
+            if (missing != null) {
                 throw RequiredToolReadinessFailure(
                     "CAPABILITY_UNAVAILABLE",
                     namespaceMcpToolName(connection.alias, missing),

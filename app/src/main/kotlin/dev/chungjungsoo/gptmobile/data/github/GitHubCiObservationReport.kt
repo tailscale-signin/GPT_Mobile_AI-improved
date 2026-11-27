@@ -25,19 +25,23 @@ internal object GitHubCiObservationReport {
     fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? =
         render(task, receipts, now, epoch, checkSnapshotOnly = false)
 
-    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long, checkSnapshotOnly: Boolean): Pair<String, JsonObject>? {
+    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long, checkSnapshotOnly: Boolean, acceptedHeadSha: String? = null, acceptedRepository: String? = null): Pair<String, JsonObject>? {
         if (!matches(task)) return null
-        val eligible = GitHubStatusEvidence.selected(receipts, null).filterValues { receipt ->
+        val eligible = GitHubStatusEvidence.selected(receipts, acceptedRepository).filterValues { receipt ->
             val observed = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
             receipt["trusted"] == JsonPrimitive(true) &&
                 receipt["success"] == JsonPrimitive(true) &&
                 receipt["verification_eligible"] != JsonPrimitive(false) &&
                 observed in 1..now &&
-                (GitHubStatusEvidence.fresh(receipt, now, epoch) || receipt["immutable"] == JsonPrimitive(true))
+                (receipt["epoch"] == JsonPrimitive(epoch) || receipt["immutable"] == JsonPrimitive(true))
         }
-        val head = eligible.values.lastOrNull { it["head_observation"] == JsonPrimitive(true) }
+        val head = eligible.values.lastOrNull {
+            it["head_observation"] == JsonPrimitive(true) && (acceptedHeadSha == null || it.text("source_head_sha") == acceptedHeadSha)
+        }
             ?.text("source_head_sha")?.takeIf(sha::matches) ?: return null
-        val observed = GitHubObservedWorkflowRuns.current(eligible.values, JsonPrimitive(head))
+        val inventory = GitHubCiRunInventory.snapshot(eligible, head, now)
+        val scopedRuns = GitHubCiRunInventory.currentObservations(eligible, inventory)
+        val observed = GitHubObservedWorkflowRuns.current(scopedRuns.values, JsonPrimitive(head))
         if (!checkSnapshotOnly) packagingFailure(task, head, eligible, observed, now, epoch)?.let { return it }
         val checkReceipt = eligible.entries.lastOrNull { (_, row) ->
             GitHubStatusEvidence.fresh(row, now, epoch) &&
@@ -84,12 +88,26 @@ internal object GitHubCiObservationReport {
         }
         if (checkSnapshotOnly) return null
         val pages = eligible.filterValues { receipt ->
+            val args = receipt["arguments"] as? JsonObject
+            val requestedHeads = listOfNotNull(args?.get("head_sha"), args?.get("commit_sha")).mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
             receipt.text("tool").substringBefore("__") == "github_ci" &&
-                (receipt["arguments"] as? JsonObject)?.text("action") == "runs"
+                args?.text("action") == "runs" &&
+                requestedHeads.all { it == head } &&
+                (requestedHeads.isNotEmpty() || (receipt.data()?.get("workflow_runs") as? JsonArray).orEmpty().any { (it as? JsonObject)?.text("head_sha") == head })
         }
         if (pages.isEmpty()) return null
-        // Inspect complete retained pages, never a truncated model/display projection.
+        val emptyFailureQueries = pages.filterValues { receipt ->
+            val arguments = receipt["arguments"] as? JsonObject ?: return@filterValues false
+            val data = receipt.data() ?: return@filterValues false
+            GitHubStatusEvidence.fresh(receipt, now, epoch) && GitHubCiFailureObservation.emptyRevision(arguments, data) == head
+        }
+        val completeEmptyFailureQuery = emptyFailureQueries.isNotEmpty()
+        val emptyFailureObservedAt = emptyFailureQueries.values.maxOfOrNull { (it["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L } ?: 0L
+        // An independently complete failure query is sufficient for its bounded
+        // absence finding. An unrelated broad/history projection cannot invalidate
+        // that query, but contradictory selected-revision observations still do.
         if (pages.values.any { receipt ->
+                if (completeEmptyFailureQuery && ((receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L) <= emptyFailureObservedAt) return@any false
                 val root = receipt.data() ?: return@any true
                 val runs = root["workflow_runs"] as? JsonArray ?: return@any true
                 val returned = (root["returned"] as? JsonPrimitive)?.intOrNull ?: return@any true
@@ -101,11 +119,6 @@ internal object GitHubCiObservationReport {
             }
         ) {
             return null
-        }
-        val completeEmptyFailureQuery = pages.values.any { receipt ->
-            val arguments = receipt["arguments"] as? JsonObject ?: return@any false
-            val data = receipt.data() ?: return@any false
-            GitHubStatusEvidence.fresh(receipt, now, epoch) && GitHubCiFailureObservation.emptyRevision(arguments, data) == head
         }
         if (observed.isEmpty() && !completeEmptyFailureQuery || observed.any { it.text("status") != "completed" || it.text("conclusion") !in setOf("success", "skipped", "neutral") || (it["run_attempt"] as? JsonPrimitive)?.intOrNull?.let { attempt -> attempt > 0 } != true }) return null
         // A separate failed/pending check observation must not disappear just because
@@ -132,6 +145,7 @@ internal object GitHubCiObservationReport {
         ) {
             return null
         }
+        val completed = completeEmptyFailureQuery || inventory?.let { it.complete && it.fresh } == true
         val successful = observed.count { it.text("conclusion") == "success" }
         val skipped = observed.count { it.text("conclusion") == "skipped" }
         val neutral = observed.count { it.text("conclusion") == "neutral" }
@@ -141,10 +155,28 @@ internal object GitHubCiObservationReport {
                 buildJsonObject {
                     put("id", GitHubRequestCompletion.id(requirement))
                     put("requirement", requirement)
-                    put("status", if (index == 0) "PASSED" else "NOT_APPLICABLE")
-                    put("acceptance_state", if (index == 0) "PASS" else "NOT_TESTED")
-                    put("required", index == 0)
-                    put("acceptance", if (index == 0) "No failed runs were observed in the returned set for the selected revision." else "Failure-specific job/log diagnosis and repairs are inapplicable to this observed set because no failure was returned; skipped runs are not passing tests.")
+                    put(
+                        "status",
+                        if (!completed) {
+                            "PENDING"
+                        } else if (index == 0) {
+                            "PASSED"
+                        } else {
+                            "NOT_APPLICABLE"
+                        }
+                    )
+                    put("acceptance_state", if (completed && index == 0) "PASS" else "NOT_TESTED")
+                    put("required", !completed || index == 0)
+                    put(
+                        "acceptance",
+                        if (!completed) {
+                            "Complete or refresh the selected-commit workflow inventory before resolving this requirement."
+                        } else if (index == 0) {
+                            "No failed runs were observed in the returned set for the selected revision."
+                        } else {
+                            "Failure-specific job/log diagnosis and repairs are inapplicable to this observed set because no failure was returned; skipped runs are not passing tests."
+                        }
+                    )
                     put("evidence_receipt_ids", evidenceIds)
                 }
             }
@@ -152,12 +184,17 @@ internal object GitHubCiObservationReport {
         val report = buildJsonObject {
             put("schema", "github.ci-observation.v1")
             put("task", task)
-            put("task_outcome", "COMPLETED")
-            put("completion_verified", true)
+            put("task_outcome", if (completed) "COMPLETED" else "PARTIAL")
+            put("completion_verified", completed)
             put("answer_verified", true)
             put("claims_verified", true)
-            put("partial", false)
-            put("resume_required", false)
+            put("partial", !completed)
+            put("resume_required", !completed)
+            if (!completed) put("observation_state", if (inventory?.fresh == false) "AS_OF_SNAPSHOT" else "WORKFLOW_INVENTORY_PARTIAL")
+            put("inventory_complete", inventory?.complete == true)
+            put("inventory_fresh", inventory?.fresh == true)
+            inventory?.total?.let { put("reported_total_count", it) }
+            inventory?.observedAt?.let { put("observed_at_ms", it) }
             put("completion_scope", "NO_FAILURES_OBSERVED_IN_RETURNED_SET_FOR_SELECTED_REVISION")
             put("head_sha", head)
             put("returned_run_count", observed.size)
@@ -172,7 +209,7 @@ internal object GitHubCiObservationReport {
             put("build_health_verified", false)
             put("new_test_execution_verified", false)
             put("requirements", requirements)
-            put("remaining_requirements", JsonArray(emptyList()))
+            put("remaining_requirements", if (completed) JsonArray(emptyList()) else requirements)
             put("evidence_receipt_ids", evidenceIds)
             put("verified_at_ms", now)
         }
@@ -185,7 +222,12 @@ internal object GitHubCiObservationReport {
                 "All ${observed.size} observed runs for this revision were completed. Failure-specific job and log investigation, root-cause attribution and code repairs are inapplicable to this returned set.\n\n" +
                 "This is a bounded finding from saved receipts. It does not establish that older or unreturned attempts have no failures, that skipped jobs executed, or that all required checks passed. No new tests were run. A particular older failed attempt needs its own run and attempt identity."
         }
-        return text to report
+        val coverageNotice = when {
+            completed -> ""
+            inventory?.fresh == false -> "\n\n**Snapshot needs refresh:** the selected query scope was observed at ${java.time.Instant.ofEpochMilli(inventory.observedAt)}. Its ${observed.size} retained run observations remain listed above; they do not establish current CI health."
+            else -> "\n\n**Investigation incomplete:** ${observed.size}" + (inventory?.total?.let { " of $it" } ?: "") + " workflow runs are retained. Complete the same selected-commit inventory before concluding that no failing run needs investigation."
+        }
+        return (text + coverageNotice) to report
     }
 
     private fun packagingFailure(task: String, head: String, receipts: Map<String, JsonObject>, runs: List<JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? {
@@ -417,7 +459,7 @@ internal object GitHubCiObservationReport {
         }
     }
 
-    private fun JsonObject.data(): JsonObject? = (get("result") as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
+    private fun JsonObject.data(): JsonObject? = GitHubCiRunInventory.pageData(this)
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
     private val unresolvedCheckStates = setOf("failure", "failed", "error", "pending", "running", "queued", "in_progress", "waiting", "requested", "unknown")
 }

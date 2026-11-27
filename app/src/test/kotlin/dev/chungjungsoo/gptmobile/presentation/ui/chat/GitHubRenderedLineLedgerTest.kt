@@ -1,12 +1,26 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRenderedLineLedgerTest {
     private val ledger = GitHubRenderedLineLedger()
     private fun observe(text: String, lines: Int, geometry: Int = 300, key: String = "paragraph", sourceOffset: Int = 0, updates: Boolean = true, reflowedPrevious: Int? = null) =
         ledger.observe(key, "document", sourceOffset, text, lines, geometry, updates, reflowedPrevious)
+
+    @Test fun unchangedSettledLayoutsDoNotWakeTheFollowerButReflowAndNewTextDo() {
+        ledger.arm()
+        assertTrue(observe("Settled report", 20))
+        ledger.takeLines()
+        repeat(100) { assertFalse(observe("Settled report", 20)) }
+        assertEquals(0, ledger.takeLines())
+        assertTrue(observe("Settled report", 21, geometry = 290))
+        assertEquals(0, ledger.takeLines())
+        assertTrue(observe("Settled report with new content", 22, geometry = 290))
+        assertEquals(1, ledger.takeLines())
+    }
 
     @Test fun actualWrappedLinesCountWhileTokensOnTheSameLineDoNot() {
         ledger.arm()

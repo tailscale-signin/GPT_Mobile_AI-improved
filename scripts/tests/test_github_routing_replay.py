@@ -17,6 +17,29 @@ FIXTURE = Path(__file__).parent / "fixtures/github-routing-pr-2568.json"
 
 
 class RoutingReplayTest(unittest.TestCase):
+    def test_workspace_body_references_preserve_envelopes_and_require_prior_verified_bodies(self):
+        body = {"checks": [{"state": "PASS", "id": n} for n in range(100)]}
+        def ref(row_id, pointer, value):
+            return dict(schema="gptmobile.workspace-payload-reference.v1", table="workspace_records", rowId=row_id,
+                        pointer=pointer, redactedJsonSha256=hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest())
+        first = dict(table="workspace_records", rowId=8, fields=dict(payload=dict(snapshot_id="old", capability_states=body)))
+        second = dict(table="workspace_records", rowId=3, fields=dict(payload=dict(snapshot_id="new"),
+                      payload_body_refs=dict(capability_states=ref(8, "/fields/payload/capability_states", body))))
+        restored = list(replay.workspace_payloads([first, second]))
+        self.assertEqual(dict(snapshot_id="new", capability_states=body), restored[1][1])
+        whole = dict(table="workspace_records", rowId=9, fields=dict(payload_ref=ref(8, "/fields/payload", first["fields"]["payload"])))
+        self.assertEqual(first["fields"]["payload"], list(replay.workspace_payloads([first, whole]))[1][1])
+        with self.assertRaisesRegex(ValueError, "earlier row"):
+            list(replay.workspace_payloads([second, first]))
+        invalid = copy.deepcopy(second)
+        invalid["fields"]["payload_body_refs"]["capability_states"]["redactedJsonSha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            list(replay.workspace_payloads([first, invalid]))
+        invalid = copy.deepcopy(second)
+        invalid["fields"]["payload"]["capability_states"] = {"state": "FAILED"}
+        with self.assertRaisesRegex(ValueError, "overwrites current evidence"):
+            list(replay.workspace_payloads([first, invalid]))
+
     def test_cli_compares_actual_run_metrics_and_rejects_unpaired_task(self):
         cli = SCRIPTS / "replay_conversation_debug.py"
         result = json.loads(subprocess.check_output([sys.executable, cli, FIXTURE, "--github-routing"]))

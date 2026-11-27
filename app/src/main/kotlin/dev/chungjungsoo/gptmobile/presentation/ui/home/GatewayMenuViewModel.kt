@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayChatProfilePolicy
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringDefaults
 import dev.chungjungsoo.gptmobile.data.github.GatewayKnownProfileStore
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScope
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore
@@ -39,14 +40,15 @@ internal data class GatewayMenuConnection(
     val navigationIdentity: String get() = gatewayIdentityKey(routeIdentity, verifiedScope?.configurationRevision.orEmpty(), verifiedScope?.gatewayId.orEmpty(), verifiedScope?.principalId.orEmpty())
 }
 
-private data class GatewayMenuInputs(val targets: List<GatewayAvailabilityTarget>, val profiles: List<PlatformV2>, val scopes: Map<String, GatewayVerifiedScope>)
+private data class GatewayMenuInputs(val targets: List<GatewayAvailabilityTarget>, val profiles: List<PlatformV2>, val scopes: Map<String, GatewayVerifiedScope>, val unbound: Set<String>)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun gatewayMenuConnections(
     settings: SettingRepository,
     repository: GatewayAvailabilityRepository,
     scopes: GatewayVerifiedScopeStore,
-    knownProfiles: GatewayKnownProfileStore? = null
+    knownProfiles: GatewayKnownProfileStore? = null,
+    engineering: GatewayEngineeringDefaults? = null
 ): Flow<List<GatewayMenuConnection>> =
     combine(settings.observePlatformV2s(), settings.observeFeatureSettings(), scopes.changes) { profiles, features, _ ->
         val unique = profiles.filter { profile -> profiles.count { it.uid == profile.uid } == 1 }
@@ -55,7 +57,8 @@ internal fun gatewayMenuConnections(
         val targets = gatewayMenuTargets(profiles, features).map { target ->
             target.copy(config = target.config?.copy(profileRevision = revisions[target.gatewayProfileUid]))
         }
-        GatewayMenuInputs(targets, unique, verified)
+        val unbound = unique.map { it.uid }.filter { features.githubProfileOverrides[it]?.engineeringGatewayProfileUid == null && features.githubProfileOverrides[it]?.githubTools != false }.toSet()
+        GatewayMenuInputs(targets, unique, verified, unbound)
     }
         .distinctUntilChanged()
         .flatMapLatest { inputs ->
@@ -75,7 +78,12 @@ internal fun gatewayMenuConnections(
                         if (direct != null && revision != null) {
                             when {
                                 direct.status in setOf(GatewayAvailabilityStatus.NOT_GATEWAY, GatewayAvailabilityStatus.INCOMPATIBLE) -> knownProfiles.forget(profile, revision)
-                                direct.instanceId != null && (direct.isConnected || direct.lastObservedStatus in confirmedGatewayStatuses) -> knownProfiles.remember(profile, direct.instanceId, revision, direct.conversationSyncSupported)
+                                direct.instanceId != null && (direct.isConnected || direct.lastObservedStatus in confirmedGatewayStatuses) -> {
+                                    val remembered = knownProfiles.remember(profile, direct.instanceId, revision, direct.conversationSyncSupported)
+                                    if (remembered && profile.uid in inputs.unbound && direct.isConnected && direct.conversationSyncSupported) {
+                                        engineering?.discover(profile)
+                                    }
+                                }
                             }
                         }
                     }

@@ -84,6 +84,14 @@ class PairedControlTlsTests(unittest.TestCase):
         self.assertEqual(invitation['fingerprint'], grant['fingerprint'])
         return grant
 
+    def test_normal_owner_receipt_reports_same_interface_port_without_confirming_profile_binding(self):
+        with patch.object(self.control, 'connection_port', return_value=8090):
+            owner = self.pair()
+        self.assertFalse(owner['engineering_connection'])
+        self.assertEqual(8090, owner['gateway_port'])
+        settings = self.call(owner['token'], 'GET', '/gateway/settings')
+        self.assertTrue(settings.json()['effective']['engineering_enabled'])
+
     def test_private_address_one_exchange_restores_same_grant_and_writes_shared_settings(self):
         from desktop.control_store import FIELDS
         from urllib.parse import parse_qs, urlsplit

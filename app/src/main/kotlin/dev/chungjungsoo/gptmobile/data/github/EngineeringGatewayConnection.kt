@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 
 /** Inference connectivity never implies an engineering service on the same port. */
 internal suspend fun SettingRepository.engineeringGateway(inferenceProfileUid: String): PlatformV2 {
@@ -26,4 +29,40 @@ internal fun ProviderRequestConfig.withGatewayIdentity(identity: GatewayScopeIde
     requireGatewayIdentity(identity.gatewayId, identity.principalId)
     val names = setOf("x-gateway-installation-id", "x-gateway-principal-id")
     return copy(extraHeaders = extraHeaders.filterKeys { it.lowercase(java.util.Locale.ROOT) !in names } + mapOf("X-Gateway-Installation-ID" to identity.gatewayId, "X-Gateway-Principal-ID" to identity.principalId))
+}
+
+/** Select the verified local engineering service once for every GitHub conversation using this profile. */
+class GatewayEngineeringDefaults @Inject constructor(
+    private val settings: SettingRepository,
+    private val client: GatewayEngineeringClient
+) {
+    suspend fun discover(profile: PlatformV2) {
+        if (!GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile) || profile.disableAllTools || profile.disableRemoteTools) return
+        val saved = settings.getFeatureSettings().githubProfileOverrides[profile.uid]
+        if (saved?.engineeringGatewayProfileUid != null || saved?.githubTools == false) return
+        val capability = try {
+            client.capabilities(profile.engineeringConfig())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A direct inference endpoint can still serve phone-owned GitHub work.
+            return
+        }
+        if (capability.enabled && capability.supportsDurableChat && !capability.gatewayId.isNullOrBlank() && capability.principalId != "network:shared") {
+            settings.selectVerifiedEngineeringGateway(profile)
+        }
+    }
+}
+
+/** The proof belongs to this exact saved connection. A concurrent explicit route wins. */
+internal suspend fun SettingRepository.selectVerifiedEngineeringGateway(profile: PlatformV2) {
+    if (getFeatureSettings().githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid != null) return
+    if (fetchPlatformV2s().singleOrNull { it.uid == profile.uid } != profile) return
+    mutateFeatureSettings { it.withVerifiedEngineeringGateway(profile.uid) }
+}
+
+internal fun AppFeatureSettings.withVerifiedEngineeringGateway(uid: String): AppFeatureSettings {
+    val saved = githubProfileOverrides[uid] ?: GitHubChatProfileOverride.newProfile
+    if (!saved.githubTools || saved.engineeringGatewayProfileUid != null) return this
+    return copy(githubProfileOverrides = githubProfileOverrides + (uid to saved.copy(engineeringGatewayProfileUid = uid, engineeringGatewayDefaultApplied = true)))
 }

@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendState
@@ -207,7 +208,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             started,
             VoiceSpeechBenchmarkConfiguration(
                 mode, engine.supportedBackends.filter { it in backends }, voice,
-                threads.coerceIn(1, 4), rate.takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: 1f,
+                VoiceCpuSchedulingPolicy.initial(threads), rate.takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: 1f,
                 sdkModel?.sha256 ?: nativeModelVariant.modelSha256, if (nativeEngine) TimedKokoro.RUNTIME_ID else MediaPipeSpeechCatalog.RUNTIME_ID, BuildConfig.VERSION_CODE, Build.VERSION.SDK_INT,
                 VoiceBackendCapabilityStore(context).deviceKey,
                 workload = workload,

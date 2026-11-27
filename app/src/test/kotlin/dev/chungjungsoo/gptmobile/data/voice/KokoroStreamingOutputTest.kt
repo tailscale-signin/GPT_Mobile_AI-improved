@@ -42,6 +42,118 @@ import org.robolectric.shadows.ShadowSystemClock
 @Config(sdk = [34], application = Application::class, shadows = [KokoroPlaybackObservationTest.ImmediatePcmTrack::class])
 @LooperMode(LooperMode.Mode.PAUSED)
 class KokoroStreamingOutputTest {
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun audioTrackIsPreparedDuringModelLoadAndWaitsForValidatedAudio() {
+        val loading = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val trackReady = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val played = AtomicBoolean()
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val engine = object : VoicePhraseEngine {
+            override val supportsStreaming = true
+            override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                emit(VoicePcmChunk(FloatArray(2_400) { .1f }))
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() = Unit
+        }
+        val observer = object : VoicePlaybackMeasurementObserver {
+            override fun preparationPhase(stage: String, elapsedMs: Long) {
+                if (stage == "AUDIO_TRACK_SETUP") trackReady.countDown()
+            }
+            override fun trackPlayRequested() {
+                played.set(true)
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.SHORT, engine, observer, beforeCreate = {
+            loading.countDown()
+            check(release.await(10, TimeUnit.SECONDS))
+        }) { output ->
+            try {
+                output.speakWithFailure("Hello.", KokoroVoice.HEART, { finished.countDown() }, { failure, _ ->
+                    failures += failure
+                    finished.countDown()
+                })
+                awaitMain(loading)
+                assertEquals(0L, loading.count)
+                awaitMain(trackReady)
+                assertEquals("AudioTrack setup should complete with native model loading still blocked", 0L, trackReady.count)
+                assertTrue(PausePcmTrack.writes.isEmpty())
+                assertFalse(played.get())
+            } finally {
+                release.countDown()
+            }
+            awaitMain(finished, advancePlaybackClock = true)
+            assertEquals(0L, finished.count)
+            assertTrue("Playback failures: ${failures.map { it.code }}", failures.isEmpty())
+            assertEquals(2_400, PausePcmTrack.writes.sumOf { it.size })
+            assertTrue(played.get())
+        }
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun answerHandoffReusesAnOpeningGraphAndUserStopStillCancelsIt() {
+        for (userStops in listOf(false, true)) {
+            val loading = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val finished = CountDownLatch(1)
+            val loads = AtomicInteger()
+            val cancelledDuringLoad = AtomicBoolean()
+            val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+            val words = CopyOnWriteArrayList<String>()
+            val engine = object : VoicePhraseEngine {
+                override val supportsStreaming = true
+                override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                    words += text
+                    emit(VoicePcmChunk(FloatArray(2_400) { .1f }))
+                }
+                override fun resetCancellation() = Unit
+                override fun cancel() = Unit
+                override fun close() = Unit
+            }
+            withStreamingOutput(false, VoicePauseDuration.SHORT, engine, beforeCreate = {
+                loads.incrementAndGet()
+                loading.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+            }, onCancelPending = {
+                if (loading.count == 0L && release.count > 0L) cancelledDuringLoad.set(true)
+            }) { output ->
+                try {
+                    output.speakWithFailure("Hello.", KokoroVoice.HEART, { error("The retired cue completed") }, { failure, _ -> failures += failure })
+                    awaitMain(loading)
+                    assertEquals(0L, loading.count)
+                    output.stop("answer_ready")
+                    output.speakWithFailure("Voice.", KokoroVoice.HEART, { finished.countDown() }, { failure, _ ->
+                        failures += failure
+                        finished.countDown()
+                    })
+                    assertFalse(cancelledDuringLoad.get())
+                    if (userStops) {
+                        output.stop("user_stop")
+                        assertTrue(cancelledDuringLoad.get())
+                    }
+                } finally {
+                    release.countDown()
+                }
+                if (userStops) {
+                    output.close()
+                    assertTrue(output.awaitClosed(5_000))
+                    assertTrue(words.isEmpty())
+                } else {
+                    awaitMain(finished, advancePlaybackClock = true)
+                    assertEquals(0L, finished.count)
+                    assertEquals(listOf("Voice."), words.toList())
+                    assertEquals(1, loads.get())
+                }
+                assertTrue(failures.isEmpty())
+            }
+        }
+    }
+
     @Test fun incrementalReplyPlaysBeforeFinalTextAndKeepsOriginalSegmentCaptions() {
         val firstPresented = CountDownLatch(1)
         val finished = CountDownLatch(1)
@@ -895,6 +1007,8 @@ class KokoroStreamingOutputTest {
         pause: VoicePauseDuration,
         engine: VoicePhraseEngine,
         observer: VoicePlaybackMeasurementObserver? = null,
+        beforeCreate: () -> Unit = {},
+        onCancelPending: () -> Unit = {},
         run: (KokoroVoiceOutput) -> Unit
     ) {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -912,7 +1026,11 @@ class KokoroStreamingOutputTest {
             override val identity = "streaming-pause-test-$requiresKokoroAssets"
             override val requiresKokoroAssets = needsAssets
             override val selectedBackend = if (needsAssets) VoiceSpeechBackend.GATEWAY_CUDA else VoiceSpeechBackend.PHONON_CPU
-            override fun create(directory: File, lexicon: String, threads: Int) = engine
+            override fun cancelPending() = onCancelPending()
+            override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+                beforeCreate()
+                return engine
+            }
         }
         val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build() }, { 1f }, measurements = observer)
         PausePcmTrack.writes.clear()

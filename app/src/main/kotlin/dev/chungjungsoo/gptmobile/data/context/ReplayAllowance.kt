@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.context
 
 /** Allocate reply and actionable evidence within the resolved route ceiling. */
 internal object ReplayAllowance {
+    const val MINIMUM_TOOL_REPLAY = 128
+    private const val TARGET_TOOL_REPLAY = 512
+    const val MINIMUM_TOOL_REPLY = 128
     data class Allocation(val output: Int, val replay: Int, val ceiling: Int, val input: Int, val safety: Int)
 
     /** A saved tool configuration alone is not evidence that a request exposes executable tools. */
@@ -27,5 +30,26 @@ internal object ReplayAllowance {
         val replay = (RequestAdmission.maximumEstimatedPrompt(ceiling.toLong() - reply) - prompt).coerceIn(0, 24_000).toInt()
         return Allocation(reply, replay, ceiling, prompt, RequestAdmission.estimateSafety(prompt.toLong() + replay).toInt())
     }
+
+    /** Reserve tool receipts only for contracts that can actually be called in this plan. */
+    fun forAdmittedTools(plan: ContextPlan, context: Int, output: Int, fallback: Int): Allocation? =
+        if (plan.tools.any { it.modelVisible }) forToolTurn(context, plan.promptTokens, output, fallback) else null
+
+    /** Keep an ordinary exact call/result envelope usable before any operation is dispatched. */
+    fun forToolTurn(context: Int, input: Int, output: Int, fallback: Int): Allocation {
+        val original = allocate(context, input, output, fallback)
+        if (original.replay >= TARGET_TOOL_REPLAY) return original
+        val minimumReply = minOf(output.coerceAtLeast(0), MINIMUM_TOOL_REPLY)
+        val available = RequestAdmission.maximumEstimatedPrompt(original.ceiling.toLong() - minimumReply) - original.input
+        val target = minOf(TARGET_TOOL_REPLAY.toLong(), available)
+        if (target < MINIMUM_TOOL_REPLAY) return original
+        val requiredPrompt = original.input.toLong() + target
+        val replyHeadroom = original.ceiling.toLong() - requiredPrompt - RequestAdmission.estimateSafety(requiredPrompt)
+        val reply = minOf(output.toLong().coerceAtLeast(0), replyHeadroom.coerceAtLeast(0)).toInt()
+        if (reply < minimumReply) return original
+        val replay = (RequestAdmission.maximumEstimatedPrompt(original.ceiling.toLong() - reply) - original.input).coerceIn(0, 24_000).toInt()
+        return original.copy(output = reply, replay = replay, safety = RequestAdmission.estimateSafety(original.input.toLong() + replay).toInt())
+    }
+
     fun tokens(context: Int, input: Int, output: Int, fallback: Int): Int = allocate(context, input, output, fallback).replay
 }

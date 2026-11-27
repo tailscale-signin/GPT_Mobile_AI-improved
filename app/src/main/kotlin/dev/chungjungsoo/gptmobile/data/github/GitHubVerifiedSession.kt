@@ -64,7 +64,8 @@ internal class GitHubVerifiedSession(
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
         GitHubTaskContinuity.reportOnly(currentRequest) ||
-        GitHubTaskContinuity.diagnostic(currentRequest)
+        GitHubTaskContinuity.diagnostic(currentRequest) ||
+        GitHubLookupRoute.request(task)?.let { it.route == GitHubLookupRoute.COMMITS && !it.exhaustive && (it.requestedCount ?: 10) <= 100 } == true
     private val ciDiagnosis = GitHubCiObservationReport.matches(task)
     private var readOnlyEvidenceRecovery = false
     private var lastChecklist: JsonObject? = null
@@ -126,6 +127,65 @@ internal class GitHubVerifiedSession(
         }
     }
 
+    override suspend fun completeFromReceipts(exchanges: List<AgentToolExchange>): Flow<ProviderEvent>? {
+        if ((!ciDiagnosis && lookup == null) ||
+            verificationOnlyRequested ||
+            GitHubTaskContinuity.diagnostic(currentRequest) ||
+            GitHubTaskContinuity.reportOnly(currentRequest)
+        ) {
+            return null
+        }
+        exchanges.forEach { exchange ->
+            exchange.results.forEach { result ->
+                exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) }
+            }
+        }
+        if (!evidence.complete() || evidence.taskAdmissionFailure() != null) return null
+        val (receipts, epoch) = evidence.snapshot()
+        if (GitHubPendingApproval.snapshot(receipts).isNotEmpty() ||
+            receipts.values.any {
+                GitHubExecutionLedger.receiptState(it) in setOf(GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME, GitHubExecutionLedger.ReceiptState.DISPATCHED)
+            }
+        ) {
+            return null
+        }
+        val observed = (if (ciDiagnosis) renderCiObservation(receipts, epoch) else renderLookupObservation(receipts, epoch)) ?: return null
+        if (observed.second["completion_verified"] != JsonPrimitive(true)) return null
+        // Publication repeats the proof against the final receipt snapshot and current
+        // authority. No replay body or verifier model is required for this response.
+        val entry = when {
+            ciDiagnosis -> GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION
+            observed.second["schema"] == JsonPrimitive("github.lookup-report.v1") -> GitHubAcceptancePublicationEvidence.Entry.LOOKUP_OBSERVATION
+            else -> GitHubAcceptancePublicationEvidence.Entry.STATUS_SNAPSHOT
+        }
+        return publish(null, entry)
+    }
+
+    private suspend fun renderCiObservation(receipts: Map<String, JsonObject>, epoch: Long, checkSnapshotOnly: Boolean = false): Pair<String, JsonObject>? {
+        val target = evidence.acceptedHeadSha(workspaceHead)
+        val repository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
+        return withContext(computationDispatcher) {
+            GitHubCiObservationReport.render(task, receipts, now(), epoch, checkSnapshotOnly, target, repository)
+        }
+    }
+
+    private suspend fun renderLookupObservation(receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject>? {
+        if (lookup == null) return null
+        val contract = evidence.acceptedPromptContract() ?: return null
+        val repository = (contract["repository"] as? JsonPrimitive)?.contentOrNull ?: return null
+        if (GitHubTaskContinuity.request(evidence.acceptedTaskRequest().orEmpty()) != GitHubTaskContinuity.request(task)) return null
+        val branch = (contract["accepted_branch"] as? JsonPrimitive)?.contentOrNull
+        return withContext(computationDispatcher) {
+            if (Regex("(?i)\\bsummari[sz]e\\b").containsMatchIn(GitHubTaskContinuity.request(task))) {
+                null
+            } else {
+                val at = now()
+                GitHubLookupReport.render(task, receipts, at, epoch, repository, branch)
+                    ?: GitHubLookupObservation.render(task, receipts, repository, branch, at, epoch)
+            }
+        }
+    }
+
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.SavedPageDeliveryRound] != null) {
             validatePublication()
@@ -174,6 +234,10 @@ internal class GitHubVerifiedSession(
                     originalFailure = if (deadlineReached) observeExpiredDeadline(admissionFailure) else admissionFailure
                 )
             )
+            return@flow
+        }
+        completeFromReceipts(emptyList())?.let { completed ->
+            emitAll(completed)
             return@flow
         }
         if (verificationOnlyRequested) {
@@ -389,7 +453,31 @@ internal class GitHubVerifiedSession(
     private suspend fun FlowCollector<ProviderEvent>.runRepositoryWorkflow(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         if (ciDiagnosis) {
             val (receipts, epoch) = evidence.snapshot()
-            val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
+            val at = now()
+            val target = evidence.acceptedHeadSha(workspaceHead)
+            val repository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
+            val selected = GitHubStatusEvidence.selected(receipts, repository).filterValues { row ->
+                row["trusted"] == JsonPrimitive(true) &&
+                    row["verification_eligible"] != JsonPrimitive(false) &&
+                    row["epoch"] == JsonPrimitive(epoch)
+            }
+            val head = selected.values.lastOrNull {
+                it["head_observation"] == JsonPrimitive(true) && (target == null || it["source_head_sha"] == JsonPrimitive(target))
+            }?.get("source_head_sha")?.let(GitHubInventoryQuery::commitSha)?.content
+            val observed = renderCiObservation(receipts, epoch)
+            val unresolvedRun = head?.let {
+                val inventory = GitHubCiRunInventory.snapshot(selected, it, at)
+                GitHubObservedWorkflowRuns.current(GitHubCiRunInventory.currentObservations(selected, inventory).values, JsonPrimitive(it))
+            }
+                .orEmpty().any { it["status"] != JsonPrimitive("completed") || it["conclusion"] !in setOf(JsonPrimitive("success"), JsonPrimitive("skipped"), JsonPrimitive("neutral")) }
+            if (head != null && !unresolvedRun && observed?.second?.get("observation_state") != JsonPrimitive("WAITING_FOR_CI") && remainingToolCalls()?.let { it > 0 } != false) {
+                GitHubCiRunInventory.nextCall(tools, selected, head, at)?.let { next ->
+                    progress("Completing the workflow inventory for the selected commit")
+                    emit(next)
+                    emit(ProviderEvent.Completed)
+                    return
+                }
+            }
             if (observed != null && !pendingPackagingRepair(observed.second)) {
                 val report = observed.second
                 if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["run_id"] == null && remainingToolCalls()?.let { it > 0 } != false) {
@@ -1083,8 +1171,40 @@ internal class GitHubVerifiedSession(
                     draft.append(event.text)
                 }
                 is ProviderEvent.ToolCall -> {
-                    calls = true
-                    emit(evidence.repairSourceRead(event))
+                    val repaired = evidence.repairSourceRead(event)
+                    val contract = if (ciDiagnosis) evidence.acceptedPromptContract() else null
+                    val target = if (ciDiagnosis) evidence.acceptedHeadSha(workspaceHead) else null
+                    val repository = (contract?.get("repository") as? JsonPrimitive)?.contentOrNull
+                    val scoped = if (target != null && repository != null) {
+                        dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.scopedCiRead(
+                            repaired,
+                            target,
+                            repository,
+                            (contract?.get("accepted_branch") as? JsonPrimitive)?.contentOrNull,
+                            evidence.snapshot().first
+                        )
+                    } else {
+                        repaired
+                    }
+                    if (scoped == null) {
+                        failed = true
+                        if (providerFailure == null) {
+                            providerFailure = ProviderEvent.Failed(
+                                "The proposed CI read targets a different revision or an older attempt. The accepted diagnosis remains scoped to `$target`; historical failures require a separate request.",
+                                errorCode = "GITHUB_CI_TARGET_MISMATCH",
+                                taskOutcome = "PARTIAL",
+                                failureDetails = buildJsonObject {
+                                    put("failed_stage", "planning")
+                                    put("dispatched", false)
+                                    put("accepted_head_sha", target)
+                                    put("request_replay_allowed", false)
+                                }
+                            )
+                        }
+                    } else if (!failed) {
+                        calls = true
+                        emit(scoped)
+                    }
                 }
                 is ProviderEvent.ToolResult -> {
                     evidence.observe(event.call, event.result)
@@ -1171,6 +1291,11 @@ internal class GitHubVerifiedSession(
             emit(failure.copy(errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED"))
         } else if (!reviewOriginFailure(failure) && dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
+            val findings = evidence.retainedFindings()
+            if (findings != null) {
+                validatePublication()
+                emit(ProviderEvent.TextDelta("## Retained findings\n\n$findings\n\n**Current interruption:** ${failure.message}", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
+            }
             emit(failure.copy(errorCode = failure.errorCode ?: "LOCAL_SERVICE_UNREACHABLE"))
         } else {
             val (receipts, _) = evidence.snapshot()
@@ -1237,11 +1362,8 @@ internal class GitHubVerifiedSession(
             issueWork = evidence.issueRemediation(task)
             val stopped = originalFailure != null || remainingToolCalls() == 0
             verificationPhase = GitHubVerificationFault.Phase.RECEIPT_RENDERING
-            val ciObservation = withContext(computationDispatcher) {
-                val at = now()
-                GitHubCiObservationReport.render(task, receipts, at, epoch)
-                    ?: if (stopped) GitHubCiObservationReport.render(task, receipts, at, epoch, checkSnapshotOnly = true) else null
-            }
+            val ciObservation = renderCiObservation(receipts, epoch) ?: if (stopped) renderCiObservation(receipts, epoch, checkSnapshotOnly = true) else null
+            val lookupObservation = renderLookupObservation(receipts, epoch)
             val status = if (GitHubStatusRequest.matches(task)) {
                 val acceptedContract = evidence.acceptedPromptContract()
                 val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
@@ -1263,7 +1385,7 @@ internal class GitHubVerifiedSession(
                 val reportingRemaining = remainingToolCalls()
                 val baseBudget = evidence.stageBudget(receipts, reportingRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
                 val reportingBudget = if (originalFailure?.failureDetails?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
-                    JsonObject(baseBudget + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")))
+                    GitHubChecklistBudget.afterDeadline(baseBudget)
                 } else {
                     baseBudget
                 }
@@ -1278,7 +1400,7 @@ internal class GitHubVerifiedSession(
             }
             verificationPhase = GitHubVerificationFault.Phase.CLAIM_PLANNING
             val verifyPackagingDraft = pendingPackagingRepair(ciObservation?.second) && !draft.isNullOrBlank()
-            val verificationPlan = if (draft == null || status != null || coverage != null || ciObservation != null && !verifyPackagingDraft) {
+            val verificationPlan = if (draft == null || status != null || coverage != null || lookupObservation != null || ciObservation != null && !verifyPackagingDraft) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
@@ -1297,7 +1419,7 @@ internal class GitHubVerifiedSession(
                     observed
                 }
             }
-            val rendered = status ?: coverage ?: packagingRepair ?: selectedCiObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
+            val rendered = status ?: coverage ?: packagingRepair ?: selectedCiObservation ?: lookupObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
             // Claim extraction and deterministic rendering can be slower than an
             // owned tool receipt reaching the evidence book. Never publish a
             // verdict for an older epoch after new repository evidence arrives.
@@ -1340,7 +1462,11 @@ internal class GitHubVerifiedSession(
             val previous = evidence.diagnostic()
             val previousProgressDigest = GitHubEvidenceBook.publishedChecklistDigest(previous)
             val stalled = progressDigest != null && previousProgressDigest == kotlinx.serialization.json.JsonPrimitive(progressDigest)
-            val text = if (stalled && originalFailure == null) {
+            val savedFindings = if (originalFailure != null && extraction == null && coverage == null) evidence.retainedFindings() else null
+            val retainedFindingsDelivered = savedFindings != null && savedFindings != renderedText && savedFindings.length.toLong() + renderedText.length < 1_000_000
+            val text = if (retainedFindingsDelivered) {
+                "## Retained findings\n\n$savedFindings\n\n## Current checkpoint\n\n$renderedText"
+            } else if (stalled && originalFailure == null) {
                 val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }
                 "No new test evidence or changed blockers since the saved checkpoint. ${receipts.size} receipts retained. " +
                     "Send “Show the last useful report” to reopen earlier findings. Remaining dependencies:\n\n" + blockers.distinctBy { it["blocker"] }.joinToString("\n") { "- ${(it["blocker"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()}" }
@@ -1359,7 +1485,7 @@ internal class GitHubVerifiedSession(
                 null
             }
             val partial = !retentionComplete || originalFailure != null || publicationFailureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
-            val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && requests == null && receipts.isEmpty()
+            val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && lookupObservation == null && requests == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
             val trustFailures = evidence.claimTrustFailures(report, publicationReceipts)
             val retained = JsonObject(
@@ -1369,6 +1495,11 @@ internal class GitHubVerifiedSession(
                     put("stage_budget", publicationBudget)
                     resources?.let { put("execution_resources", it) }
                     put("owned_descendants_settled", descendantsSettled)
+                    if (retainedFindingsDelivered) {
+                        put("retained_findings_delivered", true)
+                        put("retained_findings_scope", "SAME_ACCEPTED_TASK_EPOCH_AND_RECEIPT_SET")
+                        put("retained_findings_sha256", GitHubEvidenceBook.digest(requireNotNull(savedFindings)))
+                    }
                     put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
                     if (checklist != null) {
                         put("test_checklist", checklist)
@@ -1449,13 +1580,15 @@ internal class GitHubVerifiedSession(
                         status != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
                         coverage != null -> GitHubAcceptancePublicationEvidence.Source.COVERAGE
                         selectedCiObservation != null -> GitHubAcceptancePublicationEvidence.Source.CI_OBSERVATION
+                        lookupObservation?.second?.get("schema") == JsonPrimitive("github.lookup-report.v1") -> GitHubAcceptancePublicationEvidence.Source.LOOKUP_OBSERVATION
+                        lookupObservation != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
                         extraction != null -> GitHubAcceptancePublicationEvidence.Source.CLAIM_EXTRACTION
                         else -> GitHubAcceptancePublicationEvidence.Source.PARTIAL_FALLBACK
                     }
                     val rejectedPlan = verificationPlan as? VerificationPlan.Rejected
                     val extractionObservation = when {
                         evidenceAdvanced -> null
-                        status != null || coverage != null || ciObservation != null && !verifyPackagingDraft -> GitHubAcceptancePublicationEvidence.Extraction.NOT_NEEDED
+                        status != null || coverage != null || lookupObservation != null || ciObservation != null && !verifyPackagingDraft -> GitHubAcceptancePublicationEvidence.Extraction.NOT_NEEDED
                         draft == null -> GitHubAcceptancePublicationEvidence.Extraction.NO_DRAFT
                         rejectedPlan != null -> rejectedPlan.observation
                         extraction?.failure != null -> GitHubAcceptancePublicationEvidence.Extraction.FAILED

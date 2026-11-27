@@ -511,7 +511,7 @@ class GitHubContentFixtureTest {
         }
     }
 
-    @Test fun independentInventoryReadSkipsWatchSubscriptionWithoutReclassifyingIt() {
+    @Test fun independentReadsObserveActiveRunOnceThenContinueInventoryWithoutSubscribing() {
         val records = initial()
         val runs = ProviderEvent.ToolCall("active-runs", "github_ci", buildJsonObject { put("action", "runs") })
         records[runs.callId] = receipt(
@@ -536,12 +536,27 @@ class GitHubContentFixtureTest {
         val task = "Test all GitHub tools"
         val watch = requireNotNull(GitHubTestChecklist.nextCall(task, definitions, records, 100))
         assertEquals("github_watch_checks", watch.name)
-        assertFalse(dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(watch.name, watch.arguments))
-        val read = requireNotNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 100))
+        assertEquals(JsonPrimitive(1), watch.arguments["wait_timeout_seconds"])
+        assertEquals(JsonPrimitive(42), watch.arguments["run_id"])
+        assertEquals(JsonPrimitive(origin), watch.arguments["commit_sha"])
+        assertFalse(dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(watch.name, JsonObject(watch.arguments - "wait_timeout_seconds")))
+        assertEquals(watch, GitHubTestChecklist.nextIndependentRead(task, definitions, records, 100))
+        records[watch.callId] = receipt(
+            watch,
+            buildJsonObject {
+                put("status", "PENDING_CHECKS")
+                put("observed_status", "RUNNING")
+                put("head_sha", origin)
+                put("head_binding_verified", true)
+                put("observations", 1)
+                put("background_subscription", false)
+            }
+        )
+        val read = requireNotNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 99))
         assertEquals("github_context", read.name)
         assertEquals(JsonPrimitive("branches"), read.arguments["action"])
         records[read.callId] = receipt(read, buildJsonObject {})
-        assertNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 99))
+        assertNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 98))
     }
 
     @Test fun requiredLiveExistenceReadRunsBeforeCleanupAndIsRetiredAfterVerifiedAbsence() {

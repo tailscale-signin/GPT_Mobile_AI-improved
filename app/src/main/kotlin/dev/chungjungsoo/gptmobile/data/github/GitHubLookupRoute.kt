@@ -24,7 +24,10 @@ internal enum class GitHubLookupRoute(val operation: String, val action: String,
         if (!tool.modelVisible) return false
         if (GitHubOperationTool.operationName(tool.name) == operation) return true
         if (AgentToolCapability.GITHUB !in tool.capabilities) return false
-        val remote = tool.name.substringAfterLast("__")
+        return matchesOfficialRead(tool.name.substringAfterLast("__"))
+    }
+
+    fun matchesOfficialRead(remote: String): Boolean {
         if (!GitHubMcpRepositoryTool.isReadOnlyOperation(remote)) return false
         return when (this) {
             ISSUE -> remote in setOf("get_issue", "issue_read")
@@ -40,7 +43,9 @@ internal enum class GitHubLookupRoute(val operation: String, val action: String,
         val pageSize: Int?,
         val newestFirst: Boolean,
         val filesOnly: Boolean,
-        val patches: Boolean
+        val patches: Boolean,
+        val requestedCount: Int? = pageSize,
+        val exhaustive: Boolean = false
     )
 
     companion object {
@@ -83,7 +88,33 @@ internal enum class GitHubLookupRoute(val operation: String, val action: String,
                 null
             }
             val newestFirst = (route == ISSUES || route == PULL_REQUESTS) && (size != null || "recent " in modifiers || "latest " in modifiers)
-            return Request(route, number, state, size?.coerceAtMost(100), newestFirst, target.startsWith("files ") || target.startsWith("changes "), target.startsWith("changes "))
+            val exhaustive = "all" in modifiers.split(' ')
+            val pageSize = size?.coerceAtMost(100) ?: 10.takeIf { route == COMMITS && !exhaustive }
+            return Request(route, number, state, pageSize, newestFirst, target.startsWith("files ") || target.startsWith("changes "), target.startsWith("changes "), size ?: pageSize, exhaustive)
+        }
+    }
+}
+
+/** An ordinary chat may use an authorized official MCP read against one explicitly supplied repository. */
+internal data class GitHubMcpRepositoryRead(val repository: GitHubRepositoryContext, val route: GitHubLookupRoute?) {
+    fun matchesOperation(name: String): Boolean = route?.matchesOfficialRead(name) ?: (name in setOf("get_repository", "get_file_contents"))
+
+    companion object {
+        private val owner = Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
+        private val inspect = Regex("""(?i)(?:please )?(?:inspect|read|show(?: me)?|fetch|check|review) (?:the )?(?:github )?repo(?:sitory)?""")
+        private val preposition = Regex("""(?i) (?:in|for|on|from|of)$""")
+
+        fun from(request: String): GitHubMcpRepositoryRead? {
+            val text = request.trim().trimEnd('.', '!', '?')
+            if (text.length > 360 || '\n' in text || '\r' in text) return null
+            val source = text.substringAfterLast(' ', "")
+            if ('/' !in source) return null
+            val (account, name) = runCatching { normalizeGitHubRepository(null, source) }.getOrNull() ?: return null
+            if (account == null || name == null || !owner.matches(account)) return null
+            val prefix = text.substringBeforeLast(' ').trim()
+            val route = GitHubLookupRoute.from(prefix.replace(preposition, ""))
+            if (route == null && !inspect.matches(prefix)) return null
+            return GitHubMcpRepositoryRead(GitHubRepositoryContext(account, name, ""), route)
         }
     }
 }

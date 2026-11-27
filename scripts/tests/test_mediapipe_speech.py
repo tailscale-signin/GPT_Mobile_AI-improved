@@ -70,7 +70,8 @@ class ControlledTask:
         self.events = []
         self.options = options
 
-    def open_stream(self, *, initial_text, finish_input):
+    def open_stream(self, *, initial_text, finish_input, voice_id=None, locale=None):
+        self.selection = (voice_id, locale)
         self.events.append(("open", initial_text, finish_input))
         stream = ControlledStream(self.events, **self.options)
         stream.finished = finish_input
@@ -83,6 +84,14 @@ class IncrementalCheckpointProtocolTest(unittest.TestCase):
         with closing(smoke.input_chunks(task, smoke.FIXTURE, incremental=incremental, evidence=evidence)) as chunks:
             output = list(chunks)
         return evidence, output
+
+    def test_french_voice_and_locale_apply_to_only_the_requested_stream(self):
+        task = ControlledTask()
+        with closing(smoke.input_chunks(task, smoke.FRENCH_CORPUS, incremental=False, evidence={}, voice_id="ff_siwis", locale="fr")) as chunks:
+            self.assertTrue(list(chunks))
+        self.assertEqual(("ff_siwis", "fr"), task.selection)
+        self.collect(task)
+        self.assertEqual((None, None), task.selection)
 
     def test_real_probe_withholds_later_text_and_finish_until_first_pcm(self):
         task = ControlledTask()

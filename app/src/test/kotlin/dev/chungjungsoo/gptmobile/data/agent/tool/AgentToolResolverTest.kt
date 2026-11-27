@@ -32,6 +32,7 @@ import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.mock.respond
+import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -1759,6 +1760,34 @@ class AgentToolResolverTest {
         settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(githubTools = false)))
         assertFalse(requireNotNull(retained.canReuseResult).invoke())
         assertFalse(resolver.resolve(profile.uid, selection).any { it.nativeGitHub })
+    }
+
+    @Test fun nativeGithubWorkspaceResolutionDoesNotConsultUnselectedMcpConnections() = runBlocking {
+        val profile = PlatformV2(uid = "native-profile", name = "Native workspace")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val saved = connection("native", ToolConnectionType.GITHUB, endpointUrl = "https://api.github.com", authType = ToolConnectionAuthType.NONE)
+        val dao = ResolverFakeToolConnectionDao().also {
+            it.upsertConnection(saved)
+            it.bind(connection("offline-mcp", ToolConnectionType.MCP), binding(profile.uid, "offline-mcp", "echo"))
+        }
+        val manager = mockk<McpClientManager>()
+        val resolver = resolver(dao = dao, settings = settings, managerOverride = manager)
+        val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext(saved.connectionUid, "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val selection = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid))
+        val errors = mutableListOf<String>()
+        for (cachedOnly in listOf(false, true)) {
+            val resolved = resolver.resolve(
+                profile.uid,
+                selection,
+                dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = "check repo status", platformType = null),
+                onConnectionError = { errors += it },
+                cachedCataloguesOnly = cachedOnly
+            )
+            assertTrue(resolved.any { it.nativeGitHub && it.connectionUid == saved.connectionUid })
+            assertFalse(resolved.any { it.connectionUid == "offline-mcp" })
+        }
+        assertTrue(errors.isEmpty())
+        io.mockk.verify { manager wasNot Called }
     }
 
     @Test fun cachedAuthorizedOAuthCatalogIsResolvedBeforeCredentialRefreshAndRevocationStillWins() = runBlocking {

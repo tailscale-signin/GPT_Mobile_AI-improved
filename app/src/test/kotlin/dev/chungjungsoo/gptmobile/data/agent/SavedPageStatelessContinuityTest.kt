@@ -139,7 +139,8 @@ class SavedPageStatelessContinuityTest {
             val restartedJournal = ToolBatchCheckpoint(file, "same-authorized-task-and-profile")
             val visible = AgentRunner(limits, restartedJournal).run(session(restartedApi, wrappers), listOf(admitted), selectDefinitions = { emptyList() }).toList()
                 .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-            assertTrue(restartedApi.requests.size >= 2)
+            assertTrue("Expected a reconciled provider request after restart. Failures: ${visible.filterIsInstance<ProviderEvent.Failed>()}", restartedApi.requests.size >= 2)
+            assertTrue("Retained pages must keep the selected tool-free provider contract", restartedApi.requests.all { (it["tools"] as? JsonArray).isNullOrEmpty() })
             val concurrent = requireNotNull(concurrentReading)
             val reconciledRequest = resultRows(restartedApi.requests[1])
             val reconciledReading = reconciledRequest.firstNotNullOf { it["saved_page_reading"] as? JsonObject }

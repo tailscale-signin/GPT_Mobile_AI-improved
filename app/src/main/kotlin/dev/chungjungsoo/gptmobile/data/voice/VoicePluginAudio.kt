@@ -21,7 +21,7 @@ internal interface KokoroOutput {
         openReply(voice, complete) { message, canFallback -> error(VoicePlaybackFailure(message), canFallback) }
     fun configureThreads(value: Int) = Unit
     fun configurePacing(pause: VoicePauseDuration, performance: VoicePerformanceMode) = Unit
-    fun configurePronunciation(overrides: Map<String, String>) = Unit
+    fun configurePronunciation(overrides: Map<String, String>, language: String = "en") = Unit
     fun configureCaptionOffset(milliseconds: Int) = Unit
     fun configureEngine(factory: VoicePhraseEngineFactory) = Unit
     fun benchmark(voice: KokoroVoice, completed: (String) -> Unit) = completed("This speech engine does not support calibration.")
@@ -131,10 +131,10 @@ internal class VoicePluginAudio(
         kokoro?.bindSpokenRange(spoken)
     }
 
-    override fun configurePronunciation(overrides: Map<String, String>) {
+    override fun configurePronunciation(overrides: Map<String, String>, language: String) {
         val cleaned = VoicePronunciationOverrides.clean(overrides)
-        system.configurePronunciation(cleaned)
-        kokoro?.configurePronunciation(cleaned)
+        system.configurePronunciation(cleaned, language)
+        kokoro?.configurePronunciation(cleaned, language)
     }
 
     override fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) {

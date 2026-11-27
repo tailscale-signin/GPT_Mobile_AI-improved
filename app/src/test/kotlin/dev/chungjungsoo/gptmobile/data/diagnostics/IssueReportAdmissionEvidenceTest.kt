@@ -233,7 +233,8 @@ class IssueReportAdmissionEvidenceTest {
         val invalid = listOf<JsonElement>(JsonNull, JsonPrimitive("UNRECOGNIZED_EVIDENCE_OPERATION"), JsonArray(emptyList()), JsonArray(failures + failures.first()), JsonArray(listOf(failures.first(), failures.first())), JsonArray(listOf(JsonPrimitive("private-tool"))), JsonArray(listOf(JsonPrimitive(1))))
         invalid.forEach { assertNull("$key=$it", base.copy(values = base.values + (key to it)).validated()) }
         val entries = GitHubAcceptancePublicationEvidence.Entry.entries
-        assertEquals(17, entries.size)
+        assertEquals(18, entries.size)
+        assertTrue(GitHubAcceptancePublicationEvidence.Entry.LOOKUP_OBSERVATION in entries)
         assertTrue(GitHubAcceptancePublicationEvidence.Entry.EVIDENCE_RETENTION_INCOMPLETE in entries)
         assertNull(base.copy(values = base.values + ("acceptance_publication_entry" to JsonPrimitive("UNKNOWN_ENTRY"))).validated())
         for (entry in entries) {

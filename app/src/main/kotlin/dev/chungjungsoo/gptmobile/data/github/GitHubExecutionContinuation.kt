@@ -485,6 +485,7 @@ internal class GitHubReadRoundProgress(private val detectFailedReads: Boolean = 
     private var unchanged = 0
     private var workMillis = 0L
     private var requested = false
+    private val ciProgress = dev.chungjungsoo.gptmobile.data.agent.GitHubCiReadProgress()
 
     fun replan(exchange: dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange, elapsedMillis: Long): Boolean {
         if (requested) return false
@@ -495,6 +496,8 @@ internal class GitHubReadRoundProgress(private val detectFailedReads: Boolean = 
             "view_cursor" !in it.arguments &&
                 (
                     it.name.githubOperationFamily() in setOf("github_read", "github_search") ||
+                        it.name.githubOperationFamily() == "github_ci" &&
+                        (it.arguments["action"] as? JsonPrimitive)?.content in setOf("run", "runs", "jobs", "job", "logs", "failure", "workflows", "status") ||
                         it.name.githubOperationFamily() == "github_context" &&
                         (it.arguments["action"] as? JsonPrimitive)?.content in setOf("branches", "status", "resolve", "branch")
                     )
@@ -523,6 +526,11 @@ internal class GitHubReadRoundProgress(private val detectFailedReads: Boolean = 
             val source = ((result.retainedContent ?: result.content) as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json)?.value as? JsonObject ?: continue
             val data = GitHubSemanticSummary.data(source)
             val issuer = exchange.calls.firstOrNull { it.callId == result.callId } ?: continue
+            val ciAdvanced = ciProgress.observe(issuer, result)
+            if (ciAdvanced != null) {
+                if (ciAdvanced) advanced = true
+                continue
+            }
             if (issuer.name.githubOperationFamily() == "github_context" && issuer.arguments["action"] == JsonPrimitive("branches")) {
                 val rows = ((data["branches"] ?: data["items"]) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                 for (row in rows) {

@@ -143,6 +143,33 @@ class CombinedProfileFailureCacheTest {
         }
     }
 
+    @Test fun savedBudgetSubtypeDistinguishesCreditsFromOtherLimits() {
+        val cache = CombinedProfileFailureCache()
+        val run = failed.copy(terminalError = null)
+        for ((kind, label) in listOf("ACCOUNT_CREDITS" to "Provider credits unavailable", "PROVIDER_QUOTA" to "Provider allowance unavailable", "KEY_LIMIT" to "Provider allowance unavailable")) {
+            val receipt = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord(
+                "BILLING_UNAVAILABLE",
+                false,
+                providerFailure = kotlinx.serialization.json.JsonObject(mapOf("provider_budget_kind" to kotlinx.serialization.json.JsonPrimitive(kind)))
+            )
+            val item = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, profileFailure = receipt)
+            val failure = cache.failures(1, "Compare foods", listOf(partial.copy(timeline = listOf(item))), mapOf(run.runId to run), emptyMap(), emptyMap()).single()
+            assertEquals(label, failure.shortStatus(0))
+            assertFalse(failure.retryAllowed)
+        }
+    }
+
+    @Test fun unspecifiedQuotaAndHttpPaymentErrorsKeepTheGenericAllowanceLabel() {
+        val cache = CombinedProfileFailureCache()
+        for (error in listOf("BILLING_UNAVAILABLE: insufficient API quota", "HTTP 402 payment required", "BILLING_UNAVAILABLE: Check the credit balance")) {
+            val run = failed.copy(terminalError = error)
+            val failure = cache.failures(1, "Compare foods", listOf(partial), mapOf(run.runId to run), emptyMap(), emptyMap()).single()
+            assertEquals("BILLING_UNAVAILABLE", failure.category)
+            assertEquals("Provider allowance unavailable", failure.shortStatus(0L))
+            assertFalse(failure.retryAllowed)
+        }
+    }
+
     @Test fun permanentBillingFailureOverridesSavedIncompleteReceiptAndRetryDeadline() {
         val cache = CombinedProfileFailureCache()
         val message = partial.copy(

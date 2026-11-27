@@ -79,6 +79,18 @@ class ProfileRecoveryControlsTest {
         assertNull(profileBillingUrl(direct.copy(apiUrl = "https://proxy.example/anthropic")))
     }
 
+    @Test fun directOpenAiAndOpenRouterProfilesOpenTheirOwnApiBillingAccount() {
+        val direct = profile.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com/v1")
+        assertEquals("https://platform.openai.com/account/billing/overview", profileBillingUrl(direct))
+        val router = direct.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1")
+        assertEquals("https://openrouter.ai/settings/credits", profileBillingUrl(router))
+        assertEquals("https://openrouter.ai/settings/credits", profileBillingUrl(router.copy(compatibleType = ClientType.OPENAI)))
+        for (url in listOf("http://api.openai.com/v1", "https://api.openai.com.attacker.example/v1", "https://user@api.openai.com/v1", "https://api.openai.com:8080/v1", "https://proxy.example/openai")) {
+            assertNull(profileBillingUrl(direct.copy(apiUrl = url)))
+        }
+        assertNull(profileBillingUrl(router.copy(apiUrl = "https://proxy.example/openrouter")))
+    }
+
     @Test fun deterministicFailuresUseRepairActionsWhileDnsStillUsesBoundedRetry() {
         assertEquals(ProfileRecoveryKind.REASONING, profileRecoveryKind("INCOMPATIBLE_CONFIGURATION", "REASONING_OFF_UNSUPPORTED: saved mode"))
         assertEquals(ProfileRecoveryKind.REASONING, profileRecoveryKind("UNAVAILABLE", "REASONING_CAPABILITY_UNVERIFIED"))

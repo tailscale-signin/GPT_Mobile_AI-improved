@@ -22,6 +22,61 @@ class IntelligentToolBatchTest {
         override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text(callId), false)
     }
 
+    @Test fun failedWatchDoesNotCancelAnIndependentPinnedCommitRead() = runTest {
+        val watch = ProviderEvent.ToolCall(
+            "watch",
+            "github_watch_checks",
+            buildJsonObject {
+                put("commit_sha", "a".repeat(40))
+                put("all_checks", false)
+            }
+        )
+        val read = ProviderEvent.ToolCall(
+            "commits",
+            "github_context",
+            buildJsonObject {
+                put("action", "commits")
+                put("commit_sha", "a".repeat(40))
+                put("per_page", 10)
+            }
+        )
+        val tools = listOf(tool(watch.name), tool(read.name)).associateBy { it.definition.name }
+        val plan = planIntelligentBatch(listOf(watch, read), tools)
+        assertEquals(setOf("watch"), plan[1].dependencies)
+        assertTrue(plan[1].failureDependencies.isEmpty())
+        val dispatched = mutableListOf<String>()
+        val results = IntelligentToolBatch(AdaptiveBatchWindow(2)).execute(
+            plan,
+            dispatch = { call ->
+                dispatched += call.callId
+                if (call == watch) {
+                    ToolResultEnvelope.error(call.callId, "INVALID_ARGUMENTS", "Missing run selector")
+                } else {
+                    AgentToolResult(call.callId, ToolResultContent.Text("commits"), false)
+                }
+            },
+            completed = { _, _ -> },
+            progress = {}
+        )
+        assertEquals(listOf("watch", "commits"), dispatched)
+        assertFalse(results.last().isError)
+
+        val write = call("write", "github_commit")
+        val guarded = planIntelligentBatch(listOf(write, watch, read), tools + (write.name to tool(write.name)))
+        assertEquals(setOf("watch", "write"), guarded.last().dependencies)
+        assertEquals(setOf("write"), guarded.last().failureDependencies)
+        val afterWriteFailure = IntelligentToolBatch(AdaptiveBatchWindow(2)).execute(
+            guarded,
+            dispatch = { call ->
+                assertEquals(write, call)
+                ToolResultEnvelope.error(call.callId, "WRITE_FAILED", "Write did not complete")
+            },
+            completed = { _, _ -> },
+            progress = {}
+        )
+        assertTrue(afterWriteFailure.drop(1).all { it.errorCode == "DEPENDENCY_FAILED" && !it.dispatched })
+    }
+
     @Test fun admissionNeverRunsADependentWhosePrerequisiteWasDeferred() {
         val read = call("read")
         val write = call("write", "github_commit")
@@ -72,6 +127,33 @@ class IntelligentToolBatchTest {
         assertEquals(calls.map { it.callId }, result.map { it.callId })
         assertEquals(10, progress.last().completed)
         assertEquals(0, progress.last().active)
+    }
+
+    @Test fun schedulingAWatchDoesNotMakeCommitsDependOnTheSubscription() = runTest {
+        val watch = call("watch", "github_watch_checks")
+        val commits = call("commits", "github_context", "commits")
+        val write = call("write", "github_commit")
+        val calls = listOf(watch, commits, write)
+        val tools = calls.map { tool(it.name) }.associateBy { it.definition.name }
+        val planned = planIntelligentBatch(calls, tools)
+        assertFalse(planned.first().parallelRead)
+        assertEquals(setOf("watch"), planned[1].dependencies)
+        assertTrue(planned[1].failureDependencies.isEmpty())
+        val results = IntelligentToolBatch(AdaptiveBatchWindow(3)).execute(
+            planned,
+            dispatch = { if (it == watch) ToolResultEnvelope.error(it.callId, "INVALID_ARGUMENTS", "Missing target") else tools.getValue(it.name).execute(it.callId, it.arguments) },
+            completed = { _, _ -> },
+            progress = {}
+        )
+        assertFalse(results[1].isError)
+        assertEquals("DEPENDENCY_FAILED", results.last().errorCode)
+        val afterWrite = planIntelligentBatch(listOf(write, watch, commits), tools)
+        assertEquals(setOf("write"), afterWrite.last().failureDependencies)
+
+        val inline = watch.copy(arguments = buildJsonObject { put("wait_timeout_seconds", 2) })
+        val bounded = planIntelligentBatch(listOf(inline, commits), tools)
+        assertTrue(bounded.first().parallelRead)
+        assertTrue(bounded.last().dependencies.isEmpty())
     }
 
     @Test fun failedReadPreventsDependentWriteAndLaterReads() = runTest {

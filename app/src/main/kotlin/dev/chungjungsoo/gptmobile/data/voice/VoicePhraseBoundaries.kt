@@ -79,7 +79,7 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
 
     companion object {
         const val PROTOCOL = "spoken-groups-v1"
-        private val word = Regex("\\S+")
+        private val word = Regex("""[^\s。！？।॥]+[。！？।॥]*|[。！？।॥]+""")
         private val title = Regex("""(?i)(?:dr|mr|mrs|ms|prof|sr|jr)\.""")
 
         // Keep examples and dotted initials with their following word for Kokoro's tokenizer.
@@ -88,7 +88,7 @@ internal class VoicePhraseBoundaries(private val text: String, streaming: Boolea
         fun endsSentence(text: String, lastContent: Int): Boolean {
             var end = lastContent
             while (end >= 0 && text[end] in CLOSERS) end--
-            return end >= 0 && text[end] in ".!?…。！？"
+            return end >= 0 && text[end] in ".!?…。！？।॥"
         }
         private val number = Regex("""[+−-]?(?:\d+(?:[.,:/-]\d+)*|\.\d+)(?:[eE][+-]?\d+)?""")
         private val units = setOf(

@@ -106,7 +106,7 @@ internal object GitHubReplayRecovery {
         }
         fun hasRemoteRead(name: String, args: JsonObject) = remoteKey(name, args) in remoteReads
         fun observeDelivered(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>, cache: ToolExchangeCompactor.RenderCache? = null) = deliveredReads.observe(exchanges, deliveredResultDigests, cache)
-        fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?) = deliveredReads.advance(call, tool)
+        fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?, repairRepeatedProviderRead: Boolean = false) = deliveredReads.advance(call, tool, repairRepeatedProviderRead)
 
         /** Native admission and provider delivery are separate facts. Projections cannot replace the full-body witness. */
         fun pendingSavedPageDeliveries(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>): Map<String, String?> {
@@ -138,9 +138,13 @@ internal object GitHubReplayRecovery {
                 .mapValues { (_, read) -> read.deliveryDigest }
         }
 
-        /** Exact current alias of a verified saved-page obligation. No new operation is acquired. */
-        fun owedPageSchema(pending: Map<String, String?>, authorized: List<AgentToolDefinition>): AgentToolDefinition? {
-            for (id in pending.keys) {
+        /** Reserve a tool only for a missing page. Retained exact bytes need only provider delivery. */
+        fun owedPageSchema(pending: Map<String, String?>, authorized: List<AgentToolDefinition>, retained: List<AgentToolExchange> = emptyList(), cache: ToolExchangeCompactor.RenderCache? = null): AgentToolDefinition? {
+            if (pending.isEmpty() || authorized.isEmpty()) return null
+            val bodies = retained.flatMap { it.results }.associateBy { it.callId }
+            for ((id, digest) in pending) {
+                val body = bodies[id]
+                if (body != null && digest != null && ToolResultDeliveryProof.digest(body.content, cache) == digest) continue
                 val read = verifiedReads[id] ?: continue
                 if (immutablePageIdentity(read) == null) continue
                 val tool = authorized.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue

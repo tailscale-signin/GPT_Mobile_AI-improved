@@ -96,7 +96,8 @@ class ProfileRecoveryPresentationTest {
         compose.onNodeWithText("Manage billing for Claude account").performClick()
         assertEquals(1, billing)
         compose.onNodeWithText("Retry checked configuration").assertDoesNotExist()
-        compose.onNodeWithText("Restore this profile’s provider credits, then start a new request. Other replies remain saved.").assertIsDisplayed()
+        compose.onNodeWithText("API quota, spending limits, account, project and key configuration", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Other replies and tool results remain saved.", substring = true).assertIsDisplayed()
     }
 
     @Test fun checkingDisablesDuplicateQualificationAndModeChange() {

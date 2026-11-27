@@ -151,6 +151,61 @@ class ToolEvidenceContextBudgetExceptionTest {
         assertSame(normalized, ToolEvidenceContextBudgetException.requireAllocation(normalized, Int.MAX_VALUE - 1, Int.MAX_VALUE))
     }
 
+    @Test fun recordedEmptyPullRequestReceiptFitsWithoutIncreasingTheContextCeiling() {
+        val old = ReplayAllowance.allocate(Int.MAX_VALUE, 3013, 2048, 4096)
+        assertEquals(53, old.replay)
+        val admitted = ReplayAllowance.forToolTurn(Int.MAX_VALUE, 3013, 2048, 4096)
+        assertEquals(4096, admitted.ceiling)
+        assertTrue(admitted.replay >= 128)
+        assertTrue(admitted.replay >= 108)
+        assertTrue(admitted.output >= 128)
+        assertTrue(admitted.output < old.output)
+        assertTrue(admitted.input.toLong() + admitted.safety + admitted.output + admitted.replay <= admitted.ceiling)
+        assertSame(admitted, ToolEvidenceContextBudgetException.requireAllocation(admitted, Int.MAX_VALUE, 2048, minimumReplayTokens = 128, minimumOutputTokens = 128))
+    }
+
+    @Test fun recordedThirtyEightTokenReplayCannotDispatchAnEightySixTokenIdentity() {
+        val old = ReplayAllowance.allocate(4096, 3088, 2048, 4096)
+        assertEquals(38, old.replay)
+        val bounded = ReplayAllowance.forToolTurn(4096, 3088, 2048, 4096)
+        assertEquals(4096, bounded.ceiling)
+        assertThrows(ToolEvidenceContextBudgetException::class.java) {
+            ToolEvidenceContextBudgetException.requireAllocation(bounded, 4096, 2048, minimumReplayTokens = 86, minimumOutputTokens = 128)
+        }
+    }
+
+    @Test fun anAuthorizedButUnadvertisedToolDoesNotBlockAPlainAnswer() {
+        val reader = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("read_recovery_context", "", kotlinx.serialization.json.buildJsonObject {})
+        val plain = ContextPlan(emptyList(), "", emptyList(), 0, 128, "", promptTokens = 3110, authorizedTools = listOf(reader))
+        assertTrue(3110 + RequestAdmission.estimateSafety(3110) + 128 <= 4096)
+        org.junit.Assert.assertNull(ReplayAllowance.forAdmittedTools(plain, 4096, 128, 4096))
+        val hiddenBackend = plain.copy(tools = listOf(reader.copy(modelVisible = false)))
+        org.junit.Assert.assertNull(ReplayAllowance.forAdmittedTools(hiddenBackend, 4096, 128, 4096))
+        val directory = reader.copy(name = "discover_available_tools")
+        val cold = plain.copy(tools = listOf(directory), authorizedTools = listOf(directory, reader), promptTokens = 2500)
+        val deferred = requireNotNull(ReplayAllowance.forAdmittedTools(cold, 4096, 128, 4096))
+        assertTrue(deferred.replay >= ReplayAllowance.MINIMUM_TOOL_REPLAY)
+        val actualReader = requireNotNull(ReplayAllowance.forAdmittedTools(plain.copy(tools = listOf(reader)), 4096, 128, 4096))
+        assertTrue(actualReader.replay < ReplayAllowance.MINIMUM_TOOL_REPLAY)
+        assertThrows(ToolEvidenceContextBudgetException::class.java) {
+            ToolEvidenceContextBudgetException.requireAllocation(actualReader, 4096, 128, minimumReplayTokens = ReplayAllowance.MINIMUM_TOOL_REPLAY)
+        }
+    }
+
+    @Test fun anUnusablePositiveEvidenceAllowanceIsRejectedBeforeToolExecution() {
+        val old = ReplayAllowance.allocate(4096, 3013, 2048, 4096)
+        assertThrows(ToolEvidenceContextBudgetException::class.java) {
+            ToolEvidenceContextBudgetException.requireAllocation(old, 4096, 2048, minimumReplayTokens = 128, minimumOutputTokens = 128)
+        }
+        for (prompt in listOf(4821, 5801, 8208, 8747)) {
+            val blocked = ReplayAllowance.forToolTurn(4096, prompt, 2048, 4096)
+            assertThrows(ToolEvidenceContextBudgetException::class.java) {
+                ToolEvidenceContextBudgetException.requireAllocation(blocked, 4096, 2048, minimumReplayTokens = 128, minimumOutputTokens = 128)
+            }
+            assertEquals(4096, blocked.ceiling)
+        }
+    }
+
     private fun reject(allocation: ReplayAllowance.Allocation, resolved: Int, requested: Int): ToolEvidenceContextBudgetException =
         assertThrows(ToolEvidenceContextBudgetException::class.java) {
             ToolEvidenceContextBudgetException.requireAllocation(allocation, resolved, requested)

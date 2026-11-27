@@ -29,7 +29,13 @@ class GitHubCiObservationReportTest {
     private fun receipt(id: String, action: String, data: JsonObject, sourceHead: String? = null, headObservation: Boolean = false) = buildJsonObject {
         put("receipt_id", id)
         put("tool", if (headObservation) "github_context" else "github_ci")
-        put("arguments", buildJsonObject { put("action", action) })
+        put(
+            "arguments",
+            buildJsonObject {
+                put("action", action)
+                if (action == "runs") put("commit_sha", head)
+            }
+        )
         put("trusted", true)
         put("success", true)
         put("verification_eligible", true)
@@ -416,7 +422,42 @@ class GitHubCiObservationReportTest {
     @Test fun aReturnedPageCanBeReportedWithoutClaimingUnreturnedHistory() {
         val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, evidence(listOf(run(1)), more = true), now, 2))
         assertEquals(JsonPrimitive(false), report["full_history_verified"])
-        assertTrue(text.contains("older or unreturned attempts"))
+        assertTrue(text.contains("Investigation incomplete"))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertEquals(JsonPrimitive("PARTIAL"), report["task_outcome"])
+    }
+
+    @Test fun staleWholeScopeDoesNotDisappearBehindANewerSingleWorkflowResult() {
+        val receipts = evidence((1..27).map { run(it, if (it <= 12) "success" else "skipped") })
+        val later = now + 180_000
+        receipts["narrow"] = JsonObject(
+            receipt(
+                "narrow",
+                "runs",
+                buildJsonObject {
+                    put("workflow_runs", JsonArray(listOf(run(1))))
+                    put("returned", 1)
+                    put("has_more", false)
+                }
+            ) + mapOf(
+                "observed_at_ms" to JsonPrimitive(later - 10),
+                "arguments" to buildJsonObject {
+                    put("action", "runs")
+                    put("commit_sha", head)
+                    put("workflow_id", "release-build.yml")
+                }
+            )
+        )
+        val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, receipts, later, 2))
+        assertEquals(JsonPrimitive(27), report["returned_run_count"])
+        assertEquals(JsonPrimitive(12), report["successful_run_count"])
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertTrue(text.contains("Snapshot needs refresh"))
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_ci")
+        val refresh = requireNotNull(GitHubCiRunInventory.nextCall(listOf(tool), receipts, head, later))
+        assertEquals(JsonPrimitive(head), refresh.arguments["commit_sha"])
+        assertEquals(JsonPrimitive(1), refresh.arguments["page"])
+        assertFalse("workflow_id" in refresh.arguments)
     }
 
     @Test fun aNewerAttemptOrSeparateFailedCheckPreventsTheNoFailureTerminal() {

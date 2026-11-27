@@ -64,8 +64,8 @@ class AndroidVoiceAudio internal constructor(
     private var spokenRange: ((Int, String, IntRange) -> Unit)? = null
 
     @Volatile private var pronunciations = VoicePronunciationDictionary.EMPTY
-    override fun configurePronunciation(overrides: Map<String, String>) {
-        pronunciations = VoicePronunciationDictionary(overrides)
+    override fun configurePronunciation(overrides: Map<String, String>, language: String) {
+        pronunciations = VoicePronunciationDictionary(overrides, language)
     }
     override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
         spokenRange = spoken
@@ -1040,8 +1040,8 @@ class AndroidVoiceAudio internal constructor(
     }
 
     /** Release an idle system service before changing backends or leaving the voice screen. */
-    internal fun releaseRecognition() {
-        stop()
+    internal fun releaseRecognition(preservePlayback: Boolean = false) {
+        if (!preservePlayback || recognitionActive) stop()
         retireRecognizer()
     }
 

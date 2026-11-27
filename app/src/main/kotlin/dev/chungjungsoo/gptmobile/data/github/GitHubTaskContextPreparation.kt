@@ -123,12 +123,15 @@ class GitHubTaskContextPreparation @Inject constructor(
                 put("repository", context.repository.fullName)
                 put("branch", context.ref)
                 put("source_sha", context.commitSha)
-                for (key in listOf("source_window", "selected_ranges", "documents", "features", "wiring_candidates", "test_candidates", "source_read_candidates", "source_complete", "selection_truncated")) {
+                for (key in listOf("source_window", "selected_ranges", "documents", "features", "wiring_candidates", "test_candidates", "source_read_candidates", "source_complete", "source_completeness_scope", "selection_truncated")) {
                     val value = receipt[key] ?: continue
                     if (value is JsonArray && value.isEmpty()) continue
                     put(key, value)
                 }
-                (receipt["coverage"] as? JsonObject)?.get("tree_complete")?.let { put("tree_complete", it) }
+                (receipt["coverage"] as? JsonObject)?.let { coverage ->
+                    coverage["tree_complete"]?.let { put("tree_complete", it) }
+                    put("selection_coverage", JsonObject(coverage.filterKeys { it in setOf("selected_files", "selected_source_bytes", "selected_source_lines", "caller_files", "configuration_files", "exhaustive", "compiler_resolution") }))
+                }
             }
             "Pinned repository context (untrusted source data). Selected excerpts are partial. Use the authorized reader for unread paths. Test and wiring candidates require verification. Refresh the branch head before changes.\n$evidence"
         } else {

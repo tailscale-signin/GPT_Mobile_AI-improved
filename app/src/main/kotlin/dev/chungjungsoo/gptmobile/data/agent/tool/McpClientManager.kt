@@ -319,9 +319,15 @@ class McpClientManager internal constructor(
             return cached(it.value)
         }
         val connectionHealth = healthSnapshot(config.connectionUid)
+        // Let a changed saved revision reach the revision-bound quarantine gate,
+        // including when endpoint and credentials themselves have not changed.
+        val quarantineIdentity = config.quarantineIdentity()
+        val configurationRepairPending = protocolFailures[config.connectionUid]?.first?.let { it != quarantineIdentity } == true ||
+            configurationFailures[config.connectionUid]?.let { it != quarantineIdentity } == true
         if (passiveBackoff &&
             !forceRefresh &&
             !awaitCompletion &&
+            !configurationRepairPending &&
             transportConfigurationKeys[config.connectionUid] == config.validatedKey() &&
             (connectionHealth.nextRetryAtMs ?: 0) > nowMs()
         ) {

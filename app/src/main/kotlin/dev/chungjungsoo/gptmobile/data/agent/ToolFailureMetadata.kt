@@ -15,7 +15,7 @@ internal object ToolFailureMetadata {
     private val unavailableCode = setOf("", "none", "null", "unknown")
     val authorityInvalidationCodes = setOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE")
 
-    private val authorityStopCodes = authorityInvalidationCodes + dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE
+    val authorityStopCodes = authorityInvalidationCodes + dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE
 
     private fun causes(error: Throwable) = generateSequence(error) { current -> current.cause?.takeUnless { it === current } }.take(16)
 

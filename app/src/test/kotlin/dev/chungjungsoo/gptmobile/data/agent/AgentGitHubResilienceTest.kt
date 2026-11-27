@@ -42,7 +42,24 @@ class AgentGitHubResilienceTest {
                     "github_ci",
                     AgentToolResult(
                         id,
-                        ToolResultContent.Json(buildJsonObject { put("saved_result", "all 18 returned runs") }),
+                        ToolResultContent.Json(
+                            buildJsonObject {
+                                put(
+                                    "workflow_runs",
+                                    JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                put("id", 61)
+                                                put("head_sha", "a".repeat(40))
+                                                put("run_attempt", 1)
+                                                put("status", "completed")
+                                                put("conclusion", "failure")
+                                            }
+                                        )
+                                    )
+                                )
+                            }
+                        ),
                         false
                     ),
                     request = arguments
@@ -57,6 +74,8 @@ class AgentGitHubResilienceTest {
                         "github_ci",
                         buildJsonObject {
                             put("action", "runs")
+                            put("owner", "owner")
+                            put("repo", "repo")
                             put("commit_sha", "a".repeat(40))
                         }
                     )

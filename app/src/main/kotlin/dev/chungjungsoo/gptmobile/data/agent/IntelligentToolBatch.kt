@@ -39,6 +39,7 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
     val nodes = mutableListOf<ToolBatchNode>()
     var barrier: String? = null
     var firstContextBarrier: String? = null
+    var lastWorkspaceBarrier: String? = null
     fun action(call: ProviderEvent.ToolCall) = (call.arguments["action"] as? JsonPrimitive)?.content ?: when (GitHubOperationTool.operationName(call.name)) {
         "github_read" -> "ranges"
         "github_pr" -> "context"
@@ -57,13 +58,23 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
             action(call) in setOf("resolve", "default")
         barrier?.let(dependencies::add)
         if (!read) dependencies += nodes.map { it.call.callId }
+        // Registering a watch changes its subscription, not the workspace used by a
+        // separate GitHub read. Keep serial order and any earlier workspace barrier.
+        val independentOfWatch = read &&
+            barrier != lastWorkspaceBarrier &&
+            GitHubOperationTool.operationName(call.name) != null &&
+            "view_cursor" !in call.arguments &&
+            "evidence_id" !in call.arguments
+        val readBarrier = if (independentOfWatch) lastWorkspaceBarrier else barrier
+        if (independentOfWatch) readBarrier?.let(dependencies::add)
         val required = when {
             discovery || initialContext -> mutableSetOf()
             read &&
-                barrier != null &&
-                barrier == firstContextBarrier &&
+                readBarrier != null &&
+                readBarrier == firstContextBarrier &&
                 GitHubOperationTool.immutableRead(call.name, call.arguments) &&
                 "evidence_id" !in call.arguments -> mutableSetOf()
+            independentOfWatch -> listOfNotNull(readBarrier).toMutableSet()
             else -> dependencies.toMutableSet()
         }
         tool?.definition?.workflowLinks.orEmpty().filter { it.action == action(call) }.forEach { link ->
@@ -76,7 +87,10 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
         // its own immutable revision can proceed independently of that selection.
         nodes += ToolBatchNode(call, dependencies, read, required)
         if (initialContext) firstContextBarrier = call.callId
-        if (!read) barrier = call.callId
+        if (!read) {
+            barrier = call.callId
+            if (tool == null || GitHubOperationTool.operationName(call.name) != "github_watch_checks") lastWorkspaceBarrier = call.callId
+        }
     }
     return nodes
 }

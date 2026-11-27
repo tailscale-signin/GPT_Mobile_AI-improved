@@ -343,13 +343,15 @@ class GitHubSchedulerAndPaginationTest {
         }
     }
 
-    @Test fun ciDigestCanFindNewestFailedJobWithoutRunOrJobId() = runTest {
+    @Test fun ciDigestFindsTheNewestFailedJobAtTheResolvedBranchHead() = runTest {
+        val olderHead = "b".repeat(40)
         val http = HttpClient(
             MockEngine { request ->
                 when {
+                    request.url.encodedPath.endsWith("/commits/work") -> respond("""{"sha":"$head"}""")
                     request.url.encodedPath.endsWith("/actions/runs") -> {
-                        assertEquals("work", request.url.parameters["branch"])
-                        respond("""{"workflow_runs":[{"id":8,"head_sha":"$head"}]}""")
+                        assertEquals(head, request.url.parameters["head_sha"])
+                        respond("""{"workflow_runs":[{"id":9,"head_sha":"$olderHead"},{"id":8,"head_sha":"$head"}]}""")
                     }
                     request.url.encodedPath.endsWith("/jobs") -> respond("""{"jobs":[{"id":7,"run_id":8,"status":"completed","conclusion":"failure"}]}""")
                     request.url.encodedPath.endsWith("/logs") -> respond("build failed: important diagnostic")
@@ -359,6 +361,7 @@ class GitHubSchedulerAndPaginationTest {
         )
         try {
             val result = GitHubWorkspaceClient("ci-latest", http).execute("ci_failure_digest", args { put("ref", "work") }).jsonObject
+            assertEquals(8, result["run_id"]!!.jsonPrimitive.intOrNull)
             assertEquals(7, result["job_id"]!!.jsonPrimitive.intOrNull)
             assertEquals(head, result["head_sha"]!!.jsonPrimitive.content)
         } finally {

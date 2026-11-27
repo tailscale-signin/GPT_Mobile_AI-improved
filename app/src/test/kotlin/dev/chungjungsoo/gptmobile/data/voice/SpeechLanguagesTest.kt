@@ -33,7 +33,8 @@ class SpeechLanguagesTest {
     }
 
     @Test fun freshInstallAndLegacyEnglishVoicesKeepAnOfflineDefault() {
-        assertEquals("en-US", SpeechLanguages.recognitionDefault(Locale.JAPAN))
+        assertEquals("ja-JP", SpeechLanguages.recognitionDefault(Locale.JAPAN))
+        assertEquals("ff_siwis", VoiceSynthesisPreferences.restore(null, null, null, "fr-CA").voiceId)
         assertEquals("en-CA", SpeechLanguages.recognitionDefault(Locale.CANADA))
         assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, SpeechLanguages.recognitionBackend("ja-JP"))
         assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, SpeechLanguages.recognitionBackend("en-CA", VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE))
@@ -41,6 +42,19 @@ class SpeechLanguagesTest {
         val english = VoiceSynthesisPreferences.restore(null, null, "bf_emma")
         assertEquals("en-GB", english.language)
         assertEquals("bf_emma", english.voiceId)
+    }
+
+    @Test fun languageFrontendsFollowTheActualVoiceForEveryUtterance() {
+        for (profile in SpeechLanguages.synthesis) {
+            for (id in profile.voices) {
+                val options = streamSynthesisOptions(id)
+                assertEquals(id, options.voiceId)
+                assertEquals(profile.tag, options.locale)
+            }
+        }
+        assertEquals("fr", VoiceSynthesisPreferences().selectLanguage("fr-CA").profile.tag)
+        assertEquals(null, streamSynthesisOptions("freya").locale)
+        assertTrue(VoiceResponsePolicy.forLanguage("fr").instruction().contains("Use French"))
     }
 
     @Test fun unavailableVoicesCanOnlyFallBackWithinTheRequestedLanguage() {

@@ -86,6 +86,8 @@ class GitHubSearchSourceReadTest {
         assertEquals(JsonPrimitive(head), repaired.arguments["commit_sha"])
         assertFalse("evidence_id" in repaired.arguments)
         assertEquals(request.providerInvocation(), repaired.providerInvocation())
+        val legacy = request.copy(originalInvocationFingerprint = request.providerInvocation().fingerprint(request.callId))
+        assertEquals(request.providerInvocation(), requireNotNull(GitHubSearchSourceRead.repair(legacy, receipt(), "task")).providerInvocation())
         assertNull(GitHubSearchSourceRead.repair(repaired, receipt(), "task"))
     }
 

@@ -13,14 +13,11 @@ data class ProviderToolInvocation(val name: String, val arguments: JsonObject) {
 
 /** Capture at the runner boundary before changing execution names or arguments. */
 internal fun ProviderEvent.ToolCall.captureProviderInvocation(): ProviderEvent.ToolCall {
-    if (originalInvocation != null || originalInvocationFingerprint != null) {
-        // A trusted session may already have corrected execution arguments. Keep
-        // its verified provider envelope; never bless a changed retained identity.
-        providerInvocation()
-        return this
-    }
-    val original = ProviderToolInvocation(name, arguments)
-    return copy(originalInvocationFingerprint = original.fingerprint(callId), originalInvocation = original)
+    val original = providerInvocation()
+    if (originalInvocation != null) return this
+    // A legacy hash can identify the still-intact provider arguments. Save that
+    // verified envelope before routing changes their execution representation.
+    return copy(originalInvocationFingerprint = originalInvocationFingerprint ?: original.fingerprint(callId), originalInvocation = original)
 }
 
 /** A hash alone cannot reconstruct a legacy call changed by routing. Never guess its envelope. */

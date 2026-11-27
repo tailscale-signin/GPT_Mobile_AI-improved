@@ -10,31 +10,56 @@ internal data class VoicePronunciationProjection(val text: String, val sourceCha
 }
 
 /** Indexed once per settings change. Each speech operation keeps its own immutable dictionary. */
-internal class VoicePronunciationDictionary(overrides: Map<String, String>) {
+internal class VoicePronunciationDictionary @JvmOverloads constructor(overrides: Map<String, String>, languageTag: String = "en") {
+    private val language = Locale.forLanguageTag(languageTag).language
+    private val readings = LocalizedVoiceReadings.forLanguage(language)
     private val personal = VoicePronunciationOverrides.clean(overrides)
     private fun index(entries: Map<String, String>) = entries.entries.sortedByDescending { it.key.length }.groupBy { it.key.first() }
-    private val personalIndex = index(personal)
+    private val entries = readings + personal
+    private val personalIndex = index(entries)
+    private val continuations = buildList {
+        for (term in entries.keys) {
+            for (split in term.indices.filter { term[it] == ' ' }) add(term.substring(0, split) to term.substring(split + 1))
+        }
+    }.groupBy({ it.first }, { it.second })
+
+    fun permitsSplit(text: String, end: Int, final: Boolean): Boolean {
+        if (continuations.isEmpty() || end <= 0 || !text[end - 1].isWhitespace()) return true
+        var left = end
+        while (left > 0 && text[left - 1].isWhitespace()) left--
+        val right = VoicePronunciationOverrides.key(text.substring(end, minOf(end + 96, text.length)).trimStart())
+        val floor = (left - 96).coerceAtLeast(0)
+        var start = left
+        while (start > floor) {
+            start--
+            if (start > 0 && !text[start - 1].isWhitespace() && text[start - 1].isLetterOrDigit()) continue
+            val suffixes = continuations[VoicePronunciationOverrides.key(text.substring(start, left))] ?: continue
+            if (suffixes.any { right.startsWith(it) || !final && it.startsWith(right) }) return false
+        }
+        return true
+    }
 
     // Alternative English text engines cannot consume Kokoro phoneme IDs. Share only
     // the unambiguous text readings, with saved whole-term corrections taking precedence.
     private val englishIndex by lazy { index(KokoroEnglishReadings.englishTextReadings + personal) }
 
     fun project(input: String, englishFallback: Boolean = false): VoicePronunciationProjection =
-        VoicePronunciationOverrides.projectIndexed(input, if (englishFallback) englishIndex else personalIndex)
+        VoicePronunciationOverrides.projectIndexed(input, if (englishFallback && language == "en") englishIndex else personalIndex, language)
 
     companion object {
         val EMPTY = VoicePronunciationDictionary(emptyMap())
     }
 }
 
-/** Bounded spoken-English substitutions; pronunciation never enters diagnostic output. */
+/** Whole words or phrases mapped to a spoken spelling in the selected language. */
 internal object VoicePronunciationOverrides {
     private val word = Regex("\\.?[\\p{L}][\\p{L}\\p{M}\\p{N}'’._+#-]*")
-    private val spoken = Regex("[a-zA-Z]+(?:'[a-zA-Z]+)*(?: [a-zA-Z]+(?:'[a-zA-Z]+)*)*")
+    private val term = Regex("""\.?[\p{L}][\p{L}\p{M}\p{N}'’._+#-]*(?: \.?[\p{L}][\p{L}\p{M}\p{N}'’._+#-]*){0,5}""")
+    private val spoken = Regex("""[\p{L}][\p{L}\p{M}]*(?:['’\- ][\p{L}][\p{L}\p{M}]*)*""")
 
     fun valid(original: String, pronunciation: String): Boolean =
         original.length in 1..48 &&
-            word.matches(original) &&
+            term.matches(original) &&
             pronunciation.length in 1..96 &&
             spoken.matches(pronunciation) &&
             pronunciation.count { it == ' ' } < 8
@@ -65,7 +90,7 @@ internal object VoicePronunciationOverrides {
      */
     fun project(input: String, overrides: Map<String, String>): VoicePronunciationProjection = VoicePronunciationDictionary(overrides).project(input)
 
-    internal fun projectIndexed(input: String, candidates: Map<Char, List<Map.Entry<String, String>>>): VoicePronunciationProjection {
+    internal fun projectIndexed(input: String, candidates: Map<Char, List<Map.Entry<String, String>>>, language: String): VoicePronunciationProjection {
         if (candidates.isEmpty() && '_' !in input && '#' !in input) return VoicePronunciationProjection(input, input.indices.map { it..it })
         // ASCII case folding preserves UTF-16 offsets. Unicode terms need per-grapheme
         // origins because a canonical key may occupy a different number of characters.
@@ -103,7 +128,7 @@ internal object VoicePronunciationOverrides {
                         }
                     }
                     input[cursor] == '#' && input.getOrNull(cursor + 1)?.isDigit() == true -> {
-                        val rendering = "number "
+                        val rendering = LocalizedVoiceReadings.numberSign(language)
                         spoken.append(rendering)
                         repeat(rendering.length) { positions += cursor..cursor }
                         cursor++
@@ -118,9 +143,11 @@ internal object VoicePronunciationOverrides {
         }
         var index = 0
         while (index < normalized.length) {
-            val replacement = if (boundaryBefore(normalized, index)) {
+            val unspaced = language == "zh" || language == "ja"
+            val replacement = if (boundaryBefore(normalized, index) || language == "fr" && afterFrenchElision(normalized, index) || unspaced && cjkBoundary(normalized, index)) {
                 candidates[normalized[index]]?.firstOrNull { entry ->
-                    normalized.startsWith(entry.key, index) && boundaryAfter(normalized, index + entry.key.length)
+                    val end = index + entry.key.length
+                    normalized.startsWith(entry.key, index) && (boundaryAfter(normalized, end) || unspaced && cjkBoundary(normalized, end))
                 }
             } else {
                 null
@@ -140,6 +167,20 @@ internal object VoicePronunciationOverrides {
         }
         original(input.length)
         return VoicePronunciationProjection(spoken.toString(), positions, replacements)
+    }
+
+    private fun cjkBoundary(text: String, index: Int): Boolean {
+        if (index == 0 || index == text.length) return true
+        fun unspaced(codePoint: Int): Boolean = Character.isIdeographic(codePoint) || codePoint in 0x3040..0x30ff
+        return unspaced(text.codePointBefore(index)) || unspaced(text.codePointAt(index))
+    }
+
+    private val frenchElisions = setOf("c", "d", "j", "l", "m", "n", "s", "t", "qu", "jusqu", "lorsqu", "puisqu")
+    private fun afterFrenchElision(text: String, index: Int): Boolean {
+        if (index < 2 || text[index - 1] != '\'') return false
+        var start = index - 2
+        while (start > 0 && text[start - 1].isLetter()) start--
+        return text.substring(start, index - 1) in frenchElisions
     }
 
     private fun boundaryBefore(text: String, index: Int): Boolean {

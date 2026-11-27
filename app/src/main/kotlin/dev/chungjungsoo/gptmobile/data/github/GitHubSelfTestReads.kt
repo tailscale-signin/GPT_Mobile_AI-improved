@@ -147,15 +147,16 @@ internal object GitHubSelfTestReads {
             if (sha != null) recipe("github_ci", "definitions", "commit_sha" to sha)
             run?.get("id")?.let { id ->
                 listOf("run", "status", "artifacts").forEach { recipe("github_ci", it, "run_id" to id, "expected_head_sha" to sha) }
-                if (sha != null) {
-                    add(
-                        "github_watch_checks" to buildJsonObject {
-                            put("run_id", id)
-                            put("commit_sha", sha)
-                            put("wait_timeout_seconds", 1)
-                        }
-                    )
-                }
+            }
+            if (sha != null) {
+                add(
+                    "github_watch_checks" to buildJsonObject {
+                        val runId = run?.get("id")
+                        if (runId == null) put("all_checks", true) else put("run_id", runId)
+                        put("commit_sha", sha)
+                        put("wait_timeout_seconds", 1)
+                    }
+                )
             }
             jobsRun?.get("id")?.let { id -> recipe("github_ci", "jobs", "run_id" to id, "run_attempt" to jobsRun["run_attempt"], "expected_head_sha" to sha) }
             if (sha != null) {

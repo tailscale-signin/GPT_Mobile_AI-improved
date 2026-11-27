@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-response-fluidity-2026-11-26",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+  "workingBranch": "fix/unified-github-gateway",
+  "startingHead": "77a5c8ed540a33356c037fb8ffae6ac397f43ac5",
+  "pullRequest": 2646,
+  "intent": "Reduce time to first spoken answer and play brief localized, turn-bound acknowledgments while the answer or a real lookup is being prepared.",
+  "behavior": [
+    "Give a speakable reply priority. Offer at most one foreground acknowledgment per eligible new turn, after 850 ms of ordinary preparation or 180 ms of confirmed lookup activity. Never send an extra model request.",
+    "Preserve an audible acknowledgment through its phrase boundary. Retire an unheard one as soon as the answer can speak. Keep synthetic status outside the stored answer and measure its first audio separately.",
+    "Overlap Android output setup with model loading, prefetch installed bundle headers during native microphone startup, and release stable initial words on a bounded timer in both foreground and service playback. Reuse a local model already loading for an unheard cue when the same voice starts the answer."
+  ],
+  "integratedHeads": [
+    "248203b3945dd828160a16a54802489efa377bde"
+  ],
+  "verification": {
+    "focusedJvmTestsPassed": 292,
+    "robolectricVoiceTestsPassed": 63,
+    "foregroundServiceSmokeTestsPassed": 1,
+    "covered": [
+      "Cues in eight languages, including French",
+      "Existing reply priority, duplicate suppression, interruption and stale callbacks",
+      "Overlap between audio setup and graph creation",
+      "One cold graph load when an unheard cue yields to the answer, with explicit Stop still honored",
+      "Background delivery of stable words during a provider pause"
+    ],
+    "handsetLatency": "Unmeasured"
+  },
+  "integrityReview": {
+    "baseBranch": "main",
+    "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+    "workingBranch": "fix/unified-github-gateway",
+    "startingHead": "5e02fbfbb8c131412045d08a0fb46bbecc1587f4",
+    "intent": "Verify audio ownership through the acknowledgment, final answer, chat switching and system controls, and reconcile the speech-related validation failures.",
+    "integratedHead": "c36df697132e434e29e2baa8a0d64079fb6da8d7",
+    "regressions": [
+      "A detached French acknowledgment dropped the terminal answer if it arrived while the acknowledgment played or after it finished during a provider pause. Both timing orders and cue-only completion now have regressions.",
+      "Before the repair, everyday French spacing before punctuation made the answer repeat an audible acknowledgment.",
+      "Playback and capture must arbitrate between runtimes. Reopening a chat must retain control of the playing message without retargeting an older notification."
+    ],
+    "verification": {
+      "focusedJvmTestsPassed": 336,
+      "robolectricVoiceTestsPassed": 80,
+      "composeTimer": "The real Compose effect cancels a pending acknowledgment when the answer arrives, replaces it on a real lookup, and emits only the due lookup cue.",
+      "sqlite": "The production playback query on the exported Room v54 schema rejects wrong room, message, run, and ownership fence.",
+      "realModelCheck": "The hosted Kokoro CPU and requested GPU smoke streams use ff_siwis and fr for a French corpus with accents and an elision. The receipt records waveform, caption byte spans, and the CPU comparison for a completed GPU run.",
+      "deviceMeasurements": "Physical Android listening, latency, sustained background audio and accelerator performance remain unmeasured.",
+      "foregroundServiceSmokeTestsPassed": 1,
+      "mediaControls": "Notification and media-session taps target the same reply. A delayed pause or Stop from another reply cannot cancel the new owner.",
+      "scannerControlsPassed": 112
+    }
+  }
+}

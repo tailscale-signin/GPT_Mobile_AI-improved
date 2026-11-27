@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 /** Public commentary belongs to the primary prompt, outside the bounded repository snapshot. */
-internal fun toolProgressInstructions(githubMode: Boolean): String {
+internal fun toolProgressInstructions(githubMode: Boolean, compact: Boolean = false): String {
     val ordinaryRequests = "\nAnswer ordinary general-knowledge and writing requests directly when tools add no needed evidence. Do not call discover_available_tools just to check what exists."
-    return ordinaryRequests + if (githubMode) {
+    return ordinaryRequests + if (githubMode && compact) {
+        "\nUse <progress_update>...</progress_update> for material findings, decisions or blockers, then continue. Be brief and concrete; preserve evidence scope and units. Keep the final answer separate. Never reveal private reasoning or claim unverified actions, fixes, tests or completion."
+    } else if (githubMode) {
         "\n" + GITHUB_PUBLIC_PROGRESS_INSTRUCTION
     } else {
         "\nBefore the first tool call and after every 10 completed tool calls, " + ToolProgressTracker.SUMMARY_INSTRUCTION

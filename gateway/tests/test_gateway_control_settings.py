@@ -117,6 +117,43 @@ class ControlSettingsTests(unittest.TestCase):
         config = Config(control_journal=str(self.store.path))
         self.assertTrue(principal_authorized(config, owner, None), 'Turning admission off must retain accepted-job authority')
 
+    def test_upgraded_owner_defaults_admit_jobs_and_keep_explicit_pauses_and_viewer_scope(self):
+        _, default = self.paired()
+        _, missing = self.paired()
+        _, paused = self.paired()
+        _, viewer = self.paired(role='viewer')
+        self.assertTrue(self.store.snapshot(default['principal_id'])['effective']['engineering_enabled'])
+        self.assertFalse(default['engineering_connection'], 'A normal invitation can belong to a different inference PC')
+        with self.store.tx() as db:
+            db.execute("DELETE FROM gateway_control_migrations WHERE name='owner_job_admission_default'")
+            db.execute('UPDATE engineering_admission_settings SET enabled=0,revision=0 WHERE principal=?', (default['principal_id'],))
+            db.execute('DELETE FROM engineering_admission_settings WHERE principal=?', (missing['principal_id'],))
+            db.execute('UPDATE engineering_admission_settings SET enabled=0,revision=2 WHERE principal=?', (paused['principal_id'],))
+        reopened = ControlStore(self.root)
+        adapter = SimpleNamespace(admission_settings=EngineeringStore.admission_settings)
+        for grant in (default, missing):
+            self.assertTrue(reopened.snapshot(grant['principal_id'])['effective']['engineering_enabled'])
+            with reopened.tx() as db:
+                EngineeringStore.require_new_jobs(adapter, db, grant['principal_id'])
+        self.assertEqual(1, reopened.snapshot(default['principal_id'])['revision'])
+        for grant, code in ((paused, 'ENGINEERING_JOBS_PAUSED'), (viewer, 'PAIRED_OWNER_REQUIRED')):
+            self.assertFalse(reopened.snapshot(grant['principal_id'])['desired']['engineering_enabled'])
+            with reopened.tx() as db, self.assertRaises(ExecutionBindingError) as rejected:
+                EngineeringStore.require_new_jobs(adapter, db, grant['principal_id'])
+            self.assertEqual(code, rejected.exception.code)
+
+    def test_snapshot_polling_does_not_rewrite_unchanged_policy(self):
+        _, owner = self.paired()
+        with self.store.tx() as db:
+            self.store._snapshot(db, owner['principal_id'])
+            before = db.total_changes
+            statements = []
+            db.set_trace_callback(statements.append)
+            self.store.schema(db)
+            self.assertLessEqual(len(statements), 2, 'A current journal only needs to check its schema marker')
+            self.store._snapshot(db, owner['principal_id'])
+            self.assertEqual(before, db.total_changes)
+
     def test_stale_editor_gets_durable_rejection_and_original_receipt(self):
         _, grant = self.paired()
         self.store.patch(grant['principal_id'], self.command({'workers': 3}))
@@ -209,7 +246,7 @@ class ControlSettingsTests(unittest.TestCase):
                 'X-Gateway-Device-Signature': base64.b64encode(signature).decode(), 'Content-Type': 'application/json'}
 
     def client(self):
-        controller = SimpleNamespace(store=self.store, secret=self.secret, allowed_hosts={'testserver'},
+        controller = SimpleNamespace(store=self.store, secret=self.secret, allowed_hosts={'testserver'}, connection_port=lambda: None,
                                      endpoint='https://testserver', fingerprint='f' * 64,
                                      phone_snapshot=lambda owner: self.store.snapshot(owner),
                                      patch=lambda owner, payload: self.store.patch(owner, payload))
@@ -350,7 +387,14 @@ class ControlSettingsTests(unittest.TestCase):
                                                                        'worker': 'running', 'validation_policy': 'missing'}}
             observed = client.get('/gateway/admin/settings').json()
             self.assertFalse(observed['engineering_ready'])
-            self.assertEqual(['github_connection', 'validation_policy_for_implementation'], observed['engineering_prerequisites'])
+            self.assertEqual(['github_connection'], observed['engineering_prerequisites'])
+            self.assertEqual(['validation_policy_for_implementation'], observed['implementation_prerequisites'])
+            engineering.readiness = lambda: {'ready': True, 'checks': {'journal': 'ready', 'host_github_connection': 'configured',
+                                                                       'worker': 'running', 'validation_policy': 'missing'}}
+            observed = client.get('/gateway/admin/settings').json()
+            self.assertTrue(observed['engineering_ready'])
+            self.assertEqual([], observed['engineering_prerequisites'])
+            self.assertEqual(['validation_policy_for_implementation'], observed['implementation_prerequisites'])
 
     def test_custom_port_backend_self_route_is_rejected_before_probe_or_commit(self):
         active_cfg = dict(DEFAULTS, port=9090, network_hostnames='gateway-box')
@@ -489,7 +533,7 @@ class ControlSettingsTests(unittest.TestCase):
             self.assertNotIn('authorization', request.headers)
             return httpx.Response(200, json={'state': 'RUNNING', 'request_id': payload['request_id']})
 
-        controller = SimpleNamespace(store=self.store, secret=self.secret, allowed_hosts={'testserver'},
+        controller = SimpleNamespace(store=self.store, secret=self.secret, allowed_hosts={'testserver'}, connection_port=lambda: None,
                                      endpoint='https://testserver', fingerprint='f' * 64,
                                      supervisor=SimpleNamespace(cfg=DEFAULTS, token='local-supervisor-secret'))
         original_client = httpx.AsyncClient

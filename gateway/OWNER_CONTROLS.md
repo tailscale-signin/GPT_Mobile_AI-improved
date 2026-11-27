@@ -6,7 +6,7 @@ On private Wi-Fi, enter the PC's IP on Android. When both devices already use th
 
 If the devices use different credentials, **Other connection options** on Windows includes **Copy secure phone link**. Paste the full link into **Gateway settings** on Android and tap **Connect** within five minutes. If the PC has several network interfaces, **Advanced network choice** lets you select the one your phone can reach. Android verifies the certificate fingerprint in the link and signs its request over TLS. Future connections use the saved certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**.
 
-Engineering starts enabled for a new owner. The PC’s model, GitHub connection and approved repositories determine which jobs can run. Existing owner and viewer grants retain their permissions.
+Engineering starts automatically for each authorized owner. Upgrades enable older owner connections that still have their original default. The PC can pause new jobs for an owner during maintenance. An explicit admission pause survives a restart. The PC’s model, GitHub connection and approved repositories determine which jobs can run. Existing owner and viewer grants retain their permissions.
 
 ## What a setting means
 

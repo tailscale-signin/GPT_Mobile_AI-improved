@@ -18,7 +18,9 @@ internal object GitHubSelfTestGraph {
         val preparation = graph.lastOrNull { it.action() in setOf("status", "index") }
         val state = preparation?.takeIf { it["success"] == JsonPrimitive(true) }?.let(GitHubInventoryObservation::planningRoot)
         val job = state?.get("index_job") as? JsonObject
-        val indexed = state?.get("has_more") == JsonPrimitive(false) && (job == null || job.text("state") == "COMPLETED")
+        val indexed = state?.get("has_more") == JsonPrimitive(false) &&
+            (job == null || job.text("state") == "COMPLETED") &&
+            (state?.get("qualification_scope") != JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE) || state?.let { qualifiedSample(it, preparation) } == true)
     }
 
     private val pendingJobStates = setOf("QUEUED", "RUNNING", "PAUSED", "INTERRUPTED")
@@ -110,9 +112,33 @@ internal object GitHubSelfTestGraph {
                     buildJsonObject {
                         put("action", action)
                         evidence.preparation.sourceArguments().forEach { (key, value) -> put(key, value) }
-                        fields.forEach { (key, value) -> put(key, value) }
+                        fields.forEach { (key, value) ->
+                            if (key == "options" && value is JsonObject) {
+                                val bound = evidence.preparation.qualificationOptions()
+                                put(key, JsonObject(bound + value))
+                            } else {
+                                put(key, value)
+                            }
+                        }
                     }
                 )
+            }
+            val candidates = (state["qualification_candidate_paths"] as? JsonArray).orEmpty()
+                .filterIsInstance<JsonPrimitive>().filter { it.isString && it.content.isWorkspacePath() }.distinct()
+            if (evidence.preparation.mapSource() == "phone" &&
+                state["bounded_qualification_supported"] == JsonPrimitive(true) &&
+                state["qualification_scope"] != JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE) &&
+                candidates.size in 1..RepositorySourcePriority.SAMPLE_FILES &&
+                !evidence.indexed
+            ) {
+                recipe(
+                    "index",
+                    "options" to buildJsonObject {
+                        put("qualification_scope", RepositorySourcePriority.BOUNDED_SAMPLE)
+                        put("paths", JsonArray(candidates))
+                    }
+                )
+                return@buildList
             }
             if (state.text("status") == "NOT_INDEXED") {
                 recipe("index")
@@ -220,9 +246,10 @@ internal object GitHubSelfTestGraph {
         if (action == "status" || receipt["success"] != JsonPrimitive(true)) return false
         val root = GitHubInventoryObservation.planningRoot(receipt) ?: return false
         val job = root["index_job"] as? JsonObject
+        val bounded = root["qualification_scope"] == JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE)
         val incomplete = root.text("status") == "NOT_INDEXED" ||
             action == "index" &&
-            (root["has_more"] != JsonPrimitive(false) || job != null && job.text("state") != "COMPLETED")
+            (root["has_more"] != JsonPrimitive(false) || bounded && !qualifiedSample(root, receipt) || job != null && job.text("state") != "COMPLETED")
         if (!incomplete || action != "index" || job == null || job.text("id").isBlank()) return incomplete
         val generation = (job["generation"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it > 0 } ?: return true
         val graph = evidence(receipts, receipt)?.graph ?: return true
@@ -265,6 +292,9 @@ internal object GitHubSelfTestGraph {
                 listOf("Build the selected revision's graph with repository_graph action=index through its checkpoint gate")
             }
         }
+        if (!evidence.indexed && evidence.state?.get("qualification_scope") == JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE)) {
+            return listOf("The named source sample is not fully qualified. Inspect its failed or partial files and continue only its own issued cursor; full repository coverage is a separate result.")
+        }
         if (!evidence.indexed) return listOf("Continue the exact observed index_cursor until has_more=false, within the retained call budget and cleanup reserve")
         return when (action) {
             "diff" -> listOf("A distinct exact base_sha whose graph is already indexed under the same repository, branch and gateway principal; selecting a different revision is not an automatic smoke-test action")
@@ -291,11 +321,32 @@ internal object GitHubSelfTestGraph {
 
     private fun JsonObject.sourceArguments(): Map<String, JsonElement> {
         val source = mapSource() ?: return emptyMap()
-        return if (source == "gateway" || (get("arguments") as? JsonObject)?.containsKey("map_source") == true) {
+        val selected = if (source == "gateway" || (get("arguments") as? JsonObject)?.containsKey("map_source") == true) {
             mapOf("map_source" to JsonPrimitive(source))
         } else {
             emptyMap()
         }
+        val qualification = qualificationOptions()
+        return if (qualification.isEmpty()) selected else selected + ("options" to qualification)
+    }
+
+    private fun JsonObject.qualificationOptions(): JsonObject {
+        if (mapSource() != "phone") return JsonObject(emptyMap())
+        val options = (get("arguments") as? JsonObject)?.get("options") as? JsonObject ?: return JsonObject(emptyMap())
+        return if (options["qualification_scope"] == JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE)) {
+            JsonObject(options.filterKeys { it in setOf("qualification_scope", "paths") })
+        } else {
+            JsonObject(emptyMap())
+        }
+    }
+
+    private fun qualifiedSample(root: JsonObject, receipt: JsonObject?): Boolean {
+        if (receipt?.mapSource() != "phone" || root["qualification_complete"] != JsonPrimitive(true)) return false
+        val expected = receipt.qualificationOptions()["paths"] as? JsonArray ?: return false
+        val observed = root["qualification_paths"] as? JsonArray ?: return false
+        return expected.size in 1..RepositorySourcePriority.SAMPLE_FILES &&
+            expected.toSet() == observed.toSet() &&
+            expected.all { it is JsonPrimitive && it.isString && it.content.isWorkspacePath() }
     }
 
     private fun JsonObject.ownsPendingGatewayIndex(): Boolean {

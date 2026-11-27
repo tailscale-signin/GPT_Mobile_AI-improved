@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import java.util.Locale
 
 internal data class SpeechLanguage(val tag: String, val preview: String, val voices: List<String>) {
+    val dictionaryLanguage: String get() = tag.substringBefore('-')
     val label: String get() = Locale.forLanguageTag(tag).displayName
 }
 
@@ -21,6 +22,14 @@ internal object SpeechLanguages {
     )
     val default = synthesis.first()
 
+    fun forVoice(id: String): SpeechLanguage? = synthesis.firstOrNull { id in it.voices }
+
+    fun forLocale(tag: String): SpeechLanguage? {
+        val locale = Locale.forLanguageTag(tag)
+        return synthesis.firstOrNull { it.tag.equals(locale.toLanguageTag(), ignoreCase = true) }
+            ?: synthesis.firstOrNull { Locale.forLanguageTag(it.tag).language == locale.language }
+    }
+
     fun availableVoice(requested: String, available: Set<String>, sameLanguageFallback: Boolean): String? {
         if (requested in available) return requested
         if (!sameLanguageFallback) return null
@@ -28,7 +37,7 @@ internal object SpeechLanguages {
     }
 
     fun recognitionDefault(locale: Locale = Locale.getDefault()): String =
-        if (locale.language == "en") locale.toLanguageTag() else "en-US"
+        locale.toLanguageTag().takeIf { locale.language.isNotEmpty() && it != "und" } ?: default.tag
 
     fun recognitionBackend(tag: String, englishBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE) = if (Locale.forLanguageTag(tag).language == "en") {
         englishBackend
@@ -41,13 +50,13 @@ internal data class VoiceSynthesisPreferences(val language: String = "en-US", va
     val profile: SpeechLanguage get() = SpeechLanguages.synthesis.firstOrNull { it.tag == language } ?: SpeechLanguages.default
     val voiceId: String get() = voices[profile.tag]?.takeIf { it in profile.voices } ?: profile.voices.first()
 
-    fun selectLanguage(tag: String) = if (SpeechLanguages.synthesis.any { it.tag == tag }) copy(language = tag) else this
+    fun selectLanguage(tag: String) = SpeechLanguages.forLocale(tag)?.let { copy(language = it.tag) } ?: this
 
     fun selectVoice(id: String) = if (id in profile.voices) copy(voices = voices + (profile.tag to id)) else this
 
     /** Restore only IDs usable by their own language. Old installations keep their selected English voice. */
     companion object {
-        fun restore(tag: String?, saved: Set<*>?, legacyVoiceId: String?): VoiceSynthesisPreferences {
+        fun restore(tag: String?, saved: Set<*>?, legacyVoiceId: String?, defaultTag: String = "en-US"): VoiceSynthesisPreferences {
             val legacy = SpeechLanguages.synthesis.firstOrNull { legacyVoiceId in it.voices }
             val valid = buildMap {
                 if (saved == null && legacy != null && legacyVoiceId != null) put(legacy.tag, legacyVoiceId)
@@ -57,7 +66,7 @@ internal data class VoiceSynthesisPreferences(val language: String = "en-US", va
                     if (SpeechLanguages.synthesis.any { it.tag == lang && id in it.voices }) put(lang, id)
                 }
             }
-            return VoiceSynthesisPreferences(legacy?.tag ?: SpeechLanguages.default.tag, valid).selectLanguage(tag.orEmpty())
+            return VoiceSynthesisPreferences(legacy?.tag ?: SpeechLanguages.forLocale(defaultTag)?.tag ?: SpeechLanguages.default.tag, valid).selectLanguage(tag.orEmpty())
         }
     }
 }

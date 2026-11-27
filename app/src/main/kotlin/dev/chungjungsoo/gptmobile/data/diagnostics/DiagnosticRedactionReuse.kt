@@ -5,6 +5,7 @@ import java.io.OutputStream
 import java.security.MessageDigest
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,6 +34,10 @@ internal class DiagnosticRedactionReuse(
         val payload = fields["payload"] ?: return apply(value, authorized)
         if (row["table"] != JsonPrimitive("workspace_records")) return apply(value, authorized)
         authorized()
+        if (payload is JsonObject) {
+            val bodies = payload.filter { (key, child) -> key in DiagnosticPayloadBodies.fields && (child is JsonObject || child is JsonArray) }
+            if (bodies.isNotEmpty()) return workspaceBodies(row, fields, payload, bodies, authorized)
+        }
         // Keep the payload field context: a string/array payload is private even
         // when the same value would be structural evidence at another location.
         val savedPayload = apply(JsonObject(mapOf("payload" to payload)), authorized)
@@ -40,6 +45,25 @@ internal class DiagnosticRedactionReuse(
         val safeFields = shell["fields"] as JsonObject
         authorized()
         return Result(JsonObject(shell + ("fields" to JsonObject(safeFields + ("payload" to (savedPayload.value as JsonObject).getValue("payload"))))), savedPayload.reused)
+    }
+
+    private fun workspaceBodies(row: JsonObject, fields: JsonObject, payload: JsonObject, bodies: Map<String, JsonElement>, authorized: () -> Unit): Result {
+        // The event envelope is always freshly redacted; no timestamp, owner or
+        // terminal status is reconstructed from a different observation.
+        val shell = redact(JsonObject(row + ("fields" to JsonObject(fields + ("payload" to JsonObject(payload - bodies.keys)))))) as JsonObject
+        val safeFields = shell.getValue("fields") as JsonObject
+        val safePayload = safeFields.getValue("payload") as JsonObject
+        val context = payload.filterKeys { it.lowercase(java.util.Locale.ROOT).replace("_", "").replace("-", "") in DiagnosticPayloadBodies.context }
+        var reused = false
+        val safeBodies = bodies.mapValues { (key, child) ->
+            val input = JsonObject(mapOf("payload" to JsonObject(context + (key to child))))
+            val result = apply(input, authorized)
+            reused = reused || result.reused
+            ((result.value as JsonObject).getValue("payload") as JsonObject).getValue(key)
+        }
+        authorized()
+        val combined = JsonObject(payload.mapValues { (key, _) -> safeBodies[key] ?: safePayload.getValue(key) })
+        return Result(JsonObject(shell + ("fields" to JsonObject(safeFields + ("payload" to combined)))), reused)
     }
 
     fun apply(value: JsonElement, authorized: () -> Unit): Result {

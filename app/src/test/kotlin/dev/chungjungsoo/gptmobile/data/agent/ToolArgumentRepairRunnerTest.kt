@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -8,6 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -96,5 +98,76 @@ class ToolArgumentRepairRunnerTest {
         val corrected = tool.execute("corrected", buildJsonObject { put("issue_number", 2) })
         assertTrue(!corrected.isError && corrected.dispatched)
         assertEquals(2, executed)
+    }
+
+    @Test fun selectorlessWatchRecoversThroughRunnerPreflightBeforeAnySubscription() = runBlocking {
+        val head = "a".repeat(40)
+        var watches = 0
+        var discoveries = 0
+        val watch = object : AgentTool {
+            override val definition = GitHubOperationTool.definition("github_watch_checks", "github_watch_checks__fixture")
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                watches++
+                assertEquals(JsonPrimitive(17), arguments["run_id"])
+                return AgentToolResult(callId, ToolResultContent.Text("Observed the selected run"), false)
+            }
+        }
+        val ci = object : AgentTool {
+            override val definition = GitHubOperationTool.definition("github_ci", "github_ci__fixture")
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                discoveries++
+                assertEquals(JsonPrimitive(head), arguments["commit_sha"])
+                assertEquals(JsonPrimitive("runs"), arguments["action"])
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("run_id", 17) }), false)
+            }
+        }
+        var rounds = 0
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                when (++rounds) {
+                    1 -> emit(
+                        ProviderEvent.ToolCall(
+                            "invalid-watch",
+                            watch.definition.name,
+                            buildJsonObject {
+                                put("owner", "o")
+                                put("repo", "r")
+                                put("commit_sha", head)
+                                put("all_checks", false)
+                            }
+                        )
+                    )
+                    2 -> {
+                        assertEquals(0, watches)
+                        val rejected = exchanges.last().results.single()
+                        assertTrue(rejected.isError)
+                        assertFalse(rejected.dispatched)
+                        val content = (rejected.content as ToolResultContent.Json).value as JsonObject
+                        val recovery = content.getValue("recovery_call") as JsonObject
+                        assertEquals(JsonPrimitive(ci.definition.name), recovery["tool"])
+                        emit(ProviderEvent.ToolCall("discover-run", ci.definition.name, recovery.getValue("arguments") as JsonObject))
+                    }
+                    3 -> emit(
+                        ProviderEvent.ToolCall(
+                            "selected-watch",
+                            watch.definition.name,
+                            buildJsonObject {
+                                put("owner", "o")
+                                put("repo", "r")
+                                put("commit_sha", head)
+                                put("run_id", 17)
+                            }
+                        )
+                    )
+                    else -> emit(ProviderEvent.TextDelta("Observed the selected run."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true, maxRounds = 8)).run(provider, listOf(watch, ci)).toList()
+        assertEquals(1, discoveries)
+        assertEquals(1, watches)
+        assertEquals(4, rounds)
+        assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().any { it.result.callId == "invalid-watch" && !it.result.dispatched })
     }
 }

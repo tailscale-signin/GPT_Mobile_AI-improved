@@ -138,7 +138,7 @@ class ContextBudgetServiceTest {
         val unknown = ProviderRouteCapacity.PrimaryContextDecision(Int.MAX_VALUE, null, null, null, CapacityProvenance.UNKNOWN)
         val declared = unknown.copy(tokens = 4096, configuredTokens = 4096, provenance = CapacityProvenance.DECLARED)
         assertEquals(CapacityProvenance.DECLARED, declared.toolPlanningProvenance(4096, 4096))
-        assertEquals(CapacityProvenance.UNKNOWN, declared.toolPlanningProvenance(2048, 2048))
+        assertEquals(CapacityProvenance.CONSERVATIVE_POLICY, declared.toolPlanningProvenance(2048, 2048))
         val planned = ReplayAllowance.conservativeToolPlanningBudget(TokenBudgetSettings(), true)
         val source = unknown.toolPlanningProvenance(Int.MAX_VALUE, planned.contextTokens)
         assertEquals(CapacityProvenance.CONSERVATIVE_POLICY, source)

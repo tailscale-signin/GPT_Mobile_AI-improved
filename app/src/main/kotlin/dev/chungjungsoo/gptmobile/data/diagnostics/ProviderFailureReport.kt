@@ -31,6 +31,9 @@ internal object ProviderFailureReport {
         dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.retained(failure.errorCode, failure.failureDetails)?.forEach { (key, value) -> put(key, value) }
         val semanticFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(failure.failureDetails)
         semanticFailure?.forEach { (key, value) -> if (key != "retry_after_ms") put(key, value) }
+        if (semanticFailure?.get("provider_failure_kind") == JsonPrimitive("BUDGET")) {
+            receipt.configurationHash?.let { put(ProviderQuotaIncidentGrouping.CONFIGURATION_FIELD, it) }
+        }
         if (semanticFailure?.get("provider_budget_retry") == JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY")) {
             (semanticFailure["retry_after_ms"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
                 ?.takeIf { it in 1..86_400_000 }?.let {

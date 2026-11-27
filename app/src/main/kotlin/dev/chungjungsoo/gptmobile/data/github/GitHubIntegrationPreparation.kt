@@ -14,13 +14,14 @@ import kotlinx.serialization.json.put
 internal object GitHubIntegrationPreparation {
     /** Inform before acquisition; the existing task-bound decision and exact approval card remain authoritative. */
     fun preflightSummary(task: String, approval: JsonObject?): String {
-        if (GitHubChecklistScope.readOnly(task)) return "Existing-fixture inspection is read-only; mutation coverage stays out of scope."
+        val scope = "Qualification scope: ${GitHubQualificationSummary.scopeLabel(task)}."
+        if (GitHubChecklistScope.readOnly(task)) return "$scope Existing-fixture inspection is read-only; mutation coverage stays out of scope."
         val fixture = when (approval?.text("state")) {
             "READY" -> "The saved fixture approval applies only to the task-owned disposable fixture; creation still needs current repository authorization and a verified cleanup plan."
             "CONDITIONAL" -> "Fixture writes need this task's existing exact approval interaction when its concrete fixture plan is ready. Continue preserves the saved approval decision; general tool auto-approval does not grant fixture authority."
             else -> "Fixture writes are blocked until the effective task-bound approval decision can be verified."
         }
-        return "$fixture Independent authorized reads can proceed. Test execution needs actual run/job receipts at the selected SHA; catalog discovery and saved pages are separate evidence."
+        return "$scope $fixture Independent authorized reads can proceed. Test execution needs actual run/job receipts at the selected SHA; catalog discovery and saved pages are separate evidence."
     }
 
     fun snapshot(
@@ -35,11 +36,12 @@ internal object GitHubIntegrationPreparation {
     ): JsonObject {
         val budget = stageBudget ?: GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools), acceptedContract)
         val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull ?: GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
-        val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remaining)
+        val deadlineReached = budget["stop_reason"] == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")
+        val acquisitionAllowed = !deadlineReached && GitHubChecklistBudget.acquisitionAllowed(receipts, remaining)
         val minimum = GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE
         val readCalls = if (acquisitionAllowed) GitHubSelfTestReads.available(tools, receipts.values.toList()) else emptyList()
-        val canCreate = !GitHubChecklistScope.readOnly(task) && approval?.get("state") == JsonPrimitive("READY") && (remaining == null || remaining >= minimum)
-        val fixtureCall = GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = canCreate, cleanupOnly = !acquisitionAllowed, abortIncomplete = !acquisitionAllowed)
+        val canCreate = acquisitionAllowed && !GitHubChecklistScope.readOnly(task) && approval?.get("state") == JsonPrimitive("READY") && (remaining == null || remaining >= minimum)
+        val fixtureCall = if (deadlineReached) null else GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = canCreate, cleanupOnly = !acquisitionAllowed, abortIncomplete = !acquisitionAllowed)
         val reviewPlan = if (fixtureCall == null &&
             acquisitionAllowed &&
             approval?.get("state") == JsonPrimitive("CONDITIONAL") &&
@@ -62,10 +64,12 @@ internal object GitHubIntegrationPreparation {
             put("schema", "github.integration-preparation.v1")
             put("request_digest", GitHubEvidenceBook.digest(task))
             put("execution_verified", false)
+            put("qualification", GitHubQualificationSummary.snapshot(task, capabilities))
             put("pre_execution_notice", preflightSummary(task, approval))
             put(
                 "status",
                 when {
+                    deadlineReached -> "TIME_WINDOW_EXPIRED"
                     fixtureActive && !acquisitionAllowed -> "CLEANUP_RESERVE_ACTIVE"
                     fixtureCall != null -> "OWNED_FIXTURE_STEP_PREPARED"
                     readCalls.isNotEmpty() -> "BOUNDED_READS_PREPARED"
@@ -76,7 +80,7 @@ internal object GitHubIntegrationPreparation {
             put("automatic_permission_changes", false)
             put("automatic_budget_increase", false)
             put("scope", "Prepare exact authorized reads and the supported task-owned content fixture. Missing IDs, approval or cleanup recipes remain explicit prerequisites.")
-            put("budget", budget)
+            put("budget", if (deadlineReached) GitHubChecklistBudget.afterDeadline(budget) else budget)
             put("ready_read_count", readCalls.size)
             put("required_pending_capability_count", pending.count { it["required"] != JsonPrimitive(false) })
             put("conditional_pending_capability_count", pending.count { it["required"] == JsonPrimitive(false) })
@@ -127,7 +131,7 @@ internal object GitHubIntegrationPreparation {
         "ISSUE_ID_REQUIRED" -> listOf("Issue number from an authorized issue inventory; PR numbers cannot substitute")
         "PULL_REQUEST_ID_REQUIRED" -> listOf("Pull request number from an authorized PR inventory", "Observed head SHA")
         "WORKFLOW_RUN_OR_JOB_REQUIRED" -> listOf("Run at the selected repository revision", "Observed executed job for logs or completed failed run for failure analysis")
-        "CHECK_SUBSCRIPTION_REQUIRED" -> listOf("Observed run/PR and exact head SHA", "Bounded inline observation or separately verified saved-chat subscription")
+        "CHECK_SUBSCRIPTION_REQUIRED" -> listOf("Observed PR, run, or exact commit SHA from the selected repository", "Bounded inline observation or separately verified saved-chat subscription")
         "RELEASE_OR_TAG_REQUIRED" -> listOf("Tag or release from the selected repository inventory")
         "REPOSITORY_INPUT_REQUIRED" -> listOf("Authorized repository/ref", "Observed immutable revision and source path")
         "GRAPH_INDEX_REQUIRED" -> listOf("Authorized graph status and index preparation for the selected immutable repository revision")

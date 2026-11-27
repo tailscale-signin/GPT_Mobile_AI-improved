@@ -36,6 +36,7 @@ class PhoneRepositoryGraphSessionTest {
     private var truncated = false
     private var invalidSource = false
     private var sourceText: String? = null
+    private var sourceByBlob: Map<String, String> = emptyMap()
     private var delayedBlob: String? = null
 
     private suspend fun request(path: String): JsonElement = when {
@@ -69,7 +70,7 @@ class PhoneRepositoryGraphSessionTest {
             buildJsonObject {
                 put("sha", path.substringAfterLast('/'))
                 put("encoding", "base64")
-                put("content", Base64.getEncoder().encodeToString((if (invalidSource) "\u0000" else sourceText ?: "package sample\nfun useful() = 1\n").toByteArray()))
+                put("content", Base64.getEncoder().encodeToString((if (invalidSource) "\u0000" else sourceByBlob[path.substringAfterLast('/')] ?: sourceText ?: "package sample\nfun useful() = 1\n").toByteArray()))
             }
         }
         else -> error("Unexpected transport $path")
@@ -303,6 +304,46 @@ class PhoneRepositoryGraphSessionTest {
         assertTrue(result["coverage"]!!.jsonObject["indexed_files"]!!.jsonPrimitive.int >= 24)
     }
 
+    @Test fun restartedTaskReusesReferenceCatalogAndUnchangedCallerBlobs() = runTest {
+        val directory = Files.createTempDirectory("task-neighborhood").toFile()
+        val paths = listOf("src/RepairStore.kt", "src/Screen.kt")
+        sourceByBlob = mapOf(
+            "%040x".format(1) to "class RepairStore { fun repairReceipt() = true }",
+            "%040x".format(2) to "fun refreshScreen() = RepairStore().repairReceipt()"
+        )
+        treeOverride = buildJsonObject {
+            put("sha", treeSha)
+            put("truncated", false)
+            put(
+                "tree",
+                JsonArray(
+                    paths.mapIndexed { index, path ->
+                        buildJsonObject {
+                            put("path", path)
+                            put("sha", "%040x".format(index + 1))
+                            put("size", 64)
+                            put("type", "blob")
+                            put("mode", "100644")
+                        }
+                    }
+                )
+            )
+        }
+        try {
+            session(store = GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", arguments("index"))
+            val fetched = blobs
+            val task = JsonObject(arguments("task_context_bundle", revision = otherHead) + ("query" to JsonPrimitive("repairReceipt in src/RepairStore.kt")))
+            val result = session("another-task", store = GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", task)
+            val ranges = result.getValue("selected_ranges").let { it as JsonArray }.map { it.jsonObject }
+            assertEquals(JsonPrimitive("RETAINED_LEXICAL_CALLER"), ranges.single { it["path"] == JsonPrimitive(paths[1]) }["reason"])
+            assertEquals(fetched, blobs)
+            assertEquals(JsonPrimitive(otherHead), result["source_sha"])
+            assertEquals(JsonPrimitive(1), result.getValue("coverage").jsonObject["caller_files"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun compactCatalogFindsADeepFunctionBeyondTheFirstDeclarations() = runTest {
         treeSize = 1
         sourceText = (1..80).joinToString("\n") { "fun ordinary$it() = $it" } + "\nfun archiveReceipt() = true\n"
@@ -325,6 +366,73 @@ class PhoneRepositoryGraphSessionTest {
         assertEquals("source-account", account)
         assertEquals(JsonPrimitive(true), result["semantic_applied"])
         assertFalse(result.toString().contains("source-account"))
+    }
+
+    @Test fun priorityIndexReachesApplicationSourceAndTestsBeforeVendorAssets() = runTest {
+        val appSha = "%040x".format(101)
+        val testSha = "%040x".format(102)
+        treeOverride = buildJsonObject {
+            put("sha", treeSha)
+            put("truncated", false)
+            put(
+                "tree",
+                buildJsonArray {
+                    (1..45).forEach { n ->
+                        add(
+                            buildJsonObject {
+                                put("path", "app/src/main/assets/MathJax/File$n.js")
+                                put("sha", "%040x".format(n))
+                                put("size", 40)
+                                put("type", "blob")
+                            }
+                        )
+                    }
+                    for ((path, sha) in listOf("app/src/main/kotlin/Chat.kt" to appSha, "app/src/test/kotlin/ChatTest.kt" to testSha)) {
+                        add(
+                            buildJsonObject {
+                                put("path", path)
+                                put("sha", sha)
+                                put("size", 40)
+                                put("type", "blob")
+                            }
+                        )
+                    }
+                }
+            )
+        }
+        val reads = mutableListOf<String>()
+        val reader = GitHubRepositorySession("account", "connection", "map-conversation", "priority", state, { path ->
+            if ("/git/blobs/" in path) reads += path.substringAfterLast('/')
+            request(path)
+        }, { _, _ -> error("Unexpected mutation") })
+        val result = reader.repositoryMap("owner", "repo", arguments("index"))
+        assertEquals(listOf(appSha, testSha), reads.take(2))
+        assertEquals(JsonPrimitive(RepositorySourcePriority.VERSION), result["index_order_version"])
+        assertEquals(JsonPrimitive(47), result["total_paths"])
+        assertEquals(JsonPrimitive(true), result["has_more"])
+    }
+
+    @Test fun boundedQualificationDoesNotAdvanceOrCompleteTheWholeRepositoryCursor() = runTest {
+        val status = session().repositoryMap("owner", "repo", arguments("status"))
+        val paths = status.getValue("qualification_candidate_paths")
+        val selected = mapOf("qualification_scope" to JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE), "paths" to paths)
+        val sample = session().repositoryMap("owner", "repo", JsonObject(arguments("index") + selected))
+        assertEquals(RepositorySourcePriority.SAMPLE_FILES, blobs)
+        assertEquals(JsonPrimitive(true), sample["qualification_complete"])
+        assertEquals(paths, sample["qualification_paths"])
+        assertEquals(JsonPrimitive(false), sample["coverage_complete"])
+        assertEquals(JsonPrimitive(false), sample.getValue("graph").jsonObject["coverage_complete"])
+        val restored = session("restart").repositoryMap("owner", "repo", JsonObject(arguments("architecture") + selected))
+        assertEquals(JsonPrimitive(true), restored["qualification_complete"])
+        assertEquals(RepositorySourcePriority.SAMPLE_FILES, blobs)
+        val full = session("full-index").repositoryMap("owner", "repo", arguments("status"))
+        assertEquals(JsonPrimitive(true), full["has_more"])
+        assertEquals(JsonPrimitive(false), full["complete"])
+        val cursor = full.getValue("index_cursor").jsonPrimitive.content
+        val wrongScope = runCatching {
+            session().repositoryMap("owner", "repo", JsonObject(arguments("index", cursor) + selected))
+        }.exceptionOrNull()
+        assertEquals("PHONE_GRAPH_CURSOR_STALE", (wrongScope as GatewayGraphResultException).code)
     }
 
     @Test fun phoneIndexResumesAfterRestartAndReusesImmutableSourceAcrossCommits() = runTest {

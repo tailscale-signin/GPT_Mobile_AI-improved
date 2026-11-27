@@ -26,7 +26,8 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val revision = context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
         dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, outputTokens?.toLong() ?: 0)
         val runtime = RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", "anonymous", model, model, "unverified", "queued-native-v1", "unverified")
-        val capacity = RequestAdmission.auxiliaryCapacity(config.requestRole, CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN))
+        val queuedCapacity = CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN)
+        val capacity = RequestAdmission.auxiliaryCapacity(config.requestRole, config.plannedContextCapacity?.retainProvenance(queuedCapacity, config.contextCeiling) ?: queuedCapacity)
         val measurement = RequestAdmission.estimate(payload)
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, outputTokens?.toLong(), capacity.contextTokens, runtime.templateRevision)
         requireRequestByteBudget(budget, config, model)
@@ -75,15 +76,16 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val declared = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()
         val context = listOfNotNull(catalog?.context?.toLong(), freeModel?.contextTokens?.toLong(), declared).minOrNull()
         val output = listOfNotNull(catalog?.output?.toLong(), freeModel?.outputTokens?.toLong(), config.freeProvider?.enforcedOutputCeiling?.toLong()).minOrNull()
+        val currentCapacity = (
+            discovered ?: CapacitySnapshot(
+                RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
+                context,
+                provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
+            )
+            ).withCeilings(context, output)
         val snapshot = RequestAdmission.auxiliaryCapacity(
             config.requestRole,
-            (
-                discovered ?: CapacitySnapshot(
-                    RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
-                    context,
-                    provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
-                )
-                ).withCeilings(context, output)
+            config.plannedContextCapacity?.retainProvenance(currentCapacity, config.contextCeiling) ?: currentCapacity
         )
         // Capture the source ceilings before output-headroom admission can throw.
         val capacityObservation = dev.chungjungsoo.gptmobile.data.context.CapacityAdmissionObservation(

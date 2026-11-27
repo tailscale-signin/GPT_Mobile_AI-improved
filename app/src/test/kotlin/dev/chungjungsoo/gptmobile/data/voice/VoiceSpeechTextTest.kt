@@ -7,6 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechTextTest {
+    @Test fun aPlainOpeningQuestionProjectsAtItsMarkAndHiddenOrIncompleteSourcesStillWait() {
+        assertEquals("Ready?", VoiceSpeechText.forPlayback("Ready?", final = false))
+        assertEquals("Ça va ?", VoiceSpeechText.forPlayback("Ça va ?", final = false))
+        assertEquals("Ready?", VoiceSpeechText.forPlayback("Ready?Next", final = false))
+        for (input in listOf("https://private.example/?", "<think>Ready?", "[Lookup](https://example.test/?", "`private?", "Ready!")) {
+            assertTrue(input, VoiceSpeechText.forPlayback(input, final = false).isEmpty())
+        }
+    }
+
     @Test fun linkLabelsSurviveWithoutRepeatedAddressPlaceholders() {
         val input = "Read [the guide](https://example.com/a_(b) \"A ) title\"), ![the chart](https://example.com/image.png) and [the notes][source]. HTTP://EXAMPLE.COM/raw www.example.com/raw <https://example.com/raw> [https://example.com/raw](https://example.com/raw)\n[source]: https://example.com/reference\nDone."
         assertEquals("Read the guide, the chart and the notes. Done.", words(VoiceSpeechText.project(input, final = true)))

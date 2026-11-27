@@ -11,9 +11,13 @@ internal object GitHubAutonomousEngineeringPolicy {
 
     fun supportsSavedJobs(profile: PlatformV2?): Boolean = enabled(profile) && profile?.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA)
 
-    fun instruction(profile: PlatformV2, workspace: GitHubConversationContext?): String =
+    fun instruction(profile: PlatformV2, workspace: GitHubConversationContext?, compact: Boolean = false): String =
         if (workspace?.mainProfileUid == profile.uid && enabled(profile)) {
-            "\nAutonomous engineering is enabled for this local GitHub profile. For an authorized repository task, plan, inspect, implement, verify and independently review the work through completion or a concrete blocker. Prepare a working branch and draft PR when the task calls for code changes; watch CI asynchronously and repair failures within the accepted budgets. Preserve receipts and resume unfinished stages without repeating uncertain writes. Ask for consequential missing decisions. Starting a saved host job requires a verified engineering endpoint. Merge, release, deployment and administrative changes require the user's authorization; this mode never grants it."
+            if (compact) {
+                "\nAutonomous engineering is enabled for this local profile within the accepted task. Inspect, implement, verify and review with receipts; retain unfinished work. Saved host jobs need a verified endpoint. This grants no merge, release, deployment or administrative authority."
+            } else {
+                "\nAutonomous engineering is enabled for this local GitHub profile. For an authorized repository task, plan, inspect, implement, verify and independently review the work through completion or a concrete blocker. Prepare a working branch and draft PR when the task calls for code changes; watch CI asynchronously and repair failures within the accepted budgets. Preserve receipts and resume unfinished stages without repeating uncertain writes. Ask for consequential missing decisions. Starting a saved host job requires a verified engineering endpoint. Merge, release, deployment and administrative changes require the user's authorization; this mode never grants it."
+            }
         } else {
             ""
         }

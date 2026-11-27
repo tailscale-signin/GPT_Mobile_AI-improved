@@ -64,10 +64,10 @@ internal object GitHubSelfTestPullReads {
             sameScope(failed, row) && row.text("tool") == failed.text("tool") && (row["arguments"] as? JsonObject)?.get("pull_number") == number
         }
         val selected = select(bound) ?: Selection(JsonObject(mapOf("number" to number)), failed)
-        return recover(tools, bound, selected).firstOrNull()
+        return recover(tools, bound, selected, refreshSelfTestPin = false).firstOrNull()
     }
 
-    fun recover(tools: List<AgentToolDefinition>, receipts: List<JsonObject>, selected: Selection?): List<ProviderEvent.ToolCall> {
+    fun recover(tools: List<AgentToolDefinition>, receipts: List<JsonObject>, selected: Selection?, refreshSelfTestPin: Boolean = true): List<ProviderEvent.ToolCall> {
         if (selected == null) return emptyList()
         val source = selected.receipt
         if (source.text("binding").isBlank() || source.text("repository").isBlank()) return emptyList()
@@ -95,6 +95,7 @@ internal object GitHubSelfTestPullReads {
             }
             val previous = failed["arguments"] as? JsonObject ?: return@mapNotNull null
             val expected = (previous["expected_head_sha"] as? JsonPrimitive)?.takeIf { it.isString && revision.matches(it.content) }
+            if (expected != null && !refreshSelfTestPin) return@mapNotNull null
             val key = GitHubEvidenceBook.digest("${source.text("binding")}|${source.text("repository")}|${tool.name}|$number|$action").take(24)
             if (observations.any { it.text("call_id") == "pr-head-retry-$key" || it.text("call_id").startsWith("pr-head-retry-$key-") }) return@mapNotNull null
             val current = head(selected.row)
@@ -149,10 +150,16 @@ internal object GitHubSelfTestPullReads {
         val fresh = detail(refreshed)?.let(::head) ?: return null
         // A later changed observation cannot renew this recovery's single lease.
         if (head(selected.row)?.content?.equals(fresh.content, true) != true) return null
+        // File and check offsets describe the old head. Start each requested
+        // traversal at its first page when binding the read to the fresh head.
+        val restarted = previous.toMutableMap()
+        for (field in listOf("page", "check_page")) {
+            if (field in previous) restarted[field] = JsonPrimitive(1)
+        }
         return ProviderEvent.ToolCall(
             retryId,
             tool.name,
-            JsonObject(previous + mapOf("expected_head_sha" to fresh, "verify_live" to JsonPrimitive(true)))
+            JsonObject(restarted + mapOf("expected_head_sha" to fresh, "verify_live" to JsonPrimitive(true)))
         )
     }
 

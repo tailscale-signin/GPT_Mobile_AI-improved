@@ -26,20 +26,15 @@ internal fun <T> withGitHubSchemaAdmissionEvidence(
         configuredOutputTokens?.takeIf { it in 0..16_000_000 }?.let { put("configured_output_limit", it) }
         count("admission_route_context_tokens", capacity.verifiedRouteTokens)
         count("admission_catalog_context_tokens", capacity.catalogTokens)
-        // Engineering or an explicit smaller preparation allowance can further
-        // constrain the original configured ceiling without changing the route.
+        // Preserve the original profile ceiling; the captured plan carries its own effective capacity.
         val samePlanningBoundary = failure.admissionCapacityTokens == planningContextTokens
-        val smallerPlanningLimit = planningContextTokens.takeIf { samePlanningBoundary && it > 0 && it < capacity.tokens }
-        count("admission_configured_context_tokens", listOfNotNull(capacity.configuredTokens, smallerPlanningLimit).minOrNull())
-        put(
-            "admission_capacity_provenance",
-            when {
-                !samePlanningBoundary -> CapacityProvenance.UNKNOWN
-                planningContextTokens == capacity.tokens -> capacity.provenance
-                smallerPlanningLimit != null -> CapacityProvenance.DECLARED
-                else -> CapacityProvenance.UNKNOWN
-            }.name
-        )
+        count("admission_configured_context_tokens", capacity.configuredTokens)
+        val provenance = if (samePlanningBoundary && planningContextTokens <= capacity.tokens) {
+            capacity.toolPlanningProvenance(planningContextTokens, planningContextTokens)
+        } else {
+            CapacityProvenance.UNKNOWN
+        }
+        put("admission_capacity_provenance", provenance.name)
     }
     throw failure.withAdmissionEvidence(evidence)
 } catch (failure: dev.chungjungsoo.gptmobile.data.context.RequestCapacityException) {

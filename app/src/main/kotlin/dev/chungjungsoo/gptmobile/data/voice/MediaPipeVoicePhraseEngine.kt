@@ -82,7 +82,8 @@ internal class MediaPipeVoicePhraseEngine(
     }
 
     override fun warmFirstInference(speaker: Int, speed: Float): Boolean {
-        produce(VoiceSilentWarmup.PHRASE, null, speed, { true }, publishEvidence = false)
+        val sample = SpeechLanguages.forVoice(voiceId)?.takeUnless { it.tag.startsWith("en-") }?.preview ?: VoiceSilentWarmup.PHRASE
+        produce(sample, null, speed, { true }, publishEvidence = false)
         return true
     }
 

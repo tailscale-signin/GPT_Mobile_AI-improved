@@ -278,6 +278,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                         lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
                         lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
                         contextCeiling = constraints.contextCeiling,
+                        plannedContextCapacity = constraints.plannedContextCapacity,
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         reasoningMode = constraints.reasoningModeOverride ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
@@ -556,6 +557,16 @@ class OpenAICompatibleAdapter @Inject constructor(
             dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
                 .forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true
 
+        val automaticVisibleDelivery = isOpenRouter && GitHubReasoningPolicy.automaticVisibleDelivery(constraints)
+        val visibleOutputEffort = if (automaticVisibleDelivery) {
+            GitHubReasoningPolicy.visibleOutputEffort(
+                constraints,
+                dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)
+            )
+        } else {
+            null
+        }
+
         fun requestConfiguration(activeKey: String, requestTools: List<ChatFunctionTool>?, freshOnce: Boolean, llamaGatewayHeaders: Map<String, String>, mechanicalReasoning: Boolean): ProviderRequestConfig = ProviderRequestConfig(
             apiUrl = platform.apiUrl,
             profileUid = platform.uid,
@@ -568,10 +579,11 @@ class OpenAICompatibleAdapter @Inject constructor(
             lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
             lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
             contextCeiling = constraints.contextCeiling,
+            plannedContextCapacity = constraints.plannedContextCapacity,
             permissionRevision = constraints.permissionRevision,
             requireKnownCapacity = constraints.requireKnownCapacity,
             reasoningMode = llamaReasoning,
-            maximizeReasoning = constraints.maximizeReasoning && !mechanicalReasoning,
+            maximizeReasoning = constraints.maximizeReasoning && !mechanicalReasoning && !automaticVisibleDelivery,
             allowReasoning = constraints.allowReasoning,
             token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).acceptsUserToken) },
             queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
@@ -628,16 +640,22 @@ class OpenAICompatibleAdapter @Inject constructor(
             provider = parsedRouting,
             reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
                 if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) {
-                    OpenRouterReasoning(
-                        effort = when {
-                            lowExtractionReasoning || mechanicalReasoning -> "low"
-                            constraints.gitHubEffort != null &&
-                                isOpenRouter &&
-                                dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true -> constraints.gitHubEffort.wire
-                            constraints.maximizeReasoning -> "high"
-                            else -> "medium"
-                        }
-                    )
+                    if (automaticVisibleDelivery) {
+                        // With no verified low-effort setting, use the provider default. Repeating
+                        // maximum effort can exhaust the same output ceiling on hidden reasoning.
+                        visibleOutputEffort?.let { OpenRouterReasoning(effort = it) }
+                    } else {
+                        OpenRouterReasoning(
+                            effort = when {
+                                lowExtractionReasoning || mechanicalReasoning -> "low"
+                                constraints.gitHubEffort != null &&
+                                    isOpenRouter &&
+                                    dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true -> constraints.gitHubEffort.wire
+                                constraints.maximizeReasoning -> "high"
+                                else -> "medium"
+                            }
+                        )
+                    }
                 } else {
                     OpenRouterReasoning(enabled = false)
                 }
@@ -1635,6 +1653,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                         lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
                         lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
                         contextCeiling = constraints.contextCeiling,
+                        plannedContextCapacity = constraints.plannedContextCapacity,
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         token = activeKey,
@@ -1927,6 +1946,7 @@ class GeminiAdapter @Inject constructor(
                         lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
                         lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
                         contextCeiling = constraints.contextCeiling,
+                        plannedContextCapacity = constraints.plannedContextCapacity,
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         reasoningMode = constraints.reasoningModeOverride ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,

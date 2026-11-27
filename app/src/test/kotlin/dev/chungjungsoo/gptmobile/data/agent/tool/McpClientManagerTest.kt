@@ -232,7 +232,7 @@ class McpClientManagerTest {
         }
     }
 
-    @Test fun `initialization 404 is a configuration failure until endpoint changes`() = runBlocking {
+    @Test fun `initialization 404 is quarantined until endpoint or saved revision changes`() = runBlocking {
         val calls = AtomicInteger()
         val missing = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         missing.createContext("/mcp") { exchange ->
@@ -263,6 +263,15 @@ class McpClientManagerTest {
             assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
             assertEquals("c".repeat(64), manager.healthSnapshot(config.connectionUid).failureConfigurationRevision)
             assertEquals(Long.MAX_VALUE, manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
+            assertTrue(manager.listTools(config, passiveBackoff = true).isEmpty())
+            assertEquals(firstCalls, calls.get())
+            val edited = McpConnectionConfig(config.connectionUid, config.endpointUrl, true, configurationRevision = "d".repeat(64))
+            assertTrue(runCatching { manager.listTools(edited, passiveBackoff = true) }.exceptionOrNull() is McpEndpointConfigurationException)
+            assertTrue("Passive discovery must probe a new saved revision", calls.get() > firstCalls)
+            val editedCalls = calls.get()
+            assertEquals("d".repeat(64), manager.healthSnapshot(config.connectionUid).failureConfigurationRevision)
+            assertTrue(manager.listTools(edited, passiveBackoff = true).isEmpty())
+            assertEquals(editedCalls, calls.get())
             McpFixtureServer().use { healthy ->
                 assertTrue(manager.listTools(McpConnectionConfig(config.connectionUid, healthy.url, true)).isNotEmpty())
             }

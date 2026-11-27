@@ -1,11 +1,36 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReasoningRequestPolicyTest {
+    @Test fun qualifiedChatMlSystemTogglePreservesTheSyntheticTurnAndWritesExplicitOff() {
+        val turn = "<|im_start|>user\nTemplate capability check.<|im_end|>\n<|im_start|>assistant\n"
+        val enabled = "<|im_start|>system\nThink.<|im_end|>\n$turn<think>"
+        val disabled = "<|im_start|>system\nAnswer.<|im_end|>\n$turn<think>\n</think>\n"
+        assertTrue(ReasoningPolicy.verifiesThinkingToggle(enabled, disabled))
+        val decision = ReasoningPolicy.resolve(ReasoningMode.OFF, true, ReasoningTemplateControl.ENABLE_THINKING)
+        val request = ReasoningPolicy.apply(kotlinx.serialization.json.JsonObject(emptyMap()), decision)
+        val kwargs = request["chat_template_kwargs"] as kotlinx.serialization.json.JsonObject
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), kwargs["enable_thinking"])
+        assertEquals(ReasoningMode.OFF, decision.effective)
+        assertNull(decision.observedComputationEnabled)
+        for (invalid in listOf(
+            disabled.replace("Template capability check.", "A different request."),
+            disabled.replace("<|im_start|>user", "<|im_start|>assistant"),
+            "<|im_start|>assistant\nEarlier output.<|im_end|>\n$disabled",
+            disabled + "Generated output.",
+            disabled.replace("</think>", "")
+        )) {
+            assertFalse(ReasoningPolicy.verifiesThinkingToggle(enabled, invalid))
+        }
+        assertFalse(ReasoningPolicy.verifiesThinkingToggle("Unknown prefix<think>", "Another prefix<think></think>"))
+    }
+
     @Test fun absentModesRespectTheLegacySwitchAndExplicitModesRemainAuthoritative() {
         assertEquals(ReasoningMode.OFF, ReasoningPolicy.preference(false, null))
         assertEquals(ReasoningMode.AUTO, ReasoningPolicy.preference(true, null))

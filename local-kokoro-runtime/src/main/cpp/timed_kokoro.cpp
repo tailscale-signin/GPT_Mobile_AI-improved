@@ -771,7 +771,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_TimedKokoro_open(
     if (config.provider == "cpu") requested_provider = "cpu";
     else if (config.provider == "qnn-gpu") requested_provider = "qnn-gpu";
     else if (config.provider == "qnn-htp") requested_provider = "qnn-htp";
-    Require(threads >= 1 && threads <= 4, "Invalid Kokoro thread count");
+    Require(threads >= 1 && threads <= 16, "Invalid Kokoro thread count");
     Require(config.provider == "cpu" || config.provider == "qnn-gpu" || config.provider == "qnn-htp", "Invalid Kokoro provider");
     config.num_threads = threads;
     config.kokoro.model = FromJava(env, model);

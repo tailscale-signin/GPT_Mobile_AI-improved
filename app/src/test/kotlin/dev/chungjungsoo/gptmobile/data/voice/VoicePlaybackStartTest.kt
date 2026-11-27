@@ -196,8 +196,8 @@ class VoicePlaybackStartTest {
         val session = session(audio)
         audio.listeners.last().final("What is the forecast?")
         assertTrue(session.beginMessage("current"))
-        session.offerSearchOpening("other", "Wrong topic.")
-        session.offerSearchOpening("current", "I’m checking the forecast.")
+        session.offerOpening("other", VoiceThinkingCue("Wrong topic.", lookup = true))
+        session.offerOpening("current", VoiceThinkingCue("I’m checking the forecast.", lookup = true))
         val oldStart = audio.starts.single()
         val oldFinish = audio.completions.single()
         session.streamReply("current", "Rain is likely. ")
@@ -217,15 +217,34 @@ class VoicePlaybackStartTest {
         audio.listeners.last().final("What is the forecast?")
         session.beginMessage("current")
         val line = "I’m checking the forecast."
-        session.offerSearchOpening("current", line)
+        session.offerOpening("current", VoiceThinkingCue(line, lookup = true))
         audio.starts.single().invoke()
         session.streamReply("current", "Rain is likely. ")
         session.reply("current", "Rain is likely. Bring an umbrella.")
         assertEquals(listOf(line), audio.spoken)
         audio.completions.single().invoke()
         assertEquals("Rain is likely. Bring an umbrella.", audio.spoken.drop(1).joinToString(""))
-        session.offerSearchOpening("current", line)
+        session.offerOpening("current", VoiceThinkingCue(line, lookup = true))
         assertEquals(1, audio.spoken.count { it == line })
+        session.close()
+    }
+
+    @Test fun aHeardFrenchAcknowledgmentIsSpokenOnceAndLeavesTheFullReplyInChat() {
+        val audio = ObservedAudio().apply { streamsReplies = true }
+        val session = session(audio)
+        audio.listeners.last().final("Quelle est la capitale ?")
+        session.beginMessage("current")
+        val cue = VoiceThinkingCue("Un instant.")
+        session.offerOpening("current", cue)
+        audio.starts.single().invoke()
+        assertTrue(session.state.reply.isEmpty())
+        session.streamReply("current", "Un inst")
+        val answer = "Un instant. La capitale est Paris."
+        session.reply("current", answer)
+        assertEquals(listOf(cue.text), audio.spoken)
+        audio.completions.single().invoke()
+        assertEquals(listOf(cue.text, "La capitale est Paris."), audio.spoken)
+        assertEquals(answer, session.state.reply)
         session.close()
     }
 
@@ -234,7 +253,7 @@ class VoicePlaybackStartTest {
         val session = session(audio)
         audio.listeners.last().final("What is the forecast?")
         session.beginMessage("current")
-        session.offerSearchOpening("current", "I’m checking the forecast.")
+        session.offerOpening("current", VoiceThinkingCue("I’m checking the forecast.", lookup = true))
         val stale = audio.completions.single()
         session.stopSpeaking()
         session.reply("current", "Rain.")

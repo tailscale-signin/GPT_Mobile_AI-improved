@@ -70,6 +70,9 @@ internal object PhoneRepositoryGraph {
             put("cached_files", if (statusOnly) status.number("indexed_blobs", shards.size) else shards.size)
             put("inventory_files", entries.count { it.text("type") == "blob" })
             put("coverage_scope", "SUPPORTED_SOURCE_CANDIDATES")
+            listOf("qualification_scope", "qualification_paths", "qualification_expected_files", "qualification_complete", "index_order_version").forEach { field ->
+                status[field]?.let { put(field, it) }
+            }
             put("source_collection_complete", collected)
             put("processing_complete", processingComplete)
             put("coverage_complete", fullCoverage && !graphTruncated)
@@ -102,6 +105,9 @@ internal object PhoneRepositoryGraph {
             put("graph_source", "PHONE")
             put("compiler_resolution", false)
             put("limitations", LIMITATIONS)
+            listOf("qualification_scope", "qualification_paths", "qualification_expected_files", "qualification_complete").forEach { field ->
+                status[field]?.let { put(field, it) }
+            }
         }
         if (action == "status" || action == "index") {
             val graph = metadata()

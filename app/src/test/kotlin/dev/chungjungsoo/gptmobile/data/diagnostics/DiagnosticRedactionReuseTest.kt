@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,6 +11,52 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticRedactionReuseTest {
+    @Test fun changingEnvelopeKeepsItsOwnStateWhileReusingProtectedRedactedBody() {
+        val redactor = DiagnosticContentRedactor()
+        val cache = DiagnosticRedactionReuse(redactor::redact)
+        val body = JsonArray(
+            List(50) {
+                buildJsonObject {
+                    put("id", it)
+                    put("status", "PASSED")
+                    put("token", "never retain this secret")
+                }
+            }
+        )
+        fun row(snapshot: Int) = buildJsonObject {
+            put("table", "workspace_records")
+            put("rowId", snapshot)
+            put(
+                "fields",
+                buildJsonObject {
+                    put(
+                        "payload",
+                        buildJsonObject {
+                            put("snapshot_id", snapshot)
+                            put("capability_states", body)
+                            put("status", if (snapshot == 1) "RUNNING" else "PARTIAL")
+                        }
+                    )
+                }
+            )
+        }
+        var checks = 0
+        val guard = {
+            checks++
+            Unit
+        }
+        val first = cache.workspaceRow(row(1), guard)
+        val second = cache.workspaceRow(row(2), guard)
+        assertFalse(first.reused)
+        assertTrue(second.reused)
+        assertEquals(redactor.redact(row(2)), second.value)
+        assertEquals(JsonPrimitive("PARTIAL"), second.value.jsonObject.getValue("fields").jsonObject.getValue("payload").jsonObject["status"])
+        assertFalse(second.value.toString().contains("never retain this secret"))
+        assertTrue(checks >= 6)
+        cache.clear()
+        assertFalse(cache.workspaceRow(row(3), guard).reused)
+    }
+
     @Test fun identicalRowsReuseOnlyWithinOneCaptureAndChangedRowsAreRedactedAgain() {
         var transformations = 0
         val row = buildJsonObject {

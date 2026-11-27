@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
+import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow
@@ -181,7 +182,8 @@ class GitHubStatusCatalogTest {
         val discovery = ProgressiveToolCatalog(definitions, task, githubMode = true).definition
         val requiredCost = (required + discovery).sumOf { providerSchemaTokens(it, true) }.toInt()
         val optional = AgentToolDefinition("large_optional", "Optional schema ".repeat(1000), buildJsonObject {})
-        val limits = AgentRunLimits(githubTask = true, githubMode = true, githubTaskRequest = task, contextTokens = 16_384, initialContextTokens = 16_384 - 1024 - 256 - requiredCost, finalResponseReserveTokens = 1024)
+        val promptCeiling = RequestAdmission.maximumEstimatedPrompt(16_384L - 1024).toInt()
+        val limits = AgentRunLimits(githubTask = true, githubMode = true, githubTaskRequest = task, contextTokens = 16_384, initialContextTokens = promptCeiling - requiredCost, finalResponseReserveTokens = 1024)
         val selected = fitProviderToolSchemas(listOf(optional) + required + discovery, limits, 0, 0)
         assertEquals((required + discovery).map { it.name }.toSet(), selected.map { it.name }.toSet())
         assertEquals(required.filterNot { GitHubOperationTool.operationName(it.name) == "github_ci" }.map { it.name }.toSet(), fitProviderToolSchemas(required.filterNot { GitHubOperationTool.operationName(it.name) == "github_ci" }, limits, 0, 0).map { it.name }.toSet())
@@ -191,7 +193,8 @@ class GitHubStatusCatalogTest {
         val task = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
         val required = definitions.filter { GitHubOperationTool.operationName(it.name) in setOf("github_context", "github_pr", "github_ci") }
         val cost = required.sumOf { providerSchemaTokens(it, true) }
-        val limits = AgentRunLimits(githubTask = true, githubMode = true, githubTaskRequest = task, contextTokens = 16_384, initialContextTokens = 16_384 - 1024 - 256 - cost.toInt() + 1, finalResponseReserveTokens = 1024)
+        val promptCeiling = RequestAdmission.maximumEstimatedPrompt(16_384L - 1024).toInt()
+        val limits = AgentRunLimits(githubTask = true, githubMode = true, githubTaskRequest = task, contextTokens = 16_384, initialContextTokens = promptCeiling - cost.toInt() + 1, finalResponseReserveTokens = 1024)
         val error = assertThrows(GitHubToolContextBudgetException::class.java) { fitProviderToolSchemas(required, limits, 0, 0) }
         assertEquals(cost, error.requiredSchemaTokens)
         assertEquals(cost - 1, error.availableSchemaTokens)

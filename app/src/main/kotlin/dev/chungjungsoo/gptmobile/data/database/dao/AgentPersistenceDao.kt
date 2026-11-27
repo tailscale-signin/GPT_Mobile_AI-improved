@@ -618,6 +618,14 @@ interface AgentPersistenceDao :
     @Query("SELECT * FROM messages_v2 WHERE message_id = :messageId")
     suspend fun rawRecoveryMessage(messageId: Int): MessageV2?
 
+    @Query(
+        """SELECT m.content, r.status FROM messages_v2 m JOIN agent_runs r ON r.run_id = m.current_run_id
+            WHERE m.chat_id = :chatId AND m.message_id = :messageId AND r.run_id = :runId
+            AND r.chat_id = m.chat_id AND r.assistant_message_id = m.message_id AND m.platform_type IS NOT NULL
+            AND m.ownership_fence = :fence AND r.ownership_fence = :fence"""
+    )
+    fun observeSpeakingReply(chatId: Int, messageId: Int, runId: String, fence: Long): Flow<dev.chungjungsoo.gptmobile.data.voice.SpeakingReplyRow?>
+
     /** UI collectors may publish message and run changes at different times. */
     @Transaction
     suspend fun terminalVoiceReply(chatId: Int, messageId: Int, runId: String, expectedFence: Long): dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply? {

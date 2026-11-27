@@ -47,12 +47,17 @@ internal object GitHubAcceptanceRecoveryEvidence {
         val checklist = verdict["test_checklist"] as? JsonObject
         val preparation = checklist?.get("preparation") as? JsonObject
         if (preparation?.text("schema") == "github.integration-preparation.v1") {
+            val budget = preparation["budget"] as? JsonObject
+            // The retained plan has a richer local status vocabulary. Keep its
+            // expiry observable through the existing receiver deadline contract.
+            if (preparation.text("status") == "TIME_WINDOW_EXPIRED" && budget?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+                put("task_deadline_observation", "WINDOW_EXPIRED")
+            }
             preparation.text("status").takeIf { it in preparationStates }?.let { put("acceptance_preparation_state", it) }
             for ((source, destination) in listOf("ready_read_count" to "acceptance_ready_read_count", "additional_ready_read_count" to "acceptance_additional_ready_read_count")) {
                 preparation.number(source)?.takeIf { it in 0..16_000_000 }?.let { put(destination, it) }
             }
-            val budget = preparation["budget"] as? JsonObject
-            if (budget?.get("remaining_known") == JsonPrimitive(true)) {
+            if (budget != null && (budget["remaining_known"] == JsonPrimitive(true) || budget["stop_reason"] == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"))) {
                 (budget["acquisition_allowed"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("acceptance_acquisition_allowed", it) }
             }
             for ((source, destination) in listOf("cleanup_reserve" to "acceptance_cleanup_reserve", "fixture_start_minimum" to "acceptance_fixture_start_minimum")) {

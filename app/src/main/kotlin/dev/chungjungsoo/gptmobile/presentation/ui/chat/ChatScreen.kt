@@ -1100,13 +1100,16 @@ private fun ChatScreenContent(
                     val rowNotices = remember(pairKey) { ChatRunProjection<List<ChatRunNotice>>() }.select(rowRunIds, runNoticesById)
                     val rowEvents = remember(pairKey) { ChatRunProjection<List<ToolEvent>>() }.select(rowRunIds, toolEventsByRun)
                     val rowInvocations = remember(pairKey) { ChatRunProjection<List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>>() }.select(rowRunIds, invocationsByRun)
+                    val rowMessageIds = remember(rowMessages) { rowMessages.mapTo(mutableSetOf()) { it.id } }
+                    val rowReplies = remember(pairKey) { ChatReplyProjection() }.select(chatRoom.id, rowMessageIds, pendingReplies)
+                    val rowReasoningRecoveries = remember(pairKey) { ChatRunProjection<ReasoningRecoveryUiState>() }.select(rowRunIds, reasoningRecoveries)
                     GitHubLineScope(renderedLines.takeIf { index == lastMessageIndex }, pairKey) {
                         ChatMessagePair(
                             awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
                             reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { transcriptViewportHeight.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
-                            replyRevision = pendingReplies.hashCode().toLong(),
+                            replyRevision = rowReplies.hashCode().toLong(),
                             replyVisible = replyVisible,
-                            onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), pendingReplies) },
+                            onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), rowReplies) },
                             currentResearchTools = { chatViewModel.chatToolConfig.value },
                             githubAssistantReferences = githubResponseLinkContext,
                             messageIndex = index,
@@ -1145,7 +1148,7 @@ private fun ChatScreenContent(
                                 inspectedCombinedProfileUid = uid
                             },
                             smartSuggestionsEnabled = featureSettings.smartSuggestions || chatToolConfig.github != null,
-                            isUserTyping = chatViewModel.question.text.isNotEmpty(),
+                            isUserTyping = index == lastMessageIndex && chatViewModel.question.text.isNotEmpty(),
                             targetMessageId = chatViewModel.targetMessageId,
                             onTargetResponseOffset = { targetResponseOffset = it },
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
@@ -1168,7 +1171,7 @@ private fun ChatScreenContent(
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
                             onContinueWithTime = chatViewModel::continueWithTime,
-                            reasoningRecoveries = reasoningRecoveries,
+                            reasoningRecoveries = rowReasoningRecoveries,
                             onRecheckReasoning = chatViewModel::recheckReasoningResponse,
                             onProfileSettings = onProfileSettings,
                             onManageBilling = openProfileBilling,

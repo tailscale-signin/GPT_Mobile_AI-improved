@@ -768,7 +768,7 @@ internal class GitHubEvidenceBook(
     }
 
     /** Freeze task identity and ceilings before the first provider round, in either chat surface. */
-    suspend fun retainTaskContract(task: String, sourceMessageId: Int, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, callLimit: Int, executionCallLimit: Int = callLimit) = mutex.withLock {
+    suspend fun retainTaskContract(task: String, sourceMessageId: Int, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, callLimit: Int, executionCallLimit: Int = callLimit, acceptedHeadSha: String? = null) = mutex.withLock {
         val key = "task_contract"
         val previous = taskContract ?: load(key)
         if (previous != null) {
@@ -789,6 +789,7 @@ internal class GitHubEvidenceBook(
             put("source_message_id", sourceMessageId)
             put("repository", repository)
             put("accepted_branch", branch)
+            acceptedHeadSha?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }?.let { put("accepted_head_sha", it.lowercase(java.util.Locale.ROOT)) }
             put("request_digest", digest(task))
             put("requested_actions", task)
             val criteria = GitHubRequestCompletion.requirements(task)
@@ -950,7 +951,22 @@ internal class GitHubEvidenceBook(
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     suspend fun acceptedPromptContract(): JsonObject? = (taskContract ?: load("task_contract"))?.let { contract ->
-        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "acceptance_criteria", "acceptance_contract", "semantic_criteria", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
+        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "accepted_head_sha", "request_digest", "acceptance_criteria", "acceptance_contract", "semantic_criteria", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
+    }
+
+    /** Historical run receipts cannot move a diagnosis away from its accepted revision. */
+    suspend fun acceptedHeadSha(fallback: String? = null): String? {
+        val accepted = (acceptedPromptContract()?.get("accepted_head_sha") as? JsonPrimitive)?.contentOrNull
+        if (accepted != null) return accepted
+        val observed = snapshot().first.values.firstOrNull {
+            it["trusted"] == JsonPrimitive(true) &&
+                it["success"] == JsonPrimitive(true) &&
+                it["verification_eligible"] != JsonPrimitive(false) &&
+                it["head_observation"] == JsonPrimitive(true) &&
+                it["repository"] == JsonPrimitive(repository) &&
+                it["repository_role"] == JsonPrimitive("WRITE_DESTINATION")
+        }?.get("source_head_sha") as? JsonPrimitive
+        return (observed?.contentOrNull ?: fallback)?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
     }
 
     /** Report the same accepted ceiling and execution counter across process restart. */
@@ -1006,8 +1022,11 @@ internal class GitHubEvidenceBook(
 
     private fun substantiveReport(verdict: JsonObject?): Boolean = verdict != null &&
         verdict["progress_state"] != JsonPrimitive("BLOCKED_UNCHANGED") &&
+        verdict["retained_findings_delivered"] != JsonPrimitive(true) &&
         (
             verdict["completion_verified"] == JsonPrimitive(true) ||
+                verdict["answer_verified"] == JsonPrimitive(true) &&
+                (verdict["evidence_receipt_ids"] as? JsonArray).orEmpty().isNotEmpty() ||
                 (verdict["claims"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any {
                     it["status"] in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("HISTORICAL"), JsonPrimitive("INFERRED"))
                 }
@@ -1040,6 +1059,22 @@ internal class GitHubEvidenceBook(
             }
         }
         return text to verdict
+    }
+
+    /** Useful findings retain their original capture scope; a later interruption cannot erase them. */
+    suspend fun retainedFindings(): String? {
+        val current = retainedAnswer() ?: return null
+        if (substantiveReport(current.second)) return current.first
+        val prior = load("answer_useful_current_" + digest(binding).take(24)) ?: return null
+        val text = (prior["text"] as? JsonPrimitive)?.contentOrNull ?: return null
+        return text.takeIf {
+            it.isNotBlank() &&
+                it.length <= 1_048_576 &&
+                prior["binding"] == JsonPrimitive(binding) &&
+                prior["epoch"] == JsonPrimitive(epoch) &&
+                prior["text_sha256"] == JsonPrimitive(digest(it)) &&
+                prior["receipt_set_digest"] == JsonPrimitive(digest(snapshot().first.keys.sorted().joinToString("\n")))
+        }
     }
 
     private fun claimBatchKey() = "claim_extraction_current_" + digest(binding).take(24)

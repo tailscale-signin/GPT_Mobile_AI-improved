@@ -380,8 +380,8 @@ internal class VoiceSpeechPlaybackMeasurement(
     @Synchronized override fun nativePreparation(elapsedMs: Long, requestedThreads: Int, effectiveThreads: Int) {
         if (stoppedAt != null) return
         prepareMs = elapsedMs.coerceAtLeast(0)
-        this.requestedThreads = requestedThreads.takeIf { it in 1..4 }
-        this.effectiveThreads = effectiveThreads.takeIf { it in 1..4 }
+        this.requestedThreads = requestedThreads.takeIf { it in VoiceCpuSchedulingPolicy.supported }
+        this.effectiveThreads = effectiveThreads.takeIf { it in VoiceCpuSchedulingPolicy.supported }
     }
 
     @Synchronized override fun engineReady(reused: Boolean) {

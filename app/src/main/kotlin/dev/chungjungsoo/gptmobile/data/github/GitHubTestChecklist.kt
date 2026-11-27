@@ -238,6 +238,7 @@ internal object GitHubTestChecklist {
     /** An argument repair is admissible only for an exact local cursor returned by this facade. */
     private fun savedReadRecovery(receipt: JsonObject): JsonObject? {
         if (receipt["success"] == JsonPrimitive(true)) return null
+        if (receipt.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE") return pullPageCorrection(receipt)
         val root = data(receipt) ?: return null
         val recovery = (root["correction_call"] ?: root["recovery_call"] ?: root["source_recovery_call"]) as? JsonObject ?: return null
         val args = recovery["arguments"] as? JsonObject ?: return null
@@ -283,7 +284,7 @@ internal object GitHubTestChecklist {
     }
 
     private fun issuedPages(receipt: JsonObject): List<JsonObject> {
-        if (receipt["success"] != JsonPrimitive(true)) return emptyList()
+        if (receipt["success"] != JsonPrimitive(true)) return listOfNotNull(pullPageCorrection(receipt))
         val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return emptyList()
         return buildList {
             // Complete original data satisfies display traversal, never remote pagination.
@@ -296,6 +297,40 @@ internal object GitHubTestChecklist {
                 }
             }
         }
+    }
+
+    /** Incomplete coverage can issue one native read for an observed gap without granting another query. */
+    private fun pullPageCorrection(receipt: JsonObject): JsonObject? {
+        val name = receipt.text("tool")
+        if (receipt["trusted"] != JsonPrimitive(true) ||
+            receipt["success"] != JsonPrimitive(false) ||
+            receipt["verification_eligible"] == JsonPrimitive(false) ||
+            receipt["repository_role"] == JsonPrimitive("READ_SOURCE") ||
+            name.githubOperationFamily() != "github_pr" ||
+            receipt.text("error_code") != "GITHUB_PAGINATION_INCOMPLETE"
+        ) {
+            return null
+        }
+        val original = receipt["arguments"] as? JsonObject ?: return null
+        val body = data(receipt) ?: return null
+        val progress = body["pagination_progress"] as? JsonObject ?: return null
+        val gap = (progress["first_unobserved_page"] as? JsonPrimitive)?.takeIf { !it.isString && it.intOrNull in 1..1000 } ?: return null
+        val repair = body["correction_call"] as? JsonObject ?: return null
+        if (repair.text("tool") != name ||
+            progress.text("schema") != "github.pagination-progress.v1" ||
+            progress["complete"] != JsonPrimitive(false) ||
+            progress["upstream_changed_during_traversal"] == JsonPrimitive(true) ||
+            original.containsKey("view_cursor") ||
+            gap == original["page"]
+        ) {
+            return null
+        }
+        val expected = when (original.text("action")) {
+            "list" -> JsonObject(original + ("page" to gap))
+            "context" -> GitHubPullFileInventory.recoveryArguments(original, body, gap)
+            else -> null
+        } ?: return null
+        return repair.takeIf { it["arguments"] == expected }
     }
 
     private fun remoteSamples(observations: List<JsonObject>): Int {
@@ -335,7 +370,7 @@ internal object GitHubTestChecklist {
         return 4
     }
 
-    /** Consume issued local fragments while their bounded cache entry is still live. */
+    /** Prioritize local fragments and correctable page gaps while their observations are still live. */
     private fun continuation(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, localOnly: Boolean, workflowDependencyOnly: Boolean = false): ProviderEvent.ToolCall? {
         val observations = trusted(receipts)
         fun same(receipt: JsonObject, recipe: JsonObject) = sameCall(receipt, recipe)
@@ -359,10 +394,12 @@ internal object GitHubTestChecklist {
         for ((index, failed) in observations.withIndex()) {
             if (workflowDependencyOnly) continue
             val recovery = savedReadRecovery(failed) ?: continue
+            val pullGap = failed.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE"
+            if (pullGap && !exhaustive && sampled >= 2) continue
             val source = recoverySource(recovery) ?: continue
             if (!considered.add(source)) continue
             val args = recovery["arguments"] as JsonObject
-            if (localOnly && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
+            if (localOnly && !pullGap && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
             // The durable receipts spend one correction per saved view or exact
             // recovery recipe. A later offset or process restart cannot reset it.
             if ((lastAttempts[source] ?: -1) > index) continue
@@ -611,7 +648,11 @@ internal object GitHubTestChecklist {
     }
 
     private fun readOnly(capability: Capability): Boolean {
-        val arguments = buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) }
+        val arguments = buildJsonObject {
+            if (capability.action.isNotBlank()) put("action", capability.action)
+            // The capability can be exercised with a bounded, subscription-free observation.
+            if (capability.tool == "github_watch_checks") put("wait_timeout_seconds", 1)
+        }
         return dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, arguments) ||
             dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isLocalGraphIndexing(capability.tool, arguments)
     }
@@ -685,7 +726,9 @@ internal object GitHubTestChecklist {
                     else -> "NOT_TESTED"
                 }
                 val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it, allTrusted) } == true
-                val incomplete = graphIncomplete || latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
+                val pending = latest?.takeIf { it["success"] == JsonPrimitive(true) }?.let(::data)
+                val observedPendingWatch = capability.tool == "github_watch_checks" && GitHubBoundedCheckWait.hasObservation(pending)
+                val incomplete = graphIncomplete || (pending?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS") && !observedPendingWatch)
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val unsupportedFixture = !readOnly(capability) && !GitHubSelfTestFixtures.supports(capability.tool, capability.action)
                 val ciActionWithoutRun = capability.tool == "github_ci" && capability.action in setOf("dispatch", "rerun", "cancel") && eligible.isEmpty() && observed.isEmpty()
@@ -721,7 +764,7 @@ internal object GitHubTestChecklist {
                     repositoryPrerequisites?.requiredInputs?.isNotEmpty() == true -> "Repository lifecycle prerequisites: " + repositoryPrerequisites.requiredInputs.joinToString("; ")
                     graphPrerequisites.isNotEmpty() -> "Graph prerequisite: $graphObservation. " + graphPrerequisites.joinToString("; ")
                     conditionalDecision -> "Conditional user-decision behavior has no genuine decision in this task. It remains untested; test it in the interaction harness."
-                    capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
+                    capability.tool == "github_watch_checks" -> "Requires an observed pull request, workflow run, or exact commit in the selected repository. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" && capability.action == "copilot_task_status" -> "Requires a task ID from the selected Copilot task inventory or a saved creation receipt."
@@ -840,7 +883,7 @@ internal object GitHubTestChecklist {
                     put("waiting_for_approval", waitingApproval)
                     put("requires_live_transport", liveRequired)
                     if (capability.tool == "github_watch_checks") {
-                        val inline = successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") != null }
+                        val inline = successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") != null && GitHubBoundedCheckWait.hasObservation(data(it)) }
                         put("bounded_inline_observation_verified", inline)
                         put("background_subscription_verified", successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") == null && data(it)?.get("subscription_id") is JsonPrimitive })
                     }
@@ -879,6 +922,14 @@ internal object GitHubTestChecklist {
                             put("successfully_tested", status in setOf("PASSED", "RECOVERED") && latestDispatch?.get("success") == JsonPrimitive(true))
                         }
                     )
+                    if (capability.tool == "repository_graph") {
+                        val qualified = successes.lastOrNull()?.let(::data)
+                        if (qualified?.get("qualification_scope") == JsonPrimitive(RepositorySourcePriority.BOUNDED_SAMPLE)) {
+                            put("qualification_scope", RepositorySourcePriority.BOUNDED_SAMPLE)
+                            qualified["qualification_paths"]?.let { put("qualification_paths", it) }
+                            put("qualification_description", "Operation exercised on these named source files; full repository indexing remains separate.")
+                        }
+                    }
                     put("inventory_status", if (graphIncomplete || successes.any { data(it)?.get("complete") == JsonPrimitive(false) || (data(it)?.get("graph") as? JsonObject)?.get("complete") == JsonPrimitive(false) }) "PARTIAL" else "See independent inventory coverage")
                     put("evidence_scope", "Validated response for the exact action; origins identify LIVE, CACHED, LOCAL, MOCKED or NOT_TESTED execution. Fixture state, cleanup, application behavior and device health require separate evidence")
                     put("receipt_ids", JsonArray(observed.mapNotNull { it["receipt_id"] }))
@@ -917,14 +968,16 @@ internal object GitHubTestChecklist {
     }
 
     /** Action coverage is one acceptance criterion, independent from build/device criteria. */
-    fun capabilitiesComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, fixturePreflight: JsonObject? = null): Boolean {
+    fun capabilitiesComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, fixturePreflight: JsonObject? = null, evaluatedCapabilities: JsonArray? = null): Boolean {
         if (tools.isEmpty()) return false
         if (GitHubAuthorizedCatalog.required(tools, receipts) && GitHubAuthorizedCatalog.snapshot(receipts, tools)["complete"] != JsonPrimitive(true)) return false
-        val mutations = catalog(tools).filter { !readOnly(it) && it.tool != "github_decide" && !GitHubChecklistScope.readOnly(task) && (!GitHubChecklistScope.supportedFixturePlan(task) || GitHubSelfTestFixtures.supports(it.tool, it.action)) }
+        val coverage = (evaluatedCapabilities ?: rows(receipts, tools, task, fixturePreflight)).filterIsInstance<JsonObject>().filter { it["required"] == JsonPrimitive(true) }
+        if (coverage.none { it.text("status") in setOf("PASSED", "RECOVERED") } || coverage.any { it.text("status") !in setOf("PASSED", "RECOVERED") }) return false
+        // Enforce fixture proof for the same required actions used by the acceptance ledger.
+        val requiredIds = coverage.mapTo(hashSetOf()) { it.text("id") }
+        val mutations = catalog(tools).filter { "${it.tool}:${it.action}" in requiredIds && !readOnly(it) }
         if (mutations.any { !GitHubSelfTestFixtures.supports(it.tool, it.action) }) return false
         if (mutations.isNotEmpty() && !GitHubSelfTestFixtures.complete(receipts)) return false
-        val coverage = rows(receipts, tools, task, fixturePreflight).filter { (it as JsonObject)["required"] != JsonPrimitive(false) }
-        if (coverage.none { (it as JsonObject).text("status") in setOf("PASSED", "RECOVERED") } || coverage.any { (it as JsonObject).text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }) return false
         if (GitHubChecklistScope.exhaustive(task) && (pendingPages(receipts).isNotEmpty() || inventoryCoverage(receipts).any { (it as JsonObject).text("coverage") != "retrieval complete at observation" })) return false
         if (workflowExecutions(receipts).any { (it as JsonObject)["execution_verified"] != JsonPrimitive(true) }) return false
         return true
@@ -1012,7 +1065,7 @@ internal object GitHubTestChecklist {
         put("omitted_unobserved_capability_count", catalog.cumulative.size - capabilities.size)
         put("catalog_count_scope", "Known catalog and historical observations; not a final authorized denominator or task acceptance count.")
         val requirements = if (integrationCoverage) {
-            GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight, evaluatedCapabilities = capabilities)
         } else {
             JsonArray(
                 GitHubRequestCompletion.requirements(task).map { requirement ->

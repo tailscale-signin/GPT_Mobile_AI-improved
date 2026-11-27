@@ -10,7 +10,7 @@ import kotlinx.serialization.json.intOrNull
 /** Delivered intervals survive replay eviction; restored checkpoints reconstruct the same state. */
 internal class GitHubSavedReadProgress {
     data class Cursor(val value: String, val view: String, val offset: Int, val bytes: Int)
-    private data class ReadView(val intervals: MutableList<IntRange> = mutableListOf(), val continuations: MutableMap<String, JsonObject> = linkedMapOf())
+    private data class ReadView(val intervals: MutableList<IntRange> = mutableListOf(), val continuations: MutableMap<String, JsonObject> = linkedMapOf(), val deliveredCalls: MutableMap<String, MutableSet<String>> = linkedMapOf())
     private val views = linkedMapOf<Pair<String, String>, ReadView>()
 
     fun observe(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>, cache: ToolExchangeCompactor.RenderCache? = null) {
@@ -32,6 +32,9 @@ internal class GitHubSavedReadProgress {
                 if (requested != null && (requested.view != current.view || requested.offset != start)) continue
                 val key = issuer.name to current.view
                 val view = views.getOrPut(key) { ReadView() }
+                val calls = view.deliveredCalls.getOrPut(requested?.value ?: current.value) { linkedSetOf() }
+                if (calls.size < 2) calls.add(result.callId)
+                while (view.deliveredCalls.size > 256) view.deliveredCalls.remove(view.deliveredCalls.keys.first())
                 val intervals = (view.intervals + listOf(start until end)).sortedBy { it.first }
                 view.intervals.clear()
                 for (interval in intervals) {
@@ -57,12 +60,14 @@ internal class GitHubSavedReadProgress {
         }
     }
 
-    fun advance(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?): ProviderEvent.ToolCall {
-        // An explicit model/user reread can be intentional. Only the native
-        // recovery planner may advance its own already-consumed page proposal.
-        if (!call.callId.startsWith("saved-result-consume-") || tool == null || tool.name != call.name || GitHubOperationTool.operationName(call.name) == null) return call
+    fun advance(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?, repairRepeatedProviderRead: Boolean = false): ProviderEvent.ToolCall {
+        // Preserve an intentional first reread. Only two separately proven deliveries
+        // of the exact cursor allow a repeated model proposal to advance, and explicit
+        // user reread tasks opt out at the runner boundary.
+        if (tool == null || tool.name != call.name || GitHubOperationTool.operationName(call.name) == null) return call
         val requested = cursor(call.arguments) ?: return call
         val view = views[call.name to requested.view] ?: return call
+        if (!call.callId.startsWith("saved-result-consume-") && (!repairRepeatedProviderRead || (view.deliveredCalls[requested.value]?.size ?: 0) < 2)) return call
         val covered = view.intervals.firstOrNull { requested.offset in it } ?: return call
         if (covered.last == Int.MAX_VALUE) return call
         val nextOffset = covered.last + 1

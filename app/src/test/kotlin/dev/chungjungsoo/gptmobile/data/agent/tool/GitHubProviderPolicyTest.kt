@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.RequiredToolReadinessFailure
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryRead
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.CancellationException
@@ -94,6 +95,35 @@ class GitHubProviderPolicyTest {
             assertTrue(cached.isEmpty())
         }
         assertEquals(2, cachedReads)
+    }
+
+    @Test fun scopedOfficialReadAcquiresOnlyTheSelectedConnectionAndAcceptsAnySelectedEquivalentRead() = runTest {
+        val read = requireNotNull(GitHubMcpRepositoryRead.from("Inspect the GitHub repository owner/project"))
+        val remote = Tool("get_file_contents", inputSchema = ToolSchema())
+        val selected = setOf(remote.name, "get_repository", "list_issues", "create_issue")
+        assertEquals("official", GitHubProviderPolicy.repositoryReadConnection(read, mapOf(official to selected, pc to selected)))
+        val second = official.copy(connectionUid = "other")
+        assertTrue(runCatching { GitHubProviderPolicy.repositoryReadConnection(read, mapOf(official to selected, second to selected)) }.isFailure)
+        val existing = Tool("list_issues", inputSchema = ToolSchema())
+        for (warm in listOf(true, false)) {
+            var discoveries = 0
+            val loaded = GitHubProviderPolicy.acquireCatalog(official, selected, false, true, read, cached = {
+                if (warm) listOf(existing, remote) else listOf(existing)
+            }, discover = { await ->
+                assertTrue(await)
+                discoveries++
+                listOf(remote, Tool("create_issue", inputSchema = ToolSchema()))
+            })
+            assertEquals(listOf(existing, remote), loaded)
+            assertEquals(if (warm) 0 else 1, discoveries)
+        }
+        val missing = runCatching {
+            GitHubProviderPolicy.acquireCatalog(official, selected, false, true, read, cached = { emptyList() }, discover = { listOf(existing) })
+        }.exceptionOrNull()
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", (missing as RequiredToolReadinessFailure).errorCode)
+        for ((connection, names) in listOf(pc to selected, official to setOf("list_issues"))) {
+            assertTrue(GitHubProviderPolicy.acquireCatalog(connection, names, false, true, read, cached = { emptyList() }, discover = { error("Unexpected discovery") }).isEmpty())
+        }
     }
 
     @Test fun fullGithubAcquisitionFailureOrMissingSelectedSchemaBlocksBeforeModelInsteadOfReturningPartialCatalog() = runTest {

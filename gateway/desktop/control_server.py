@@ -181,7 +181,7 @@ def create_app(controller):
             value, status = await asyncio.to_thread(store.pairing_finish, request.state.control_token, payload, controller.secret)
             if status == 200:
                 value.update(endpoint=controller.endpoint, fingerprint=controller.fingerprint)
-                if value.get('engineering_connection') and (port := controller.connection_port()):
+                if value.get('role') == 'owner' and (port := controller.connection_port()):
                     value['gateway_port'] = port
             return JSONResponse(value, status_code=status)
         except ControlError as error:

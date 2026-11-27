@@ -14,6 +14,14 @@ class RepositoryTaskContextReceiptTest {
     private val sha = "a".repeat(40)
     private fun receipt() = Json.parseToJsonElement("""{"schema":"repository.task_context.v1","source_sha":"$sha","source_current":true,"variant":"TASK","bytes":2100,"token_count":null,"selected_ranges":[{"path":"src/Voice.kt","blob_sha":"${"b".repeat(40)}","start_line":30,"end_line":48}],"documents":[],"test_candidates":[{"path":"test/VoiceTest.kt","status":"NOT_RUN"}],"coverage":{"loaded_files":2,"eligible_files":8000,"exhaustive":false},"cache":{"cached_files":1,"cache_hit":false}}""") as JsonObject
 
+    @Test fun preparedSourceMeasurementsDoNotClaimFinalRequestDelivery() {
+        val coverage = JsonObject((receipt().getValue("coverage") as JsonObject) + mapOf("selected_source_bytes" to JsonPrimitive(600), "selected_source_lines" to JsonPrimitive(19), "caller_files" to JsonPrimitive(1), "configuration_files" to JsonPrimitive(1)))
+        val result = requireNotNull(RepositoryTaskContextReceipt.from(JsonObject(receipt() + ("coverage" to coverage)), sha))
+        assertTrue(result.summary.any { "Prepared source excerpts: 600 bytes · 19 lines" in it })
+        assertTrue(result.summary.any { "1 caller candidates" in it })
+        assertTrue(result.summary.any { "final request admission may trim or reject" in it })
+    }
+
     @Test fun selectedRangesRetainExactSourceAndUnknownTokenStatus() {
         val result = requireNotNull(RepositoryTaskContextReceipt.from(receipt(), sha))
         assertTrue(result.current)

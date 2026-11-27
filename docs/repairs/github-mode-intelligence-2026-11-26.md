@@ -1,0 +1,171 @@
+# GitHub mode reliability and intelligence
+
+## Change identity
+
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`.
+Base branch: `main` at `0e625e250117475446b8f216df2501ddbef168f2`.
+Working branch: `fix/unified-github-gateway` (draft PR #2646).
+The original isolated branch was reconciled with concurrent work at
+`d47f17815e43a70353d39c576378d7726bbefabd` and its subsequent admitted-tool
+replay correction at `f421d95d192d733f6cf2498d45fa09093be47212` before publication. The combined change
+preserves unified task routing, prepared request budgets, selected-model wakeup,
+provider quota handling, independent batch reads and verified-owner Gateway defaults.
+Intent: implement the November 26 diagnostic investigation, qualify the exact
+revision through a draft PR, merge after the required checks, and publish the
+versioned Android and Gateway releases after main-branch verification. Concurrent branch
+advances must be reconciled; publication never uses an unconditional ref update.
+
+## Behavioral contract
+
+The accepted task, selected revision, retained evidence, effective capacity,
+remaining budget and saved answer continue to belong to the existing task and
+evidence owners. Replay admission follows the selected model-visible schemas.
+A plain answer can use an exactly full context without reserving hidden backend
+receipts; queued or unsolicited tool calls still require evidence space before
+execution. A receipt can complete a deterministic lookup before provider replay
+admission or another provider call. Broader investigation still requires its
+accepted criteria and normal verification/publication gate.
+
+| Investigation finding | Required implementation and regression |
+| --- | --- |
+| Adaptive planning and replay used different capacity ceilings | Carry the effective context ceiling and provenance from planning through execution, continuation and final serialization; exercise the recorded prompt sizes and minimum usable replay envelope. |
+| Exact OpenRouter latest alias metadata was not reliably refreshed/restored | Refresh the public exact ID, persist its observation age and advertised capabilities, reject stale metadata, and keep custom routing unknown unless observed. |
+| An empty successful PR list could fail replay admission | Finish a complete, trusted, bounded direct lookup from its receipt without requiring a provider round or a second tool call. |
+| Current clean CI drifted into an older failed run | Freeze the accepted source SHA, complete current-revision observations through the real session gate, and reject accidental historical substitution. |
+| Repeated runs and overlapping log reads looked like progress | Bind progress/reuse to repository, source, run, attempt, job and covered ranges; permit a new attempt or real evidence delta. |
+| Provider waits and normal tool handoffs consumed the transport retry allowance | Retain separate durable recovery counters; reuse the existing provider wait deadline owner and reconcile uncertain writes. Preserve original structured failure evidence. |
+| A useful saved report was replaced by a generic terminal error | Preserve the useful report and remaining criteria on interruption; never label an unfinished diagnosis verified. |
+| AUTO final synthesis spent its entire cap on reasoning | Use the lowest advertised compatible reasoning effort for the supported AUTO final-delivery path; preserve explicit fixed settings and never invent support for a numerical reasoning cap. |
+| Sparse indexing and broad path matches wasted focused context | Reuse immutable source/symbols across tasks, retain bounded lexical references, add relevant caller/configuration neighbors, and report the excerpts actually prepared. |
+| Qualification prerequisites were difficult to distinguish from completion | Report read-only, supported-fixture and full-live scope separately, with required passed/blocked/untested/failed counts and exact prerequisite groups. |
+
+## Focused repository context
+
+Task context bundle version 8 retains existing authorization and source identity
+checks. Its symbol catalog can read the earlier compact definitions and upgrades
+only observed immutable blobs to include bounded lexical references. Catalog shards
+retain recent rows under a 1 MiB encoded UTF-8 ceiling, including JSON framing. Reusing an
+unchanged blob does not require fetching it again when the selected commit or
+chat changes. A packet is still pinned to its exact repository/ref/commit/query
+and parser/bundle generation.
+
+Ranking excludes generic directory scaffolding such as `app/src/main` while
+retaining exact path matches, meaningful filenames, symbols and verified feature
+references. A selected implementation and related test retain first access to
+the shared deadline. At most two retained caller candidates and one nearest
+configuration file extend the existing bounded import/test neighborhood. The
+same 20-source ceiling and preparation deadline apply; no full repository scan
+is required before an ordinary lookup.
+
+Coverage records selected source bytes and lines after packet truncation, plus
+caller/configuration counts. `source_complete` explicitly describes the attempted
+task selection only. The existing context card displays these prepared counts
+and still explains that final request admission may trim or reject context.
+Lexical relationships remain candidates, and test source is not execution proof.
+
+## Qualification and evaluation
+
+The observed 132-row qualification shape has 126 required and six excluded
+capabilities. A synthetic regression preserves its 46 passed, 73 blocked and
+seven untested required rows: 80 capability gaps. Independent task criteria are
+counted separately, so an additional unmet criterion does not become a fabricated
+81st API capability. Cached/mocked/untested evidence cannot be promoted to a live
+pass by the summary. Scope selection does not change permissions or create
+fixture authority.
+
+Regression evaluation uses task completion, revision correctness, novel evidence
+coverage, duplicate reads, preserved recovery state and delivered answer behavior.
+Confirmed provider usage remains separate from estimates and failed reservations.
+No live model quality, phone latency, token-saving percentage or superiority over
+another coding product is inferred from a deterministic regression.
+
+## Issue coverage for Android build 151
+
+The 36 open reports through #2650 came from build 151. Multiple reports describe
+the same failure. The table records the behavior under test and any remaining
+external dependency.
+
+| Reports | Behavior and verification boundary |
+| --- | --- |
+| #2614–2618, #2641–2645 | An upstream `insufficient_quota` error can arrive inside an HTTP 200 stream. Stop repeat requests for the affected account configuration and retain the provider's recovery action. Restoring the allowance requires an account or provider change. |
+| #2619–2623, #2631–2634, #2636, #2638 | Apply the selected route's effective context limit to the actual request, including the admitted schemas, reply and any required tool evidence. Text-only delivery can use retained evidence without reserving another tool call. |
+| #2624, #2626 | Preserve the saved response, continuation state and original cause when available. Stop repeated synthesis when it adds no output. The original cause was absent from #2624, so that incident cannot be reconstructed exactly. |
+| #2625, #2630 | Distinguish verified reads from remaining acceptance criteria. Report the fixture, permission or other prerequisite required to continue stronger qualification. |
+| #2627–2629 | Validate check-watch arguments against the selected commit. A failed prerequisite blocks dependent calls while independent authorized repository reads can proceed. |
+| #2635, #2637, #2640 | New llama.cpp profiles use automatic reasoning negotiation. Profiles with an explicit strict-off setting require a backend capable of honoring it. |
+| #2639 | Wake the selected sleeping model on its bound Gateway route and verify readiness before dispatch. If readiness cannot be established, surface the reason for that route. |
+
+### Pagination and deadlines
+
+| Report | Runtime behavior |
+| --- | --- |
+| #2647 | If a PR moves during an implicitly pinned file or check traversal, refresh the head and restart the traversal at page one. A caller-specified revision stays pinned. |
+| #2648 | The reported traversal retained 81 of 111 files. For a known page gap, request the first missing page using the same PR, base, head and page size. Retain already verified pages and require complete coverage before reporting the full list. |
+| #2649 | A terminal PR-list page can arrive before preceding pages. The integration checklist now follows the validated correction returned by the read within its existing sampling and authorization limits. |
+| #2650 | The task reached its accepted 60-minute deadline. The terminal report now marks further reads unavailable until the user renews the task and retains the unmet criteria. |
+
+Expired task preparation retains its internal `TIME_WINDOW_EXPIRED` status.
+Public diagnostic exports use the existing `WINDOW_EXPIRED` deadline observation,
+disabled acquisition and zero ready reads; they omit the unsupported preparation
+enum. This keeps the current receiver contract compatible without implying a
+renewal, fixture authority or satisfied prerequisites.
+
+Retained failure delivery is attempted at most once per run collection. The
+runner and its terminal boundary use the same eligibility checks: authority
+invalidation, unknown operation outcomes and unreconciled provider recovery
+state cannot start retained publication. A later user resume receives a fresh
+boundary. Saved-page and investigation fixtures retain exact read sequences,
+source identity and accepted call ceilings. Unscoped legacy observations retain
+the ordinary per-call progress guard without entering the revision-bound ledger.
+
+Before a CI read receives its accepted repository or revision scope, the
+runner retains the complete original provider invocation. Effective arguments
+can then be narrowed while the original envelope and digest remain verifiable;
+identity mismatches still stop dispatch.
+
+## Packaged dispatch size
+
+The [draft APK gate at `b13ed65e`](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45875720278/job/140110531102)
+measured three dispatch methods above its exclusive 16,383 DEX-code-unit ceiling:
+primary dispatch at 23,222, the agent loop at 18,058, and delegated evidence
+preparation at 18,012. Existing recovery and evidence-preparation branches now
+execute in separate non-inline stages. The same mutable owners, early exits,
+permission checks, cancellation behavior and operation ordering are retained.
+All extracted helpers remain covered by the unchanged packaged-method selector;
+no size threshold, exclusion or workflow requirement is relaxed. Focused local
+compilation and DEX measurements supplement the required exact-revision APK gate.
+
+## Validation record
+
+Local focused JVM execution covers 32 production-context,
+qualification-summary and context-presentation tests, 25 merged capacity/catalog tests,
+44 durable recovery tests, 14 lookup/CI evidence tests, seven interruption-export
+tests and 20 terminal-delivery tests. The repeated-provider-wait regression fails
+against the original base and completes with the recovery change. The interruption
+export suite also fails against the earlier implementation and passes after cause
+retention is repaired. Two adapter-specific terminal tests require the full Android
+test graph and were excluded only from the standalone host harness. Android session, provider,
+runner and recovery regressions are included in the ordinary test sources and
+must pass the repository's exact-revision PR and main-branch gates. Eleven focused
+acceptance-recovery projection tests also pass, including an expiry regression
+that fails against the preceding projection, and the existing receiver enum
+parity check accepts the compatible export. Four merged CI-scope and replay tests
+validate original invocation preservation and tampered-envelope rejection. The canonical
+host gate is `bash scripts/validate-local.sh fast`; generated source maps and
+inventories must match the final combined revision. Release signing, artifact
+identity, packaging size, attestations and published-asset verification remain
+mandatory and are performed by the existing release workflow.
+
+The coordinated Gateway 18.1.5 host gate collected 2,123 Python tests across
+154 modules: 2,091 passed and 32 were skipped for unavailable environment
+capabilities. Seven browser-bridge tests and the 50,000-event diagnostic stress
+check passed. Native Windows behavior, installer packaging and publication
+attestations remain the required hosted gates.
+
+An unchanged local-owner settings snapshot took 10 SQLite statements with zero
+rows changed, compared with 26 statements and one changed row on build 151.
+The comparison used an initialized temporary journal for each revision, warmed
+the local-owner snapshot once, then measured `ControlStore.schema` and
+`ControlStore._snapshot` together on the same connection using `set_trace_callback`
+and the `total_changes` delta. These counts cover the store work underlying
+`GET /gateway/settings`. HTTP authentication and model inference run separately.

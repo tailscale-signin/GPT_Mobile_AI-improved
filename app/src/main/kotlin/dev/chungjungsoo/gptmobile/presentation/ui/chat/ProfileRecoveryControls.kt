@@ -16,6 +16,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import java.net.URI
 
+internal const val PROVIDER_ALLOWANCE_GUIDANCE = "Check this profile’s API quota, spending limits, account, project and key configuration, or choose another profile. Other replies and tool results remain saved."
+
 internal enum class ProfileRecoveryKind {
     NONE,
     MODEL,
@@ -38,10 +40,14 @@ internal fun profileRecoveryKind(category: String, details: String): ProfileReco
 
 /** A protocol-compatible proxy may have a different billing account. Never infer it from a name/model. */
 internal fun profileBillingUrl(profile: PlatformV2?): String? {
-    if (profile?.compatibleType != ClientType.ANTHROPIC) return null
+    profile ?: return null
     val endpoint = runCatching { URI(profile.apiUrl) }.getOrNull() ?: return null
-    return "https://platform.claude.com/settings/billing".takeIf {
-        endpoint.scheme.equals("https", true) && endpoint.host.equals("api.anthropic.com", true) && endpoint.userInfo == null && endpoint.port in setOf(-1, 443)
+    if (!endpoint.scheme.equals("https", true) || endpoint.userInfo != null || endpoint.port !in setOf(-1, 443)) return null
+    return when {
+        profile.compatibleType == ClientType.ANTHROPIC && endpoint.host.equals("api.anthropic.com", true) -> "https://platform.claude.com/settings/billing"
+        profile.compatibleType == ClientType.OPENAI && endpoint.host.equals("api.openai.com", true) -> "https://platform.openai.com/account/billing/overview"
+        profile.compatibleType in setOf(ClientType.OPENROUTER, ClientType.OPENAI) && endpoint.host.equals("openrouter.ai", true) -> "https://openrouter.ai/settings/credits"
+        else -> null
     }
 }
 
@@ -52,7 +58,8 @@ data class ReasoningRecoveryUiState(
     val qualified: Boolean = false,
     val frozenRequest: Boolean = false,
     val qualifiedAtMillis: Long? = null,
-    val routeVerified: Boolean? = null
+    val routeVerified: Boolean? = null,
+    val detailMessage: String? = null
 )
 
 internal data class ReasoningRecoveryRequest(val profile: PlatformV2, val mode: ReasoningMode, val requireRouteReady: Boolean = false)
@@ -104,7 +111,8 @@ internal fun ProfileRecoveryActions(
                 } else if (qualified) {
                     Text("The selected model is ready.", style = MaterialTheme.typography.bodySmall)
                 }
-                TextButton(onClick = onRecheck, enabled = enabled && state?.checking != true) { Text("Recheck model") }
+                state?.detailMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = onRecheck, enabled = enabled && state?.checking != true) { Text("Load and recheck model") }
                 TextButton(onClick = onSettings, enabled = enabled) { Text("Choose model") }
                 if (qualified) TextButton(onClick = onRetry, enabled = enabled && state?.checking != true) { Text("Retry with checked model") }
             }
@@ -123,13 +131,14 @@ internal fun ProfileRecoveryActions(
                 )
                 if (qualified && state?.routeVerified == false) Text("The selected reasoning setting is supported; the inference route is not verified as ready.", style = MaterialTheme.typography.bodySmall)
                 if (state?.frozenRequest == true) Text("This turn keeps its accepted settings. Changing the profile applies to a new request; saved replies remain.", style = MaterialTheme.typography.bodySmall)
+                state?.detailMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 TextButton(onClick = onRecheck, enabled = enabled && state?.checking != true) { Text("Recheck support for $profileName") }
                 TextButton(onClick = onSettings, enabled = enabled) { Text("Change settings for $profileName") }
                 if (state?.requested != ReasoningMode.AUTO) TextButton(onClick = onSwitchToAuto, enabled = enabled && state?.checking != true) { Text("Switch $profileName to Auto") }
                 if (qualified) TextButton(onClick = onRetry, enabled = enabled && state?.checking != true) { Text("Retry checked configuration") }
             }
             ProfileRecoveryKind.BILLING -> {
-                Text("Restore this profile’s provider credits, then start a new request. Other replies remain saved.", style = MaterialTheme.typography.bodySmall)
+                Text(PROVIDER_ALLOWANCE_GUIDANCE, style = MaterialTheme.typography.bodySmall)
                 if (canManageBilling) TextButton(onClick = onBilling, enabled = enabled) { Text("Manage billing for $profileName") }
                 TextButton(onClick = onSettings, enabled = enabled) { Text("Change settings for $profileName") }
             }

@@ -254,6 +254,8 @@ def main():
             ("different_field", EVIDENCE_PATH, '  "tokens_other.txt": "' + known_digest + '",', 1),
             ("trailing_content", EVIDENCE_PATH, exact_line + ' "extra": true,', 1),
             ("calibration_exact_declaration", CALIBRATION_PATH, calibration_line, 0),
+            ("calibration_historical_v3", CALIBRATION_PATH, re.sub(r'v[0-9]+"$', 'v3"', calibration_line), 0),
+            ("calibration_unreviewed_version", CALIBRATION_PATH, re.sub(r'v[0-9]+"$', 'v99"', calibration_line), 1),
             ("calibration_different_value", CALIBRATION_PATH, alternate_calibration, 1),
             ("calibration_different_path", CALIBRATION_PATH.replace("VoiceCpuCalibrationProtocol.kt", "OtherCalibrationProtocol.kt"), calibration_line, 1),
             ("calibration_different_field", CALIBRATION_PATH, calibration_line.replace("ORDER_KEY", "OTHER_KEY"), 1),

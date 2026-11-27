@@ -5,17 +5,23 @@ internal class VoiceCalibrationInterrupted(val reason: VoiceCalibrationStop) : I
 
 /** Short, matched CPU workloads; settings and order are frozen for an entire calibration. */
 internal object VoiceCpuCalibrationProtocol {
-    const val VERSION = 3
-    const val ORDER_KEY = "cpu-calibration-order-v3"
+    const val VERSION = 4
+    const val ORDER_KEY = "cpu-calibration-order-v4"
     private val fixtures = listOf("the voice is ready.", "here are the main points.", "you can ask your next question.")
 
     fun rate(value: Float): Float = value.takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: 1f
     fun key(factory: String, voice: KokoroVoice, speed: Float): String = "threads:v$VERSION:$factory:${voice.name}:${voice.lexicon}:${rate(speed).toBits()}"
 
-    fun order(seed: Int): List<Int> {
-        val offset = Math.floorMod(seed, 4)
-        val rotated = (1..4).map { (it - 1 + offset) % 4 + 1 }
-        return if (Math.floorMod(seed, 8) >= 4) rotated.reversed() else rotated
+    fun candidates(processors: Int): List<Int> {
+        val maximum = VoiceCpuSchedulingPolicy.deviceLimit(processors)
+        return (listOf(1, 2, 3, 4, 6, 8, 12) + maximum).filter { it <= maximum }.distinct()
+    }
+
+    fun order(seed: Int, processors: Int): List<Int> {
+        val counts = candidates(processors)
+        val offset = Math.floorMod(seed, counts.size)
+        val rotated = counts.drop(offset) + counts.take(offset)
+        return if (Math.floorMod(seed, counts.size * 2) >= counts.size) rotated.reversed() else rotated
     }
 
     fun measure(
@@ -25,7 +31,8 @@ internal object VoiceCpuCalibrationProtocol {
         thermalStatus: () -> Int?,
         prepare: (Int) -> Unit,
         generate: (String, Float) -> Unit,
-        nanoTime: () -> Long
+        nanoTime: () -> Long,
+        processors: Int = Runtime.getRuntime().availableProcessors()
     ): Map<Int, List<Long>> {
         fun checkActive() {
             if (!active()) throw VoiceCalibrationInterrupted(VoiceCalibrationStop.CANCELLED)
@@ -34,7 +41,7 @@ internal object VoiceCpuCalibrationProtocol {
         }
         val selectedRate = rate(speed)
         return buildMap {
-            for (threads in order(seed)) {
+            for (threads in order(seed, processors)) {
                 checkActive()
                 prepare(threads)
                 checkActive()

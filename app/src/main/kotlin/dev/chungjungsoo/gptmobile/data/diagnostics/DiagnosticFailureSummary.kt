@@ -53,6 +53,11 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
         ExecutionCompletionDiagnostics.compact(category, typedDetails).forEach { (key, value) -> put(key, value) }
         if (category in setOf("WORKSPACE_EVIDENCE_CONFLICT", "OUTPUT_CONTINUATION_NO_PROGRESS")) put("task_outcome", "BLOCKED")
         dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(failure["recoveryDetails"] as? JsonObject)?.let { details ->
+            dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedInterruptions(details)?.forEach { (key, value) -> put(key, value) }
+            // A saved cause chain alone cannot turn the current continuation
+            // failure into a lifecycle refusal or replace its terminal verdict.
+            val recoveryCode = (details["recovery_code"] as? JsonPrimitive)?.contentOrNull
+            if (recoveryCode !in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES) return@let
             put(
                 "latest_recovery_failure",
                 JsonObject(
@@ -296,7 +301,18 @@ internal fun diagnosticFailureSummary(
                 sources["cause_types"] = JsonPrimitive(source)
             }
         }
-        recovery.firstNotNullOfOrNull { it.payload["original_interruption"] }?.let { put("original_interruption", it) }
+        if (!reviewResolved) {
+            causal.filter { it.recordId == failure?.recordId }.firstNotNullOfOrNull { item ->
+                listOfNotNull(item.payload["verification_failure"] as? JsonObject, item.payload["failure_details"] as? JsonObject, item.payload)
+                    .firstNotNullOfOrNull(dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure::retainedInterruptions)
+                    ?.let { item.source to it }
+            }?.let { (source, interruptions) ->
+                interruptions.forEach { (key, value) ->
+                    put(key, value)
+                    sources[key] = JsonPrimitive(source)
+                }
+            }
+        }
         for (key in listOf("dispatched", "retryable", "request_replay_allowed", "remote_acceptance", "dispatch_state", "generation_completed")) {
             causal.firstOrNull { (key != "generation_completed" || it.recordId == failure?.recordId) && it.payload[key] != null && it.payload[key] != JsonNull }?.let { item ->
                 put(key, item.payload.getValue(key))

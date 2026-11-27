@@ -34,5 +34,21 @@ internal object VoiceSpokenLead {
         return rest
     }
 
+    /** A locally heard status can reappear as the model's first sentence, in any voice language. */
+    fun afterCue(text: String, cue: String, final: Boolean): String {
+        val lead = text.trimStart()
+        val stem = cue.trimEnd { it in cuePunctuation }
+        if (stem.isEmpty()) return text
+        if (lead.length < stem.length) return if (!final && stem.startsWith(lead, ignoreCase = true)) "" else text
+        if (!lead.startsWith(stem, ignoreCase = true)) return text
+        // French commonly inserts a regular or thin nonbreaking space before !, ? and :.
+        var next = stem.length
+        while (next < lead.length && lead[next].isWhitespace()) next++
+        if (next == lead.length) return ""
+        if (lead[next] !in cuePunctuation) return text
+        return lead.substring(next).dropWhile { it in cuePunctuation }.trimStart()
+    }
+
+    private val cuePunctuation = setOf('.', '!', '?', ',', ':', '…', '—', '。', '！', '？', '।', '॥')
     private val punctuation = setOf('.', '!', ',', ':', '…', '—')
 }

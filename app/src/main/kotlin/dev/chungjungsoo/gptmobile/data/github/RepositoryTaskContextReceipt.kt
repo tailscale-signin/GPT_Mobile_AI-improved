@@ -48,6 +48,12 @@ data class RepositoryTaskContextReceipt(val current: Boolean, val summary: List<
                 number("preparation_ms")?.let { add("Preparation: $it ms") }
                 if (coverage != null) {
                     add("Loaded ${coverage.workspaceCount("loaded_files") ?: "?"} of ${coverage.workspaceCount("eligible_files") ?: "?"} eligible files · ${if (coverage.workspaceFlag("exhaustive")) "complete coverage" else "selected coverage"}")
+                    coverage.workspaceCount("selected_source_bytes")?.let { bytes ->
+                        add("Prepared source excerpts: $bytes bytes · ${coverage.workspaceCount("selected_source_lines") ?: "?"} lines")
+                    }
+                    val callers = coverage.workspaceCount("caller_files") ?: 0
+                    val configuration = coverage.workspaceCount("configuration_files") ?: 0
+                    if (callers > 0 || configuration > 0) add("Task neighborhood: $callers caller candidates · $configuration build configuration files; relationships require source verification.")
                 }
                 if (cache != null) add("${cache.workspaceCount("cached_files") ?: "?"} cached source files · ${if (cache.workspaceFlag("cache_hit")) "cached selection reused" else "selection prepared"}")
                 if (tests.isNotEmpty()) add("Test candidates are source references. Their presence does not mean the tests ran or passed.")

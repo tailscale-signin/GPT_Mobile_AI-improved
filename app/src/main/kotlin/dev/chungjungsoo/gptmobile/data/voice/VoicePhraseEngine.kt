@@ -102,6 +102,9 @@ internal interface VoicePhraseEngineFactory {
     fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine
     fun prepareForPlayback(engine: VoicePhraseEngine) = Unit
 
+    /** Optional local reads while the microphone owns JNI. Never opens an engine or downloads a model. */
+    fun prefetchAssets(current: () -> Boolean) = Unit
+
     /** Stops qualification before the engine has been published to the playback owner. */
     fun cancelPending() = Unit
 }

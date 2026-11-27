@@ -1156,7 +1156,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     manifestWordsExpected = r.optionalBoundedLong("manifestWordsExpected", 1024)?.toInt(), manifestWordsPrepared = r.optionalBoundedLong("manifestWordsPrepared", 1024)?.toInt(),
     manifestWordsObserved = r.optionalBoundedLong("manifestWordsObserved", 1024)?.toInt(), unexpectedCaptionWords = r.optionalBoundedLong("unexpectedCaptionWords", 2048)?.toInt(),
     firstAudioTrackWriteMs = r.optionalBoundedLong("firstAudioTrackWriteMs"), trackPlayRequestedMs = r.optionalBoundedLong("trackPlayRequestedMs"), sessionPrepareMs = r.optionalBoundedLong("sessionPrepareMs"),
-    requestedThreads = r.optionalBoundedLong("requestedThreads", 4)?.toInt()?.also { require(it > 0) }, effectiveThreads = r.optionalBoundedLong("effectiveThreads", 4)?.toInt()?.also { require(it > 0) },
+    requestedThreads = r.optionalBoundedLong("requestedThreads", VoiceCpuSchedulingPolicy.MAX_THREADS.toLong())?.toInt()?.also { require(it > 0) }, effectiveThreads = r.optionalBoundedLong("effectiveThreads", VoiceCpuSchedulingPolicy.MAX_THREADS.toLong())?.toInt()?.also { require(it > 0) },
     activePlaybackUnderruns = r.optionalBoundedLong("activePlaybackUnderruns")?.toInt(), startupUnderruns = r.optionalBoundedLong("startupUnderruns")?.toInt(), drainUnderruns = r.optionalBoundedLong("drainUnderruns")?.toInt(),
     pipelineFailureCode = r.optionalString("pipelineFailureCode")?.also { require(it.matches(SAFE_CODE)) }, nativeCode = r.optionalSignedInt("nativeCode"),
     failedChunk = r.optionalBoundedLong("failedChunk", if (r.optionalString("requestedDelegate") == null) 128 else 16_384)?.toInt(), failedInputBytes = r.optionalBoundedLong("failedInputBytes", 1_000_000)?.toInt(), failedInputByteLimit = r.optionalBoundedLong("failedInputByteLimit", 1_000_000)?.toInt(),
@@ -1242,7 +1242,7 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
 
 private val SAFE_CODE = Regex("[A-Za-z0-9_]{1,80}")
 private val UNDERRUN_PHASES = setOf("startup", "active", "refill", "draining", "paused", "cancelled")
-internal val SPEECH_PREPARATION_PHASES = setOf("GATE_WAIT", "MODEL_LOAD", "MODEL_LEASE", "DELEGATE_SETUP", "SDK_TASK_OPEN", "VOICE_ENUMERATION")
+internal val SPEECH_PREPARATION_PHASES = setOf("AUDIO_TRACK_SETUP", "GATE_WAIT", "MODEL_LOAD", "MODEL_LEASE", "DELEGATE_SETUP", "SDK_TASK_OPEN", "VOICE_ENUMERATION")
 private val CLEANUP_STATES = setOf("NOT_OBSERVED", "PENDING", "RETIRED", "FAILED")
 private val SHA256 = Regex("[0-9a-f]{64}")
 private val IDENTITY = Regex("[A-Za-z0-9._-]{1,120}")

@@ -76,10 +76,13 @@ data class ProviderFailureReceipt(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val privacyStatus: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val privacyDispatchOutcome: String? = null
+    val privacyDispatchOutcome: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val configurationHash: String? = null
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
+        (configurationHash == null || configurationHash.matches(Regex("[a-f0-9]{64}"))) &&
         errorCode in ERROR_CODES &&
         (httpStatus == null || httpStatus in 100..599) &&
         (outputTokens == null || outputTokens >= 0) &&
@@ -235,7 +238,8 @@ data class ProviderFailureReceipt(
                 recoveryAction = GatewayEngineeringPrerequisites.recoveryAction(code),
                 privacyReasonCode = PrivacyFailureEvidence.reason(failure.failureDetails?.get("privacy_reason_code")).takeIf { code == PrivacyFailureEvidence.CODE },
                 privacyStatus = PrivacyFailureEvidence.status(failure.failureDetails?.get("privacy_status")).takeIf { code == PrivacyFailureEvidence.CODE },
-                privacyDispatchOutcome = privacyFinalOutcome
+                privacyDispatchOutcome = privacyFinalOutcome,
+                configurationHash = ProviderConfigurationIdentity.capture(profile)
             )
         }
     }

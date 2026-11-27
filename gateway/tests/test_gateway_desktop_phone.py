@@ -42,7 +42,7 @@ class CanonicalPhoneControlsTests(unittest.TestCase):
         path = '/gateway/settings'
         self.assertEqual(401, client.call('ordinary-profile-token', 'GET', path).status_code)
         snapshot = client.call(grant['token'], 'GET', path).json()
-        self.assertFalse(snapshot['desired']['engineering_enabled'])
+        self.assertTrue(snapshot['desired']['engineering_enabled'])
         enable = self.command(snapshot, engineering_enabled=True)
         accepted = client.call(grant['token'], 'PATCH', path, enable)
         self.assertEqual(200, accepted.status_code, accepted.text)
@@ -118,7 +118,8 @@ class CanonicalPhoneControlsTests(unittest.TestCase):
         self.assertEqual(400, client.call(owner['token'], 'PATCH', path, forged).status_code)
         replaced = dict(self.command(owner_snapshot, engineering_enabled=True), installation_id='other-installation')
         self.assertEqual(409, client.call(owner['token'], 'PATCH', path, replaced).status_code)
-        self.assertFalse(client.call(owner['token'], 'GET', path).json()['desired']['engineering_enabled'])
+        self.assertTrue(client.call(owner['token'], 'GET', path).json()['desired']['engineering_enabled'])
+        self.assertFalse(observed['desired']['engineering_enabled'])
         self.assertNotEqual(owner['principal_id'], viewer['principal_id'])
         self.assertEqual(403, client.call(owner['token'], 'POST', '/v1/chat/completions', {'model': 'fixture'}).status_code)
         self.assertEqual(403, client.call(owner['token'], 'GET', '/gateway/admin/dashboard').status_code)

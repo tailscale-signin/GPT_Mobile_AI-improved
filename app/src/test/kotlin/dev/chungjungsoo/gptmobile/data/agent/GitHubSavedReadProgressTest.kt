@@ -98,6 +98,32 @@ class GitHubSavedReadProgressTest {
         assertEquals(otherTool, state.advance(otherTool, GitHubOperationTool.definition("github_context", otherTool.name)))
     }
 
+    @Test fun aRepeatedModelCursorAdvancesOnlyAfterTwoDistinctProvenDeliveries() {
+        val state = GitHubSavedReadProgress()
+        val first = page("provider-one", 50, 123, bytes = 8192)
+        val next = ProviderEvent.ToolCall("provider-three", name, args(50, 8192)).captureProviderInvocation()
+        observe(state, listOf(first), setOf("provider-one"))
+        observe(state, listOf(first), setOf("provider-one"))
+        assertEquals(next, state.advance(next, tool, repairRepeatedProviderRead = true))
+        val second = page("provider-two", 50, 123, bytes = 8192)
+        observe(state, listOf(first, second), setOf("provider-one", "provider-two"))
+        val advanced = state.advance(next, tool, repairRepeatedProviderRead = true)
+        assertEquals(args(123, 8192), advanced.arguments)
+        assertEquals(next.providerInvocation(), advanced.providerInvocation())
+        assertEquals(next, state.advance(next, tool, repairRepeatedProviderRead = false))
+    }
+
+    @Test fun boundedDeliveryHistoryCannotCountOneOldCallAsTwoDeliveries() {
+        val state = GitHubSavedReadProgress()
+        val first = page("once", 50, 123)
+        val others = (1..300).map { page("another-$it", 123, 124) }
+        val exchanges = listOf(first) + others
+        observe(state, exchanges, exchanges.flatMap { it.calls }.mapTo(mutableSetOf()) { it.callId })
+        observe(state, listOf(first), setOf("once"))
+        val proposal = automatic(50).copy(callId = "provider-request")
+        assertEquals(proposal, state.advance(proposal, tool, repairRepeatedProviderRead = true))
+    }
+
     @Test fun checkpointRestorationReconstructsDeliveredIntervalsAndReplayEvictionDoesNotForgetThem() {
         val retained = listOf(page("one", 50, 123))
         val consumed = setOf("one")

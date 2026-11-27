@@ -16,6 +16,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticPayloadReferencesTest {
+    @Test fun changedEventEnvelopeReusesOnlyItsEarlierImmutableBody() = runBlocking {
+        val index = DiagnosticPayloadReferences()
+        val body = buildJsonObject { put("states", JsonArray(List(300) { JsonPrimitive("verified-$it") })) }
+        fun payload(snapshot: String) = buildJsonObject {
+            put("snapshot_id", snapshot)
+            put("capability_states", body)
+        }
+        val written = mutableListOf<JsonElement>()
+        val timings = DiagnosticCaptureTimings()
+        index.write(row(1, payload("one")), timings) { written += it }
+        index.write(row(2, payload("two")), timings) { written += it }
+        index.write(row(3, payload("three")), timings) { written += it }
+        for (i in 1..2) {
+            val fields = written[i].jsonObject.getValue("fields").jsonObject
+            val envelope = fields.getValue("payload").jsonObject
+            assertEquals(JsonPrimitive(if (i == 1) "two" else "three"), envelope["snapshot_id"])
+            assertFalse(envelope.containsKey("capability_states"))
+            val ref = fields.getValue("payload_body_refs").jsonObject.getValue("capability_states").jsonObject
+            assertEquals(JsonPrimitive(1L), ref["rowId"])
+            assertEquals(JsonPrimitive("/fields/payload/capability_states"), ref["pointer"])
+            assertEquals(JsonPrimitive(DiagnosticRecordChunks.sha256(body.toString())), ref["redactedJsonSha256"])
+        }
+        assertEquals(JsonPrimitive(2L), timings.json()["payloadBodyReferenceReuseHits"])
+    }
+
+    @Test fun interruptedBodyCannotBeReferencedByALaterEvent() = runBlocking {
+        val index = DiagnosticPayloadReferences()
+        val body = JsonPrimitive("safe body ".repeat(400))
+        fun payload(snapshot: Int) = buildJsonObject {
+            put("snapshot_id", snapshot)
+            put("result", body)
+        }
+        runCatching { index.write(row(1, payload(1))) { error("logical row rolled back") } }
+        index.write(row(2, payload(2))) { result ->
+            val fields = result.jsonObject.getValue("fields").jsonObject
+            assertFalse(fields.containsKey("payload_body_refs"))
+            assertEquals(body, fields.getValue("payload").jsonObject["result"])
+        }
+    }
+
     @Test fun encodedOriginalRetainsEveryFieldAndEscapedKeyExactly() = runBlocking {
         val payloads = listOf(
             JsonPrimitive("\"\\\n🙂".repeat(1000)),

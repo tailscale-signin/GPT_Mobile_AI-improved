@@ -138,15 +138,15 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 ) { enabled -> onSettings(state.profileSettings.copy(engineeringTeamConsent = key.takeIf { enabled })) }
             }
         }
-        GitHubSettingsSection("Desktop Gateway", state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Optional connection for saved jobs and maps") {
+        GitHubSettingsSection("Desktop Gateway", state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Automatic for connected gateways") {
             var gatewayMenu by remember { mutableStateOf(false) }
             OutlinedButton(onClick = { gatewayMenu = true }, enabled = state.profileUid != null) {
-                Text(state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Select gateway connection")
+                Text(state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Automatic gateway")
             }
             DropdownMenu(gatewayMenu, { gatewayMenu = false }) {
-                DropdownMenuItem(text = { Text("Unavailable / not configured") }, onClick = {
+                DropdownMenuItem(text = { Text("Automatic gateway") }, onClick = {
                     gatewayMenu = false
-                    onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = null, engineeringGatewayDefaultApplied = true))
+                    onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = null, engineeringGatewayDefaultApplied = false))
                 })
                 state.profiles.filter { dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(it) }.forEach { gateway ->
                     DropdownMenuItem(text = { Text(gateway.name) }, onClick = {
@@ -155,7 +155,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     })
                 }
             }
-            Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
+            Text("GitHub uses the selected profile’s verified local gateway automatically. Choose a different connection here if needed.", style = MaterialTheme.typography.bodySmall)
             val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
             val inference = state.profiles.singleOrNull { it.enabled && it.uid == state.profileUid }
             val account = workspace.connection?.connectionUid
@@ -182,7 +182,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
             val androidContext = androidx.compose.ui.platform.LocalContext.current
             androidx.compose.material3.TextButton(onClick = { androidContext.startActivity(android.content.Intent(androidContext, OwnerPairingActivity::class.java)) }) { Text("Pair a Windows Gateway") }
             OutlinedButton(onClick = { controlGateway = gateway?.uid }, enabled = gateway != null, modifier = Modifier.testTag("github_gateway_controls")) { Text("Engineering & Gateway settings") }
-            Text("Shares the confirmed PC settings with Settings › Gateway. Pair this phone and confirm the target before enabling owner Engineering.", style = MaterialTheme.typography.bodySmall)
+            Text("Engineering is on by default for a verified owner connection. Gateway settings show job readiness and owner controls.", style = MaterialTheme.typography.bodySmall)
             Text("Job batching", style = MaterialTheme.typography.titleSmall)
             var batchModeOpen by remember(state.profileUid, gateway) { mutableStateOf(false) }
             var availableModes by remember(batchModeOpen, state.profileUid, gateway) { mutableStateOf<Set<String>?>(null) }

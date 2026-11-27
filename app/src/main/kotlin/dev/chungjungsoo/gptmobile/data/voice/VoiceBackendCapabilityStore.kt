@@ -25,7 +25,7 @@ internal class VoiceBackendCapabilityStore(
     fun revision(): Long = synchronized(lock) { runCatching { preferences.getLong("revision", 0) }.getOrDefault(0) }
 
     fun comparisonScope(lexicon: String, threads: Int, voice: KokoroVoice = KokoroVoice.HEART, speechRate: Float = 1f): String {
-        require(threads in 1..4 && speechRate.isFinite() && speechRate in .5f..2f)
+        require(threads in VoiceCpuSchedulingPolicy.supported && speechRate.isFinite() && speechRate in .5f..2f)
         return digest("${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}|$fixtureHash|${TimedKokoro.RUNTIME_ID}|$runtimeConfiguration|$modelSha256|$deviceKey|$lexicon|$threads|${voice.name}|${voice.speakerId}|${speechRate.toBits()}")
     }
 

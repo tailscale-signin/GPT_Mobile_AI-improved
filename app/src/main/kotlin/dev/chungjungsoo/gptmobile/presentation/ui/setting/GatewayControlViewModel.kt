@@ -11,7 +11,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
 import dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
-import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
+import dev.chungjungsoo.gptmobile.data.github.selectVerifiedEngineeringGateway
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAddressAccountKey
@@ -168,7 +168,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         } else {
             directStates.value = directStates.value + (key to admission)
         }
-        if (admission.enabled) selectGateway(profile)
+        if (admission.enabled) settings.selectVerifiedEngineeringGateway(profile)
     }
 
     fun connectAddress(address: String, link: String? = null, onConnected: (String) -> Unit) = launchAction {
@@ -183,6 +183,8 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
             uid = UUID.nameUUIDFromBytes("gateway:$endpoint".toByteArray()).toString(),
             name = "Gateway · ${uri.host}",
             compatibleType = ClientType.LLAMA,
+            reasoning = true,
+            maxToolCalls = Int.MAX_VALUE,
             apiUrl = endpoint
         )
         require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile))
@@ -313,33 +315,26 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
     private suspend fun selectConnectedGateway(profile: PlatformV2) {
         val state = repository.states.value[profile.uid] ?: return
         if (!state.writable || !state.engineeringBindingConfirmed || state.snapshot?.desired?.get("engineering_enabled") != JsonPrimitive(true)) return
-        selectGateway(profile)
+        settings.selectVerifiedEngineeringGateway(profile)
     }
 
-    private suspend fun selectGateway(profile: PlatformV2) {
-        if (settings.getFeatureSettings().githubProfileOverrides[profile.uid]?.engineeringGatewayDefaultApplied == true) return
-        settings.mutateFeatureSettings { current ->
-            val saved = current.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride.newProfile
-            if (saved.engineeringGatewayDefaultApplied || saved.engineeringGatewayProfileUid != null) {
-                current
-            } else {
-                current.copy(
-                    githubProfileOverrides = current.githubProfileOverrides + (profile.uid to saved.copy(engineeringGatewayProfileUid = profile.uid, engineeringGatewayDefaultApplied = true))
-                )
-            }
-        }
-    }
     fun toggleDirect(profile: PlatformV2) = run(profile) {
         val previous = requireNotNull(directStates.value[it.uid to it.apiUrl])
         require(previous.principalId.startsWith("tailnet:"))
         val config = ProviderRequestConfig(it.apiUrl, it.token, profileUid = it.uid)
         val confirmed = engineering.admissionSetting(config, previous)
         directStates.value = directStates.value + ((it.uid to it.apiUrl) to confirmed)
-        if (confirmed.enabled) selectGateway(it)
+        if (confirmed.enabled) settings.selectVerifiedEngineeringGateway(it)
     }
 
-    fun finishPairing(profile: PlatformV2) = run(profile) { repository.finishPairing(it) }
-    fun apply(profile: PlatformV2, revision: Long, changes: JsonObject, confirmEngineering: Boolean = false) = run(profile) { repository.apply(it, revision, changes, confirmEngineering) }
+    fun finishPairing(profile: PlatformV2) = run(profile) {
+        repository.finishPairing(it)
+        selectConnectedGateway(it)
+    }
+    fun apply(profile: PlatformV2, revision: Long, changes: JsonObject, confirmEngineering: Boolean = false) = run(profile) {
+        repository.apply(it, revision, changes, confirmEngineering)
+        selectConnectedGateway(it)
+    }
     fun revoke(profile: PlatformV2) = run(profile) { repository.revoke(it) }
     fun retryPending(profile: PlatformV2, reviewed: GatewayControlState) = run(profile) {
         repository.retryPending(it, requireNotNull(reviewed.pendingCommand), requireNotNull(reviewed.snapshot).principalId, requireNotNull(reviewed.targetEndpoint))

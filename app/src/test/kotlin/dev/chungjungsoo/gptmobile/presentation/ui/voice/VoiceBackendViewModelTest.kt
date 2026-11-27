@@ -182,6 +182,8 @@ class VoiceBackendViewModelTest {
 
     @Test fun nonEnglishSpeechUsesMultilingualKokoroAndRetainsConfiguredKokoroDelegates() {
         val japanese = VoiceSynthesisPreferences("ja").selectVoice("jf_nezumi")
+        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.QNN_GPU.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.QNN_HTP.forSynthesis(japanese.selectLanguage("fr-CA")))
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.PHONON_CPU.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.GATEWAY_CUDA.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU.forSynthesis(japanese))

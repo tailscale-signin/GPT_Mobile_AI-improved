@@ -35,8 +35,13 @@ internal class VoiceRuntime(
     val recognition: MoonshineVoiceRecognizer,
     val kokoro: KokoroOutput?,
     val audio: VoicePluginAudio,
-    val session: VoiceSession
+    val session: VoiceSession,
+    background: VoiceBackgroundPlayback
 ) {
+    init {
+        session.automaticAudioAvailable = { !background.playingElsewhere(this) }
+    }
+
     val tuningConfiguration = VoiceTuningConfiguration(audio, kokoro, session)
     val playback = VoiceMessagePlayback()
     val replyProjection = VoiceReplyProjectionCache()
@@ -49,7 +54,8 @@ internal class VoiceRuntime(
 @HiltViewModel
 internal class VoiceRuntimeViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val readiness: Lazy<ChatReadinessCoordinator>
+    private val readiness: Lazy<ChatReadinessCoordinator>,
+    val background: VoiceBackgroundPlayback
 ) : ViewModel() {
     suspend fun prepareProfile(profile: PlatformV2, settings: ReadinessSettings, roomId: Int, privateRoom: Boolean) {
         withContext(Dispatchers.IO) {
@@ -69,7 +75,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(
             check(runtimeStores?.kokoro === stores.kokoro) { "The previous speech model must retire before a replacement is acquired." }
             return it
         }
-        runtime?.session?.close()
+        runtime?.let(background::releaseScreenOwner)
         owner = model
         runtimeStores = stores
         val system = AndroidVoiceAudio(context)
@@ -82,9 +88,11 @@ internal class VoiceRuntimeViewModel @Inject constructor(
         system.bindConversationPrivacy(privacy)
         val recognition = MoonshineVoiceRecognizer(context, stores.moonshine)
         val kokoro = createKokoroVoiceOutput(context, stores.kokoro, system::playbackAttributes, { system.speechRate }, privacy)
-        val audio = VoicePluginAudio(system, recognition, kokoro, system::captureOfflineSpeech, system::releaseRecognition)
+        val audio = VoicePluginAudio(system, recognition, kokoro, system::captureOfflineSpeech, { system.releaseRecognition() })
+        var observed: VoiceRuntime? = null
         var checkpoint: String? = null
         val session = VoiceSession(audio, submit = model::submitVoiceTranscript, awaitsAdmission = true, submittedRequestId = { model.voiceAdmission.value?.requestId }, changed = { state ->
+            observed?.let { background.observe(it, model.chatRoom.value.id, state) }
             val admission = model.voiceAdmission.value
             if (!state.shouldCheckpointDraft(admission?.requestId, admission?.stage)) {
                 checkpoint = null
@@ -96,10 +104,14 @@ internal class VoiceRuntimeViewModel @Inject constructor(
         session.submissionRejection = { model.voiceSubmissionRejection }
         session.synthesisFeedback = { kokoro?.synthesisFeedback?.value }
         restore(session)
-        return VoiceRuntime(system, recognition, kokoro, audio, session).also { runtime = it }
+        return VoiceRuntime(system, recognition, kokoro, audio, session, background).also {
+            observed = it
+            runtime = it
+        }
     }
 
     fun resume() {
+        runtime?.let(background::attach)
         eviction?.cancel()
         eviction = null
     }
@@ -129,17 +141,18 @@ internal class VoiceRuntimeViewModel @Inject constructor(
     /** Capture/playback are paused by the session immediately; only loaded models receive a grace period. */
     fun pause(expected: VoiceRuntime? = null) {
         if (expected != null && runtime !== expected) return
+        runtime?.let(background::detach)
         if (eviction?.isActive == true) return
         eviction = viewModelScope.launch {
             delay(30_000)
-            runtime?.kokoro?.releaseWarmModel()
+            runtime?.takeUnless(background::owns)?.kokoro?.releaseWarmModel()
             runtime?.recognition?.releaseWarmModel()
         }
     }
 
     override fun onCleared() {
         eviction?.cancel()
-        runtime?.session?.close()
+        runtime?.let(background::releaseScreenOwner)
         runtime = null
         runtimeStores = null
         owner = null

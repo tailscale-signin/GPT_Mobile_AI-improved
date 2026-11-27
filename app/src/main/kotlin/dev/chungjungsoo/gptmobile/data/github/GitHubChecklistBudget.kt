@@ -40,6 +40,10 @@ internal object GitHubChecklistBudget {
         (budget["limit"] as JsonPrimitive).intOrNull!! - (budget["used"] as JsonPrimitive).intOrNull!!
     }
 
+    fun afterDeadline(budget: JsonObject): JsonObject = JsonObject(
+        budget + mapOf("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), "acquisition_allowed" to JsonPrimitive(false))
+    )
+
     fun checkpoint(
         receipts: Map<String, JsonObject>,
         current: Int? = null,

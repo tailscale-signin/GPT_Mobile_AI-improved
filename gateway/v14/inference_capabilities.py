@@ -254,8 +254,31 @@ class InferenceCapabilities:
         if not isinstance(enabled, str) or not isinstance(disabled, str):
             return False
         on, off = enabled.rfind('<think>'), disabled.rfind('<think>')
-        return (on >= 0 and on == off and enabled[:on] == disabled[:off]
-                and not enabled[on + 7:].strip() and disabled[off + 7:].strip() == '</think>')
+        if on < 0 or off < 0 or enabled[on + 7:].strip() or disabled[off + 7:].strip() != '</think>':
+            return False
+        if enabled[:on] == disabled[:off]:
+            return True
+        # Some ChatML templates change a system instruction as well as the
+        # assistant prefill. Qualify that known format only when the exact
+        # synthetic user turn and its assistant boundary are preserved. A
+        # different user message, another role or arbitrary prefix drift is
+        # still unproven. This observes template control, never inference.
+        return all(InferenceCapabilities._qualified_chatml_probe_prefix(prompt[:marker])
+                   for prompt, marker in ((enabled, on), (disabled, off)))
+
+    @staticmethod
+    def _qualified_chatml_probe_prefix(prefix):
+        turn = '<|im_start|>user\nTemplate capability check.<|im_end|>\n<|im_start|>assistant\n'
+        if not prefix.endswith(turn):
+            return False
+        instruction = prefix[:-len(turn)]
+        if not instruction:
+            return True
+        start, end = '<|im_start|>system\n', '<|im_end|>\n'
+        if not instruction.startswith(start) or not instruction.endswith(end):
+            return False
+        content = instruction[len(start):-len(end)]
+        return '<|im_start|>' not in content and '<|im_end|>' not in content
 
     @staticmethod
     def _negative_reasoning_outcome(enabled, disabled):
@@ -380,8 +403,12 @@ class InferenceCapabilities:
             outcome = next(iter(negatives)) if len(negatives) == 1 else 'MIXED_NEGATIVE_RESULTS'
         with self.lock:
             self._require_generation(key[:2], generation)
+            # An unchanged render proves that the advertised knobs did not
+            # affect this template. A changed but unknown shape proves neither
+            # support nor its absence; callers must keep explicit OFF blocked.
             state = ('VERIFIED' if result is not None else
-                     'UNSUPPORTED' if measured == len(candidates) and not invalidated else 'UNVERIFIED')
+                     'UNVERIFIED' if measured != len(candidates) or invalidated else
+                     'UNSUPPORTED' if set(outcomes.values()) == {'IDENTICAL_PROMPTS'} else 'UNRECOGNIZED')
             self.reasoning_states[key] = state
             probe = {'outcome': outcome, 'attempts': attempts}
             if outcome == 'MIXED_NEGATIVE_RESULTS' and outcomes:

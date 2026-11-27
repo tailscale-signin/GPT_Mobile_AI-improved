@@ -28,6 +28,29 @@ class GitHubChecklistScheduleTest {
         acquire: Boolean = true
     ) = GitHubChecklistSchedule.select(authorized, advertised, receipts, candidates, planned, null, acquire)
 
+    @Test fun pendingActionSchemaDiscoveryPrecedesUnrelatedInventoryContinuation() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
+        val pullRequest = GitHubOperationTool.definition("github_pr")
+        val pending = call(pullRequest.name, "comments")
+        val priorAction = json("""{"trusted":true,"success":true,"tool":"github_pr","arguments":{"action":"headers","pull_number":2651}}""")
+        val receipts = mapOf("prior-action" to priorAction)
+        val unrelatedInventoryRead = call(context.name, "repository")
+
+        val plan = GitHubChecklistSchedule.select(
+            listOf(context, pullRequest, directory),
+            listOf(directory, context),
+            receipts,
+            listOf(pending),
+            null,
+            unrelatedInventoryRead,
+            true
+        )
+
+        assertEquals(directory.name, plan.next?.name)
+        assertEquals(json("""{"names":["github_pr"],"action":"comments"}"""), plan.next?.arguments)
+        assertEquals(JsonPrimitive("ACTION_SCHEMA_DISCOVERY_REQUIRED"), plan.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+    }
+
     @Test fun sixPreparedIndependentReadsContinueAfterUnrelatedOperationFailures() {
         val actions = listOf("resolve", "index", "efficiency", "capabilities", "repository", "recovery")
         val tools = listOf(context)

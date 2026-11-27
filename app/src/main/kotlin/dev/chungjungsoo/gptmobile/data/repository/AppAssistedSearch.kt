@@ -174,6 +174,10 @@ internal object AppAssistedSearch {
                     AgentToolResult(readCall.callId, ToolResultContent.Text(error.message ?: "Page unavailable"), true)
                 }
                 trace.finish(readCall, page)?.let { emit(it) }
+                if (page.errorCode == "JAVA_HEAP_PRESSURE") {
+                    emit(ApiState.Notice("Full-page enrichment was skipped because the app's Java heap is temporarily constrained. Search snippets are retained.", true))
+                    break
+                }
                 if (!page.isError) {
                     val text = when (val content = page.content) {
                         is ToolResultContent.Text -> content.text

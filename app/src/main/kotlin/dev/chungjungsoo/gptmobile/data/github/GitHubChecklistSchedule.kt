@@ -40,7 +40,7 @@ internal object GitHubChecklistSchedule {
                                     // Schema acquisition precedes selector completion. Validate every
                                     // supplied field and the action enum, but defer selector requirements
                                     // until the discovered action schema is used for execution.
-                                    val partialSchema = JsonObject(projected.filterKeys { it !in setOf("required", "anyOf", "oneOf", "allOf") })
+                                    val partialSchema = JsonObject(projected.inputSchema.filterKeys { it !in setOf("required", "anyOf", "oneOf", "allOf") })
                                     ToolArgumentValidator.errors(call.arguments, partialSchema).isEmpty()
                                 } == true
                             )

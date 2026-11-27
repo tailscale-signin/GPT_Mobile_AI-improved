@@ -10,6 +10,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 
 class JavaHeapWorkDeferred(message: String = "Java heap capacity is temporarily unavailable; retained work can resume later.") : IOException(message)
 
@@ -30,7 +31,9 @@ object JavaHeapWorkGate {
         return permits.withPermit {
             currentCoroutineContext().ensureActive()
             val required = minimumHeadroomBytes?.coerceAtLeast(MIB) ?: maxOf(16 * MIB, runtime.maxMemory() / 8)
-            if (headroomBytes < required) throw JavaHeapWorkDeferred()
+            // A short suspended grace period lets an in-flight young/compacting GC
+            // release memory before an otherwise safe, replayable read is rejected.
+            if (!awaitJavaHeapHeadroom(required, headroom = { headroomBytes })) throw JavaHeapWorkDeferred()
             val id = sequence.incrementAndGet()
             operations[id] = operation.take(96)
             try {
@@ -44,4 +47,20 @@ object JavaHeapWorkGate {
     private class Permit : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<Permit>
     }
+}
+
+internal suspend fun awaitJavaHeapHeadroom(
+    requiredBytes: Long,
+    waitMillis: Long = 200,
+    pollMillis: Long = 25,
+    headroom: () -> Long
+): Boolean {
+    require(requiredBytes >= 0 && waitMillis >= 0 && pollMillis > 0)
+    val polls = (waitMillis / pollMillis).coerceAtMost(100).toInt()
+    repeat(polls) {
+        if (headroom() >= requiredBytes) return true
+        currentCoroutineContext().ensureActive()
+        delay(pollMillis)
+    }
+    return headroom() >= requiredBytes
 }

@@ -189,7 +189,7 @@ class AgentToolResolver @Inject constructor(
     ): List<ResolvedAgentTool> {
         val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn]
         privateTurn?.validate()
-        if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(userMessage?.content.orEmpty())) return emptyList()
+        if (userMessage != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.localAuditTopic(listOf(userMessage), chatToolConfig, profileUid) != null) return emptyList()
         val platforms = settingRepository.fetchPlatformV2s()
         val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
         val platform = platforms.firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, featureSettings, chatToolConfig?.github) }

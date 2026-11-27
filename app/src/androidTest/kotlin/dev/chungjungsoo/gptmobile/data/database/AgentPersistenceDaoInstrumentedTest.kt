@@ -929,6 +929,15 @@ class AgentPersistenceDaoInstrumentedTest {
         }
     }
 
+    @Test fun retryingAnEarlierSessionReportSeesOnlyItsPrecedingChatTurns() = runBlocking {
+        val earlier = persistTurn(newChat(), "Read issues", "first", 1)
+        val report = persistTurn(earlier.chatRoom, "Audit this session", "report", 3)
+        persistTurn(earlier.chatRoom, "A later task", "later", 4)
+        persistTurn(newChat(), "An unrelated conversation", "other", 1)
+        val runs = database.agentRunDao().sessionAuditRuns(earlier.chatRoom.id, "report-retry", report.userMessage.id)
+        assertEquals(listOf("first"), runs.map { it.runId })
+    }
+
     private fun bindingConnection(uid: String) = ToolConnection(uid, uid, uid, ToolConnectionType.MCP, null, ToolConnectionAuthType.NONE, null, null)
 
     private fun bindingRepository() = ToolConnectionRepository(

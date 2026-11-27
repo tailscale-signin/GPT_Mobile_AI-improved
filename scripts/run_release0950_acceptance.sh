@@ -254,6 +254,7 @@ for test in (
     'builtInToolBinding_failedReplacementRollsBackThePreviousGrant',
     'builtInToolBinding_concurrentUiAndImportWritesKeepOneGrant',
     'builtInToolBinding_stagedRestorePreservesUnselectedTools',
+    'retryingAnEarlierSessionReportSeesOnlyItsPrecedingChatTurns',
 ):
     check_instrumentation(folder / 'agent-persistence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest', test)
 for test in (

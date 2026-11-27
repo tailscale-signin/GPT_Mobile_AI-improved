@@ -31,6 +31,20 @@ class GitHubRetrospectiveSessionAuditTest {
         assertTrue(GitHubProgressPresentation.introduction(followUp.content).contains("available findings"))
     }
 
+    @Test fun localReportEligibilityRespectsSelectedProfileAttachmentsAndAcceptedWorkflow() {
+        val primary = "primary"
+        val config = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(github = GitHubConversationContext("chosen", "owner", "repo", "main", "a".repeat(40), primary))
+        val user = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 8, chatId = 2, content = "Audit this GitHub session", platformType = null)
+        val attached = user.copy(attachments = listOf(dev.chungjungsoo.gptmobile.data.model.ChatAttachment("/log", "/log", "log.txt", "text/plain", 2)))
+        val repair = GitHubDraftRepair("owner/repo", 8, "a".repeat(40), "work", "main")
+        assertEquals(user.content, GitHubTaskContinuity.localAuditTopic(listOf(user), config, primary))
+        assertNull(GitHubTaskContinuity.localAuditTopic(listOf(user), config, "reviewer"))
+        assertNull(GitHubTaskContinuity.localAuditTopic(listOf(attached), config, primary))
+        assertNull(GitHubTaskContinuity.localAuditTopic(listOf(user.copy(platformType = primary)), config, primary))
+        assertNull(GitHubTaskContinuity.localAuditTopic(listOf(user), config.copy(githubDraftRepair = repair), primary))
+        assertNull(GitHubTaskContinuity.localAuditTopic(listOf(user), config, primary, staged = true))
+    }
+
     @Test fun auditRecommendationsDependOnRecordedOutcomes() {
         fun run(status: String, error: String? = null) = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
             runId = status, chatId = 7, userMessageId = 1, assistantMessageId = 2,

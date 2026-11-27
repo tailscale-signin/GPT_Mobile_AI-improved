@@ -27,5 +27,19 @@
     "host_tests_run": 848,
     "host_tests_skipped": 1,
     "android_device_retest": "not run"
+  },
+  "merge_review": {
+    "base_sha": "0e625e250117475446b8f216df2501ddbef168f2",
+    "reviewed_pr_head": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
+    "parent_pr": 2646,
+    "intent": "Reconcile local report routing, historical turn boundaries and existing Gateway commands before merging both branches.",
+    "validation": {
+      "focused_jvm_tests_including_input_replays": 434,
+      "host_tests_run": 848,
+      "host_tests_skipped": 1,
+      "retry_query_sqlite_replay": "Only the earlier user turn was returned.",
+      "android_instrumentation": "Added to the named acceptance receipts, to run in CI."
+    },
+    "reconciled_pr_head": "d095e18dd7c86215776b7cebd1b02bba0bc88682"
   }
 }

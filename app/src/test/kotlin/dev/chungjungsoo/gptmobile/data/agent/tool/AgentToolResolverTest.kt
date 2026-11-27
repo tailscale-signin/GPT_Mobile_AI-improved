@@ -141,6 +141,22 @@ class AgentToolResolverTest {
         }
     }
 
+    @Test fun attachmentOnASessionQuestionKeepsTheSelectedRepositoryToolsAvailable() = runBlocking {
+        val profile = PlatformV2(uid = "audit", name = "GitHub")
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("native", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("native", ToolConnectionType.GITHUB, "https://api.github.com"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.copy(conversationGitHub = mapOf(7 to selected))
+        val resolver = resolver(dao = dao, settings = settings, repositoryMaps = mockk())
+        val question = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Audit this GitHub session", platformType = null)
+        val config = ChatMcpToolConfig(github = selected)
+        assertTrue(resolver.resolve(profile.uid, config, question).isEmpty())
+        val attachment = dev.chungjungsoo.gptmobile.data.model.ChatAttachment("/log", "/log", "log.txt", "text/plain", 4)
+        val tools = resolver.resolve(profile.uid, config, question.copy(attachments = listOf(attachment)))
+        assertTrue(tools.map { it.realToolName }.toString(), tools.any { it.realToolName == "repository_graph" })
+    }
+
     @Test fun explicitGatewayMapCannotReuseSharingConsentForADifferentRequestedModel() = runBlocking {
         val profile = PlatformV2(uid = "cloud-map", name = "Cloud map", model = "approved-model")
         val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("native", "owner", "repo", "main", "a".repeat(40), profile.uid)

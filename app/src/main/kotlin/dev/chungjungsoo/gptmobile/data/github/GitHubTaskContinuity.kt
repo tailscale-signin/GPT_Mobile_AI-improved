@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 
 /** Only explicit controls and equivalent integration-test requests may reuse the active task. */
 internal object GitHubTaskContinuity {
@@ -62,10 +63,16 @@ internal object GitHubTaskContinuity {
         return subject != question && sessionAdviceQuestion.matches(subject)
     }
 
+    /** Only the primary text turn can answer from local history. Explicit workflows own their inputs. */
+    fun localAuditTopic(messages: List<MessageV2>, tools: ChatMcpToolConfig?, profileUid: String, staged: Boolean = false): String? {
+        if (tools?.github?.mainProfileUid != profileUid || staged || tools.combined != null || tools.githubDraftRepair != null || tools.research?.researchToggle == true) return null
+        return auditTopic(messages)
+    }
+
     /** Bind a bare report follow-up only to the immediately preceding audit in this workspace. */
     fun auditTopic(messages: List<MessageV2>): String? {
         val latest = messages.lastOrNull() ?: return null
-        if (latest.attachments.isNotEmpty()) return null
+        if (latest.platformType != null || latest.attachments.isNotEmpty()) return null
         if (sessionAudit(latest.content)) return latest.content
         if (!analysisReport(latest.content)) return null
         for (prior in messages.asReversed().drop(1)) {

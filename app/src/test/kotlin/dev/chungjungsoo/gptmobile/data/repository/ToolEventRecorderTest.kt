@@ -1107,7 +1107,7 @@ private class FakeAgentRunDao :
     override suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int = 0
     override suspend fun rawGetById(runId: String): AgentRun? = getById(runId)
     override suspend fun rawGetByChatId(chatId: Int): List<AgentRun> = getByChatId(chatId)
-    override suspend fun sessionAuditRuns(chatId: Int, currentRunId: String): List<AgentRun> = emptyList()
+    override suspend fun sessionAuditRuns(chatId: Int, currentRunId: String, beforeUserMessageId: Int): List<AgentRun> = emptyList()
     override suspend fun rawCombinedTerminalOwners(): List<AgentRun> = combinedTerminalOwners()
     override suspend fun rawGetRecoverableGatewayRuns(): List<AgentRun> = getRecoverableGatewayRuns()
     override fun rawObserveByChatId(chatId: Int): Flow<List<AgentRun>> = observeByChatId(chatId)

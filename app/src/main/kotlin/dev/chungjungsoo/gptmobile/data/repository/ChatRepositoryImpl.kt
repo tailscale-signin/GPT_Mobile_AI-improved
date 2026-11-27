@@ -2027,15 +2027,11 @@ class ChatRepositoryImpl(
         }
         retainToolAdmission(runId, platform, userMessages.lastOrNull()?.chatId, dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage.STAGE_NOT_REACHED)
         val auditUser = userMessages.lastOrNull()
-        val auditTopic = if (stage == null && chatToolConfig?.github?.mainProfileUid == platform.uid) {
-            dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.auditTopic(userMessages)
-        } else {
-            null
-        }
+        val auditTopic = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.localAuditTopic(userMessages, chatToolConfig, platform.uid, staged = stage != null)
         if (auditTopic != null && auditUser != null) {
             emit(ApiState.ActivitySummary(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction(auditTopic)))
             val report = withContext(Dispatchers.IO) {
-                val runs = agentRunDao.sessionAuditRuns(auditUser.chatId, runId)
+                val runs = agentRunDao.sessionAuditRuns(auditUser.chatId, runId, auditUser.id)
                 val ids = runs.map { it.runId }
                 val failures = if (ids.isEmpty()) emptyList() else agentPersistenceDao.sessionAuditToolFailures(ids)
                 val journal = if (ids.isEmpty()) null else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.snapshot(ids.toSet(), byteLimit = 512 * 1024, eventLimit = 500)

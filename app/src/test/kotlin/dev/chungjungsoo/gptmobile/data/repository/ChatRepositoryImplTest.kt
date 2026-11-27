@@ -1277,6 +1277,22 @@ class ChatRepositoryImplTest {
         }
     }
 
+    @Test fun sessionReportFollowUpReadsOnlyPriorChatTurnsAndFinishesBeforeModelDispatch() = runBlocking {
+        val platform = customPlatform()
+        val github = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("conn", "owner", "repo", "main", "a".repeat(40), platform.uid)
+        val api = RecordingOpenAIAPI(ArrayDeque())
+        val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
+        val question = MessageV2(id = 21, chatId = 7, content = "From this session, what changes would you recommend to the app?", platformType = null)
+        val followUp = question.copy(id = 23, content = "Please analyze and report.")
+        coEvery { runs.sessionAuditRuns(7, "report-retry", 23) } returns emptyList()
+        val states = createRepository(openAIAPI = api, runsOverride = runs).completeChat(listOf(question, followUp), emptyList(), platform, "report-retry", ChatMcpToolConfig(github = github)).toList()
+        io.mockk.coVerify(exactly = 1) { runs.sessionAuditRuns(7, "report-retry", 23) }
+        assertEquals(0, api.streamChatCompletionCalls)
+        assertTrue(states.toString(), states.filterIsInstance<ApiState.Success>().single().textChunk.contains("Suggested GitHub integration changes"))
+        assertTrue(states.filterIsInstance<ApiState.ActivitySummary>().single().text.contains("this chat"))
+        assertTrue(states.last() is ApiState.Done)
+    }
+
     @Test
     fun `GitHub greeting finishes before provider or repository preparation`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()

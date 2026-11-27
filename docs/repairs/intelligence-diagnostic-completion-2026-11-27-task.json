@@ -8,7 +8,7 @@
   "workingBranch": "feature/windows-native-benchmark-kit",
   "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
   "intent": "Implement remaining diagnostic source-delivery, context, durable-task, acceptance, CI, Gateway and voice corrections on the live PR while preserving concurrent work.",
-  "state": "READY_FOR_EXACT_COMMIT_HOSTED_VALIDATION",
+  "state": "HOSTED_UNIT_COMPILE_FIX_READY",
   "authorization": "User requested implementation of the supplied November 27 diagnostic findings in the latest PR branches.",
   "constraints": [
     "Reconcile current remote head before writes and retain concurrent commits.",
@@ -39,6 +39,16 @@
       "state": "RECONCILED_LOCAL_VALIDATED",
       "sourceSha": "440561e3f71e54ce1058c9edddc0f9416fb7d84f",
       "details": "Combined canonical host (848 tests), Gateway (2,317 Python tests plus seven browser tests and 50,000-event stress) and authentication (244 tests) passed with declared skips. Focused source (5), authority (7), reserve (9), deadline (13) and decision/clock (8) JVM tests passed on combined source; unchanged portable voice (106) remains valid. Full Android and Windows checks remain required at the containing commit."
+    },
+    {
+      "state": "CONCURRENT_HOSTED_REPAIRS",
+      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+      "details": "Concurrent follow-up preserves the published repair and includes the incoming formatting and missing Material3 Button import corrections. Full production compilation, hosted formatting and preflight now pass. All 575 Gateway payload hashes remain identical to the earlier validated repair."
+    },
+    {
+      "state": "UNIT_INTERFACE_REPAIR",
+      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+      "details": "PR unit compiler job 140769084364 reports one missing abstract discardInterrupted method in ToolEventRecorderTest.FakeAgentRunDao. Added the exact required override; pinned formatting and whitespace checks pass. No unit-test result is claimed before the new hosted compilation."
     }
   ],
   "validation": {
@@ -87,9 +97,10 @@
     ],
     "authentication": {
       "command": "python3 -m unittest discover -s authentication -t . -p 'test_*.py' -v",
-      "tests": 244,
+      "tests": 245,
       "status": "PASS",
-      "source": "reconciled payload including active-time clock receiver"
+      "source": "reconciled payload including active-time clock receiver",
+      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90"
     },
     "gatewayFocused": {
       "tests": 98,
@@ -149,12 +160,27 @@
       ]
     },
     "androidHosted": {
-      "status": "PENDING",
-      "scope": "Full Gradle/Robolectric, Android lint and APK exact-commit checks required; local host lacks Android SDK."
+      "status": "PRODUCTION_COMPILED_UNIT_INTERFACE_FIXED_PENDING_RERUN",
+      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+      "failedUnitCompileJob": 140769084364,
+      "failedUnitCompileRun": 46077352055,
+      "testsExecuted": false,
+      "scope": "Full production compilation passed in multiple jobs. Unit tests did not run because an incoming DAO interface lacked a recorder fake implementation. Exact new-head hosted unit compilation and execution remain required."
     },
     "windowsHosted": {
-      "status": "PENDING",
-      "scope": "Exact-commit Windows Gateway, PowerShell and installer checks required."
+      "status": "PASS",
+      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+      "runId": 46077351485,
+      "installerJobId": 140768076105,
+      "nativeJobId": 140768076395,
+      "desktopTests": 242,
+      "nativeCampaignTests": 89,
+      "nativeCampaignSkipped": 7,
+      "nativeAssertions": 435,
+      "artifactId": 15235587734,
+      "artifactBytes": 165104598,
+      "artifactSha256": "c5d3c27c288a6eb18523ab0d3b40ee9c825a9df6d34647a26374dd3e820cecd5",
+      "scope": "Hosted review installer build and installation smoke. No production release or handset qualification."
     },
     "releaseScope": {
       "status": "PASS",
@@ -208,7 +234,8 @@
       "gateway/v14/task_context.py": "2a6d64e28543718072082bcf881c43ffa605024a3debe2b933e9c007d6b420c3"
     },
     "digest": "e6614a628f6bf9a92c9ace64504dfd31bcf77769d56b05d3e024ff617b2d1659",
-    "note": "Content identity of the reconciled implementation. Hosted checks must bind their own receipts to the containing commit; focused JVM slices retain the declared boundaries."
+    "note": "Content identity of the reconciled implementation. Hosted checks must bind their own receipts to the containing commit; focused JVM slices retain the declared boundaries.",
+    "sourceSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65"
   },
   "reconciledParentSha": "440561e3f71e54ce1058c9edddc0f9416fb7d84f",
   "validationBeforeReconciliation": {
@@ -241,5 +268,13 @@
         "git diff --check"
       ]
     }
+  },
+  "publishedImplementationSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65",
+  "latestFollowup": {
+    "parentSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+    "files": {
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt": "7ee9d419f022a92d7f0685bdb82203fb1f48f3de8a194a220eeda4d1ad9f04a7"
+    },
+    "change": "Implement the newly required discardInterrupted DAO method in the recorder test double, preserving its existing unused-write result of zero."
   }
 }

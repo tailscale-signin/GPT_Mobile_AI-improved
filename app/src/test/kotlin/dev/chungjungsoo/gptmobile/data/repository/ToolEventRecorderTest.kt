@@ -1104,6 +1104,7 @@ private class FakeAgentRunDao :
     override suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState> = emptyList()
     override suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Int = 0
     override suspend fun finishGatewayRecovery(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0
+    override suspend fun discardInterrupted(runId: String, expectedFence: Long, completedAt: Long): Int = 0
     override suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int = 0
     override suspend fun rawGetById(runId: String): AgentRun? = getById(runId)
     override suspend fun rawGetByChatId(chatId: Int): List<AgentRun> = getByChatId(chatId)

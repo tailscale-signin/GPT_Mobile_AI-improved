@@ -25,7 +25,20 @@ internal object GitHubChecklistSchedule {
         catalog: ProviderEvent.ToolCall?,
         acquisitionAllowed: Boolean
     ): Plan {
-        fun authorizedCall(call: ProviderEvent.ToolCall) = authorized.any { it.modelVisible && it.name == call.name && GitHubSelfTestReads.valid(it, call.arguments) }
+        fun authorizedCall(call: ProviderEvent.ToolCall) = authorized.any { tool ->
+            tool.modelVisible && tool.name == call.name &&
+                (
+                    GitHubSelfTestReads.valid(tool, call.arguments) ||
+                        (
+                            // An authorized read action can be schema-discovered before its
+                            // required selectors are known. Discovery is read-only and does not
+                            // dispatch the incomplete candidate.
+                            GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) &&
+                                call.arguments.text("action").isNotBlank() &&
+                                GitHubActionSchema.project(tool, call.arguments.text("action")) != null
+                            )
+                    )
+        }
         fun executable(call: ProviderEvent.ToolCall) = advertised.any { it.modelVisible && it.name == call.name && GitHubSelfTestReads.valid(it, call.arguments) }
         fun advertisedRead(call: ProviderEvent.ToolCall): ProviderEvent.ToolCall {
             if (executable(call) || !authorizedCall(call) || !GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)) return call

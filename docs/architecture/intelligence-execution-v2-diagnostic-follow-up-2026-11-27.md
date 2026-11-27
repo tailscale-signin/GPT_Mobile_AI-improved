@@ -21,6 +21,18 @@ The fix adds `SavedPageReading.retainDeliveryDigests` and uses it after each res
 
 The source and regression test are committed to the existing draft PR branch. The exact-commit hosted checks are the qualification gate; no merge is authorized while they are pending or failing.
 
+## Implemented execution follow-up
+
+The transport, readiness and durable-pause portions of this design now have concrete runtime changes:
+
+- Physical retries for one immutable GitHub read share one logical circuit-failure identity. Three DNS attempts from one read no longer count as three independent outages.
+- Circuit state is partitioned across core, search, Actions and GraphQL operation classes. A search outage cannot suppress an otherwise healthy repository read. Half-open recovery still permits one probe, and a failed probe restarts its cooldown.
+- Tool readiness failures retain the blocked capability, configuration scope and a bounded corrective action. Diagnostics record those enums without copying profile names, connection details or private settings. Explicitly disabled tools remain disabled.
+- An accepted deadline now reports a paused, resumable checkpoint instead of implying that the saved task must be replayed. Receipts and unused tool calls remain attached to the original task; resumption still requires an explicit time grant, and uncertain operations remain non-replayable.
+- Explicit long-running requests such as “keep working on this task for 12 hours” are admitted as durable task windows in addition to the existing labelled budget/deadline forms.
+
+Focused regressions cover logical-versus-physical circuit accounting, operation-class isolation, readiness guidance and durable deadline admission. Hosted exact-head Android checks remain the qualification authority.
+
 ## Target architecture: evidence-first adaptive engineering agent
 
 ### 1. One durable task authority

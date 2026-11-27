@@ -802,7 +802,11 @@ internal class GitHubEvidenceBook(
             put("tool_call_limit_source", "AUTHORIZED_RUN_CONTRACT")
             put("tool_call_limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
             GitHubWorkflowPreset.fromRequest(task)?.let { put("workflow_preset_call_limit", it.toolCalls) }
-            duration?.let { put("deadline_at_ms", acceptedAt + it.coerceAtMost(Long.MAX_VALUE - acceptedAt)) }
+            duration?.let {
+                put("deadline_at_ms", acceptedAt + it.coerceAtMost(Long.MAX_VALUE - acceptedAt))
+                put("deadline_source", "EXPLICIT_USER_REQUEST")
+                put("deadline_clock", "WALL_CLOCK")
+            }
             put("receipt_store", "github-evidence:$binding")
             put("remaining_work_store", "verification_current_" + digest(binding).take(24))
             put("cleanup_policy", "Owned fixtures remain obligations until their deletion is verified; unknown writes require reconciliation before retry.")
@@ -859,6 +863,8 @@ internal class GitHubEvidenceBook(
             put("previous_deadline_at_ms", end)
             put("authorized_duration_ms", duration)
             put("authorization_source", "EXPLICIT_USER_MESSAGE")
+            put("deadline_source", "EXPLICIT_USER_CONTINUATION")
+            put("deadline_clock", "WALL_CLOCK")
         }
         save("deadline_grant_$messageId", grant)
         deadlineGrant = grant

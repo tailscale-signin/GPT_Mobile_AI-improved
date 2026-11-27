@@ -1,12 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,6 +18,34 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubRequestSchedulerStressTest {
+    @Test fun physicalRetriesCountAsOneLogicalCircuitFailure() = runTest {
+        val scheduler = GitHubRequestScheduler()
+        withContext(GitHubReadRetry.Scope()) {
+            repeat(3) {
+                assertTrue(runCatching { scheduler.execute<String>("https://api.github.com/repos/o/r") { throw IOException("DNS") } }.isFailure)
+            }
+        }
+        val core = scheduler.metrics()["circuits"]!!.jsonObject["core"]!!.jsonObject
+        assertEquals("CLOSED", core["state"]!!.jsonPrimitive.content)
+        assertEquals(1, core["consecutive_transient_failures"]!!.jsonPrimitive.intOrNull)
+    }
+
+    @Test fun searchCircuitDoesNotPoisonCoreRepositoryReads() = runTest {
+        val scheduler = GitHubRequestScheduler()
+        repeat(3) {
+            withContext(GitHubReadRetry.Scope()) {
+                runCatching { scheduler.execute<String>("https://api.github.com/search/code?q=x") { throw IOException("DNS") } }
+            }
+        }
+        assertTrue(runCatching { scheduler.execute<String>("https://api.github.com/search/issues?q=x") { "blocked" } }.exceptionOrNull() is GitHubRequestCircuit.Open)
+        assertEquals("core-ok", scheduler.execute("https://api.github.com/repos/o/r") { "core-ok" })
+        assertTrue(scheduler.transportRetryAfterMillis("search_code") > 0)
+        assertEquals(0L, scheduler.transportRetryAfterMillis("repository"))
+        val circuits = scheduler.metrics()["circuits"]!!.jsonObject
+        assertEquals("OPEN", circuits["search"]!!.jsonObject["state"]!!.jsonPrimitive.content)
+        assertEquals("CLOSED", circuits["core"]!!.jsonObject["state"]!!.jsonPrimitive.content)
+    }
+
     @Test fun thousandIdenticalReadsHaveBoundedSubscribersAndOnePhysicalExecution() = runTest {
         val scheduler = GitHubRequestScheduler(maxJoined = 16)
         val held = CompletableDeferred<Unit>()

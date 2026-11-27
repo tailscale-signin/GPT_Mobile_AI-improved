@@ -214,7 +214,7 @@ class GitHubWorkspaceClient(
         return GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins)
             .read("/repos/$repository/actions/artifacts/$artifactId/zip", immutable = true, archiveEntry = "result.json", archiveDigest = digest).text
     }
-    internal fun transportRetryAfterMillis(): Long = scheduler.transportRetryAfterMillis()
+    internal fun transportRetryAfterMillis(scopeHint: String? = null): Long = scheduler.transportRetryAfterMillis(scopeHint)
     internal suspend fun prepareFixtureCreation(arguments: JsonObject) =
         ownedFixtures.prepareCreation("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments)
     internal suspend fun retainFixtureCreation(arguments: JsonObject, receipt: JsonObject): JsonObject =

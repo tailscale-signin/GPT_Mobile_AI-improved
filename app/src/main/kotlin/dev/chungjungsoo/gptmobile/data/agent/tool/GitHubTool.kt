@@ -2231,7 +2231,7 @@ class GitHubTool(
         if (throwable is java.io.IOException) {
             val uncertain = currentCoroutineContext()[GitHubDispatchAccounting]?.mutationMayHaveTakenEffect() ?: (action in MUTATING_ACTIONS)
             val httpFailure = throwable as? GitHubReadRetry.HttpFailure
-            val cooldown = maxOf(workspaceClient.transportRetryAfterMillis(), GitHubReadRetry.retryAfterMillis(httpFailure?.retryAfter) ?: 0L)
+            val cooldown = maxOf(workspaceClient.transportRetryAfterMillis(action), GitHubReadRetry.retryAfterMillis(httpFailure?.retryAfter) ?: 0L)
             val message = when {
                 uncertain -> "GitHub connection interrupted after a write may have reached GitHub. Reconcile the saved remote state before making another change."
                 action in MUTATING_ACTIONS -> "GitHub connection interrupted during the checks before this change. No write was sent."

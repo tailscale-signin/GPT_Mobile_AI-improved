@@ -60,14 +60,14 @@ internal object AppAssistedSearch {
         }
     }
 
-    enum class Readiness(val guidance: String) {
-        CHAT_TOOLS_DISABLED("Tools are disabled for this chat. Enable chat tools and retry."),
-        PROFILE_TOOLS_DISABLED("Tools are disabled for this profile. Enable profile tools and retry."),
-        PROFILE_REMOTE_DISABLED("Remote tools are disabled for this profile. Review the profile's remote tool settings."),
-        NO_ENGINE_RESOLVED("Open Tools → Effective search inventory to check the engines available to this profile."),
-        ROUTED_ENGINE_MISSING("The profile resolved a search engine, but this chat did not select it. Check the chat's tool selection."),
-        BOUND_ENGINE_MISSING("A search engine was selected but did not reach the authorized tools for this turn. Check the turn's tool settings."),
-        AGGREGATE_NOT_CREATED("An app-assisted search tool was unavailable for this turn. Check Tools → Effective search inventory.")
+    enum class Readiness(val guidance: String, val settingsScope: String, val settingsPath: String, val userAction: String) {
+        CHAT_TOOLS_DISABLED("Tools are disabled for this chat. Open this chat's Tools and enable the approved search tool, then retry.", "CHAT", "Chat → Tools", "ENABLE_CHAT_SEARCH_TOOL"),
+        PROFILE_TOOLS_DISABLED("Tools are disabled for this profile. Open the selected AI profile's Tools setting, enable approved tools, then retry.", "PROFILE", "AI profile → Tools", "ENABLE_PROFILE_TOOLS"),
+        PROFILE_REMOTE_DISABLED("Remote tools are disabled for this profile. Open the selected AI profile's Remote tools setting and review the approved connections.", "PROFILE", "AI profile → Tools → Remote tools", "ENABLE_APPROVED_REMOTE_TOOLS"),
+        NO_ENGINE_RESOLVED("Open Tools → Effective search inventory to select an available engine for this profile.", "PROFILE", "Tools → Effective search inventory", "SELECT_SEARCH_ENGINE"),
+        ROUTED_ENGINE_MISSING("The profile resolved a search engine, but this chat did not select it. Open this chat's tool selection and choose that engine.", "CHAT", "Chat → Tools → Search engine", "SELECT_CHAT_SEARCH_ENGINE"),
+        BOUND_ENGINE_MISSING("A search engine was selected but was not authorized for this turn. Review the connection and turn permissions without changing the selected profile.", "TURN", "Chat → Tools → Connections", "REVIEW_SEARCH_CONNECTION"),
+        AGGREGATE_NOT_CREATED("An app-assisted search tool was unavailable for this turn. Open Tools → Effective search inventory and inspect the selected engine's readiness.", "TURN", "Tools → Effective search inventory", "REVIEW_EFFECTIVE_SEARCH_INVENTORY")
     }
 
     fun readiness(chatDisabled: Boolean, profileDisabled: Boolean, remoteDisabled: Boolean, resolved: List<ResolvedAgentTool>, routed: List<ResolvedAgentTool>, bound: List<ResolvedAgentTool>): Readiness {
@@ -96,10 +96,17 @@ internal object AppAssistedSearch {
                     failureDetails = buildJsonObject {
                         put("failed_stage", "tool_readiness")
                         put("operation", "web_search")
+                        put("capability", "WEB_SEARCH")
                         put("search_readiness_observation", observed.name)
+                        put("readiness_state", "CONFIGURATION_BLOCKED")
+                        put("settings_scope", observed.settingsScope)
+                        put("settings_path", observed.settingsPath)
+                        put("user_action", observed.userAction)
+                        put("permission_bypass_allowed", false)
                         put("failure_origin", "APPLICATION")
                         put("dispatched", false)
                         put("remote_acceptance", "NO")
+                        put("retryable", false)
                     }
                 )
             )

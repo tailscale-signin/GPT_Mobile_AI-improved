@@ -63,6 +63,7 @@ class GitHubTaskTrustTest {
         assertEquals(600_000L, GitHubExecutionLimits.requestedDurationMillis("Test all authorized GitHub tools. Do not merge. Budget: 10 minutes and 17 tool calls."))
         assertEquals(30_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 10 minutes. Time limit: 30 seconds. Inspect the previous 2 hours."))
         assertEquals(20_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 10 minutes. Finish within 20 seconds."))
+        assertEquals(43_200_000L, GitHubExecutionLimits.requestedDurationMillis("Keep working on this task for 12 hours and preserve checkpoints."))
         assertNull(GitHubExecutionLimits.requestedDurationMillis("The previous budget: 5 minutes. Inspect the failure."))
         assertFalse(GitHubTaskContinuity.reuse("proceed", ""))
         assertTrue(GitHubTaskContinuity.reportOnly("Please show the full report!"))
@@ -306,7 +307,8 @@ class GitHubTaskTrustTest {
         assertEquals(JsonPrimitive("task_budget"), failure.failureDetails?.get("failed_stage"))
         assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
         assertEquals(JsonPrimitive("AUTHORIZE_NEW_TIME_WINDOW"), failure.failureDetails?.get("recovery_action"))
-        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("resume_allowed"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("resume_allowed"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("resume_from_checkpoint"))
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
         assertTrue(text.contains("Time limit reached"))
         assertTrue(text.contains("saved approval"))

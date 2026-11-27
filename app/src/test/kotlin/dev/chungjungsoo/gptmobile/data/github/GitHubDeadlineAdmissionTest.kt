@@ -21,7 +21,9 @@ class GitHubDeadlineAdmissionTest {
         val failure = requireNotNull(expired.failure())
         assertEquals(JsonPrimitive("ADMISSION"), failure.failureDetails?.get("task_deadline_check"))
         assertEquals(JsonPrimitive("AUTHORIZE_NEW_TIME_WINDOW"), failure.failureDetails?.get("recovery_action"))
-        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("resume_allowed"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("resume_allowed"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("resume_requires_time_grant"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("remaining_tool_calls_preserved"))
     }
 
     @Test fun unavailableOrInvalidAcceptedClockNeverBecomesAnUnboundedWindow() {

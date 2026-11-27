@@ -31,7 +31,7 @@ class GitHubRequestScheduler(
             }
         )
     internal class AdmissionRejected(message: String) : IllegalStateException(message)
-    private val circuit = GitHubRequestCircuit()
+    private val circuits = mutableMapOf<String, GitHubRequestCircuit>()
     private data class Waiter(val priority: Int, val sequence: Long, val ready: CompletableDeferred<Unit>, var bypasses: Int = 0)
     private val lock = Any()
     private val queue = mutableListOf<Waiter>()
@@ -84,6 +84,7 @@ class GitHubRequestScheduler(
             maximumQueueWaitNanos.updateAndGet { maxOf(it, elapsed) }
             try {
                 currentCoroutineContext().ensureActive()
+                val circuit = synchronized(lock) { circuits.getOrPut(circuitScope(key)) { GitHubRequestCircuit() } }
                 val permit = circuit.admit()
                 try {
                     return block().also {
@@ -91,7 +92,8 @@ class GitHubRequestScheduler(
                         shared?.complete(it)
                     }
                 } catch (failure: Throwable) {
-                    circuit.failed(permit, failure)
+                    val logicalRead = currentCoroutineContext()[GitHubReadRetry.Scope]
+                    circuit.failed(permit, failure, logicalRead?.claimCircuitFailure() ?: true)
                     throw failure
                 }
             } finally {
@@ -168,7 +170,27 @@ class GitHubRequestScheduler(
     fun recordCacheHit() {
         cacheHits.incrementAndGet()
     }
-    internal fun transportRetryAfterMillis(): Long = circuit.retryAfterMillis()
+    internal fun transportRetryAfterMillis(scopeHint: String? = null): Long = synchronized(lock) {
+        if (scopeHint == null) {
+            circuits.values.maxOfOrNull(GitHubRequestCircuit::retryAfterMillis) ?: 0L
+        } else {
+            circuits[circuitScope(scopeHint)]?.retryAfterMillis() ?: 0L
+        }
+    }
+
+    private fun circuitScope(key: String?): String {
+        val normalized = key?.lowercase(java.util.Locale.ROOT) ?: return "core"
+        return when {
+            "/search/" in normalized || "search" in normalized -> "search"
+            "/actions/" in normalized || "workflow" in normalized || normalized.startsWith("ci_") || normalized in actionScopes -> "actions"
+            "/graphql" in normalized || "graphql" in normalized -> "graphql"
+            else -> "core"
+        }
+    }
+
+    private companion object {
+        val actionScopes = setOf("runs", "run", "jobs", "job", "logs", "artifacts", "checks", "rerun", "cancel_run")
+    }
 
     fun metrics() = synchronized(lock) {
         buildJsonObject {
@@ -188,7 +210,14 @@ class GitHubRequestScheduler(
             put("shared_waiter_capacity", maxJoined)
             put("peak_queued_requests", peakQueued)
             put("capacity_rejections", rejected)
-            put("circuit", circuit.metrics())
+            put("circuit", circuits["core"]?.metrics() ?: GitHubRequestCircuit().metrics())
+            put("circuit_scope_count", circuits.size)
+            put(
+                "circuits",
+                kotlinx.serialization.json.buildJsonObject {
+                    circuits.toSortedMap().forEach { (scope, circuit) -> put(scope, circuit.metrics()) }
+                }
+            )
         }
     }
 }

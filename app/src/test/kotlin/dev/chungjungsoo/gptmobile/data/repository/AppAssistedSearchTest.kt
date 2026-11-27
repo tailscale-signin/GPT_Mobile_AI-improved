@@ -161,6 +161,53 @@ class AppAssistedSearchTest {
         }
     }
 
+    @Test fun javaHeapPressureSkipsOptionalPageEnrichmentAndRetainsSearchSnippets() = runBlocking {
+        var pageReads = 0
+        val search = object : dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+            override val definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("web_search", "Authorized aggregate", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject) =
+                dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(
+                    callId,
+                    dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json(
+                        kotlinx.serialization.json.Json.parseToJsonElement("""{"results":[{"title":"Launch update","url":"https://example.org/launch","snippet":"Launch scheduled for October 27."}]}""")
+                    ),
+                    false
+                )
+        }
+        val reader = object : dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+            override val definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("read_url", "Read public page", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): dev.chungjungsoo.gptmobile.data.agent.AgentToolResult {
+                pageReads++
+                return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "JAVA_HEAP_PRESSURE", "waiting for Java heap capacity")
+            }
+        }
+        val trace = mockk<ToolTraceSession>()
+        val started = mockk<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent>()
+        io.mockk.every { started.sequence } returns 0
+        io.mockk.coEvery { trace.start(any()) } returns started
+        io.mockk.coEvery { trace.finish(any(), any()) } returns ApiState.ToolCall(0)
+        val events = mutableListOf<ApiState>()
+        val tools = listOf(
+            dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(search, "authorized-search", "Search", "web_search", "web_search"),
+            dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(reader, null, "Reader", "read_url", "read_url")
+        )
+
+        val packet = AppAssistedSearch.prepare(
+            listOf(MessageV2(content = "Search online for Orion", platformType = null)),
+            tools,
+            trace,
+            "run",
+            2200,
+            events::add
+        )
+
+        assertNotNull(packet)
+        assertTrue(requireNotNull(packet).contains("Launch scheduled for October 27."))
+        assertEquals(1, pageReads)
+        assertTrue(events.any { it is ApiState.Notice })
+        assertFalse(events.any { it is ApiState.Error })
+    }
+
     @Test fun compactPacketPreservesWholeUrlsAndMarksSnippetsUntrusted() {
         val sources = (1..20).map {
             buildJsonObject {

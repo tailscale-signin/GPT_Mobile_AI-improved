@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -120,11 +121,12 @@ internal fun VoiceSpeechBenchmarkSettings(
             var expanded by rememberSaveable(suite.runId) { mutableStateOf(false) }
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide stage results" else "Show stage results") }
             if (expanded) {
+                val locale = LocalLocale.current.platformLocale
                 suite.results.forEach { row ->
                     Text("${row.label} · ${row.status.display()}" + (row.reason?.let { " · ${it.lowercase(Locale.ROOT).replace('_', ' ')}" } ?: ""), style = MaterialTheme.typography.bodySmall)
                     row.recommendedRoute?.let { Text("Qualified choice for this test · $it", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
                     row.metrics.forEach { metric ->
-                        val value = String.format(Locale.getDefault(), "%.1f", metric.value)
+                        val value = String.format(locale, "%.1f", metric.value)
                         Text("${metric.label} · $value ${metric.unit} · n=${metric.samples}", style = MaterialTheme.typography.bodySmall)
                     }
                 }

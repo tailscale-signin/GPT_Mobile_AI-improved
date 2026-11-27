@@ -348,18 +348,18 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
     }
 
     /** A private reading round can append notes only for the exact invocation and bytes in this journal. */
-    internal suspend fun eligibleReadingSources(calls: Map<String, ProviderEvent.ToolCall>, bodies: Map<String, String?>): Set<String> = locked {
+    internal suspend fun readingSourceBodies(calls: Map<String, ProviderEvent.ToolCall>, bodies: Map<String, String?>): Map<String, ToolResultContent> = locked {
         val state = read()
         val acknowledged = SavedPageReading.fingerprints(state.savedPageReading)
-        bodies.filter { (id, digest) ->
-            val entry = state.entries[id]
-            val result = entry?.result
-            id !in acknowledged &&
-                result != null &&
-                calls[id] == entry.call.event() &&
-                result.canProveDelivery() &&
-                (result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)) == digest
-        }.keys
+        buildMap {
+            for ((id, digest) in bodies) {
+                val entry = state.entries[id] ?: continue
+                val result = entry.result ?: continue
+                if (id in acknowledged || calls[id] != entry.call.event() || !result.canProveDelivery()) continue
+                val savedDigest = result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)
+                if (digest == savedDigest) put(id, result.restore(id).content)
+            }
+        }
     }
 
     /** Preserve legacy consumption while qualifying only the exact delivered checkpoint projection. */

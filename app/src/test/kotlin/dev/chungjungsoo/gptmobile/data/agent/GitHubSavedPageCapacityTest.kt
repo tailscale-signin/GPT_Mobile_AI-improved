@@ -21,6 +21,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSavedPageCapacityTest {
+    @Test fun oversizedPrivateReadRetainsWholeUnicodeObservationsOnlyAfterFreshCompletion() = runBlocking {
+        val note = "Retained commit fixé.\n"
+        val verbose = note + "📁".repeat(120)
+        suspend fun read(reply: List<ProviderEvent>, fresh: Boolean, retained: MutableList<String>): List<ProviderEvent> {
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    reply.forEach { emit(it) }
+                }.let { if (fresh) SavedPageDeliveryRound.providerRound(exchanges, it) else it }
+            }
+            return SavedPageDeliveryRound.read(session, emptyList(), 80) { retained += it }.toList()
+        }
+        val retained = mutableListOf<String>()
+        val complete = listOf(ProviderEvent.TextDelta(verbose), ProviderEvent.Completed)
+        assertEquals(listOf(ProviderEvent.Completed), read(complete, true, retained))
+        assertEquals(note.trimEnd() + "…", retained.single())
+        assertTrue(retained.single().encodeToByteArray().size <= 80)
+        for (events in listOf(complete.dropLast(1), listOf(ProviderEvent.TextDelta("A".repeat(120)), ProviderEvent.Completed), listOf(ProviderEvent.TextDelta(verbose), ProviderEvent.ToolCall("x", "tool", JsonObject(emptyMap())), ProviderEvent.Completed))) {
+            assertTrue(read(events, true, retained).last() is ProviderEvent.Failed)
+        }
+        assertTrue(read(complete, false, retained).last() is ProviderEvent.Failed)
+        assertEquals(1, retained.size)
+    }
+
     @Test fun replayDiagnosticsUseCanonicalOperationsWithoutRetainingPrivateToolNames() {
         for ((name, operation) in listOf(
             "github_context" to "github_context",
@@ -237,8 +260,13 @@ class GitHubSavedPageCapacityTest {
         assertFalse(result.isError)
         assertFalse(result.dispatched)
         val exchange = AgentToolExchange(listOf(call), listOf(result))
-        val required = (requireNotNull(GitHubSavedReadProgress.cursor(call.arguments)).bytes + 2) / 3
-        assertTrue(required > 512 && required <= 4000 - 512)
+        val cursorTokens = (requireNotNull(GitHubSavedReadProgress.cursor(call.arguments)).bytes + 2) / 3
+        val required = (ToolHandoffReceipt.payload(result.content).encodeToByteArray().size + 2) / 3
+        assertTrue(required in 513 until cursorTokens)
+        // A native, measured smaller final page can fit even when its cursor maximum cannot.
+        assertEquals(mapOf(call.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), required + 512, 512))
+        val unmeasured = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - "saved_view_body_bytes"))
+        assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange.copy(results = listOf(unmeasured))), emptySet(), required + 512, 512).isEmpty())
         assertEquals(mapOf(call.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), 4000, 512))
         assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), setOf(call.callId), 4000, 512).isEmpty())
         assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), required + 511, 512).isEmpty())
@@ -276,7 +304,7 @@ class GitHubSavedPageCapacityTest {
         )
         val matching = fixture.read(matchingCall, JsonObject(matchingCall.arguments - "view_cursor"))
         assertFalse(matching.isError)
-        assertEquals(mapOf(matchingCall.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(matchingCall), listOf(matching))), emptySet(), 4000, 512))
+        assertEquals(mapOf(matchingCall.callId to (ToolHandoffReceipt.payload(matching.content).encodeToByteArray().size + 2) / 3), GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(matchingCall), listOf(matching))), emptySet(), 4000, 512))
         val conflictingCall = matchingCall.copy(callId = "provider-conflicting-context", arguments = JsonObject(matchingCall.arguments + ("owner" to JsonPrimitive("other"))))
         val conflicting = fixture.read(conflictingCall, JsonObject(conflictingCall.arguments - "view_cursor"))
         assertTrue(conflicting.isError)

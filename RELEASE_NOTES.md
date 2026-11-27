@@ -6,6 +6,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Recover saved GitHub pages displaced by chat history, fit required read schemas to small models, name missing evidence in partial reports, and cite CI failures beyond the first log page.
 - Translation mode shows your words at the top and the translated reply below. The prompt fades in as you speak, stays through playback, and fades away when the microphone starts listening again.
 - GitHub chat answers questions about problems experienced in the conversation from earlier run outcomes. Interrupted branch reviews show revision-bound coverage and remaining files. Private page reads retain bounded notes, and claim verification resumes at the smaller request after an output limit.
 - Gateway GitHub chats honor the saved reasoning preference and request the CI tools needed for the current task. Continue keeps the accepted request and verified evidence within the selected model’s context limit, and can restore a displaced tool after verified progress.

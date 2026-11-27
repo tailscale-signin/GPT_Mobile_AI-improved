@@ -17,6 +17,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCiLogPageTest {
+    @Test fun failureBeyondFirstPageIsCitableOnlyForItsSelectedJobAttemptAndRevision() {
+        val lines = MutableList(4001) { "ordinary build output line number $it" }
+        lines[99] = "HTTP/2 502 outside range"
+        lines[2568] = "Each download failed!"
+        lines[2655] = "HTTP/2 504"
+        lines[2698] = "Execution failed for task ':runtime:configureCMakeDebug'."
+        lines[4000] = "##[error]outside range"
+        val raw = lines.joinToString("\n")
+        val head = "a".repeat(40)
+        val request = args("""{"action":"logs","job_id":11,"run_id":7,"run_attempt":2,"expected_head_sha":"$head","start_line":2001,"end_line":4000}""")
+        val page = GitHubCiLogPage.render(GitHubCiLogReader.Log(raw, raw.encodeToByteArray().size, true), request, byteBudget = 3072)
+        assertTrue(page.getValue("excerpts").jsonArray.last().jsonObject.getValue("line").jsonPrimitive.content.toInt() < 2569)
+        val highlights = page.getValue("diagnostic_excerpts").jsonArray.map { it.jsonObject }
+        assertEquals(listOf(2569, 2656, 2699), highlights.map { it.getValue("line").jsonPrimitive.content.toInt() })
+        assertEquals(listOf(lines[2568], lines[2655], lines[2698]), highlights.map { it.getValue("text").jsonPrimitive.content })
+        assertEquals(JsonPrimitive(2), page.getValue("continuation").jsonObject["run_attempt"])
+        val source = JsonObject(page + mapOf("run_attempt" to JsonPrimitive(2), "head_sha" to JsonPrimitive(head)))
+        val summary = GitHubSemanticSummary.from("github_ci", request, source)
+        assertEquals(page["diagnostic_excerpts"], summary["diagnostic_excerpts"])
+        assertTrue(GitHubPartialReport.render(listOf(summary)).contains("Job log line 2656: HTTP/2 504"))
+        for (field in listOf("job_id", "run_id", "run_attempt", "expected_head_sha")) {
+            assertFalse(GitHubSemanticSummary.from("github_ci", JsonObject(request - field), source).containsKey("diagnostic_excerpts"))
+        }
+        assertFalse(GitHubSemanticSummary.from("github_ci", JsonObject(request + ("expected_head_sha" to JsonPrimitive("b".repeat(40)))), source).containsKey("diagnostic_excerpts"))
+    }
+
     @Test fun cachedLogKeepsItsAcquisitionTimeWithoutAnotherHttpRead() = kotlinx.coroutines.test.runTest {
         var requests = 0
         val engine = io.ktor.client.engine.mock.MockEngine {

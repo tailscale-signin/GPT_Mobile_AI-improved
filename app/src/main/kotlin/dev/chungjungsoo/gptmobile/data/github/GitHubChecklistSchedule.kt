@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
@@ -52,11 +53,15 @@ internal object GitHubChecklistSchedule {
             action.isBlank() || action == call.arguments.text("action")
         }?.value
         val supportsAction = (discovery?.inputSchema?.get("properties") as? JsonObject)?.containsKey("action") == true
-        fun scopedArguments(call: ProviderEvent.ToolCall) = buildJsonObject {
-            put("names", JsonArray(listOf(JsonPrimitive(call.name))))
-            if (supportsAction && call.arguments.text("action").isNotBlank()) put("action", call.arguments.getValue("action"))
+        val scopedArguments = unique.associateWith { call ->
+            val action = call.arguments.text("action")
+            val source = authorized.firstOrNull { it.name == call.name && it.modelVisible }
+            buildJsonObject {
+                put("names", JsonArray(listOf(JsonPrimitive(call.name))))
+                if (supportsAction && action.isNotBlank() && source != null && GitHubActionSchema.project(source, action) != null) put("action", action)
+            }
         }
-        val lastScoped = unique.associateWith { call -> attemptsFor(call.name).lastOrNull { it.value["arguments"] == scopedArguments(call) } }
+        val lastScoped = unique.associateWith { call -> attemptsFor(call.name).lastOrNull { it.value["arguments"] == scopedArguments.getValue(call) } }
         // A different completed read can displace the schema before another action, page or PR needs it.
         // Bind that reacquisition to the observed progress so the evidence store records a new call exactly once.
         val consumedAt = unique.associateWith { call ->
@@ -111,7 +116,7 @@ internal object GitHubChecklistSchedule {
         // exact action once, so a large family cannot starve every ready read.
         val scoped = unique.firstOrNull { reasons[it] in setOf("SCHEMA_BUDGET_RECOVERY_REQUIRED", "ACTION_SCHEMA_DISCOVERY_REQUIRED") }
         val names = scoped?.let { listOf(it.name) } ?: unique.filter { reasons[it] == "EXACT_SCHEMA_DISCOVERY_REQUIRED" }.map { it.name }.distinct().take(12)
-        val arguments = scoped?.let(::scopedArguments) ?: buildJsonObject { put("names", JsonArray(names.map(::JsonPrimitive))) }
+        val arguments = scoped?.let(scopedArguments::getValue) ?: buildJsonObject { put("names", JsonArray(names.map(::JsonPrimitive))) }
         val discoveryAllowed = discovery != null && names.isNotEmpty() && ToolArgumentValidator.errors(arguments, discovery.inputSchema).isEmpty()
         val discover = if (discoveryAllowed) {
             val checkpoint = scoped?.let { consumedAt[it] }

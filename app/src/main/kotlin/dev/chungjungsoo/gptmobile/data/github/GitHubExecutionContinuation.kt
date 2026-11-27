@@ -500,12 +500,21 @@ internal object GitHubExecutionContinuation {
         val stop = report["stop_reason"] as? JsonObject
         val detail = (stop?.get("detail") as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
         val failures = receipts.values.filter { it["success"] == JsonPrimitive(false) }.takeLast(8)
-        return prefix + when {
+        val missing = GitHubAcceptanceWork.outstanding(report).firstOrNull { row ->
+            row["blocker_code"] == JsonPrimitive("MATCHING_EVIDENCE_MISSING") || row["state"] == JsonPrimitive("NOT_TESTED")
+        }
+        val criterion = listOf("criterion", "requirement", "id").firstNotNullOfOrNull { key ->
+            (missing?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content?.lineSequence()?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.take(160)
+        }
+        val reason = when {
             detail != null -> detail
             ledger?.get("recovery") == JsonPrimitive("RECONCILE_REMOTE_OUTCOME") -> "Check the saved remote operation before continuing; its outcome is still unconfirmed."
             failures.isNotEmpty() -> GitHubVerificationRecovery.advice(failures)
+            criterion != null -> ""
             else -> "Some required checks still need evidence. Review the remaining requirements before continuing; completed actions are saved."
         }
+        val gap = criterion?.takeUnless { it in reason }?.let { "Missing evidence for “$it”." }
+        return prefix + listOfNotNull(reason.takeIf { it.isNotBlank() }, gap).joinToString(" ")
     }
 
     private val selectorKeys = setOf("action", "owner", "repo", "branch", "ref", "path", "issue_number", "pull_number", "run_id", "job_id", "workflow_id", "expected_head_sha", "commit_sha", "stage_id", "inventory_cursor", "inventory_version", "query", "mode", "search_id", "index_cursor", "path_prefix", "file_extension", "path_suffix", "case_sensitive", "fuzzy_match", "fuzzy_threshold", "min_lines", "max_lines", "context_lines", "batch_size", "max_new_blobs")

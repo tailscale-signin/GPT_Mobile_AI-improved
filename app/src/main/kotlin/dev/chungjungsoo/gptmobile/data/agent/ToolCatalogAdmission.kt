@@ -329,7 +329,7 @@ internal fun planAuthorizedToolContext(
     // survives initial planning. Charge that path before optional schemas rather
     // than silently reducing executable authority to the schemas that happen to fit.
     val requiredDiscovery = catalog?.definition?.takeIf { effectiveGitHubMode || requiredGitHubSchemas.isNotEmpty() }
-    val pinnedSchemas = (immediateGitHubSchemas + immediateRequired + listOfNotNull(requiredDiscovery)).distinctBy { it.name }
+    var pinnedSchemas = (immediateGitHubSchemas + immediateRequired + listOfNotNull(requiredDiscovery)).distinctBy { it.name }
     var effectiveLimits = normalized
     var admittedGitHubBudget: GitHubSchemaBudget? = null
     if ((requiredGitHubSchemas.isNotEmpty() || requiredDiscovery != null) && normalized.contextTokens != Int.MAX_VALUE) {
@@ -339,7 +339,17 @@ internal fun planAuthorizedToolContext(
         val fitted = try {
             requestedBudget.fitInitialSchemas(requiredTokens, allowOutputReduction)
         } catch (failure: GitHubToolContextBudgetException) {
-            throw failure.withRequiredSchemas(pinnedSchemas, true)
+            val compact = pinnedSchemas.map(GitHubActionSchema::compactRead)
+            val compactTokens = compact.sumOf { providerSchemaTokens(it, githubMode = true) }
+            if (catalog == null || compactTokens >= requiredTokens) throw failure.withRequiredSchemas(pinnedSchemas, true)
+            val budget = try {
+                requestedBudget.fitInitialSchemas(compactTokens, allowOutputReduction)
+            } catch (stillTooLarge: GitHubToolContextBudgetException) {
+                throw stillTooLarge.withRequiredSchemas(compact, true)
+            }
+            catalog.useConciseReadSchemas()
+            pinnedSchemas = compact
+            budget
         }
         admittedGitHubBudget = fitted
         if (fitted.output < output) effectiveLimits = normalized.copy(outputTokens = fitted.output)

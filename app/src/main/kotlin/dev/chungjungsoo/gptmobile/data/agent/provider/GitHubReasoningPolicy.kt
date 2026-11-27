@@ -89,7 +89,7 @@ internal object GitHubReasoningPolicy {
             constraints.reasoningModeOverride in setOf(null, ReasoningMode.AUTO) &&
             constraints.gitHubIntelligenceLevel !in setOf(dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.DEEP_ENGINEERING, dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE) &&
             constraints.gitHubEffort != dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM &&
-            constraints.requestRole in setOf(dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE, "github-final-summary")
+            constraints.requestRole in setOf(dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE, "github-final-summary", "github-claim-extraction")
 
     /** Reserve the most room for visible text that this route explicitly supports. */
     fun visibleOutputEffort(constraints: RequestConstraints, advertised: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.Limits?): String? {

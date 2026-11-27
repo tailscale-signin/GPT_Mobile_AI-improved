@@ -62,9 +62,10 @@ internal class SavedPageDeliveryRound private constructor(private val expectedPr
             val marker = "…"
             val prefix = GitHubRepositorySession.utf8Prefix(sample, limit - marker.toByteArray(Charsets.UTF_8).size)
             val boundary = prefix.indices.lastOrNull { index ->
-                prefix[index] == '\n' || prefix[index] in ".!?" && prefix.getOrNull(index + 1)?.isWhitespace() == true
+                prefix[index] == '\n' || prefix[index] in "。！？" || prefix[index] in ".!?" && sample.getOrNull(index + 1)?.isWhitespace() == true
             }
-            val excerpt = if (boundary != null) prefix.take(boundary + 1) else prefix.substringBeforeLast(' ', prefix)
+            // A clipped identifier, digest or number cannot serve as a reading note.
+            val excerpt = if (boundary != null) prefix.take(boundary + 1) else prefix.take(prefix.indexOfLast(Char::isWhitespace).coerceAtLeast(0))
             return excerpt.trimEnd().takeIf { it.isNotBlank() }?.plus(marker).orEmpty()
         }
 

@@ -78,6 +78,10 @@ class GitHubReasoningPolicyTest {
             assertNull(GitHubReasoningPolicy.visibleOutputEffort(explicit.forRole("github-final-summary"), advertised))
         }
         assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.copy(gitHubEffort = dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM), advertised))
+        val claims = repair.forRole("github-claim-extraction")
+        assertEquals("none", GitHubReasoningPolicy.visibleOutputEffort(claims, advertised.copy(reasoningMandatory = false)))
+        assertEquals("low", GitHubReasoningPolicy.visibleOutputEffort(claims, advertised))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(claims.copy(reasoningModeOverride = ReasoningMode.ON), advertised))
         assertEquals(4096, repair.maxOutputTokens)
     }
 

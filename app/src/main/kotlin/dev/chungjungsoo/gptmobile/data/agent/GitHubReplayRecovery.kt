@@ -627,7 +627,9 @@ internal object GitHubReplayRecovery {
                     val cursor = GitHubSavedReadProgress.cursor((call.arguments["view_cursor"] as? JsonPrimitive)?.content.orEmpty()) ?: return@callLoop
                     // Native cursor capacity precedes app-added instructions. The
                     // final unprojected body must fit too; allowance is not a delivery proof.
-                    val bytes = maxOf(cursor.bytes.toLong(), ToolHandoffReceipt.payload(result.content).encodeToByteArray().size.toLong())
+                    val actualBytes = ToolHandoffReceipt.payload(result.content).encodeToByteArray().size
+                    val measured = (result.executionReceipt?.get("saved_view_body_bytes") as? JsonPrimitive)?.intOrNull
+                    val bytes = if (measured == actualBytes) actualBytes.toLong() else maxOf(cursor.bytes, actualBytes).toLong()
                     val required = ((bytes + 2) / 3).toInt()
                     if (required <= available) put(call.callId, required)
                 }

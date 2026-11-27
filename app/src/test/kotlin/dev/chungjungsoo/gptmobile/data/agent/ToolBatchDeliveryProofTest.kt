@@ -311,8 +311,10 @@ class ToolBatchDeliveryProofTest {
         journal.finish()
         val calls = listOf(first, second).associateBy { it.callId }
         val proofs = ToolResultDeliveryProof.capture(exchanges.flatMap { it.results })
-        assertEquals(setOf(second.callId), journal.eligibleReadingSources(calls, proofs))
-        assertTrue(journal.eligibleReadingSources(calls + (second.callId to second.copy(arguments = JsonObject(emptyMap()))), proofs).isEmpty())
+        val originals = journal.readingSourceBodies(calls, proofs)
+        assertEquals(setOf(second.callId), originals.keys)
+        assertEquals(proofs.getValue(second.callId), ToolResultDeliveryProof.digest(originals.getValue(second.callId)))
+        assertTrue(journal.readingSourceBodies(calls + (second.callId to second.copy(arguments = JsonObject(emptyMap()))), proofs).isEmpty())
         val rejected = SavedPageReading.append(null, SavedPageReading.sources(exchanges, proofs), "Do not checkpoint these notes.")
         assertFalse(journal.markConsumed(proofs.keys, proofs, rejected))
         val untouched = journal.recoverySnapshot()
@@ -324,7 +326,7 @@ class ToolBatchDeliveryProofTest {
         val accepted = SavedPageReading.append(null, SavedPageReading.sources(exchanges, exact), "Verified source data.")
         assertTrue(journal.markConsumed(exact.keys, exact, accepted))
         assertEquals(accepted, journal.recoverySnapshot().savedPageReading)
-        assertTrue(journal.eligibleReadingSources(calls, proofs).isEmpty())
+        assertTrue(journal.readingSourceBodies(calls, proofs).isEmpty())
         assertFalse(journal.markConsumed(exact.keys, exact, accepted))
         assertEquals(exact, journal.recoverySnapshot().deliveredResultDigests)
 

@@ -52,8 +52,15 @@ class ProgressiveToolCatalog(
     private val completedStagedContracts = mutableMapOf<String, String>()
     private var candidateRevision = 0L
     private var requirementFocusKey: Pair<String, Long>? = null
+
+    @Volatile private var conciseReadSchemas = false
+
+    fun useConciseReadSchemas() {
+        conciseReadSchemas = true
+    }
+
     private fun presented(tool: AgentToolDefinition): AgentToolDefinition {
-        val selected = actionSelections[tool.name] ?: requirementActions[tool.name] ?: return tool
+        val selected = actionSelections[tool.name] ?: requirementActions[tool.name] ?: return if (conciseReadSchemas) GitHubActionSchema.compactRead(tool) else tool
         if (selected.first != contractFingerprint(tool)) return tool
         return GitHubActionSchema.project(tool, selected.second) ?: tool
     }

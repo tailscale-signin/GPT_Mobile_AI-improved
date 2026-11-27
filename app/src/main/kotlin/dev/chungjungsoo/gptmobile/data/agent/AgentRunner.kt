@@ -2321,13 +2321,13 @@ class AgentRunner(
                 return@flow
             }
             val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
-            val mayStage = requiredSavedPageDigests.size > 1 &&
+            val mayStage = requiredSavedPageDigests.isNotEmpty() &&
                 requiredSavedPageDigests.values.none { it == null } &&
                 !hasUnknownOutcome &&
                 !session.handlesToolsInternally &&
                 limits.combined == null &&
                 !verificationOnlyRequested
-            if (savedPageReading != null || mayStage) {
+            if (savedPageReading != null || mayStage && requiredSavedPageDigests.size > 1) {
                 // Private sessions intentionally accept neither tools nor exchange replay. Do not
                 // inject restored plaintext notes after their masking/serialized-request boundary.
                 dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
@@ -2357,24 +2357,30 @@ class AgentRunner(
             var replay = project(requiredSavedPageDigests)
             var exact = delivered(replay)
             deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
-            if (mayStage && requiredSavedPageDigests.any { (id, digest) -> deliveredBodies[id] != digest }) {
+            val isolatedReading = mayStage && requiredSavedPageDigests.any { (id, digest) -> deliveredBodies[id] != digest }
+            if (isolatedReading) {
+                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
                 // Spend a private reading stage's allowance only on complete pairs
                 // whose exact bytes this journal can acknowledge. A decorated final
                 // page remains in the ordinary history, but cannot crowd out these reads.
-                val eligible = checkpoint?.eligibleReadingSources(exchanges.flatMap { it.calls }.associateBy { it.callId }, requiredSavedPageDigests)
-                    ?: requiredSavedPageDigests.keys
-                val privateCandidates = if (eligible.size < requiredSavedPageDigests.size) {
-                    exchanges.mapNotNull { exchange ->
-                        val calls = exchange.calls.filter { it.callId in eligible }
-                        calls.takeIf { it.isNotEmpty() }?.let { AgentToolExchange(it, exchange.results.filter { result -> result.callId in eligible }) }
+                val journalBodies = checkpoint?.readingSourceBodies(exchanges.flatMap { it.calls }.associateBy { it.callId }, requiredSavedPageDigests)
+                val eligible = journalBodies?.keys ?: requiredSavedPageDigests.keys
+                val privateCandidates = exchanges.mapNotNull { exchange ->
+                    val calls = exchange.calls.filter { it.callId in eligible }
+                    if (calls.isEmpty()) return@mapNotNull null
+                    val results = exchange.results.filter { it.callId in eligible }.map { result ->
+                        journalBodies?.get(result.callId)?.let { result.copy(content = it) } ?: result
                     }
-                } else {
-                    exchanges
+                    AgentToolExchange(calls, results)
+                }
+                val privateResults = privateCandidates.flatMap { it.results }.associateBy { it.callId }
+                fun privateDelivery(projection: ReplayProjection) = projection.exchanges.flatMap { it.results }.filter {
+                    privateResults[it.callId]?.content == it.content
                 }
                 sourceAllowance = (replayLimit - SavedPageReading.reservation(savedPageReading, true)).coerceAtLeast(0)
                 if (sourceAllowance > 0) {
                     replay = project(requiredSavedPageDigests, privateCandidates)
-                    exact = delivered(replay)
+                    exact = privateDelivery(replay)
                     deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
                 } else {
                     emit(
@@ -2396,12 +2402,14 @@ class AgentRunner(
                     return@flow
                 }
                 if (eligible.none { deliveredBodies[it] == requiredSavedPageDigests[it] }) {
-                    val first = eligible.mapNotNull(originalResults::get)
+                    val first = eligible.mapNotNull(privateResults::get)
                         .filter { ToolResultDeliveryProof.digest(it.content, replayRenderCache) == requiredSavedPageDigests[it.callId] }
                         .minByOrNull { replayRenderCache.measure(it.content).tokens }
                     if (first != null) {
-                        replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]), privateCandidates)
-                        exact = delivered(replay)
+                        val sourceCall = privateCandidates.asSequence().flatMap { it.calls.asSequence() }.first { it.callId == first.callId }
+                        val singlePage = AgentToolExchange(listOf(sourceCall), listOf(first))
+                        replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]), listOf(singlePage))
+                        exact = privateDelivery(replay)
                         deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
                     }
                 }
@@ -2414,7 +2422,7 @@ class AgentRunner(
                 }
             }
             val owed = requiredSavedPageDigests.filter { (id, digest) -> digest == null || deliveredBodies[id] != digest }
-            deliveryOnly = mayStage && owed.isNotEmpty() && owed.size < requiredSavedPageDigests.size
+            deliveryOnly = isolatedReading && owed.size < requiredSavedPageDigests.size
             if (deliveryOnly) deliveredBodies = deliveredBodies.filterKeys { it in requiredSavedPageDigests && it !in owed }
             deliveredCallIds = if (deliveryOnly) deliveredBodies.keys else exact.mapTo(mutableSetOf()) { it.callId }
             val rawReplayTokens = replay.rawTokens

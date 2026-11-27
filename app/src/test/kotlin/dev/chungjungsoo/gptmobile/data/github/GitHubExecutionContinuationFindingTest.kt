@@ -12,6 +12,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubExecutionContinuationFindingTest {
+    @Test fun incompleteResultNamesTheUnverifiedRequirementEvenAfterARealRead() {
+        val report = Json.parseToJsonElement("""{"execution_ledger":{"verified_criteria":0,"required_criteria":1},"requirements":[{"criterion":"A verified claim","state":"PASS"},{"criterion":"Confirm the selected revision","state":"NOT_TESTED","blocker_code":"MATCHING_EVIDENCE_MISSING"}]}""") as JsonObject
+        val read = buildJsonObject { put("success", true) }
+        val message = GitHubExecutionContinuation.incompleteMessage(report, mapOf("observed-read" to read))
+        assertTrue(message.contains("0 of 1 acceptance criteria"))
+        assertTrue(message.contains("Confirm the selected revision"))
+        assertFalse(message.contains("A verified claim"))
+    }
+
     @Test fun continuationOnlyElidesExactlyDuplicatedContractText() {
         val original = Json.parseToJsonElement("""{"accepted_head_sha":"pinned","acceptance_criteria":["Read first"],"acceptance_contract":{"original_request":"Read within scope","criteria":[{"text":"Read first","depends_on":["prior"]}],"constraint_scope":"preserve authority"}}""") as JsonObject
         val reduced = GitHubExecutionContinuation.stageContract(original, "Read within scope")

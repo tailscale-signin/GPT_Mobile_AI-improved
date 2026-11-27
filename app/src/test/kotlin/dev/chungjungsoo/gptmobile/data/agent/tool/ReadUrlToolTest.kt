@@ -38,6 +38,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadUrlToolTest {
+    @Test fun transientReadUrlCapacityAndConnectivityPrechecksAreRetryable() {
+        assertTrue(readUrlPrecheckRetryable("JAVA_HEAP_PRESSURE"))
+        assertTrue(readUrlPrecheckRetryable("DNS_RECOVERY"))
+        assertFalse(readUrlPrecheckRetryable("INVALID_ARGUMENTS"))
+        assertFalse(readUrlPrecheckRetryable("SOURCE_UNAVAILABLE"))
+    }
+
     @Test fun sourceHttpRejectionsRetainStatusWithoutPublishingBodyOrUrl() = runBlocking {
         for ((status, code) in listOf(402 to "SOURCE_PAYMENT_REQUIRED", 404 to "SOURCE_UNAVAILABLE", 503 to "SOURCE_SERVER_ERROR")) {
             val page = server { exchange -> exchange.respond(status, "text/plain", "private upstream response body") }

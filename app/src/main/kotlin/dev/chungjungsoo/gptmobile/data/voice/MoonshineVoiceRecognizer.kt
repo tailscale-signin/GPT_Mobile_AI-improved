@@ -269,8 +269,19 @@ internal class MoonshineVoiceRecognizer internal constructor(
                             deliver(run) { run.listener.partial(event.text.take(8000)) }
                         }
                         is LocalSpeechEvent.Final -> {
-                            run.transcript = event.text.take(8000)
-                            engineEvent(run, "final_transcript")
+                            val finalized = event.text.take(8000)
+                            // Some native decoders emit a blank final flush after useful partials.
+                            // Preserve the last recognized text rather than converting speech into VOICE_NO_SPEECH.
+                            if (finalized.isNotBlank()) run.transcript = finalized
+                            engineEvent(
+                                run,
+                                "final_transcript",
+                                mapOf(
+                                    "finalTranscriptChars" to finalized.length,
+                                    "retainedTranscriptChars" to run.transcript.length,
+                                    "emptyFinalPreservedPartial" to (finalized.isBlank() && run.transcript.isNotBlank())
+                                )
+                            )
                             requestEnd(run)
                         }
                         is LocalSpeechEvent.SpeechEnd -> {

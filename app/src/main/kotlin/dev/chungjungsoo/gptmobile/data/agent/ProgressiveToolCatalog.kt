@@ -33,7 +33,8 @@ class ProgressiveToolCatalog(
     internal val scopedGitHubStatus = githubMode && !integrationPreset && dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)
     private val lookup = if (githubMode && !integrationPreset) GitHubLookupRoute.from(task) else null
     private val scopedRead = scopedGitHubStatus || lookup != null
-    private val githubUpfront = githubMode && !scopedRead || integrationPreset
+    private val requestIntent = IntelligenceIntent.from(task, selectedRepository = githubMode)
+    private val githubUpfront = githubMode && requestIntent.repository && !scopedRead || integrationPreset
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
     private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance get() = minOf(
@@ -73,7 +74,7 @@ class ProgressiveToolCatalog(
     // Explicit engineering tasks need stage/commit schemas without a repeated
     // discovery round; all executable authorization and wire-context gates remain.
     // Larger write/release and check-watch contracts stay on-demand.
-    private val upfrontEngineering = if (githubMode && !scopedRead && !integrationPreset && !codeResearch) {
+    private val upfrontEngineering = if (githubMode && requestIntent.repository && !scopedRead && !integrationPreset && !codeResearch) {
         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
             .intersect(setOf("github_stage_patch", "github_commit"))
     } else {
@@ -94,6 +95,7 @@ class ProgressiveToolCatalog(
     }
 
     private val plannedOperations = when {
+        !requestIntent.repository -> emptySet()
         lookup != null -> setOf(lookup.operation)
         codeResearch -> RepositoryToolHint.readOperations
         else -> dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
@@ -104,7 +106,7 @@ class ProgressiveToolCatalog(
             !conversational &&
             (
                 definition.name == "read_recovery_context" ||
-                    AgentToolCapability.USER_DECISION in definition.capabilities ||
+                    AgentToolCapability.USER_DECISION in definition.capabilities && (!definition.name.startsWith("github_") || requestIntent.repository) ||
                     lookup?.matchesTool(definition) == true ||
                     (
                         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in plannedOperations &&
@@ -1057,7 +1059,11 @@ class ProgressiveToolCatalog(
     private fun ranked(query: String, repositoryHint: RepositoryToolHint? = null): List<AgentToolDefinition> {
         val needle = query.lowercase(java.util.Locale.ROOT).trim()
         val words = Regex("[\\p{L}\\p{N}]+").findAll(needle).map { it.value }.filter { it.length > 2 && it !in STOP_WORDS }.toSet()
-        val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query) + if (githubMode && repositoryHint != null) RepositoryToolHint.readOperations else emptySet()
+        val github = if (IntelligenceIntent.from(query, selectedRepository = githubMode).repository || repositoryHint != null) {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query) + if (githubMode && repositoryHint != null) RepositoryToolHint.readOperations else emptySet()
+        } else {
+            emptySet()
+        }
         val features = if (query == taskText) taskFeatureSelection else ReviewedFeatureSelection(query, taskText)
         val products = when {
             !githubMode || scopedRead || integrationPreset -> null
@@ -1113,7 +1119,7 @@ class ProgressiveToolCatalog(
             ceiling?.takeIf { it > 0 }?.let { (it / 3).coerceAtLeast(128) } ?: Int.MAX_VALUE
         private fun advancedTask(task: String): Boolean =
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).isNotEmpty() || Regex("(?iu)\\b(research|study|studies|papers)\\b").containsMatchIn(task)
-        internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.toolSchemaTokens(tool)
+        internal fun schemaTokens(tool: AgentToolDefinition): Int = UniversalToolRegistry.schemaTokens(tool)
         internal fun isGitHubTool(tool: AgentToolDefinition): Boolean = AgentToolCapability.GITHUB in tool.capabilities || tool.name.split("__").any { it == "github" || it.startsWith("github_") || it in setOf("repository_graph", "repository_workspace", "gitmcp") }
         fun create(
             definitions: List<AgentToolDefinition>,

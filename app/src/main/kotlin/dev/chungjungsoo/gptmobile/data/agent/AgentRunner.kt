@@ -1607,6 +1607,30 @@ class AgentRunner(
             emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(failure, unknown)))
             return null
         }
+        if (executedResults.any { it.errorCode == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.PENDING }) {
+            // Release the complete run/worker now. There is no model round, wait
+            // loop or timeout while the user considers a persistent question.
+            emit(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        "Your choice is saved. Select an option to resume this original task from its checkpoint.",
+                        errorCode = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.PENDING,
+                        taskOutcome = "BLOCKED",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "user_decision")
+                            put("recovery_action", "ANSWER_SAVED_CHOICE")
+                            put("retryable", false)
+                            put("task_state", "WAITING_FOR_USER")
+                            put("resume_allowed", true)
+                            put("resume_from_checkpoint", true)
+                            put("request_replay_allowed", false)
+                            put("dispatched", false)
+                        }
+                    )
+                )
+            )
+            return null
+        }
         // Verify the native batch before schema/replay planning or wrap-up text
         // can remove source fields. Deferred calls still pass through normal
         // delivery first; pending writes block the receipt-only completion guard.

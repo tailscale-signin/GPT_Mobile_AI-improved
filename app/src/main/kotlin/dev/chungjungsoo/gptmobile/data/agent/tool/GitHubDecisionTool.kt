@@ -36,7 +36,7 @@ internal class GitHubDecisionTool(
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         NAME,
-        "Ask a consequential feature/design question with 2-4 button choices. Waits for an answer unless the user enabled suggestions and a recommended choice is provided. This tool cannot approve GitHub writes. Reuse answers; do not ask about routine fixes or settled choices.",
+        "Ask a consequential feature/design question with 2-4 durable button choices. Saves and pauses the task until answered unless the user enabled suggestions. This tool cannot approve GitHub writes. Reuse answers; do not ask about routine fixes or settled choices.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -108,9 +108,24 @@ internal class GitHubDecisionTool(
             )
         }
         val runId = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolRunContext]?.runId
-        val proposal = GitHubChatDecision("", chatId, sourceMessageId, profileUid, scope, question, context, options, arguments["recommended"]?.jsonPrimitive?.intOrNull, persistent, conversationIdentity = conversationIdentity, runId = runId)
-        val id = GitHubRepositoryStateStore.digest(Json.encodeToString(GitHubChatDecision.serializer(), proposal.copy(persistent = false, runId = null)))
-        val answer = decisions.request(proposal.copy(id = id), useSuggestion = useSuggestion(), offered = offered)
+        val proposal = GitHubChatDecision("", chatId, sourceMessageId, profileUid, scope, question, context, options, arguments["recommended"]?.jsonPrimitive?.intOrNull, persistent, conversationIdentity = conversationIdentity, runId = runId, expectedHeadSha = workspace.commitSha)
+        // Mutable branch HEAD is provenance, not the decision identity. A later
+        // checkout still resolves this exact original question and saved answer.
+        val id = GitHubRepositoryStateStore.digest(Json.encodeToString(GitHubChatDecision.serializer(), proposal.copy(persistent = false, runId = null, expectedHeadSha = null)))
+        val answer = decisions.request(proposal.copy(id = id), useSuggestion = useSuggestion(), waitForAnswer = false, offered = offered)
+        if (answer.answer == null) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(buildJsonObject {
+                    put("status", PENDING)
+                    put("choice_prompt_id", answer.id)
+                    put("message", "The choice is saved. This task is paused until its original question is answered.")
+                }),
+                dispatched = false,
+                sharedResult = true,
+                errorCode = PENDING
+            )
+        }
         check(allowed()) { "The GitHub conversation or profile changed while waiting. The choice is saved; no new action is authorized." }
         decisions.delivered(id)
         return AgentToolResult(
@@ -121,6 +136,8 @@ internal class GitHubDecisionTool(
                     put("user_answer", requireNotNull(answer.answer))
                     if (answer.automatic) put("answer_source", "USER_ENABLED_SUGGESTION")
                     put("cancelled", answer.cancelled)
+                    answer.expectedHeadSha?.let { put("expected_head_sha", it) }
+                    put("revalidate_branch_before_write", true)
                     put("instruction", if (answer.cancelled) "Stop tool work and summarize retained results." else "Apply this user choice to the current task. Continue independent work and ask the next consequential design question when evidence is ready. This answer is not write approval.")
                 }
             ),
@@ -133,5 +150,6 @@ internal class GitHubDecisionTool(
 
     companion object {
         const val NAME = "github_decide"
+        const val PENDING = "GITHUB_CHOICE_PENDING"
     }
 }

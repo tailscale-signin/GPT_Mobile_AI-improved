@@ -76,7 +76,7 @@ several accounts are available, new chats require an explicit account/host
 selection. A lost or disabled selection cannot fall through to another account;
 saved conversations keep their existing connection binding.
 
-GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The chat header keeps the branch visible alongside live progress, and its actions open repository files, checks, the map, task details or staged changes as they become available.
+GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The expanded chat header shows the branch and live progress, with actions for repository files, checks, maps, task details and staged changes. Its saved collapse preference removes all header content except a 48 dp expand arrow; hidden controls leave touch and accessibility traversal. Header changes do not refresh the repository or restart generation.
 
 A selected GitHub plugin in ordinary chat and the dedicated GitHub screen use
 the same request-scoped planning policy for repository work. For example,
@@ -301,7 +301,49 @@ Read `.github/instructions/ai-engineering.md` and `docs/ci-cd/modernization.md`.
 Results belong to their actual source and environment. A passing subset does not
 qualify unexecuted checks. Device and live-provider results stay distinct.
 
+## Unified conversation and intelligence lifecycle
+
+GitHub chat admits repository context according to the actual request. General
+questions and web-only research use their authorized normal capabilities without
+unnecessary repository calls. Mixed research and engineering retain the selected
+repository scope. A later implementation request can reuse verified public-source
+findings from the same persisted research session, with their original capture
+identity and current compatibility checks.
+
+`UniversalToolRegistry` persists the current authorized catalog in the existing
+encrypted state store and restores exact schema-cost estimates during local
+readiness preparation. The resolver still checks live profile, connection and
+privacy policy. The full host catalog remains separate from the model-facing
+progressive tool selection; a cached schema never grants execution permission.
+
+Choice prompts persist their original task/profile/workspace identity before
+presentation. Waiting parks the original invocation and releases its model
+worker. Resume restores that invocation; duplicate taps cannot execute it twice.
+Relative task allowances exclude durable decision-wait intervals, while explicit
+absolute deadlines retain their wall-clock meaning. Interrupted runs expose the
+existing checkpoint/job recovery path even if process death left no error text.
+
+The Gateway maintains registered branch indexes between conversations, while the
+phone reconciles structural manifests on connection and background synchronization.
+Compressed delta pages are staged, bounded and verified before an atomic snapshot
+replacement. Offline and incomplete snapshots retain honest freshness/coverage
+labels. Direct phone indexing discovers the tree and essential files first,
+reuses immutable blobs and continues bounded partial discovery as needed.
+
+Implementation boundaries and qualification evidence are recorded in
+[the unified upgrade record](../repairs/unified-intelligence-interface-2026-11-27.md).
+
 ## Benchmarks
+
+The default Android **AI Profile Benchmark** offers one **Run Benchmark** action
+for the selected profile. Standard combines reasoning, instructions, research,
+tool contracts, offline GitHub engineering and recovery fixtures. Its nine
+weighted categories give speed five percent and correctness the remaining
+weight. A complete matching manifest and executed observations are required for
+an overall comparable score. Missing evidence remains **Not evaluated**. Results,
+history and export are prominent; configurable campaigns and diagnostics remain
+under the collapsed **Advanced** section. Standard is a custom synthetic profile
+evaluation, distinct from executable production qualification and SWE-bench.
 
 Engineering benchmarks separate tool contracts, workflow simulation, executable
 coding and live GitHub evidence. Context comparisons keep model, source, tasks,

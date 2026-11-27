@@ -1,8 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
-/** Version thirteen adds autonomous tool selection to the offline GitHub integration audit. */
+/** Version fourteen adds a unified profile suite; earlier mode manifests remain unchanged. */
 internal object BenchmarkSuiteRegistry {
-    const val VERSION = 13
+    const val VERSION = 14
     const val MIN_TIMING_REFERENCE_UNITS = 128
     val quick: List<BenchmarkCase> by lazy { cases(BenchmarkMode.QUICK, 0) }
     val full: List<BenchmarkCase> by lazy { cases(BenchmarkMode.FULL, 0) }
@@ -12,6 +12,7 @@ internal object BenchmarkSuiteRegistry {
     fun githubAuditCases(allActions: Boolean): List<BenchmarkCase> = GitHubProfileAuditSuite.cases(allActions) + GitHubEngineeringBenchmarkSuite.cases(autonomous = true)
 
     fun cases(mode: BenchmarkMode, rotationSeed: Long): List<BenchmarkCase> {
+        if (mode == BenchmarkMode.STANDARD) return UnifiedProfileBenchmarkSuite.cases(rotationSeed)
         if (mode == BenchmarkMode.APP_AUDIT) return emptyList()
         if (mode == BenchmarkMode.GITHUB_INTEGRATION) return githubAuditCases(allActions = true)
         if (mode == BenchmarkMode.PERFORMANCE) return BenchmarkPerformanceSuite.cases()
@@ -27,6 +28,7 @@ internal object BenchmarkSuiteRegistry {
 }
 
 internal fun benchmarkSuiteForVersion(version: Int, mode: BenchmarkMode, rotationSeed: Long = 0): List<BenchmarkCase> = when {
+    mode == BenchmarkMode.STANDARD && version < 14 -> emptyList()
     mode == BenchmarkMode.APP_AUDIT -> emptyList()
     mode == BenchmarkMode.GITHUB_INTEGRATION -> if (version <= 10) {
         GitHubProfileAuditSuite.cases(allActions = true)
@@ -34,7 +36,7 @@ internal fun benchmarkSuiteForVersion(version: Int, mode: BenchmarkMode, rotatio
         GitHubProfileAuditSuite.cases(allActions = true) + GitHubEngineeringBenchmarkSuite.cases(legacy = version <= 11, autonomous = version >= 13)
     }
     mode == BenchmarkMode.CPU_EXPERIMENT && version >= 9 -> BenchmarkCpuExperiment.cases()
-    version in 10..13 -> BenchmarkSuiteRegistry.cases(mode, rotationSeed)
+    version in 10..14 -> BenchmarkSuiteRegistry.cases(mode, rotationSeed)
     version == 9 -> when (mode) {
         BenchmarkMode.QUICK -> BenchmarkSuite9.quick
         BenchmarkMode.DIAGNOSTIC -> BenchmarkCapabilitySuite.cases

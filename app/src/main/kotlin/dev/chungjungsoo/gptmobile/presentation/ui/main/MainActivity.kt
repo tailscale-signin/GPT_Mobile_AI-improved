@@ -13,7 +13,9 @@ import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -89,11 +91,15 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     customPrimaryArgb = LocalCustomPrimaryArgb.current,
                     customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
                 ) {
+                    val startupSurface = androidx.compose.material3.MaterialTheme.colorScheme.surface
+                    SideEffect { window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(startupSurface.toArgb())) }
                     IssueReportHost(issueReportViewModel, showPrompts = isReady || startupError != null, onOpenGitHubSettings = { if (isReady) navController.navigate(Route.TOOL_CONNECTIONS) { launchSingleTop = true } }) { openReport ->
                         if (startupError != null) {
                             StartupRecoveryScreen(requireNotNull(startupError), mainViewModel::retryStartup)
                         } else if (!isReady) {
-                            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
+                            androidx.compose.material3.Surface(modifier = androidx.compose.ui.Modifier.fillMaxSize(), color = startupSurface) {
+                                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
+                            }
                         } else {
                             dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost {
                                 SetupNavGraph(

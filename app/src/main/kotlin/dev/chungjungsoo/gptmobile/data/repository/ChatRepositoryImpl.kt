@@ -2116,7 +2116,7 @@ class ChatRepositoryImpl(
         val completeHistory = assistantMessages.map { turn -> turn.map { resolveCombinedMessage(it) } }
         val features = settingRepository.getFeatureSettings()
         val githubProfile = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.platform(platform, features, chatToolConfig?.github)
-        val githubTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, features, platform.uid)
+        val githubTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, features, platform.uid, userMessages.lastOrNull()?.content.orEmpty())
         if (privateMode == null) {
             (userMessages + completeHistory.flatten()).filter { message ->
                 message.id > 0 &&
@@ -3415,7 +3415,9 @@ class ChatRepositoryImpl(
         runId: String
     ): dev.chungjungsoo.gptmobile.data.readiness.PreparationPlan {
         val acceptedText = originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()
-        val requiredIntent = Regex("(?iu)\\b(search|research|browse|look up|remember|forget|recall|previous conversation|my saved|my memory|github|repository|calendar|email|airbnb|pubmed|scholar)\\b").containsMatchIn(acceptedText)
+        val requiredIntent = Regex("(?iu)\\b(search|research|browse|look up|remember|forget|recall|previous conversation|my saved|my memory|github|repository|calendar|email|airbnb|pubmed|scholar)\\b").containsMatchIn(acceptedText) ||
+            dev.chungjungsoo.gptmobile.data.research.ResearchImplementationArtifact.requested(acceptedText) ||
+            dev.chungjungsoo.gptmobile.data.agent.IntelligenceIntent.from(acceptedText, chatToolConfig?.github != null).repository
         val preparationPlan = dev.chungjungsoo.gptmobile.data.readiness.SendPreparationPlanner.classify(
             acceptedText,
             hasAttachments = effectiveUserMessages.lastOrNull()?.attachments?.isNotEmpty() == true,
@@ -3456,14 +3458,22 @@ class ChatRepositoryImpl(
         val runId = input.runId
         val chatToolConfig = input.chatToolConfig
         val runFeatures = admission.runFeatures
-        val admittedProfiles = admission.admittedProfiles
+        val admittedProfiles = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.researchProfiles(platform, admission.admittedProfiles, chatToolConfig?.github)
         val turnKey = admission.turnKey
         val researchChatId = admission.researchChatId
         val admittedResearchJournal = admission.admittedResearchJournal
         val directConfig = delegationConfig.copy(researchEnabled = true, automaticResearch = true)
         suspend fun researchAllowed(): Boolean {
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
             val live = settingRepository.getFeatureSettings()
-            return live.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+            val current = settingRepository.fetchPlatformV2s().singleOrNull { it.uid == platform.uid } ?: return false
+            val selectedTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, live, platform.uid)
+            return current.enabled && !current.disableAllTools && !current.disableRemoteTools &&
+                selectedTools?.allToolsDisabled != true &&
+                "deep_research" !in selectedTools?.disabledToolIds.orEmpty() &&
+                dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.settings(live, platform.uid, chatToolConfig?.github)?.webSearch != false &&
+                live.researchFeature.enabled &&
+                live.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
                 live.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
                 live.delegationFor(platform.uid).deepResearch.enabled &&
                 (live.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
@@ -3507,13 +3517,7 @@ class ChatRepositoryImpl(
             generate = { _, _ -> null }, // The typed stage coordinator owns every model invocation.
             modelCoordinator = modelWorker,
             journal = researchJournal,
-            stillEnabled = {
-                val current = settingRepository.getFeatureSettings()
-                current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                    current.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                    current.delegationFor(platform.uid).deepResearch.enabled &&
-                    (current.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
-            }
+            stillEnabled = ::researchAllowed
         ).run(researchTask, "$runId:research-acquisition")
         chatToolConfig?.combined?.let { combined ->
             examinationBarrier?.get()?.await(combined, platform.uid, turnKey)
@@ -3713,7 +3717,7 @@ class ChatRepositoryImpl(
         }
         var contextPlan = preparePrimaryDispatchInitialContext()
         suspend fun preparePrimaryDispatchRepositoryEvidence() {
-            if (chatToolConfig?.github != null && input.stage?.writerRequestPlan == null && !input.verificationOnlyRequested) {
+            if (repositoryTask && chatToolConfig?.github != null && input.stage?.writerRequestPlan == null && !input.verificationOnlyRequested) {
                 val available = dev.chungjungsoo.gptmobile.data.context.PreparedContextBudget.optionalTokens(contextPlan, promptContextTokens, limits.outputTokens)
                 if (available >= 256) {
                     val prepared = dev.chungjungsoo.gptmobile.data.context.PreparedContextBudget.repositorySections(
@@ -3809,7 +3813,7 @@ class ChatRepositoryImpl(
             !platform.disableAllTools &&
             !platform.disableLocalTools
         val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
-        val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, !input.verificationOnlyRequested && input.chatToolConfig?.github == null && preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK && !synthesisRun && !privateConversation)
+        val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, !input.verificationOnlyRequested && preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK && !synthesisRun && !privateConversation, latestUser?.id ?: 0, input.chatToolConfig)
         val documentConsentGeneration = factVault?.recallGeneration()
         val documentRecall = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) {
             if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) null else latestUser?.let { knowledge?.recall(it.chatId, it.content) }
@@ -3975,6 +3979,9 @@ class ChatRepositoryImpl(
                     initialDelegationSettings.deepResearch.enabled &&
                     runFeatures.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
                     runFeatures.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                    runFeatures.researchFeature.enabled &&
+                    chatToolConfig?.allToolsDisabled != true &&
+                    "deep_research" !in chatToolConfig?.disabledToolIds.orEmpty() &&
                     !platform.disableAllTools &&
                     !platform.disableRemoteTools &&
                     !synthesisRun
@@ -4030,7 +4037,7 @@ class ChatRepositoryImpl(
 
     private data class AuthorizedResearchMemory(val text: String, val evidenceIds: List<String>, val validate: suspend () -> Boolean)
 
-    private suspend fun prepareResearchMemory(platform: PlatformV2, task: String, chatId: Int?, eligible: Boolean): AuthorizedResearchMemory {
+    private suspend fun prepareResearchMemory(platform: PlatformV2, task: String, chatId: Int?, eligible: Boolean, sourceMessageId: Int = 0, chatToolConfig: ChatMcpToolConfig? = null): AuthorizedResearchMemory {
         suspend fun permitted(): Boolean {
             if (!eligible || platform.excludesMemory() || chatId == null || agentPersistenceDao.getChatRoom(chatId)?.isTemporary != false) return false
             val live = settingRepository.getFeatureSettings()
@@ -4043,7 +4050,23 @@ class ChatRepositoryImpl(
                 (platform.isPrivateDestination() || memory.settings.allowCloudRecall && live.researchFeature.shareResearchRecall)
         }
         val packet = researchRecall?.recall(task, ::permitted) ?: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallPacket()
-        return AuthorizedResearchMemory(packet.text, packet.outcomes.map { "study:${it.outcomeId}:${it.versionId}" }) { researchRecall?.validate(packet, ::permitted) != false }
+        suspend fun conversationPermitted(): Boolean {
+            if (!eligible || chatId == null || platform.excludesMemory() || platform.disableAllTools || platform.disableLocalTools) return false
+            if (chatToolConfig?.allToolsDisabled == true || "deep_research" in chatToolConfig?.disabledToolIds.orEmpty()) return false
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+            val current = settingRepository.fetchPlatformV2s().singleOrNull { it.uid == platform.uid } ?: return false
+            if (!current.enabled || current.excludesMemory() || current.disableAllTools || current.disableLocalTools) return false
+            val room = agentPersistenceDao.getChatRoom(chatId) ?: return false
+            if (room.isTemporary || room.privacyModeLocked) return false
+            val live = settingRepository.getFeatureSettings()
+            return live.researchFeature.enabled && live.isToolPluginEnabledForProfile(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)
+        }
+        val artifact = if (conversationPermitted()) researchSessions?.implementationArtifact(requireNotNull(chatId), task, sourceMessageId) else null
+        val identifiers = packet.outcomes.map { "study:${it.outcomeId}:${it.versionId}" } + listOfNotNull(artifact?.let { "research-artifact:${it.id}" })
+        return AuthorizedResearchMemory(packet.text + artifact?.text.orEmpty(), identifiers) {
+            researchRecall?.validate(packet, ::permitted) != false &&
+                (artifact == null || conversationPermitted() && researchSessions?.implementationArtifact(requireNotNull(chatId), task, sourceMessageId, artifact.runId)?.id == artifact.id)
+        }
     }
 
     /** Reuse received public passages, never a previous answer's support verdict or mutable input snapshot. */
@@ -4602,7 +4625,10 @@ class ChatRepositoryImpl(
         val readReference: GitHubReadReference?
     ) {
         val githubTask: Boolean get() = chatToolConfig?.voiceResponsePolicy?.translationOnly != true &&
-            (chatToolConfig?.github != null || dev.chungjungsoo.gptmobile.data.agent.requiresNativeGitHubAcceptance(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(), true))
+            dev.chungjungsoo.gptmobile.data.agent.IntelligenceIntent.from(
+                taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(),
+                selectedRepository = chatToolConfig?.github != null
+            ).repository
         val verificationOnlyRequested: Boolean get() = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RESUME_VERIFICATION
 
         // Delivery still validates saved-evidence access, but must not require an
@@ -5081,7 +5107,7 @@ class ChatRepositoryImpl(
         reviewUnavailable: Boolean
     ): String {
         val task = recovery?.originalRequest ?: user?.content.orEmpty()
-        val workspace = config?.github
+        val workspace = config?.github?.takeIf { dev.chungjungsoo.gptmobile.data.agent.IntelligenceIntent.from(task, selectedRepository = true).repository }
         val compact = compactGitHub &&
             !localResearch &&
             !reviewUnavailable &&
@@ -5473,6 +5499,10 @@ class ChatRepositoryImpl(
                 it.restore()
                 val definitions = evidenceTools.filter { tool -> tool.nativeGitHub }.map { tool -> tool.tool.definition }
                 it.retainTaskContract(if (reuse) previousTask else githubEffectiveTask, sourceMessageId ?: user.id, definitions, callLimit, executionCallLimit, acceptedHeadSha = taskScope.observedCommitSha)
+                if (githubContext != null && gitHubDecisions != null) {
+                    gitHubDecisions.load()
+                    it.retainDecisionWaits(gitHubDecisions.decisions.value, user.chatId, githubContext)
+                }
                 if (reuse) it.authorizeTimeWindow(originalUserRequest, user.id, user.createdAt, executionAllowed = !verificationOnlyRequested && providerResumeContext == null)
                 it.retainPolicy(dispatchAuthority.revision, definitions)
             }
@@ -8316,6 +8346,9 @@ class ChatRepositoryImpl(
         }
         return finished
     }
+
+    override suspend fun discardInterruptedAgentRun(runId: String, expectedFence: Long, completedAt: Long): Boolean =
+        agentRunDao.discardInterrupted(runId, expectedFence, completedAt) == 1
 
     override suspend fun finishInterruptedAgentRun(
         runId: String,

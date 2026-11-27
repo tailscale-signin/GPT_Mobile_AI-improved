@@ -165,18 +165,25 @@ internal class GitHubRepositorySession(
         return cachedSource(sourceScope, treeKey)?.takeIf { it.s("tree_sha") == context.treeSha }
     }
 
-    private suspend fun tree(context: GitHubTaskSnapshot): JsonObject {
+    private suspend fun tree(context: GitHubTaskSnapshot, continueDiscovery: Boolean = false, retryDiscovery: Boolean = false): JsonObject {
         val scope = blobScope(context)
-        retainedTree(context)?.let { return it }
-        val response = GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/${context.treeSha}?recursive=1").jsonObject, context.treeSha)
-        val entries = response.getValue("tree").jsonArray
-        val bounded = buildJsonObject {
-            put("tree", JsonArray(entries.take(20000).map { row -> JsonObject(row.jsonObject.filterKeys { it in setOf("path", "sha", "size", "type", "mode") }) }))
-            put("truncated", entries.size > 20000 || response["truncated"]?.jsonPrimitive?.booleanOrNull == true)
-            put("tree_sha", context.treeSha)
+        val key = "phone-graph:tree-v$GITHUB_TREE_CACHE_VERSION:${context.treeSha}"
+        val bounded = retainedTree(context) ?: run {
+            val response = GitHubRepositoryIndex.checkedTree(request("${root(context.owner, context.repo)}/git/trees/${context.treeSha}?recursive=1").jsonObject, context.treeSha)
+            PhoneRepositoryTreeDiscovery.initial(response, context.treeSha).also { store.write(scope, key, it) }
         }
-        store.write(scope, "phone-graph:tree-v$GITHUB_TREE_CACHE_VERSION:${context.treeSha}", bounded)
-        return bounded
+        if (!continueDiscovery) return bounded
+        return PhoneRepositoryTreeDiscovery.advance(
+            bounded,
+            fetch = { sha ->
+                val directoryKey = "phone-graph:directory-v$GITHUB_TREE_CACHE_VERSION:$sha"
+                cachedSource(scope, directoryKey)?.takeUnless { retryDiscovery } ?: GitHubRepositoryIndex.checkedPinnedTree(
+                    request("${root(context.owner, context.repo)}/git/trees/$sha"), sha
+                ).also { if (it["truncated"] == JsonPrimitive(false)) store.write(scope, directoryKey, it) }
+            },
+            retryFailed = retryDiscovery,
+            checkpoint = { store.write(scope, key, it) }
+        )
     }
 
     private suspend fun directoryTree(context: GitHubTaskSnapshot, sha: String, allowMissingIdentity: Boolean): JsonObject? = try {
@@ -562,7 +569,7 @@ internal class GitHubRepositorySession(
                     withRequestedPaths(context, tree(context), named)
                 }
             } else {
-                tree(context)
+                tree(context, continueDiscovery = action == "index", retryDiscovery = args["retry_failed"] == JsonPrimitive(true))
             }
         } ?: throw readBudgetExpired(context, "phone_index_tree")
         if (action == "task_context_bundle") return@withContext taskContextBundle(context, tree, args)
@@ -586,18 +593,21 @@ internal class GitHubRepositorySession(
         val checkpointKey = "phone-map-progress:v$GITHUB_TREE_CACHE_VERSION:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}:order:$orderIdentity"
         val cursorPrefix = "phone-index:${GitHubRepositoryStateStore.digest("$GITHUB_TREE_CACHE_VERSION|$accountId|$connectionUid|${context.owner.lowercase()}/${context.repo.lowercase()}|${context.commitSha}|${context.treeSha}|${PhoneRepositoryGraph.PARSER_VERSION}|$orderIdentity").take(32)}:"
         val saved = store.read(sourceScope, checkpointKey)
-        val savedPosition = (saved?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..eligible.size } ?: 0
+        val inventoryDigest = GitHubRepositoryStateStore.digest(eligible.joinToString("\n") { it.s("path") + ":" + it.s("sha") })
+        val priorPosition = (saved?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 } ?: 0
+        val inventoryChanged = saved != null && saved["inventory_digest"] != JsonPrimitive(inventoryDigest)
+        val savedPosition = if (inventoryChanged) 0 else priorPosition.coerceAtMost(eligible.size)
         val suppliedCursor = args.s("index_cursor")
         val start = when {
             args["retry_failed"] == JsonPrimitive(true) -> 0
             suppliedCursor.isNotBlank() -> {
                 if (!suppliedCursor.startsWith(cursorPrefix)) throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_STALE", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
-                val position = suppliedCursor.removePrefix(cursorPrefix).toIntOrNull()?.takeIf { it in 0..eligible.size }
+                val position = suppliedCursor.removePrefix(cursorPrefix).toIntOrNull()?.takeIf { it >= 0 && it <= maxOf(priorPosition, eligible.size) }
                     ?: throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_INVALID", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
                 // Older checkpoints may replay already traversed immutable source.
                 // A synthesized future suffix must never skip unread candidates.
-                if (position > savedPosition) throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_UNISSUED", "This index cursor is ahead of the retained progress. Read the current phone map status before continuing.", "REFRESH_PHONE_MAP")
-                position
+                if (position > priorPosition) throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_UNISSUED", "This index cursor is ahead of the retained progress. Read the current phone map status before continuing.", "REFRESH_PHONE_MAP")
+                if (inventoryChanged) 0 else position
             }
             else -> savedPosition
         }
@@ -635,7 +645,12 @@ internal class GitHubRepositorySession(
                         val previousPosition = (previous?.get("prepared_through") as? JsonPrimitive)?.intOrNull ?: 0
                         val currentPosition = requireNotNull((progress["prepared_through"] as? JsonPrimitive)?.intOrNull)
                         // Replaying an older issued cursor cannot erase a later durable frontier.
-                        if (args["retry_failed"] != JsonPrimitive(true) && previousPosition > currentPosition) requireNotNull(previous) else progress
+                        val sameInventory = previous?.get("inventory_digest") == JsonPrimitive(inventoryDigest)
+                        if (sameInventory && args["retry_failed"] != JsonPrimitive(true) && previousPosition > currentPosition) {
+                            requireNotNull(previous)
+                        } else {
+                            JsonObject(progress + ("inventory_digest" to JsonPrimitive(inventoryDigest)))
+                        }
                     }
                 }
             )
@@ -720,7 +735,8 @@ internal class GitHubRepositorySession(
         val treeComplete = tree["truncated"] != JsonPrimitive(true)
         val selectionComplete = inventoryComplete && indexed == eligible.size && treeComplete
         val coverageComplete = selectionComplete && !requestedSample
-        val more = !selectionComplete && position < eligible.size
+        val treeCanContinue = !treeComplete && tree["tree_capacity_reached"] != JsonPrimitive(true) && tree["tree_discovery_blocked"] != JsonPrimitive(true)
+        val more = !selectionComplete && (position < eligible.size || treeCanContinue)
         val status = buildJsonObject {
             batch?.filterKeys { it in setOf("prepared_through", "fetched_this_batch", "attempted_this_batch", "skipped_this_batch", "prepared_bytes_this_batch", "read_deadline_reached", "deferred_files", "stop_reason") }?.forEach { (name, value) -> put(name, value) }
             put("commit_sha", context.commitSha)
@@ -749,6 +765,10 @@ internal class GitHubRepositorySession(
             put("expected_files", allEligible.size)
             put("excluded_nonindexable_paths", entries.size - allEligible.size)
             put("tree_complete", treeComplete)
+            put("tree_discovery_pending", treeCanContinue)
+            tree["pending_directories"]?.let { put("pending_directories", it) }
+            tree["tree_capacity_reached"]?.let { put("tree_capacity_reached", it) }
+            tree["tree_discovery_blocked"]?.let { put("tree_discovery_blocked", it) }
             put("complete", coverageComplete)
             put("coverage_complete", coverageComplete)
             put("processing_complete", coverageComplete || position == eligible.size)

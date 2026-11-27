@@ -60,6 +60,17 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 - Use built-in engineering for verified Gateway owners, restore the route and wake the selected local model on send. Preserve grants and individual job controls and avoid database writes when polling unchanged owner settings.
 - Add behavioral regression coverage for the recorded budget, completion, repeated-wait, evidence-reuse, source-selection and qualification scenarios.
 
+## Unified intelligence and interface update
+
+- Persist GitHub decisions before presentation, park waiting invocations without occupying model workers, retain original task and profile identity, and exclude user waits only from relative active-time allowances.
+- Collapse the full GitHub header to one saved arrow control, use standard report modal ownership, match startup surfaces to supported theme colors, and engage the conversation anchor on manual bottom arrival.
+- Show Resume and Discard for persisted interrupted runs, preserving existing original-job reconciliation, tool receipts and provider-aware checkpoint recovery.
+- Maintain Gateway repository branches between conversations and reconcile verified compressed structural deltas on Android connection, preserving the previous valid snapshot until a complete transfer validates.
+- Prioritize essential repository source and reuse immutable blobs on Android, with bounded parallel retrieval and resumable discovery of truncated trees.
+- Route general questions and research in GitHub chat without unnecessary repository work; reuse captured same-conversation research findings under current authorization and source verification.
+- Precache authorized tool definitions and exact schema costs in the existing encrypted store while retaining current executor permissions, selected profile restrictions and bounded model-facing schema admission.
+- Provide a one-button Standard profile benchmark with nine weighted categories, coverage-aware scores, history and export, while retaining native campaigns and diagnostics under Advanced.
+
 ## Qualification and remaining limits
 
 Publication requires successful validation of the final PR head, main revision and signed artifacts. The release workflow records source identity, checksums, signing/provenance evidence and publication receipts.
@@ -83,3 +94,7 @@ Publication requires successful validation of the final PR head, main revision a
 Published tags remain immutable, and a passing earlier revision does not qualify a later commit.
 
 - Source retrieval measurements and host fixtures do not establish handset performance, an upstream Copilot entitlement, or an installed-product quality score.
+
+- The Standard nine-category benchmark uses original synthetic reasoning and offline engineering fixtures. It is not an official SWE-bench score or proof of live production performance; missing evidence prevents a comparable overall score.
+- Theme variants, process-death recovery, predictive-back dismissal, 24-hour choices, physical handset performance targets and final installed Windows-to-phone synchronization still need device qualification. No improvement percentage is claimed from source changes.
+- Gateway synchronization transfers bounded structural source identities and lexical candidates. A completed transfer can still have partial source coverage; cached schemas and historical research never grant current execution authority.

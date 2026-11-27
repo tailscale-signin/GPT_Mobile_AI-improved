@@ -42,4 +42,13 @@ class RepositorySourcePriorityTest {
         assertTrue(RepositorySourcePriority.sample(listOf(entry("README.md"))).isEmpty())
         assertEquals(JsonPrimitive("100644"), entries.first()["mode"])
     }
+
+    @Test fun architectureAndBuildEntryPointsAreReadyBeforeBroadSourceEnrichment() {
+        val paths = listOf("src/Alpha.kt", "README.md", "app/build.gradle.kts", "app/src/main/AndroidManifest.xml", "app/src/main/MainActivity.kt", "vendor/README.md")
+        val ordered = RepositorySourcePriority.ordered(paths.map(::entry)).map { it.getValue("path").jsonPrimitive.content }
+        assertTrue(ordered.indexOf("README.md") < ordered.indexOf("src/Alpha.kt"))
+        assertTrue(ordered.indexOf("app/build.gradle.kts") < ordered.indexOf("src/Alpha.kt"))
+        assertTrue(ordered.indexOf("app/src/main/AndroidManifest.xml") < ordered.indexOf("src/Alpha.kt"))
+        assertEquals("vendor/README.md", ordered.last())
+    }
 }

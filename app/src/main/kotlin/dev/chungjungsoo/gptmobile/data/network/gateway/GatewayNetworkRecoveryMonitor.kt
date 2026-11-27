@@ -20,8 +20,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -37,7 +39,8 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
     private val agentRunCoordinator: AgentRunCoordinator,
     private val chatRepository: ChatRepository,
     private val settings: SettingRepository,
-    private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository
+    private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository,
+    private val repositoryIndexes: dev.chungjungsoo.gptmobile.data.github.GatewayIndexSyncService
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
@@ -129,6 +132,23 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
             // A run becoming interrupted on an unchanged network must also wake
             // recovery. Ignore token/progress updates while its live owner exists.
             agentRunCoordinator.activeRuns.map { it.keys.toSet() }.distinctUntilChanged().collect { recoveryPolling.wake() }
+        }
+        scope.launch {
+            kotlinx.coroutines.flow.combine(routeAvailable, routeChanges) { available, revision -> available to revision }
+                .collectLatest { (available, _) ->
+                    if (available) {
+                        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                            try {
+                                repositoryIndexes.synchronizeKnownRepositories()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("RepositoryIndex", "SYNC_SLICE_DEFERRED · reason=${failure.javaClass.simpleName}", "W")
+                            }
+                            kotlinx.coroutines.delay(90_000)
+                        }
+                    }
+                }
         }
     }
 

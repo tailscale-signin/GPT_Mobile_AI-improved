@@ -1,0 +1,106 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 2651,
+  "base_branch": "main",
+  "observed_base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head_sha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
+  "intent": "Implement the user's unified intelligence and interface guide by extending existing durable execution, repository intelligence, tool routing and benchmark systems.",
+  "state": "implemented_host_checks_passed_hosted_validation_pending",
+  "workstreams": {
+    "android_lifecycle": [
+      "durable choices",
+      "arrow-only header",
+      "modal dismissal",
+      "themed startup",
+      "interrupted generation recovery",
+      "bottom scroll anchor"
+    ],
+    "repository_index": [
+      "Gateway maintenance and reconnect synchronization",
+      "progressive direct-phone indexing"
+    ],
+    "intelligence_tools": [
+      "general and research intent routing",
+      "persistent authorized capability catalog",
+      "research follow-up reuse"
+    ],
+    "benchmark": [
+      "single-button standard benchmark",
+      "nine weighted categories",
+      "coverage-aware results",
+      "retained advanced campaigns"
+    ]
+  },
+  "concurrency": "Recheck the live branch before publishing; retain incoming commits and use normal fast-forward push only.",
+  "validation": [
+    {
+      "check": "python3 scripts/check_android_regex.py",
+      "status": "passed",
+      "evidence": "2312 literal patterns, 153 dynamic patterns skipped, zero errors"
+    },
+    {
+      "check": "bash scripts/validate.sh resources",
+      "status": "passed",
+      "evidence": "38 XML resources, icon and existing provenance checks"
+    },
+    {
+      "check": "Gateway incremental delivery",
+      "status": "passed",
+      "tests": 9
+    },
+    {
+      "check": "Gateway repository synchronization and maintenance",
+      "status": "passed",
+      "tests": 40,
+      "note": "Includes 15 new cases and inherited graph fixtures"
+    },
+    {
+      "check": "Gateway durable index jobs",
+      "status": "passed",
+      "tests": 32
+    },
+    {
+      "check": "Routing replay host regressions",
+      "status": "passed",
+      "tests": 4
+    },
+    {
+      "check": "Full Gateway regression gate",
+      "status": "running"
+    },
+    {
+      "check": "Android Kotlin/Compose/JVM",
+      "status": "awaiting_hosted_ci",
+      "note": "Local Gradle distribution download failed with Network unreachable; Android SDK absent"
+    },
+    {
+      "check": "bash scripts/validate-local.sh fast",
+      "status": "passed",
+      "tests": 848,
+      "skipped": 1,
+      "evidence": "Generated references, dependency catalog, package hashes, secrets scan, host regressions, regex, resources and diff whitespace passed."
+    },
+    {
+      "check": "Gateway initial full-gate environment",
+      "status": "dependency_repaired",
+      "evidence": "A sandboxed child process could not inherit PYTHONPATH for requests. Prepared an isolated interpreter using locally installed dependencies; rerunning the affected suite and canonical gate."
+    }
+  ],
+  "unmeasured": [
+    "physical Android process-death and gesture behavior",
+    "Snapdragon 8 Elite performance targets",
+    "Windows installer behavior at the final commit",
+    "live paid provider and comparative model scores"
+  ],
+  "release": "No merge or release qualification is claimed by this checkpoint.",
+  "implementation_limits": [
+    "Direct provider recovery uses saved checkpoints; new provider-native stored-response retrieval and event-cursor replay were not added.",
+    "Gateway synchronization transfers bounded structural records and lexical candidates, not raw source or compiler verification.",
+    "Phone discovery is bounded at 20000 paths and mirrored structural records at 25000; excess coverage stays partial.",
+    "The Standard score is custom synthetic/offline evaluation, separate from signed production qualification and official SWE-bench."
+  ],
+  "concurrency_checks": [
+    "Remote branch remained at starting_head_sha through final source implementation. Fetch deepened branch ancestry to verify the observed main base. Recheck before normal push."
+  ]
+}

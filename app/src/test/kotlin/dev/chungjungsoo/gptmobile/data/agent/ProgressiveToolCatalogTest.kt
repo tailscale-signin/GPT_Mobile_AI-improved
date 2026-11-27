@@ -455,13 +455,25 @@ class ProgressiveToolCatalogTest {
                 val definitions = deferredOperations + readers
                 val catalog = ProgressiveToolCatalog(definitions, task, githubMode = true)
                 val allowed = definitions + catalog.definition
-                assertEquals(readers.map { it.name }.toSet() + ProgressiveToolCatalog.NAME, catalog.selected(allowed).map { it.name }.toSet())
+                val expectedReaders = if (task == "hello") emptySet() else readers.map { it.name }.toSet()
+                assertEquals(expectedReaders + ProgressiveToolCatalog.NAME, catalog.selected(allowed).map { it.name }.toSet())
                 val discovered = catalog.execute("discover-write", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_write")))) })
                 assertFalse(discovered.isError)
                 assertFalse(discovered.dispatched)
                 assertTrue(catalog.selected(allowed).contains(deferredOperations.first()))
             }
         }
+    }
+
+    @Test fun researchInGitHubChatStartsWithWebSchemasWithoutRepositorySchemas() {
+        val web = AgentToolDefinition("web_search", "Search the web", JsonObject(emptyMap()), setOf(AgentToolCapability.WEB_SEARCH))
+        val reader = AgentToolDefinition("read_url", "Read a web source", JsonObject(emptyMap()), setOf(AgentToolCapability.PAGE_READER))
+        val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) } + web + reader
+        val catalog = ProgressiveToolCatalog(definitions, "Research the latest Android incremental indexing libraries", githubMode = true)
+        val selected = catalog.selected(definitions + catalog.definition)
+        assertTrue(selected.any { it.name == "web_search" })
+        assertTrue(selected.any { it.name == "read_url" })
+        assertFalse(selected.any { it.name.startsWith("github_") })
     }
 
     @Test fun explicitLargeGithubDiscoveryReachesHardAdmissionInStatusAndIntegrationCatalogs() = runTest {

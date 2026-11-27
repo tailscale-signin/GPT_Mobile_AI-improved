@@ -383,37 +383,45 @@ class AgentToolResolverTest {
     @Test fun transportFreeAdmissionUsesTheSameGitHubProfileProjectionAsResolution() = runBlocking {
         val profile = PlatformV2(uid = "github-local", name = "GitHub local", disableAllTools = true, disableLocalTools = true, disableRemoteTools = true)
         val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
-        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val profiles = mutableListOf(profile)
+        val settings = ResolverFakeSettingRepository(profiles)
         val subject = resolver(settings = settings)
         val selected = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf("calculate_expression", "current_date", "read_file_slice"), github = workspace)
         assertTrue(subject.resolve(profile.uid).isEmpty())
+        assertTrue(subject.resolve(profile.uid, selected).isEmpty())
+        profiles[0] = profile.copy(disableAllTools = false, disableLocalTools = false)
         val tools = subject.resolve(profile.uid, selected)
         assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), tools.map { it.modelToolName })
         assertTrue(tools.all { it.executionAdmission(buildJsonObject {}).invoke() })
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.CURRENT_DATE, false)
         assertFalse(tools.single { it.modelToolName == "current_date" }.executionAdmission(buildJsonObject {}).invoke())
         assertTrue(tools.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject {}).invoke())
+        profiles[0] = profile
+        assertFalse(tools.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject {}).invoke())
         assertTrue(subject.resolve(profile.uid).isEmpty())
     }
 
-    @Test fun githubOverrideEnablesSearchWithoutChangingOrdinaryProfileAndRevokesLive() = runBlocking {
-        val profile = PlatformV2(uid = "github-profile", name = "GitHub", disableAllTools = true, disableRemoteTools = true)
+    @Test fun githubSearchPreservesGlobalOptOutAndRevokesLiveAfterExplicitEnablement() = runBlocking {
+        val profile = PlatformV2(uid = "github-profile", name = "GitHub")
         val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
         val settings = ResolverFakeSettingRepository(listOf(profile))
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
         val resolver = resolver(settings = settings)
-        assertTrue(resolver.resolve(profile.uid).isEmpty())
+        assertFalse(resolver.resolve(profile.uid).any { it.realToolName == "web_search" })
+        val denied = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid)
+        assertFalse(resolver.resolve(profile.uid, denied).any { it.realToolName == "web_search" })
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, true)
         val selected = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid)
         val search = resolver.resolve(profile.uid, selected).single { it.connectionUid == null && it.realToolName == "web_search" }
         assertTrue(requireNotNull(search.canReuseResult).invoke())
         settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(webSearch = false)))
         assertFalse(requireNotNull(search.canReuseResult).invoke())
-        assertTrue(resolver.resolve(profile.uid).isEmpty())
+        assertFalse(resolver.resolve(profile.uid, selected).any { it.realToolName == "web_search" })
     }
 
     @Test fun githubOverrideSupportsColdMcpDiscoveryAndRevokesSavedReadAuthority() = runBlocking {
         McpClientManagerTest.McpFixtureServer().use { server ->
-            val profile = PlatformV2(uid = "github-profile", name = "GitHub", disableAllTools = true, disableRemoteTools = true)
+            val profile = PlatformV2(uid = "github-profile", name = "GitHub")
             val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
             val settings = ResolverFakeSettingRepository(listOf(profile))
             val connection = connection("selected-mcp", ToolConnectionType.MCP, server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true).copy(approvedReadTools = "echo")
@@ -435,10 +443,9 @@ class AgentToolResolverTest {
                 assertFalse(directory.tool.execute("discover", buildJsonObject { put("query", "echo") }).isError)
                 val discovered = requireNotNull(directory.dynamicTools).invoke().single { it.realToolName == "echo" }
                 assertTrue(requireNotNull(discovered.canReuseResult).invoke())
-                assertTrue(resolver.resolve(profile.uid).isEmpty())
                 settings.features = settings.features.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
                 assertFalse(requireNotNull(discovered.canReuseResult).invoke())
-                assertTrue(resolver.resolve(profile.uid).isEmpty())
+                assertFalse(resolver.resolve(profile.uid).any { it.realToolName == "echo" })
             } finally {
                 manager.closeAll()
             }
@@ -1805,7 +1812,7 @@ class AgentToolResolverTest {
         assertFalse(resolver.resolve(profile.uid, selection).any { it.nativeGitHub })
     }
 
-    @Test fun nativeGithubWorkspaceResolutionDoesNotConsultUnselectedMcpConnections() = runBlocking {
+    @Test fun nativeGithubWorkspaceResolutionDoesNotConsultExplicitlyExcludedMcpConnections() = runBlocking {
         val profile = PlatformV2(uid = "native-profile", name = "Native workspace")
         val settings = ResolverFakeSettingRepository(listOf(profile))
         val saved = connection("native", ToolConnectionType.GITHUB, endpointUrl = "https://api.github.com", authType = ToolConnectionAuthType.NONE)
@@ -1816,7 +1823,7 @@ class AgentToolResolverTest {
         val manager = mockk<McpClientManager>()
         val resolver = resolver(dao = dao, settings = settings, managerOverride = manager)
         val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext(saved.connectionUid, "owner", "repo", "main", "a".repeat(40), profile.uid)
-        val selection = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid))
+        val selection = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace, disabledToolIds = setOf("offline-mcp")), settings.features, profile.uid))
         val errors = mutableListOf<String>()
         for (cachedOnly in listOf(false, true)) {
             val resolved = resolver.resolve(

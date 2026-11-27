@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Bounded observation of gateway-owned work, subject to Android background scheduling. */
@@ -14,7 +15,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class GatewayEngineeringSyncWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted parameters: WorkerParameters,
-    private val engineering: GatewayEngineeringRepository
+    private val engineering: GatewayEngineeringRepository,
+    private val repositoryIndexes: GatewayIndexSyncService
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val started = System.nanoTime()
@@ -22,6 +24,13 @@ class GatewayEngineeringSyncWorker @AssistedInject constructor(
             dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
             engineering.syncAll()
         } == true
+        try {
+            withTimeoutOrNull(15_000) { repositoryIndexes.synchronizeKnownRepositories() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            AppLogRecorder.record("RepositoryIndex", "BACKGROUND_SYNC_DEFERRED · reason=${failure.javaClass.simpleName}", "W")
+        }
         val next = GatewayObservationPolicy.next(synchronized, runAttemptCount)
         val generation = inputData.getString(GatewayEngineeringRepository.OBSERVER_GENERATION_KEY)?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) } ?: "unavailable"
         AppLogRecorder.record("GatewayObserver", "OBSERVATION_SLICE · workId=$id · generation=$generation · attempt=$runAttemptCount · outcome=$next · owner=GATEWAY · elapsedMs=${(System.nanoTime() - started) / 1_000_000}")

@@ -328,6 +328,8 @@ internal object IssueReportIncidents {
     fun chatFailure(code: String?, rateLimited: Boolean) = chatFailure(code, rateLimited, null)
 
     fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?, fields: Map<String, Any?> = emptyMap(), invocationId: String? = null) {
+        // A durable user choice is an ordinary paused workflow, not an error popup.
+        if (code == "GITHUB_CHOICE_PENDING") return
         val input = IssueReportContext.fromFields("CHAT_FAILURE", fields)
         if (code == "REVIEW_INPUT_REQUIRED" &&
             input.stage == "review_comparison" &&

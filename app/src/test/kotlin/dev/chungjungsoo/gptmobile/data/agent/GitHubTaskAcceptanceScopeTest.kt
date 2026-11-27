@@ -46,6 +46,15 @@ class GitHubTaskAcceptanceScopeTest {
         assertTrue(runCatching { requireNativeGitHubTarget(ambiguous.requiresAcceptance, ambiguous.targetCount) }.isFailure)
     }
 
+    @Test fun aSavedGitHubWorkspaceDoesNotRequireSourceRetrievalForGeneralOrResearchQuestions() {
+        for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "List my GitHub repositories")) {
+            val scope = GitHubTaskScope.select(request, workspace, listOf(target), true)
+            assertFalse(request, scope.usesRepositoryIntelligence)
+            assertFalse(request, scope.requiresAcceptance)
+            assertNull(scope.observedCommitSha)
+        }
+    }
+
     private fun mcpRead(name: String, connection: String = "official", trusted: Boolean = true, scoped: Boolean = true): ResolvedAgentTool {
         val tool = object : AgentTool {
             override val definition = AgentToolDefinition(

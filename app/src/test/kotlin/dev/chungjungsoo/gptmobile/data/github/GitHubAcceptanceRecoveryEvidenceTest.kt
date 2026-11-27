@@ -40,6 +40,17 @@ class GitHubAcceptanceRecoveryEvidenceTest {
         assertEquals(JsonPrimitive(false), (policy["policy"] as JsonObject)["required_checks_complete"])
     }
 
+    @Test fun deadlineProvenanceKeepsOnlyClosedObservedSources() {
+        for (source in GitHubAcceptanceRecoveryEvidence.deadlineSources) {
+            val retained = GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":"$source"}}"""))
+            assertEquals(JsonPrimitive(source), retained["task_deadline_source"])
+        }
+        for (source in listOf("private free-form source", "", "true")) {
+            val retained = GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":"$source"}}"""))
+            assertNull(retained["task_deadline_source"])
+        }
+    }
+
     @Test fun recoveryNamesTheActualPolicyEndpointAndAuthenticationFailure() {
         for ((protection, rules, expected) in listOf(
             Triple(403, 403, "CHECK_POLICY_READ_PERMISSIONS"),

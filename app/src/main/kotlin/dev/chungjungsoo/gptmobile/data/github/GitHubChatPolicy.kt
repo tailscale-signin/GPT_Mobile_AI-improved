@@ -8,6 +8,9 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
+import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -137,9 +140,6 @@ internal object GitHubChatPolicy {
     fun platform(profile: PlatformV2, features: AppFeatureSettings, context: GitHubConversationContext?): PlatformV2 {
         val config = settings(features, profile.uid, context) ?: return profile
         return profile.copy(
-            disableAllTools = false,
-            disableRemoteTools = false,
-            disableLocalTools = false,
             maxToolCalls = minOf(profile.maxToolCalls, callLimit(config.engineeringMode))
         )
     }
@@ -155,8 +155,12 @@ internal object GitHubChatPolicy {
     fun features(original: AppFeatureSettings, uid: String, context: GitHubConversationContext?): AppFeatureSettings {
         val config = settings(original, uid, context) ?: return original
         val workspace = requireNotNull(context)
-        val states = mapOf(ToolPluginId.GITHUB to config.githubTools, ToolPluginId.connection(workspace.connectionUid) to config.githubTools, ToolPluginId.WEB_SEARCH to config.webSearch, ToolPluginId.READ_URL to config.webSearch, ToolPluginId.LOCAL_MEMORY to false)
+        val preferences = mapOf(ToolPluginId.GITHUB to config.githubTools, ToolPluginId.connection(workspace.connectionUid) to config.githubTools, ToolPluginId.WEB_SEARCH to config.webSearch, ToolPluginId.READ_URL to config.webSearch)
+        // A workspace preference can restrict a capability; it cannot undo a
+        // plugin or profile opt-out. General chat capabilities keep their grants.
+        val states = preferences.mapValues { (id, enabled) -> enabled && original.isToolPluginEnabled(id) }
         val behavior = original.profileBehavior[uid] ?: ProfileBehaviorSettings()
+        val selected = preferences.mapValues { (id, enabled) -> enabled && original.isToolPluginSelected(uid, id) }
         val budget = original.tokenBudget.copy(
             contextTokens = if (config.maximumContext) 1_048_576 else original.tokenBudget.contextTokens,
             profileContextCeilings = if (config.maximumContext) original.tokenBudget.profileContextCeilings - uid else original.tokenBudget.profileContextCeilings,
@@ -177,12 +181,12 @@ internal object GitHubChatPolicy {
             localAssist = false,
             tokenBudget = budget,
             toolPluginStates = original.toolPluginStates + states,
-            profileBehavior = original.profileBehavior + (uid to behavior.copy(toolPluginStates = behavior.toolPluginStates + states)),
+            profileBehavior = original.profileBehavior + (uid to behavior.copy(toolPluginStates = behavior.toolPluginStates + selected)),
             engineeringProfiles = original.engineeringProfiles + (uid to EngineeringProfileSettings(config.engineeringMode, budget.contextTokens, budget.outputTokens.takeIf { it > 0 } ?: 32_768, 32_768, githubOnly = false))
         )
     }
 
-    fun tools(original: ChatMcpToolConfig?, features: AppFeatureSettings, uid: String): ChatMcpToolConfig? {
+    fun tools(original: ChatMcpToolConfig?, features: AppFeatureSettings, uid: String, requestText: String = ""): ChatMcpToolConfig? {
         val config = settings(features, uid, original?.github) ?: return original
         val request = requireNotNull(original)
         val connection = requireNotNull(request.github).connectionUid
@@ -197,19 +201,20 @@ internal object GitHubChatPolicy {
         val patchReview = delegationAllowed &&
             config.intelligenceLevel in GitHubPrimaryPatchReview.levels &&
             config.primaryPatchReviewConsent != null
-        val enabled = buildSet {
+        val available = buildSet {
             add("github_decide")
             if (delegationAllowed && config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE && config.engineeringTeamConsent != null) {
                 add("delegate_to_model")
             }
-            if (config.githubTools) add(connection)
-            if (config.webSearch) addAll(setOf("web_search", "read_url"))
-        } - request.disabledToolIds
-        val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document", "delegate_to_model", "local_assist_plan")
+            if (config.githubTools && features.isToolPluginEnabledForProfile(uid, ToolPluginId.GITHUB) && features.isToolPluginEnabledForProfile(uid, ToolPluginId.connection(connection))) add(connection)
+            if (config.webSearch && features.isToolPluginEnabledForProfile(uid, ToolPluginId.WEB_SEARCH)) add("web_search")
+            if (config.webSearch && features.isToolPluginEnabledForProfile(uid, ToolPluginId.READ_URL)) add("read_url")
+        }
+        val enabled = available.filterTo(mutableSetOf()) { request.isToolEnabled(listOf(it)) }
+        val controlled = setOf(connection, "github_decide", "web_search", "read_url", "delegate_to_model", "local_assist_plan")
         // GitHub work cannot override an explicit chat reasoning setting or force
         // an unsupported model into reasoning mode. Null delegates to capability negotiation.
         return request.copy(
-            allowAllByDefault = false,
             enabledToolIds = (request.enabledToolIds - controlled) + enabled,
             disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled),
             maxTools = request.maxTools ?: 64,
@@ -218,10 +223,29 @@ internal object GitHubChatPolicy {
             delegation = request.delegation.takeIf { recovery || patchReview || "delegate_to_model" in enabled },
             githubPatchReviewAllowed = patchReview,
             githubRecoveryExecutionAllowed = recovery,
-            research = null,
+            research = researchSelection(request, features, uid, config, requestText),
             combined = null
         )
     }
+
+    private val deepResearchRequest = Regex("(?i)^(?:please\\s+)?(?:(?:can|could|would) you\\s+)?(?:(?:do|perform|conduct|run|start)\\s+(?:a\\s+)?)?(?:deep|in[- ]depth|comprehensive)\\s+(?:search|research)\\b")
+
+    /** A sent research request uses already enabled web research, never academic consent or another profile. */
+    private fun researchSelection(request: ChatMcpToolConfig, features: AppFeatureSettings, uid: String, config: GitHubChatProfileOverride, text: String): MultiSearchResearchSelection? {
+        if (!config.webSearch) return request.research?.copy(researchToggle = false)
+        request.research?.let { return it } // Includes explicit OFF and the user's chosen depth/scope.
+        val configured = features.delegationFor(uid).deepResearch
+        if (!deepResearchRequest.containsMatchIn(text.trim()) || !configured.enabled || configured.effort <= 0 ||
+            !features.researchFeature.enabled || !features.isToolPluginEnabledForProfile(uid, ToolPluginId.DEEP_RESEARCH) ||
+            !features.isToolPluginEnabledForProfile(uid, ToolPluginId.WEB_SEARCH) || !features.isToolPluginEnabledForProfile(uid, ToolPluginId.READ_URL) ||
+            "deep_research" in request.disabledToolIds || !request.isToolEnabled(listOf("web_search")) || !request.isToolEnabled(listOf("read_url"))
+        ) return null
+        return MultiSearchResearchSelection(researchToggle = true, depth = configured.effort.coerceIn(1, 100), scope = ResearchContentScope.WEB_ONLY)
+    }
+
+    /** GitHub's bound main profile owns research as well as implementation. */
+    fun researchProfiles(primary: PlatformV2, profiles: List<PlatformV2>, context: GitHubConversationContext?): List<PlatformV2> =
+        if (context == null) profiles else profiles.filter { it.uid == context.mainProfileUid && it.uid == primary.uid }
 
     fun delegation(original: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, context: GitHubConversationContext?, team: GitHubEngineeringTeam? = null): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings =
         if (context == null) original else team?.restrict(original) ?: original.copy(enabled = false, orchestrationEnabled = false, reviewerEnabled = false, automaticResearch = false, researchEnabled = false, fallbackToAnotherProfile = false, processingOwnership = 100, approvedWorkerUids = emptyList())

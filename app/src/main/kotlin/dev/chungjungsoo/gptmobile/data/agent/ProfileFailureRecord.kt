@@ -53,7 +53,10 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val toolReconciliation: JsonObject? = null
 ) {
-    val isUserInputRequired: Boolean get() = category == "REVIEW_INPUT_REQUIRED" && phase == "review_comparison" && dispatched == false && "SELECT_REVIEW_BASELINE" in recoveryActions
+    val isUserInputRequired: Boolean get() = dispatched == false && (
+        category == "REVIEW_INPUT_REQUIRED" && phase == "review_comparison" && "SELECT_REVIEW_BASELINE" in recoveryActions ||
+            category == "GITHUB_CHOICE_PENDING" && phase == "user_decision" && "ANSWER_SAVED_CHOICE" in recoveryActions
+        )
 
     /** An expired local view needs its original source receipt, never a generic cursor retry. */
     val isSavedViewUnavailable: Boolean get() = category == "SAVED_VIEW_UNAVAILABLE"
@@ -83,15 +86,20 @@ data class ProfileFailureRecord(
             )
 
     companion object {
-        fun reviewRetryBlock(details: String?): String? = details?.takeIf { classify(it).category == "REVIEW_INPUT_REQUIRED" }?.let {
-            if (it.contains("SELECT_REVIEW_BASELINE") || it.contains("REVIEW_INPUT_REQUIRED") && it.contains("review_comparison")) {
-                "Choose a baseline for this branch review. Send the review request again with Baseline: <commit, tag or branch>. The saved draft and tool results are retained."
-            } else {
-                "This saved review requires an updated request or new evidence. Send an updated prompt; the saved draft and tool results are retained."
+        fun reviewRetryBlock(details: String?): String? {
+            if (details == null) return null
+            return when (classify(details).category) {
+                "GITHUB_CHOICE_PENDING" -> "Answer the saved choice to continue its original task. The prompt remains available after reopening this conversation."
+                "REVIEW_INPUT_REQUIRED" -> if (details.contains("SELECT_REVIEW_BASELINE") || details.contains("REVIEW_INPUT_REQUIRED") && details.contains("review_comparison")) {
+                    "Choose a baseline for this branch review. Send the review request again with Baseline: <commit, tag or branch>. The saved draft and tool results are retained."
+                } else {
+                    "This saved review requires an updated request or new evidence. Send an updated prompt; the saved draft and tool results are retained."
+                }
+                else -> null
             }
         }
 
-        private val phases = setOf("application_persistence", "admission", "model_preparation", "planning", "repository_admission", "provider_admission", "engineering_guard", "request_validation", "message_admission", "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "review_comparison", "acceptance_verification", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle")
+        private val phases = setOf("application_persistence", "admission", "model_preparation", "planning", "repository_admission", "provider_admission", "engineering_guard", "request_validation", "message_admission", "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "review_comparison", "acceptance_verification", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle", "user_decision")
         private val executionCode = Regex("EXECUTION_[A-Z0-9_]{1,72}")
         private val repositoryAdmissionCodes = setOf("GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE")
         private val githubSchemaAdmissionCodes = setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_TOOL_CONTRACT_UNSUPPORTED")
@@ -102,7 +110,7 @@ data class ProfileFailureRecord(
         private val continuationCodes = setOf("OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_NO_PROGRESS", "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED")
         private val modelPreparationCodes = setOf("MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED")
         private val providerStreamCodes = setOf("BILLING_UNAVAILABLE", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED")
-        private val typedCodes = modelPreparationCodes + providerStreamCodes + setOf("GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "PROVIDER_PRIVACY_RESTRICTED", "GITHUB_REPOSITORY_TARGET_REQUIRED", "GITHUB_REPOSITORY_TARGET_AMBIGUOUS", "REQUEST_REJECTED", "CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_VERIFICATION_INTERNAL_ERROR", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION", "GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_TOOL_BUDGET_EXHAUSTED", "GITHUB_TASK_BUDGET_EXHAUSTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+        private val typedCodes = modelPreparationCodes + providerStreamCodes + setOf("GITHUB_CHOICE_PENDING", "GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "PROVIDER_PRIVACY_RESTRICTED", "GITHUB_REPOSITORY_TARGET_REQUIRED", "GITHUB_REPOSITORY_TARGET_AMBIGUOUS", "REQUEST_REJECTED", "CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_VERIFICATION_INTERNAL_ERROR", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION", "GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_TOOL_BUDGET_EXHAUSTED", "GITHUB_TASK_BUDGET_EXHAUSTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
 
         internal fun retainedProviderCode(value: String?): String? = value?.uppercase(java.util.Locale.ROOT)?.takeIf {
             it in setOf("WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "REVIEW_INPUT_REQUIRED", "ENGINEERING_STATE_OR_INPUT_CHANGED") || it in ProviderRecoveryFailure.CODES || executionCode.matches(it) || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in capacityCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
@@ -121,7 +129,7 @@ data class ProfileFailureRecord(
             val generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             val causeTypes = (details?.get("cause_types") as? JsonArray).orEmpty().take(16).mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.length <= 160 && value.matches(Regex("[A-Za-z0-9_.$]+")) } }
             val recoveryActions = (listOfNotNull(details?.get("recovery_action") ?: details?.get("next_action")) + ((details?.get("recovery_actions") ?: details?.get("allowed_recovery_actions")) as? JsonArray).orEmpty()).mapNotNull { item ->
-                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE", "RESUME_VERIFICATION", "RESTORE_AUTHORIZED_CONFIGURATION", "WAIT_PROVIDER_DEADLINE", "INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST", "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS", "REVIEW_APPLICATION_EVIDENCE", "RESTORE_ACCEPTED_TASK_CONTRACT", "RESTORE_ACCEPTED_TASK_CRITERIA", "AUTHORIZE_NEW_TIME_WINDOW", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", "INSPECT_SAVED_PROVIDER_ATTEMPT") }
+                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("ANSWER_SAVED_CHOICE", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE", "RESUME_VERIFICATION", "RESTORE_AUTHORIZED_CONFIGURATION", "WAIT_PROVIDER_DEADLINE", "INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST", "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS", "REVIEW_APPLICATION_EVIDENCE", "RESTORE_ACCEPTED_TASK_CONTRACT", "RESTORE_ACCEPTED_TASK_CRITERIA", "AUTHORIZE_NEW_TIME_WINDOW", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", "INSPECT_SAVED_PROVIDER_ATTEMPT") }
             }.distinct()
             // A local rejection must not replace an already ambiguous remote operation.
             if (observed.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")) {
@@ -335,6 +343,7 @@ data class ProfileFailureRecord(
                 repositoryAdmission != null -> repositoryAdmission
                 githubSchemaAdmission != null -> githubSchemaAdmission
                 capacityCode != null -> capacityCode
+                details.contains("GITHUB_CHOICE_PENDING", true) -> "GITHUB_CHOICE_PENDING"
                 details.contains("WAITING_FOR_APPROVAL", true) -> "WAITING_FOR_APPROVAL"
                 continuationCode != null -> continuationCode
                 verificationCode != null -> verificationCode
@@ -386,7 +395,7 @@ data class ProfileFailureRecord(
             }
             return ProfileFailureRecord(
                 category,
-                !incompatible && !unavailablePolicy && engineeringPreflight == null && repositoryAdmission == null && githubSchemaAdmission == null && capacityCode == null && gatewayAdmission == null && (continuationCode == null || continuationCode == "OUTPUT_CONTINUATION_UNAVAILABLE") && verificationCode == null && (readinessCode == null || readinessCode == "REQUIRED_TOOL_ACQUISITION_TIMED_OUT") && contract == null && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "REQUEST_REJECTED", "POLICY_STALE", "STALE_INVENTORY", "REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "WAITING_FOR_APPROVAL"),
+                !incompatible && !unavailablePolicy && engineeringPreflight == null && repositoryAdmission == null && githubSchemaAdmission == null && capacityCode == null && gatewayAdmission == null && (continuationCode == null || continuationCode == "OUTPUT_CONTINUATION_UNAVAILABLE") && verificationCode == null && (readinessCode == null || readinessCode == "REQUIRED_TOOL_ACQUISITION_TIMED_OUT") && contract == null && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("GITHUB_CHOICE_PENDING", "GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "REQUEST_REJECTED", "POLICY_STALE", "STALE_INVENTORY", "REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "WAITING_FOR_APPROVAL"),
                 retryAt.takeUnless { category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED") },
                 dispatched = false.takeIf { !circuit && category !in setOf("POLICY_STALE", "STALE_INVENTORY", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED") && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
                 phase = when {
@@ -406,6 +415,7 @@ data class ProfileFailureRecord(
                     category == "CLIENT_CANCELLED" -> "cancelled"
                     category in setOf("CONNECTION", "TIMEOUT", "TRANSPORT_EOF") -> "transport"
                     category == "TOOL_OUTCOME_UNKNOWN" -> "tool_dispatch"
+                    category == "GITHUB_CHOICE_PENDING" -> "user_decision"
                     category == "WAITING_FOR_APPROVAL" -> "tool_continuation"
                     category == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> "tool_reconciliation"
                     category.startsWith("GITHUB_EXTRACTION_") -> "claim_extraction"

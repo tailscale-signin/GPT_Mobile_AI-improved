@@ -207,6 +207,7 @@ def install_engineering_routes(app, service):
                             'code_graph': {'schema_version': 1, 'supported': True, 'configured': connection != 'missing',
                                            'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True,
                                            'durable_index_jobs': True, 'sync_index_receipts': True, 'architecture_pagination': True,
+                                           'repository_sync': 1, 'automatic_branch_maintenance': True,
                                            'access': connection}}
             if public_only:
                 # These callers have access to public maps, with no visibility into

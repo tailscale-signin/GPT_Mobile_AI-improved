@@ -893,10 +893,50 @@ internal class GitHubEvidenceBook(
             end - start == duration
     }
 
+    /** Retain local decision timing with its original task; this cannot grant a new allowance. */
+    suspend fun retainDecisionWaits(decisions: List<GitHubChatDecision>, chatId: Int, context: GitHubConversationContext) = mutex.withLock {
+        val contract = taskContract ?: load("task_contract") ?: return@withLock
+        val source = (contract["source_message_id"] as? JsonPrimitive)?.intOrNull ?: return@withLock
+        val expectedWorkspace = GitHubChatDecisions.workspaceKey(context)
+        val retained = (contract["decision_waits"] as? JsonObject)?.toMutableMap() ?: mutableMapOf()
+        decisions.filter {
+            it.chatId == chatId && it.sourceMessageId == source && it.workspace == expectedWorkspace &&
+                it.profileUid == context.mainProfileUid && it.offeredAtMillis != null
+        }.forEach { decision ->
+            val offered = requireNotNull(decision.offeredAtMillis)
+            val previous = retained[decision.id] as? JsonObject
+            // The original start is immutable even when a new run rebinds the question.
+            if (previous != null && previous["offered_at_ms"] != JsonPrimitive(offered)) return@forEach
+            retained[decision.id] = buildJsonObject {
+                put("offered_at_ms", offered)
+                decision.answeredAtMillis?.let { put("answered_at_ms", it) }
+            }
+        }
+        if (retained.isNotEmpty()) {
+            val updated = JsonObject(contract + ("decision_waits" to JsonObject(retained)))
+            if (updated != contract) save("task_contract", updated)
+            taskContract = updated
+        }
+    }
+
     suspend fun executionAdmission(): GitHubExecutionLimits.Admission {
         val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
         val grant = deadlineGrant?.takeIf { contract != null && validDeadlineGrant(it, contract) }
-        return GitHubExecutionLimits.admission(grant ?: contract, now(), requireAcceptedContract)
+        val effective = grant ?: contract
+        val observed = now()
+        val acceptedAt = (effective?.get("accepted_at_ms") as? JsonPrimitive)?.longOrNull
+        val waits = (contract?.get("decision_waits") as? JsonObject)?.values.orEmpty().mapNotNull { value ->
+            val row = value as? JsonObject ?: return@mapNotNull null
+            val offered = (row["offered_at_ms"] as? JsonPrimitive)?.longOrNull ?: return@mapNotNull null
+            offered to (row["answered_at_ms"] as? JsonPrimitive)?.longOrNull
+        }
+        val requestedTask = (contract?.get("requested_actions") as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val paused = if (GitHubDecisionWaitClock.allowsPause(requestedTask)) acceptedAt?.let { GitHubDecisionWaitClock.pausedMillis(it, observed, waits) } ?: 0 else 0
+        val admission = GitHubExecutionLimits.admission(effective, observed - paused, requireAcceptedContract)
+        return if (paused == 0L) admission else admission.copy(timing = JsonObject(admission.timing + buildJsonObject {
+            put("task_deadline_clock", "ACTIVE_EXCLUDING_USER_CHOICES")
+            put("task_user_choice_wait_ms", paused)
+        }))
     }
 
     suspend fun taskAdmissionFailure(): ProviderEvent.Failed? = renewalFailure ?: executionAdmission().failure()

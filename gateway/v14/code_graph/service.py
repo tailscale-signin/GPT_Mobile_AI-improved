@@ -23,7 +23,7 @@ from v14.memory import local_model_destination
 
 ACTIONS = frozenset({'index', 'status', 'query', 'node', 'callers', 'callees', 'path', 'impact', 'architecture',
                      'diff', 'diagnose', 'contracts', 'prs', 'note', 'notes', 'requirements', 'wiki', 'metrics',
-                     'federated', 'provider'})
+                     'federated', 'provider', 'sync'})
 PUBLIC_ACTIONS = ACTIONS - {'note', 'federated', 'provider'}
 
 
@@ -53,7 +53,7 @@ def validate(request):
         if key in request and (request['action'] != action or not isinstance(request[key], str)
                                or not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', request[key])):
             raise ValueError('Invalid synchronous index request identity')
-    for name in ('retry_failed', 'background'):
+    for name in ('retry_failed', 'background', 'auto_refresh'):
         if name in request and type(request[name]) is not bool:
             raise ValueError('Invalid graph option')
     if 'paths' in request and (not isinstance(request['paths'], list) or len(request['paths']) > 100 or any(not isinstance(p, str) or len(p) > 400 for p in request['paths'])):
@@ -73,6 +73,7 @@ class GraphService:
         self.cancelled = lambda job: False
         self.authorized = lambda principal: True
         self._index_jobs = None
+        self._maintenance = None
         self._cancellation = threading.local()
 
     @property
@@ -85,7 +86,17 @@ class GraphService:
         return self._index_jobs
 
     def start_jobs(self):
+        self.maintenance
         self.index_jobs.start()
+
+    @property
+    def maintenance(self):
+        if self._maintenance is None:
+            with self.lock:
+                if self._maintenance is None:
+                    from .maintenance import GraphMaintenance
+                    self._maintenance = GraphMaintenance(self)
+        return self._maintenance
 
     def resolved(self, namespace, snapshot):
         key = (namespace, snapshot['sha'], snapshot_fingerprint(snapshot))
@@ -215,7 +226,9 @@ class GraphService:
         if self.public and pending and self.backend.prepare_sources(request['repository'], snapshot['sha']):
             batch_size = 1024
         preferred = set(request.get('paths', []))
-        batch = sorted(pending, key=lambda p: (p not in preferred, p))[:batch_size]
+        essential = {'readme.md', 'agents.md', 'build.gradle', 'build.gradle.kts', 'settings.gradle.kts',
+                     'package.json', 'pyproject.toml', 'cargo.toml', 'go.mod', 'androidmanifest.xml', 'mainactivity.kt'}
+        batch = sorted(pending, key=lambda p: (p not in preferred, p.rsplit('/', 1)[-1].lower() not in essential, p))[:batch_size]
         cancelled = getattr(self._cancellation, 'check', lambda: False)
 
         def read(path):
@@ -338,6 +351,16 @@ class GraphService:
         if expected_scope is not None and namespace != expected_scope:
             raise PermissionError('Repository graph scope changed during the operation')
         action = request['action']
+        if expected_scope is None and action in {'index', 'status', 'sync'}:
+            self.maintenance.observe(principal, namespace, request, head)
+        if action == 'sync':
+            from .sync import synchronize
+            result = synchronize(self.store, namespace, request, head)
+            if not self.public and self.backend.api('/user')['id'] != actor:
+                raise PermissionError('GitHub account changed during graph synchronization')
+            if not self.authorized(principal):
+                raise PermissionError('Repository map access was revoked')
+            return dict(result, maintenance=self.maintenance.status(namespace))
         if action in {'status', 'metrics'}:
             saved = self.store.summary(namespace, request['commit_sha'])
             if saved is None:
@@ -355,7 +378,8 @@ class GraphService:
                           'actual_token_counts': 'Not available', 'measurement_scope': 'This principal, account, repository and branch'}
             elif self._index_jobs is not None:
                 result['index_job'] = self.index_jobs.status(principal, request)
-            result = bounded(dict(result, graph=metadata, stale=head != request['commit_sha'], observed_branch_head=head), request.get('budget_bytes', 16000))
+            result = bounded(dict(result, graph=metadata, stale=head != request['commit_sha'], observed_branch_head=head, access_scope=namespace,
+                                  maintenance=self.maintenance.status(namespace)), request.get('budget_bytes', 16000))
             if not self.public and self.backend.api('/user')['id'] != actor:
                 raise PermissionError('GitHub account changed during graph retrieval')
             self.store.measure(namespace, action, round((time.perf_counter() - started) * 1000, 2), len(encoded(result).encode()))

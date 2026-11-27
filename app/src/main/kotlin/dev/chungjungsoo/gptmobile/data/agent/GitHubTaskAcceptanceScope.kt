@@ -45,12 +45,13 @@ internal data class GitHubTaskScope(
             val count = if (workspace != null) 1 else targets.size
             val boundedRead = hasNativeTools && count > 0 && (GitHubLookupRoute.from(request) != null || GitHubCiObservationReport.matches(request))
             val required = boundedRead || requiresNativeGitHubAcceptance(request, hasNativeTools)
+            val relevantWorkspace = workspace?.takeIf { IntelligenceIntent.from(request, selectedRepository = true).repository }
             val inferred = targets.singleOrNull()?.takeIf { required && hasNativeTools }
-            val head = workspace?.commitSha ?: inferred?.let { target ->
+            val head = relevantWorkspace?.commitSha ?: inferred?.let { target ->
                 contexts.filter { it.connectionUid == target.connectionUid && it.repository == target.repository }
                     .mapNotNull { it.observedCommitSha }.distinct().singleOrNull()
             }
-            return GitHubTaskScope(required, workspace?.repository ?: inferred?.repository, workspace?.connectionUid ?: inferred?.connectionUid, head, count)
+            return GitHubTaskScope(required, relevantWorkspace?.repository ?: inferred?.repository, relevantWorkspace?.connectionUid ?: inferred?.connectionUid, head, count)
         }
     }
 }

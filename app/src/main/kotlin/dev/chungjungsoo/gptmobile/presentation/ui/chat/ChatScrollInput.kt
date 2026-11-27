@@ -102,7 +102,9 @@ internal fun rememberChatScrollInput(
     // is mandatory, just as it is for the arrow and a completed swipe.
     LaunchedEffect(listState, gesture, input) {
         snapshotFlow {
-            listState.isAtGitHubBottom() && !listState.isScrollInProgress && !input.dragging
+            listState.layoutInfo.totalItemsCount > 0 &&
+                (!listState.canScrollForward || listState.gitHubDistanceToBottom() <= bottomTolerancePx) &&
+                !listState.isScrollInProgress && !input.dragging
         }.distinctUntilChanged().collect { atRestAtBottom ->
             if (atRestAtBottom) currentFollowIfAtBottom()
         }

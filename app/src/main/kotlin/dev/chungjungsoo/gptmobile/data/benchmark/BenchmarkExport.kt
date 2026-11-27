@@ -34,7 +34,7 @@ internal val benchmarkExportJson = Json {
     encodeDefaults = true
 }
 
-internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope", "auditModelQualificationEvidence", "engineeringComparisons", "engineeringExperimentEffort", "contextComparisons")
+internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope", "auditModelQualificationEvidence", "engineeringComparisons", "engineeringExperimentEffort", "contextComparisons", "unifiedProfileScores")
 
 /** Compatibility helper for retained JSON callers; app exports use the streaming store API. */
 internal fun benchmarkExport(raw: String, detailed: Boolean): String {
@@ -144,6 +144,10 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
             }
         )
         put("scoreSelection", benchmarkExportRecords(benchmarkRunSelection(runs, scoreSnapshot, enrollment).asSequence().map { json.encodeToJsonElement(BenchmarkRunSelection.serializer(), it) }))
+        put(
+            "unifiedProfileScores",
+            benchmarkExportRecords(source.completeRuns().filter { it.mode == BenchmarkMode.STANDARD }.mapNotNull(::unifiedProfileBenchmarkScore).map { json.encodeToJsonElement(UnifiedProfileBenchmarkScore.serializer(), it) })
+        )
         put(
             "policyDomains",
             benchmarkExportRecords(

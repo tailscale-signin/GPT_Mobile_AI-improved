@@ -244,7 +244,7 @@ fun ProfileBenchmarkScreen(
     val everydayTools by viewModel.everydayTools.collectAsStateWithLifecycle()
     val days by viewModel.days.collectAsStateWithLifecycle()
     val rangeLabel = if (days == 0) "stored history" else "$days days"
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(STANDARD_BENCHMARK_TAB) }
     var mode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
     var executionPolicy by rememberSaveable { mutableStateOf(BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) }
     var delegationBoard by rememberSaveable { mutableStateOf(false) }
@@ -263,6 +263,7 @@ fun ProfileBenchmarkScreen(
     }
     val tint = benchmarkTint(local)
     val profileHistory = remember(history, selected?.uid) { benchmarkHistoryForSelection(history, selected?.uid) }
+    val standardHistory = remember(profileHistory) { profileHistory.filter { it.mode == BenchmarkMode.STANDARD }.sortedByDescending { it.startedAt } }
     val matching = remember(profileHistory, selected, mode, localEnvironment, executionPolicy) {
         val key = selected?.let { benchmarkConfigKey(it, localEnvironment, executionPolicy) }
         profileHistory.filter { it.configKey == key && it.mode == mode && it.executionPolicy == executionPolicy && it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION && it.finished && !it.canceled && it.stoppedReason == null }.sortedByDescending { it.startedAt }.take(5)
@@ -292,7 +293,7 @@ fun ProfileBenchmarkScreen(
         }
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} model runs · ${auditBatches.size} app audits · ${profiles.size} profiles") }
+            item { SettingsHero("AI Profile Benchmark", "One benchmark. Nine categories.", "${history.size} saved runs · ${profiles.size} profiles") }
             item { BenchmarkNavigation(tab, debugMode) { tab = it } }
             if (tab != 2 && tab != 5 && tab != 6 && tab != APP_AUDIT_TAB && tab != ENGINEERING_BENCHMARK_TAB && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (storageWarning != null && storageWarning != error) {
@@ -354,8 +355,8 @@ fun ProfileBenchmarkScreen(
                     }
                 }
             }
-            if (tab == 0 || tab == 3) {
-                items(if (tab == 0) batches.take(1) else batches.take(100), key = { "queue.${it.id}" }) { batch ->
+            if (tab == 0 || tab == 3 || tab == STANDARD_BENCHMARK_TAB) {
+                items(if (tab == STANDARD_BENCHMARK_TAB) batches.filter { it.mode == BenchmarkMode.STANDARD && it.items.any { item -> item.profile.uid == selected?.uid } }.take(1) else if (tab == 0) batches.take(1) else batches.take(100), key = { "queue.${it.id}" }) { batch ->
                     if (batch.mode == BenchmarkMode.APP_AUDIT) {
                         AppAuditResultCard(
                             batch = batch,
@@ -385,7 +386,7 @@ fun ProfileBenchmarkScreen(
                             onRunWithProfileSettings = { viewModel.retryFailed(batch.id, BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) },
                             onResults = {
                                 mode = batch.mode
-                                tab = 5
+                                tab = if (batch.mode == BenchmarkMode.STANDARD) STANDARD_BENCHMARK_RESULTS_TAB else 5
                             },
                             runs = history,
                             onExport = { requestExport(false, null) }
@@ -401,7 +402,34 @@ fun ProfileBenchmarkScreen(
                     }
                 }
             }
-            if (tab == ENGINEERING_BENCHMARK_TAB) {
+            if (tab == STANDARD_BENCHMARK_TAB) {
+                item(key = "standard_profile_benchmark") {
+                    UnifiedProfileBenchmarkPanel(
+                        run = standardHistory.firstOrNull(),
+                        previous = standardHistory.drop(1).firstOrNull(),
+                        enabled = selected != null && ready && session == null && progress == null,
+                        onRun = { viewModel.start(BenchmarkMode.STANDARD) },
+                        onExport = { requestExport(false, null) },
+                        exportEnabled = ready && !exporting && !choosingExportDestination,
+                        currentConfigKey = selected?.let { benchmarkConfigKey(it, localEnvironment, BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) }
+                    )
+                }
+            } else if (tab == STANDARD_BENCHMARK_RESULTS_TAB) {
+                if (standardHistory.isEmpty()) {
+                    item {
+                        Text("Run a Standard benchmark to see category scores and coverage.")
+                        TextButton(onClick = { tab = STANDARD_BENCHMARK_TAB }) { Text("Open benchmark") }
+                    }
+                }
+                items(standardHistory.take(30), key = { "standard.result.${it.id}" }) { run ->
+                    UnifiedProfileBenchmarkPanel(
+                        run = run,
+                        previous = standardHistory.firstOrNull { it.startedAt < run.startedAt && it.configKey == run.configKey && it.executionPolicy == run.executionPolicy },
+                        onExport = { requestExport(false, null) },
+                        exportEnabled = ready && !exporting && !choosingExportDestination
+                    )
+                }
+            } else if (tab == ENGINEERING_BENCHMARK_TAB) {
                 item(key = "engineering_comparison_workspace") {
                     BenchmarkEngineeringWorkspace(viewModel, profiles, history, session != null || progress != null, ready) { requestExport(false, null) }
                 }

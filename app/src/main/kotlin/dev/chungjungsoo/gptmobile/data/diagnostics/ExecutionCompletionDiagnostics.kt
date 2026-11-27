@@ -26,7 +26,7 @@ internal object ExecutionCompletionDiagnostics {
     val visibleOutputStopReasons = setOf("BOUNDED_VISIBLE_OUTPUT_REPAIR", "VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED")
     val codes = setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_REVIEW_COMPARISON_REQUIRED", "RECONCILIATION_REQUIRED", "BILLING_UNAVAILABLE", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "PROVIDER_UNAVAILABLE", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN")
     val actions = setOf("REVIEW_APPLICATION_EVIDENCE", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", INSPECT_SAVED_PROVIDER_ATTEMPT, "AUTHORIZE_NEW_TIME_WINDOW")
-    val deadlineFields = setOf("task_deadline_clock", "task_deadline_renewed", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds")
+    val deadlineFields = setOf("task_deadline_clock", "task_deadline_source", "task_deadline_renewed", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds")
     private val digestAliases = mapOf(
         "draft_sha256" to "no_output_draft_hash",
         "segment_sha256" to "no_output_segment_hash",

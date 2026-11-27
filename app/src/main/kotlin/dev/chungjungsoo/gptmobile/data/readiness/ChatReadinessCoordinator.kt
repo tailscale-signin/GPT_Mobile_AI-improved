@@ -146,6 +146,9 @@ class ChatReadinessCoordinator @Inject constructor(
                         profiles.firstOrNull { it.uid == uid && it.enabled }
                     }.take(count)
                     scheduler.requestFor("memory-metadata", ::idle, ReadinessResource.LOCAL) { memory.warmMetadata() }
+                    targets.forEach { profile ->
+                        scheduler.requestFor("tool-index:${profile.uid}", ::idle, ReadinessResource.LOCAL) { tools.warmLocalCatalogues(profile.uid) }
+                    }
                     if (networkAllowed(features.readiness.warmMeteredNetworks)) {
                         // Prime the shared inference transport first. Never send a draft, API credential or token.
                         if (composerEngaged) {

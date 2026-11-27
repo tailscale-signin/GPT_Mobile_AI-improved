@@ -89,10 +89,10 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun closeManual() {
-        if (!mutableSaving.value) {
-            mutableError.value = null
-            mutableManual.value = false
-        }
+        // Dismiss only the UI. An already accepted outbox operation retains its
+        // identity and continues independently of the dialog window.
+        mutableError.value = null
+        mutableManual.value = false
     }
 
     /** The user selects current download observations; the usual preview and approval remain required. */
@@ -190,10 +190,10 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
 
     internal fun closeSubmission() {
         val saved = submission.value
+        selectedReportId.value = null
+        mutableError.value = null
         viewModelScope.launch {
             if (saved?.state in setOf(IssueReportOutbox.State.SENT, IssueReportOutbox.State.FAILED)) saved?.let { acknowledge(it) }
-            selectedReportId.value = null
-            mutableError.value = null
         }
     }
 
@@ -263,10 +263,8 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun dismissIncident(report: IssueReport) {
-        if (!mutableSaving.value) {
-            mutableError.value = null
-            viewModelScope.launch { IssueReportIncidents.dismiss(report.reportId) }
-        }
+        mutableError.value = null
+        viewModelScope.launch { IssueReportIncidents.dismiss(report.reportId) }
     }
 
     internal fun retrySubmission(reportId: String, approvedRoute: IssueReportRoute?) {

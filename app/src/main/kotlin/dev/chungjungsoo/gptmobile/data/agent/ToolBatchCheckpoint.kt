@@ -534,7 +534,15 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         return result
     }
 
-    suspend fun complete(call: ProviderEvent.ToolCall, result: AgentToolResult) = saveResult(call, result, claimed = false)
+    suspend fun complete(call: ProviderEvent.ToolCall, result: AgentToolResult) {
+        // The question is already durable in GitHubChatDecisions. Keep the
+        // original invocation queued so the saved answer is delivered on resume.
+        // A pending choice is neither a completed operation nor an uncertain write.
+        if (call.name == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.NAME &&
+            result.errorCode == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.PENDING
+        ) return
+        saveResult(call, result, claimed = false)
+    }
 
     private suspend fun saveResult(call: ProviderEvent.ToolCall, result: AgentToolResult, claimed: Boolean) {
         // Replay is bounded separately from the authoritative Research/ToolEvent evidence stores.

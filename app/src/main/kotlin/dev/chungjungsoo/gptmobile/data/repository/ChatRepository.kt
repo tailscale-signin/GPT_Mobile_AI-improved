@@ -200,6 +200,8 @@ interface ChatRepository {
     suspend fun finishQueuedAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun finishActiveAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun finishInterruptedAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean = false
+
+    suspend fun discardInterruptedAgentRun(runId: String, expectedFence: Long, completedAt: Long): Boolean = false
     suspend fun commitAgentRun(message: MessageV2, runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun updateAgentMessage(message: MessageV2)
 

@@ -73,6 +73,7 @@ class GitHubTool(
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
     private val graphQuery: (suspend (dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext, JsonObject) -> JsonObject)? = null,
+    private val graphDefaultSource: (suspend (dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) -> String)? = null,
     private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM,
     private val taskRequest: String? = null,
     private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null,
@@ -232,6 +233,7 @@ class GitHubTool(
             nativeStatus = nativeStatus,
             repositoryScope = scope,
             accountIdentity = if (apiToken.isNotBlank()) durableIdentity else "anonymous:$connectionUid:${apiOrigins.hostIdentity}",
+            defaultSource = { graphDefaultSource?.invoke(scope) ?: "phone" },
             query = { arguments ->
                 val observed = query(scope, arguments)
                 val latest = currentScope()

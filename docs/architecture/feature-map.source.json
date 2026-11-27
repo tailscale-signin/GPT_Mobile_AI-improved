@@ -77,7 +77,9 @@
         "gateway/tests/test_gateway_jvm_impact.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceReadTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjectionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositorySourcePriorityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryTreeDiscoveryTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -89,7 +91,8 @@
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
         "docs/repairs/github-mode-intelligence-2026-11-26.md",
         "docs/architecture/github-out-of-box-intelligence.md",
-        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json",
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
       ],
       "invariants": [
         "Bind source ranges to the selected repository commit and blob.",
@@ -99,7 +102,8 @@
         "Repeated blob deadlines retain incomplete coverage and bounded progress across restart; identity mismatches remain hard failures.",
         "Automatic missing-tool recovery can use only the bound local catalog; foreign catalog identity never creates dispatch authority.",
         "Task selection expands only bounded retained caller and nearest configuration candidates; prepared source-byte/line counts do not prove provider delivery or exhaustive coverage.",
-        "Optional source projection fits the residual prompt allowance, preserves commit/blob/range identity and defers an unread matched line rather than labeling unrelated lines as its match."
+        "Optional source projection fits the residual prompt allowance, preserves commit/blob/range identity and defers an unread matched line rather than labeling unrelated lines as its match.",
+        "Direct phone mapping retrieves revision-bound trees before priority source, reuses immutable blobs and limits parallel retrieval. Truncated tree discovery remains bounded and resumable with explicit partial coverage."
       ],
       "routing": {
         "role": "evidence",
@@ -736,7 +740,11 @@
         "task success",
         "false completion",
         "cross-chat cache reuse",
-        "redacted routing replay"
+        "redacted routing replay",
+        "standard profile benchmark",
+        "nine categories",
+        "weighted intelligence",
+        "not evaluated"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlan.kt",
@@ -794,7 +802,8 @@
         "gateway/tests/test_gateway_campaign_gateway.py",
         "gateway/tests/test_gateway_benchmark_campaigns.py",
         "gateway/desktop/native/tests/Program.cs",
-        "gateway/tests/test_gateway_campaign_powershell.py"
+        "gateway/tests/test_gateway_campaign_powershell.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkScoreTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -806,7 +815,8 @@
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
         "docs/engineering/github-routing-replay.md",
         "gateway/benchmarks/NATIVE_CAMPAIGNS.md",
-        "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json"
+        "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json",
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
       ],
       "invariants": [
         "Freeze source, profile, task, budget and environment before comparison.",
@@ -814,7 +824,10 @@
         "Unknown cost, tokens and retrieval relevance remain unknown.",
         "Only explicit ordered invalidation identities transfer a previously exposed correction obligation; stale intermediate claims remain rejected and unexposed facts do not require a fabricated update.",
         "An observed native comparison binds GPT Mobile AI and its preregistered peers to the same controls. The ChatGPT adapter accepts a single completed public answer from the selected unbranched conversation export. Missing observations remain visible.",
-        "Installed Windows native campaigns freeze owner, origin, runtime, matched controls and randomized trial order; imports preserve final bytes and independent signatures. Status-only recovery retains the original request ID across interruption and application updates. Synthetic sessions cannot reach live grading; unmeasured comparisons stay unknown."
+        "Installed Windows native campaigns freeze owner, origin, runtime, matched controls and randomized trial order; imports preserve final bytes and independent signatures. Status-only recovery retains the original request ID across interruption and application updates. Synthetic sessions cannot reach live grading; unmeasured comparisons stay unknown.",
+        "Standard uses the existing durable runner with original synthetic tasks and isolated offline engineering fixtures. Advanced native-product campaigns remain available.",
+        "A Standard overall score requires a complete matching fixture manifest and executed evidence for every scored observation. Unsupported, missing, foreign or duplicate evidence stays unevaluated; incomplete results are not comparable.",
+        "The nine-category custom profile score is separate from production qualification and is not an official SWE-bench score. Speed contributes only five percent and requires a correct completed answer."
       ],
       "routing": {
         "role": "evidence",
@@ -867,7 +880,13 @@
         "gateway/desktop/native_bridge.py",
         "gateway/desktop/admission_panel.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlSettingsPanel.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlViewModel.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirror.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSyncWorker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayNetworkRecoveryMonitor.kt",
+        "gateway/v14/code_graph/maintenance.py",
+        "gateway/v14/code_graph/sync.py"
       ],
       "tests": [
         "gateway/tests/test_gateway_workspace_guidance.py",
@@ -882,7 +901,9 @@
         "gateway/tests/test_gateway_queue_controls.py",
         "gateway/tests/test_gateway_scheduler_recovery.py",
         "gateway/tests/test_gateway_engineering_always_on.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayEngineeringSettingsTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayEngineeringSettingsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirrorTest.kt",
+        "gateway/tests/test_gateway_repository_index_sync.py"
       ],
       "commands": [
         "python3 gateway/check_gateway.py"
@@ -891,7 +912,8 @@
         "docs/architecture/repository-guide.md",
         "docs/engineering/github-agent-context-workers-2026-11-22.md",
         "docs/architecture/github-out-of-box-intelligence.md",
-        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json",
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
       ],
       "invariants": [
         "The existing job owns source, execution, authority and publication.",
@@ -900,7 +922,10 @@
         "Engineering is a built-in Gateway capability; disable commands reject without widening owner, repository or runtime-readiness authority.",
         "A full-queue continuation can replace only its own paused predecessor within one transaction; unrelated admissions roll back and the active-job limit remains bounded.",
         "Local-supervisor stop commands retain original owner/revision/generation and durable command identities. Pending cancellation and uncertain remote mutations cannot be reported as confirmed.",
-        "A failed scheduler admission callback releases only its acquired ticket or queued waiter; terminal retained records do not consume open-work counts."
+        "A failed scheduler admission callback releases only its acquired ticket or queued waiter; terminal retained records do not consume open-work counts.",
+        "Gateway branch maintenance is durable and independent of a foreground conversation. Each access scope is reauthorized and polling respects bounded work, observed activity and retry waits.",
+        "Android connection reconciliation stages compressed content-verified structural deltas and publishes only a complete validated generation. A corrupt or interrupted transfer preserves the previous valid snapshot.",
+        "A synchronized structural snapshot reports actual source coverage and observed branch freshness; transport completion is not exhaustive semantic or runtime verification."
       ],
       "routing": {
         "role": "executor",
@@ -986,7 +1011,12 @@
         "macrobenchmark/src/main/kotlin/dev/chungjungsoo/gptmobile/benchmark/AppPerformanceBenchmark.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/MessageV2Dao.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/MessageV2Dao.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubHeaderState.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScrollInput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/main/MainActivity.kt",
+        "app/src/main/res/values/startup_colors.xml",
+        "app/src/main/res/values-night/startup_colors.xml"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParserTest.kt",
@@ -994,20 +1024,25 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRendererTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocumentTransitionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedDocumentPageCacheTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubHeaderStateTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
         "docs/repairs/github-evidence-progress-2026-11-23-task.json",
-        "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json"
+        "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json",
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
       ],
       "invariants": [
         "Keep privacy-sensitive content out of the shared parsed-document cache.",
         "Retain current layout, font and theme inputs while reusing bounded settled parse results.",
         "Device performance requires a measured device run.",
-        "A changed document revision clears the old rendered page while loading; reuse stays local, bounded and tied to current attribution."
+        "A changed document revision clears the old rendered page while loading; reuse stays local, bounded and tied to current attribution.",
+        "The saved GitHubHeaderState removes title, navigation, actions and progress from composition while collapsed, retaining one 48 dp arrow target.",
+        "A manual return within 24 dp of the bottom engages following; deliberate upward scrolling uses a separate 48 dp release threshold. Header geometry changes do not start repository or generation work.",
+        "Startup resources provide supported light and dark backgrounds and immediately transition to the selected Compose theme without blocking for repository work."
       ],
       "routing": {
         "role": "presentation",
@@ -1061,7 +1096,10 @@
         "authentication/issue_report_app.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportHost.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -1109,7 +1147,8 @@
         "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json",
         "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json",
         "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json",
-        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
+        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -1126,7 +1165,8 @@
         "Require CATALOG_MISSING_TOOL_IDENTITY_V1 only for a present or omitted missing_tool_hash; legacy recovery support does not establish receiver support for that new identity. Preserve approved bytes, current dispatch permission and readiness size bounds.",
         "Reports containing the new GitHub policy-selection fields require their distinct receiver capability before exact approved bytes are dispatched; older reports retain their existing delivery requirements.",
         "Android recognition incidents retain the owning capture attempt, observed dispatch and failure phase; local retry pacing is not a measured platform quota reset, and raw attempt identity never leaves the approved diagnostic projection.",
-        "Compact acceptance reports prioritize observed blocker totals alongside deadline evidence; omitted criterion rows do not hide recorded blocker counts, and absent counts remain unknown."
+        "Compact acceptance reports prioritize observed blocker totals alongside deadline evidence; omitted criterion rows do not hide recorded blocker counts, and absent counts remain unknown.",
+        "Report dialogs use standard Compose modal ownership. Every close event clears UI ownership immediately and idempotently; an accepted durable outbox submission retains its identity independently."
       ],
       "routing": {
         "role": "user_control",
@@ -2517,18 +2557,29 @@
         "search the web",
         "search for papers",
         "academic papers",
-        "review the literature"
+        "review the literature",
+        "research to implementation",
+        "retained research findings"
       ],
       "paths": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchImplementationArtifact.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSessionStore.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceAdmissionRegressionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceAdmissionRegressionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchImplementationArtifactTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/DirectResearchModelFactoryTest.kt"
       ],
       "commands": [],
-      "documents": [],
-      "invariants": [],
+      "documents": [
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
+      ],
+      "invariants": [
+        "A research follow-up reuses a bounded projection of the existing same-conversation research session only when captured source versions, passages and exact quotes still verify.",
+        "Historical research remains untrusted evidence. Its finding IDs do not replace the numbered recommendations in the actual conversation, and it cannot authorize repository changes."
+      ],
       "routing": {
         "role": "evidence",
         "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt",
@@ -2854,7 +2905,10 @@
         "repository selection",
         "github chat actions",
         "adaptive engineering budget",
-        "direct github lookup"
+        "direct github lookup",
+        "general question",
+        "universal tool registry",
+        "capability precache"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt",
@@ -2884,7 +2938,10 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubConnectionSetupScreen.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubModeConnection.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceViewModel.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/UniversalToolRegistry.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/readiness/ChatReadinessCoordinator.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspacePickerTest.kt",
@@ -2907,12 +2964,15 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSetupWelcomeTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotDefaultsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositoryCopilotDefaultsTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayEngineeringSettingsTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayEngineeringSettingsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/UniversalToolRegistryTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
         "docs/architecture/github-out-of-box-intelligence.md",
-        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json",
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -2925,7 +2985,10 @@
         "Saved repository installation lookup preserves staged drafts and stays bounded to the selected account and repository owner. An unavailable explicit Gateway route stays explicit.",
         "Copilot defaults migrate once for the new experience. Later explicit off preferences remain bound to the exact conversation and workspace; missing or foreign identity cannot enable delegation.",
         "Enabling an integration does not establish GitHub entitlement, supported credentials, allowed tools, task acceptance or remote completion.",
-        "GitHub chat has no persistent engineering enable/disable card; settings expose readiness and exact prerequisite repair."
+        "GitHub chat has no persistent engineering enable/disable card; settings expose readiness and exact prerequisite repair.",
+        "General and web-only requests in GitHub chat do not acquire repository scope merely because a workspace is selected. Explicit repository and mixed requests retain the existing engineering admission path.",
+        "Persisted tool definitions and schema costs accelerate local preparation but never grant execution authority. Resolve enabled tools under current connection, profile, model and privacy restrictions before dispatch.",
+        "Stable complete local catalogs are separate from the bounded model-facing schema selection; configuration changes cannot expose revoked executors."
       ],
       "routing": {
         "role": "user_control",
@@ -3018,7 +3081,11 @@
         "connection recovery",
         "tool handoff",
         "saved answer",
-        "original failure"
+        "original failure",
+        "durable choice",
+        "saved decision",
+        "process death",
+        "resume"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgress.kt",
@@ -3028,25 +3095,43 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadline.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummary.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatDecisions.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDecisionWaitClock.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantResponsePresentation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentRunDao.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderCooldownContinuationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubOutputContinuationSessionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadlineTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RecoveryInterruptionExportTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RecoveryInterruptionExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatDecisionsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDecisionWaitClockTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantResponsePresentationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/InterruptedRunDiscardTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecordTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
-        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+        "docs/repairs/github-mode-intelligence-2026-11-26.md",
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
       ],
       "invariants": [
         "Provider cooldown, tool handoff, transport recovery, output length and no-progress retain separate durable state.",
         "A claimed transport retry survives restart; only verified progress resets its consecutive allowance.",
-        "Original and latest interruption evidence survives terminal wrappers without granting replay of uncertain writes."
+        "Original and latest interruption evidence survives terminal wrappers without granting replay of uncertain writes.",
+        "Persist a choice before exposing it and park its original invocation without retaining an active model worker. Rehydration restores the original source message, profile, workspace, operation and choice identity.",
+        "Duplicate answers are serialized, uncertain mutations are reconciled, and changed branch circumstances require the existing continuation authority checks.",
+        "Only explicit relative task allowances exclude durable user-choice waiting intervals. Absolute user deadlines remain wall-clock deadlines.",
+        "An interrupted persisted run exposes Resume even without a terminal error string. Resume retains original job and task identity; checkpoint continuation does not claim exact provider stream resumption."
       ],
       "routing": {
         "role": "executor",
@@ -3293,6 +3378,100 @@
         "proof": "Bound preference plus source-owned task and lifecycle receipts",
         "admission": "Current workspace identity, allowed tools and eligible GitHub user access",
         "decline": "Show unavailable or unconfirmed state without claiming task execution",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "standard-profile-benchmark",
+      "title": "Standard nine-category profile benchmark",
+      "terms": [
+        "standard benchmark",
+        "profile intelligence",
+        "category scores",
+        "coverage",
+        "advanced campaigns"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkSuite.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkScore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkSuiteRegistry.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/UnifiedProfileBenchmarkPanel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkControls.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkScoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContentTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
+      ],
+      "invariants": [
+        "Only a complete canonical fixture manifest and matching executed observations can publish a comparable Standard overall score.",
+        "Unknown outcomes stay unknown, correctness dominates speed, and offline fixtures do not establish production qualification."
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
+        "proof": "Complete executed receipts for canonical suite 14 fixtures and the saved selected profile",
+        "admission": "An available selected profile and the existing durable benchmark runner",
+        "decline": "Show partial coverage without an overall comparable score when observations are missing or foreign",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkScoreTest.kt#standardIncludesEveryCategoryAndReusesOnlyIsolatedFixtures",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkScoreTest.kt#changedManifestAndMatchingChangedReceiptCannotImpersonateTheStandardFixture",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "progressive-repository-sync",
+      "title": "Progressive phone maps and verified Gateway synchronization",
+      "terms": [
+        "repository map",
+        "incremental index",
+        "reconnect",
+        "truncated tree",
+        "index delta"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryTreeDiscovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositorySourcePriority.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirror.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncService.kt",
+        "gateway/v14/code_graph/maintenance.py",
+        "gateway/v14/code_graph/sync.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirrorTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryTreeDiscoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositorySourcePriorityTest.kt",
+        "gateway/tests/test_gateway_repository_index_sync.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 gateway/check_gateway.py"
+      ],
+      "documents": [
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
+      ],
+      "invariants": [
+        "Keep the previous verified snapshot until all compressed pages and the complete target generation validate under current authority.",
+        "Retain a bounded subtree frontier and immutable source identities across restart; partial coverage stays explicit."
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirror.kt",
+        "proof": "Authenticated revision-bound manifest, verified record digests and complete generation",
+        "admission": "Current account and repository access with allowed persistent index storage",
+        "decline": "Retain the previous snapshot when the transfer is corrupt, incomplete or revoked",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirrorTest.kt#interruptedTransferResumesAfterRestartAndKeepsThePreviousMap",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirrorTest.kt#corruptRecordCannotReplaceAValidMap",
         "plugins": [],
         "tools": [],
         "decline_terms": []

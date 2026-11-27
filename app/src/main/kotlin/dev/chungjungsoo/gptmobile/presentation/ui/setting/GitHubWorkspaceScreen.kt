@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.ClipData
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
@@ -205,9 +207,16 @@ fun GitHubWorkspaceScreen(
     val workspaceScroll = rememberScrollState()
     val setupScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
-    var chatHeaderExpanded by rememberSaveable(connection.connectionUid) { mutableStateOf(false) }
+    val headerState = rememberSaveable(connection.connectionUid, saver = GitHubHeaderState.Saver) { GitHubHeaderState() }
+    LaunchedEffect(connection.connectionUid) {
+        val expanded = withContext(Dispatchers.IO) {
+            workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE)
+                .getBoolean("header_expanded", false)
+        }
+        headerState.restorePreference(expanded)
+    }
     val collapsibleHeader = tab == GitHubWorkspaceDestination.CHAT.id && !state.setupRequired && (state.selection != null || savedContext != null)
-    val headerExpanded = !collapsibleHeader || chatHeaderExpanded
+    val headerExpanded = headerState.isExpanded(collapsibleHeader)
     var exportChatId by rememberSaveable { mutableStateOf<Int?>(null) }
     var recoveryRequest by remember(visibleProgrammer.chatId) { mutableStateOf<dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubRecoveryRequest?>(null) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
@@ -319,7 +328,7 @@ fun GitHubWorkspaceScreen(
                             }
                         }
                     }
-                    Column(Modifier.padding(horizontal = 16.dp)) {
+                    if (headerExpanded) Column(Modifier.padding(horizontal = 16.dp)) {
                         GitHubChatProgress(
                             visibleProgrammer,
                             engineeringBinding?.job,
@@ -337,9 +346,9 @@ fun GitHubWorkspaceScreen(
                 },
                 containerColor = MaterialTheme.colorScheme.surface,
                 topBar = {
-                    Column(Modifier.zIndex(1f)) {
+                    Column(Modifier.zIndex(1f).animateContentSize(tween(220))) {
                         TopAppBar(
-                            colors = if (overlayChatHeader) {
+                            colors = if (overlayChatHeader || !headerExpanded) {
                                 androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                             } else {
                                 androidx.compose.material3.TopAppBarDefaults.topAppBarColors()
@@ -347,7 +356,7 @@ fun GitHubWorkspaceScreen(
                             expandedHeight = if (collapsibleHeader) 48.dp else 64.dp,
                             title = {
                                 val repository = state.selection ?: savedContext?.repository
-                                Column {
+                                if (headerExpanded) Column {
                                     Text(repository?.fullName ?: "Set up GitHub", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
                                         repository?.ref ?: connection.name,
@@ -358,11 +367,11 @@ fun GitHubWorkspaceScreen(
                                     )
                                 }
                             },
-                            navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
+                            navigationIcon = { if (headerExpanded) IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
                             actions = {
                                 if (collapsibleHeader) {
                                     val chatId = visibleProgrammer.chatId
-                                    if (chatId != null && commandContext != null) {
+                                    if (headerExpanded && chatId != null && commandContext != null) {
                                         androidx.compose.runtime.key(chatId, commandContext.repository) {
                                             GitHubChatActions(
                                                 repositoryLoaded = state.selection != null,
@@ -396,14 +405,21 @@ fun GitHubWorkspaceScreen(
                                         }
                                     }
                                     IconButton(
-                                        onClick = { chatHeaderExpanded = !chatHeaderExpanded },
-                                        modifier = Modifier.testTag("github_chat_header_toggle").semantics {
-                                            stateDescription = if (chatHeaderExpanded) "Expanded" else "Collapsed"
+                                        onClick = {
+                                            headerState.toggle()
+                                            val expanded = headerState.expanded
+                                            scope.launch(Dispatchers.IO) {
+                                                workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE)
+                                                    .edit().putBoolean("header_expanded", expanded).apply()
+                                            }
+                                        },
+                                        modifier = Modifier.size(48.dp).testTag("github_chat_header_toggle").semantics {
+                                            stateDescription = if (headerState.expanded) "Expanded" else "Collapsed"
                                         }
                                     ) {
                                         Icon(
-                                            if (chatHeaderExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                            if (chatHeaderExpanded) "Collapse GitHub workspace header" else "Expand GitHub workspace header",
+                                            if (headerState.expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                            if (headerState.expanded) "Collapse GitHub workspace header" else "Expand GitHub workspace header",
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     }

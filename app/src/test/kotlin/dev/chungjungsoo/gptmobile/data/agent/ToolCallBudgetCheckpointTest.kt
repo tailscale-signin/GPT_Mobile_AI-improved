@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -107,6 +108,83 @@ class ToolCallBudgetCheckpointTest {
             assertEquals("BUDGET_EXHAUSTED", resumed.bind(source).execute("extra", buildJsonObject {}).errorCode)
             assertEquals(limit, dispatches)
         }
+    }
+
+    @Test fun retainedLocalPagesCanUseVerificationReserveWithoutRenewingTheDurableCeiling() = runTest {
+        var row: JsonObject? = null
+        var dispatches = 0
+        val checkpoint = ToolCallBudgetCheckpoint("retained-verification", { row }, { row = it })
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition(
+                "github_read",
+                "read",
+                buildJsonObject {
+                    put("type", "object")
+                    put(
+                        "properties",
+                        buildJsonObject {
+                            put("view_cursor", buildJsonObject { put("type", "string") })
+                            put("ref", buildJsonObject { put("type", "string") })
+                        }
+                    )
+                    put("additionalProperties", false)
+                }
+            )
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, ToolResultContent.Text("retained bytes"), false)
+            }
+        }
+        checkpoint.initialize(4)
+        checkpoint.acquire(4)
+        checkpoint.acquire(4)
+        val limits = AgentRunLimits(githubTask = true, maxToolCalls = 4)
+        suspend fun restored() = ToolExecutionBudget(limits, initialCalls = checkpoint.initialize(4), durableCalls = checkpoint)
+        val reserve = restored().bind(tool)
+        assertEquals("VERIFICATION_RESERVE_REACHED", reserve.execute("source", buildJsonObject { put("ref", "main") }).errorCode)
+        assertEquals(
+            "VERIFICATION_RESERVE_REACHED",
+            reserve.execute(
+                "mixed",
+                buildJsonObject {
+                    put("view_cursor", "saved:0:1024")
+                    put("ref", "main")
+                }
+            ).errorCode
+        )
+        assertEquals("VERIFICATION_RESERVE_REACHED", reserve.execute("malformed", buildJsonObject { put("view_cursor", "not-an-issued-cursor") }).errorCode)
+        assertEquals(0, dispatches)
+        assertFalse(reserve.execute("local-first", buildJsonObject { put("view_cursor", "saved:0:1024") }).isError)
+        val continued = restored().bind(tool)
+        assertFalse(continued.execute("local-next", buildJsonObject { put("view_cursor", "saved:1:1024") }).isError)
+        val exhausted = restored().bind(tool).execute("local-extra", buildJsonObject { put("view_cursor", "saved:2:1024") })
+        assertEquals("BUDGET_EXHAUSTED", exhausted.errorCode)
+        assertFalse(exhausted.dispatched)
+        assertEquals(2, dispatches)
+        assertEquals(4, checkpoint.initialize(200))
+    }
+
+    @Test fun retainedPageReserveStillRequiresCurrentAuthorizationBeforeCharging() = runTest {
+        var dispatched = false
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition(
+                "github_read",
+                "read",
+                buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject { put("view_cursor", buildJsonObject { put("type", "string") }) })
+                }
+            )
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched = true
+                return AgentToolResult(callId, ToolResultContent.Text("retained bytes"), false)
+            }
+        }
+        val budget = ToolExecutionBudget(AgentRunLimits(githubTask = true, maxToolCalls = 4), initialCalls = 2)
+        val denied = budget.bind(tool, authorize = { _, _ -> false }).execute("revoked", buildJsonObject { put("view_cursor", "saved:0:1024") })
+        assertEquals("AUTH_REQUIRED", denied.errorCode)
+        assertFalse(dispatched)
+        assertEquals(2, budget.usedCalls())
     }
 
     @Test fun concurrentTemporaryHandlesReserveAgainstOneCounter() = runTest {

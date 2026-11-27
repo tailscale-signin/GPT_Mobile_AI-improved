@@ -529,10 +529,16 @@ internal object GitHubReplayRecovery {
                 val source = envelope(result.content) ?: return@mapNotNull null
                 val capacity = savedPageCapacityRefusal(call, result)
                 val capacityRefused = capacity != null
-                val unreadSource = source["source_page"] == JsonPrimitive(true) &&
-                    source["recovery_required"] == JsonPrimitive(true) &&
+                // Retention in the verifier is independent of delivery to the model.
+                // CI logs use ordinary fragments, so limiting this exception to
+                // source_page stranded their unread recovery handles indefinitely.
+                val unreadProjection = source["recovery_required"] == JsonPrimitive(true) &&
                     source["previously_delivered"] == JsonPrimitive(false)
-                if (result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true) && !unreadSource) return@mapNotNull null
+                // A repeated source request is an explicit request to read the
+                // saved observation. Its first delivered page may cover only a
+                // prefix; delivered interval tracking selects any unread suffix.
+                val requestedReopen = source["schema"] == JsonPrimitive("github.repeat.v1")
+                if (result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true) && !unreadProjection && !requestedReopen) return@mapNotNull null
                 if (result.isError &&
                     !capacityRefused ||
                     !capacityRefused &&
@@ -645,7 +651,7 @@ internal object GitHubReplayRecovery {
 
     fun compact(content: ToolResultContent, maxChars: Int, consumed: Boolean = false): ToolResultContent? {
         val source = envelope(content) ?: return null
-        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "source_read_call", "previous_call_id", "metadata", "recovery_required", "recovery_action", "mutation_replay_allowed", "agent_instruction", "reason", "semantic_summary", "retained_original_complete", "source_result_sha256", "receipt_reference") }
+        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "source_read_call", "previous_call_id", "metadata", "recovery_required", "recovery_action", "mutation_replay_allowed", "agent_instruction", "reason", "semantic_summary", "retained_original_complete", "source_result_sha256", "source_projection_delivered", "receipt_reference") }
         val result = controls.toMutableMap()
         result["replay_compacted"] = JsonPrimitive(true)
         result["previously_delivered"] = JsonPrimitive(consumed)
@@ -665,6 +671,17 @@ internal object GitHubReplayRecovery {
         }
         // Optional larger pages must not crowd out the small, exact recovery call.
         if (JsonObject(result).toString().length > maxChars) result.remove("continuation_options")
+        if (!consumed && result["recovery_required"] == JsonPrimitive(true) && result["continuation_call"] is JsonObject && JsonObject(result).toString().length > maxChars) {
+            // A diagnostic summary may itself exceed the replay window. Preserve
+            // the issued unread-page cursor first, then fit useful summary facts.
+            (result.remove("semantic_summary") as? JsonObject)?.let { summary ->
+                val available = maxChars - JsonObject(result + ("semantic_summary" to JsonObject(emptyMap()))).toString().length + 2
+                if (available > 0) {
+                    val bounded = dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.bounded(summary, available)
+                    if (JsonObject(result + ("semantic_summary" to bounded)).toString().length <= maxChars) result["semantic_summary"] = bounded
+                }
+            }
+        }
         if (JsonObject(result).toString().length > maxChars && consumed && source["semantic_summary"] is JsonObject) {
             val summary = buildJsonObject {
                 put("schema", "github.evidence-summary.v1")
@@ -728,7 +745,7 @@ internal object GitHubReplayRecovery {
         return ToolResultContent.Json(JsonObject(result))
     }
 
-    fun repeated(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>, message: String): AgentToolResult? {
+    fun repeated(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>, message: String, deliveredResultDigests: Map<String, String> = emptyMap()): AgentToolResult? {
         val operation = GitHubOperationTool.operationName(call.name) ?: return null
         val key = toolRepeatKey(call)
         val candidates = exchanges.asReversed().mapNotNull { exchange ->
@@ -780,8 +797,27 @@ internal object GitHubReplayRecovery {
             previous = candidates.firstOrNull { it.callId == sourceId && it.callId !in visited } ?: break
         }
         if (previous.isError) return currentGitHubInvocationReceipt(previous.copy(callId = call.callId, dispatched = false, sharedResult = true, retainedContent = null, traceContent = null, searchValidationEvidence = null))
+        return reusedObservation(call, previous, message, deliveredResultDigests)
+    }
+
+    /** Reuse the observation without losing the exact authorized local route to its unread body. */
+    fun reusedObservation(
+        call: ProviderEvent.ToolCall,
+        previous: AgentToolResult,
+        message: String,
+        deliveredResultDigests: Map<String, String> = emptyMap(),
+        details: JsonObject = JsonObject(emptyMap())
+    ): AgentToolResult {
+        val operation = requireNotNull(GitHubOperationTool.operationName(call.name))
         val original = envelope(previous.content)
         val repeated = original?.get("schema") == JsonPrimitive("github.repeat.v1")
+        val delivered = if (repeated) {
+            original?.get("source_projection_delivered") == JsonPrimitive(true)
+        } else {
+            original?.get("replay_compacted") != JsonPrimitive(true) &&
+                original?.get("observationTruncated") != JsonPrimitive(true) &&
+                ToolResultDeliveryProof.matches(previous, deliveredResultDigests)
+        }
         val sourceCallId = previous.executionReceipt?.get("source_observation_call_id")
             ?: original?.get("previous_call_id")?.takeIf { repeated }
             ?: JsonPrimitive(previous.callId)
@@ -795,14 +831,26 @@ internal object GitHubReplayRecovery {
                         put("status", "OBSERVATION_REUSED")
                         put("message", message)
                         put("previous_call_id", sourceCallId)
+                        put("source_projection_delivered", delivered)
+                        if (repeated) {
+                            for (field in listOf("head_sha", "run_attempt", "covered_start_line", "covered_end_line")) original[field]?.let { put(field, it) }
+                        }
+                        details.forEach { (key, value) -> put(key, value) }
                         (previous.executionReceipt?.get("semantic_summary") ?: original?.get("semantic_summary"))?.let { put("semantic_summary", it) }
                         previous.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }
+                        (previous.executionReceipt?.get("source_result_sha256") ?: previous.executionReceipt?.get("saved_view_source_sha256") ?: original?.get("source_result_sha256"))?.let { put("source_result_sha256", it) }
                         original?.get("continuation_call")?.let { put("continuation_call", it) }
                         original?.get("remote_continuations")?.let { put("remote_continuations", it) }
                         original?.get("recovery_call")?.let { put("recovery_call", it) }
                         original?.get("recovery_options")?.let { put("recovery_options", it) }
                         original?.get("continuation_options")?.let { put("continuation_options", it) }
                         original?.get("source_recovery_call")?.let { put("source_recovery_call", it) }
+                        if (!delivered && original?.get("recovery_call") is JsonObject) {
+                            put("continuation_call", original.getValue("recovery_call"))
+                            put("recovery_required", true)
+                            put("previously_delivered", false)
+                            original["recovery_options"]?.let { put("continuation_options", it) }
+                        }
                         if (repeated) {
                             original?.get("retained_result_preview")?.let { put("retained_result_preview", it) }
                         } else {
@@ -814,7 +862,7 @@ internal object GitHubReplayRecovery {
                 isError = false,
                 dispatched = false,
                 sharedResult = true,
-                executionReceipt = previous.executionReceipt
+                executionReceipt = JsonObject(previous.executionReceipt.orEmpty() + ("source_observation_call_id" to sourceCallId))
             )
         )
     }

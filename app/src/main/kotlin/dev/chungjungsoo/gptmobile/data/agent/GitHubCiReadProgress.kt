@@ -79,7 +79,7 @@ internal class GitHubCiReadProgress {
 
     companion object {
         /** Reuse only explicitly pinned completed attempts; live refreshes keep their normal dispatch. */
-        fun reused(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>): AgentToolResult? {
+        fun reused(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String> = emptyMap()): AgentToolResult? {
             val args = call.arguments
             if (call.name.githubOperationFamily() != "github_ci" ||
                 args["verify_live"] == JsonPrimitive(true) ||
@@ -137,29 +137,19 @@ internal class GitHubCiReadProgress {
                     if (complete) result else null
                 }
             } ?: return null
-            return currentGitHubInvocationReceipt(
-                AgentToolResult(
-                    call.callId,
-                    ToolResultContent.Json(
-                        buildJsonObject {
-                            put("schema", "github.repeat.v1")
-                            put("operation", "github_ci")
-                            put("status", "OBSERVATION_REUSED")
-                            put("previous_call_id", previous.callId)
-                            put("message", "The completed pinned attempt already supplies this observation. Use its saved receipt; no remote read was repeated.")
-                            put("head_sha", head)
-                            put("run_attempt", requireNotNull(args["run_attempt"]))
-                            requestedLines?.let {
-                                put("covered_start_line", it.first)
-                                put("covered_end_line", it.last)
-                            }
-                        }
-                    ),
-                    isError = false,
-                    dispatched = false,
-                    sharedResult = true,
-                    executionReceipt = buildJsonObject { put("source_observation_call_id", previous.callId) }
-                )
+            return GitHubReplayRecovery.reusedObservation(
+                call,
+                previous,
+                "The completed pinned attempt already supplies this observation. Reopen its saved source when needed; no remote read was repeated.",
+                deliveredResultDigests,
+                buildJsonObject {
+                    put("head_sha", head)
+                    put("run_attempt", requireNotNull(args["run_attempt"]))
+                    requestedLines?.let {
+                        put("covered_start_line", it.first)
+                        put("covered_end_line", it.last)
+                    }
+                }
             )
         }
 

@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "intelligence-diagnostic-completion-2026-11-27",
+  "pullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
+  "intent": "Implement remaining diagnostic source-delivery, context, durable-task, acceptance, CI, Gateway and voice corrections on the live PR while preserving concurrent work.",
+  "state": "READY_FOR_EXACT_COMMIT_HOSTED_VALIDATION",
+  "authorization": "User requested implementation of the supplied November 27 diagnostic findings in the latest PR branches.",
+  "constraints": [
+    "Reconcile current remote head before writes and retain concurrent commits.",
+    "Preserve task account, repository, profile, privacy, permissions and uncertain-operation identity.",
+    "Require exact-commit validation; never infer success from missing evidence.",
+    "Do not initiate paid model trials or claim physical-device qualification without execution."
+  ],
+  "checkpoints": [
+    {
+      "state": "INTAKE",
+      "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
+      "details": "Only open PR #2651 verified live; all three Android suites fail the same deadline projection test. Gateway Windows 3.12 incremental-delivery timing fails; current Windows installer build succeeds."
+    },
+    {
+      "state": "IMPLEMENTED",
+      "details": "Reproduced and repaired retained source delivery, context windowing, restored compatible authority, unused verification reserve, deadline provenance, Gateway live-output ordering and missing voice renderer evidence. Independent review found no blocking issue; existing durable journals, acceptance gates, protocol repair and UI recovery preserved."
+    },
+    {
+      "state": "LOCAL_VALIDATED",
+      "details": "Canonical host and Gateway gates, full authentication suite, focused JVM regressions and changed Kotlin formatting passed. Full Android and Windows validation must run on the containing commit."
+    },
+    {
+      "state": "CONCURRENT_RECONCILIATION",
+      "sourceSha": "440561e3f71e54ce1058c9edddc0f9416fb7d84f",
+      "details": "Expected-head read caught concurrent 66eb4ce3/440561e3 before branch update. Rebased local repair, preserved both feature/scope inventories, deduplicated deadline-source correction, aligned active-time clock with receiver, and corrected required pending-choice isError argument. Combined validation in progress."
+    },
+    {
+      "state": "RECONCILED_LOCAL_VALIDATED",
+      "sourceSha": "440561e3f71e54ce1058c9edddc0f9416fb7d84f",
+      "details": "Combined canonical host (848 tests), Gateway (2,317 Python tests plus seven browser tests and 50,000-event stress) and authentication (244 tests) passed with declared skips. Focused source (5), authority (7), reserve (9), deadline (13) and decision/clock (8) JVM tests passed on combined source; unchanged portable voice (106) remains valid. Full Android and Windows checks remain required at the containing commit."
+    }
+  ],
+  "validation": {
+    "focusedJvm": [
+      {
+        "suite": "retained source recovery",
+        "tests": 5,
+        "status": "PASS",
+        "scope": "Actual recovery, saved-view, compaction and delivery-proof production sources with narrow application boundary doubles; not full AgentRunner integration.",
+        "source": "reconciled payload"
+      },
+      {
+        "suite": "restored provider authority",
+        "tests": 7,
+        "status": "PASS",
+        "scope": "Actual authority sources with exact relevant settings slices and boundary doubles; original compatible-change recovery failure reproduced.",
+        "source": "reconciled payload"
+      },
+      {
+        "suite": "verification reserve",
+        "tests": 9,
+        "status": "PASS",
+        "scope": "Actual reserve helper plus exact production admission, session reserve gate and acceptance slices with storage/transport/provider doubles; two original behavior failures reproduced. Full session test awaits hosted Gradle.",
+        "source": "reconciled payload"
+      },
+      {
+        "suite": "deadline recovery projection",
+        "tests": 13,
+        "status": "PASS",
+        "scope": "Actual retained projection with boundary doubles; original current-CI failure reproduced. Includes active-time deadline clock after concurrent reconciliation.",
+        "source": "reconciled payload"
+      },
+      {
+        "suite": "portable voice verification",
+        "tests": 106,
+        "status": "PASS",
+        "scope": "50 full production Kotlin files, two exact production slices, two real Java sources and fail-if-used Android Context stub; no native execution or device playback claim."
+      },
+      {
+        "suite": "decision tool and deadline clock",
+        "tests": 8,
+        "status": "PASS",
+        "source": "reconciled payload",
+        "scope": "Complete production tool, decision store, notification identity and clock with in-memory storage/settings/context boundary doubles and exact envelope/result functions. Full runner/evidence-book integration remains hosted qualification. Incoming missing isError compilation and explicit cutoff failures reproduced before repair."
+      }
+    ],
+    "authentication": {
+      "command": "python3 -m unittest discover -s authentication -t . -p 'test_*.py' -v",
+      "tests": 244,
+      "status": "PASS",
+      "source": "reconciled payload including active-time clock receiver"
+    },
+    "gatewayFocused": {
+      "tests": 98,
+      "status": "PASS",
+      "suites": [
+        "task context",
+        "selected execution",
+        "engineering completion",
+        "reliability faults"
+      ]
+    },
+    "gatewayDelivery": {
+      "tests": 63,
+      "status": "PASS",
+      "scope": "Incremental delivery, message contract and completion regressions; slow diagnostics reproduced before repair."
+    },
+    "nativeBenchmarkContracts": {
+      "tests": 97,
+      "passed": 89,
+      "skipped": 8,
+      "status": "PASS_WITH_ENVIRONMENT_SKIPS",
+      "scope": "Synthetic, no provider requests; eight PowerShell cases unavailable on Linux."
+    },
+    "kotlinFormatting": {
+      "files": 26,
+      "status": "PASS",
+      "tool": "ktlint 1.3.1"
+    },
+    "gatewayCanonical": {
+      "command": "python3 gateway/check_gateway.py",
+      "status": "PASS_WITH_ENVIRONMENT_SKIPS",
+      "source": "reconciled payload",
+      "pythonSuites": 165,
+      "pythonTests": 2317,
+      "pythonSkipped": 40,
+      "browserTests": 7,
+      "stressEvents": 50000
+    },
+    "hostCanonical": {
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "PASS_WITH_ENVIRONMENT_SKIPS",
+      "tests": 848,
+      "skipped": 1,
+      "source": "reconciled payload",
+      "checks": [
+        "CI policy",
+        "architecture and feature references",
+        "agent metadata",
+        "diagnostic schema",
+        "audit inventory",
+        "dependency catalog",
+        "Gateway package hashes",
+        "secret scan",
+        "Android regex",
+        "resources and icons",
+        "git diff --check"
+      ]
+    },
+    "androidHosted": {
+      "status": "PENDING",
+      "scope": "Full Gradle/Robolectric, Android lint and APK exact-commit checks required; local host lacks Android SDK."
+    },
+    "windowsHosted": {
+      "status": "PENDING",
+      "scope": "Exact-commit Windows Gateway, PowerShell and installer checks required."
+    },
+    "releaseScope": {
+      "status": "PASS",
+      "exactAllowedPaths": 691,
+      "changedPathsFromBase": 454,
+      "broadDirectoryAllowances": 0
+    }
+  },
+  "qualification": {
+    "physicalHandset": null,
+    "liveGatewayQueue": null,
+    "liveCopilotTask": null,
+    "comparativeProductQuality": null,
+    "measuredTokenSavings": null
+  },
+  "implementationPayload": {
+    "algorithm": "sha256",
+    "files": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "3673c97e6c28b8a0881fa911263ac7d99553290062e32eedc9f68f14439f2dbe",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiReadProgress.kt": "ed5ed63a5d6439ea87fe5a23526791a299e69c71736eb0cf04c4055631a45764",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": "f6c441d93bcd40802bc2238b42d2941b873d48600d54f1fa227b8618306abac7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "497508e6aaf0ea511f01544d6fc6afdb0351e820cca6113a9f72c6622a5057fa",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionTool.kt": "85459ce6c62321ce76e0a1107294998a80886233784eb8b9db97711e80287049",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "ed1c545515d90077b0e07f525c550a56b9b9d94cb0eca32546a88fa7e1e014b0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapturedProviderAuthority.kt": "55074676868f32b5b9b4cde37c5c32be465059c3ca84ec7af1c5c9dbfaf39bd0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt": "0f5a32c89dcc27a1b825d2fd11a229c5946dbef9aade54740f80fb0d22bc9a13",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDecisionWaitClock.kt": "f53ce5a92cd7a51b291213bd77a2e609b6418a17e2764ce1149ed11adfa9f046",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReserve.kt": "ca8dfa913546e3105993492e1439cd5f334c66160a68d1c7ba181d66300d452d",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "329cc0dbbbb5510a6f714726aaa0690c2ee0e25b66bc11958155c2a7b37a667c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": "94772a1237ffac229bbe0c1956dd1649cbb0986eee873dccb547d277fc3a8879",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRetainedSourceDeliveryTest.kt": "a835c8640b53abd2ea3f2dabfa5e54d336db2b072d2adb64e21feb94d8d41540",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCallBudgetCheckpointTest.kt": "fc7cd7e6d25cf2249baf576f549cb191f6a14994108a862057bb7908fc91fe69",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionToolTest.kt": "e91f133d4f8d86e1b910e136c2dad9fa146f0b9b5926d0ecd4538cc9af0d9925",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthorityTest.kt": "d55e5ac796fe82ae26f36adabedd163c1d68b5b5984d34f86a218e0922685453",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceCompactionTest.kt": "5f7ab0764f2cc96824feb24bf1e4e1e254b4f860b86bec861773d1c67abd9100",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt": "ee7bcc67f0b949e0da36a21c0ff43000bd9580619366d9e5daad6f7f66e19b3e",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDecisionWaitClockTest.kt": "5f69dffc42547d65f75fc7f282b007657c4c6a69e94fbc1c836a10d205d15fb5",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReserveTest.kt": "cf0ca19e08c9ce43dabedb17a4f4f3f8bae44ad08d63c735461dc49f8a1a5b75",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "5febfc1010c42e7a9ccc7a96ddd112ebb9c236fc7145a443d30a23a06e51c6a0",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt": "529c4d5822e26d41de0117102771ca332cfc4166fdb18d71bc597b8fcc00fe38",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt": "a3a14861fa8b759a453112fac0f3451ea20720ff87b95e91f637841c6be3754d",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt": "97155503c7afd2c6b5219c66ec992ddb438817c1226e0243dbb9905f2f36d097",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt": "a9b82753e17655b8a36bf7b866a9b3b84ae9ae05e2f7d38aa0b63eb2c3d1c994",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechSustainedSeriesTest.kt": "bc7a127e7fb2cca75c402fe571316ef7504a86677fa54629d7ccf9910736e77c",
+      "authentication/issue_report_diagnostics.py": "87d8f38d9a4a219185601cd39d02a71e4c8aedd57d44a09c80baf83d8035a269",
+      "authentication/test_incident_report_contract.py": "69acbba5635e5d16f182afa006cb938837f57228336780a09bcffd97385a1e92",
+      "gateway/gateway_v13_transport.py": "c2afcf5f669f392a1d90e4bfb6d66c66da286fc417d4eb843dcbf5a63a606c49",
+      "gateway/tests/test_gateway_incremental_delivery.py": "46abaff26882f4beb1ac38e2c760d707f587c36e735338eae60ef7ba13b85418",
+      "gateway/tests/test_gateway_message_contract.py": "6d3a24a5dd9724ec297b13b6c60ff19a5b5b9b64dcaf85eabcc181654c6bda16",
+      "gateway/tests/test_gateway_task_context.py": "1814387aa1458908d17830675b365ea6721f5c441b06b1de21d90c128f7ed429",
+      "gateway/v14/task_context.py": "2a6d64e28543718072082bcf881c43ffa605024a3debe2b933e9c007d6b420c3"
+    },
+    "digest": "e6614a628f6bf9a92c9ace64504dfd31bcf77769d56b05d3e024ff617b2d1659",
+    "note": "Content identity of the reconciled implementation. Hosted checks must bind their own receipts to the containing commit; focused JVM slices retain the declared boundaries."
+  },
+  "reconciledParentSha": "440561e3f71e54ce1058c9edddc0f9416fb7d84f",
+  "validationBeforeReconciliation": {
+    "gatewayCanonical": {
+      "command": "python3 gateway/check_gateway.py",
+      "status": "PASS_WITH_ENVIRONMENT_SKIPS",
+      "pythonSuites": 164,
+      "pythonTests": 2277,
+      "pythonSkipped": 40,
+      "browserTests": 7,
+      "stressEvents": 50000,
+      "environment": "Python virtual environment with repository hash-locked dependencies. Initial custom-PYTHONPATH run failed one isolated child because requests was not in site-packages; standard venv rerun passed without weakening tests."
+    },
+    "hostCanonical": {
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "PASS_WITH_ENVIRONMENT_SKIPS",
+      "tests": 848,
+      "skipped": 1,
+      "checks": [
+        "CI policy",
+        "architecture and feature references",
+        "agent metadata",
+        "diagnostic schema",
+        "audit inventory",
+        "dependency catalog",
+        "Gateway package hashes",
+        "secret scan",
+        "Android regex",
+        "resources and icons",
+        "git diff --check"
+      ]
+    }
+  }
+}

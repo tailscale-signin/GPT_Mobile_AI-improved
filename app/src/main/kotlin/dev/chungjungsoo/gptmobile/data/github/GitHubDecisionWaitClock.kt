@@ -4,7 +4,9 @@ package dev.chungjungsoo.gptmobile.data.github
 internal object GitHubDecisionWaitClock {
     /** A user-specified delivery cutoff retains wall-clock meaning. */
     fun allowsPause(task: String): Boolean = !Regex(
-        """(?i)\b(?:deadline|no later than)\b|\b(?:finish|complete|deliver)\s+(?:it\s+)?within\s+\d|\bby\s+(?:\d{1,2}(?::\d{2})?(?:\s*[ap]m)?|noon|midnight|tomorrow)\b"""
+        // A bounded object phrase covers "finish the change within ..." without
+        // crossing sentence punctuation into a separate active-work allowance.
+        """(?i)\b(?:deadline|no later than)\b|\b(?:finish|complete|deliver)\s+(?:[^\r\n.!?;]{1,160}\s+)?within\s+\d|\bby\s+(?:\d{1,2}(?::\d{2})?(?:\s*[ap]m)?|noon|midnight|tomorrow)\b"""
     ).containsMatchIn(task)
 
     fun pausedMillis(acceptedAt: Long, observedAt: Long, waits: List<Pair<Long, Long?>>): Long {

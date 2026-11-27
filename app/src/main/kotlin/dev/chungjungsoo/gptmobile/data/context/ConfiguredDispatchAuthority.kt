@@ -68,7 +68,16 @@ internal object ConfiguredDispatchAuthority {
         val capturedPolicyRevision = policyRevision(capturedFeatures, platform.uid, chatId)
         val revision = researchHash("$capturedProfileRevision|$capturedPolicyRevision|${inherited?.revision}")
         val authority = capturedProfileRevision?.let {
-            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority), acceptedTokenBudget = capturedFeatures.tokenBudget, acceptedProfileOutputLimit = registered?.maxTokens, profileWithoutOutputLimitRevision = registered?.let(::profileWithoutOutputLimitRevision))
+            CapturedProviderAuthority(
+                platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision,
+                CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority),
+                acceptedTokenBudget = capturedFeatures.tokenBudget,
+                acceptedProfileOutputLimit = registered?.maxTokens,
+                profileWithoutOutputLimitRevision = registered?.let(::profileWithoutOutputLimitRevision),
+                acceptedGitHubIntelligenceLevel = chatId?.let { capturedFeatures.conversationGitHub[it] }
+                    ?.takeIf { it.mainProfileUid == platform.uid }
+                    ?.let { (capturedFeatures.githubProfileOverrides[platform.uid] ?: GitHubChatProfileOverride.newProfile).intelligenceLevel }
+            )
         }
         return RequestAuthorizationGuard("configured:$revision", authority) {
             inherited?.validate?.invoke()

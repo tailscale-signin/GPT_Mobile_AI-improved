@@ -312,6 +312,42 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual('failed', self.runtime.job_registry[job_id]['status'])
         self.assertFalse(self.runtime.android_job_result_shape(job_id, 'failed', {'error': error})['continuation_allowed'])
 
+    async def test_received_answer_reaches_asgi_while_diagnostic_progress_persistence_is_blocked(self):
+        release, backend_prefix, received, errors = self.backend()
+        progress_blocked, progress_release = threading.Event(), threading.Event()
+        self._backend_releases.append(progress_release)
+        progress_errors = []
+        update_job = self.runtime.update_gateway_job
+
+        def slow_diagnostic_update(job_id, event):
+            if event.get('event') == 'backend_first_output':
+                progress_blocked.set()
+                if not progress_release.wait(self.READINESS_SECONDS + self.SETTLEMENT_SECONDS):
+                    progress_errors.append('The observing test did not release diagnostic persistence')
+            return update_job(job_id, event)
+
+        self.stack.enter_context(patch.object(self.runtime, 'update_gateway_job', slow_diagnostic_update))
+        packets, first_visible = [], asyncio.Event()
+        job_id = 'blocked-diagnostic-progress'
+        worker = asyncio.create_task(self.observe(self.body(job_id), job_id, packets, first_visible))
+        try:
+            await self.backend_ready(backend_prefix, received, worker)
+            self.assertTrue(await asyncio.to_thread(progress_blocked.wait, self.READINESS_SECONDS))
+            # The backend terminal marker and diagnostic journal are both held.
+            # Already-validated answer text must still reach the live ASGI client.
+            await asyncio.wait_for(first_visible.wait(), 3)
+            self.assertEqual('First', content(packets))
+            self.assertFalse(worker.done())
+            self.assertFalse(progress_release.is_set())
+            self.assertNotEqual('completed', self.runtime.job_registry[job_id]['status'])
+        finally:
+            progress_release.set()
+            await self.finish_streams(release, worker)
+        self.assertFalse(errors + progress_errors)
+        self.assertEqual(1, len(received))
+        self.assertEqual('First answer', content(packets))
+        self.assertEqual('completed', self.runtime.job_registry[job_id]['status'])
+
     async def test_layout_is_identical_for_incremental_buffered_fast_and_saved_completion(self):
         prefix, tail = '    def example():\n', '\treturn "🌸"\n\n'
         expected = prefix + tail

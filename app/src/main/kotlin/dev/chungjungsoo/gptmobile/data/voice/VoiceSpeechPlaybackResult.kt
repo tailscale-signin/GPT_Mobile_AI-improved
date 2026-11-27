@@ -123,7 +123,7 @@ internal data class VoiceSpeechPlaybackResult(
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
             manifestWordsExpected?.let { it > 0 && manifestWordsPrepared == it && manifestWordsObserved == it } == true &&
-            renderedManifestWords != 0 &&
+            renderedManifestWords?.let { it > 0 } == true &&
             unexpectedCaptionWords == 0 &&
             captionClockRegressions == 0 &&
             captionTimingViolations == 0

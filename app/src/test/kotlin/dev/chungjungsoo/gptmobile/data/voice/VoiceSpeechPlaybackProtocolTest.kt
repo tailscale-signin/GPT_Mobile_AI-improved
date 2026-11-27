@@ -192,6 +192,41 @@ class VoiceSpeechPlaybackProtocolTest {
         assertEquals(VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED, observed(plan).quality)
     }
 
+    @Test fun captionQualificationRequiresObservedRenderingWhileAllowingSkippedDisplayFrames() {
+        val result = observed(VoiceSpeechPlaybackPlan(VoiceSpeechPlaybackScenario.COLD_START, 0, listOf("the voice is ready.")))
+        assertEquals(4, result.renderedManifestWords)
+        for (rendered in listOf(null, 0, -1)) {
+            val unobserved = result.copy(renderedManifestWords = rendered)
+            assertFalse(unobserved.captionManifestValid)
+            assertEquals(VoiceSpeechPlaybackQuality.INCOMPLETE, unobserved.quality)
+        }
+        // Actual playback may cross brief words between display callbacks.
+        val skippedDisplayFrames = result.copy(renderedManifestWords = 1)
+        assertTrue(skippedDisplayFrames.captionManifestValid)
+        assertEquals(VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED, skippedDisplayFrames.quality)
+    }
+
+    @Test fun restoredReportWithoutRendererObservationCannotQualifyCaptions() {
+        val config = configuration()
+        val report = VoiceSpeechBenchmarkReport(
+            1L,
+            config,
+            state = VoiceSpeechBenchmarkRunState.COMPLETE,
+            playbackResults = listOf(observed(VoiceSpeechPlaybackProtocol.plans(config).first()))
+        )
+        val json = speechBenchmarkJson(report, local = true)
+        val row = json.getValue("playbackResults").jsonArray.single().jsonObject
+        assertEquals(report, speechBenchmarkReportFromJson(json))
+        for (missing in listOf(row - "renderedManifestWords", row + ("renderedManifestWords" to kotlinx.serialization.json.JsonNull))) {
+            val restored = requireNotNull(speechBenchmarkReportFromJson(JsonObject(json + ("playbackResults" to JsonArray(listOf(JsonObject(missing)))))))
+            val playback = restored.playbackResults.single()
+            assertNull(playback.renderedManifestWords)
+            assertFalse(playback.captionManifestValid)
+            assertEquals(VoiceSpeechPlaybackQuality.INCOMPLETE, playback.quality)
+            assertNull(restored.recommendation())
+        }
+    }
+
     @Test fun stageBoundariesAndRealChunkEvidenceRemainDistinct() {
         val plan = VoiceSpeechPlaybackPlan(VoiceSpeechPlaybackScenario.COLD_START, 0, listOf("the voice"))
         val result = observed(plan)

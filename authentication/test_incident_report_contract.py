@@ -1901,12 +1901,22 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_deadline_and_acquisition_evidence_are_bounded_and_acceptance_scoped(self):
         values = {"task_deadline_check": "BEFORE_TOOL_RESTORE", "task_deadline_observation": "WINDOW_EXPIRED",
+                  "task_deadline_source": "EXPLICIT_USER_REQUEST", "task_deadline_clock": "WALL_CLOCK",
                   "task_deadline_window_seconds": 60, "task_deadline_overdue_seconds": 0,
                   "acceptance_acquisition_allowed": False, "acceptance_cleanup_reserve": 0,
                   "acceptance_fixture_start_minimum": 6, "acceptance_prerequisite_blockers": ["OWNED_FIXTURE_REQUIRED"]}
         validate_diagnostics(self.capture("ACCEPTANCE", values))
         validate_diagnostics(self.capture("ACCEPTANCE", {**values, "task_deadline_check": "ADMISSION"}))
+        for source in ("ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"):
+            capture = self.capture("ACCEPTANCE", {**values, "task_deadline_source": source})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for clock in ("WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES"):
+            capture = self.capture("ACCEPTANCE", {**values, "task_deadline_clock": clock})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
         for field, bad in (("task_deadline_check", "private text"), ("task_deadline_observation", "unknown clock"),
+                           ("task_deadline_source", "private task instructions"),
+                           ("task_deadline_clock", "private clock detail"), ("task_deadline_clock", None),
+                           ("task_deadline_clock", 42), ("task_deadline_clock", True),
                            ("task_deadline_window_seconds", -1), ("task_deadline_overdue_seconds", 16000001),
                            ("acceptance_acquisition_allowed", "false"), ("acceptance_cleanup_reserve", -1),
                            ("acceptance_fixture_start_minimum", "6"), ("acceptance_prerequisite_blockers", ["private-id"])):

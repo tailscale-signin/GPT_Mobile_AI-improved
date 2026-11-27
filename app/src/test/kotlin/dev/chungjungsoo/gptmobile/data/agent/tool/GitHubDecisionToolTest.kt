@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
@@ -117,6 +118,10 @@ class GitHubDecisionToolTest {
         val tool = GitHubDecisionTool(decisions, 1, 2, "profile", workspace, false, { true }, { offers++ })
         val pending = tool.execute("first", arguments)
         assertEquals(GitHubDecisionTool.PENDING, pending.errorCode)
+        assertTrue(pending.isError)
+        assertFalse(pending.dispatched)
+        assertTrue(pending.sharedResult)
+        assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(pending))
         assertTrue(decisions.waiting.value.isEmpty())
         val id = decisions.decisions.value.single().id
         decisions.respond(id, 1, GitHubChatDecisions.workspaceKey(workspace), 1)

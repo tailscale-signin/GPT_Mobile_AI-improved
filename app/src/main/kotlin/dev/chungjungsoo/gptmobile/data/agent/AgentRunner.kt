@@ -902,6 +902,13 @@ class AgentRunner(
                     AutomaticRead(it, status)
                 }
             }
+            // Consume an already retained unread page before remote pagination or
+            // further discovery can displace its source and spend another request.
+            if (limits.githubTask) {
+                GitHubReplayRecovery.nextSavedRead(exchanges, definitions, minOf(limits.maxReplayResultTokens, replayLimit / 2), savedResultRecovery, replayLimit, limits.maxToolOutputBytes)?.let {
+                    return AutomaticRead(it, "Reading the saved GitHub result; the remote operation is not being repeated.")
+                }
+            }
             val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
             if (remoteAllowed && definitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }) {
                 GitHubReplayRecovery.nextRemoteRead(exchanges, definitions, savedResultRecovery, allowSearchContinuation = exhaustiveSearch, searchTask = limits.githubTaskRequest)?.let {
@@ -921,9 +928,6 @@ class AgentRunner(
                 PhoneIndexContinuation.next(exchanges, definitions.filter { it.name in executableToolByName })?.let {
                     return AutomaticRead(it, "Checking retained phone index progress at the selected revision.")
                 }
-            }
-            GitHubReplayRecovery.nextSavedRead(exchanges, definitions, minOf(limits.maxReplayResultTokens, replayLimit / 2), savedResultRecovery, replayLimit, limits.maxToolOutputBytes)?.let {
-                return AutomaticRead(it, "Reading the saved GitHub result; the remote operation is not being repeated.")
             }
             if (remoteAllowed && ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) > 0) {
                 ciInvestigation.nextCall(definitions.filter { it.name in executableToolByName })?.let {
@@ -1556,7 +1560,7 @@ class AgentRunner(
         val dependencyPlan = planIntelligentBatch(dependencyCalls, toolsForBatch).map { node ->
             if (node.call.callId in restoredCompleted) node.copy(dependencies = emptySet(), failureDependencies = emptySet()) else node
         }
-        val reusableReads = if (limits.githubTask) calls.mapNotNull { call -> GitHubCiReadProgress.reused(call, exchanges)?.let { call.callId to it } }.toMap() else emptyMap()
+        val reusableReads = if (limits.githubTask) calls.mapNotNull { call -> GitHubCiReadProgress.reused(call, exchanges, deliveredResultDigests)?.let { call.callId to it } }.toMap() else emptyMap()
         fun planAdmission(refreshContextId: String? = null) = planToolBatch(
             calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes,
             if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN,
@@ -1671,7 +1675,7 @@ class AgentRunner(
                 availableCatalog.toSortedMap().values.joinToString("\n") { it.name + ":" + it.inputSchema.toString() }
             )
         }
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, availableCatalog, exchanges, pausedGitHubNames, catalogHash, reusableReads.filterKeys { it in plan.reusedReadIds }).map { result ->
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, availableCatalog, exchanges, pausedGitHubNames, catalogHash, reusableReads.filterKeys { it in plan.reusedReadIds }, deliveredResultDigests).map { result ->
             fun admissionReason(id: String) = when (id) {
                 in plan.dependencyDeferredIds -> ToolDependencyDiagnostics.Admission.PREREQUISITE_DEFERRED
                 in plan.unavailableIds -> if (decisionCalls.isEmpty()) ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE else ToolDependencyDiagnostics.Admission.DECISION_REQUIRED
@@ -1781,7 +1785,7 @@ class AgentRunner(
         return SearchRoundContext(names, successful)
     }
 
-    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableCatalog: Map<String, AgentToolDefinition>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet(), catalogHash: String? = null, reusableReads: Map<String, AgentToolResult> = emptyMap()): List<AgentToolResult> = calls.map { call ->
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableCatalog: Map<String, AgentToolDefinition>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet(), catalogHash: String? = null, reusableReads: Map<String, AgentToolResult> = emptyMap(), deliveredResultDigests: Map<String, String> = emptyMap()): List<AgentToolResult> = calls.map { call ->
         reusableReads[call.callId]?.let { return@map it }
         if (call.callId in unavailableIds) {
             if (call.name in pausedGitHubNames) {
@@ -1871,7 +1875,7 @@ class AgentRunner(
         } else {
             FINAL_RESPONSE_INSTRUCTION
         }
-        if (call.callId in perToolSuppressedIds) GitHubReplayRecovery.repeated(call, exchanges, message)?.let { return@map it }
+        if (call.callId in perToolSuppressedIds) GitHubReplayRecovery.repeated(call, exchanges, message, deliveredResultDigests)?.let { return@map it }
         AgentToolResult(call.callId, ToolResultContent.Text(message), isError = true, dispatched = false, errorCode = "NOT_DISPATCHED")
     }
 

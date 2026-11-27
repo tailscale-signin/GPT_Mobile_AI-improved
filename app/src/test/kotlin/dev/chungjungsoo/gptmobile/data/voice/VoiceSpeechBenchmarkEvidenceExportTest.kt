@@ -391,7 +391,7 @@ class VoiceSpeechBenchmarkEvidenceExportTest {
                     effectiveProvider = "cpu", protocolVersion = VoiceSpeechPlaybackProtocol.VERSION,
                     scenario = plan.scenario, repeat = plan.repeat, expectedResident = plan.expectedResident, engineReused = plan.expectedResident,
                     fixtureHash = plan.manifest.hash, manifestWordsExpected = plan.manifest.spans.size,
-                    manifestWordsPrepared = plan.manifest.spans.size, manifestWordsObserved = plan.manifest.spans.size, unexpectedCaptionWords = 0,
+                    manifestWordsPrepared = plan.manifest.spans.size, manifestWordsObserved = plan.manifest.spans.size, renderedManifestWords = plan.manifest.spans.size, unexpectedCaptionWords = 0,
                     chunkRecords = listOf(chunk), cleanupState = "RETIRED", thermalBefore = 0, thermalAfter = 0, activePlaybackUnderruns = 0
                 )
             )

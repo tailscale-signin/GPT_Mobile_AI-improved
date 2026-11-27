@@ -12,7 +12,7 @@ class VoiceSpeechSustainedSeriesTest {
         chunks = 1, validatedChunks = 1, effectiveProvider = "cpu",
         protocolVersion = VoiceSpeechPlaybackProtocol.VERSION, scenario = VoiceSpeechPlaybackScenario.SUSTAINED,
         repeat = repeat, expectedResident = repeat > 0, engineReused = repeat > 0,
-        manifestWordsExpected = 2, manifestWordsPrepared = 2, manifestWordsObserved = 2,
+        manifestWordsExpected = 2, manifestWordsPrepared = 2, manifestWordsObserved = 2, renderedManifestWords = 2,
         unexpectedCaptionWords = 0, cleanupState = "RETIRED", activePlaybackUnderruns = 0,
         thermalBefore = 0, thermalAfter = 0
     )
@@ -94,6 +94,8 @@ class VoiceSpeechSustainedSeriesTest {
         rejected { it.copy(engineReused = false) }
         rejected { it.copy(repeat = 4) }
         rejected { it.copy(totalAudioMs = 200_000) }
+        rejected { it.copy(renderedManifestWords = null) }
+        rejected { it.copy(renderedManifestWords = 0) }
         rejected { it.copy(firstPresentedAudioMs = it.elapsedMs + 1) }
         rejected { it.copy(elapsedMs = -1) }
     }

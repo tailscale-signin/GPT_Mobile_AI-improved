@@ -741,10 +741,33 @@ internal class GitHubVerifiedSession(
 
     private suspend fun FlowCollector<ProviderEvent>.runEvidenceRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         val reserve = GitHubChecklistBudget.ordinaryVerificationReserve(executionCallLimit)
-        if (!GitHubChecklistBudget.acquisitionAllowed(evidence.snapshot().first, remainingToolCalls(), reserve)) {
+        val reservedReceipts = evidence.snapshot().first
+        if (!GitHubChecklistBudget.acquisitionAllowed(reservedReceipts, remainingToolCalls(), reserve)) {
+            val remaining = remainingToolCalls()
+            if (!delegate.handlesToolsInternally && remaining != null && evidence.remainingTaskMillis() != 0L) {
+                val verification = GitHubVerificationReserve.next(
+                    tools.filter { evidence.trustsTool(it.name) },
+                    reservedReceipts,
+                    remaining,
+                    GitHubChecklistBudget.cleanupReserve(reservedReceipts)
+                )
+                if (verification != null) {
+                    validatePublication()
+                    lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                    progress("Using the remaining verification allowance to check test jobs at the published commit")
+                    emit(verification)
+                    emit(ProviderEvent.Completed)
+                    return
+                }
+            }
             val savedDraft = (evidence.retainedClaimExtraction()?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
             if (savedDraft != null) {
                 emitAll(publish(savedDraft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
+                return
+            }
+            val verificationDraft = GitHubVerificationReserve.candidate(reservedReceipts)
+            if (verificationDraft != null) {
+                emitAll(publish(verificationDraft, GitHubAcceptancePublicationEvidence.Entry.RETAINED_OBSERVATIONS))
                 return
             }
             if (GitHubRequestCompletion.informational(task) && remainingToolCalls()?.let { it > 0 } == true && evidence.remainingTaskMillis() != 0L) {

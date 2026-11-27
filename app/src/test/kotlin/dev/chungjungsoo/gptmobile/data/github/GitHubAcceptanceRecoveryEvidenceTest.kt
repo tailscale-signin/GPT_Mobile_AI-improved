@@ -42,12 +42,26 @@ class GitHubAcceptanceRecoveryEvidenceTest {
 
     @Test fun deadlineProvenanceKeepsOnlyClosedObservedSources() {
         for (source in GitHubAcceptanceRecoveryEvidence.deadlineSources) {
-            val retained = GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":"$source"}}"""))
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":"$source"}}""")
+            val retained = GitHubAcceptanceRecoveryEvidence.fields(verdict)
             assertEquals(JsonPrimitive(source), retained["task_deadline_source"])
+            assertTrue(retained.keys.all { it in GitHubAcceptanceRecoveryEvidence.fields })
         }
-        for (source in listOf("private free-form source", "", "true")) {
-            val retained = GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":"$source"}}"""))
-            assertNull(retained["task_deadline_source"])
+        for (source in listOf("null", "42", "true", "\"\"", "\"true\"", "\"private free-form source\"", "\"private task text\"")) {
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":$source}}""")
+            assertTrue(GitHubAcceptanceRecoveryEvidence.fields(verdict).isEmpty())
+        }
+        assertTrue(GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED"}}""")).isEmpty())
+    }
+
+    @Test fun retainedDeadlineClockPreservesUserChoiceWaitAccountingWithoutAcceptingUnknownValues() {
+        for (clock in listOf("WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES")) {
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_clock":"$clock"}}""")
+            assertEquals(JsonPrimitive(clock), GitHubAcceptanceRecoveryEvidence.fields(verdict)["task_deadline_clock"])
+        }
+        for (clock in listOf("null", "42", "true", "\"private clock detail\"")) {
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_clock":$clock}}""")
+            assertTrue(GitHubAcceptanceRecoveryEvidence.fields(verdict).isEmpty())
         }
     }
 

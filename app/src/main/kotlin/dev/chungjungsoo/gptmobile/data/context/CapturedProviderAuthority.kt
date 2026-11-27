@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
+import dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.Serializable
@@ -23,7 +25,9 @@ data class CapturedProviderAuthority(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val acceptedProfileOutputLimit: Int? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val profileWithoutOutputLimitRevision: String? = null
+    val profileWithoutOutputLimitRevision: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acceptedGitHubIntelligenceLevel: GitHubIntelligenceLevel? = null
 ) {
     internal suspend fun validate(settings: SettingRepository) {
         parents.forEach { it.validate(settings) }
@@ -36,7 +40,16 @@ data class CapturedProviderAuthority(
         val admitted = current.copy(model = model)
         if (routeRevision(admitted) != routeRevision) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_ROUTE_CHANGED")
         val live = settings.getFeatureSettings()
-        val effective = acceptedTokenBudget?.takeIf { ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(it, live.tokenBudget, profileUid) }?.let { live.copy(tokenBudget = it) } ?: live
+        val tokenPlan = acceptedTokenBudget?.takeIf { ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(it, live.tokenBudget, profileUid) }?.let { live.copy(tokenBudget = it) } ?: live
+        val configuredGitHub = live.githubProfileOverrides[profileUid] ?: GitHubChatProfileOverride.newProfile
+        // A live owner keeps its accepted effort when the configured level is raised.
+        // Restored provider waits must apply that same narrow rule; every other
+        // permission, target and route field still has to match the saved revision.
+        val effective = acceptedGitHubIntelligenceLevel
+            ?.takeIf { it <= configuredGitHub.intelligenceLevel }
+            ?.let { accepted ->
+                tokenPlan.copy(githubProfileOverrides = tokenPlan.githubProfileOverrides + (profileUid to configuredGitHub.copy(intelligenceLevel = accepted)))
+            } ?: tokenPlan
         val policyMatches = ConfiguredDispatchAuthority.matchesPolicyRevision(policyRevision, effective, profileUid, chatId) ||
             acceptedTokenBudget == null &&
             ConfiguredDispatchAuthority.matchesPolicyRevision(policyRevision, live, profileUid, chatId, scopeProfile = false)

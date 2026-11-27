@@ -499,6 +499,45 @@ class MessageContractTests(unittest.TestCase):
         self.assertEqual(1, sum(event['event'] == 'backend_first_visible_output' for event in events))
         self.assertNotIn('fixture-private', json.dumps(events))
 
+    def test_incremental_text_keeps_checkpoint_and_tool_checks_ahead_of_diagnostic_progress(self):
+        body = {key: value for key, value in payload().items() if key != 'tools'}
+        body['tool_choice'] = 'none'
+        observations = []
+
+        def progress(event):
+            if event['event'] == 'backend_first_output':
+                self.assertEqual([('checkpoint', 'Answer'), ('visible', 'Answer')], observations)
+            observations.append(('progress', event['event']))
+
+        stream = lines({'choices': [{'delta': {'content': 'Answer'}, 'finish_reason': 'stop'}]})
+        with patch('gateway_v13_transport.checkpoint_structured_stream', lambda text: observations.append(('checkpoint', text))):
+            result = self.run_chat(Session(Response(stream=stream)), body, progress=progress,
+                                   visible_output=lambda text: observations.append(('visible', text))).json()
+        self.assertEqual('Answer', result['choices'][0]['message']['content'])
+        self.assertIn(('progress', 'backend_first_visible_output'), observations)
+
+    def test_incremental_text_is_withheld_when_checkpoint_or_tool_validation_rejects_it(self):
+        body = {key: value for key, value in payload().items() if key != 'tools'}
+        body['tool_choice'] = 'none'
+        for rejected_by in ('checkpoint', 'tool'):
+            with self.subTest(rejected_by=rejected_by):
+                visible, checkpoints = [], []
+
+                def checkpoint(text):
+                    checkpoints.append(text)
+                    if rejected_by == 'checkpoint':
+                        raise GatewayContractError('Fixture checkpoint rejected.', 'checkpoint_rejected', 503)
+
+                delta = {'content': 'Answer'}
+                if rejected_by == 'tool':
+                    delta['tool_calls'] = [dict(tool('client_search', 'unapproved'), index=0)]
+                stream = lines({'choices': [{'delta': delta, 'finish_reason': 'stop'}]})
+                with patch('gateway_v13_transport.checkpoint_structured_stream', checkpoint), self.assertRaises(GatewayContractError) as caught:
+                    self.run_chat(Session(Response(stream=stream)), body, visible_output=visible.append)
+                self.assertEqual('checkpoint_rejected' if rejected_by == 'checkpoint' else 'unauthorized_tool_call', caught.exception.code)
+                self.assertEqual(['Answer'], checkpoints)
+                self.assertEqual([], visible)
+
 
 if __name__ == '__main__':
     unittest.main()

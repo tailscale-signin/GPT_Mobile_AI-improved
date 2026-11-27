@@ -344,14 +344,15 @@ FIELDS_BY_AREA["VOICE"].update(VOICE_CAPTURE_PLAYBACK_FIELDS | VOICE_PACK_STATUS
 ACCEPTANCE_RECOVERY_FIELDS = {
     "acceptance_prerequisite_blockers", "acceptance_acquisition_allowed", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
     "task_deadline_check", "task_deadline_observation", "task_deadline_window_seconds", "task_deadline_overdue_seconds",
-    "task_deadline_clock", "task_deadline_renewed", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds",
+    "task_deadline_clock", "task_deadline_source", "task_deadline_renewed", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds",
     "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count",
     "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
     "status_policy_protection_http_status", "status_policy_rules_http_status",
     "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint", "status_missing_observations",
 }
 ENUMS["task_deadline_check"] = {"ADMISSION", "BEFORE_TOOL_RESTORE", "BEFORE_MODEL_LOOP", "MODEL_LOOP_TIMEOUT", "VERIFIED_SESSION_ENTRY"}
-ENUMS["task_deadline_clock"] = {"WALL_CLOCK"}
+ENUMS["task_deadline_clock"] = {"WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES"}
+ENUMS["task_deadline_source"] = {"ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"}
 FLAGS.add("task_deadline_renewed")
 ENUMS["task_deadline_observation"] = {"CONTRACT_UNAVAILABLE", "NO_ACCEPTED_DEADLINE", "TIMING_UNAVAILABLE", "WINDOW_OPEN", "WINDOW_EXPIRED"}
 ENUM_LISTS["acceptance_prerequisite_blockers"] = {"OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED", "OPERATION_IDENTITY_REQUIRED", "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED", "APPROVAL_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN", "FIXTURE_APPROVAL_MODE_REQUIRED", "LIVE_EVIDENCE_REQUIRED", "CONTINUATION_REQUIRED", "PRECHECK_REJECTED", "OPERATION_FAILED", "USER_DECISION_REQUIRED", "CHECK_SUBSCRIPTION_REQUIRED", "OWNED_FIXTURE_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "REPOSITORY_INPUT_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED", "REPOSITORY_LIFECYCLE_REQUIRED", "EXECUTION_NOT_EXERCISED", "BLOCKER_DETAIL_NOT_RECORDED"}

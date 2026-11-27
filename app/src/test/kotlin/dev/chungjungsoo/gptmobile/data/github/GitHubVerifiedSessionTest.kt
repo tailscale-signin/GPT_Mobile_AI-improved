@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery
 import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
@@ -283,6 +284,151 @@ class GitHubVerifiedSessionTest {
         assertEquals("VERIFICATION_RESERVE_REACHED", (events.last() as ProviderEvent.Failed).errorCode)
         assertEquals(JsonPrimitive(false), verdict?.get("completion_verified"))
         assertEquals(JsonPrimitive(true), verdict?.get("resume_required"))
+    }
+
+    @Test fun verificationReserveCollectsExactCommitJobsThenPublishesThroughTheExistingAcceptanceGate() = runTest {
+        val task = "Implement the feature"
+        val sha = "a".repeat(40)
+        val ci = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_ci", "github_ci__selected")
+        val commit = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_commit", "github_commit__selected")
+        val tools = listOf(ci, commit)
+        val book = GitHubEvidenceBook("reserve-verification", "owner/repo", "main", tools.mapTo(mutableSetOf()) { it.name }, now = { 1000L })
+        book.retainTaskContract(task, 1, tools, 4)
+        book.observe(
+            ProviderEvent.ToolCall("published", commit.name, buildJsonObject { put("action", "commit") }),
+            AgentToolResult(
+                "published",
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("sha", sha)
+                        put("committed", true)
+                    }
+                ),
+                false,
+                dispatched = true
+            )
+        )
+        val budget = ToolExecutionBudget(AgentRunLimits(githubTask = true, maxToolCalls = 4), initialCalls = 2)
+        var dispatched = 0
+        val reader = budget.bind(object : AgentTool {
+            override val definition = ci
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                assertEquals(JsonPrimitive(true), arguments["verify_live"])
+                val result = if (arguments["action"] == JsonPrimitive("runs")) {
+                    assertEquals(JsonPrimitive(sha), arguments["head_sha"])
+                    buildJsonObject {
+                        put(
+                            "workflow_runs",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", 7)
+                                        put("run_attempt", 1)
+                                        put("head_sha", sha)
+                                        put("status", "completed")
+                                    }
+                                )
+                            )
+                        )
+                    }
+                } else {
+                    assertEquals(JsonPrimitive("jobs"), arguments["action"])
+                    assertEquals(JsonPrimitive(sha), arguments["expected_head_sha"])
+                    assertEquals(JsonPrimitive(1), arguments["run_attempt"])
+                    buildJsonObject {
+                        put("run_id", 7)
+                        put("run_attempt", 1)
+                        put("head_sha", sha)
+                        put("page", 1)
+                        put("has_more", false)
+                        put("total_count", 1)
+                        put(
+                            "jobs",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", 9)
+                                        put("name", "Unit tests")
+                                        put("status", "completed")
+                                        put("conclusion", "success")
+                                    }
+                                )
+                            )
+                        )
+                    }
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = true)
+            }
+        })
+        val primary = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> =
+                error("The reserve cannot reopen model acquisition")
+        }
+        var published: JsonObject? = null
+        var extractions = 0
+        val session = GitHubVerifiedSession(
+            primary, book, task, { 8192 },
+            {
+                extractions++
+                val receipts = book.snapshot().first
+                val implementation = receipts.entries.single { it.value["call_id"] == JsonPrimitive("published") }.key
+                val tests = receipts.entries.single { (it.value["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("jobs") }.key
+                val criterion = GitHubRequestCompletion.id(task)
+                answer(
+                    buildJsonObject {
+                        put(
+                            "claims",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("kind", "fact")
+                                        put("receipt_id", implementation)
+                                        put("pointer", "/sha")
+                                        put("value", sha)
+                                    }
+                                )
+                            )
+                        )
+                        put("requirement_claims", buildJsonObject { put(criterion, JsonArray(listOf(JsonPrimitive(0)))) })
+                        put(
+                            "acceptance",
+                            buildJsonObject {
+                                put(
+                                    criterion,
+                                    buildJsonObject {
+                                        put("implementation_receipts", JsonArray(listOf(JsonPrimitive(implementation))))
+                                        put("test_receipts", JsonArray(listOf(JsonPrimitive(tests))))
+                                    }
+                                )
+                            }
+                        )
+                    }.toString()
+                )
+            },
+            {}, {}, now = { 1000L }, authorizedTools = tools, remainingToolCalls = budget::remainingCalls,
+            executionCallLimit = 4, onPublication = { published = it }
+        )
+        var exchanges = emptyList<AgentToolExchange>()
+        repeat(2) { index ->
+            val events = session.streamRound(tools, exchanges).toList()
+            val call = events.filterIsInstance<ProviderEvent.ToolCall>().single()
+            assertEquals(ci.name, call.name)
+            assertEquals(JsonPrimitive(if (index == 0) "runs" else "jobs"), call.arguments["action"])
+            assertEquals(ProviderEvent.Completed, events.last())
+            val result = reader.execute(call.callId, call.arguments)
+            assertFalse(result.isError)
+            exchanges = listOf(AgentToolExchange(listOf(call), listOf(result)))
+        }
+        assertEquals(0, budget.remainingCalls())
+        val events = session.streamRound(tools, exchanges).toList()
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(2, dispatched)
+        assertEquals(4, budget.usedCalls())
+        assertEquals(1, extractions)
+        assertEquals(JsonPrimitive(true), published?.get("completion_verified"))
+        assertEquals(JsonPrimitive("RETAINED_OBSERVATIONS"), (published?.get("publication_observation") as? JsonObject)?.get("acceptance_publication_entry"))
+        assertEquals(JsonPrimitive("PASS"), published?.get("requirements")?.jsonArray?.single()?.jsonObject?.get("acceptance_state"))
     }
 
     @Test fun unknownOrUnfinishedExtractorInvocationsDoNotTriggerSchemaRepairAttempts() = runBlocking {

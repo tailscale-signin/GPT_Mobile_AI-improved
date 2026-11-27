@@ -116,11 +116,14 @@ internal class GitHubDecisionTool(
         if (answer.answer == null) {
             return AgentToolResult(
                 callId,
-                ToolResultContent.Json(buildJsonObject {
-                    put("status", PENDING)
-                    put("choice_prompt_id", answer.id)
-                    put("message", "The choice is saved. This task is paused until its original question is answered.")
-                }),
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("status", PENDING)
+                        put("choice_prompt_id", answer.id)
+                        put("message", "The choice is saved. This task is paused until its original question is answered.")
+                    }
+                ),
+                isError = true,
                 dispatched = false,
                 sharedResult = true,
                 errorCode = PENDING

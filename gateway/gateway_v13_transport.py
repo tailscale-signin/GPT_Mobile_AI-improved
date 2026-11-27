@@ -395,6 +395,15 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         if state.finish is not None and terminal_seen_at is None:
             terminal_seen_at = now
         size = state.generated_characters + len(state.calls)
+        # Retain the structured checkpoint and validate the text-only contract
+        # before publication. Diagnostic progress may synchronously persist to
+        # a slow journal; already-validated answer text must not wait behind it.
+        checkpoint_structured_stream(state.message.get('content') or '')
+        if visible_output is not None:
+            if state.calls:
+                raise GatewayContractError('The backend returned a tool in a text-only final round. No tool was executed.',
+                                           'unauthorized_tool_call', 502)
+            visible_output(state.message.get('content') or '')
         if size > 0 and backend_first_output_ms is None:
             backend_first_output_ms = round((now - started) * 1000, 3)
             progress({"phase": "model_output", "event": "backend_first_output", "status": "running", "stage": "generating",
@@ -407,12 +416,6 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             progress({"phase": "model_output", "event": "backend_first_visible_output", "status": "running", "stage": "generating",
                       "message": "Backend answer text received; completion validation is pending",
                       "backend_first_visible_output_ms": backend_first_visible_output_ms, "user_visible": False})
-        checkpoint_structured_stream(state.message.get('content') or '')
-        if visible_output is not None:
-            if state.calls:
-                raise GatewayContractError('The backend returned a tool in a text-only final round. No tool was executed.',
-                                           'unauthorized_tool_call', 502)
-            visible_output(state.message.get('content') or '')
         if state.received and size != last_size and (last_progress == 0.0 or now - last_progress >= 0.25):
             progress({"phase": "model_output", "event": "model_output_progress", "status": "running", "stage": "generating", "message": "Receiving model output", "elapsed_seconds": round(now - started, 3), "output_characters": state.visible_characters, "reasoning_characters": state.reasoning_characters, "tool_calls_pending": len(state.calls), "observed_output": True})
             last_progress, last_size = now, size

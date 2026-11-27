@@ -16,6 +16,14 @@ class GitHubDecisionWaitClockTest {
         assertTrue(GitHubDecisionWaitClock.allowsPause("Budget: 10 minutes and 17 tool calls"))
     }
 
+    @Test fun deliveryObjectPhrasesDoNotConvertExplicitCutoffsToActiveWorkAllowances() {
+        assertFalse(GitHubDecisionWaitClock.allowsPause("Finish the change within 10 minutes"))
+        assertFalse(GitHubDecisionWaitClock.allowsPause("Complete this feature within 20 minutes"))
+        assertFalse(GitHubDecisionWaitClock.allowsPause("Deliver the tested patch within 5 minutes"))
+        assertTrue(GitHubDecisionWaitClock.allowsPause("Implement the change. Budget: 10 minutes and 17 tool calls."))
+        assertTrue(GitHubDecisionWaitClock.allowsPause("Finish the change. Work within 10 minutes of active execution."))
+    }
+
     @Test fun savedTaskRetainsOnlyItsOwnPauseAndReopensWithTheRemainingActiveBudget() = runBlocking {
         var clock = 1_000L
         val durable = mutableMapOf<String, JsonObject>()

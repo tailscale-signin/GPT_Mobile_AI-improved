@@ -507,7 +507,7 @@ def admitted_receipt(prepared, request, *, state='ADMITTED', response=None):
 
 
 def project_bundle(bundle, maximum):
-    """Keep exact anchor identities when admission shrinks the source view."""
+    """Keep exact source lines and identities when admission shrinks the view."""
     if not isinstance(bundle, dict):
         return bundle
     view = {key: bundle[key] for key in ('schema', 'repository', 'source_sha', 'variant', 'source_identity_kind',
@@ -522,16 +522,43 @@ def project_bundle(bundle, maximum):
             view[field].append(row)
             if len(canonical(view).encode()) > maximum:
                 view[field].pop()
-                # Preserve a useful first exact anchor even when its full range
-                # needs an explicit paged read; do not silently crop source.
-                if not view[field]:
+                view['view_complete'] = False
+                view['omitted_ranges'] += 1
+                # A retained window may be larger than this model's remaining
+                # allowance. Deliver the largest exact prefix of whole lines,
+                # with its own digest and bounds, before falling back to an
+                # unread pointer. Never relabel a byte excerpt as a full range.
+                content, start, end = row.get('content'), row.get('start_line'), row.get('end_line')
+                lines = content.splitlines(True) if isinstance(content, str) else []
+                valid = (type(start) is int and type(end) is int and 1 <= start <= end
+                         and len(lines) == end - start + 1
+                         and row.get('content_sha256') == hashlib.sha256(content.encode()).hexdigest())
+                fitted = None
+                if valid and len(lines) > 1:
+                    low, high = 1, len(lines) - 1
+                    while low <= high:
+                        count = (low + high) // 2
+                        text = ''.join(lines[:count])
+                        candidate = dict(row, content=text, end_line=start + count - 1,
+                                         content_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                                         retained_end_line=end, next_line=start + count)
+                        view[field].append(candidate)
+                        fits = len(canonical(view).encode()) <= maximum
+                        view[field].pop()
+                        if fits:
+                            fitted, low = candidate, count + 1
+                        else:
+                            high = count - 1
+                if fitted is not None:
+                    view[field].append(fitted)
+                elif not view[field]:
+                    # A single over-budget line or an invalid range remains an
+                    # unread anchor; it cannot grant source or edit authority.
                     row.pop('content', None)
                     row['content_omitted'] = True
                     view[field].append(row)
                     if len(canonical(view).encode()) > maximum:
                         view[field].pop()
-                view['view_complete'] = False
-                view['omitted_ranges'] += 1
     while len(canonical(view).encode()) > maximum and (view['documents'] or view['selected_ranges']):
         (view['documents'] or view['selected_ranges']).pop()
         view['view_complete'] = False

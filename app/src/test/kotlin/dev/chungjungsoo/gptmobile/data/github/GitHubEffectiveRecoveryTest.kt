@@ -13,7 +13,7 @@ class GitHubEffectiveRecoveryTest {
     @Test fun completedClaimExtractionLimitAllowsSmallerBatchResumeWithoutReplayingProviderRequest() {
         val action = "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
         val decision = GitHubEffectiveRecovery.resolve(
-            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","evidence_retention_complete":true,"logical_continuation_allowed":false,"request_replay_allowed":false,"recorded_recovery_action":"$action"}""")
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","logical_continuation_allowed":false,"request_replay_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}""")
         )
 
         assertEquals(GitHubEffectiveRecovery.Kind.CONTINUE_WORK, decision.kind)
@@ -25,10 +25,10 @@ class GitHubEffectiveRecoveryTest {
     @Test fun claimExtractionRepairStillRequiresCompletedRetainedEvidenceAndKnownAcceptance() {
         val action = "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
         val blocked = listOf(
-            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":false,"remote_acceptance":"YES","evidence_retention_complete":true,"logical_continuation_allowed":false,"recorded_recovery_action":"$action"}"""),
-            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"UNKNOWN","evidence_retention_complete":true,"logical_continuation_allowed":false,"recorded_recovery_action":"$action"}"""),
-            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","evidence_retention_complete":false,"logical_continuation_allowed":false,"recorded_recovery_action":"$action"}"""),
-            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","evidence_retention_complete":true,"automatic_retry_allowed":false,"logical_continuation_allowed":false,"recorded_recovery_action":"$action"}""")
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":false,"remote_acceptance":"YES","logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}"""),
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"UNKNOWN","logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}"""),
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":false}"""),
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","automatic_retry_allowed":false,"logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}""")
         )
 
         blocked.forEach { report ->

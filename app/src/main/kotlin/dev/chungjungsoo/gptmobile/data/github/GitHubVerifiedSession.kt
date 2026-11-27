@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.agent.captureProviderInvocation
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary

@@ -142,7 +142,7 @@ class GitHubClaimExtractionTest {
             put("remote_acceptance", "YES")
         }
         val original = ProviderEvent.Failed("Limit", errorCode = "OUTPUT_LIMIT", transportComplete = true, failureDetails = details)
-        val result = failed(flowOf(ProviderEvent.TextDelta("{\\"claims\\":["), original, ProviderEvent.Completed))
+        val result = failed(flowOf(ProviderEvent.TextDelta("""{"claims":["""), original, ProviderEvent.Completed))
 
         assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", result.code)
         assertTrue(result.repairAllowed)

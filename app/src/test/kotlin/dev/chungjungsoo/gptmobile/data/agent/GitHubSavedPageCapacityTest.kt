@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -21,6 +22,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSavedPageCapacityTest {
+    @Test fun unrelatedToolResultsCannotEvictReceiptsForRetainedSavedPageNotes() {
+        val savedDigest = "b".repeat(64)
+        val reading = buildJsonObject {
+            put("schema", "saved_page_reading.v1")
+            put("reads", JsonArray(listOf(buildJsonObject {
+                put("sources", buildJsonObject {
+                    put("saved-call", buildJsonObject {
+                        put("invocation_sha256", "a".repeat(64))
+                        put("body_sha256", savedDigest)
+                    })
+                })
+                put("notes", "The saved page contains the relevant source.")
+            })))
+        }
+        val delivered = linkedMapOf(
+            "saved-call" to savedDigest,
+            "unrelated-old" to "c".repeat(64),
+            "unrelated-new" to "d".repeat(64)
+        )
+
+        val retained = SavedPageReading.retainDeliveryDigests(delivered, reading, maxResults = 2)
+
+        assertEquals(setOf("saved-call", "unrelated-new"), retained.keys)
+        assertEquals(savedDigest, retained["saved-call"])
+        assertEquals("d".repeat(64), retained["unrelated-new"])
+    }
+
     @Test fun oversizedPrivateReadRetainsWholeUnicodeObservationsOnlyAfterFreshCompletion() = runBlocking {
         val note = "Retained commit fixé.\n"
         val verbose = note + "📁".repeat(120)

@@ -81,6 +81,29 @@ internal object SavedPageReading {
         }
     }.toMap()
 
+    /**
+     * Keep the exact receipts referenced by private saved-page notes pinned in the
+     * bounded delivery cache. Unrelated later tool results must not evict the
+     * evidence needed to validate those notes on the next continuation.
+     */
+    fun retainDeliveryDigests(
+        delivered: Map<String, String>,
+        reading: JsonObject?,
+        maxResults: Int = ToolResultDeliveryProof.MAX_RESULTS
+    ): Map<String, String> {
+        require(maxResults > 0)
+        val pinned = fingerprints(reading).keys
+        val retained = LinkedHashMap<String, String>()
+        delivered.forEach { (id, digest) -> if (id in pinned) retained[id] = digest }
+        val remaining = (maxResults - retained.size).coerceAtLeast(0)
+        delivered.entries.asSequence()
+            .filter { (id, _) -> id !in pinned }
+            .toList()
+            .takeLast(remaining)
+            .forEach { (id, digest) -> retained[id] = digest }
+        return retained
+    }
+
     fun canRefresh(previous: JsonObject?, latest: JsonObject?, knownCalls: Map<String, String>): Boolean {
         val old = reads(previous)
         val current = reads(latest)

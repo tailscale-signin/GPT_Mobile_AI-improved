@@ -267,7 +267,7 @@ for test in (
 for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
     'readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh',
-    'captionsWaitForRestoredPreferencesAndExposeCheckedState',
+    'microphoneAndLanguageControlsFollowTheTurnAndPickerState',
     'theProfilePickerChangesProfileOnlyBetweenTurns',
     'drawnHighlightsKeepGlyphGeometryAndSilenceKeepsItsPlace',
     'accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing',

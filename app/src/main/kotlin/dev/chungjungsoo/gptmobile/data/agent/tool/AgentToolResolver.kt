@@ -114,32 +114,79 @@ class AgentToolResolver @Inject constructor(
     private val copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null,
     private val repositoryMaps: dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository? = null
 ) {
-    suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
+    private class VoiceCatalogueScope(val epoch: Long, val network: Long, val connections: Set<String>) {
+        @Volatile var schemaCosts: Map<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition, Int> = emptyMap()
+        fun current() = epoch == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueEpoch && network == dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch
+    }
+    private val voiceCatalogues = java.util.concurrent.ConcurrentHashMap<Pair<Int, String>, VoiceCatalogueScope>()
+
+    internal fun voiceSchemaCosts(chatId: Int, profileUid: String) =
+        voiceCatalogues[chatId to profileUid]?.takeIf { it.current() }?.schemaCosts.orEmpty()
+
+    suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) =
+        warmCatalogues(profileUid, limit.coerceIn(0, 64), null, null, remoteAllowed = true)
+
+    internal suspend fun warmVoiceCatalogues(chatId: Int, profileUid: String, config: ChatMcpToolConfig, remoteAllowed: Boolean = true) =
+        warmCatalogues(profileUid, Int.MAX_VALUE, chatId, config, remoteAllowed)
+
+    private suspend fun warmCatalogues(profileUid: String, limit: Int, voiceChat: Int?, config: ChatMcpToolConfig?, remoteAllowed: Boolean) {
         val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn]
         privateTurn?.validate()
-        if (privateTurn != null || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return
+        if (privateTurn != null || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() || config?.allToolsDisabled == true) return
         val features = settingRepository.getFeatureSettings()
         val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
-        if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
+        if (!profile.enabled || profile.disableAllTools) return
+        val discoverRemote = remoteAllowed && features.remoteMcpConnections && !profile.disableRemoteTools
+        if (voiceChat == null && !discoverRemote) return
         val personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]
-        val connections = toolConnectionRepository.listBindingsWithConnections(profileUid)
-            .filter { it.connection?.type == ToolConnectionType.MCP && pluginEnabledForBinding(features, profileUid, it) }
-            .filter { personalContext?.externalToolRejection(profile, "${it.binding.connectionUid}:${it.binding.toolName}") == null }
-            .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit.coerceIn(0, 64))
-        coroutineScope {
-            connections.map { connection ->
-                async {
-                    // This coordinator path only reads or silently refreshes an already installed grant;
-                    // missing/revoked OAuth raises a capability error and never opens an authorization UI.
-                    if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
-                        try {
-                            discoverMcpTools(connection, passiveBackoff = true)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) { }
-                    }
+        val connections = if (!discoverRemote) {
+            emptyList()
+        } else {
+            toolConnectionRepository.listBindingsWithConnections(profileUid)
+                .filter { it.connection?.type == ToolConnectionType.MCP && pluginEnabledForBinding(features, profileUid, it) }
+                .filter { binding -> config?.isToolEnabled(listOfNotNull(binding.binding.connectionUid, binding.binding.toolName, binding.binding.connectionUid?.let { "$it:${binding.binding.toolName}" })) != false }
+                .filter { personalContext?.externalToolRejection(profile, "${it.binding.connectionUid}:${it.binding.toolName}") == null }
+                .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit)
+        }
+        val key = voiceChat?.let { it to profileUid }
+        val session = VoiceCatalogueScope(
+            dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueEpoch,
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch,
+            connections.mapTo(mutableSetOf()) { it.connectionUid }
+        )
+        if (key != null) voiceCatalogues[key] = session
+        try {
+            connections.chunked(4).forEach { batch ->
+                coroutineScope {
+                    batch.map { connection ->
+                        async {
+                            // This coordinator path only reads or silently refreshes an already installed grant;
+                            // missing/revoked OAuth raises a capability error and never opens an authorization UI.
+                            if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
+                                try {
+                                    discoverMcpTools(connection, passiveBackoff = true)
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) { }
+                            }
+                        }
+                    }.awaitAll()
                 }
-            }.awaitAll()
+            }
+            if (key != null) {
+                // Cache only the cost of immutable declarations. Executors, grants and per-turn tools resolve live.
+                try {
+                    val definitions = resolve(profileUid, config, cachedCataloguesOnly = true, requestedModel = profile.model).map { it.tool.definition }
+                    session.schemaCosts = definitions.associateWith(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService::toolSchemaTokens)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Successfully discovered connections remain available even if an unrelated local declaration failed.
+                }
+                kotlinx.coroutines.awaitCancellation()
+            }
+        } finally {
+            if (key != null) voiceCatalogues.remove(key, session)
         }
     }
 
@@ -297,6 +344,7 @@ class AgentToolResolver @Inject constructor(
             if (binding.binding.connectionUid == chatToolConfig?.github?.connectionUid) throw rejection
             return false
         }
+        val voiceCatalogue = if (chatToolConfig?.voiceResponsePolicy != null && userMessage != null) voiceCatalogues[userMessage.chatId to profileUid]?.takeIf { it.current() } else null
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .filter { binding ->
                 binding.connection?.type != ToolConnectionType.MCP ||
@@ -348,7 +396,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(mcpBindings.first().connection)
                         try {
-                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly, userMessage, chatToolConfig?.github) to null
+                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly, userMessage, chatToolConfig?.github, sessionMetadata = voiceCatalogue?.connections?.contains(connection.connectionUid) == true) to null
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: DispatchPolicyChangedException) {
@@ -1924,7 +1972,8 @@ class AgentToolResolver @Inject constructor(
         cachedOnly: Boolean = false,
         userMessage: MessageV2? = null,
         workspaceContext: GitHubConversationContext? = null,
-        repositoryRead: GitHubMcpRepositoryRead? = null
+        repositoryRead: GitHubMcpRepositoryRead? = null,
+        sessionMetadata: Boolean = false
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val inventoryOnly = workspaceContext != null && GitHubCapabilityRequest.from(userMessage?.content.orEmpty()) != null
@@ -1934,7 +1983,7 @@ class AgentToolResolver @Inject constructor(
             githubMode = workspaceContext != null && !inventoryOnly,
             cachedOnly = cachedOnly || inventoryOnly,
             repositoryRead = repositoryRead,
-            cached = { mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() },
+            cached = { mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext, sessionMetadata).orEmpty() },
             discover = { awaitCompletion -> discoverMcpTools(connection, awaitCompletion = awaitCompletion, passiveBackoff = !awaitCompletion) }
         )
         val missing = selectedNames - remoteTools.map { it.name }.toSet()

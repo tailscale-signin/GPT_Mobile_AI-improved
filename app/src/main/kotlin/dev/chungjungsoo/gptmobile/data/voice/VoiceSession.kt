@@ -91,6 +91,15 @@ data class VoiceState(
     val captionPresentationId: Long = 0
 )
 
+internal enum class VoiceMicrophoneAction { LISTEN, FINISH_CAPTURE, STOP }
+
+internal val VoiceState.microphoneAction: VoiceMicrophoneAction
+    get() = when {
+        awaitingReply || submittedDraftRequestId != null || phase in setOf(VoicePhase.FINALIZING, VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING) -> VoiceMicrophoneAction.STOP
+        phase == VoicePhase.LISTENING || phase == VoicePhase.STARTING -> VoiceMicrophoneAction.FINISH_CAPTURE
+        else -> VoiceMicrophoneAction.LISTEN
+    }
+
 /** A state callback may run before Compose delivers the dispatcher's latest admission event. */
 internal fun VoiceState.shouldCheckpointDraft(requestId: String?, stage: VoiceAdmissionStage?): Boolean =
     hasDraft && !(submittedDraftRequestId != null && submittedDraftRequestId == requestId && stage in setOf(VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED))
@@ -163,7 +172,7 @@ class VoiceSession(
     private var manualPlayback = false
     private var includeSpeechDetails = false
     private fun resetStream(prompt: String = "") {
-        skipPreamble = VoiceSpokenLead.forQuestion(prompt)
+        skipPreamble = !translationOnly && VoiceSpokenLead.forQuestion(prompt)
         streamId = null
         streamDiagnosticId = null
         openingSpeech = OpeningSpeech.AVAILABLE
@@ -177,6 +186,7 @@ class VoiceSession(
         playbackFinished = false
         manualPlayback = false
     }
+    internal var translationOnly = false
     var editBeforeSend = false
     var autoContinue = false
     fun finishListening() {
@@ -615,7 +625,8 @@ class VoiceSession(
 
     /** At most one acknowledgment may speak for this reply. The answer owns its own audio measurements. */
     internal fun offerOpening(id: String, cue: VoiceThinkingCue) {
-        if (openingSpeech != OpeningSpeech.AVAILABLE ||
+        if (translationOnly ||
+            openingSpeech != OpeningSpeech.AVAILABLE ||
             streamId != id ||
             !waiting ||
             state.phase != VoicePhase.THINKING ||
@@ -857,6 +868,20 @@ class VoiceSession(
                 )
             }
         }
+    }
+
+    /** End the capture/reply owner before late recognizer, admission or audio callbacks can run. */
+    fun stopTurn() {
+        if (state.phase == VoicePhase.CLOSED) return
+        autoContinue = false
+        automaticRetry = false
+        engaged = false
+        waiting = false
+        draftPending = false
+        replaceDraft()
+        stopAudio("user_stop_turn")
+        resetStream()
+        update(state.copy(phase = VoicePhase.PAUSED, level = 0f, spokenRange = null, notice = null, retryAtMillis = 0))
     }
 
     fun stopSpeaking() {

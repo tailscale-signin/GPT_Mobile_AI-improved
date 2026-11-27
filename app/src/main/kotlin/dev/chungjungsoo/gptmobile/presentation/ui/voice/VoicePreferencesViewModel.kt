@@ -55,7 +55,8 @@ internal data class VoicePreferences(
     val incrementalSpeech: Boolean = true,
     val nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
     val tuning: VoiceTuningPreferences = VoiceTuningPreferences(),
-    val synthesis: VoiceSynthesisPreferences = VoiceSynthesisPreferences().selectLanguage(language)
+    val synthesis: VoiceSynthesisPreferences = VoiceSynthesisPreferences().selectLanguage(language),
+    val translationMode: Boolean = false
 )
 
 internal data class VoiceModelStores(

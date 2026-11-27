@@ -6,6 +6,8 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- While the microphone is active, Voice Mode prepares authorized tool catalogues and searches saved memory locally as words settle. Later turns reuse session metadata and exact matching recall. Translation skips these preparations.
+- Tap the central microphone to listen or finish speaking. Stop cancels the current voice turn and playback. Choose a reply language beside Text chat to switch the written and spoken reply together, or select Translate only to hear a direct translation.
 - Carry issue-intake evidence through Android and the report service. Android checks for service support before sending a report containing this evidence. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request.
 - Session reports use earlier turns in the same chat. A resumed Gateway job keeps its original owner, and attached evidence or an explicit repair follows the selected workflow.
 - Use a fresh empty issue inventory to complete issue-only repair requests. Base session reports and progress previews on retained tool events and carry verified obligations into continuation.

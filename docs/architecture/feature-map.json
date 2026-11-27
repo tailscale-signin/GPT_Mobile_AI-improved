@@ -3495,9 +3495,9 @@
       "sha256": "f7cd1e3a897a571763b94fcefdc8343d65254d5cf44bd17fc8db0a359b24cfcf"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": {
-      "blob_sha": "ac28abe51ed0c406794b90509788db0460d51f9f",
-      "bytes": 72360,
-      "sha256": "989a15a909c6ec7057d899c24587955c86126adf3c2b28330fc6283cfc0156b9"
+      "blob_sha": "426a6cc205195859f4611f57d1186e274edbf2b0",
+      "bytes": 72314,
+      "sha256": "42673dcd3a9bfa57a7ea1066da991b55abd7d426971ccfde0949025176626a73"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt": {
       "blob_sha": "a4d9b8e3d1ef3acd10cbba9af312da789ce57598",
@@ -3595,9 +3595,9 @@
       "sha256": "b5a613a01f6b7adac0e5752dfc69b9ece39e0e1d01302834df201ad012aacd55"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt": {
-      "blob_sha": "860d32260e70233827c5a354caaf59d9c8fa8523",
-      "bytes": 159521,
-      "sha256": "4115ecb437628e76f40007cb689bda220ca45e1bb729a531b3e2482d3275db73"
+      "blob_sha": "cded67c058f5a599f078b756a5c8d821a2ed09cb",
+      "bytes": 162971,
+      "sha256": "cb3e669fde418ae374bf0b84744ff461826f04a64673a21b06d653cae464be1b"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeTool.kt": {
       "blob_sha": "00cfe99935318056787a2700f39f9c8d0afda222",
@@ -3735,9 +3735,9 @@
       "sha256": "e97b299082c994e6a6817e688085dc69470f9c32fc337b20cc1021ca484eec16"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt": {
-      "blob_sha": "3fc44bb4853249f67f9d3a7ba309a0610c69625f",
-      "bytes": 12158,
-      "sha256": "7b11bc8f69edb942b6b972257a496bfb71b5a082b988adff2cebf8e2ce970e85"
+      "blob_sha": "f70b7c7ecff75568853925625412bc42656028fc",
+      "bytes": 12446,
+      "sha256": "b0f8d4b4aabeedac5f0e42044eb091093b5fd833ea6912145d3d6b7927553771"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/GatewayModelPreparationRepository.kt": {
       "blob_sha": "30b2fb57065bd57ae529021a529cb86adc6d0ae7",
@@ -4490,9 +4490,9 @@
       "sha256": "055cab72c57e3fc35d137345ffdf609c4aa29a208cb844b1d943c0d4860c180f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueue.kt": {
-      "blob_sha": "cdc8663160ff60860051c96ebe02927cfeaf7c4a",
-      "bytes": 40990,
-      "sha256": "fd85882c91290f8ecab501c8e9d05304752b4f9713299d860d0735184aca05e4"
+      "blob_sha": "0e2ccf52dcdcf1755087a0646b3116b1c366ce87",
+      "bytes": 41830,
+      "sha256": "9fe7ee73b70586b943aabe3ae13d09ecd5d9d14475987a4d0b4f79016a31e4e7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPrompt.kt": {
       "blob_sha": "eab5ddb01548b31eeeb246dbc9f31fda93edb97c",
@@ -4500,19 +4500,19 @@
       "sha256": "303b3af36dab3de18c0c64857f0f764e8f67cadc07a21f8db6da483227f6ddf8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptDao.kt": {
-      "blob_sha": "46c1f78b405b63f28f2ecdbcad31fafca4f523ae",
-      "bytes": 7708,
-      "sha256": "3b2f1e906a56c140eeb135b033f68a5a0a11c9b18ba0c14f06cda4c27bdc5fbe"
+      "blob_sha": "e7b03c7f57f122f24744ed41a966b2c7b09d4b31",
+      "bytes": 7813,
+      "sha256": "b936401aca938f76871976f735c2727640b68d9433c497f24d2256a866b720e9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/readiness/ChatReadinessCoordinator.kt": {
-      "blob_sha": "6dd430512b438e8bab10299d55aef038ff57180b",
-      "bytes": 10936,
-      "sha256": "b2d23a0f4219abce80bf26db0fb42c8ac06b837ac63e471760ba62c28360d039"
+      "blob_sha": "e927bf04539db464a52bc0f79c4ec1f6bb681fd6",
+      "bytes": 10937,
+      "sha256": "1c76296b1122d828c9e003532a23d8bbaeec95fd328684f8e3cf2e45602a1ea7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": {
-      "blob_sha": "b98610840b33b94af7d4206a4d3c599e4632ac56",
-      "bytes": 644890,
-      "sha256": "de6564cba0233b5bf713b0d523e5afa4ffaec4f6f6b75410b93fe949b240ed6a"
+      "blob_sha": "136a3923972e9b8f5360ae3ed664eb425074bd06",
+      "bytes": 651285,
+      "sha256": "7e4fe76573a2772604c43b57010dfdd5acf5f4dde924f2e7f6a77d4ee8d172db"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/OpenRouterModelRepository.kt": {
       "blob_sha": "5e2e9c711737cb2b4f3afcaa6ae097114783adce",
@@ -4730,9 +4730,9 @@
       "sha256": "6de08b67d5669de7d570f1021436bb7426766bf2e5111caaec9853df47378350"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt": {
-      "blob_sha": "31c80cf6e4997a2b51d317032ec82523cbdef95e",
-      "bytes": 5231,
-      "sha256": "a0ee1a4d44f5c169f92febf8ba61cd438cc7a53fd7dc841f9403bf908e8a1054"
+      "blob_sha": "285f62118bea0dd7bd91700055f025770f4ff239",
+      "bytes": 7883,
+      "sha256": "312b81b1f52ac5aaf02af06aa8c10f6d70511f574d741862ab55ffa573ed0ff0"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSearchOpening.kt": {
       "blob_sha": "51a5e470780311eae0ee7c40782042ecc967c19d",
@@ -4740,9 +4740,9 @@
       "sha256": "0c30aad6a9f3cefb422b41aaf32f6964066e5a4a67968c38b3ec2430ff51c0d1"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": {
-      "blob_sha": "dbf81efa2731594f464553998d1a98643ab1f7cb",
-      "bytes": 52643,
-      "sha256": "cb966f5f84fedd867d47c0e89639728635b6d883a6c35702eca99b6743a68467"
+      "blob_sha": "fb2efebf8b0e5572a12312ee295b378a330499a8",
+      "bytes": 53768,
+      "sha256": "80bd40fa0ca7cdd57d08581ca6f5af82082f6846012e6fa48b11f40261f1c370"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmup.kt": {
       "blob_sha": "abe96fee47a0d2a08be9273a615c0410fcd57f1b",
@@ -4950,9 +4950,9 @@
       "sha256": "dbf58453bca44a161b6322727b4d51dd46084b8f2ac391d6f8ea4922a0c32563"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt": {
-      "blob_sha": "57835a7ef957ba9a7c24c8e1dff7c6551b26e986",
-      "bytes": 294867,
-      "sha256": "2017381f2c9c579d5bd28f36cd27b51ee02d75ea51484f4c3f679c55aac94283"
+      "blob_sha": "9e033b19ffedfbfbae2c755549e0f7b63331e92e",
+      "bytes": 300044,
+      "sha256": "ec188144a03d38acff717b9b82c5bc5b0cd8238fed4bc384783929eb65a7ed37"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayAgentWorkspacePanel.kt": {
       "blob_sha": "b882bf61073811bede485ee9ceeb644b6215b331",
@@ -5170,9 +5170,9 @@
       "sha256": "b9444a711d698e4f6befdc1bd4bc0b4864eb4a94bb9966260c0511469631f6e5"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": {
-      "blob_sha": "78627730ca471cf52d4c59d62b117af51c355e08",
-      "bytes": 80325,
-      "sha256": "fb599c9edebb0a30072a95aedc5ba74436eaa1bae3a04f714743ff2bf6be3871"
+      "blob_sha": "192655a55a10d3ac5d1865ce8776258ad7469e1f",
+      "bytes": 80979,
+      "sha256": "b0d8602c54433683155654877e822f3f068192832b91a9db0dbf5a82acd6d5c3"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceDiagnosticExportControl.kt": {
       "blob_sha": "268e55cc705d8bb62d46f01294ce0356990ccf3c",
@@ -5185,9 +5185,9 @@
       "sha256": "dc91f4431a110afe2eeed5e66959952cc227cc5549d56d578e7a387545e4c677"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt": {
-      "blob_sha": "ac4a7793c7151d4132d522c8c269e7efaf25e3b1",
-      "bytes": 4538,
-      "sha256": "a3f8cbda38d7ebde01db4dea7352f9fcded442a360181325128ba317b6172230"
+      "blob_sha": "d8d971cc596ce77bbfa1c20b3ef82d979a72ffdb",
+      "bytes": 7532,
+      "sha256": "e07d247dddac8b06fbc1c9101577c5596838589af93f2e0f59cf292d0768eeaa"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt": {
       "blob_sha": "6c043918b3a3d9528452b6e5ccd0fd4cd3bff430",
@@ -5195,19 +5195,19 @@
       "sha256": "1f5ec49179e7ced418a45d6331516dfeb9932575a988731f414c059839275c86"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt": {
-      "blob_sha": "816f12bfff3102bec7741e41ac03bf9ed3bd4e9c",
-      "bytes": 7816,
-      "sha256": "9d296b9e8bf60d9ad166a2f8dab17e196a922738ea72e4d68ae197a41f6e56f3"
+      "blob_sha": "6aa4cd60619d1a886267587e6ef9231a13bab919",
+      "bytes": 7965,
+      "sha256": "b35914e2d518cee49a3e31f30008ec51e3700a24ff1d66457a22e5d237fd92e2"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt": {
-      "blob_sha": "3f8bff1fd9315e5bd81ba7ea980c78a7e6972008",
-      "bytes": 7520,
-      "sha256": "6f3d1de1af7ba853cd9c83f47848f6c50b2dab34ac4659ed765ca24b2156f4f7"
+      "blob_sha": "8f9f0d19938e5b881688d494b5bd7777f58b0f8c",
+      "bytes": 7562,
+      "sha256": "51e738f39af59bd78788a7996f724ae85df22f63a5aee12319119325f1ab1271"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRuntimeViewModel.kt": {
-      "blob_sha": "808792b5f35e896ac240c72221cce6a2254bdc74",
-      "bytes": 7132,
-      "sha256": "6dc0e231d2b09c28585734d1c745a1f2cec6580d0c9e3fc30116c4ca0a9e8520"
+      "blob_sha": "e33a56cd07d507064a52cc6b990c29dbc07cca38",
+      "bytes": 7260,
+      "sha256": "7d8f3d4da93f4598e4c7176be6f91c2c3d8083ff24754494ece63b6206964546"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBackendSettings.kt": {
       "blob_sha": "209419d0066dc12fb7fdc3e7c51747eb4bf19c71",
@@ -6685,9 +6685,9 @@
       "sha256": "8d716c9789ac5897cf5563023d7c46ab68dd979d358854edcca28a6bba1bf0de"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt": {
-      "blob_sha": "4f3ef55b613e7dbd94376b3ac94cbc150737a9ad",
-      "bytes": 94823,
-      "sha256": "ef2d10b6494b51e49207c771037757c2a432b9413691a669da9131fc9086d30f"
+      "blob_sha": "80243b3a271a9e04e6353f435c73b99d0b0a62f9",
+      "bytes": 96705,
+      "sha256": "9a6feab6a7b5e22f67405e10083d82f7a25d249cfb9f9b30ced410af78b2677a"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedDocumentPageCacheTest.kt": {
       "blob_sha": "4e3197665c7512c57bf42129e223f45a8f6e0458",
@@ -6825,9 +6825,9 @@
       "sha256": "a6ff3263b766b25dc087420ac650f5df128277d7602e3ab932fb1566a86bf6e1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt": {
-      "blob_sha": "e6730b870d299c2bad75739100ed6246862e3908",
-      "bytes": 21817,
-      "sha256": "46ca8237b6e5ee407530e15f82e71ad8aae66cc0e18e5e1cbaccc0f18c2db5a6"
+      "blob_sha": "bb30e8c2c69bec151b1c7641b3f1055b8aff0de8",
+      "bytes": 22356,
+      "sha256": "01f6979c7368acdf8a351bae26ddc111e8e3855d5ea55217e896ef079f1f2fa6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt": {
       "blob_sha": "7c6d853ea051de5b32e3fd7e0604df52fa639515",
@@ -8150,9 +8150,9 @@
       "sha256": "87671c50dac17c00c3734deb5f81b85a30600850c34bdc4c03dd9e26682f2587"
     },
     "scripts/run_release0950_acceptance.sh": {
-      "blob_sha": "0a0041ef4197dd2a05982df82dfef8d0ef4695c7",
-      "bytes": 37194,
-      "sha256": "5fab5151419825a34bff49a18274d2a857f86bd41feb7afb5d0bd4ed731740a6"
+      "blob_sha": "3b1442e3865d4cb622aa55f49884323449416598",
+      "bytes": 37195,
+      "sha256": "197b9a3a9f291244a49c99ac7a7e77f9d2359d288b0efbbe0a38db638484f407"
     },
     "scripts/scan_secret_history.sh": {
       "blob_sha": "0dcaffafc85068fdf79a73098df186da3e46c724",

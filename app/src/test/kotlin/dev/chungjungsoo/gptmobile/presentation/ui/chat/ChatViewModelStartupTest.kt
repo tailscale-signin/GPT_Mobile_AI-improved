@@ -1287,6 +1287,29 @@ class ChatViewModelStartupTest {
         assertEquals(71, model.voiceAdmission.value?.userMessageId)
         assertEquals(accepted.runs.map { it.runId }, model.voiceAdmission.value?.runIds)
         assertEquals("", model.question.text.toString())
+        val acceptedIds = accepted.runs.mapTo(mutableSetOf()) { it.runId }
+        model.stopVoiceTurn(acceptedIds.single())
+        verify(exactly = 1) { coordinator.cancelRuns(acceptedIds) }
+        verify(exactly = 0) { coordinator.cancelChat(any()) }
+        assertEquals(acceptedIds, model.stoppedVoiceRuns.value)
+    }
+
+    @Test fun stopWhileCheckingRetiresOnlyTheDictatedRequestBeforeDispatch() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val check = CompletableDeferred<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } coAnswers { check.await() }
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities, testFeatures = features.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT, true))
+        assertTrue(model.submitVoiceTranscript("My voice turn"))
+        model.stopVoiceTurn(null)
+        val profile = profiles.single()
+        check.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "configuration", "runtime", System.currentTimeMillis(), null, true, true))
+        runCurrent()
+        assertEquals("VOICE_TURN_STOPPED", model.voiceAdmission.value?.reason)
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        verify(exactly = 0) { coordinator.cancelChat(any()) }
     }
 
     @Test fun deletedVoiceRoomIsRecoverableAndCannotAdmitSpeech() = runTest(dispatcher) {

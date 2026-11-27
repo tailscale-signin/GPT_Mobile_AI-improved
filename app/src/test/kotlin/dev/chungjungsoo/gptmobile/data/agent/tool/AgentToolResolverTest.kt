@@ -41,6 +41,7 @@ import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -56,6 +57,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun voiceDiscoversEveryEnabledConnectionOnceAndReleasesThePreparedSchemas() = runBlocking {
+        val profile = PlatformV2(uid = "voice", name = "Voice", enabled = true)
+        val dao = ResolverFakeToolConnectionDao()
+        for (n in 1..7) dao.bind(connection("server$n", ToolConnectionType.MCP, authType = ToolConnectionAuthType.NONE), binding(profile.uid, "server$n", "lookup"))
+        val manager = mockk<McpClientManager>(relaxed = true)
+        val discovered = mutableListOf<String>()
+        coEvery { manager.peekToolsForConnection(any(), any(), any()) } answers {
+            discovered.add(firstArg())
+            emptyList()
+        }
+        val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile)), managerOverride = manager)
+        val config = ChatMcpToolConfig(disabledToolIds = setOf("server3"))
+        val session = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { resolver.warmVoiceCatalogues(1, profile.uid, config) }
+        try {
+            kotlinx.coroutines.withTimeout(4_000) {
+                while (resolver.voiceSchemaCosts(1, profile.uid).isEmpty()) kotlinx.coroutines.yield()
+            }
+            assertEquals((1..7).filterNot { it == 3 }.map { "server$it" }.sorted(), discovered.sorted())
+            assertTrue(resolver.voiceSchemaCosts(2, profile.uid).isEmpty())
+        } finally {
+            session.cancel()
+            session.join()
+        }
+        assertTrue(resolver.voiceSchemaCosts(1, profile.uid).isEmpty())
+    }
+
     @Test fun capturedPrivateTurnNeverDiscoversServicesAfterProtectionChanges() = runBlocking(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(101, true)) {
         val profile = PlatformV2(uid = "private-native", name = "Private native", compatibleType = ClientType.LITERT_LM)
         val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())

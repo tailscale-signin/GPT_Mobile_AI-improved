@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.microphoneAction
 import java.io.File
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
@@ -99,16 +101,15 @@ class VoiceTranscriptInstrumentedTest {
         val playingBounds = microphone.fetchSemanticsNode().boundsInRoot
         microphone.assertContentDescriptionEquals("Stop reply").performClick()
         speaker.assertContentDescriptionEquals("Read AI response aloud")
-        microphone.assertContentDescriptionEquals("Microphone").assertIsDisplayed()
+        microphone.assertContentDescriptionEquals("Start listening").assertIsDisplayed()
         assertEquals(playingBounds, microphone.fetchSemanticsNode().boundsInRoot)
         speaker.performClick().performClick()
-        compose.onNodeWithTag("voice_transcript_audio_output").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("voice_transcript_audio_output").assertDoesNotExist()
         compose.runOnIdle {
             assertEquals(1, fixture.back)
             assertEquals(1, fixture.settings)
             assertEquals(1, fixture.voice)
             assertEquals(1, fixture.microphone)
-            assertEquals(1, fixture.routes)
             assertEquals(listOf(7, 7), fixture.reads)
             assertEquals(1, fixture.stops)
         }
@@ -148,12 +149,11 @@ class VoiceTranscriptInstrumentedTest {
                 Spacer(Modifier.weight(1f))
                 VoiceTranscriptOutputControls(
                     status = "Ready when you are",
-                    phase = phase,
+                    action = VoiceState(phase = phase).microphoneAction,
                     microphone = {
                         fixture.microphone++
                         fixture.phase.value = VoicePhase.PAUSED
-                    },
-                    audioRoute = { fixture.routes++ }
+                    }
                 )
             }
         }
@@ -199,7 +199,6 @@ class VoiceTranscriptInstrumentedTest {
         var settings = 0
         var voice = 0
         var microphone = 0
-        var routes = 0
         var stops = 0
     }
 }

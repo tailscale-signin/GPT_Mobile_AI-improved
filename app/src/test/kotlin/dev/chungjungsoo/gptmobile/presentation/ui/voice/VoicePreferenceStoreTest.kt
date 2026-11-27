@@ -51,6 +51,15 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoicePreferenceStoreTest {
+    @Test fun translationRestoresTheTargetIndependentlyOfTheMicrophoneLanguage() {
+        assertFalse(readVoicePreferences(mapOf("synthesis_language" to "fr")).translationMode)
+        val saved = readVoicePreferences(mapOf("language" to "en-CA", "synthesis_language" to "pt-BR", "translation_mode" to true))
+        assertTrue(saved.translationMode)
+        assertEquals("en-CA", saved.language)
+        assertEquals("pt-BR", saved.synthesis.language)
+        assertTrue(saved.synthesis.voiceId in saved.synthesis.profile.voices)
+    }
+
     @Test fun spokenAcknowledgmentsDefaultOnAndRestoreAnExplicitOptOut() {
         assertTrue(readVoiceTuningPreferences(emptyMap<String, Any>()).spokenAcknowledgments)
         assertFalse(readVoiceTuningPreferences(mapOf("spoken_acknowledgments" to false)).spokenAcknowledgments)

@@ -40,6 +40,7 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
             check(
                 open().edit()
                     .putString("synthesis_language", value.synthesis.profile.tag)
+                    .putBoolean("translation_mode", value.translationMode)
                     .putStringSet("synthesis_voices", value.synthesis.voices.map { (tag, voice) -> "$tag=$voice" }.toSet())
                     .putString("language", value.language).putBoolean("online", value.online)
                     .putBoolean("captions", value.captions).putBoolean("review", value.review)
@@ -98,6 +99,7 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
     return VoicePreferences(
         language = language,
         synthesis = synthesis,
+        translationMode = saved["translation_mode"] as? Boolean ?: false,
         online = saved["online"] as? Boolean ?: defaults.online,
         captions = saved["captions"] as? Boolean ?: defaults.captions,
         review = saved["review"] as? Boolean ?: defaults.review,

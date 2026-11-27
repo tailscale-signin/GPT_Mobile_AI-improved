@@ -70,6 +70,49 @@ class VoiceAdmissionPlaybackTest {
         }
     }
 
+    @Test fun stopDuringFinalizationOrAdmissionFencesLateTextAndWaitsForAnotherTap() {
+        val f = Fixture()
+        f.session.access(true, true, true)
+        assertEquals(0, f.audio.captures)
+        f.session.resume()
+        val listener = requireNotNull(f.audio.listener)
+        assertEquals(VoiceMicrophoneAction.FINISH_CAPTURE, f.session.state.microphoneAction)
+        listener.ending()
+        assertEquals(VoiceMicrophoneAction.STOP, f.session.state.microphoneAction)
+        f.session.stopTurn()
+        listener.final("Arrived after Stop")
+        assertEquals(0, f.submissions)
+        f.capture()
+        assertEquals(VoiceMicrophoneAction.STOP, f.session.state.microphoneAction)
+        f.session.autoContinue = true
+        f.session.stopTurn()
+        f.admission(VoiceAdmissionStage.ACCEPTED)
+        f.session.reply("late", "The stopped answer.")
+        assertEquals(VoiceMicrophoneAction.LISTEN, f.session.state.microphoneAction)
+        assertFalse(f.session.state.awaitingReply)
+        assertFalse(f.session.state.hasDraft)
+        assertFalse(f.session.autoContinue)
+        assertEquals(2, f.audio.captures)
+        assertTrue(f.audio.spoken.isEmpty())
+        f.capture("A fresh utterance")
+        assertEquals(2, f.submissions)
+    }
+
+    @Test fun stopDuringPlaybackKeepsTheMicrophoneIdleAfterTheOldCompletion() {
+        val f = Fixture()
+        f.capture()
+        f.admission(VoiceAdmissionStage.ACCEPTED)
+        assertTrue(f.session.beginMessage("reply"))
+        f.session.reply("reply", "Finished generating, still playing.")
+        val oldCompletion = f.audio.completions.single()
+        assertEquals(VoiceMicrophoneAction.STOP, f.session.state.microphoneAction)
+        f.session.stopTurn()
+        oldCompletion()
+        assertEquals(VoicePhase.PAUSED, f.session.state.phase)
+        assertEquals(VoiceMicrophoneAction.LISTEN, f.session.state.microphoneAction)
+        assertEquals(1, f.audio.captures)
+    }
+
     @After fun clearDiagnostics() = VoiceDiagnosticTrace.clearAll()
 
     @Test fun lateAcceptanceClearsOnlyTheSubmittedDraftWhileReplayKeepsAudioOwnership() {

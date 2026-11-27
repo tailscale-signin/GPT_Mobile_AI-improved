@@ -16,7 +16,6 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,7 +33,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.voice.VoiceMicrophoneAction
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.microphoneAction
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 
@@ -51,20 +53,18 @@ internal fun VoiceTranscriptScreen(
     model: ChatViewModel,
     profileName: String,
     status: String,
-    session: dev.chungjungsoo.gptmobile.data.voice.VoiceState,
+    session: VoiceState,
     captions: Boolean,
     controls: VoiceMessageControls,
     spokenReplies: Boolean,
     changeSpokenReplies: (Boolean) -> Unit,
     showVoice: () -> Unit,
     microphone: () -> Unit,
-    audioRoute: () -> Unit,
     settings: () -> Unit,
     end: () -> Unit,
     destinations: VoiceChatDestinations,
     bottomInteractionContent: (@Composable () -> Unit)?,
-    captionCursor: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor>? = null,
-    doneSpeaking: () -> Unit = {}
+    captionCursor: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor>? = null
 ) {
     VoiceTranscriptFrame(profileName, spokenReplies, changeSpokenReplies, showVoice, settings, end) {
         CompositionLocalProvider(LocalVoiceMessageControls provides controls) {
@@ -80,7 +80,7 @@ internal fun VoiceTranscriptScreen(
                     if (captions && session.phase in setOf(VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.SPEAKING)) {
                         VoiceLiveCaptions(session, compact = true, modifier = Modifier.fillMaxWidth(), cursor = captionCursor)
                     }
-                    VoiceTranscriptOutputControls(status, controls.phase, microphone, audioRoute, doneSpeaking)
+                    VoiceTranscriptOutputControls(status, session.copy(phase = controls.phase).microphoneAction, microphone)
                     bottomInteractionContent?.invoke()
                 }
             )
@@ -147,14 +147,16 @@ private fun VoiceTranscriptToolbar(
 }
 
 @Composable
-internal fun VoiceTranscriptOutputControls(status: String, phase: VoicePhase, microphone: () -> Unit, audioRoute: () -> Unit, doneSpeaking: () -> Unit = {}) {
+internal fun VoiceTranscriptOutputControls(status: String, action: VoiceMicrophoneAction, microphone: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (phase == VoicePhase.LISTENING) TextButton(onClick = doneSpeaking, modifier = Modifier.testTag("voice_transcript_done_speaking")) { Text("Done") }
         FilledTonalButton(onClick = microphone, modifier = Modifier.testTag("voice_transcript_microphone")) {
-            val playing = phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)
-            Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.Mic, if (playing) "Stop reply" else "Microphone")
+            val (icon, label) = when (action) {
+                VoiceMicrophoneAction.STOP -> Icons.Rounded.Stop to "Stop reply"
+                VoiceMicrophoneAction.FINISH_CAPTURE -> Icons.Rounded.Mic to "Finish speaking"
+                VoiceMicrophoneAction.LISTEN -> Icons.Rounded.Mic to "Start listening"
+            }
+            Icon(icon, label)
         }
-        IconButton(onClick = audioRoute, modifier = Modifier.testTag("voice_transcript_audio_output")) { Icon(Icons.Rounded.VolumeUp, "Audio output") }
     }
 }

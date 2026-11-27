@@ -16,14 +16,13 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -31,7 +30,6 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -143,39 +141,47 @@ class VoiceConversationInstrumentedTest {
         compose.onNodeWithTag("voice_caption_return_to_live").assertDoesNotExist()
     }
 
-    @Test fun captionsWaitForRestoredPreferencesAndExposeCheckedState() {
-        val initial = state(VoiceState()).copy(preferencesApplied = false, captions = true)
-        val current = mutableStateOf(initial)
-        var changes = 0
+    @Test fun microphoneAndLanguageControlsFollowTheTurnAndPickerState() {
+        val current = mutableStateOf(state(VoiceState()).copy(preferencesApplied = false))
+        var presses = 0
         compose.setContent {
             MaterialTheme {
                 VoiceConversationScreen(
                     current.value,
-                    actions(captions = {
-                        changes++
-                        current.value = current.value.copy(captions = !current.value.captions)
-                    })
+                    actions(
+                        stop = { presses++ },
+                        language = { current.value = current.value.copy(replyLanguage = it) },
+                        translate = { current.value = current.value.copy(translationMode = it) }
+                    )
                 )
             }
         }
-        val captions = compose.onNodeWithTag("voice_captions_toggle")
-        captions.assertIsDisplayed().assertIsNotEnabled().assertIsOn().performTouchInput { click() }
-        compose.runOnIdle {
-            assertEquals(0, changes)
-            assertEquals(initial, current.value)
-            current.value = initial.copy(preferencesApplied = true, captions = false)
+        val microphone = compose.onNodeWithTag("voice_microphone_toggle")
+        val language = compose.onNodeWithTag("voice_reply_language")
+        compose.onNodeWithTag("voice_captions_toggle").assertDoesNotExist()
+        compose.onNodeWithText("Audio").assertDoesNotExist()
+        language.assertIsNotEnabled()
+        compose.runOnIdle { current.value = current.value.copy(preferencesApplied = true) }
+        val chat = compose.onNodeWithText("Text chat").fetchSemanticsNode().boundsInRoot
+        val mic = microphone.assertContentDescriptionEquals("Start listening").fetchSemanticsNode().boundsInRoot
+        assertTrue(mic.width > chat.height && mic.bottom <= chat.top)
+        assertEquals(mic.center.x, chat.center.x, 2f)
+        assertTrue(language.fetchSemanticsNode().boundsInRoot.center.x > chat.center.x)
+        microphone.performClick()
+        language.performClick()
+        val translate = compose.onNodeWithTag("voice_translation_mode")
+        translate.assertIsOff().performClick().assertIsOn()
+        compose.onNodeWithTag("voice_reply_language_fr").performClick()
+        compose.runOnIdle { assertEquals("fr", current.value.replyLanguage) }
+        language.performClick()
+        translate.assertIsOn()
+        compose.onNodeWithText("Done").performClick()
+        for (phase in listOf(VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING)) {
+            compose.runOnIdle { current.value = current.value.copy(session = VoiceState(phase = phase)) }
+            language.assertIsNotEnabled()
+            microphone.assertContentDescriptionEquals(if (phase == VoicePhase.LISTENING) "Finish speaking" else "Stop").performClick()
         }
-        captions.assertIsEnabled().assertIsOff().performClick()
-        compose.runOnIdle {
-            assertEquals(1, changes)
-            assertEquals(initial.copy(preferencesApplied = true, captions = true), current.value)
-        }
-        captions.assertIsOn().performClick()
-        compose.runOnIdle {
-            assertEquals(2, changes)
-            assertEquals(initial.copy(preferencesApplied = true, captions = false), current.value)
-        }
-        captions.assertIsOff()
+        compose.runOnIdle { assertEquals(6, presses) }
     }
 
     @Test fun theProfilePickerChangesProfileOnlyBetweenTurns() {
@@ -416,9 +422,8 @@ class VoiceConversationInstrumentedTest {
         draft = ""
     )
 
-    private fun actions(stop: () -> Unit = {}, select: (String) -> Unit = {}, captions: () -> Unit = {}) = VoiceConversationActions(
+    private fun actions(stop: () -> Unit = {}, select: (String) -> Unit = {}, language: (String) -> Unit = {}, translate: (Boolean) -> Unit = {}) = VoiceConversationActions(
         selectProfile = select,
-        openTranscript = {},
         openSettings = {},
         showSettings = {},
         installLocalModel = {},
@@ -432,8 +437,8 @@ class VoiceConversationInstrumentedTest {
         replay = {},
         openChat = {},
         toggleMicrophone = stop,
-        toggleCaptions = captions,
-        openAudioRoute = {},
+        changeReplyLanguage = language,
+        changeTranslationMode = translate,
         end = {}
     )
 }

@@ -25,18 +25,15 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Subtitles
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -46,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,10 +65,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionStatus
+import dev.chungjungsoo.gptmobile.data.voice.VoiceMicrophoneAction
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.microphoneAction
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 
 internal data class VoiceConversationUiState(
@@ -95,12 +95,13 @@ internal data class VoiceConversationUiState(
     val captionCursor: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor>? = null,
     val handsFreeInterruption: Boolean = false,
     val interruptionState: kotlinx.coroutines.flow.StateFlow<VoiceInterruptionStatus>? = null,
-    val recognitionBackend: VoiceRecognitionBackend = SpeechLanguages.recognitionBackend(language)
+    val recognitionBackend: VoiceRecognitionBackend = SpeechLanguages.recognitionBackend(language),
+    val replyLanguage: String = SpeechLanguages.default.tag,
+    val translationMode: Boolean = false
 )
 
 internal class VoiceConversationActions(
     val selectProfile: (String) -> Unit,
-    val openTranscript: () -> Unit,
     val openSettings: () -> Unit,
     val showSettings: () -> Unit,
     val installLocalModel: () -> Unit,
@@ -114,10 +115,9 @@ internal class VoiceConversationActions(
     val replay: () -> Unit,
     val openChat: () -> Unit,
     val toggleMicrophone: () -> Unit,
-    val toggleCaptions: () -> Unit = {},
-    val openAudioRoute: () -> Unit,
-    val end: () -> Unit,
-    val doneSpeaking: () -> Unit = {}
+    val changeReplyLanguage: (String) -> Unit,
+    val changeTranslationMode: (Boolean) -> Unit,
+    val end: () -> Unit
 )
 
 @Composable
@@ -146,9 +146,6 @@ private fun VoiceConversationHeader(state: VoiceConversationUiState, actions: Vo
     Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats", tint = MaterialTheme.colorScheme.onSurface) }
         VoiceProfilePicker(state, actions.selectProfile, Modifier.weight(1f))
-        IconButton(onClick = actions.openTranscript) {
-            Icon(Icons.Rounded.Subtitles, "Open full transcript", tint = MaterialTheme.colorScheme.primary)
-        }
         IconButton(onClick = actions.openSettings, enabled = state.preferencesApplied) {
             Icon(Icons.Rounded.Settings, "Voice settings", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -274,7 +271,7 @@ private fun VoiceConversationSetup(state: VoiceConversationUiState, actions: Voi
 private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: VoiceConversationActions) {
     val interruption = state.interruptionState?.collectAsStateWithLifecycle()?.value
     if (state.handsFreeInterruption && state.session.phase == VoicePhase.SPEAKING && interruption == VoiceInterruptionStatus.UNAVAILABLE) {
-        Text("Hands-free interruption needs local speech and echo cancellation on this audio route. Tap the microphone to interrupt.", Modifier.testTag("voice_interruption_unavailable"), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+        Text("Hands-free interruption needs local speech and echo cancellation on this audio route. Tap Stop to end the reply.", Modifier.testTag("voice_interruption_unavailable"), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
     }
     if (state.session.hasDraft && state.session.phase != VoicePhase.REVIEWING) {
         TextButton(onClick = actions.listen, enabled = state.enabled && state.voiceReady && state.preferencesApplied) { Text("Review captured text") }
@@ -284,7 +281,6 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
         Button(onClick = actions.sendDraft, enabled = state.draft.isNotBlank()) { Text("Send") }
         TextButton(onClick = actions.recordAgain) { Text("Record again") }
     }
-    if (state.session.phase == VoicePhase.LISTENING) TextButton(onClick = actions.doneSpeaking, modifier = Modifier.testTag("voice_done_speaking")) { Text("Done speaking") }
     state.session.notice?.let {
         Text(it, Modifier.padding(top = 16.dp).widthIn(max = 360.dp), style = MaterialTheme.typography.bodyMedium, color = if (state.remaining > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
     }
@@ -299,84 +295,64 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
 
 private fun voiceListeningHint(state: VoiceState, handsFreeInterruption: Boolean): String = when {
     state.phase == VoicePhase.PREPARING -> "Your reply is getting ready to play"
-    state.phase == VoicePhase.SPEAKING -> if (handsFreeInterruption) "Speak to interrupt when echo cancellation is available" else "Listening resumes after the reply"
+    state.phase == VoicePhase.SPEAKING -> if (handsFreeInterruption) "Speak to interrupt when echo cancellation is available" else "Tap Stop to end the reply"
     state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening."
     state.phase == VoicePhase.THINKING -> "Preparing your reply"
-    state.muted -> "Unmute when you’re ready to speak"
+    state.muted -> "Tap the microphone when you’re ready to speak"
     else -> "Use the microphone when you are ready"
 }
 
 @Composable
 private fun VoiceConversationControls(state: VoiceConversationUiState, actions: VoiceConversationActions) {
-    Row(
-        Modifier.padding(top = 8.dp).widthIn(max = 480.dp).fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+    var choosingLanguage by rememberSaveable { mutableStateOf(false) }
+    val action = state.session.microphoneAction
+    val canSelect = state.preferencesApplied && action == VoiceMicrophoneAction.LISTEN
+    val (icon, description) = when (action) {
+        VoiceMicrophoneAction.LISTEN -> Icons.Rounded.Mic to "Start listening"
+        VoiceMicrophoneAction.FINISH_CAPTURE -> Icons.Rounded.Mic to "Finish speaking"
+        VoiceMicrophoneAction.STOP -> Icons.Rounded.Stop to "Stop"
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(top = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, false, Modifier.weight(1f))
-        VoiceMicrophoneControl(state, actions.toggleMicrophone)
-        VoiceControl("Audio", if (state.session.speaker) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, actions.openAudioRoute, !state.session.speaker, Modifier.weight(1f))
-        VoiceCaptionsControl(state, actions.toggleCaptions, Modifier.weight(1f))
+        FilledIconButton(
+            onClick = actions.toggleMicrophone,
+            enabled = action != VoiceMicrophoneAction.LISTEN || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady && state.session.phase != VoicePhase.REVIEWING,
+            modifier = Modifier.size(88.dp).testTag("voice_microphone_toggle")
+        ) { Icon(icon, description, Modifier.size(44.dp)) }
+        Row(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Spacer(Modifier.weight(1f))
+            VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, Modifier.weight(1f))
+            val language = SpeechLanguages.forLocale(state.replyLanguage)?.label.orEmpty()
+            VoiceControl(
+                language,
+                Icons.Rounded.Language,
+                { choosingLanguage = true },
+                Modifier.weight(1f).testTag("voice_reply_language").semantics {
+                    contentDescription = if (state.translationMode) "Translate into $language" else "Reply language: $language"
+                },
+                canSelect
+            )
+        }
+    }
+    if (choosingLanguage && canSelect) {
+        VoiceReplyLanguageDialog(state.replyLanguage, state.translationMode, actions.changeTranslationMode, select = {
+            actions.changeReplyLanguage(it)
+            choosingLanguage = false
+        }, dismiss = { choosingLanguage = false })
+    } else if (choosingLanguage) {
+        androidx.compose.runtime.LaunchedEffect(Unit) { choosingLanguage = false }
     }
 }
 
 @Composable
-private fun VoiceCaptionsControl(state: VoiceConversationUiState, toggle: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        IconToggleButton(
-            checked = state.captions,
-            onCheckedChange = { toggle() },
-            enabled = state.preferencesApplied,
-            modifier = Modifier.size(52.dp).testTag("voice_captions_toggle")
-        ) {
-            Icon(Icons.Rounded.Subtitles, "Captions", Modifier.size(24.dp))
+private fun VoiceControl(label: String, image: ImageVector, click: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    TextButton(onClick = click, enabled = enabled, modifier = modifier) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(image, null, Modifier.size(22.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
         }
-        Text("Captions", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
-    }
-}
-
-@Composable
-private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -> Unit) {
-    val listening = state.session.phase == VoicePhase.LISTENING
-    val playing = state.session.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)
-    val colors = MaterialTheme.colorScheme
-    val (icon, label) = when {
-        playing -> Icons.Rounded.Stop to "Stop reply"
-        state.session.muted -> Icons.Rounded.MicOff to "Start listening"
-        state.session.phase == VoicePhase.ERROR -> Icons.Rounded.Mic to "Retry microphone"
-        state.session.phase == VoicePhase.PAUSED -> Icons.Rounded.Mic to "Start listening"
-        else -> Icons.Rounded.Mic to "Turn microphone off"
-    }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(
-            onClick = toggle,
-            enabled = playing || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady,
-            modifier = Modifier.size(72.dp).testTag("voice_microphone_toggle")
-        ) {
-            Icon(icon, label, Modifier.size(32.dp), tint = if (listening || playing) colors.primary else colors.onSurface)
-        }
-        Text(
-            if (playing) {
-                "Stop reply"
-            } else if (listening) {
-                "Listening"
-            } else {
-                "Microphone"
-            },
-            Modifier.widthIn(max = 128.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = colors.onSurface,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-private fun VoiceControl(label: String, image: ImageVector, click: () -> Unit, selected: Boolean, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = click, modifier = Modifier.size(52.dp)) {
-            Icon(image, label, Modifier.size(24.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-        }
-        Text(label, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
     }
 }

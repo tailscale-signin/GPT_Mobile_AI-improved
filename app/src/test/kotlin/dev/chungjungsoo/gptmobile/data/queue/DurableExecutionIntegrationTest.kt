@@ -68,6 +68,32 @@ class DurableExecutionIntegrationTest {
         assertEquals(result.userMessage.id, database.agentRunDao().getById("r")!!.userMessageId)
     }
 
+    @Test fun stoppingQueuedVoiceOnlyRemovesItsOwnPromptOrFindsItsCommittedRun() = runBlocking {
+        val queue = DurablePromptQueue(database, mockk(), mockk(), mockk(), RuntimeEnvironment.getApplication(), mockk(), mockk(), mockk(), mockk(), dagger.Lazy { mockk() })
+        val source = prompt()
+        val payload = source.details().copy(
+            requestId = "dictation",
+            tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig().withVoicePolicy(
+                dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.forLanguage("pt-BR", translate = true)
+            )
+        )
+        val voice = source.copy(payload = Json.encodeToString(payload))
+        val other = source.copy(id = "other", payload = Json.encodeToString(source.details().copy(requestId = "keyboard")))
+        val dao = database.pendingPromptDao()
+        dao.enqueue(voice)
+        dao.enqueue(other)
+        assertTrue(queue.stopVoiceRequest(1, "keyboard").isEmpty())
+        assertTrue(queue.stopVoiceRequest(2, "dictation").isEmpty())
+        assertTrue(queue.stopVoiceRequest(1, "dictation").isEmpty())
+        assertEquals(listOf(other.id), dao.forChat(1).map { it.id })
+        database.agentPersistenceDao().persistAgentTurn(request().copy(queuedPromptId = other.id, runs = listOf(AgentRunDraft("other-run", "p", "CUSTOM", "model"))))
+        database.agentRunDao().updateStatus("other-run", "COMPLETED", 1, 2, null)
+        dao.enqueue(voice)
+        database.agentPersistenceDao().persistAgentTurn(request())
+        assertEquals(setOf("r"), queue.stopVoiceRequest(1, "dictation"))
+        assertNotNull(dao.get(other.id))
+    }
+
     @Test fun nativeApprovalContinuationPersistsItsOriginalRootAcrossAnUnrelatedTurn() = runBlocking {
         val originalRequest = "Test all authorized GitHub tools. Do not merge. Budget: 10 minutes and 17 tool calls."
         val original = database.agentPersistenceDao().persistAgentTurn(request(originalRequest).copy(queuedPromptId = null, runs = listOf(AgentRunDraft("original", "p", "CUSTOM", "model"))))

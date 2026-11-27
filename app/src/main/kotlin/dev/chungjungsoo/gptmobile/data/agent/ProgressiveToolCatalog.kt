@@ -1106,7 +1106,7 @@ class ProgressiveToolCatalog(
             ceiling?.takeIf { it > 0 }?.let { (it / 3).coerceAtLeast(128) } ?: Int.MAX_VALUE
         private fun advancedTask(task: String): Boolean =
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).isNotEmpty() || Regex("(?iu)\\b(research|study|studies|papers)\\b").containsMatchIn(task)
-        internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
+        internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.toolSchemaTokens(tool)
         internal fun isGitHubTool(tool: AgentToolDefinition): Boolean = AgentToolCapability.GITHUB in tool.capabilities || tool.name.split("__").any { it == "github" || it.startsWith("github_") || it in setOf("repository_graph", "repository_workspace", "gitmcp") }
         fun create(
             definitions: List<AgentToolDefinition>,

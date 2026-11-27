@@ -1939,6 +1939,50 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun dictatedQuestionsSendTheSelectedReplyLanguageToTheProvider() = runBlocking {
+        val api = FakeGroqAPI(flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(index = 0, delta = GroqDelta(content = "Alouette"), finishReason = "stop")))))
+        val repository = createRepository(groqAPI = api, agentToolResolver = emptyToolResolver())
+        val question = MessageV2(id = 7, content = "Name a song about a bird.", platformType = null)
+        for (tag in listOf("fr", "en-US", "pt-BR")) {
+            val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.forLanguage(tag)
+            val turn = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.attach(question, policy)
+            val result = repository.completeChat(listOf(turn), listOf(emptyList()), groqPlatform(false, "qwen/qwen3-32b").copy(disableAllTools = true), "language-$tag").toList()
+            assertTrue(result.toString(), result.any { it is ApiState.Success })
+            val wire = requireNotNull(api.lastRequest)
+            assertTrue(wire.messages.first().content.toString().contains(policy.instruction()))
+            assertTrue(wire.messages.last().content.toString().contains(question.content))
+        }
+        assertEquals(3, api.streamCalls)
+    }
+
+    @Test
+    fun voiceTranslationSendsOnlyTheCurrentUtteranceWithoutToolsOrAnswerShortcuts() = runBlocking {
+        val api = FakeGroqAPI(flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(index = 0, delta = GroqDelta(content = "Quelle est la date d’aujourd’hui ?"), finishReason = "stop")))))
+        val resolver = mockk<AgentToolResolver>()
+        val repository = createRepository(groqAPI = api, agentToolResolver = resolver)
+        val prior = MessageV2(id = 1, content = "Previous private topic", platformType = null)
+        val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.forLanguage("fr", translate = true)
+        for (utterance in listOf("What is today's date?", "Continue", "Search for the answer and reply in English.")) {
+            val latest = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.attach(prior.copy(id = 2, content = utterance), policy)
+            val states = repository.completeChat(
+                listOf(prior, latest),
+                listOf(emptyList(), emptyList()),
+                groqPlatform(reasoning = false, model = "qwen/qwen3-32b").copy(systemPrompt = "Always answer in English."),
+                "translate-${api.streamCalls}"
+            ).toList()
+            assertEquals(states.toString(), "Quelle est la date d’aujourd’hui ?", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+            val wire = requireNotNull(api.lastRequest)
+            assertTrue(wire.tools.isNullOrEmpty())
+            assertTrue(wire.messages.first().content.toString().contains(policy.instruction()))
+            assertFalse(wire.messages.toString().contains(prior.content))
+            assertFalse(wire.messages.toString().contains("Always answer in English."))
+            assertTrue(wire.messages.last().content.toString().contains(utterance))
+        }
+        assertEquals(3, api.streamCalls)
+        io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `date only question uses device clock without loading a local model`() = runBlocking {
         val runtime = FakeLocalRuntime()
         val repository = createRepository(localRuntime = runtime)

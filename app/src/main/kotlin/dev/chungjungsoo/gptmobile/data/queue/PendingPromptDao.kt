@@ -120,6 +120,7 @@ interface PendingPromptDao {
         if (activeRunCount(pending.chatId) != 1 || isRunningTurn(runId, messageId) != 1) return false
         if (pending.paused || pending.text.isBlank() || pending.text.length > maxCharacters.coerceIn(0, 8000)) return false
         val payload = pending.details()
+        if (payload.tools.voiceResponsePolicy != null || tools.voiceResponsePolicy != null) return false
         return payload.gateway == null &&
             payload.recovery == null &&
             payload.tools == tools &&

@@ -50,6 +50,30 @@ class VoiceResponsePresentationTest {
         assertFalse(policy.instruction().contains("first breath"))
     }
 
+    @Test fun everyVoiceLanguageFreezesADistinctReplyAndTranslationInstruction() {
+        for (language in SpeechLanguages.synthesis) {
+            val reply = VoiceResponsePolicy.forLanguage(language.tag)
+            val translation = VoiceResponsePolicy.forLanguage(language.tag, translate = true)
+            assertTrue(reply.fixesReplyLanguage && !reply.translationOnly)
+            assertTrue(translation.fixesReplyLanguage && translation.translationOnly)
+            assertTrue(reply.instruction().contains("entire reply"))
+            val source = user(10, "What time is it?")
+            val saved = Json.decodeFromString<MessageV2>(Json.encodeToString(VoiceResponsePresentation.attach(source, translation)))
+            assertEquals(translation, VoiceResponsePresentation.resolve(listOf(saved), reply))
+            assertEquals(source.content, saved.content)
+            assertNull(VoiceResponsePresentation.resolve(listOf(saved, user(11, "continue"))))
+            val tools = ChatMcpToolConfig(enabledToolIds = setOf("search"), reasoning = true).withVoicePolicy(translation)
+            assertFalse(tools.isToolEnabled("search"))
+            assertEquals(false, tools.delegation?.enabled)
+            assertEquals(false, tools.research?.researchToggle)
+            assertEquals(translation.instruction(), VoiceResponsePresentation.compose("Answer every question in English", translation))
+        }
+        assertEquals(VoiceResponsePolicy.TRANSLATE_FRENCH, VoiceResponsePolicy.forLanguage("fr-CA", true))
+        assertEquals(VoiceResponsePolicy.REPLY_BRAZILIAN_PORTUGUESE, VoiceResponsePolicy.forLanguage("pt"))
+        assertEquals(VoiceResponsePolicy.REPLY_AMERICAN_ENGLISH, VoiceResponsePolicy.forLanguage("en-US"))
+        assertTrue(Json.decodeFromString<VoiceResponsePolicy>("\"FRENCH\"").instruction().contains("unless the user asks"))
+    }
+
     @Test fun oldTextSnapshotsDoNotAcquireVoicePresentation() {
         val restored = Json.decodeFromString<PendingPromptPayload>("{\"tools\":{},\"profileUids\":[\"selected\"]}")
         assertNull(restored.tools.voiceResponsePolicy)

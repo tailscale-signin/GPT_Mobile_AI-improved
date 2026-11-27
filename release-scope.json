@@ -44,7 +44,9 @@
     "Use a fresh empty issue inventory to complete issue-only repair requests. Base session reports and progress previews on retained tool events and carry verified obligations into continuation.",
     "Keep GitHub session reports within the requesting turn and selected profile, preserve attachment and repair workflows, and resume previously accepted Gateway jobs.",
     "Streaming voice replies preload the selected local speech library, keep nearby sentence endings together, and play completed words while additional reply text is pending.",
-    "Carry issue-intake evidence through Android and the report service. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request."
+    "Carry issue-intake evidence through Android and the report service. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request.",
+    "Tap the central microphone to listen or finish speaking. Stop cancels the current voice turn and playback. Choose a reply language beside Text chat to switch the written and spoken reply together, or select Translate only to hear a direct translation.",
+    "While the microphone is active, Voice Mode prepares authorized tool catalogues and searches saved memory locally as words settle. Later turns reuse session metadata and exact matching recall. Translation skips these preparations."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -615,7 +617,27 @@
     "scripts/tests/test_github_routing_replay.py",
     "scripts/tests/test_issue_reporting_configuration.py",
     "scripts/tests/test_mediapipe_android_smoke.py",
-    "scripts/tests/test_mediapipe_speech.py"
+    "scripts/tests/test_mediapipe_speech.py",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptInstrumentedTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/SendAttemptTrace.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ChatMcpToolConfig.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueue.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptDao.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMessagePlayback.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptScreen.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurableExecutionIntegrationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionPlaybackTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePresentationTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/readiness/ChatReadinessCoordinator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/readiness/MemoryPreviewCoordinator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/readiness/VoiceListeningPreparation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepository.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/MemoryPreviewFallbackTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/VoiceListeningPreparationTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

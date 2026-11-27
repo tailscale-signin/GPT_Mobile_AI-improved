@@ -71,8 +71,24 @@ class DurablePromptQueue @Inject constructor(
 
     /** The consumed row is the durable correlation between request and accepted turn. */
     fun observeRequest(chatId: Int, requestId: String) = pending.map {
-        dao.forChat(chatId).singleOrNull { prompt -> runCatching { prompt.details().requestId == requestId }.getOrDefault(false) }
+        findRequest(chatId, requestId)
     }.distinctUntilChanged()
+
+    private suspend fun findRequest(chatId: Int, requestId: String) =
+        dao.forChat(chatId).singleOrNull { prompt -> runCatching { prompt.details().requestId == requestId }.getOrDefault(false) }
+
+    /** A queued voice turn can be consumed while Stop is pressed. The queue row and its runs commit together. */
+    internal suspend fun stopVoiceRequest(chatId: Int, requestId: String): Set<String> = database.withTransaction {
+        val prompt = findRequest(chatId, requestId) ?: return@withTransaction emptySet()
+        if (prompt.details().tools.voiceResponsePolicy == null) return@withTransaction emptySet()
+        val messageId = prompt.userMessageId
+        if (messageId == null) {
+            dao.deleteUnconsumed(prompt.id)
+            emptySet()
+        } else {
+            database.agentRunDao().rawGetByChatId(chatId).filter { it.userMessageId == messageId }.mapTo(mutableSetOf()) { it.runId }
+        }
+    }
 
     private val _gatewayStates = MutableStateFlow<Map<Int, GatewayQueuedChatState>>(emptyMap())
     val gatewayStates = _gatewayStates.asStateFlow()

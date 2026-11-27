@@ -118,6 +118,11 @@ class VoiceMessagePlayback {
         if (identity.revision == -1) known.putIfAbsent(identity.messageId, identity.runId)
     }
 
+    fun stopRuns(runIds: Set<String>) {
+        pending.entries.removeAll { (_, reply) -> reply.identity.runId in runIds }
+        if (active?.identity?.runId in runIds) finish()
+    }
+
     fun discardPending() {
         consumed.addAll(pending.keys)
         pending.clear()

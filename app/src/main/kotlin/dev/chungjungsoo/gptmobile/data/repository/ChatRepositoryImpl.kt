@@ -1974,7 +1974,16 @@ class ChatRepositoryImpl(
             return@flow
         }
         val privacy = dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(chatId, room?.privacyModeLocked == true)
-        emitAll(completeChatWithPrivacy(userMessages, assistantMessages, platform, runId, chatToolConfig, stage).flowOn(privacy))
+        val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(userMessages, chatToolConfig?.voiceResponsePolicy)
+        val tools = policy?.let { (chatToolConfig ?: ChatMcpToolConfig()).withVoicePolicy(it) } ?: chatToolConfig
+        if (policy?.translationOnly == true) {
+            // The utterance is source material. Previous turns can contain questions, commands or a different target language.
+            emitAll(completeChatWithPrivacy(userMessages.takeLast(1), listOf(emptyList()), platform, runId, tools, stage).flowOn(privacy))
+        } else {
+            val costs = if (policy != null && chatId != null) agentToolResolver.voiceSchemaCosts(chatId, platform.uid) else emptyMap()
+            val turnContext = if (costs.isEmpty()) privacy else privacy + dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.withVoiceSchemaCosts(costs)
+            emitAll(completeChatWithPrivacy(userMessages, assistantMessages, platform, runId, tools, stage).flowOn(turnContext))
+        }
     }.flowOn(Dispatchers.Default)
 
     private fun completeChatWithPrivacy(
@@ -2065,7 +2074,7 @@ class ChatRepositoryImpl(
             emit(ApiState.Done)
             return@privateChat
         }
-        if (boundStage == null && chatToolConfig?.combined == null && userMessages.lastOrNull()?.attachments.isNullOrEmpty()) {
+        if (boundStage == null && chatToolConfig?.voiceResponsePolicy?.fixesReplyLanguage != true && chatToolConfig?.combined == null && userMessages.lastOrNull()?.attachments.isNullOrEmpty()) {
             dev.chungjungsoo.gptmobile.data.agent.DeviceDateAnswer.answer(userMessages.lastOrNull()?.content.orEmpty())?.let { answer ->
                 emit(ApiState.Notice("Answered from the device clock; no provider request was sent.", persistent = false))
                 emit(ApiState.Success(answer))
@@ -2196,6 +2205,16 @@ class ChatRepositoryImpl(
         return bound
     }
 
+    override suspend fun warmVoiceCatalogues(chatId: Int, profileUid: String, config: ChatMcpToolConfig, remoteAllowed: Boolean, history: List<List<MessageV2>>) {
+        val room = agentPersistenceDao.getChatRoom(chatId) ?: return
+        if (room.isTemporary || room.privacyModeLocked || config.allToolsDisabled || config.voiceResponsePolicy?.translationOnly == true) return
+        val owner = MessageV2(chatId = chatId, content = "", platformType = null)
+        val consent = preparePersonalDataContext(listOf(owner), history, config)
+        withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(chatId, false) + consent) {
+            agentToolResolver.warmVoiceCatalogues(chatId, profileUid, config, remoteAllowed)
+        }
+    }
+
     private suspend fun preparePersonalDataContext(
         users: List<MessageV2>,
         assistants: List<List<MessageV2>>,
@@ -2258,7 +2277,7 @@ class ChatRepositoryImpl(
             journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
             journal.record(runId, if (currentIntent.conversational) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_CONVERSATIONAL else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_SUBSTANTIVE)
         }
-        if (chatToolConfig?.github != null && stage == null && greeting?.attachments.isNullOrEmpty() && currentIntent.conversational) {
+        if (chatToolConfig?.github != null && voicePolicy?.fixesReplyLanguage != true && stage == null && greeting?.attachments.isNullOrEmpty() && currentIntent.conversational) {
             send(ApiState.Success(currentIntent.acknowledgement()))
             send(ApiState.Done)
             return@channelFlow
@@ -2282,6 +2301,13 @@ class ChatRepositoryImpl(
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { journal ->
                 val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
                 journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
+            }
+            if (voicePolicy?.translationOnly == true) {
+                val source = userMessages.last()
+                val input = PrimaryPreparationInput(platform, runId, listOf(source), listOf(emptyList()), listOf(source), null, null, stage, chatToolConfig, source.id, false, null)
+                val admitted = preparePrimaryAdmission(input, dispatchAuthority, ::emit) ?: return@authorizedRun
+                streamVoiceTranslation(input, admitted, voicePolicy.instruction()).collect(::emit)
+                return@authorizedRun
             }
             val acceptedRecovery = prepareRecoveryRequest(acceptedUserMessages, acceptedAssistantMessages, runId, chatToolConfig?.github)
             val recovery = if (freshRepositoryTurn && acceptedRecovery != null) {
@@ -4520,10 +4546,25 @@ class ChatRepositoryImpl(
         }
         val previousMemoryContext = effectiveUserMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
         val recalled = measurePreparation(runId, PreparationPhase.MEMORY_RECALL) {
-            if (input.verificationOnlyRequested || input.chatToolConfig?.github != null) {
+            val voiceRecall = if (latestUser != null &&
+                !synthesisRun &&
+                taskRecovery == null &&
+                !input.verificationOnlyRequested &&
+                input.chatToolConfig?.voiceResponsePolicy != null &&
+                input.chatToolConfig.github == null &&
+                !platform.excludesMemory()
+            ) {
+                memoryPreview?.voiceRecall(latestUser.chatId, platform.uid, latestUser.content, latestUser.id, platform.isPrivateDestination(), platform.compatibleType == ClientType.LITERT_LM, previousMemoryContext, requireSemantic = preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK)
+            } else {
+                null
+            }
+            if (voiceRecall != null && latestUser != null && preparationPlan.kind != dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK) {
+                memoryPreview?.captureAccepted(latestUser.content, latestUser.chatId, latestUser.id, platform.isPrivateDestination(), previousMemoryContext)
+                voiceRecall.copy(facts = voiceRecall.facts.filterNot { it.id in exclusions.facts })
+            } else if (input.verificationOnlyRequested || input.chatToolConfig?.github != null) {
                 FactRecall()
             } else if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK) {
-                recallPrimaryTurnMemory(latestUser, platform, synthesisRun, taskRecovery, effectiveUserMessages, exclusions.facts, emit)
+                recallPrimaryTurnMemory(latestUser, platform, synthesisRun, taskRecovery, effectiveUserMessages, exclusions.facts, voiceRecall, emit)
             } else {
                 if (latestUser != null && !synthesisRun && !platform.excludesMemory()) {
                     memoryPreview?.captureAccepted(latestUser.content, latestUser.chatId, latestUser.id, platform.isPrivateDestination(), previousMemoryContext)
@@ -4560,8 +4601,8 @@ class ChatRepositoryImpl(
         val continuingAcceptedTask: Boolean,
         val readReference: GitHubReadReference?
     ) {
-        val githubTask: Boolean get() = chatToolConfig?.github != null ||
-            dev.chungjungsoo.gptmobile.data.agent.requiresNativeGitHubAcceptance(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(), true)
+        val githubTask: Boolean get() = chatToolConfig?.voiceResponsePolicy?.translationOnly != true &&
+            (chatToolConfig?.github != null || dev.chungjungsoo.gptmobile.data.agent.requiresNativeGitHubAcceptance(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(), true))
         val verificationOnlyRequested: Boolean get() = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RESUME_VERIFICATION
 
         // Delivery still validates saved-evidence access, but must not require an
@@ -4974,6 +5015,7 @@ class ChatRepositoryImpl(
         taskRecovery: dev.chungjungsoo.gptmobile.data.agent.ResolvedTaskRecovery?,
         effectiveUserMessages: List<MessageV2>,
         excludedFacts: Set<String>,
+        listeningRecall: FactRecall?,
         notice: suspend (ApiState) -> Unit
     ): FactRecall = try {
         if (latestUser == null || synthesisRun || platform.excludesMemory()) {
@@ -4982,15 +5024,19 @@ class ChatRepositoryImpl(
             // Automatic local memory capture/recall is independent from the
             // profile's ordinary tool-call switches. Disabling tools should not
             // silently disable the user's Memory setting.
-            val recall = factVault?.prepareTurn(
-                taskRecovery?.originalRequest ?: latestUser.content,
-                latestUser.chatId,
-                taskRecovery?.sourceMessageId ?: latestUser.id,
-                isLocal = platform.isPrivateDestination(),
-                capture = taskRecovery == null,
-                includeLocalOnly = platform.compatibleType == ClientType.LITERT_LM,
-                previousContext = effectiveUserMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
-            ) ?: FactRecall()
+            val query = taskRecovery?.originalRequest ?: latestUser.content
+            val messageId = taskRecovery?.sourceMessageId ?: latestUser.id
+            val local = platform.isPrivateDestination()
+            val localOnly = platform.compatibleType == ClientType.LITERT_LM
+            val history = effectiveUserMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
+            val captured = factVault?.prepareTurn(query, latestUser.chatId, messageId, isLocal = local, capture = taskRecovery == null, includeLocalOnly = localOnly, previousContext = history, recall = listeningRecall == null)
+            // Learning can revise the vault during capture. Revalidate the speculative result against the new state.
+            val recall = if (listeningRecall != null) {
+                memoryPreview?.voiceRecall(latestUser.chatId, platform.uid, query, messageId, local, localOnly, history)
+                    ?: factVault?.prepareTurn(query, latestUser.chatId, messageId, isLocal = local, capture = false, includeLocalOnly = localOnly, previousContext = history)
+            } else {
+                captured
+            }
             if (taskRecovery == null && factVault?.state?.value?.settings?.localModelLearning == true) {
                 try {
                     if (!factVault.scopeForChat(latestUser.chatId).isTemporary) {
@@ -5002,7 +5048,7 @@ class ChatRepositoryImpl(
                     notice(ApiState.Notice("Local model memory extraction was unavailable; automatic text capture remains active.", persistent = false))
                 }
             }
-            recall.copy(facts = recall.facts.filterNot { it.id in excludedFacts })
+            recall?.copy(facts = recall.facts.filterNot { it.id in excludedFacts }) ?: FactRecall()
         }
     } catch (cancellation: CancellationException) {
         throw cancellation
@@ -5804,6 +5850,27 @@ class ChatRepositoryImpl(
         )
     }
 
+    /** Keep normal provider, privacy, context, budget and streaming admission for a single tool-free translation. */
+    private fun streamVoiceTranslation(input: PrimaryPreparationInput, admitted: PrimaryRunAdmission, instruction: String): Flow<ApiState> {
+        val source = input.effectiveUserMessages.single()
+        val plan = planPrimaryContext(
+            admitted.contextTurns, instruction, emptyList(), admitted.limits, externalTools = false, githubMode = false,
+            requestedTask = instruction, requireToolExecution = false, capacityDecision = admitted.capacityDecision
+        )
+        val sequence = java.util.concurrent.atomic.AtomicInteger()
+        return streamPrimaryAnswer(
+            platform = input.platform, requestPlatform = input.platform.withSystemPrompt(instruction), latestUser = source,
+            runId = input.runId, turnKey = admitted.turnKey, chatToolConfig = input.chatToolConfig, contextPlan = plan,
+            budgetSettings = admitted.budgetSettings, preparedLimits = admitted.limits, capacityDecision = admitted.capacityDecision,
+            customRunner = admitted.customRunner, delegationSettings = admitted.admittedPolicy,
+            effectiveTools = emptyList(), exposedTools = emptyList(), resolvedTools = emptyList(), authorizedEvidenceTools = emptyList(), delegatedTools = emptyList(),
+            trace = ToolTraceSession(input.runId, emptyList(), toolEventRecorder, sequence), traceSequences = sequence,
+            recalled = FactRecall(), documentContext = "", localResearch = false, processingOwnership = 0,
+            reservedFinalToolCalls = 0, followUps = null, remainingToolCalls = { 0 }, executionCallLimit = 0,
+            originalUserRequest = instruction, acceptanceRequest = instruction
+        )
+    }
+
     private fun streamPrimaryAnswer(
         platform: PlatformV2,
         requestPlatform: PlatformV2,
@@ -6042,6 +6109,11 @@ class ChatRepositoryImpl(
                 preparedAssistEvidence = preparedAssistEvidence,
                 combined = passCombined
             ) ?: guarded
+        }
+        if (chatToolConfig?.voiceResponsePolicy?.translationOnly == true) {
+            val session = openPrimarySession(contextPlan.turns, textOnly = true)
+            streamAgentEvents(customRunner.run(session, emptyList()), platform, runId, 0, trace, outputAllowance = resolvedOutputCap, dispatchAuthority = dispatchAuthority).collect { send(it) }
+            return@channelFlow
         }
         val recovery = streamPrimaryAnswerRecovery(
             platform,

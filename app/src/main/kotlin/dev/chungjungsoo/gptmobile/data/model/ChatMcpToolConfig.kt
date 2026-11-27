@@ -40,6 +40,22 @@ data class ChatMcpToolConfig(
     @kotlinx.serialization.Transient val githubRecoveryExecutionAllowed: Boolean = false,
     @kotlinx.serialization.Transient val githubPatchReviewAllowed: Boolean = false
 ) {
+    fun withVoicePolicy(policy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy?): ChatMcpToolConfig =
+        if (policy?.translationOnly == true) {
+            ChatMcpToolConfig(
+                allowAllByDefault = false,
+                allToolsDisabled = true,
+                maxTools = 0,
+                maxToolCalls = 0,
+                reasoning = reasoning,
+                delegation = ConversationDelegationSettings(enabled = false),
+                research = MultiSearchResearchSelection(),
+                voiceResponsePolicy = policy
+            )
+        } else {
+            copy(voiceResponsePolicy = policy)
+        }
+
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =
         (delegation?.applyTo(defaults) ?: defaults.normalized()).let { research?.applyTo(it) ?: it }
             .let { DelegationPolicyResolver.suppressForCombined(it, combined) }

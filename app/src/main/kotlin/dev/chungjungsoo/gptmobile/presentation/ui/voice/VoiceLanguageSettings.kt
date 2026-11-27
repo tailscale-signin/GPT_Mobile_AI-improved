@@ -1,14 +1,21 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -16,7 +23,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -76,9 +86,63 @@ internal fun RecognitionLanguageChoice(language: String, backend: VoiceRecogniti
 }
 
 @Composable
-internal fun SynthesisLanguageChoices(value: VoiceSynthesisPreferences, kokoroVoices: Boolean, change: (VoiceSynthesisPreferences) -> Unit) {
-    VoiceChoice("Reply speech language", value.profile.tag, SpeechLanguages.synthesis.map { it.tag to it.label }, { change(value.selectLanguage(it)) })
+internal fun SynthesisLanguageChoices(value: VoiceSynthesisPreferences, kokoroVoices: Boolean, enabled: Boolean = true, change: (VoiceSynthesisPreferences) -> Unit) {
+    VoiceChoice("Reply speech language", value.profile.tag, SpeechLanguages.synthesis.map { it.tag to it.label }, { change(value.selectLanguage(it)) }, enabled)
     if (kokoroVoices) {
-        VoiceChoice("Voice for ${value.profile.label}", value.voiceId, value.profile.voices.map { it to it.substringAfter('_').replaceFirstChar(Char::uppercaseChar) }, { change(value.selectVoice(it)) })
+        VoiceChoice("Voice for ${value.profile.label}", value.voiceId, value.profile.voices.map { it to it.substringAfter('_').replaceFirstChar(Char::uppercaseChar) }, { change(value.selectVoice(it)) }, enabled)
     }
+}
+
+@Composable
+internal fun VoiceReplyLanguageDialog(
+    selected: String,
+    translationMode: Boolean,
+    changeTranslationMode: (Boolean) -> Unit,
+    select: (String) -> Unit,
+    dismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Reply language", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Row(
+                    Modifier.toggleable(translationMode, role = Role.Checkbox, onValueChange = changeTranslationMode)
+                        .testTag("voice_translation_mode").padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Translate only", style = MaterialTheme.typography.labelMedium)
+                    Checkbox(translationMode, onCheckedChange = null)
+                }
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    if (translationMode) {
+                        "Translate everything you say into the selected language, including questions."
+                    } else {
+                        "Answer in the selected language and use its voice for playback."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    items(SpeechLanguages.synthesis, key = { it.tag }) { language ->
+                        Row(
+                            Modifier.fillMaxWidth().selectable(language.tag == selected, role = Role.RadioButton, onClick = { select(language.tag) })
+                                .testTag("voice_reply_language_${language.tag}").padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            RadioButton(selected = language.tag == selected, onClick = null)
+                            Text(language.label)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = dismiss) { Text("Done") } }
+    )
 }

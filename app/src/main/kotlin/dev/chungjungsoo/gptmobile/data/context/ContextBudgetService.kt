@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.incrementalSynthesis
+import kotlinx.coroutines.asContextElement
 import kotlinx.serialization.Serializable
 
 /** Zero outputTokens means no explicit user output cap; dispatch still admits a finite per-request context reserve. */
@@ -16,6 +17,10 @@ enum class ToolOmissionReason { NOT_NEEDED, USER_DISABLED, UNSUPPORTED, CONTEXT_
 
 /** Conservative byte-based estimates. Provider-reported counts remain the accounting authority. */
 object ContextBudgetService {
+    private val voiceSchemaCosts = ThreadLocal<Map<AgentToolDefinition, Int>?>()
+    internal fun withVoiceSchemaCosts(costs: Map<AgentToolDefinition, Int>) = voiceSchemaCosts.asContextElement(costs)
+    internal fun toolSchemaTokens(tool: AgentToolDefinition): Int = voiceSchemaCosts.get()?.get(tool) ?: estimate(tool.name + tool.description + tool.inputSchema.toString())
+
     fun estimate(text: String): Int = TextTokenEstimate.estimate(text)
 
     /** Combined's frozen history is required input, so ordinary history-window eviction is forbidden. */
@@ -74,7 +79,7 @@ object ContextBudgetService {
 
     fun breakdown(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>): ContextCostBreakdown = ContextCostBreakdown(
         system = estimate(system),
-        toolSchemas = tools.sumOf { estimate(it.name + it.description + it.inputSchema.toString()).toLong() + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        toolSchemas = tools.sumOf { toolSchemaTokens(it).toLong() + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
         currentMessage = turns.filter { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
         history = turns.filterNot { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
         attachments = turns.sumOf { (it.userMessage.attachments.size.toLong() + (it.assistantMessage?.attachments?.size ?: 0)) * 2048 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
@@ -135,7 +140,7 @@ object ContextBudgetService {
         val historical = turns.filterNot { it.isCurrentTurn }
         val question = current.lastOrNull()?.userMessage?.content.orEmpty()
         val requiredSchemaCost = tools.filter { it.name in continuityRequiredSchemas.orEmpty() }
-            .sumOf { estimate(it.name + it.description + it.inputSchema.toString()).toLong() + 16 }
+            .sumOf { toolSchemaTokens(it).toLong() + 16 }
         val continuity = if (continuityRequiredSchemas == null) {
             null
         } else {
@@ -148,7 +153,7 @@ object ContextBudgetService {
         }
         val continuityReserve = continuity?.let(::cost) ?: 0
         val selectedTools = tools.filter { tool ->
-            val size = estimate(tool.name + tool.description + tool.inputSchema.toString()) + 16
+            val size = toolSchemaTokens(tool) + 16
             (size <= promptLimit - used - continuityReserve).also { if (it) used += size }
         }
         val historyCandidates = historical.mapIndexed { index, turn -> if (index == historical.lastIndex) continuity ?: turn else turn }

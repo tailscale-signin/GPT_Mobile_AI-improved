@@ -57,6 +57,8 @@ internal class VoiceRuntimeViewModel @Inject constructor(
     private val readiness: Lazy<ChatReadinessCoordinator>,
     val background: VoiceBackgroundPlayback
 ) : ViewModel() {
+    fun canPrepareRemoteCatalogues(settings: ReadinessSettings) = readiness.get().networkAllowed(settings.warmMeteredNetworks)
+
     suspend fun prepareProfile(profile: PlatformV2, settings: ReadinessSettings, roomId: Int, privateRoom: Boolean) {
         withContext(Dispatchers.IO) {
             readiness.get().prepareVoiceProfile(profile, settings, ConversationPrivacyContext(roomId, privateRoom))

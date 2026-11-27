@@ -65,6 +65,14 @@ class GatewayChatSubmissionTest {
         coEvery { workspace.defaultBranch(context) } returns "trunk"
     }
 
+    @Test fun dictatedCommandsInTranslationModeStayOnTheInferenceRoute() = runTest {
+        val tools = requireNotNull(request.chatToolConfig).withVoicePolicy(
+            dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.forLanguage("fr", translate = true)
+        )
+        assertNull(service.submitIfSupported(request.copy(chatToolConfig = tools)))
+        coVerify(exactly = 0) { engineering.bindings(any()) }
+    }
+
     @Test fun auditFollowUpReconcilesOnlyItsOwnSavedCommandBeforeLocalReporting() = runTest {
         val topic = request.userMessages.single().copy(content = "Audit this GitHub session")
         val followUp = topic.copy(id = topic.id + 1, content = "Please analyze and report.")

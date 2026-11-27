@@ -470,7 +470,8 @@ private fun VoiceChatSessionScreen(
         remaining = 0
     }
     LaunchedEffect(state.transcript) { draft = state.transcript }
-    val foregroundVoice = enabled && roomReady && lifecycleState == Lifecycle.State.RESUMED && !settingsOpen && !routeOpen && !benchmarkRunning
+    val voiceScreenActive = enabled && lifecycleState == Lifecycle.State.RESUMED && !settingsOpen && !routeOpen && !benchmarkRunning
+    val foregroundVoice = voiceScreenActive && roomReady
     val installOnVoiceLaunch = foregroundVoice && loaded && room.id > 0 && !chatView
     LaunchedEffect(voiceSettings, installOnVoiceLaunch) {
         if (installOnVoiceLaunch) voiceSettings.onVoiceLaunch()
@@ -486,10 +487,9 @@ private fun VoiceChatSessionScreen(
         session.awaitSpeechFlush()
     }
     val localSpeech = backend.backend != VoiceSpeechBackend.GATEWAY_CUDA
-    val prepareSpeech = foregroundVoice &&
+    val prepareSpeech = voiceScreenActive &&
         preferencesApplied &&
         spokenReplies &&
-        selectedProfile != null &&
         backend.loaded &&
         backend.speechModelReady(kokoroModel) &&
         backend.backend.forSynthesis(synthesis) == backend.backend &&
@@ -502,7 +502,8 @@ private fun VoiceChatSessionScreen(
             state.hasDraft,
             localSpeech,
             admission?.stage == VoiceAdmissionStage.ACCEPTED,
-            openingMicrophone = recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE && listeningEnabled && !state.muted && (recognitionReady || localModel.status == LocalVoiceModelStatus.CHECKING)
+            openingMicrophone = recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE && listeningEnabled && !state.muted && (recognitionReady || localModel.status == LocalVoiceModelStatus.CHECKING),
+            turnReady = roomReady && selectedProfile != null
         )
     } else {
         VoicePreparation.NONE

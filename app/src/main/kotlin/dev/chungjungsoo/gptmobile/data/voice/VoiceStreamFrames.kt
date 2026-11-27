@@ -5,11 +5,13 @@ import java.util.concurrent.CancellationException
 /** A provisional end covers the observed PCM prefix of a word that is still arriving. */
 internal data class VoiceStreamCue(val range: IntRange, val startFrame: Long, val endFrame: Long, val provenance: VoiceWordCueProvenance, val finalEnd: Boolean = true)
 
+internal const val VOICE_CUE_PUNCTUATION = ".,;:!?。，、；：！？"
+
 /** A Tasks word timestamp can include the punctuation closing a clause. Keep symbols and internal punctuation. */
 internal fun VoiceStreamCue.lexicalRange(source: String): VoiceStreamCue {
     if (range.isEmpty()) return this
     var last = range.last
-    while (last > range.first && source[last] in ".,;:!?。，、；：！？") last--
+    while (last > range.first && source[last] in VOICE_CUE_PUNCTUATION) last--
     return if (last == range.last || source.slice(range.first..last).none(Char::isLetterOrDigit)) {
         this
     } else {

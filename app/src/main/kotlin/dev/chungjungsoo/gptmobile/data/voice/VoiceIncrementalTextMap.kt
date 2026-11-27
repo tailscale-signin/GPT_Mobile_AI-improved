@@ -5,6 +5,7 @@ internal class VoiceIncrementalTextMap {
     private var byteBoundaries = IntArray(32)
     private var byteCount = 0
     private var characterCount = 0
+    private var contentEnd = 0
     private var sourceCharacters: MutableList<IntRange>? = null
 
     @Synchronized fun append(text: String, sources: List<IntRange>? = null) {
@@ -36,6 +37,14 @@ internal class VoiceIncrementalTextMap {
             }
         }
         byteCount += addedBytes
+        val lastContent = text.indexOfLast { !it.isWhitespace() }
+        if (lastContent >= 0) {
+            // Some voices omit closing punctuation from the final word timestamp.
+            // A spoken symbol such as the plus signs in C++ must still be covered.
+            var end = lastContent
+            while (end > 0 && (text[end] in VOICE_CUE_PUNCTUATION || text[end].isWhitespace())) end--
+            contentEnd = characterCount + (if (text[end].isLetterOrDigit()) end else lastContent) + 1
+        }
         characterCount += text.length
     }
 
@@ -57,6 +66,8 @@ internal class VoiceIncrementalTextMap {
         return if (first > last) IntRange.EMPTY else first..last
     }
 
+    @Synchronized fun coversSubmittedText(endByte: Int): Boolean = contentEnd > 0 && boundaryAt(endByte) >= contentEnd
+
     @Synchronized fun contains(startByte: Int, endByte: Int): Boolean =
         endByte > startByte && boundaryAt(startByte) >= 0 && boundaryAt(endByte) >= 0
 
@@ -66,12 +77,25 @@ internal class VoiceIncrementalTextMap {
 internal data class VoiceReplyStreamCaption(val segment: Int, val text: String, val cue: VoiceStreamCue)
 
 /** Each source segment retains its own caption identity, even though the SDK sees one input stream. */
-internal class VoiceReplyStreamText {
+internal class VoiceReplyStreamText(private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 }) {
     val projection = VoiceIncrementalTextMap()
     private data class Segment(val index: Int, val text: String, val offset: Int)
     private val segments = mutableListOf<Segment>()
     private var sourceCharacters = 0
     private var lastCharacter: Char? = null
+    private var renderedAt: Long? = null
+    private var textWaitMs = 0L
+
+    @Synchronized fun allSubmittedTextRendered(): Boolean = renderedAt != null
+
+    // This clock excludes only time after the SDK supplied PCM for its final submitted
+    // word. An idle input feeder alone says nothing about work still inside the SDK.
+    @Synchronized fun deliveryClockMs(): Long = (renderedAt ?: nowMs()) - textWaitMs
+
+    @Synchronized fun observeRenderedText(cues: List<VoiceWordCue>, receivedFrames: Long) {
+        val cue = cues.lastOrNull { it.finalEnd && it.endFrame <= receivedFrames } ?: return
+        if (renderedAt == null && projection.coversSubmittedText(cue.endByte)) renderedAt = nowMs()
+    }
 
     @Synchronized fun append(segment: Int, original: String, phrase: VoiceStreamingPhrase): String {
         val newSegment = segments.lastOrNull()?.index != segment
@@ -93,6 +117,8 @@ internal class VoiceReplyStreamText {
             if (it.isEmpty()) it else (source.offset + it.first)..(source.offset + it.last)
         }
         projection.append(text, ranges)
+        renderedAt?.let { textWaitMs += nowMs() - it }
+        renderedAt = null
         lastCharacter = text.lastOrNull() ?: lastCharacter
         return text
     }

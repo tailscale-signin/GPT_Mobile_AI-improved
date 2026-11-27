@@ -7,6 +7,47 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechBufferTest {
+    @Test fun wordsArrivingDuringColdSynthesisKeepTheFastOpeningAndFormLongerFollowups() {
+        var clock = 0L
+        val buffer = VoiceSpeechBuffer { clock }
+        val feedback = VoiceSynthesisFeedback(bufferState = "preparing")
+        var text = "Soft "
+        fun append() = requireNotNull(buffer.append(text, false, earlyStart = true, feedback = feedback, adaptive = true))
+        assertTrue(append().isEmpty())
+        clock = 90
+        text += "light "
+        assertTrue(append().isEmpty())
+        clock = 120
+        assertEquals(listOf(text), append())
+        val opening = text
+        for ((i, word) in listOf("falls", "across", "the", "floor", "in", "the", "afternoon").withIndex()) {
+            clock = 180L + i * 90
+            text += "$word "
+            assertTrue(append().isEmpty())
+        }
+        clock = 780
+        assertEquals(listOf(text.removePrefix(opening)), append())
+        clock = 900
+        text += "and slowly "
+        assertTrue(append().isEmpty())
+        assertEquals(200L, buffer.nextFlushDelayMs(feedback))
+        clock += 200
+        assertEquals(listOf("and slowly "), append())
+        assertTrue(buffer.append(text.trimEnd(), true).orEmpty().isEmpty())
+    }
+
+    @Test fun productionTimeIsReservedBeforeThePlaybackHeadRunsOutOfWords() {
+        var clock = 0L
+        val buffer = VoiceSpeechBuffer { clock }
+        val feedback = VoiceSynthesisFeedback(bufferedAudioMs = 1200, predictedNextSynthesisMs = 900)
+        fun append(text: String) = buffer.append(text, false, earlyStart = true, feedback = feedback, adaptive = true)
+        assertEquals(listOf("Ready. "), append("Ready. "))
+        assertTrue(append("Ready. Follow the ").orEmpty().isEmpty())
+        assertEquals(300L, buffer.nextFlushDelayMs(feedback))
+        clock += 300
+        assertEquals(listOf("Follow the "), append("Ready. Follow the "))
+    }
+
     @Test fun balancedAndFastOpenOnStableWordsDuringAProviderPause() {
         var clock = 0L
         val buffer = VoiceSpeechBuffer { clock }

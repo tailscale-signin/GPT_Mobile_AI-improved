@@ -136,5 +136,53 @@
     "branch": "feature/windows-native-benchmark-kit",
     "startingHead": "e22213233b136094e0bc8c051ca5a6ebae3db38a",
     "intent": "Preload localized speech at microphone start, suppress short answers and let generated speech interrupt an acknowledgement immediately. Improve pronunciation and sentence flow."
+  },
+  "streamingReplyContinuity": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "pullRequest": 2651,
+    "baseBranch": "main",
+    "baseCommit": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+    "workingBranch": "feature/windows-native-benchmark-kit",
+    "startingHead": "cda4933854bf41ff61ee77d70d378d2a14e9254b",
+    "intent": "Keep the first stable speech fast, reduce avoidable mid-sentence breaks and overlap local speech preparation with voice startup.",
+    "reproduction": {
+      "fixture": "23 words arriving every 90 ms while the first phrase is synthesizing",
+      "originalChunkWords": [
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "repairedChunkWords": [
+        2,
+        7,
+        7,
+        7
+      ],
+      "firstStableTextReleasedMs": {
+        "original": 120,
+        "repaired": 120
+      },
+      "playback": "With a simulated 1800 ms stream opening and 50 ms of PCM for the final submitted word, the original Android output worker held the phrase during the provider pause. The repaired worker presents it before the next text arrives. The fixture uses a controlled Android clock and AudioTrack."
+    },
+    "changes": [
+      "Use available audio and observed production cost to time follow-up text. Keep a nearby sentence ending within the SDK input and preserve complete text and caption offsets.",
+      "Measure incremental delivery intervals after first PCM. Once the final submitted word has a completed timing within the received audio, additional text waits can release the playback reserve and are excluded from recurring delivery estimates.",
+      "During foreground local asset preparation, preload the selected JNI library on the synthesis worker. Installed files can warm as the room and profile become ready."
+    ],
+    "verification": {
+      "speechAndPacingJVM": 108,
+      "sessionAndPluginJVM": 90,
+      "androidWorkerRobolectric": 33,
+      "priorHeadRegressionsReproduced": 4,
+      "targetHandset": "Time to first audible answer and listening quality on the ROG Phone 9 Pro are unmeasured.",
+      "speechSdkAndStreamJVM": 42,
+      "hostGate": "848 cases, 1 skipped. Generated source references, package checks and resource preflight passed.",
+      "compilation": "The affected speech classes and Compose voice screen compiled on the host. Full debug compilation with the default 3 GiB heap exhausted memory during Kotlin annotation stub generation."
+    }
   }
 }

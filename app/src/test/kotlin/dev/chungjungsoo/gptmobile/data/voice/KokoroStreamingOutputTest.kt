@@ -44,6 +44,63 @@ import org.robolectric.shadows.ShadowSystemClock
 class KokoroStreamingOutputTest {
     @Test
     @Config(shadows = [PausePcmTrack::class])
+    fun aFullyVoicedOpenInputPlaysBeforeTheProviderSendsMoreText() {
+        val presented = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val reserves = CopyOnWriteArrayList<Pair<Long, String>>()
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val inputs = CopyOnWriteArrayList<String>()
+        val engine = object : VoicePhraseEngine {
+            override val supportsStreaming = true
+            override val supportsIncrementalInput = true
+            override fun streamInput(nextText: () -> String?, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                inputs += requireNotNull(nextText())
+                ShadowSystemClock.advanceBy(1_800, TimeUnit.MILLISECONDS)
+                check(emit(VoicePcmChunk(FloatArray(1_200) { .1f }, wordCues = listOf(VoiceWordCue(0, 5, 0, 1_200)))))
+                inputs += requireNotNull(nextText())
+                check(emit(VoicePcmChunk(FloatArray(2_400) { .2f }, wordCues = listOf(VoiceWordCue(7, 11, 1_200, 3_600)))))
+                check(nextText() == null)
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() = Unit
+        }
+        val observer = object : VoicePlaybackMeasurementObserver {
+            override fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) {
+                if (phase == "startup") reserves += targetMs to exitReason
+            }
+            override fun firstPresented(clockBasis: String, route: String) {
+                presented.countDown()
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, observer) { output ->
+            output.configurePacing(VoicePauseDuration.NATURAL, VoicePerformanceMode.AUTO)
+            val reply = requireNotNull(
+                output.openReplyWithFailure(KokoroVoice.HEART, { finished.countDown() }, { failure, _ ->
+                    failures += failure
+                    finished.countDown()
+                })
+            )
+            try {
+                reply.enqueue("hello. ")
+                awaitMain(presented)
+                assertEquals(0L, presented.count)
+                assertEquals(listOf(100L to "producer_idle"), reserves)
+                assertEquals(1L, finished.count)
+                reply.enqueue("word")
+            } finally {
+                reply.finish()
+            }
+            awaitMain(finished, advancePlaybackClock = true)
+            assertEquals(0L, finished.count)
+            assertTrue(failures.isEmpty())
+            assertEquals(listOf("hello. ", "word"), inputs)
+            assertEquals(3_600, PausePcmTrack.writes.sumOf { it.size })
+        }
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
     fun audioTrackIsPreparedDuringModelLoadAndWaitsForValidatedAudio() {
         val loading = CountDownLatch(1)
         val release = CountDownLatch(1)

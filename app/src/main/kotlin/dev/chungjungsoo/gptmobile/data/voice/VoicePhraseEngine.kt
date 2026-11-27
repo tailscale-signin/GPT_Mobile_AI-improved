@@ -105,6 +105,14 @@ internal interface VoicePhraseEngineFactory {
     /** Optional local reads while the microphone owns JNI. Never opens an engine or downloads a model. */
     fun prefetchAssets(current: () -> Boolean) = Unit
 
+    /** Map only the selected local JNI library. The platform owns its pages; model creation still needs the native gate. */
+    fun preloadRuntime() {
+        when {
+            selectedBackend.isStreamingLocal -> System.loadLibrary("mediapipe_tasks_audio_jni")
+            selectedBackend != VoiceSpeechBackend.GATEWAY_CUDA -> System.loadLibrary("timed_kokoro")
+        }
+    }
+
     /** Stops qualification before the engine has been published to the playback owner. */
     fun cancelPending() = Unit
 }

@@ -9,6 +9,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSynthesisPerformanceTest {
+    @Test fun aColdIncrementalStreamPrimesForRecurringDeliveryInsteadOfChargingStartupTwice() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        policy.beginStream(incrementalInput = true)
+        policy.observeStreamDelivery(1_500, 0)
+        policy.observeStreamDelivery(300, 1_200)
+        assertEquals(100, policy.bufferMs(startup = true))
+        assertEquals(60L, policy.primeWaitMs(startup = true))
+        policy.observeStreamDelivery(700, 2_400)
+        assertEquals(840, policy.bufferMs())
+        repeat(40) { policy.observeStreamDelivery(0, 2_400) }
+        assertEquals(840, policy.bufferMs())
+        policy.endStream(0)
+    }
+
     @Test fun incrementalFollowupsUsePcmHeadroomBeforeEndOfInput() {
         val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
         assertEquals(6, policy.phraseWords(0))

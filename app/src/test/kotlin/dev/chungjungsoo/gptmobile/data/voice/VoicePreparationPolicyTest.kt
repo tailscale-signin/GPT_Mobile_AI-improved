@@ -4,6 +4,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class VoicePreparationPolicyTest {
+    @Test fun aColdVoiceScreenCanPrepareOnlyLocalAssetsBeforeTheRoomAndProfileAreReady() {
+        for (phase in VoicePhase.entries) {
+            val expected = if (phase == VoicePhase.PAUSED || phase == VoicePhase.STARTING) VoicePreparation.ASSETS else VoicePreparation.NONE
+            assertEquals(expected, VoicePreparationPolicy.stage(phase, true, true, true, true, true, turnReady = false))
+            assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(phase, true, true, false, true, true, turnReady = false))
+        }
+    }
+
     @Test fun onEntryFileWorkYieldsTheNativeGateToTheMicrophone() {
         fun stage(phase: VoicePhase, openingMicrophone: Boolean = true) =
             VoicePreparationPolicy.stage(phase, awaitingReply = false, hasDraft = false, local = true, admitted = false, openingMicrophone = openingMicrophone)

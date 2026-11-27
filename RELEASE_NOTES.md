@@ -22,6 +22,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 - Embed matched native-product benchmark campaigns in the Windows Gateway app, with editable preregistered controls, original capture imports, independent supplied-answer grading, original-request recovery and unknown-preserving scoreboards.
 
+- Streaming voice replies preload the selected local speech library, keep nearby sentence endings together, and play completed words while additional reply text is pending.
 - Voice settings now have one **Run full voice benchmark** button and one JSON export. It measures microphone input, recognition accuracy, multilingual pronunciation and word timing, native and LiteRT processor routes, offline Android voices, and a selected CUDA Gateway. The run includes warm and cold synthesis, interruptions, Auto CPU thread calibration, and 1-, 5- and 10-minute playback tests. Completed and interrupted measurements survive reopening the app.
 - Voice Mode can play French and other installed voices through standard Kokoro when an optimized GPU or Snapdragon pack is missing. Driver startup and clipped output are checked before playback, and accelerator caches and voice verification are renewed after firmware or app updates.
 - Voice Mode can speak one brief acknowledgment in the selected language while an answer is pending. A running lookup gets a search cue, and quick answers take priority. Speech model preparation overlaps audio setup, and stable opening words can play during a provider pause.

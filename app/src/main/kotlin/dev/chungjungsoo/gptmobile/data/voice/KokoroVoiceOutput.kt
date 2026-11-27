@@ -534,6 +534,8 @@ internal class KokoroVoiceOutput(
 
         @Volatile var awaitingIncrementalText = false
 
+        @Volatile var incrementalText: VoiceReplyStreamText? = null
+
         @Volatile var preparing = true
 
         @Volatile var synthesisDone = false
@@ -651,8 +653,10 @@ internal class KokoroVoiceOutput(
                         }
                     }
                     if (assetsOnly) {
-                        if (!factory.requiresKokoroAssets && reusableModel(key.model) == null) {
-                            factory.prefetchAssets { warmupGeneration == generation && !closed }
+                        if (reusableModel(key.model) == null) {
+                            fun current() = warmupGeneration == generation && !closed
+                            if (!factory.requiresKokoroAssets) factory.prefetchAssets(::current)
+                            if (current()) factory.preloadRuntime()
                         }
                         return@withCaptured
                     }
@@ -1118,8 +1122,10 @@ internal class KokoroVoiceOutput(
 
     /** One incremental SDK stream spans stable text arrivals and keeps original segment captions. */
     private fun streamReplyInput(playback: Playback, engine: VoicePhraseEngine, speed: Float, silence: VoiceQuietLimiter?): Boolean {
-        val text = VoiceReplyStreamText()
-        val stream = VoiceStreamPause(VoiceStreamFrames.incremental(text.projection), silence)
+        val text = VoiceReplyStreamText(SystemClock::elapsedRealtime)
+        playback.incrementalText = text
+        val frames = VoiceStreamFrames.incremental(text.projection)
+        val stream = VoiceStreamPause(frames, silence)
         val streamStart = playback.captions.streamStart()
         val timedCaptions = playback.onRange != null || playback.onTimedRange != null
         var segmentIndex = -1
@@ -1128,7 +1134,8 @@ internal class KokoroVoiceOutput(
         val started = SystemClock.elapsedRealtime()
         var callbackMs = 0L
         var lastProducedAt = started
-        playback.adaptive.beginStream()
+        var lastDelivery = text.deliveryClockMs()
+        playback.adaptive.beginStream(incrementalInput = true)
         playback.synthesizing = true
         playback.diagnostics?.synthesisStarted()
         consumeVoiceInputStream(engine, {
@@ -1153,8 +1160,10 @@ internal class KokoroVoiceOutput(
         }, playback.voice.speakerId, speed, { active === playback }) { chunk ->
             val callbackStarted = SystemClock.elapsedRealtime()
             val productionMs = (callbackStarted - lastProducedAt).coerceAtLeast(0)
+            val delivery = text.deliveryClockMs()
             val retained = stream.accept(chunk)
-            playback.adaptive.observeStreamDelivery(productionMs, retained.samples.size)
+            text.observeRenderedText(chunk.wordCues, frames.frames)
+            playback.adaptive.observeStreamDelivery((delivery - lastDelivery).coerceAtLeast(0), retained.samples.size)
             val captions = if (timedCaptions) text.captions(retained.cues) else emptyList()
             if (captions.isEmpty()) {
                 playback.captions.appendStream(0, "", streamStart, emptyList(), retained.samples.size)
@@ -1176,12 +1185,13 @@ internal class KokoroVoiceOutput(
             val returnedAt = SystemClock.elapsedRealtime()
             callbackMs += returnedAt - callbackStarted
             lastProducedAt = returnedAt
+            lastDelivery = text.deliveryClockMs()
             accepted
         }
         if (active !== playback) return false
         stream.finish()
         val finished = SystemClock.elapsedRealtime()
-        playback.adaptive.endStream((finished - lastProducedAt).coerceAtLeast(0))
+        playback.adaptive.endStream((text.deliveryClockMs() - lastDelivery).coerceAtLeast(0))
         playback.adaptive.observe((finished - started - callbackMs).coerceAtLeast(1), stream.retainedFrames * 1_000 / VOICE_PCM_SAMPLE_RATE)
         publishExecution(playback, engine, completedPhrase = true)
         publishFeedback(playback)
@@ -1483,7 +1493,10 @@ internal class KokoroVoiceOutput(
             targetFrames = target,
             acceptedFrames = { playback.enqueuedFrames.get() - playback.consumedFrames.get() },
             canWait = { active === playback && !playback.synthesisDone },
-            producerPending = { playback.synthesizing || !playback.segments.isEmpty() },
+            producerPending = {
+                val waitingForWords = playback.awaitingIncrementalText && playback.incrementalText?.allSubmittedTextRendered() == true
+                !playback.segments.isEmpty() || playback.synthesizing && !waitingForWords
+            },
             deadlineReached = { SystemClock.elapsedRealtime() >= deadline },
             nativeReserveExit = {
                 val now = SystemClock.elapsedRealtime()

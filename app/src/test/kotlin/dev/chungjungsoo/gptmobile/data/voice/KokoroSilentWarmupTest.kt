@@ -41,6 +41,7 @@ class KokoroSilentWarmupTest {
                 awaitSynthesis(fixture.output)
                 io.mockk.verify(exactly = 1) { fixture.models.acquireUse() }
                 io.mockk.verify(exactly = 1) { fixture.models.releaseUse() }
+                assertEquals(listOf("KokoroSynthesis"), fixture.runtimeLoads)
                 assertEquals(0, fixture.creations.get())
                 assertEquals(0, fixture.audioWrites.get())
             }
@@ -250,6 +251,7 @@ class KokoroSilentWarmupTest {
     private class Fixture(val context: Context, val directory: File, backend: VoiceSpeechBackend, provider: String) {
         var rate = 1f
         val creations = AtomicInteger()
+        val runtimeLoads = CopyOnWriteArrayList<String>()
         val liveCalls = AtomicInteger()
         val completions = AtomicInteger()
         val audioWrites = AtomicInteger()
@@ -269,6 +271,9 @@ class KokoroSilentWarmupTest {
         private val factory = object : VoicePhraseEngineFactory {
             override val identity = "silent-warmup-fixture-${backend.name}"
             override val selectedBackend = backend
+            override fun preloadRuntime() {
+                runtimeLoads += Thread.currentThread().name
+            }
             override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
                 creations.incrementAndGet()
                 val native = object : VoicePhraseEngine {

@@ -49,7 +49,7 @@ internal class VoiceSpeechBuffer(
         if (!previousSpeech.regionMatches(0, visible, 0, shared)) return null
         if (shared < consumed && (!final || previousSpeech.substring(shared, consumed).isNotBlank())) return null
         consumed = shared
-        if (!startedSpeech && boundedText != previous) lastTextChange = now()
+        if (visible != previousSpeech) lastTextChange = now()
         if (visible != previousSpeech || final) {
             // Committed groups cannot be revised. Parse only the remaining suffix on each token arrival.
             boundaryBase = consumed
@@ -88,9 +88,9 @@ internal class VoiceSpeechBuffer(
                                 )
                     }?.range?.last?.plus(1)
                 val bounded = legalEnds.lastOrNull { it <= characterLimit }?.takeIf { tail.length >= characterLimit }
-                val budgetMs = arrivalBudgetMs(feedback)
+                val delayMs = arrivalDelayMs(feedback)
                 val arrivalBoundary = legalEnds.lastOrNull { it <= (targetEnd ?: characterLimit) }?.takeIf {
-                    (adaptive || !startedSpeech) && words.size >= 2 && now() - (firstPendingAt ?: now()) >= budgetMs
+                    (adaptive || !startedSpeech) && words.size >= 2 && delayMs == 0L
                 }
                 val naturalClause = clause?.takeIf { it <= 96 && (startedSpeech || !adaptive || completeWord.findAll(tail.substring(0, it)).take(wordLimit + 4).count() <= wordLimit + 3) }
                 val settledSentence = if (openingPunctuationDelayMs() == 0L) speechEnd - consumed else null
@@ -122,12 +122,12 @@ internal class VoiceSpeechBuffer(
 
     fun nextFlushDelayMs(feedback: VoiceSynthesisFeedback?): Long? {
         if (startedSpeech && !adaptiveTail) return null
-        val since = firstPendingAt ?: return null
+        if (firstPendingAt == null) return null
         val tail = previousSpeech.substring(consumed, minOf(previousSpeech.length, consumed + ADAPTIVE_CHARACTERS + 1))
         val ends = completeWord.findAll(tail).take(27).map { it.range.last + 1 }.toList()
         val punctuationDelay = openingPunctuationDelayMs()
         if (ends.size < 2 || ends.none { it <= ADAPTIVE_CHARACTERS && permitsBoundary(consumed + it) }) return punctuationDelay
-        val wordDelay = (arrivalBudgetMs(feedback) - (now() - since)).coerceAtLeast(0)
+        val wordDelay = arrivalDelayMs(feedback)
         return punctuationDelay?.let { minOf(it, wordDelay) } ?: wordDelay
     }
 
@@ -141,11 +141,18 @@ internal class VoiceSpeechBuffer(
 
     private fun permitsBoundary(end: Int) = end >= boundaryBase && boundaries.permits(end - boundaryBase) && dictionary.permitsSplit(previousSpeech, end, finalText)
 
-    private fun arrivalBudgetMs(feedback: VoiceSynthesisFeedback?): Long {
-        if (!startedSpeech) return 120L
-        // When audio is already queued, give the provider time to finish the next
-        // thought. As the playback head catches up, release available words sooner.
-        return ((feedback?.bufferedAudioMs ?: 0L) - 300L).coerceIn(200L, 1000L)
+    private fun arrivalDelayMs(feedback: VoiceSynthesisFeedback?): Long {
+        val time = now()
+        val age = time - (firstPendingAt ?: time)
+        if (!startedSpeech) return (120L - age).coerceAtLeast(0)
+        if (adaptiveTail && feedback?.bufferState == "preparing" && feedback.bufferedAudioMs == 0L) {
+            // The first phrase is still synthesizing. Collect an actively arriving continuation,
+            // but hand it off promptly on a provider pause or at the absolute deadline.
+            return minOf(600L - age, 200L - (time - lastTextChange)).coerceAtLeast(0)
+        }
+        val productionLead = maxOf(300L, feedback?.predictedNextSynthesisMs ?: 0L, feedback?.bufferMs?.toLong() ?: 0L)
+        val budget = ((feedback?.bufferedAudioMs ?: 0L) - productionLead).coerceIn(200L, 1000L)
+        return (budget - age).coerceAtLeast(0)
     }
 
     private companion object {

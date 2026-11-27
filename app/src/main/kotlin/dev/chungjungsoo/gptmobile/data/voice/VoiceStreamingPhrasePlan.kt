@@ -36,6 +36,7 @@ internal class VoiceStreamingPhrasePlan(input: String, dictionary: VoicePronunci
         val ceiling = minOf(text.length, consumed + characterLimit)
         require(firstContent < ceiling) { "STREAM_INPUT_LIMIT" }
         val limit = wordLimit.coerceIn(4, 24)
+        val sentenceLimit = (limit + 2).coerceAtMost(24)
         var end = consumed
         var words = 0
         for (word in chunkWords.findAll(text, consumed)) {
@@ -46,10 +47,13 @@ internal class VoiceStreamingPhrasePlan(input: String, dictionary: VoicePronunci
             while (last > consumed && text[last].isWhitespace()) last--
             val legal = candidate == text.length || groups.groupAt(sources[last].first) != groups.groupAt(sources[candidate].first)
             if (legal) {
-                if (words > limit && end > consumed) break
-                end = candidate
-                if (words >= limit || VoicePhraseBoundaries.endsSentence(text, last)) break
+                val sentenceEnd = VoicePhraseBoundaries.endsSentence(text, last)
+                // A nearby ending is already available. Keep it with this thought instead
+                // of sending one or two words to the synthesizer as a separate utterance.
+                if (end == consumed || words <= limit || sentenceEnd && words <= sentenceLimit) end = candidate
+                if (sentenceEnd) break
             }
+            if (words >= sentenceLimit && end > consumed) break
         }
         if (end == consumed) {
             // A separator may cross the ceiling even when the preceding group fits.

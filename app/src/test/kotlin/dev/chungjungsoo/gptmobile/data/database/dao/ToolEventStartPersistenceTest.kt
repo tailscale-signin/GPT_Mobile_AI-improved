@@ -14,7 +14,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure
 import dev.chungjungsoo.gptmobile.data.repository.ToolEventRecorder
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +40,49 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ToolEventStartPersistenceTest {
+    @Test fun legacyDecisionWaitsStayNeutralInSessionAuditWithoutHidingActualFailures() = withDatabase { db ->
+        val dao = db.agentPersistenceDao()
+        val waiting = legacyChoice("waiting", 0)
+        val archived = legacyChoice("archived", 1).let { it.copy(result = dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec.encode(requireNotNull(it.result))) }
+        assertTrue(ToolResultCheckpoint.waitingForUserChoice(waiting))
+        assertTrue(requireNotNull(archived.result).startsWith(dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec.PREFIX))
+        val actual = listOf(
+            legacyChoice("wrong-call", 2).copy(callId = "foreign-call"),
+            legacyChoice("wrong-event", 3).copy(eventId = "foreign-event"),
+            legacyChoice("wrong-model", 4).copy(modelToolName = "github_decide__untrusted"),
+            legacyChoice("actual-failure", 5).copy(result = "The decision could not be saved", resultType = ToolEventResultType.TEXT),
+            legacyChoice("dispatched", 6, dispatched = true)
+        )
+        assertTrue(actual.none(ToolResultCheckpoint::waitingForUserChoice))
+        val readFailure = event("read-failure", "read-failure").copy(sequence = 7, status = ToolEventStatus.FAILED, isError = true)
+        val cancelled = event("cancelled", "cancelled").copy(sequence = 8, status = ToolEventStatus.CANCELED)
+        for (row in listOf(waiting, archived, readFailure, cancelled) + actual) dao.insertToolEvent(row)
+        seedRun(db, "other-run")
+        dao.insertToolEvent(legacyChoice("foreign-scope", 0, runId = "other-run"))
+
+        assertEquals(
+            listOf(
+                GitHubSessionToolFailure("github_decide", ToolEventStatus.FAILED, 5),
+                GitHubSessionToolFailure("read", ToolEventStatus.CANCELED, 1),
+                GitHubSessionToolFailure("read", ToolEventStatus.FAILED, 1)
+            ).toSet(),
+            dao.sessionAuditToolFailures(listOf("run")).toSet()
+        )
+        assertEquals(waiting, dao.rawGetToolEventById(waiting.eventId))
+        assertEquals(archived, dao.rawGetToolEventById(archived.eventId))
+    }
+
+    @Test fun legacyWaitPagingPreservesAllThirtyTwoRealFailureGroups() = withDatabase { db ->
+        val dao = db.agentPersistenceDao()
+        repeat(65) { index -> dao.insertToolEvent(legacyChoice("wait-${index.toString().padStart(3, '0')}", index)) }
+        val expected = (0 until 32).map { index ->
+            val name = "tool_${index.toString().padStart(2, '0')}"
+            dao.insertToolEvent(event(name, name).copy(sequence = 65 + index, toolName = name, modelToolName = name, status = ToolEventStatus.FAILED, isError = true))
+            GitHubSessionToolFailure(name, ToolEventStatus.FAILED, 1)
+        }
+        assertEquals(expected, dao.sessionAuditToolFailures(listOf("run")))
+    }
+
     @Test fun savedDecisionWaitUsesBoundCompareAndSetAndNeverOverwritesACompletedAnswer() = withDatabase { db ->
         val dao = db.agentPersistenceDao()
         val recorder = ToolEventRecorder(dao, db.agentRunDao())
@@ -174,6 +219,35 @@ class ToolEventStartPersistenceTest {
     private suspend fun start(recorder: ToolEventRecorder, call: String): ToolEvent = recorder.startTool("run", 0, call, "read", "read__connection", buildJsonObject { put("path", "original") }, startedAt = 10)
 
     private fun event(id: String, call: String) = ToolEvent(id, "run", 0, call, "connection", "Connection", "read", "read__connection", "{}", null, null, ToolEventStatus.RUNNING, startedAt = 10)
+
+    private fun legacyChoice(id: String, sequence: Int, dispatched: Boolean = false, runId: String = "run"): ToolEvent {
+        val payload = buildJsonObject {
+            put("status", "GITHUB_CHOICE_PENDING")
+            put("choice_prompt_id", "a".repeat(64))
+            put("message", "The choice is saved. This task is paused until its original question is answered.")
+        }.toString()
+        val receipt = buildJsonObject {
+            put("schema", "gptmobile.tool-execution.v1")
+            put("call_id", id)
+            put("run_id", runId)
+            put("event_id", id)
+            put("tool", "github_decide")
+            put("error_code", "GITHUB_CHOICE_PENDING")
+            put("dispatched", dispatched)
+            put("execution_state", if (dispatched) "FAILED" else "PRECHECK_REJECTED")
+            put("requires_reconciliation", false)
+        }
+        return event(id, id).copy(
+            runId = runId,
+            sequence = sequence,
+            toolName = "github_decide",
+            modelToolName = "github_decide",
+            status = ToolEventStatus.FAILED,
+            isError = true,
+            resultType = ToolEventResultType.CHECKPOINT,
+            result = ToolResultCheckpoint.encode(payload, ToolEventResultType.JSON, payload, executionReceipt = receipt)
+        )
+    }
 
     private suspend fun failure(block: suspend () -> Unit): ToolEventPersistenceFailure = try {
         block()

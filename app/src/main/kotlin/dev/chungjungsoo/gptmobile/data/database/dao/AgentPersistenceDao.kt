@@ -386,8 +386,35 @@ interface AgentPersistenceDao :
     @Query("SELECT * FROM tool_events WHERE run_id IN (:runIds) ORDER BY run_id, sequence")
     suspend fun rawGetToolEvents(runIds: List<String>): List<ToolEvent>
 
-    @Query("SELECT tool_name AS toolName, status, COUNT(*) AS count FROM tool_events WHERE run_id IN (:runIds) AND status != 'WAITING_FOR_USER' AND (is_error = 1 OR status IN ('FAILED', 'CANCELED')) GROUP BY tool_name, status ORDER BY count DESC, tool_name LIMIT 32")
-    suspend fun sessionAuditToolFailures(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure>
+    // One additional group preserves the first 32 real failures when the legacy
+    // github_decide/FAILED group contains only bound user waits.
+    @Query("SELECT tool_name AS toolName, status, COUNT(*) AS count FROM tool_events WHERE run_id IN (:runIds) AND status != 'WAITING_FOR_USER' AND (is_error = 1 OR status IN ('FAILED', 'CANCELED')) GROUP BY tool_name, status ORDER BY count DESC, tool_name LIMIT 33")
+    suspend fun rawSessionAuditToolFailures(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure>
+
+    @Query("SELECT event_id FROM tool_events WHERE run_id IN (:runIds) AND tool_name = 'github_decide' AND model_tool_name = 'github_decide' AND status = 'FAILED' AND is_error = 1 AND result_type = 'CHECKPOINT_V1' AND (:afterEventId IS NULL OR event_id > :afterEventId) ORDER BY event_id LIMIT 32")
+    suspend fun sessionAuditLegacyChoiceFailureIds(runIds: List<String>, afterEventId: String?): List<String>
+
+    @Transaction
+    suspend fun sessionAuditToolFailures(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure> {
+        val failures = rawSessionAuditToolFailures(runIds)
+        val choices = failures.singleOrNull { it.toolName == "github_decide" && it.status == "FAILED" }
+            ?: return failures.take(32)
+        var waiting = 0
+        var afterEventId: String? = null
+        do {
+            // Only candidate identities are paged. Decode one scoped receipt at a
+            // time through the existing archive-aware read; never load all logs.
+            val ids = sessionAuditLegacyChoiceFailureIds(runIds, afterEventId)
+            for (id in ids) {
+                val event = getToolEventById(id) ?: continue
+                if (event.runId in runIds && event.status == "FAILED" && dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.waitingForUserChoice(event)) waiting++
+            }
+            afterEventId = ids.lastOrNull() ?: break
+        } while (ids.size == 32)
+        return failures.map { failure ->
+            if (failure == choices) failure.copy(count = (failure.count - waiting).coerceAtLeast(0)) else failure
+        }.filter { it.count > 0 }.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure> { it.count }.thenBy { it.toolName }).take(32)
+    }
 
     @Query("SELECT tool_name AS toolName, COUNT(*) AS count FROM tool_events WHERE run_id = :runId GROUP BY tool_name ORDER BY count DESC, tool_name")
     suspend fun sessionAuditToolCounts(runId: String): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolCount>

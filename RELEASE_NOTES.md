@@ -20,6 +20,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 - Preserve accepted task authority across a compatible intelligence-level increase after restart, and use the original verification reserve to collect missing CI results for the exact published commit and run attempt.
 - Preserve deadline provenance through recovery and diagnostic reports. Deliver checkpointed, validated Gateway text before slower diagnostic persistence.
 - Require an observed positive caption-renderer count before voice playback or restored benchmark reports can qualify successfully.
+- Keep older saved user-choice waits neutral in session audits by checking their original receipts, while preserving genuine failures and the complete visible failure-group window.
 - Voice translation reserves space for the first line of dictation at the selected text size. Long control labels stay within two lines, and the reply-language list scrolls with its explanation.
 - Recover saved GitHub pages displaced by chat history, fit required read schemas to small models, name missing evidence in partial reports, and cite CI failures beyond the first log page.
 - Translation mode shows your words at the top and the translated reply below. The prompt fades in as you speak, stays through playback, and fades away when the microphone starts listening again.

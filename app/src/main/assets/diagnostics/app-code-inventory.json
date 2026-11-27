@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "37258087439c9cc3b8571379276fba934839d91804bb0ec3745b63111b547b8c",
+  "source_digest": "284c12c8796598a6d9f5f13782a984b1576ec5d155d15e59ba21256c9a8ee6f1",
   "file_count": 3244,
-  "indexed_line_count": 557962,
+  "indexed_line_count": 557989,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -125,7 +125,7 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 111,
-      "indexed_line_count": 15290
+      "indexed_line_count": 15317
     },
     {
       "id": "diagnostics_and_export",
@@ -5352,8 +5352,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "f52a888415d05f3b4804dc8aad771ef39d5725c29a03039d172c1654a3548471",
-      "indexed_lines": 1998
+      "sha256": "f853763bf18df7e701a6f4853fcdca26731e9fc54f7b0f137a4e28faba23baf0",
+      "indexed_lines": 2025
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentRunDao.kt",

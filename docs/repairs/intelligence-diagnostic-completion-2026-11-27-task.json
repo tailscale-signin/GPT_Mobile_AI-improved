@@ -8,7 +8,7 @@
   "workingBranch": "feature/windows-native-benchmark-kit",
   "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
   "intent": "Implement remaining diagnostic source-delivery, context, durable-task, acceptance, CI, Gateway and voice corrections on the live PR while preserving concurrent work.",
-  "state": "HOSTED_UNIT_COMPILE_FIX_READY",
+  "state": "RECONCILED_AUDIT_LOCAL_VALIDATED_PENDING_EXACT_HEAD_CI",
   "authorization": "User requested implementation of the supplied November 27 diagnostic findings in the latest PR branches.",
   "constraints": [
     "Reconcile current remote head before writes and retain concurrent commits.",
@@ -49,6 +49,25 @@
       "state": "UNIT_INTERFACE_REPAIR",
       "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
       "details": "PR unit compiler job 140769084364 reports one missing abstract discardInterrupted method in ToolEventRecorderTest.FakeAgentRunDao. Added the exact required override; pinned formatting and whitespace checks pass. No unit-test result is claimed before the new hosted compilation."
+    },
+    {
+      "state": "CONCURRENT_CHOICE_RECEIPT_RECONCILIATION",
+      "sourceSha": "79981ac5a66cdfb067d123137ac4afc4848deea8",
+      "details": "Fast-forwarded the concurrent waiting-state persistence and presentation update, preserving both diagnostic repair commits. Read-only recovery review found no checkpoint/CAS blocker. Exact-head hosted Kotlin formatting, diagnostic preflight and Windows installer passed; canonical local host gate passed 848 tests with one skip. Android production compilation is in progress."
+    },
+    {
+      "state": "LEGACY_AUDIT_CORRECTION",
+      "sourceSha": "79981ac5a66cdfb067d123137ac4afc4848deea8",
+      "details": "Reproduced legacy bound choice waits inflating session-audit failures and displacing a real group. Transactional aggregate correction reads only scoped candidate IDs in pages of 32 and subtracts exact archive-decoded waiting receipts. Both focused SQL/JVM regressions fail before correction and pass after; full Room/KSP and Android tests remain hosted responsibilities."
+    },
+    {
+      "state": "LEGACY_AUDIT_LOCAL_VALIDATED",
+      "details": "Both focused SQL/JVM regressions, pinned Kotlin formatting, independent source review and the full canonical host gate pass. Metadata and source hashes are refreshed. Hosted Room/KSP and full unit execution remain pending."
+    },
+    {
+      "state": "DIAGNOSTIC_SWEEP_RECONCILIATION",
+      "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b",
+      "details": "Rebased the audit follow-up onto diagnostic sweep 22443d5c and manifest-provenance-only 2dd0220e. Preserved incoming source, context, reserve, Gateway, voice, schema and scope improvements. Generated artifacts were rebuilt from merged source. Combined source (5), authority (7), reserve (11) and audit (2) focused tests pass; canonical host (848 tests, one skip), Gateway (2,324 tests, 40 skips, 166 modules, seven browser checks and 50,000-event stress), and authentication (249 tests) pass. Superseded 79981ac5 Android unit compilation was canceled before execution; only production compilation passed there."
     }
   ],
   "validation": {
@@ -58,21 +77,24 @@
         "tests": 5,
         "status": "PASS",
         "scope": "Actual recovery, saved-view, compaction and delivery-proof production sources with narrow application boundary doubles; not full AgentRunner integration.",
-        "source": "reconciled payload"
+        "source": "combined diagnostic sweep and audit follow-up runtime",
+        "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b"
       },
       {
         "suite": "restored provider authority",
         "tests": 7,
         "status": "PASS",
         "scope": "Actual authority sources with exact relevant settings slices and boundary doubles; original compatible-change recovery failure reproduced.",
-        "source": "reconciled payload"
+        "source": "combined diagnostic sweep and audit follow-up runtime",
+        "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b"
       },
       {
         "suite": "verification reserve",
-        "tests": 9,
+        "tests": 11,
         "status": "PASS",
-        "scope": "Actual reserve helper plus exact production admission, session reserve gate and acceptance slices with storage/transport/provider doubles; two original behavior failures reproduced. Full session test awaits hosted Gradle.",
-        "source": "reconciled payload"
+        "scope": "Actual helper, durable call checkpoint and checklist budget plus exact production admission, session reserve and acceptance slices with boundary doubles. Includes dynamic proof scaling and parallel cleanup protection. Full session/Room integration remains hosted qualification.",
+        "source": "combined diagnostic sweep and audit follow-up runtime",
+        "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b"
       },
       {
         "suite": "deadline recovery projection",
@@ -93,14 +115,21 @@
         "status": "PASS",
         "source": "reconciled payload",
         "scope": "Complete production tool, decision store, notification identity and clock with in-memory storage/settings/context boundary doubles and exact envelope/result functions. Full runner/evidence-book integration remains hosted qualification. Incoming missing isError compilation and explicit cutoff failures reproduced before repair."
+      },
+      {
+        "suite": "legacy choice session audit",
+        "tests": 2,
+        "status": "PASS",
+        "source": "legacy audit follow-up payload",
+        "scope": "Exact production SQL and DAO method body, actual bound-receipt predicate, ToolEvent and ArchivedTextCodec against repository-verified SQLite JDBC. Both regressions fail against the original query. Does not establish Room/KSP or Android transaction integration."
       }
     ],
     "authentication": {
       "command": "python3 -m unittest discover -s authentication -t . -p 'test_*.py' -v",
-      "tests": 245,
+      "tests": 249,
       "status": "PASS",
-      "source": "reconciled payload including active-time clock receiver",
-      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90"
+      "source": "combined diagnostic sweep and audit follow-up runtime",
+      "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b"
     },
     "gatewayFocused": {
       "tests": 98,
@@ -125,26 +154,29 @@
       "scope": "Synthetic, no provider requests; eight PowerShell cases unavailable on Linux."
     },
     "kotlinFormatting": {
-      "files": 26,
       "status": "PASS",
-      "tool": "ktlint 1.3.1"
+      "tool": "ktlint 1.3.1",
+      "sourceSha": "79981ac5a66cdfb067d123137ac4afc4848deea8",
+      "runId": 46079690193,
+      "followupFiles": 3
     },
     "gatewayCanonical": {
       "command": "python3 gateway/check_gateway.py",
       "status": "PASS_WITH_ENVIRONMENT_SKIPS",
-      "source": "reconciled payload",
-      "pythonSuites": 165,
-      "pythonTests": 2317,
+      "source": "combined diagnostic sweep and audit follow-up runtime; the manifest-provenance-only child retains all 577 payload hashes",
+      "pythonSuites": 166,
+      "pythonTests": 2324,
       "pythonSkipped": 40,
       "browserTests": 7,
-      "stressEvents": 50000
+      "stressEvents": 50000,
+      "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b"
     },
     "hostCanonical": {
       "command": "bash scripts/validate-local.sh fast",
       "status": "PASS_WITH_ENVIRONMENT_SKIPS",
       "tests": 848,
       "skipped": 1,
-      "source": "reconciled payload",
+      "source": "combined diagnostic sweep and audit follow-up payload",
       "checks": [
         "CI policy",
         "architecture and feature references",
@@ -157,36 +189,50 @@
         "Android regex",
         "resources and icons",
         "git diff --check"
-      ]
+      ],
+      "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b",
+      "followupStatus": "PASS_WITH_ENVIRONMENT_SKIPS"
     },
     "androidHosted": {
-      "status": "PRODUCTION_COMPILED_UNIT_INTERFACE_FIXED_PENDING_RERUN",
-      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+      "status": "PRODUCTION_COMPILED_UNIT_COMPILE_CANCELLED_BY_NEW_HEAD",
+      "sourceSha": "79981ac5a66cdfb067d123137ac4afc4848deea8",
       "failedUnitCompileJob": 140769084364,
       "failedUnitCompileRun": 46077352055,
       "testsExecuted": false,
-      "scope": "Full production compilation passed in multiple jobs. Unit tests did not run because an incoming DAO interface lacked a recorder fake implementation. Exact new-head hosted unit compilation and execution remain required."
+      "scope": "Full production compilation passed at 79981ac5. Its diagnostic and preview unit compilation was canceled when 22443d5c superseded it, and unit tests were skipped. The containing audit follow-up needs its own hosted Room/KSP and full unit result.",
+      "pendingHead": "2dd0220eb93b54adff0f738debbeb4a6bec1881b"
     },
     "windowsHosted": {
       "status": "PASS",
-      "sourceSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
-      "runId": 46077351485,
-      "installerJobId": 140768076105,
-      "nativeJobId": 140768076395,
+      "sourceSha": "79981ac5a66cdfb067d123137ac4afc4848deea8",
+      "runId": 46079690019,
+      "installerJobId": 140775570240,
+      "nativeJobId": 140775570411,
       "desktopTests": 242,
       "nativeCampaignTests": 89,
       "nativeCampaignSkipped": 7,
       "nativeAssertions": 435,
-      "artifactId": 15235587734,
-      "artifactBytes": 165104598,
-      "artifactSha256": "c5d3c27c288a6eb18523ab0d3b40ee9c825a9df6d34647a26374dd3e820cecd5",
-      "scope": "Hosted review installer build and installation smoke. No production release or handset qualification."
+      "artifactId": 15237435534,
+      "artifactBytes": 165112388,
+      "artifactSha256": "d8e6eea5f98948177606485fcf68d59b7954df0a9e9a18c249b73bf2e34edda1",
+      "scope": "Historical hosted review installer and smoke at 79981ac5. The newer 22443d5c Gateway runtime requires a new containing-commit hosted installer receipt; no production release or handset qualification."
     },
     "releaseScope": {
       "status": "PASS",
-      "exactAllowedPaths": 691,
-      "changedPathsFromBase": 454,
-      "broadDirectoryAllowances": 0
+      "exactAllowedPaths": 795,
+      "changedPathsFromBase": 578,
+      "broadDirectoryAllowances": 0,
+      "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b"
+    },
+    "gatewayHosted": {
+      "sourceSha": "79981ac5a66cdfb067d123137ac4afc4848deea8",
+      "runId": 46079690031,
+      "linuxPython312": "PASS",
+      "linuxPython313": "PASS",
+      "managedRepositoryDocker": "PASS",
+      "windowsPython312": "IN_PROGRESS",
+      "windowsPython313": "IN_PROGRESS",
+      "scope": "Historical receipt at 79981ac5; incoming 22443d5c Gateway changes require new containing-commit matrix results."
     }
   },
   "qualification": {
@@ -271,10 +317,25 @@
   },
   "publishedImplementationSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65",
   "latestFollowup": {
-    "parentSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+    "parentSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b",
     "files": {
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt": "7ee9d419f022a92d7f0685bdb82203fb1f48f3de8a194a220eeda4d1ad9f04a7"
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt": "f853763bf18df7e701a6f4853fcdca26731e9fc54f7b0f137a4e28faba23baf0",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt": "8ff2eee2f5e64ec4410cbf77099479ee2ce50f5f8c2ca718867938af6beebd5e",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt": "e9752ad201a8643e2de72b8ead3c5c5a78739f23dde3730b6c9e7bdba734028e"
     },
-    "change": "Implement the newly required discardInterrupted DAO method in the recorder test double, preserving its existing unused-write result of zero."
-  }
+    "change": "Keep legacy exact-receipt choice waits neutral in the bounded session audit, preserving real failures and all 32 visible failure groups."
+  },
+  "publishedFollowupShas": [
+    "7bfaf530b0f66c07940358e0c09d204f5be3d20b"
+  ],
+  "followupHistory": [
+    {
+      "parentSha": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+      "files": {
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt": "7ee9d419f022a92d7f0685bdb82203fb1f48f3de8a194a220eeda4d1ad9f04a7"
+      },
+      "change": "Implement the newly required discardInterrupted DAO method in the recorder test double, preserving its existing unused-write result of zero.",
+      "publishedSha": "7bfaf530b0f66c07940358e0c09d204f5be3d20b"
+    }
+  ]
 }

@@ -3182,7 +3182,8 @@
         "Duplicate answers are serialized, uncertain mutations are reconciled, and changed branch circumstances require the existing continuation authority checks.",
         "Only explicit relative task allowances exclude durable user-choice waiting intervals. Absolute user deadlines remain wall-clock deadlines.",
         "An interrupted persisted run exposes Resume even without a terminal error string. Resume retains original job and task identity; checkpoint continuation does not claim exact provider stream resumption.",
-        "An identity-bound undispatched choice receipt projects a quiet waiting state, never success or tool failure. Retain the original no-effect receipt for recovery; only a compare-and-set against its exact saved bytes can finish the original call, and late waiting observations cannot replace an answered result."
+        "An identity-bound undispatched choice receipt projects a quiet waiting state, never success or tool failure. Retain the original no-effect receipt for recovery; only a compare-and-set against its exact saved bytes can finish the original call, and late waiting observations cannot replace an answered result.",
+        "Session audits subtract legacy failed choice rows only after exact original receipt validation; candidate identities are paged under one transaction, archived receipts remain readable, and real failure groups stay visible."
       ],
       "routing": {
         "role": "executor",

@@ -16,6 +16,14 @@ that head. Both sets of feature mappings, source changes, regressions and exact
 release-scope entries were preserved. The combined payload receives its own
 validation; the earlier local result is not treated as proof of the new tree.
 
+The audit follow-up was subsequently reconciled onto diagnostic sweep
+`22443d5c` and its manifest-provenance-only child `2dd0220e`. The incoming source,
+context, verification, Gateway and voice repairs were preserved. Source delivery,
+accepted authority and verification-budget overlaps were reviewed and recompiled;
+their focused regressions pass on the combined runtime. The full host, Gateway
+and report-service gates were rerun for the combined payload. The task record
+distinguishes these results from earlier hosted builds and canceled unit runs.
+
 The pasted diagnostic findings are historical observations from another app
 revision. The original archive was not independently reopened in this pass.
 Findings below come from current source inspection, live CI failure logs and
@@ -137,6 +145,23 @@ without renderer evidence. A positive observed count is now required. The
 playback-clock accounting still handles brief words crossed between rendered
 frames; it does not require every word to appear in a separate UI frame.
 
+### Legacy choice waits stay neutral in the session audit
+
+Concurrent commit `79981ac5` extends waiting-state presentation and exact-receipt
+completion of the original saved invocation. Integration review found that its
+session-audit aggregate still counted a bound legacy choice stored as `FAILED`.
+The chat, activity and usage views already recognized that same receipt as a wait.
+
+The audit now inspects only native legacy choice candidates from the selected
+runs, in pages of 32 identities, and uses the existing archive-aware per-event
+read and exact waiting predicate. A transaction keeps counting and classification
+on the same snapshot. It subtracts only proven non-dispatched waits; foreign
+identities, malformed receipts, dispatched calls and real failures stay counted.
+An extra aggregate group preserves all 32 visible real groups when a wait group
+is removed. Plain and archived receipt coverage plus a three-page regression
+both fail against the original query and pass against the correction. The local
+SQLite/JVM harness does not substitute for hosted Room/KSP validation.
+
 ## Coverage of the requested correction areas
 
 “Existing” below means a current runtime path and named behavioral tests were
@@ -187,7 +212,7 @@ reviewed. The final validation receipts specify which suites were actually run.
 | Engineering defaults | Built-in Gateway engineering and verified-owner/readiness/revocation checks remain intact. |
 | Copilot | Existing default integration and receipt-bound progress retained. No live Copilot task or entitlement qualification is claimed. |
 | Context contract | Exact source/projection identity and whole-line Gateway admission tested; local saved-page reads retain their connection and source identity. |
-| Installer | Intake had a successful Windows review build. A new exact-commit hosted installer receipt is required for this changed payload. |
+| Installer | Hosted review builds passed at `6913b7a2`, `486055ee` and `79981ac5`, including fresh install, repair, restart and uninstall. The latest receipt is run `46079690019`, artifact `15237435534`. Any later source commit requires its own check receipt. |
 | Concurrent workers | Existing worktree/lease/head fencing retained; this task records its base and reconciles remote advances before publication. |
 | Benchmarking | Native campaign/import/grading contracts exercised with synthetic fixtures. Comparative ChatGPT/Codex/Claude/GPT Mobile scores require actual matched product captures. |
 
@@ -228,15 +253,16 @@ receipts.
 
 | Executed validation | Result |
 | --- | --- |
-| Canonical Gateway gate | 2,317 Python tests across 165 isolated suites on the reconciled tree, with 40 environment skips; seven browser-bridge tests passed; 50,000-event durability stress passed. |
+| Canonical Gateway gate | 2,324 Python tests across 166 isolated suites on the combined diagnostic/audit payload, with 40 environment skips; seven browser-bridge tests passed; the 50,000-event durability stress passed. |
 | Canonical host gate | 848 tests with one environment skip; policy, generated metadata, package hashes, secret scan, Android regex and resource checks passed. |
-| Authentication/report service | All 244 tests passed. |
+| Authentication/report service | All 249 tests passed on the combined diagnostic/audit payload, including the incoming typed dispatch and voice evidence contracts. |
 | Focused source recovery JVM | All five tests passed. |
 | Focused restored authority JVM | All seven tests passed. |
-| Focused reserve/admission/acceptance JVM | All nine tests passed; complete session integration is separately added to the hosted Android suite. |
+| Focused reserve/admission/acceptance JVM | All 11 tests passed after the later diagnostic reconciliation, including dynamic proof allocation and cleanup protection; complete session integration is separately added to the hosted Android suite. |
 | Focused deadline projection JVM | All 13 tests passed after reconciliation, including the reproduced current-CI regression and active-time clock projection. |
 | Focused decision/clock JVM | All eight tests passed; original incoming missing-argument compilation failure and delivery-cutoff regression reproduced before correction. |
 | Portable voice JVM | All 106 tests passed; physical playback and acceleration remain unmeasured. |
+| Legacy-choice audit JVM/SQLite | Both regressions passed using the actual SQL, DAO method body, bound-receipt predicate and archive codec. Both fail against the original query; full Room/Android execution remains a hosted gate. |
 | Native benchmark contracts | 89 passed and eight PowerShell-dependent cases skipped; synthetic fixtures, no provider requests. |
 
 The host's initial Gateway run used a dependency directory that an intentionally

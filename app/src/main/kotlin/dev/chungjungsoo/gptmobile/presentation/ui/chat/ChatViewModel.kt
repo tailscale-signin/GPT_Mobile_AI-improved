@@ -1842,7 +1842,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Consent for this saved GitHub chat; toggling never enrolls or merges a PR. */
+    /** Preference for this saved GitHub chat; toggling never enrolls or merges a PR. */
     fun setGitHubCopilotEnabled(enabled: Boolean) {
         val chatId = _chatRoom.value.id
         val context = _chatToolConfig.value.github ?: return
@@ -1852,26 +1852,7 @@ class ChatViewModel @Inject constructor(
                 val identity = settingRepository.ensureConversationIdentity(chatId)
                 conversationDelegationMutex.withLock {
                     settingRepository.mutateFeatureSettings { latest ->
-                        val bound = latest.conversationGitHub[chatId]?.sameWorkspace(context) == true &&
-                            latest.conversationIdentities[chatId] == identity
-                        val pluginEnabled =
-                            latest.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
-                        if (!bound || (enabled && !pluginEnabled)) {
-                            latest
-                        } else {
-                            val updated = if (enabled) {
-                                latest.githubCopilotConversations + mapOf(
-                                    chatId to dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference(
-                                        identity,
-                                        dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(context),
-                                        true
-                                    )
-                                )
-                            } else {
-                                latest.githubCopilotConversations - chatId
-                            }
-                            latest.copy(githubCopilotConversations = updated)
-                        }
+                        dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.withPreference(latest, chatId, context, identity, enabled)
                     }
                 }
             } catch (cancelled: CancellationException) {

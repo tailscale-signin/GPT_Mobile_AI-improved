@@ -37,6 +37,10 @@ MUTATIONS = {'COMMIT', 'OPEN_PR', 'PROMOTE', 'MERGE'}
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
+class EngineeringControlRejected(ValueError):
+    """A control failed its transactional precheck before changing the job."""
+
+
 def record_verified_mutation_reconciliation(job, phase, recovered):
     """Store proof of a previously uncertain dispatch confirmed by a host read.
 
@@ -244,9 +248,12 @@ class EngineeringStore:
 
     @staticmethod
     def admission_settings(db, principal):
-        row = db.execute('SELECT enabled, revision FROM engineering_admission_settings WHERE principal=?',
+        row = db.execute('SELECT revision FROM engineering_admission_settings WHERE principal=?',
                          (principal,)).fetchone()
-        return {'enabled': bool(row[0]), 'revision': row[1]} if row else {'enabled': not principal.startswith(('paired:', 'phone:')), 'revision': 0}
+        # Engineering is the Gateway experience. This compatibility observation
+        # is not a grant: HTTP identity, repository ownership and readiness still
+        # admit each job, and a legacy OFF value cannot disable the feature.
+        return {'enabled': True, 'revision': row[0] if row else 0}
 
     def change_admission_settings(self, principal, payload):
         if (set(payload) != {'enabled', 'revision'} or type(payload['enabled']) is not bool or
@@ -256,13 +263,9 @@ class EngineeringStore:
             current = self.admission_settings(db, principal)
             if current['revision'] != payload['revision']:
                 raise ExecutionBindingError('ENGINEERING_SETTINGS_CHANGED', 'Refresh the Gateway setting before editing.')
-            if current['enabled'] != payload['enabled']:
-                db.execute('INSERT OR REPLACE INTO engineering_admission_settings VALUES (?,?,?)',
-                           (principal, payload['enabled'], current['revision'] + 1))
-                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_control_settings'").fetchone():
-                    db.execute('UPDATE gateway_control_settings SET revision=revision+1,author=?,changed=? WHERE id=1',
-                               (principal, time.time()))
-            return self.admission_settings(db, principal)
+            if not payload['enabled']:
+                raise ExecutionBindingError('ENGINEERING_ALWAYS_ON', 'Engineering is built into Gateway. Stop or cancel individual jobs from Jobs.', 409)
+            return current
         return self.tx(change)
 
     def require_new_jobs(self, db, principal):
@@ -271,8 +274,6 @@ class EngineeringStore:
             grant = ControlStore.device(db, principal)
             if not grant or grant['role'] != 'owner' or not json.loads(grant['repositories']):
                 raise ExecutionBindingError('PAIRED_OWNER_REQUIRED', 'Pair an owner with repository permission on this PC.', 403)
-        if not self.admission_settings(db, principal)['enabled']:
-            raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs in the Gateway settings for this account.', 412)
 
     def accept_webhook(self, principal, delivery, body_digest):
         """Durable replay filter. A delivery identifier cannot be rebound to another payload."""
@@ -318,7 +319,9 @@ class EngineeringStore:
             existing = self.existing_request(principal, request)
         if existing:
             return existing
-        request = validate_request(new_request_defaults(request))
+        default_policy = (recovery_of['request'].get('next_action_policy', 'LEGACY') if recovery_of is not None else
+                          self.conversations.read(lambda db: self.conversations.engineering_next_action_policy(db, principal, request)))
+        request = validate_request(new_request_defaults(request, default_policy))
         batch_policy = load_batch_policy() if request.get('execution_mode') == 'full' else None
         authorize_request(request, durable=self.runtime.GATEWAY_DURABLE_JOBS, policy=batch_policy)
         request_hash = digest(request)
@@ -373,8 +376,6 @@ class EngineeringStore:
                 return self.decode(old[:3])
             if recovery_of is None:
                 self.require_new_jobs(db, principal)
-            if db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED')").fetchone()[0] >= 32:
-                raise ValueError('Engineering job capacity reached')
             if db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0] >= 4096:
                 raise ValueError('Engineering history capacity reached; archive the journal before starting another job')
             def replace_paused(db, previous_id):
@@ -397,6 +398,11 @@ class EngineeringStore:
                                         next_action_policy=request.get('next_action_policy', 'LEGACY'))
             receipt = self.conversations.admission(db, principal, request.get('command_id', request['request_id']), 'engineering', job['id'], request,
                 conversation_binding, request['objective'], now=now, replace_paused=replace_paused)
+            # An explicit continuation may retire its own paused predecessor in
+            # this transaction. Check the resulting occupancy; an unrelated full
+            # queue still rolls back the admission and every conversation change.
+            if db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED')").fetchone()[0] >= 32:
+                raise ValueError('Engineering job capacity reached')
             previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
             if previous:
                 job.update(continuation_of=previous['id'], continuation_branch=previous['request']['branch'])
@@ -667,6 +673,64 @@ class EngineeringStore:
         return self.tx(claim)
 
     def complete(self, job, lease, phase, output, delay=0):
+        try:
+            return self._complete(job, lease, phase, output, delay)
+        except ExecutionBindingError as error:
+            if error.code not in {'EXECUTION_ARTIFACT_CAPACITY', 'EXECUTION_ARTIFACT_OVERSIZE'}:
+                raise
+            return self._pause_checkpoint_capacity(job, lease, error.code)
+
+    def _pause_checkpoint_capacity(self, job, lease, code):
+        # An unchanged storage ceiling cannot be repaired by executing the stage
+        # again. Reload only the last committed checkpoint under the same lease;
+        # separately committed physical-operation receipts remain authoritative.
+        def retained(db):
+            row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?',
+                             (job['id'], job['principal'])).fetchone()
+            if not row or (row[1], row[2], row[3]) != (job['state'], job['revision'], lease):
+                self._confirm_cancellation(db, job['id'], job.get('_owner_epoch'))
+                return None
+            saved = self.decode(row)
+            saved.update(_execution_lease=lease, _owner_epoch=job.get('_owner_epoch'), approval=None)
+            saved.pop('provider_wait', None)
+            previous_operation = saved['data'].get('latest_operation') or {}
+            requires_reconciliation = job['state'] in MUTATIONS or previous_operation.get('state') in {'DISPATCHED', 'UNKNOWN_OUTCOME'}
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_operations'").fetchone():
+                records = db.execute('SELECT payload FROM engineering_operations WHERE job_id=? AND revision=? ORDER BY rowid',
+                                     (job['id'], job['revision'])).fetchall()
+                for record in records:
+                    operation = json.loads(record[0])
+                    saved['data']['latest_operation'] = operation
+                    requires_reconciliation |= operation.get('dispatched') is True
+            saved['data']['blocked_reason'] = {
+                'code': code, 'retryable': False, 'failed_stage': job['state'],
+                'requires_reconciliation': requires_reconciliation,
+                'recovery_action': 'REVIEW_RETAINED_STORAGE_AND_OPERATION_RECEIPTS',
+                'stage_result_retained': False}
+            return saved
+        saved = self.tx(retained)
+        if saved is None:
+            return False
+        saved['message'] = ('The current stage could not save its result within the retained-evidence capacity. '
+                            'Earlier checkpoints and operation receipts are preserved. Review storage capacity before continuing.')
+        if saved['data']['blocked_reason']['requires_reconciliation']:
+            saved['message'] += ' Reconcile the original operation outcomes before any further write.'
+        verification = {'passed': False, 'failures': [code],
+                        'requirements': [{'id': requirement['id'], 'status': 'UNAVAILABLE'}
+                                         for requirement in saved['request'].get('acceptance', [])]}
+        saved['data']['completion_verification'] = verification
+        from v14.engineering_report import build_report
+        # Do not duplicate large prior report/check lists into this bounded
+        # refusal. Their original checkpoint and artifact references stay saved.
+        report_data = {key: saved['data'][key] for key in ('head_sha', 'merge_sha', 'latest_operation', 'blocked_reason', 'last_completed_stage')
+                       if key in saved['data']}
+        saved['data']['final_report'] = build_report(dict(saved, data=report_data), 'NEEDS_INPUT', verification,
+                                                   committed_revision=job['revision'] + 1)
+        # No recursive capacity fallback: an unavailable database still reaches
+        # the existing lease-recovery path without repeating a successful pause.
+        return self._complete(saved, lease, 'NEEDS_INPUT', {'error_code': code, 'checkpoint_result_retained': False})
+
+    def _complete(self, job, lease, phase, output, delay=0):
         # The stage graph is a projection of this exact leased job, not a new
         # executor. It is committed with the same journal CAS as phase results.
         batch_transition(job, phase, output)
@@ -847,9 +911,9 @@ class EngineeringStore:
             row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?' + ('' if action == 'cancel' else ' AND lease IS NULL'), (job_id, principal)).fetchone()
             job = self.decode(row)
             if not job or job['revision'] != expected_revision:
-                raise ValueError('Job changed; refresh before confirming')
+                raise EngineeringControlRejected('Job changed; refresh before confirming')
             if job['state'] in {'CANCELLED', 'COMPLETED', 'FAILED'}:
-                raise ValueError('The job is already finished')
+                raise EngineeringControlRejected('The job is already finished')
             if job['state'] == 'CANCELLING':
                 if action == 'cancel':
                     return job

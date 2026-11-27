@@ -122,6 +122,51 @@ class ProgressWatchdogSessionTest {
     }
 
     @Test
+    fun completedAnswerFinishesWithinCleanupBudgetWhileTransportKeepsItsLease() = runTest {
+        var transportClosed = false
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                try {
+                    emit(ProviderEvent.TextDelta("verified answer"))
+                    emit(ProviderEvent.Completed)
+                } finally {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { delay(30_000) }
+                    transportClosed = true
+                }
+            }
+        }
+        val events = session.withProgressWatchdog(1000, 1000, 5000) { testScheduler.currentTime }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(ProviderEvent.TextDelta("verified answer"), ProviderEvent.Completed), events)
+        assertTrue("The delivered terminal decision must not wait for an uncooperative close", testScheduler.currentTime <= 5000)
+        assertEquals(false, transportClosed)
+        testScheduler.advanceUntilIdle()
+        assertEquals(true, transportClosed)
+    }
+
+    @Test
+    fun deliveredFailureIsPreservedWhileNonCooperativeCleanupIsBounded() = runTest {
+        var transportClosed = false
+        val failure = ProviderEvent.Failed("Original provider failure")
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                try {
+                    emit(ProviderEvent.ThinkingDelta("retained reasoning"))
+                    emit(failure)
+                } finally {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { delay(30_000) }
+                    transportClosed = true
+                }
+            }
+        }
+        val events = session.withProgressWatchdog(1000, 1000, 5000) { testScheduler.currentTime }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(ProviderEvent.ThinkingDelta("retained reasoning"), failure), events)
+        assertTrue("The original failure must finish within the cleanup budget", testScheduler.currentTime <= 5000)
+        assertEquals(false, transportClosed)
+        testScheduler.advanceUntilIdle()
+        assertEquals(true, transportClosed)
+    }
+
+    @Test
     fun advancingCountersKeepPrefillAliveButRepeatedCountersDoNot() = runTest {
         val session = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {

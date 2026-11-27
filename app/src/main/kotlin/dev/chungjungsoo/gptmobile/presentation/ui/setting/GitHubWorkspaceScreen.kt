@@ -827,14 +827,14 @@ private fun WorkspaceCode(content: String) {
 }
 
 @androidx.compose.runtime.Stable
-private class GitHubWorkspaceSelectionMenus {
+internal class GitHubWorkspaceSelectionMenus {
     var installationMenu by mutableStateOf(false)
     var branchMenu by mutableStateOf(false)
 }
 
 /** Keep selector composition separate from the live chat: ART must be able to compile each UI branch. */
 @Composable
-private fun GitHubWorkspaceRepositoryCard(
+internal fun GitHubWorkspaceRepositoryCard(
     state: GitHubWorkspaceState,
     visibleProgrammer: GitHubProgrammerState,
     initialProfileUid: String?,
@@ -878,6 +878,13 @@ private fun GitHubWorkspaceRepositoryCard(
                         )
                     }
                     if (state.moreInstallations) DropdownMenuItem(text = { Text("Load more installations") }, enabled = !state.busy, onClick = viewModel::moreInstallations)
+                }
+                if (state.selection != null && state.moreInstallations && !state.canWrite && installation == null) {
+                    OutlinedButton(
+                        onClick = viewModel::moreInstallations,
+                        enabled = !state.busy && !state.authRefresh && !state.repositoryRefresh,
+                        modifier = Modifier.testTag("github_installation_lookup_continue")
+                    ) { Text("Load more installations") }
                 }
                 OutlinedButton(onClick = { uriHandler.openUri(GitHubPublicAuthConfiguration.project().installationManagementUrl(state.connection?.oauthClientId)) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.Launch, null, Modifier.padding(end = 8.dp))

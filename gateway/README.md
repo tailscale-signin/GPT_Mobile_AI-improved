@@ -47,26 +47,28 @@ GitHub-focused routing, bounded immutable reads and new diagnostics are document
 
 App-launched engineering jobs that continue after Android closes, reconnectable updates, adaptive read batches, CI repair and exact-commit merge approval are documented in [INTELLIGENT_ENGINEERING.md](INTELLIGENT_ENGINEERING.md).
 
-## Optional Copilot cloud task supervision
+## Integrated Copilot cloud task supervision
 
 Copilot cloud tasks support both **Android direct** and **Gateway** supervision. Choose the Copilot execution owner in the app's GitHub profile. Android direct uses the selected app GitHub connection without a Gateway; GitHub runs an accepted cloud task independently, and Android reconnects to its saved receipt when the app opens again. Gateway uses this PC's GitHub connection and durable journal, submits the approved task once, and keeps observing it while Android is closed or disconnected. The inference model's location does not determine the Copilot execution owner. This REST integration does not require Copilot CLI or the Copilot SDK on the PC.
 
-Copilot is off by default. Enable the app's Copilot setting and the current conversation's Copilot setting before submitting a task. For Gateway supervision, also open **Gateway Settings → GitHub → Connection**, select **Allow Gateway to supervise Copilot cloud tasks**, save settings, and restart when idle. If Android uses a LAN listener, the existing **Allow network devices to run GitHub engineering tasks** setting is also required. The host uses its existing saved GitHub credential; Android does not upload its token to the PC.
+Copilot is available by default in the app and in a correctly bound GitHub conversation. A versioned one-time upgrade enables the former default-off configuration; later explicit off choices remain saved. Gateway supervision has the same default in **Gateway Settings → GitHub → Connection**. The selected account, repository, execution owner and tool permissions still apply. If Android uses a LAN listener, the existing **Allow network devices to run GitHub engineering tasks** grant is also required. The host uses its existing saved GitHub credential; Android does not upload its token to the PC.
 
-For a manual Python installation, set `GATEWAY_COPILOT_ENABLED=true` before starting `python gateway.py serve`, with durable jobs enabled and the normal host GitHub credential selected. `GATEWAY_ENGINEERING_GITHUB_SERVER` selects an existing host GitHub connection, or `GATEWAY_ENGINEERING_GITHUB_TOKEN` supplies a dedicated host credential when no connection is selected. The managed Windows installation reads its saved checkbox and does not inherit this consent from an environment variable.
+For a manual Python installation, start `python gateway.py serve` with durable jobs enabled and the normal host GitHub credential selected. Copilot defaults to enabled; an explicit `GATEWAY_COPILOT_ENABLED=false` remains an off override. `GATEWAY_ENGINEERING_GITHUB_SERVER` selects an existing host GitHub connection, or `GATEWAY_ENGINEERING_GITHUB_TOKEN` supplies a dedicated host credential when no connection is selected. The managed Windows installation reads its versioned saved configuration. Missing GitHub eligibility or an unsupported credential is reported as unavailable, not as an executed task.
 
-The [GitHub Agent Tasks REST API](https://docs.github.com/en/rest/agent-tasks/agent-tasks) is a preview, using API version `2026-03-10`. Task creation currently requires a Copilot Business or Enterprise user and a fine-grained personal access token or GitHub App **user** access token with repository **Agent tasks: write** permission; observation requires **Agent tasks: read**. GitHub App installation tokens are not supported by this API. Base/head checks additionally need access to the selected repository's contents. A successful host connection check identifies the account; the task API determines that account's subscription and repository eligibility.
+The [GitHub Agent Tasks REST API](https://docs.github.com/en/rest/agent-tasks/agent-tasks) is a preview, using API version `2026-03-10`. Task creation requires an eligible Copilot plan and a supported user credential with repository **Agent tasks: write** permission; observation requires **Agent tasks: read**. GitHub App installation tokens are not supported by this API. Base/head checks additionally need access to the selected repository's contents. A successful host connection check identifies the account; the task API determines that account's current subscription and repository eligibility.
 
 The authenticated endpoints below also have `/v1` aliases. Creation requires both `X-Gateway-Installation-ID` and `X-Gateway-Principal-ID`, explicit `execution_owner: "GATEWAY"`, both Copilot consent flags, a stable `request_id`, the verified numeric GitHub actor ID, and the selected base branch and exact commit. A selected work branch also requires its exact head commit.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /gateway/engineering/copilot/capabilities` | Read host opt-in, installation/principal identity and configured GitHub actor. |
+| `GET /gateway/engineering/copilot/capabilities` | Read effective host availability, installation/principal identity and configured GitHub actor. |
 | `POST /gateway/engineering/copilot/tasks` | Durably accept an explicitly authorized cloud task. |
 | `GET /gateway/engineering/copilot/tasks?request_id=…&repository=…` | Recover the original receipt after a lost Android response without repeating a creation request. |
 | `GET /gateway/engineering/copilot/tasks/{gateway_job_id}` | Read the saved checkpoint scoped to the admitted owner. |
 
 Receipts distinguish the local `cp_…` Gateway job ID from GitHub's upstream task ID. The desktop **GitHub jobs** view shows bounded task metadata. Existing tasks remain readable if Copilot is disabled; disabling delegation does not cancel an accepted GitHub task. A Gateway restart resumes known upstream tasks with GET requests. The installed credential identity stays pinned to the accepted receipt, so changing credentials pauses observation rather than silently transferring ownership.
+
+GitHub chat previews identify **GitHub Copilot**, the bounded task purpose and the observed phase. Preparing a request is intent; a confirmed receipt establishes acceptance. Accepted, running, waiting, completed and unavailable states remain distinct, including when a task finishes before the next ordinary preview tick. A named MCP Copilot request identifies the action requested without treating an opaque response as verified completion.
 
 The journal records the submission fence before sending POST. A lost response or crash after that fence becomes `RECONCILE_REQUIRED`; it is never automatically submitted again. Inspect GitHub's task history to establish the remote result. GitHub documents neither an idempotency key nor a task cancellation endpoint for this preview. Disconnecting Android, stopping polling or shutting down Gateway does not claim to cancel the remote worker.
 
@@ -90,6 +92,10 @@ Capability discovery distinguishes a definite unsupported endpoint (HTTP 404/501
 ## Saved conversations and gateway jobs
 
 Gateway 16 exposes a scoped Jobs catalog and a browser of conversations stored on the gateway. Android can reopen the original user-facing transcript and reconnect to accepted work after its process closes. Ordinary generations and engineering jobs retain their existing executors, selected model and explicit stop/approval rules. See [GATEWAY_CONVERSATIONS.md](GATEWAY_CONVERSATIONS.md) for the admission receipts, API contract, private-chat behavior, queue/restart boundaries and regression coverage.
+
+Engineering is now a built-in Gateway capability. GitHub chat has no persistent engineering toggle card, and settings show readiness or the missing setup action. Old disable requests are rejected; owner grants, revocation, exact repository access and runtime prerequisites remain effective. Individual jobs can still be cancelled.
+
+The Windows **Jobs** view pages through retained host work, including jobs from an old device identity. The authenticated PC supervisor can request cancellation through the original engine, with separate administrative receipts and revision checks. Pending cancellation remains visible until confirmed. Terminal entries can be removed from the current view and restored from **Removed**; their durable evidence remains intact. Failed engineering jobs and interrupted generations are terminal for open-work counts. No local action claims to cancel a Copilot worker when the GitHub preview API provides no such endpoint.
 
 ### Development workspace output
 

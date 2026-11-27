@@ -1305,12 +1305,6 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     chatToolConfig.github?.let { github ->
-                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid ?: github.mainProfileUid)
-                        if (ownerTarget != null) {
-                            item(key = "gateway-owner-control") {
-                                dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayControlChatEntry(ownerTarget)
-                            }
-                        }
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
                 }
@@ -1601,7 +1595,7 @@ private fun ChatScreenContent(
             val combinedSaveState by chatViewModel.combinedSettingsSaveState.collectAsStateWithLifecycle()
             val combinedConversationIdentity by chatViewModel.combinedConversationIdentity.collectAsStateWithLifecycle()
             val githubCopilotPluginOn =
-                featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
+                dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.pluginEnabled(featureSettings)
             ChatModelDialog(
                 conversationMode = chatRoom.conversationMode,
                 conversationIdentity = combinedConversationIdentity,

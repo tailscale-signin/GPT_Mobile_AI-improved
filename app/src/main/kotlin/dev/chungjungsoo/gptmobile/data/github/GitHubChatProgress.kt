@@ -77,6 +77,21 @@ internal class GitHubChatProgress(
     private val savedResults = linkedSetOf<String>()
     private var responseStarted = false
     private var terminal = false
+    private var copilotUpdatePending = false
+
+    /** A fast cloud call must remain visible even if the final response starts before the ticker. */
+    @Synchronized fun immediateUpdates(): List<ApiState> = buildList {
+        if (!copilotUpdatePending || responseStarted || terminal || evidence?.closed == true) return@buildList
+        copilotUpdatePending = false
+        val at = now()
+        admitSummary(at, allowFallback = false)?.let(::add)
+        val key = GitHubProgressPresentation.lineKey(activity)
+        if (activity.isNotBlank() && key != lastPreviewKey) {
+            add(ApiState.ProgressCheckpoint(activity))
+            lastPreviewKey = key
+            lastPreviewAt = at
+        }
+    }
 
     fun updates(): Flow<ApiState> = flow {
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
@@ -269,6 +284,11 @@ internal class GitHubChatProgress(
         ) {
             return null
         }
+        if (("copilot_task" in facts || "copilot_request" in facts || "copilot_observation" in facts) &&
+            !GitHubCopilotProgress.sourceOwned(call, result, facts)
+        ) {
+            return null
+        }
         val observation = semanticObservation(call.name, call.arguments, facts, saved)?.copy(
             proof = if (context != null && !saved && receiptFacts === facts) captureProof(call, result.executionReceipt, facts) else null,
             sourceIdentity = if (!saved && receiptFacts === facts) capturedSourceIdentity(call, result.executionReceipt, facts) else null
@@ -317,6 +337,10 @@ internal class GitHubChatProgress(
                         terminalKey?.takeUnless { it in terminalCalls }?.let(activeCalls::add)
                         previewSequence.offer(previewEvent(name, progress.toolArgs, GitHubPreviewPhase.STARTED))
                             ?.let { activity = it }
+                        if (GitHubCopilotProgress.activity(name, progress.toolArgs ?: JsonObject(emptyMap())) != null) {
+                            activity = operationSummary(name, progress.toolArgs)
+                            copilotUpdatePending = true
+                        }
                         nextStep = nextFor(operation)
                         // Starts belong in the live preview. A finding needs an outcome.
                     }
@@ -333,6 +357,7 @@ internal class GitHubChatProgress(
                         val finding = observation(name, true, false, progress.toolArgs)
                         rememberStep(finding, problemScope = problemScope)
                         queueTransition(terminalKey, problemScope, "BLOCKER", finding)
+                        if (GitHubCopilotProgress.activity(name, progress.toolArgs ?: JsonObject(emptyMap())) != null) copilotUpdatePending = true
                     }
                     "tool_blocked" -> {
                         if (terminalKey in terminalCalls || terminalKey != null && !blockedCalls.add(terminalKey)) return
@@ -351,6 +376,7 @@ internal class GitHubChatProgress(
                         }
                         rememberStep(finding, problemScope = problemScope)
                         queueTransition(terminalKey, problemScope, if (decision) "DECISION" else "BLOCKER", finding)
+                        if (GitHubCopilotProgress.activity(name, progress.toolArgs ?: JsonObject(emptyMap())) != null) copilotUpdatePending = true
                     }
                     "tool_completed", "tool_finished", "tool_skipped" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
@@ -362,6 +388,7 @@ internal class GitHubChatProgress(
                             pendingSummary = null
                             selectedAuthoredSummary = false
                             activity = "${operation.subject.replaceFirstChar(Char::uppercase)} skipped${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
+                            if (GitHubCopilotProgress.activity(name, progress.toolArgs ?: JsonObject(emptyMap())) != null) copilotUpdatePending = true
                             nextStep = "check why the ${operation.subject} was skipped before treating it as validation evidence"
                             rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} was skipped; it did not provide an executed validation result.", problemScope = problemScope)
                             return
@@ -404,6 +431,10 @@ internal class GitHubChatProgress(
                         if (observed?.problem == true) {
                             pendingSummary = null
                             if (freshResult) queueTransition(terminalKey, problemScope, "BLOCKER", observed.summary)
+                        }
+                        if (freshResult && observed?.copilotPhase != null) {
+                            queueTransition(terminalKey, problemScope, "COPILOT:${observed.copilotPhase}", observed.summary)
+                            copilotUpdatePending = true
                         }
                         if (observed != null || evidence == null && (sourceRead || operation.mutation)) {
                             // Saved facts remain visible as history but cannot replace a current
@@ -498,9 +529,21 @@ internal class GitHubChatProgress(
 
     private fun captureProof(call: ProviderEvent.ToolCall, receipt: JsonObject?, facts: JsonObject): ObservationProof? {
         val bound = context ?: return null
+        val mcp = facts["copilot_request"] as? JsonObject
+        val operationReceipt = facts["hash_scope"] == JsonPrimitive("IMMUTABLE_OPERATION_RECEIPT") &&
+            call.name.startsWith("mcp__") &&
+            mcp != null &&
+            mcp == receipt?.get("github_copilot_request") &&
+            mcp["tool"] == JsonPrimitive(call.name) &&
+            mcp["call_id"] == JsonPrimitive(call.callId) &&
+            (mcp["owner"] as? JsonPrimitive)?.contentOrNull.equals(bound.owner, true) &&
+            (mcp["repo"] as? JsonPrimitive)?.contentOrNull.equals(bound.repo, true) &&
+            GitHubCopilotProgress.mcpFinding(mcp) != null &&
+            facts["source_result_sha256"] == JsonPrimitive(GitHubEvidenceBook.digest(mcp.toString()))
         if (receipt == null ||
             receipt["saved_view_source_call_id"] != JsonPrimitive(call.callId) ||
-            facts["hash_scope"] != JsonPrimitive("IMMUTABLE_SOURCE_RESULT") ||
+            facts["hash_scope"] != JsonPrimitive("IMMUTABLE_SOURCE_RESULT") &&
+            !operationReceipt ||
             receipt["requires_reconciliation"] == JsonPrimitive(true) ||
             receipt["parent_result_successful"] == JsonPrimitive(false)
         ) {
@@ -536,7 +579,7 @@ internal class GitHubChatProgress(
             (facts["pr_head_ref"] as? JsonPrimitive)?.contentOrNull == selectedRef &&
             (facts["pr_head_repo"] as? JsonPrimitive)?.contentOrNull.equals("${bound.owner}/${bound.repo}", true)
         val observesHead = revision != null && (observesBranch || observesPull)
-        val subject = JsonObject(args.filterKeys { it in setOf("run_id", "job_id", "pull_number", "pr_number", "issue_number", "branch", "path", "query", "page") }.toSortedMap()).toString()
+        val subject = JsonObject(args.filterKeys { it in setOf("run_id", "job_id", "task_id", "gateway_job_id", "request_id", "pull_number", "pr_number", "issue_number", "branch", "path", "query", "page") }.toSortedMap()).toString()
         val atStart = startedOnHead.remove(call.callId) ?: currentHead
         val resourceValues = (facts["resource_observations"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().associate { resource ->
             val label = if (resource["resource"] == JsonPrimitive("issue")) "Issue" else "PR"
@@ -546,12 +589,20 @@ internal class GitHubChatProgress(
         val fields = listOf(
             "failed_job_step", "check_counts", "check_inventory_complete", "required_checks_state", "returned", "scanned_files", "search_complete",
             "open_issue_count", "open_pull_request_count", "workflow_definitions_observed", "workflow_inventory_complete", "changed_files_observed",
-            "open_pull_requests_observed", "open_pull_request_inventory_complete", "branch"
+            "open_pull_requests_observed", "open_pull_request_inventory_complete", "branch", "copilot_task", "copilot_request", "copilot_observation"
         ).filter(facts::containsKey)
         if (fields.isEmpty() && resourceValues.isEmpty()) return null
         val value = JsonObject(facts.filterKeys(fields::contains).toSortedMap()).toString()
         val criterion = fields.firstOrNull() ?: "resource state"
-        val entity = (jobStep?.get("job_id") as? JsonPrimitive)?.contentOrNull ?: subject
+        val cloud = facts["copilot_task"] as? JsonObject
+        val entity = if (operationReceipt) {
+            call.callId
+        } else {
+            (jobStep?.get("job_id") as? JsonPrimitive)?.contentOrNull
+                ?: (cloud?.get("task_id") as? JsonPrimitive)?.contentOrNull
+                ?: (cloud?.get("gateway_job_id") as? JsonPrimitive)?.contentOrNull
+                ?: subject
+        }
         return ObservationProof(criterion, entity, revision ?: atStart ?: return null, atStart, observesHead, value, resourceValues, digest)
     }
 
@@ -649,7 +700,8 @@ internal class GitHubChatProgress(
             val summaries: List<String> = listOf(summary),
             val resourceStates: Map<String, String> = emptyMap(),
             val sourceIdentity: Pair<String, String>? = null,
-            val proof: ObservationProof? = null
+            val proof: ObservationProof? = null,
+            val copilotPhase: String? = null
         )
 
         /** A locally captured identity changes preview deduplication, never source or completion authority. */
@@ -708,15 +760,13 @@ internal class GitHubChatProgress(
 
         private fun problemScope(job: String, name: String, args: JsonObject?): String {
             val canonical = GitHubActionIdentity.canonicalArguments(name, args ?: JsonObject(emptyMap()))
-            val selectors = setOf("action", "owner", "repo", "ref", "branch", "commit_sha", "path", "ranges", "query", "pull_number", "pr_number", "issue_number", "run_id", "job_id", "tag_name", "release_id", "view_cursor")
+            val selectors = setOf("action", "owner", "repo", "ref", "branch", "commit_sha", "path", "ranges", "query", "pull_number", "pr_number", "issue_number", "run_id", "job_id", "task_id", "gateway_job_id", "request_id", "tag_name", "release_id", "view_cursor")
             // Keep full source/revision identity; display labels are deliberately shortened
             // and can collide. Pagination/invalid optional fields do not change the resource.
             return JsonArray(listOf(JsonPrimitive(job), JsonPrimitive(name.githubOperationFamily()), JsonPrimitive(name.substringAfter("__", "")), JsonObject(canonical.filterKeys { it in selectors }.toSortedMap()))).toString()
         }
 
         private fun semanticObservation(name: String, args: JsonObject, facts: JsonObject, saved: Boolean): ResultObservation? {
-            val copilot = facts["copilot_observation"] as? JsonObject
-            if (operation(name, args).mutation && copilot == null) return null
             fun count(source: JsonObject, key: String) = (source[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
             fun quantity(value: Int, noun: String) = "$value $noun" + if (value == 1) "" else "s"
             fun savedSummary(summary: String) = if (saved) "From saved results: ${summary.replaceFirstChar(Char::lowercase)} Current state still needs verification." else summary
@@ -729,15 +779,19 @@ internal class GitHubChatProgress(
                 resolvedConditions,
                 (listOf(summary) + related).map(::savedSummary)
             )
-            if (copilot != null && name.githubOperationFamily() == "github_pr") {
-                val action = GitHubActionIdentity.canonicalArguments(name, args)["action"]
-                if (action in setOf(JsonPrimitive("copilot_create_task"), JsonPrimitive("copilot_task_status")) && facts["action"] == action) {
-                    val phase = (copilot["phase"] as? JsonPrimitive)?.contentOrNull ?: return null
-                    val goal = (copilot["purpose"] as? JsonPrimitive)?.contentOrNull ?: return null
-                    val repo = (copilot["repository"] as? JsonPrimitive)?.contentOrNull ?: return null
-                    return observation("GitHub Copilot · $phase", "GitHub Copilot was asked to $goal in $repo. Its reported state is $phase.")
+            val cloudFacts = facts["copilot_task"] as? JsonObject
+            cloudFacts?.let(GitHubCopilotProgress::finding)?.let { cloud ->
+                val purpose = (facts["copilot_observation"] as? JsonObject)?.let { savedPurpose ->
+                    val goal = (savedPurpose["purpose"] as? JsonPrimitive)?.contentOrNull ?: return@let null
+                    val repo = (savedPurpose["repository"] as? JsonPrimitive)?.contentOrNull ?: return@let null
+                    "The requested task purpose is to $goal in $repo."
                 }
+                return observation(cloud.preview, cloud.summary, problem = cloud.problem, related = listOfNotNull(purpose)).copy(copilotPhase = (cloudFacts["phase"] as? JsonPrimitive)?.contentOrNull)
             }
+            (facts["copilot_request"] as? JsonObject)?.let(GitHubCopilotProgress::mcpFinding)?.let { request ->
+                return observation(request.preview, request.summary).copy(copilotPhase = "MCP_RESPONSE")
+            }
+            if (operation(name, args).mutation) return null
             val range = facts["source_range"] as? JsonObject
             if (name.githubOperationFamily() == "github_read" && range != null) {
                 val path = (range["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
@@ -856,6 +910,8 @@ internal class GitHubChatProgress(
             return when {
                 !path.isNullOrBlank() -> GitHubProgressPresentation.taskLabel(path.replace('\\', '/').split('/').takeLast(2).joinToString("/"))
                 value("job_id") != null -> "Job ${value("job_id")}"
+                value("gateway_job_id") != null -> "Copilot task ${value("gateway_job_id")}"
+                value("task_id") != null -> "Copilot task ${value("task_id")}"
                 value("run_id") != null -> "Run ${value("run_id")}"
                 value("pull_number") != null -> "PR #${value("pull_number")}"
                 value("pr_number") != null -> "PR #${value("pr_number")}"
@@ -873,6 +929,9 @@ internal class GitHubChatProgress(
 
         private fun operation(name: String, args: JsonObject?): Operation {
             val action = (GitHubActionIdentity.canonicalArguments(name, args ?: JsonObject(emptyMap()))["action"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            GitHubCopilotProgress.activity(name, args ?: JsonObject(emptyMap()))?.let {
+                return Operation(it.preview, it.subject, it.next, it.mutation)
+            }
             return when (name.githubOperationFamily()) {
                 "github_read" -> Operation("Reading source", "source read", "compare the implementation with the reported behavior and identify the next relevant source")
                 "github_search" -> Operation("Searching repository", "repository search", "open the matching implementation and check how it connects to the requested behavior")

@@ -9,8 +9,9 @@ LEGACY_EXECUTION_BUDGET = {'model_calls': 128, 'model_tokens': 4194304,
                          'verification_calls': 2, 'final_calls': 1, 'final_seconds': 30}
 
 
-def new_request_defaults(request):
+def new_request_defaults(request, next_action_policy='ACTIVE'):
     return dict(request, duration_hours=request.get('duration_hours', DEFAULT_DURATION_HOURS),
+                next_action_policy=request.get('next_action_policy', next_action_policy),
                 execution_budget=dict(DEFAULT_EXECUTION_BUDGET, **request.get('execution_budget', {})))
 
 
@@ -26,6 +27,8 @@ def retained_request_defaults(request, accepted):
         result['duration_hours'] = accepted.get('duration_hours', 3)
     if 'sampling_policy' not in result and 'sampling_policy' in accepted:
         result['sampling_policy'] = dict(accepted['sampling_policy'])
+    if 'next_action_policy' not in result and 'next_action_policy' in accepted:
+        result['next_action_policy'] = accepted['next_action_policy']
     if 'execution_budget' in accepted:
         result['execution_budget'] = dict(accepted['execution_budget'], **result.get('execution_budget', {}))
     return result

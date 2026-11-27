@@ -848,18 +848,19 @@ class EngineeringConversationTests(unittest.TestCase):
         self.runtime._durable_connect = connect
 
     def test_next_action_mode_is_frozen_for_followup_and_legacy_jobs(self):
-        for mode in ('SHADOW', 'ACTIVE', None):
+        for mode in ('LEGACY', 'SHADOW', 'ACTIVE', None):
             req = dict(self.request, request_id='policy-' + str(mode), client_conversation_id='policy-chat-' + str(mode))
             if mode:
                 req['next_action_policy'] = mode
             job = self.store.create('owner', req)
             snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
-            self.assertEqual(mode or 'LEGACY', snapshot['next_action_policy'])
+            expected_mode = mode or 'ACTIVE'
+            self.assertEqual(expected_mode, snapshot['next_action_policy'])
             claimed, lease, _ = self.store.claim(job['id'])
             self.assertTrue(self.store.complete(claimed, lease, 'COMPLETED', {}))
             snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
             followup = dict(req, request_id='wrong-policy-' + str(mode), conversation_id=job['conversation_id'],
-                            expected_revision=snapshot['revision'], next_action_policy='ACTIVE' if mode != 'ACTIVE' else 'SHADOW')
+                            expected_revision=snapshot['revision'], next_action_policy='ACTIVE' if expected_mode != 'ACTIVE' else 'SHADOW')
             with self.assertRaisesRegex(ConversationConflict, 'next action policy'):
                 self.store.create('owner', followup)
 

@@ -335,6 +335,31 @@ class Conversations:
             raise ValueError('Invalid ' + name)
         return value
 
+    @staticmethod
+    def engineering_next_action_policy(db, principal, request):
+        """Default only new work; a retained conversation owns its accepted policy.
+
+        This lookup is not an admission grant. admission() still verifies every
+        immutable binding and the revision inside its creation transaction.
+        """
+        if 'next_action_policy' in request:
+            return request['next_action_policy']
+        row = None
+        if request.get('conversation_id'):
+            row = db.execute('SELECT binding,active_kind FROM gateway_conversations WHERE id=? AND principal=?',
+                             (request['conversation_id'], principal)).fetchone()
+        elif request.get('client_conversation_id'):
+            client_key = request['client_conversation_id']
+            local_key = 'scope1:' + fingerprint([client_key, request.get('profile_id'), 'engineering'])
+            row = db.execute('SELECT binding,active_kind FROM gateway_conversations WHERE principal=? AND client_key=?',
+                             (principal, local_key)).fetchone()
+            if row is None:
+                legacy = db.execute('SELECT binding,active_kind FROM gateway_conversations WHERE principal=? AND client_key=?',
+                                    (principal, client_key)).fetchone()
+                if legacy and legacy[1] == 'engineering' and json.loads(legacy[0]).get('profile_id') == request.get('profile_id'):
+                    row = legacy
+        return json.loads(row[0]).get('next_action_policy', 'LEGACY') if row and row[1] == 'engineering' else 'ACTIVE'
+
     def admission(self, db, principal, command_id, kind, job_id, request, binding, content, *, now=None, replace_paused=None):
         """Called inside the engine's creation commit, before any dispatch."""
         self.schema(db)
@@ -567,10 +592,9 @@ class Conversations:
         if kind == 'engineering':
             from v14.engineering import validate_request, digest
             from v14.engineering_defaults import new_request_defaults, retained_request_defaults
-            request_hash = fingerprint(validate_request(new_request_defaults(request)))
-        else:
-            request_hash = fingerprint(request)
         def save(db):
+            normalized = validate_request(new_request_defaults(request, self.engineering_next_action_policy(db, principal, request))) if kind == 'engineering' else request
+            request_hash = fingerprint(normalized)
             accepted = db.execute('SELECT receipt,fingerprint FROM gateway_commands WHERE principal=? AND id=?', (principal, command_id)).fetchone()
             if accepted:
                 receipt = json.loads(accepted[0])
@@ -585,7 +609,15 @@ class Conversations:
                 return dict(receipt, server_now=self.now())
             previous = db.execute('SELECT receipt,fingerprint FROM gateway_command_rejections WHERE principal=? AND id=?', (principal, command_id)).fetchone()
             if previous:
-                if previous[1] != request_hash or json.loads(previous[0])['job_kind'] != kind:
+                matches = previous[1] == request_hash
+                if not matches and kind == 'engineering' and 'next_action_policy' not in request:
+                    # Older definite rejections predate the serialized default.
+                    # Reconcile their exact payload; never turn the rejection
+                    # into permission to admit or repeat a remote operation.
+                    legacy = dict(normalized)
+                    legacy.pop('next_action_policy', None)
+                    matches = previous[1] == fingerprint(legacy)
+                if not matches or json.loads(previous[0])['job_kind'] != kind:
                     raise CommandIdentityConflict('Rejected command identity was reused with different content or binding')
                 return dict(json.loads(previous[0]), server_now=self.now())
             # Fail closed if the bounded rejection ledger is full; never evict a

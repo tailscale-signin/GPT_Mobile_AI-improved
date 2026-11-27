@@ -13,7 +13,6 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy
-import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionPreference
 import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
@@ -326,7 +325,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                                 room?.privacyModeLocked ?: session.privacyModeLocked
                             },
                             decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK,
-                            copilotPluginEnabled = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
+                            copilotPluginEnabled = GitHubCopilotAgentMergePolicy.pluginEnabled(features),
                             copilotEnabled = GitHubCopilotAgentMergePolicy.enabled(features, room?.id, context)
                         )
                     }
@@ -439,33 +438,14 @@ class GitHubProgrammerViewModel @Inject constructor(
         }
     }
 
-    /** Saves consent for this exact persisted chat/repository; never enrolls a PR. */
+    /** Saves an explicit preference for this exact persisted chat/repository; never enrolls a PR. */
     fun setCopilotEnabled(enabled: Boolean) {
         val (chatId, context) = mutable.value.let { (it.chatId ?: return) to (it.context ?: return) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val identity = settings.ensureConversationIdentity(chatId)
                 settings.mutateFeatureSettings { current ->
-                    val bound = current.conversationGitHub[chatId]?.sameWorkspace(context) == true &&
-                        current.conversationIdentities[chatId] == identity
-                    val pluginEnabled =
-                        current.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
-                    if (!bound || (enabled && !pluginEnabled)) {
-                        current
-                    } else {
-                        val updated = if (enabled) {
-                            current.githubCopilotConversations + mapOf(
-                                chatId to GitHubCopilotConversationPreference(
-                                    identity,
-                                    GitHubChatDecisions.workspaceKey(context),
-                                    true
-                                )
-                            )
-                        } else {
-                            current.githubCopilotConversations - chatId
-                        }
-                        current.copy(githubCopilotConversations = updated)
-                    }
+                    GitHubCopilotAgentMergePolicy.withPreference(current, chatId, context, identity, enabled)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

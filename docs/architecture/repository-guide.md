@@ -69,6 +69,13 @@ file; Repomix accepts one selected range per path inside its existing sandbox.
 
 ## GitHub engineering intelligence
 
+The [out-of-box intelligence design](github-out-of-box-intelligence.md) records
+the first-use contract, default policy, context allocation, recovery behavior and
+measurement boundaries. A sole eligible GitHub connection opens directly. When
+several accounts are available, new chats require an explicit account/host
+selection. A lost or disabled selection cannot fall through to another account;
+saved conversations keep their existing connection binding.
+
 GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The chat header keeps the branch visible alongside live progress, and its actions open repository files, checks, the map, task details or staged changes as they become available.
 
 A selected GitHub plugin in ordinary chat and the dedicated GitHub screen use
@@ -95,16 +102,30 @@ executor.
 | Verify and answer | The evidence book records tool results and outstanding acceptance criteria. Its next-action policy guides the next read or recovery. The final answer identifies what ran and which observations or prerequisites are still missing. |
 
 Gateway engineering is selected automatically when the saved private gateway
-confirms support for durable engineering jobs. The host admits new jobs by
-default for verified owners, including owners migrated from the old implicit
-off setting. An explicit host maintenance pause still controls new jobs, and
-revocation still removes access. In an eligible saved GitHub chat, an implementation
+confirms support for durable engineering jobs. Engineering is built into the
+Gateway experience; the old feature toggle and persistent chat control card
+are removed. Verified owner grants, repository scope, revocation and runtime
+readiness still govern admission, and individual jobs remain cancellable.
+In an eligible saved GitHub chat, an implementation
 request starts a host job automatically. Reads and planning use the selected client
 profile, so a direct lookup can finish without creating a job. Either side can reconnect to an accepted job
 using its saved identity. Android checks the selected model before dispatch
 and can wake a sleeping model on that same route.
 
 Fresh profiles use adaptive budgeting and task context, with evidence-based progress and next-action selection enabled. Saved overrides retain their settings. Direct requests for issues, pull requests, branches, commits, workflows, runs, releases and tags start with the matching read. Compound tasks use the broader engineering planner. Source caching and sharing with another model follow the connection and profile settings.
+
+New Gateway API admissions also default to evidence-guided next actions. Retained
+jobs, rejected command identities and continuations keep their accepted policy.
+Copilot is enabled by default for a correctly bound conversation, with a
+versioned one-time migration and persistent later off choices. Its previews name
+the requested purpose and observed phase; enablement alone cannot establish
+task acceptance, account eligibility or remote completion.
+
+The Windows Jobs view exposes scoped pages of retained work, authenticated local
+supervisor cancellation and reversible removal of confirmed terminal entries.
+Pending cancellation remains visible, original evidence stays retained and
+terminal failures do not occupy the open-job count. Scheduler admission failures
+release only their own acquired slot or queued waiter.
 
 Numbered follow-ups use the current workspace and the immediately preceding admitted read to resolve issue or pull-request references. Ambiguous numbers prompt for the record type. Requests for a previous report retain its original evidence scope. Source citations use the selected connection’s web origin, the checked revision, and the quoted line range.
 
@@ -124,6 +145,11 @@ The execution loop uses unresolved requirements and their dependencies to select
 the next authorized tool. It preserves citations when it changes strategy.
 Context selection prioritizes instructions, pending tool results and relevant
 pinned evidence. A resumed task retrieves its canonical checkpoint for that chat.
+Optional engineering memory retains request/decision capture but can render at
+most a quarter of the residual repository allowance. Source preparation receives
+the actual remaining tokens. The bounded projection keeps source identity and
+whole lines, reports omissions and defers a requested line that cannot fit; it
+does not fetch optional source when no useful allowance remains.
 
 To let another model investigate a stalled requirement, choose a recovery
 profile in the primary profile's GitHub settings. It can select one scoped

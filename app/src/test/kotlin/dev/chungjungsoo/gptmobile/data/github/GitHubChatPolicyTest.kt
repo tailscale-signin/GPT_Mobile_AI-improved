@@ -95,18 +95,21 @@ class GitHubChatPolicyTest {
         assertEquals(true, GitHubChatPolicy.tools(explicit, features, "p")?.reasoning)
     }
 
-    @Test fun copilotRequiresPluginAndExactSavedConversationConsent() {
+    @Test fun copilotDefaultsOnOnlyForTheExactBoundConversationAndRespectsExplicitOff() {
         val savedChat = features.copy(
             conversationGitHub = mapOf(42 to context),
             conversationIdentities = mapOf(42 to "room-42")
         )
-        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, 42, context))
+        assertTrue(GitHubCopilotAgentMergePolicy.enabled(savedChat, 42, context))
         assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, null, context))
-        assertEquals(emptyList<String>(), GitHubCopilotAgentMergePolicy.allowedActions(savedChat))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat.copy(conversationIdentities = emptyMap()), 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat.copy(conversationGitHub = emptyMap()), 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, 42, context.copy(ref = "other")))
+        assertEquals(listOf("fix_ci", "resolve_merge_conflicts"), GitHubCopilotAgentMergePolicy.allowedActions(savedChat))
 
         val plugin = dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings(githubCopilotEnabled = true)
         val permitted = savedChat.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to plugin))
-        assertFalse(GitHubCopilotAgentMergePolicy.enabled(permitted, 42, context))
+        assertTrue(GitHubCopilotAgentMergePolicy.enabled(permitted, 42, context))
         assertEquals(listOf("fix_ci", "resolve_merge_conflicts"), GitHubCopilotAgentMergePolicy.allowedActions(permitted))
         val opted = permitted.copy(
             githubCopilotConversations = mapOf(
@@ -118,6 +121,7 @@ class GitHubChatPolicyTest {
             )
         )
         assertTrue(GitHubCopilotAgentMergePolicy.enabled(opted, 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted.copy(githubCopilotConversations = mapOf(42 to opted.githubCopilotConversations.getValue(42).copy(enabled = false))), 42, context))
         assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted, 43, context))
         assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted.copy(conversationIdentities = mapOf(42 to "new-room")), 42, context))
         assertFalse(

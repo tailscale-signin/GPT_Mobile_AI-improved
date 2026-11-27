@@ -27,7 +27,7 @@ def generation_state(status, scheduling_state):
 def generation_summary(public, now):
     status = str(public.get('status', 'unknown')).lower()
     state = generation_state(status, public.get('scheduling_state'))
-    return {'job_id': public['job_id'], 'job_kind': 'generation', 'conversation_id': public.get('conversation_id'),
+    return {'job_id': public['job_id'], 'job_kind': 'generation', 'principal_id': public.get('principal_id'), 'conversation_id': public.get('conversation_id'),
             'title': public.get('title') or short_title(public.get('task_preview') or public.get('model')),
             'profile_id': public.get('profile_id'), 'profile_name': public.get('profile_name'), 'model': public.get('model'), 'repository': None, 'branch': None, 'base': None,
             'state': state, 'phase': public.get('stage', status), 'revision': public.get('last_sequence', 0),
@@ -53,7 +53,7 @@ def engineering_summary(job, lease, now):
     recovery = data.get('post_merge') or {}
     provider_retry_at = (job.get('provider_wait') or {}).get('retry_at')
     state = engineering_state(phase, lease, provider_retry_at, now)
-    return {'job_id': job['id'], 'job_kind': 'engineering', 'conversation_id': job.get('conversation_id'),
+    return {'job_id': job['id'], 'job_kind': 'engineering', 'principal_id': job.get('principal'), 'conversation_id': job.get('conversation_id'),
             'title': job.get('title') or short_title(request.get('objective')), 'profile_id': request.get('profile_id'), 'profile_name': request.get('profile_name'),
             'model': request.get('model'), 'repository': request['repository'], 'branch': request['branch'], 'base': request['base'],
             'source_branch': request.get('source_branch', request['branch']), 'source_sha': request.get('source_sha'), 'working_branch': request['branch'],
@@ -80,13 +80,18 @@ def copilot_state(phase):
 
 
 def copilot_summary(task, now):
+    from v14.copilot_tasks import CopilotTasks
     source, phase = task['request'], task['state']
+    public = CopilotTasks.public(task)
     bucket = copilot_state(phase)
-    return {'job_id': task['id'], 'job_kind': 'copilot', 'title': 'Copilot · ' + source['repository'],
-                 'repository': source['repository'], 'branch': source.get('head_ref') or source['base_ref'],
-                 'state': bucket, 'phase': phase, 'model': source.get('model'), 'revision': task['revision'],
-                 'accepted_at': task['accepted_at'], 'finished_at': task['updated_at'] if bucket in {'completed','failed','cancelled'} else None,
-                 'server_now': now, 'allowed_actions': ['open'], 'transcript_available': False}
+    return {'job_id': task['id'], 'job_kind': 'copilot', 'principal_id': task['principal'],
+            'title': 'Copilot · ' + source['repository'], 'repository': source['repository'],
+            'branch': source.get('head_ref') or source['base_ref'], 'state': bucket, 'phase': phase,
+            'model': source.get('model'), 'revision': task['revision'], 'accepted_at': task['accepted_at'],
+            'finished_at': task['updated_at'] if bucket in {'completed', 'failed', 'cancelled'} else None,
+            'server_now': now, 'allowed_actions': ['open'], 'transcript_available': False,
+            'progress': public['progress'], 'task_name': public.get('task_name'),
+            'pull_request_numbers': public['pull_request_numbers'], 'ci_verified': False, 'merge_authorized': False}
 
 
 def catalog_identities(db, principal, permissions, kind, include_copilot, upper):

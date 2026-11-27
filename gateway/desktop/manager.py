@@ -29,6 +29,43 @@ from v14.journal import backup_database
 RESTART = 75
 
 
+def retained_work_request(supervisor, action, payload):
+    """Use only the independent local supervisor credential, never an old owner."""
+    if not isinstance(payload, dict):
+        raise ValueError('Choose an original retained job.')
+    path, params, body = '/gateway/admin/retained-work', None, None
+    if action == 'list-retained-work':
+        if set(payload) - {'cursor'} or payload.get('cursor') is not None and (not isinstance(payload['cursor'], str) or len(payload['cursor']) > 4096):
+            raise ValueError('Refresh the retained job list before continuing.')
+        params = {'cursor': payload['cursor']} if payload.get('cursor') else None
+    else:
+        fields = {'job_id'} | ({'command_id', 'target'} if action == 'cancel-retained-work' else {'command_id'} if action == 'read-retained-work-cancel' else set())
+        job_id = payload.get('job_id')
+        if set(payload) != fields or not isinstance(job_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', job_id):
+            raise ValueError('Choose an original retained job.')
+        path += '/' + job_id
+        if action in {'cancel-retained-work', 'read-retained-work-cancel'}:
+            command = payload['command_id']
+            if not isinstance(command, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', command):
+                raise ValueError('Choose the original cancellation command.')
+            path += '/cancel'
+            if action == 'cancel-retained-work':
+                target = payload['target']
+                if not isinstance(target, dict) or set(target) != {'gateway_id', 'principal_id', 'job_kind', 'revision', 'generation'}:
+                    raise ValueError('Read the exact retained job before stopping it.')
+                body = dict(target, command_id=command)
+            else:
+                path += '/' + command
+    url = 'http://' + authority(control_host(supervisor.cfg), supervisor.cfg['port']) + path
+    kwargs = dict(headers={'X-Gateway-Management': supervisor.token}, timeout=(2, 8), allow_redirects=False)
+    if body is not None:
+        response = supervisor.http.post(url, json=body, **kwargs)
+    else:
+        response = supervisor.http.get(url, params=params, **kwargs)
+    response.raise_for_status()
+    return response.json()
+
+
 class UpdateCycle:
     """One release lookup/download at a time. Only the supervisor may switch runtimes."""
 
@@ -665,14 +702,9 @@ class Supervisor:
                     response.raise_for_status()
                     self.respond({'id': ident, 'accepted': True, 'result': response.json()})
                     ident = None
-                elif action == 'read-retained-work':
-                    job_id = self._request_payload.get('job_id')
-                    if set(self._request_payload) != {'job_id'} or not isinstance(job_id, str) or not re.fullmatch(r'(?:eng_|cp_)[a-f0-9]{32}', job_id):
-                        raise ValueError('Choose an original retained engineering or Copilot job.')
-                    url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/retained-work/' + job_id
-                    response = self.http.get(url, headers={'X-Gateway-Management': self.token}, timeout=(2, 8), allow_redirects=False)
-                    response.raise_for_status()
-                    self.respond({'id': ident, 'accepted': True, 'result': response.json()})
+                elif action in {'read-retained-work', 'list-retained-work', 'cancel-retained-work', 'read-retained-work-cancel'}:
+                    result = retained_work_request(self, action, self._request_payload)
+                    self.respond({'id': ident, 'accepted': True, 'result': result})
                     ident = None
                 elif action in {'read-admission', 'change-admission'}:
                     # Keep the compatibility account panel, but the local owner

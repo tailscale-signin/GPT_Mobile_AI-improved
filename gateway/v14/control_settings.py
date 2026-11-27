@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import time
 
 import requests
@@ -175,24 +176,56 @@ def install_control_settings(app, runtime, state, engineering, config):
     async def get_settings():
         return await asyncio.to_thread(observed)
 
+    from v14.retained_work_control import RetainedWorkControl, RetainedWorkError
+    from v14.jobs import DurableCommitError
+    retained_controls = RetainedWorkControl(runtime, engineering)
+
+    async def retained_dispatch(request, job_id=None, command_id=None):
+        # Host supervision is a separate local authority. Original clients and
+        # paired management proxies cannot cancel another caller's retained work.
+        user = getattr(request.state, 'principal', None)
+        if not user or user.id != 'local:manager' or not user.local_admin:
+            return JSONResponse({'error': {'code': 'supervisor_required'}}, status_code=403)
+        try:
+            if request.method == 'POST':
+                raw = await request.body()
+                if len(raw) > 8192:
+                    return JSONResponse({'error': {'code': 'cancel_command_too_large'}}, status_code=413)
+                try:
+                    body = json.loads(raw)
+                except (ValueError, UnicodeError):
+                    return JSONResponse({'error': {'code': 'invalid_cancel_command'}}, status_code=400)
+                result = await asyncio.to_thread(retained_controls.cancel, job_id, body)
+            elif command_id is not None:
+                result = await asyncio.to_thread(retained_controls.receipt, job_id, command_id)
+            elif job_id is None:
+                result = await asyncio.to_thread(retained_controls.listing, request.query_params.get('cursor'))
+            else:
+                result = await asyncio.to_thread(retained_controls.read, job_id)
+            return result if result else JSONResponse({'error': {'code': 'retained_work_not_found'}}, status_code=404)
+        except RetainedWorkError as error:
+            return JSONResponse({'error': {'code': error.code, 'message': str(error)}}, status_code=error.status)
+        except ValueError:
+            return JSONResponse({'error': {'code': 'retained_work_changed', 'message': 'Read the original job and cancellation command before another action.'}}, status_code=409)
+        except (sqlite3.Error, OSError, DurableCommitError):
+            return JSONResponse({'error': {'code': 'retained_work_storage_unavailable',
+                'message': 'The stop outcome is unconfirmed. Read the original cancellation command when storage is available.'}}, status_code=503)
+
+    @app.get('/gateway/admin/retained-work')
+    async def retained_inventory(request: Request):
+        return await retained_dispatch(request)
+
     @app.get('/gateway/admin/retained-work/{job_id}')
     async def retained_work(job_id: str, request: Request):
-        # A host can inspect work retained for an old network/device identity.
-        # This never adopts that identity or authorizes a mutation on its behalf.
-        user = getattr(request.state, 'principal', None)
-        if not user or user.id != 'local:manager':
-            return JSONResponse({'error': {'code': 'supervisor_required'}}, status_code=403)
-        if not re.fullmatch(r'(?:eng_|cp_)[a-f0-9]{32}', job_id):
-            return JSONResponse({'error': {'code': 'retained_work_not_found'}}, status_code=404)
-        def read():
-            task = engineering.copilot.get(job_id) if job_id.startswith('cp_') else engineering.store.get(job_id)
-            if not task:
-                return None
-            result = engineering.copilot.public(task) if job_id.startswith('cp_') else engineering.job_response(task)
-            return {'job': result, 'principal_id': task['principal'],
-                    'gateway_id': engineering.store.conversations.gateway_id(), 'read_only': True}
-        result = await asyncio.to_thread(read)
-        return result if result else JSONResponse({'error': {'code': 'retained_work_not_found'}}, status_code=404)
+        return await retained_dispatch(request, job_id)
+
+    @app.post('/gateway/admin/retained-work/{job_id}/cancel')
+    async def cancel_retained_work(job_id: str, request: Request):
+        return await retained_dispatch(request, job_id)
+
+    @app.get('/gateway/admin/retained-work/{job_id}/cancel/{command_id}')
+    async def retained_cancel_receipt(job_id: str, command_id: str, request: Request):
+        return await retained_dispatch(request, job_id, command_id)
 
     def activate(values):
         if not isinstance(values, dict) or set(values) != set(current) - {'validation_profile'}:

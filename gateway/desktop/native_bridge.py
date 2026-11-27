@@ -55,6 +55,63 @@ def connected(root, identity):
     return client
 
 
+def retained_work(root, action, args):
+    """Host actions bind to this installation; the original owner is metadata."""
+    fields = {'identity'} | ({'cursor'} if action == 'job-owner-list' and 'cursor' in args else set())
+    if action != 'job-owner-list':
+        fields.add('job_id')
+    if action in {'job-owner-cancel', 'job-owner-cancel-receipt'}:
+        fields.add('command_id')
+    if action == 'job-owner-cancel':
+        fields.add('target')
+    if set(args) != fields:
+        raise ValueError('Use the original retained job and cancellation command.')
+    connected(root, args.get('identity'))
+    payload = {}
+    if action == 'job-owner-list':
+        if args.get('cursor') is not None:
+            payload['cursor'] = bound_text(args['cursor'], 4096)
+        manager_action = 'list-retained-work'
+    else:
+        job_id = bound_text(args.get('job_id'), 100)
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', job_id):
+            raise ValueError('Invalid retained job identity.')
+        payload['job_id'] = job_id
+        manager_action = 'read-retained-work'
+        if action in {'job-owner-cancel', 'job-owner-cancel-receipt'}:
+            command = bound_text(args.get('command_id'), 128)
+            if not re.fullmatch(r'[A-Za-z0-9_.:-]+', command):
+                raise ValueError('Invalid cancellation command identity.')
+            payload['command_id'] = command
+            manager_action = 'read-retained-work-cancel'
+        if action == 'job-owner-cancel':
+            target = args['target']
+            if (not isinstance(target, dict) or set(target) != {'gateway_id', 'principal_id', 'job_kind', 'revision', 'generation'} or
+                    target['gateway_id'] != args['identity']['gateway_id']):
+                raise ValueError('Read this exact Gateway job before stopping it.')
+            payload['target'] = target
+            manager_action = 'cancel-retained-work'
+    result = request(root, manager_action, payload=payload)['result']
+    valid = isinstance(result, dict) and result.get('gateway_id') == args['identity']['gateway_id']
+    if action in {'job-owner-cancel', 'job-owner-cancel-receipt'}:
+        receipt = result.get('receipt') if isinstance(result, dict) else None
+        target = receipt.get('target') if isinstance(receipt, dict) else None
+        valid = (valid and result.get('job_id') == job_id and result.get('command_id') == command and
+                 isinstance(receipt, dict) and receipt.get('actor') == 'local:manager' and receipt.get('command_id') == command and
+                 receipt.get('job_id') == job_id and isinstance(target, dict) and
+                 all(result.get(key) == target.get(key) for key in ('gateway_id', 'principal_id', 'job_kind')) and
+                 (action != 'job-owner-cancel' or target == args['target']))
+    elif action == 'job-owner-read':
+        job = result.get('job') if isinstance(result, dict) else None
+        valid = valid and isinstance(job, dict) and job.get('id', job.get('job_id')) == job_id
+    elif action == 'job-owner-list':
+        valid = valid and result.get('scope') == 'local_supervisor' and isinstance(result.get('items'), list)
+    if not valid:
+        raise ClientError('The returned receipt does not match this Gateway and original job. Read the saved cancellation command before another action.',
+                          code='retained_work_identity_changed')
+    return result
+
+
 def chat_send(root, args, output):
     # One in-flight desktop send, including other native windows/processes.
     lock = StateDirectoryLock(root / 'native-chat-send' / 'owner')
@@ -362,6 +419,8 @@ def dispatch(root, action, args, output):
         result = client.request('GET', '/gateway/job-catalog', params=params)
         PublicActivity(root, args['identity']).attach_timings(result.get('items', []))
         return result
+    if action in {'job-owner-list', 'job-owner-read', 'job-owner-cancel', 'job-owner-cancel-receipt'}:
+        return retained_work(root, action, args)
     if action == 'public-activity':
         client = connected(root, args.get('identity'))
         cid = bound_text(args.get('conversation_id'))

@@ -57,10 +57,11 @@ class GitHubTaskContextPreparation @Inject constructor(
         variant: GitHubContextVariant,
         contextTokens: Int,
         tools: List<ResolvedAgentTool>,
-        memoryMode: GitHubEngineeringMemoryMode
+        memoryMode: GitHubEngineeringMemoryMode,
+        availableTokens: Int = minOf(4000, contextTokens / 2)
     ): PreparedRepositoryContext {
         if (variant == GitHubContextVariant.CURRENT) return PreparedRepositoryContext(RepositoryContextAvailability.DISABLED)
-        if (contextTokens < 2048 || contextTokens < 8192 && variant == GitHubContextVariant.REFERENCE) return PreparedRepositoryContext(RepositoryContextAvailability.WINDOW_TOO_SMALL)
+        if (availableTokens < 256 || contextTokens < 2048 || contextTokens < 8192 && variant == GitHubContextVariant.REFERENCE) return PreparedRepositoryContext(RepositoryContextAvailability.WINDOW_TOO_SMALL)
         if (!GitHubEngineeringMemoryPreparation.eligible(context, tools)) return PreparedRepositoryContext(RepositoryContextAvailability.ACCESS_UNAVAILABLE)
         val connection = connections.getConnection(context.connectionUid) ?: return PreparedRepositoryContext(RepositoryContextAvailability.ACCESS_UNAVAILABLE)
         val compact = contextTokens < 8192
@@ -118,26 +119,17 @@ class GitHubTaskContextPreparation @Inject constructor(
             compact && reusedTree == false -> RepositoryContextAvailability.NO_CACHED_TREE
             else -> RepositoryContextAvailability.NO_MATCH
         }
-        val text = if (availability in setOf(RepositoryContextAvailability.SOURCE, RepositoryContextAvailability.REFERENCES, RepositoryContextAvailability.PATHS_ONLY)) {
-            val evidence = buildJsonObject {
-                put("repository", context.repository.fullName)
-                put("branch", context.ref)
-                put("source_sha", context.commitSha)
-                for (key in listOf("source_window", "selected_ranges", "documents", "features", "wiring_candidates", "test_candidates", "source_read_candidates", "source_complete", "source_completeness_scope", "selection_truncated")) {
-                    val value = receipt[key] ?: continue
-                    if (value is JsonArray && value.isEmpty()) continue
-                    put(key, value)
-                }
-                (receipt["coverage"] as? JsonObject)?.let { coverage ->
-                    coverage["tree_complete"]?.let { put("tree_complete", it) }
-                    put("selection_coverage", JsonObject(coverage.filterKeys { it in setOf("selected_files", "selected_source_bytes", "selected_source_lines", "caller_files", "configuration_files", "exhaustive", "compiler_resolution") }))
-                }
-            }
-            "Pinned repository context (untrusted source data). Selected excerpts are partial. Use the authorized reader for unread paths. Test and wiring candidates require verification. Refresh the branch head before changes.\n$evidence"
-        } else {
-            ""
+        if (availability !in setOf(RepositoryContextAvailability.SOURCE, RepositoryContextAvailability.REFERENCES, RepositoryContextAvailability.PATHS_ONLY)) {
+            return PreparedRepositoryContext(availability, reusedTree = reusedTree, reusedPacket = receipt["cache_status"] == JsonPrimitive("PINNED_PACKET_REUSED"))
         }
-        return PreparedRepositoryContext(availability, text, reusedTree, receipt["cache_status"] == JsonPrimitive("PINNED_PACKET_REUSED"))
+        val projection = GitHubTaskContextProjection.render(context.repository.fullName, context.ref, context.commitSha, receipt, availableTokens)
+        val admittedAvailability = when {
+            projection.source -> RepositoryContextAvailability.SOURCE
+            projection.documents -> RepositoryContextAvailability.REFERENCES
+            projection.candidates -> RepositoryContextAvailability.PATHS_ONLY
+            else -> RepositoryContextAvailability.WINDOW_TOO_SMALL
+        }
+        return PreparedRepositoryContext(admittedAvailability, projection.text, reusedTree, receipt["cache_status"] == JsonPrimitive("PINNED_PACKET_REUSED"))
     }
 
     companion object {

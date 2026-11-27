@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -107,5 +108,48 @@ class PreparedContextBudgetTest {
         assertTrue(prompt + RequestAdmission.estimateSafety(prompt) + 512 <= 5632)
         assertEquals(0, PreparedContextBudget.optionalTokens(plan.copy(promptTokens = 8914), 8192, 512))
         assertEquals("", PreparedContextBudget.sections(listOf(fits), 0))
+    }
+
+    @Test fun repositoryPreparationCapturesMemoryBeforeSourceWithoutLettingHistoryFillItsWindow() = runTest {
+        for (available in listOf(256, 330, 800, 4000)) {
+            for (memoryFits in listOf(true, false)) {
+                val calls = mutableListOf<String>()
+                var memoryAllowance = -1
+                val memory = if (memoryFits) "Saved user decision: retain the parser behavior." else "Historical observation ".repeat(400)
+                val source = "Pinned source SHA and bounded lines."
+                val prepared = PreparedContextBudget.repositorySections(
+                    available,
+                    prepareMemory = { allowance ->
+                        calls += "capture latest request and decisions"
+                        memoryAllowance = allowance
+                        assertTrue(allowance <= available / 4)
+                        memory
+                    },
+                    prepareSource = { allowance ->
+                        calls += "prepare pinned source"
+                        assertTrue(allowance >= available - available / 4)
+                        assertTrue(allowance >= 256)
+                        val retainedMemory = if (ContextBudgetService.estimate("\n$memory") <= memoryAllowance) memory else ""
+                        assertEquals(available - if (retainedMemory.isEmpty()) 0 else ContextBudgetService.estimate("\n$retainedMemory"), allowance)
+                        source
+                    }
+                )
+                assertEquals(listOf("capture latest request and decisions", "prepare pinned source"), calls)
+                assertEquals(source, prepared.source)
+                assertEquals(if (ContextBudgetService.estimate("\n$memory") <= memoryAllowance) memory else "", prepared.memory)
+                assertTrue(ContextBudgetService.estimate(prepared.text) <= available)
+            }
+        }
+    }
+
+    @Test fun exhaustedOptionalBudgetDoesNotCaptureMemoryOrLookUpSource() = runTest {
+        for (available in listOf(0, 1, 255)) {
+            val result = PreparedContextBudget.repositorySections(
+                available,
+                prepareMemory = { error("No memory preparation may run without an admitted optional window") },
+                prepareSource = { error("No source/cache lookup may run without an admitted optional window") }
+            )
+            assertEquals(PreparedContextBudget.RepositorySections("", "", ""), result)
+        }
     }
 }

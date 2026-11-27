@@ -10,25 +10,39 @@ public partial class MainWindow
 {
     private string PreferencesPath => System.IO.Path.Combine(root,"data","desktop-appearance.json");
     private bool allowWindowExit;
+    private JobControlHistory? jobHistory;
+    private bool JobHistoryReady => jobHistory?.Writable == true;
     private void ReadPreferences()
     {
-        try {
-            if(File.Exists(PreferencesPath) && new FileInfo(PreferencesPath).Length<=65536)
-                preferences=JsonNode.Parse(File.ReadAllText(PreferencesPath)) as JsonObject??[];
-        } catch(Exception ex) when(ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) {}
+        jobHistory=JobControlHistory.Open(PreferencesPath);
+        if(!jobHistory.Writable)return;
+        preferences=jobHistory.Preferences;
+        pins.Clear();removedJobs.Clear();jobCancellationRequests.Clear();
         foreach(var id in preferences.Array("pins").Take(128))if(id!=null)pins.Add(id.ToString());
+        foreach(var key in preferences.Array("removedJobs"))if(key is JsonValue value && value.ToString().Length==64)removedJobs.Add(value.ToString());
+        foreach(var item in preferences.Object("jobCancellationRequests"))
+            if(item.Key.Length==64 && item.Value is JsonObject request && Guid.TryParse(request.Text("command_id", ""),out _) && request["target"] is JsonObject)
+                jobCancellationRequests[item.Key]=(JsonObject)request.DeepClone();
         ((App)Application.Current).Appearance=preferences.Text("theme","Dark");((App)Application.Current).ApplyContrast();
     }
     private void SavePreferences()
     {
+        if(!JobHistoryReady)throw new InvalidOperationException(jobHistory?.Error ?? "Saved cancellation history is unavailable.");
         preferences["pins"]=new JsonArray(pins.Take(128).Select(id=>(JsonNode?)JsonValue.Create(id)).ToArray());
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(PreferencesPath)!);
-        string tmp=PreferencesPath+"."+Guid.NewGuid().ToString("N")+".tmp";
-        try{File.WriteAllText(tmp,preferences.ToJsonString());File.Move(tmp,PreferencesPath,true);}
-        finally{File.Delete(tmp);}
+        preferences["removedJobs"]=new JsonArray(removedJobs.Select(key=>(JsonNode?)JsonValue.Create(key)).ToArray());
+        preferences["jobCancellationRequests"]=new JsonObject(jobCancellationRequests.Select(item=>new KeyValuePair<string,JsonNode?>(item.Key,item.Value.DeepClone())));
+        jobHistory!.Save(preferences);
+    }
+    private void ReloadJobHistory()
+    {
+        if(JobHistoryReady || jobControlBusy)return;
+        ReadPreferences();Navigate(route);
+        status.Text=JobHistoryReady ? "Saved cancellation history reloaded." : jobHistory!.Error;
     }
     private void BuildCategory()
     {
+        if(!JobHistoryReady)page.Children.Add(Card("Saved history needs attention",Ui.Text(jobHistory?.Error ?? "Saved cancellation history is unavailable.",13,"MutedBrush"),
+            Ui.Button("Reload saved history",ReloadJobHistory)));
         if(Section=="Devices"){BuildAndroid();var list=new ListBox{MaxHeight=160};Ui.Rows(list,snapshot.Array("devices"),"address","state");
             page.Children.Add(Card("Observed network activity",Ui.Text("Recent socket observations · "+TimeOf(snapshot.Number("capturedAt")),13,"MutedBrush"),list));return;}
         if(Section=="Connection"){BuildConnection();return;}
@@ -39,16 +53,17 @@ public partial class MainWindow
             var comfortable=Ui.Toggle(panel,"Comfortable job rows",preferences.Flag("comfortable"));
             var reduced=Ui.Toggle(panel,"Reduce motion",preferences.Flag("reduceMotion"));
             var enter=Ui.Toggle(panel,"Send with Enter (Shift+Enter inserts a new line)",preferences.Flag("enterSend"));
-            panel.Children.Add(Ui.Button("Apply appearance",()=>{
+            var apply=Ui.Button("Apply appearance",()=>{
                 preferences["theme"]=theme.SelectedItem!.ToString();preferences["comfortable"]=comfortable.IsChecked==true;
                 preferences["reduceMotion"]=reduced.IsChecked==true;preferences["enterSend"]=enter.IsChecked==true;SavePreferences();
                 ((App)Application.Current).Appearance=theme.SelectedItem.ToString()!;((App)Application.Current).ApplyContrast();
                 Navigate("Settings/Appearance");status.Text="Appearance saved.";
-            },true));page.Children.Add(Ui.Card(panel));return;
+            },true);apply.IsEnabled=JobHistoryReady;panel.Children.Add(apply);page.Children.Add(Ui.Card(panel));return;
         }
         if(Section=="General")
         {
             var panel=new StackPanel();var tray=Ui.Toggle(panel,"Hide the window in the notification area when I close it",preferences.Flag("tray"));
+            tray.IsEnabled=JobHistoryReady;
             tray.Click+=(_,_)=>{preferences["tray"]=tray.IsChecked==true;SavePreferences();};
             panel.Children.Add(Ui.Text("Accepted jobs continue on the Gateway. Open Gateway from the notification area to return.",13,"MutedBrush"));
             page.Children.Add(Card("Window behavior",panel));

@@ -2408,6 +2408,7 @@ class ChatRepositoryImpl(
                     else -> Unit
                 }
                 publicState?.let { sendPublicState(it) }
+                githubProgress?.immediateUpdates()?.forEach { sendPublicState(it) }
             }
             val statusJob = launch {
                 if (githubProgress != null) {
@@ -3690,12 +3691,13 @@ class ChatRepositoryImpl(
             if (chatToolConfig?.github != null && input.stage?.writerRequestPlan == null && !input.verificationOnlyRequested) {
                 val available = dev.chungjungsoo.gptmobile.data.context.PreparedContextBudget.optionalTokens(contextPlan, promptContextTokens, limits.outputTokens)
                 if (available >= 256) {
-                    val engineering = engineeringMemoryContext(platform, chatToolConfig, latestUser, promptContextTokens, resolvedTools, runId, emit, available)
-                    val used = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(engineering)
-                    if (available - used >= 256) {
-                        repositoryReference = repositoryReferenceContext(platform, chatToolConfig, latestUser, taskRecovery?.originalRequest ?: latestUser?.content.orEmpty(), promptContextTokens, resolvedTools, emit)
-                    }
-                    repositoryEvidence = dev.chungjungsoo.gptmobile.data.context.PreparedContextBudget.sections(listOf(engineering, repositoryReference), available)
+                    val prepared = dev.chungjungsoo.gptmobile.data.context.PreparedContextBudget.repositorySections(
+                        available,
+                        prepareMemory = { allowance -> engineeringMemoryContext(platform, chatToolConfig, latestUser, promptContextTokens, resolvedTools, runId, emit, allowance) },
+                        prepareSource = { allowance -> repositoryReferenceContext(platform, chatToolConfig, latestUser, taskRecovery?.originalRequest ?: latestUser?.content.orEmpty(), promptContextTokens, resolvedTools, emit, allowance) }
+                    )
+                    repositoryReference = prepared.source
+                    repositoryEvidence = prepared.text
                     if (repositoryEvidence.isNotBlank()) {
                         val withEvidence = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt())
                         val enriched = try {
@@ -7093,12 +7095,12 @@ class ChatRepositoryImpl(
         }
     }
 
-    private suspend fun repositoryReferenceContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, task: String, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, emit: suspend (ApiState) -> Unit): String {
+    private suspend fun repositoryReferenceContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, task: String, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, emit: suspend (ApiState) -> Unit, availableTokens: Int): String {
         val github = tools?.github ?: return ""
         if (user == null || repositoryTaskContext == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
         if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityRequest.from(user.content) != null || dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute.from(user.content) != null || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
         val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
-        val prepared = repositoryTaskContext.prepare(github, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
+        val prepared = repositoryTaskContext.prepare(github, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory, availableTokens)
         AppLogRecorder.recordEvent("GitHub", "REPOSITORY_CONTEXT_PREPARED", mapOf("availability" to prepared.availability.name, "treeReused" to prepared.reusedTree, "packetReused" to prepared.reusedPacket))
         val text = prepared.text.ifEmpty { return prepared.nextAction }
         if (text.isNotBlank()) {

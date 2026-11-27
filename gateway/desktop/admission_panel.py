@@ -1,4 +1,4 @@
-"""Windows operator view of the same revision-checked admissions enforced for new jobs."""
+"""Read-only compatibility view of built-in Gateway engineering and owner identity."""
 import queue
 import threading
 import tkinter as tk
@@ -11,7 +11,7 @@ from desktop.window_lifecycle import WindowCallbacks
 def build_panel(parent, root):
     frame = ttk.Frame(parent, padding=14)
     scope = tk.StringVar(frame)
-    status = tk.StringVar(frame, value='Read a Gateway account to manage its new saved jobs.')
+    status = tk.StringVar(frame, value='Engineering is built into Gateway. Manage individual work in Jobs.')
     ttk.Label(frame, text='Saved engineering jobs', style='Section.TLabel').pack(anchor='w')
     picker = ttk.Combobox(frame, textvariable=scope, state='readonly')
     picker.pack(fill='x', pady=(10, 4))
@@ -25,10 +25,8 @@ def build_panel(parent, root):
 
     def render(*_):
         item = accounts.get(scope.get())
-        change.configure(state='normal' if item and not busy else 'disabled',
-                         text='Pause new jobs' if item and item['enabled'] else 'Allow new jobs')
         if item:
-            label = 'Allowed' if item['enabled'] else 'Paused'
+            label = 'Engineering on' if item['enabled'] else 'Update Gateway and check owner access'
             status.set(f"{label} · revision {item['revision']} on this PC")
 
     def read_result():
@@ -62,12 +60,6 @@ def build_panel(parent, root):
         nonlocal busy
         if busy:
             return
-        item = accounts.get(scope.get())
-        update = None
-        if action == 'change-admission':
-            if not item:
-                return
-            update = dict(item, enabled=not item['enabled'])
         busy = True
         refresh.configure(state='disabled')
         picker.configure(state='disabled')
@@ -75,7 +67,7 @@ def build_panel(parent, root):
         status.set('Waiting for the Gateway supervisor…')
         def worker():
             try:
-                reply = request(root, action, settings=update)
+                reply = request(root, action)
                 inbox.put((action, reply['settings'], None))
             except (KeyError, TimeoutError, ValueError, OSError, RuntimeError) as error:
                 inbox.put((action, None, str(error)))
@@ -84,8 +76,6 @@ def build_panel(parent, root):
 
     refresh = ttk.Button(actions, text='Read current settings', command=lambda: submit('read-admission'))
     refresh.pack(side='left', padx=(0, 8))
-    change = ttk.Button(actions, command=lambda: submit('change-admission'))
-    change.pack(side='left')
     scope.trace_add('write', render)
     render()
     return frame

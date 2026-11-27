@@ -404,9 +404,9 @@ fun ChatModelDialog(
                                     }
                                     Text(
                                         if (githubCopilotAvailable) {
-                                            "Off by default. Turning this off blocks new Copilot calls; accepted cloud tasks continue on GitHub. To stop an already watched PR, use the approved agent_merge_disable action. Auto-merge stays off."
+                                            "On by default. Progress identifies Copilot delegation and the state GitHub reports. Turning this off blocks new Copilot work; accepted cloud tasks continue on GitHub. To stop an already watched PR, use the approved agent_merge_disable action."
                                         } else {
-                                            "Enable GitHub Copilot in GitHub plugin settings before opting in here."
+                                            "Enable GitHub Copilot in GitHub plugin settings to allow it here."
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant

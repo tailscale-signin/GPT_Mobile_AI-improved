@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.context.EngineeringProfileSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import kotlinx.serialization.Serializable
@@ -62,7 +63,7 @@ enum class GitHubNextActionMode(val title: String, val description: String) {
 @Serializable
 enum class GitHubCopilotExecutionOwner { ANDROID_DIRECT, GATEWAY }
 
-/** Persisted conversation consent; an unrelated workspace cannot inherit it. */
+/** Persisted conversation preference; an unrelated workspace cannot inherit it. */
 @Serializable
 data class GitHubCopilotConversationPreference(
     val conversationIdentity: String,
@@ -70,8 +71,11 @@ data class GitHubCopilotConversationPreference(
     val enabled: Boolean
 )
 
-/** Copilot cloud work is a separate paid service, off for all conversations by default. */
+/** Default availability never grants workspace access or starts separately billed cloud work. */
 internal object GitHubCopilotAgentMergePolicy {
+    fun pluginEnabled(features: AppFeatureSettings): Boolean =
+        (features.pluginExecution[ToolPluginId.GITHUB] ?: PluginExecutionSettings()).githubCopilotEnabled
+
     /** Canonical native actions only. Ordinary collaboration can also enroll a Copilot bot. */
     fun requiresConsent(action: String, arguments: JsonObject): Boolean = when (action) {
         "agent_merge_enable", "agent_merge_update", "copilot_create_task" -> true
@@ -90,17 +94,33 @@ internal object GitHubCopilotAgentMergePolicy {
 
     fun enabled(features: AppFeatureSettings, chatId: Int?, context: GitHubConversationContext?): Boolean {
         if (chatId == null || chatId <= 0 || context == null) return false
-        if (features.pluginExecution[ToolPluginId.GITHUB]?.githubCopilotEnabled != true) return false
-        val saved = features.githubCopilotConversations[chatId] ?: return false
+        if (!pluginEnabled(features)) return false
+        val identity = features.conversationIdentities[chatId]?.takeIf(String::isNotBlank) ?: return false
+        if (features.conversationGitHub[chatId]?.sameWorkspace(context) != true) return false
+        val saved = features.githubCopilotConversations[chatId] ?: return true
         return saved.enabled &&
-            saved.conversationIdentity.isNotBlank() &&
-            saved.conversationIdentity == features.conversationIdentities[chatId] &&
-            saved.workspace == GitHubChatDecisions.workspaceKey(context) &&
-            features.conversationGitHub[chatId]?.sameWorkspace(context) == true
+            saved.conversationIdentity == identity &&
+            saved.workspace == GitHubChatDecisions.workspaceKey(context)
+    }
+
+    fun withPreference(features: AppFeatureSettings, chatId: Int, context: GitHubConversationContext, identity: String, enabled: Boolean): AppFeatureSettings {
+        if (chatId <= 0 ||
+            identity.isBlank() ||
+            features.conversationIdentities[chatId] != identity ||
+            features.conversationGitHub[chatId]?.sameWorkspace(context) != true ||
+            enabled &&
+            !pluginEnabled(features)
+        ) {
+            return features
+        }
+        return features.copy(
+            githubCopilotConversations = features.githubCopilotConversations +
+                (chatId to GitHubCopilotConversationPreference(identity, GitHubChatDecisions.workspaceKey(context), enabled))
+        )
     }
 
     fun allowedActions(features: AppFeatureSettings): List<String> {
-        val config = features.pluginExecution[ToolPluginId.GITHUB] ?: return emptyList()
+        val config = features.pluginExecution[ToolPluginId.GITHUB] ?: PluginExecutionSettings()
         if (!config.githubCopilotEnabled) return emptyList()
         return buildList {
             if (config.githubCopilotFixCi) add("fix_ci")

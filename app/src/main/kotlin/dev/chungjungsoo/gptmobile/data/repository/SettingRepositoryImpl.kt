@@ -193,6 +193,7 @@ class SettingRepositoryImpl @Inject constructor(
         if (settings.localAssistPolicy.permissionVersion >= 1 &&
             settings.settingsHome.schemaVersion >= 2 &&
             settings.llamaReasoningMigrationVersion >= 1 &&
+            settings.githubCopilotDefaultsVersion >= dev.chungjungsoo.gptmobile.data.github.GitHubCopilotDefaults.VERSION &&
             (selected == null || profiles.any { it.uid == selected })
         ) {
             return settings
@@ -205,12 +206,14 @@ class SettingRepositoryImpl @Inject constructor(
     private fun normalizeFeatureReferences(settings: AppFeatureSettings, profiles: List<PlatformV2>): AppFeatureSettings {
         val policy = settings.localAssistPolicy.reconcileSelectedProfile(profiles.mapTo(mutableSetOf()) { it.uid })
         val removed = settings.localAssistPolicy.profileUid != null && policy.profileUid == null
-        return settings.copy(
-            localAssist = settings.localAssist && !removed,
-            localAssistPolicy = policy.migrateProcessingPermissions(profiles),
-            settingsHome = settings.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid }),
-            llamaReasoningModes = migratedLlamaReasoning(settings, profiles),
-            llamaReasoningMigrationVersion = 1
+        return dev.chungjungsoo.gptmobile.data.github.GitHubCopilotDefaults.migrate(
+            settings.copy(
+                localAssist = settings.localAssist && !removed,
+                localAssistPolicy = policy.migrateProcessingPermissions(profiles),
+                settingsHome = settings.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid }),
+                llamaReasoningModes = migratedLlamaReasoning(settings, profiles),
+                llamaReasoningMigrationVersion = 1
+            )
         )
     }
 

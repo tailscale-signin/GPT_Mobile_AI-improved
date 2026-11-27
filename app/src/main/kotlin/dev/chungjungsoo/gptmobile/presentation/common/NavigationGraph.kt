@@ -537,23 +537,29 @@ fun NavGraphBuilder.settingNavigation(
             )
         ) {
             val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
-            val githubConnection = dev.chungjungsoo.gptmobile.presentation.ui.setting.gitHubModeConnection(toolState)
-            if (githubConnection != null) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubConnectionEntry(
+                state = toolState,
+                onBack = { navController.navigateUp() },
+                onManageConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                setup = {
+                    dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubConnectionSetupScreen(
+                        viewModel = toolConnectionsViewModel,
+                        onBack = { navController.navigateUp() },
+                        onManageConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                        onLaunchOAuth = onLaunchOAuth
+                    )
+                }
+            ) { githubConnection ->
                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
                     connection = githubConnection,
+                    viewModel = hiltViewModel(key = "github_workspace:${githubConnection.connectionUid}"),
+                    programmer = hiltViewModel(key = "github_programmer:${githubConnection.connectionUid}"),
                     onDismiss = { navController.navigateUp() },
                     onOpenConversation = { id -> navController.navigate("chat_room/$id") },
                     onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
                     onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
                     onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
                     onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) }
-                )
-            } else {
-                dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubConnectionSetupScreen(
-                    viewModel = toolConnectionsViewModel,
-                    onBack = { navController.navigateUp() },
-                    onManageConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
-                    onLaunchOAuth = onLaunchOAuth
                 )
             }
         }
@@ -918,10 +924,24 @@ fun NavGraphBuilder.githubChatNavigation(navController: NavHostController, toolC
         )
     ) { entry ->
         val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
-        val connection = dev.chungjungsoo.gptmobile.presentation.ui.setting.gitHubModeConnection(toolState)
-        if (connection != null) {
+        dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubConnectionEntry(
+            state = toolState,
+            onBack = { navController.navigateUp() },
+            onManageConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
+            setup = {
+                androidx.activity.compose.BackHandler { navController.navigateUp() }
+                dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubConnectionSetupScreen(
+                    viewModel = toolConnectionsViewModel,
+                    onBack = { navController.navigateUp() },
+                    onManageConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                    onLaunchOAuth = onLaunchOAuth
+                )
+            }
+        ) { connection ->
             dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
                 connection = connection,
+                viewModel = hiltViewModel(key = "github_workspace:${connection.connectionUid}"),
+                programmer = hiltViewModel(key = "github_programmer:${connection.connectionUid}"),
                 onDismiss = { navController.navigateUp() },
                 initialProfileUid = entry.arguments?.getString("profileUid"),
                 newConversation = true,
@@ -931,14 +951,6 @@ fun NavGraphBuilder.githubChatNavigation(navController: NavHostController, toolC
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
                 onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
                 onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) }
-            )
-        } else {
-            androidx.activity.compose.BackHandler { navController.navigateUp() }
-            dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubConnectionSetupScreen(
-                viewModel = toolConnectionsViewModel,
-                onBack = { navController.navigateUp() },
-                onManageConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
-                onLaunchOAuth = onLaunchOAuth
             )
         }
     }

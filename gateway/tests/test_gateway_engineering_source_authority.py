@@ -413,14 +413,59 @@ class DurableSourceChangeTests(unittest.TestCase):
 
     def test_artifact_capacity_failure_cannot_confirm_successful_edit(self):
         job, changes = self.prepared()
-        with patch('v14.engineering_artifacts.MAX_ARTIFACT', 2 * 1024 * 1024), self.assertRaises(ExecutionBindingError):
-            self.store.complete(job, job['_execution_lease'], 'REVIEW', {'changes': changes})
-        saved = self.store.get(job['id'])
-        self.assertEqual('IMPLEMENT', saved['state'])
+        prior = self.store.get(job['id'])
+        original_files = deepcopy(job['data']['files'])
+        operations = self.service.operations.page(prior)
+        artifact_ids = self.store.tx(lambda db: {row[0] for row in db.execute(
+            'SELECT id FROM engineering_artifacts WHERE job_id=?', (job['id'],))})
+        calls = list(self.backend.calls)
+        with patch('v14.engineering_artifacts.MAX_ARTIFACT', 2 * 1024 * 1024):
+            self.assertTrue(self.store.complete(job, job['_execution_lease'], 'REVIEW', {'changes': changes}))
+            reopened = EngineeringStore(self.runtime, lambda: self.time)
+            for _ in range(3):
+                reopened.recover()
+                self.service.tick(job['id'])
+        saved = reopened.get(job['id'])
+        self.assertEqual('NEEDS_INPUT', saved['state'])
+        self.assertEqual(prior['revision'] + 1, saved['revision'])
+        self.assertEqual(prior['request'], saved['request'])
+        self.assertEqual(calls, self.backend.calls)
+        self.assertNotIn(job['id'], reopened.due())
+        self.assertIsNone(reopened.claim(job['id']))
         self.assertNotIn('changes', saved['data'])
-        confirmed = self.store.tx(lambda db: db.execute('SELECT status FROM engineering_receipts WHERE job_id=? AND revision=?',
-                                                       (job['id'], job['revision'])).fetchone()[0])
-        self.assertNotEqual('CONFIRMED', confirmed)
+        self.assertEqual([], public_job(saved)['changed_files'])
+        for key in ('head_sha', 'files', 'tree', 'plan'):
+            self.assertEqual(prior['data'][key], saved['data'][key])
+        restored = deepcopy(saved)
+        EngineeringArtifacts(reopened).restore_stage(restored)
+        self.assertEqual(original_files, restored['data']['files'])
+        self.assertEqual(operations, self.service.operations.page(saved))
+        self.assertEqual([], operations['operations'])
+        reason = saved['data']['blocked_reason']
+        self.assertEqual('EXECUTION_ARTIFACT_CAPACITY', reason['code'])
+        self.assertEqual('IMPLEMENT', reason['failed_stage'])
+        self.assertFalse(reason['retryable'])
+        self.assertFalse(reason['stage_result_retained'])
+        self.assertFalse(reason['requires_reconciliation'])
+        report = saved['data']['final_report']
+        self.assertEqual('PARTIAL_UNVERIFIED', report['status'])
+        self.assertFalse(report['terminal_receipt']['acceptance_verified'])
+        self.assertEqual(1, report['terminal_receipt']['remaining_criteria'])
+        self.assertEqual(saved['revision'], report['terminal_receipt']['checkpoint_revision'])
+        # A confirmed checkpoint records the refusal, never the unsuccessful edit.
+        receipt = reopened.tx(lambda db: db.execute(
+            'SELECT status,output_json FROM engineering_receipts WHERE job_id=? AND revision=?',
+            (job['id'], job['revision'])).fetchone())
+        self.assertEqual('CONFIRMED', receipt[0])
+        self.assertEqual({'error_code': reason['code'], 'checkpoint_result_retained': False,
+                          'terminal_receipt': report['terminal_receipt']}, json.loads(receipt[1]))
+        # Only the bounded partial report may be new; rejected source chunks roll back.
+        retained_ids = reopened.tx(lambda db: {row[0] for row in db.execute(
+            'SELECT id FROM engineering_artifacts WHERE job_id=?', (job['id'],))})
+        self.assertEqual(artifact_ids | {report['artifact']['result_ref']}, retained_ids)
+        self.assertEqual(0, reopened.tx(lambda db: db.execute(
+            'SELECT COUNT(*) FROM engineering_artifact_chunks WHERE artifact_id NOT IN '
+            '(SELECT id FROM engineering_artifacts)').fetchone()[0]))
 
     def source_backend(self, sources):
         backend = GitHubEngineeringBackend(self.runtime)

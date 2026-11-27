@@ -111,12 +111,54 @@ internal class GitHubMcpRepositoryTool(
         return JsonObject(arguments + mapOf("owner" to JsonPrimitive(owner), "repo" to JsonPrimitive(repo)))
     }
 
-    private fun receipt(result: AgentToolResult, original: JsonObject, bounded: JsonObject): AgentToolResult =
-        if (original == bounded) {
+    private fun receipt(result: AgentToolResult, original: JsonObject, bounded: JsonObject): AgentToolResult {
+        val normalized = if (original == bounded) {
             result
         } else {
             dev.chungjungsoo.gptmobile.data.agent.ToolArgumentNormalization.retain(result, bounded, dev.chungjungsoo.gptmobile.data.agent.ToolArgumentNormalization.Kind.REPOSITORY_BINDING)
         }
+        if (result.isError || !result.dispatched || result.sharedResult || GitHubCopilotProgress.mcpActivity(operation, bounded) == null) return normalized
+        // This receipt proves a response to an admitted named request, not the
+        // meaning of an opaque remote body or any successful cloud execution.
+        val observed = buildJsonObject {
+            put("schema", "github.copilot-mcp-request.v1")
+            put("tool", definition.name)
+            put("operation", operation)
+            put("call_id", result.callId)
+            put("owner", bounded["owner"] ?: JsonPrimitive(repository.owner))
+            put("repo", bounded["repo"] ?: JsonPrimitive(repository.repo))
+            put("dispatch_observed", true)
+            put("response_observed", true)
+            put(
+                "kind",
+                when (operation) {
+                    "request_copilot_review" -> "REVIEW"
+                    "get_copilot_job_status" -> "STATUS"
+                    else -> "WORK"
+                }
+            )
+        }
+        val digest = GitHubEvidenceBook.digest(observed.toString())
+        return normalized.copy(
+            executionReceipt = JsonObject(
+                normalized.executionReceipt.orEmpty() + buildJsonObject {
+                    put("github_copilot_request", observed)
+                    put("saved_view_source_call_id", result.callId)
+                    put("saved_view_source_sha256", digest)
+                    put(
+                        "semantic_summary",
+                        buildJsonObject {
+                            put("schema", "github.semantic-summary.v1")
+                            put("operation", definition.name.substringBefore("__"))
+                            put("hash_scope", "IMMUTABLE_OPERATION_RECEIPT")
+                            put("source_result_sha256", digest)
+                            put("copilot_request", observed)
+                        }
+                    )
+                }
+            )
+        )
+    }
 
     private class Rejected(val code: String, message: String) : IllegalArgumentException(message) {
         fun result(callId: String) = AgentToolResult(

@@ -214,15 +214,30 @@ def save_public_repository_maps(root, enabled):
 def copilot_enabled(root):
     try:
         value = json.loads((Path(root) / 'data' / 'copilot-settings.json').read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return True
     except (OSError, ValueError):
         return False
-    return isinstance(value, dict) and value.get('enabled') is True
+    if not isinstance(value, dict) or type(value.get('enabled')) is not bool:
+        return False
+    version = value.get('defaults_version', 0)
+    if type(version) is not int or version < 0:
+        return False
+    if version < 1:
+        # The requested rollout changes the old default once. Future saved off
+        # preferences carry the version and are never automatically re-enabled.
+        try:
+            save_copilot_enabled(root, True)
+        except OSError:
+            return False
+        return True
+    return value['enabled']
 
 
 def save_copilot_enabled(root, enabled):
     if type(enabled) is not bool:
         raise ValueError('Copilot cloud task enablement must be boolean')
-    atomic_json(Path(root) / 'data' / 'copilot-settings.json', {'enabled': enabled})
+    atomic_json(Path(root) / 'data' / 'copilot-settings.json', {'enabled': enabled, 'defaults_version': 1})
 
 
 def control_host(cfg):

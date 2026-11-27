@@ -76,7 +76,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCacheTest.kt",
         "gateway/tests/test_gateway_jvm_impact.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceReadTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceReadTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjectionTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -86,7 +87,9 @@
         "docs/repairs/phone-repository-map-2026-11-22.md",
         "docs/repairs/diagnostic-93d824fd-graph-integration-task.json",
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
-        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+        "docs/repairs/github-mode-intelligence-2026-11-26.md",
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
       ],
       "invariants": [
         "Bind source ranges to the selected repository commit and blob.",
@@ -95,7 +98,8 @@
         "A local preparation failure retains only closed phase/reason evidence; it cannot grant independent source-read authority.",
         "Repeated blob deadlines retain incomplete coverage and bounded progress across restart; identity mismatches remain hard failures.",
         "Automatic missing-tool recovery can use only the bound local catalog; foreign catalog identity never creates dispatch authority.",
-        "Task selection expands only bounded retained caller and nearest configuration candidates; prepared source-byte/line counts do not prove provider delivery or exhaustive coverage."
+        "Task selection expands only bounded retained caller and nearest configuration candidates; prepared source-byte/line counts do not prove provider delivery or exhaustive coverage.",
+        "Optional source projection fits the residual prompt allowance, preserves commit/blob/range identity and defers an unread matched line rather than labeling unrelated lines as its match."
       ],
       "routing": {
         "role": "evidence",
@@ -853,7 +857,17 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/EngineeringGatewayConnection.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/GatewayModelPreparationRepository.kt",
         "gateway/desktop/control_store.py",
-        "gateway/v14/control_settings.py"
+        "gateway/v14/control_settings.py",
+        "gateway/v14/retained_work_control.py",
+        "gateway/v14/activity.py",
+        "gateway/v14/job_catalog.py",
+        "gateway/v14/inference_scheduler.py",
+        "gateway/v14/conversations.py",
+        "gateway/desktop/manager.py",
+        "gateway/desktop/native_bridge.py",
+        "gateway/desktop/admission_panel.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlSettingsPanel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlViewModel.kt"
       ],
       "tests": [
         "gateway/tests/test_gateway_workspace_guidance.py",
@@ -864,20 +878,29 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringDefaultsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/GatewaySelectedSendQualificationTest.kt",
-        "gateway/tests/test_gateway_control_settings.py"
+        "gateway/tests/test_gateway_control_settings.py",
+        "gateway/tests/test_gateway_queue_controls.py",
+        "gateway/tests/test_gateway_scheduler_recovery.py",
+        "gateway/tests/test_gateway_engineering_always_on.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayEngineeringSettingsTest.kt"
       ],
       "commands": [
         "python3 gateway/check_gateway.py"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
-        "docs/engineering/github-agent-context-workers-2026-11-22.md"
+        "docs/engineering/github-agent-context-workers-2026-11-22.md",
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
       ],
       "invariants": [
         "The existing job owns source, execution, authority and publication.",
         "Optional tool configuration never grants extra authority.",
         "Exported source is not automatically model-admitted context.",
-        "Verified owner connections may restore the engineering default without widening repository grants or bypassing explicit maintenance pauses; unchanged settings reads do not write state."
+        "Engineering is a built-in Gateway capability; disable commands reject without widening owner, repository or runtime-readiness authority.",
+        "A full-queue continuation can replace only its own paused predecessor within one transaction; unrelated admissions roll back and the active-job limit remains bounded.",
+        "Local-supervisor stop commands retain original owner/revision/generation and durable command identities. Pending cancellation and uncertain remote mutations cannot be reported as confirmed.",
+        "A failed scheduler admission callback releases only its acquired ticket or queued waiter; terminal retained records do not consume open-work counts."
       ],
       "routing": {
         "role": "executor",
@@ -902,21 +925,33 @@
       ],
       "paths": [
         "gateway/desktop/ui.py",
-        "gateway/desktop/dashboard.py"
+        "gateway/desktop/dashboard.py",
+        "gateway/desktop/native/MainWindow.Jobs.cs",
+        "gateway/desktop/native/MainWindow.Preferences.cs",
+        "gateway/desktop/native/MainWindow.Control.cs",
+        "gateway/desktop/native/MainWindow.Diagnostics.cs",
+        "gateway/desktop/native/Core/JobQueuePresentation.cs",
+        "gateway/desktop/native/Core/JobControlHistory.cs"
       ],
       "tests": [
-        "gateway/tests/test_gateway_desktop_native_ui.py"
+        "gateway/tests/test_gateway_desktop_native_ui.py",
+        "gateway/desktop/native/tests/Program.cs",
+        "gateway/tests/test_gateway_queue_controls.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
-        "docs/repairs/windows-owner-presentation-2026-11-24-task.json"
+        "docs/repairs/windows-owner-presentation-2026-11-24-task.json",
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
       ],
       "invariants": [
         "The fixture presents its empty owner before production window construction; production controls remain subject to strict screen hit tests.",
         "Failure diagnostics retain one captured hit and bounded content-free application geometry, focus and stacking observations.",
-        "Gateway packaging binds every included source and test byte to the reviewed source inventory."
+        "Gateway packaging binds every included source and test byte to the reviewed source inventory.",
+        "Windows Jobs pages retain original-owner evidence; terminal removal is reversible and pending/uncertain work stays visible.",
+        "An unavailable host inventory remains distinct from an empty or fully observed job list."
       ],
       "routing": {
         "role": "presentation",
@@ -1621,7 +1656,12 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensions.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubActivityLines.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTurnPresentation.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubConversationApprovalHost.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubConversationApprovalHost.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSemanticSummary.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMcpRepositoryTool.kt",
+        "gateway/v14/copilot_tasks.py",
+        "gateway/v14/agent_runs.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructionsTest.kt",
@@ -1634,7 +1674,12 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensionsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubActivityLinesTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTurnPresentationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTurnPresentationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMcpRepositoryToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubCopilotToolTest.kt",
+        "gateway/tests/test_gateway_copilot_tasks.py",
+        "gateway/tests/test_gateway_agent_adapters.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -1643,7 +1688,9 @@
         "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
         "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json",
         "docs/repairs/github-progress-source-identity-2026-11-24-task.json",
-        "docs/repairs/github-consecutive-source-preview-2026-11-24-task.json"
+        "docs/repairs/github-consecutive-source-preview-2026-11-24-task.json",
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
       ],
       "invariants": [
         "Primary preview instructions remain outside the bounded repository snapshot and leave tool-free finalization; no extra remote narration call is added.",
@@ -1654,7 +1701,10 @@
         "Charts and exports preserve structured check counts, source identity and complete or incomplete captured coverage.",
         "Routine summaries retain the existing 45-second first and 135-second follow-up cadence.",
         "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority.",
-        "Only admitted summaries receive a fresh opaque publication identity; the collector rejects replay before sequence allocation, preserves distinct same-text publications within one invocation and carries identity through display. Caller-supplied identities are overwritten without mutating the input."
+        "Only admitted summaries receive a fresh opaque publication identity; the collector rejects replay before sequence allocation, preserves distinct same-text publications within one invocation and carries identity through display. Caller-supplied identities are overwritten without mutating the input.",
+        "Copilot previews name its bounded purpose and observed phase; preparation intent and opaque MCP responses do not prove cloud acceptance or completion.",
+        "Source-owned Copilot phase transitions drain before final-answer onset without bypassing public-state ownership validation, deduplication or privacy.",
+        "The optional agent adapter maps actual Copilot lifecycle states into its supported schema without changing selected backend or consent."
       ],
       "routing": {
         "role": "presentation",
@@ -2046,11 +2096,14 @@
         "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json",
         "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json",
         "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json",
-        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+        "docs/repairs/github-mode-intelligence-2026-11-26.md",
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
-        "python3 -m unittest discover -s gateway/tests -p test_gateway_github_intelligence.py"
+        "python3 -m unittest discover -s gateway/tests -p test_gateway_github_intelligence.py",
+        "python3 gateway/check_gateway.py"
       ],
       "invariants": [
         "Model-generated plans and delegated advice cannot grant repository write authority.",
@@ -2059,7 +2112,10 @@
         "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported.",
         "Leading unquoted read requests retain the selected repository target; quoted or creative task material does not activate that heuristic. Multiline quotes preserve escape parity and in-word apostrophes; complete inline runs and valid whole-line fences bound code. Prompt remains a technical subject. Evidence correction observes raw owned output before markup aggregation, preserves honest mixed lineage, application-report finality, session-owned recovery and earlier failed-round corrections.",
         "A LiteRT-LM primary cannot execute a helper-selected recovery read; saved execution consent stays inactive without falling through to an advice choice, while existing advice eligibility and internal-tools ownership remain unchanged.",
-        "Qualification scope follows the accepted task; required capability outcomes and independent task criteria retain separate denominators and never expand permissions."
+        "Qualification scope follows the accepted task; required capability outcomes and independent task criteria retain separate denominators and never expand permissions.",
+        "Evidence-capacity failure pauses under the original job lease, retains earlier checkpoints and physical operation receipts, and cannot replay an uncertain mutation or resurrect cancellation.",
+        "New Gateway admissions default to evidence-guided next actions while retained requests, conversation policy, post-merge recovery and rejected command identities keep their accepted meaning.",
+        "Rate limits after a physical mutation preserve original response and dispatch evidence, reconcile by readback and cannot become permission for timed replay."
       ],
       "routing": {
         "role": "executor",
@@ -2824,7 +2880,11 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubToolInventorySheet.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AppFeatureInventory.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolInventory.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubConnectionSetupScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubModeConnection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspacePickerTest.kt",
@@ -2842,10 +2902,17 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptContinuationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityRequestTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubInventoryPresentationTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScopeTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScopeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubConnectionSetupTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSetupWelcomeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotDefaultsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositoryCopilotDefaultsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayEngineeringSettingsTest.kt"
       ],
       "documents": [
-        "docs/architecture/repository-guide.md"
+        "docs/architecture/repository-guide.md",
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -2853,7 +2920,12 @@
       "invariants": [
         "Use the repository and branch selected for the chat. Retain saved profile overrides and tool exclusions.",
         "A direct read offers an authorized action for the requested collection or record. Composite requests retain the engineering workflow.",
-        "Ordinary native plugin chat and GitHub mode share one selected repository task scope. Ambiguous connections and explicit opt-outs do not gain repository authority."
+        "Ordinary native plugin chat and GitHub mode share one selected repository task scope. Ambiguous connections and explicit opt-outs do not gain repository authority.",
+        "A sole eligible connection opens directly; multiple accounts require explicit selection, and lost selected authority cannot fall through to another account.",
+        "Saved repository installation lookup preserves staged drafts and stays bounded to the selected account and repository owner. An unavailable explicit Gateway route stays explicit.",
+        "Copilot defaults migrate once for the new experience. Later explicit off preferences remain bound to the exact conversation and workspace; missing or foreign identity cannot enable delegation.",
+        "Enabling an integration does not establish GitHub entitlement, supported credentials, allowed tools, task acceptance or remote completion.",
+        "GitHub chat has no persistent engineering enable/disable card; settings expose readiness and exact prerequisite repair."
       ],
       "routing": {
         "role": "user_control",
@@ -2914,12 +2986,15 @@
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
-        "docs/repairs/github-mode-intelligence-2026-11-26.md"
+        "docs/repairs/github-mode-intelligence-2026-11-26.md",
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
       ],
       "invariants": [
         "Planning, replay, continuation and final serialization retain one effective ceiling and its provenance; a smaller current route requires replanning.",
         "Fresh exact model metadata may establish capabilities. An adaptive target, stale cache or alias spelling guess cannot establish provider capacity.",
-        "Supported AUTO visible-delivery reasoning effort is a preference, never proof of a numerical reasoning-token reserve. Explicit fixed settings retain their requested behavior."
+        "Supported AUTO visible-delivery reasoning effort is a preference, never proof of a numerical reasoning-token reserve. Explicit fixed settings retain their requested behavior.",
+        "Optional memory capture precedes source preparation, while its admitted rendering is bounded to at most one quarter of the residual allowance; unused space returns to pinned source."
       ],
       "routing": {
         "role": "executor",
@@ -3042,6 +3117,182 @@
         "decline": "Keep incomplete, stale, mismatched, approval-blocked or uncertain-write observations in the ordinary verification workflow",
         "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt#completeEmptyPullQueryFinishesBeforeThe53TokenReplayAllowanceWithoutAnyModel",
         "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiTaskScopeTest.kt#observedRunIdentityPinsTheCurrentAttemptAndRejectsKnownHistoricalOrOlderAttempts",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "github-source-admission",
+      "title": "GitHub source projection within request capacity",
+      "terms": [
+        "source projection",
+        "small context window",
+        "unread source pointer",
+        "memory allocation"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PreparedContextBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/PreparedContextBudgetTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjectionTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 gateway/check_gateway.py"
+      ],
+      "documents": [
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
+      ],
+      "invariants": [
+        "Required content and output/replay reservations precede optional memory and repository source.",
+        "Projected source retains whole lines, immutable identity and accurate ranges; a missing requested line becomes an unread pointer.",
+        "Memory capture persists within its existing privacy scope while rendered historical memory receives a bounded optional share."
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjection.kt",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjectionTest.kt#fourAndEightKRequestsRetainSourceWithinTheActualResidualAllowance",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextProjectionTest.kt#anUpstreamPartialRequestedLineIsDeferredInsteadOfClaimedInEarlierSource",
+        "proof": "Pinned source ranges admitted within the actual residual request allowance",
+        "admission": "Selected authorized repository and admitted request capacity",
+        "decline": "Defer unread source without inventing content or exceeding the budget",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "gateway-intelligence-stability",
+      "title": "Gateway intelligent defaults, queue stability and checkpoint recovery",
+      "terms": [
+        "gateway queue full",
+        "cancel retained job",
+        "engineering always on",
+        "evidence capacity",
+        "scheduler slot",
+        "active next action"
+      ],
+      "paths": [
+        "gateway/v14/engineering.py",
+        "gateway/v14/engineering_artifacts.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressWatchdogSession.kt",
+        "gateway/v14/engineering_defaults.py",
+        "gateway/v14/conversations.py",
+        "gateway/v14/workspace_task_plan.py",
+        "gateway/v14/inference_scheduler.py",
+        "gateway/v14/retained_work_control.py",
+        "gateway/v14/control_settings.py",
+        "gateway/v14/jobs.py",
+        "gateway/v14/activity.py",
+        "gateway/desktop/control_store.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_checkpoint_capacity.py",
+        "gateway/tests/test_gateway_engineering_source_authority.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressWatchdogSessionTest.kt",
+        "gateway/tests/test_gateway_intelligence_defaults.py",
+        "gateway/tests/test_gateway_conversations.py",
+        "gateway/tests/test_gateway_workspace_intelligence.py",
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "gateway/tests/test_gateway_engineering_always_on.py",
+        "gateway/tests/test_gateway_scheduler_recovery.py",
+        "gateway/tests/test_gateway_queue_controls.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 gateway/check_gateway.py"
+      ],
+      "documents": [
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
+      ],
+      "invariants": [
+        "New admissions use ACTIVE next actions; accepted policy and original request/rejection identities are retained.",
+        "Evidence-capacity refusal preserves the prior checkpoint and independent mutation receipts under the current lease.",
+        "Cancellation is original-owner/revision/generation bound; a local stop does not establish remote mutation or tool cancellation.",
+        "Queue replacement, admission and active-capacity accounting are transactional; failed callbacks release only their own scheduler resources."
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "gateway/v14/engineering.py",
+        "positive_fixture": "gateway/tests/test_gateway_queue_controls.py#test_full_queue_allows_exact_paused_continuation_without_increasing_occupancy",
+        "negative_fixture": "gateway/tests/test_gateway_checkpoint_capacity.py#test_capacity_pause_cannot_resurrect_a_cancelled_owner",
+        "proof": "Original job, exact lease/revision and observed durable operation result",
+        "admission": "Authorized owner, admitted budget and current runtime prerequisites",
+        "decline": "Preserve unknown outcomes and request prerequisite repair without replay",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "github-copilot-integration",
+      "title": "Integrated Copilot defaults, ownership and truthful progress",
+      "terms": [
+        "github copilot",
+        "copilot task",
+        "copilot progress",
+        "copilot defaults",
+        "cloud agent"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotDefaults.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/AppFeatureSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/PluginExecutionSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositoryImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PluginConfigurationDialog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModel.kt",
+        "gateway/desktop/configuration.py",
+        "gateway/desktop/github_setup.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMcpRepositoryTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
+        "gateway/v14/copilot_tasks.py",
+        "gateway/v14/agent_runs.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotDefaultsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositoryCopilotDefaultsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMcpRepositoryToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubCopilotToolTest.kt",
+        "gateway/tests/test_gateway_copilot_tasks.py",
+        "gateway/tests/test_gateway_agent_adapters.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 gateway/check_gateway.py"
+      ],
+      "documents": [
+        "docs/architecture/github-out-of-box-intelligence.md",
+        "docs/repairs/github-out-of-box-intelligence-2026-11-26-task.json"
+      ],
+      "invariants": [
+        "Versioned default migration runs once; explicit later off and exact conversation/workspace binding remain effective.",
+        "Current tool, privacy, GitHub eligibility and selected execution-owner checks still govern each Copilot dispatch.",
+        "Source-owned preview facts distinguish local intent, observed acceptance and verified remote phase; raw tool content grants no completion authority.",
+        "Accepted upstream identity and unknown submission outcomes survive restart without automatic resubmission."
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatPolicy.kt",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotDefaultsTest.kt#cleanDefaultsEnableAvailabilityWithoutCreatingTasksConnectionsOrConversationAuthority",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotDefaultsTest.kt#sharedPreferenceSetterPersistsOffAndRejectsAChangedConversationBinding",
+        "proof": "Bound preference plus source-owned task and lifecycle receipts",
+        "admission": "Current workspace identity, allowed tools and eligible GitHub user access",
+        "decline": "Show unavailable or unconfirmed state without claiming task execution",
         "plugins": [],
         "tools": [],
         "decline_terms": []

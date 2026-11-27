@@ -133,6 +133,11 @@ def install_terminal_guard(runtime):
                 return {'job_id': job_id, 'canceled': True, 'cancellationRequested': False,
                         'cancellationOutcome': 'confirmed', 'status': 'cancelled',
                         'message': 'Job cancelled before dispatch'}
+            if cancel_awaiting_client_job(runtime, job_id):
+                return {'job_id': job_id, 'canceled': True, 'cancellationRequested': False,
+                        'cancellationOutcome': 'confirmed', 'cancellationScope': 'local_execution',
+                        'remoteToolOutcome': 'unconfirmed', 'status': 'cancelled',
+                        'message': 'Local continuation stopped. The original client-tool handoff remains available for reconciliation.'}
             job = runtime.job_registry.get(job_id)
             snapshot = dict(job) if job is not None else None
             if job is not None:
@@ -180,6 +185,51 @@ def cancel_undispatched_job(runtime, job_id):
         try:
             runtime.finish_gateway_job(job_id, 499, None, error='Cancelled before worker dispatch',
                                        expected_generation=job['generation'])
+        except Exception:
+            job.clear()
+            job.update(snapshot)
+            raise
+        signal = job.get('_hard_cancel_event')
+        if signal is not None:
+            signal.set()
+        return True
+
+
+def cancel_awaiting_client_job(runtime, job_id):
+    """End a retained local continuation without claiming to cancel a client tool."""
+    if not runtime.GATEWAY_DURABLE_JOBS:
+        return False
+    with runtime.job_registry_lock, runtime.durable_job_lock:
+        job = runtime.job_registry.get(job_id)
+        if not job or job.get('status') != 'waiting_for_client_tool' or not job.get('generation'):
+            return False
+        row = runtime.gateway_conversations.read(lambda db: db.execute(
+            'SELECT public_json,result_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone())
+        if not row or not row[1]:
+            return False
+        saved, handoff = json.loads(row[0]), json.loads(row[1])
+        pending = saved.get('pending_client_tool_call_ids')
+        if (saved.get('status') != 'waiting_for_client_tool' or saved.get('generation') != job['generation'] or
+                not isinstance(pending, list) or not pending or any(not isinstance(item, str) or not item for item in pending) or
+                len(set(pending)) != len(pending) or pending != job.get('pending_client_tool_call_ids') or
+                not runtime.completion_contains_tool_calls(handoff)):
+            return False
+        calls = handoff['choices'][0]['message']['tool_calls']
+        if (any(not isinstance(call, dict) for call in calls) or [call.get('id') for call in calls] != pending or
+                {call['id']: runtime.tool_call_fingerprint(call) for call in calls} != saved.get('pending_client_tool_fingerprints') or
+                saved.get('pending_client_tool_fingerprints') != job.get('pending_client_tool_fingerprints')):
+            return False
+        snapshot = dict(job)
+        if isinstance(snapshot.get('_segment_results'), deque):
+            snapshot['_segment_results'] = deque(snapshot['_segment_results'], maxlen=snapshot['_segment_results'].maxlen)
+        job.update(cancellation_requested=False, cancellation_scope='local_execution', remote_tool_outcome='unconfirmed')
+        try:
+            # Keep the original handoff result, IDs and fingerprints. The error
+            # prevents finish() from treating the retained tool calls as a new
+            # handoff; the terminal guard refuses any later model continuation.
+            runtime.finish_gateway_job(job_id, 499, handoff,
+                error='Local continuation stopped while awaiting client tool results. Remote tool effects remain unconfirmed; the original handoff is retained.',
+                expected_generation=job['generation'])
         except Exception:
             job.clear()
             job.update(snapshot)

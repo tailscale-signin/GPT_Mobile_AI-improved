@@ -6,6 +6,15 @@ This release implements the sixteen findings from the November 26 build-151 runt
 
 ## Changes
 
+- Open GitHub mode directly for one eligible account, require an explicit account and host when several are available, restore later-page installation access without losing drafts, and identify unavailable explicit Gateway routes.
+- Fit pinned repository excerpts to the actual remaining request capacity while preserving bounded memory capture, source identity, whole-line ranges and explicit unread pointers.
+- Reuse identical retained evidence at capacity and pause a Gateway job durably when a new stage result cannot be saved, preserving original operation receipts without automatic replay.
+- Make engineering a built-in Gateway experience, remove the persistent GitHub chat toggle card, reject old disable commands and show exact readiness while preserving owner, repository and revocation checks.
+- Enable integrated GitHub Copilot through a versioned default migration, preserve later explicit off choices and exact conversation bindings, and show its task purpose and observed phase in progress previews.
+- Recover full-queue follow-ups transactionally, release model slots when admission callbacks fail, and exclude terminal failures from open-work counts.
+- Add Windows supervisor cancellation for retained jobs from old device identities, durable command readback, paginated host history and reversible removal of confirmed terminal entries.
+- Default new Gateway tasks to evidence-guided next actions while retaining accepted request, conversation, recovery and rejection identities.
+
 - GitHub mode preserves pinned source lines through prompt preparation and records exact citation links. Windows bridge commands, XAML handlers and current-session source are available to structural search. Oversized repository trees can be continued.
 - Jobs projects only the visible page of full records and shows shared pending capacity. Copilot uses the same prompt and branch constraints on Android and Gateway. Windows Native products can grade 30 independently labeled source questions across Kotlin, Python and C#.
 
@@ -28,7 +37,7 @@ This release implements the sixteen findings from the November 26 build-151 runt
 - Classify quota failures including HTTP 200 error envelopes, retain bounded credential-scoped recovery delays, offer verified provider billing links, and group repeated pending quota incidents with immutable approval identities.
 - Retry passive MCP discovery after a saved connection revision repairs configuration, while preserving per-connection backoff and native GitHub isolation.
 - Qualify the recognized ChatML reasoning toggle with exact synthetic-turn boundaries, distinguish unrecognized controls from unsupported controls, preserve explicit Off, and provide selected-model load/recheck recovery with stale-selection cancellation.
-- Unify repository scope in ordinary and GitHub chat; enable verified Gateway engineering owners while preserving explicit pauses/revocations, avoid unchanged-settings database writes, and keep profile/model selection fixed through foreground and queued preparation.
+- Unify repository scope in ordinary and GitHub chat; preserve verified Gateway owner grants and revocations, avoid unchanged-settings database writes, and keep profile/model selection fixed through foreground and queued preparation.
 - Carry one effective context ceiling and provenance through GitHub planning, replay admission, continuation and provider serialization, reserving a usable evidence envelope.
 - Refresh and restore exact OpenRouter alias metadata with its original observation age, and use the lowest advertised compatible reasoning effort for AUTO visible delivery while retaining explicit fixed settings.
 - Complete trusted direct lookups and current-revision CI observations through the existing verification gate before another provider round; retain selected source identity and canonical CI evidence coverage.
@@ -36,7 +45,7 @@ This release implements the sixteen findings from the November 26 build-151 runt
 - Reuse immutable repository source and lexical reference catalogs across tasks, select bounded caller/test/configuration neighborhoods, and show prepared excerpt coverage.
 - Expose accepted qualification scope and distinct passed, blocked, untested, failed and excluded capability counts with exact prerequisite groups.
 - Apply the same request-scoped GitHub planning and verification to native plugin chat and GitHub mode. Stage schemas and replay within verified model limits, recover from bounded output and provider waits, and watch checks at a specified commit.
-- Enable engineering for verified gateway owners by default, restore the route and wake the selected local model on send. Preserve grants and maintenance pauses and avoid database writes when polling unchanged owner settings.
+- Use built-in engineering for verified Gateway owners, restore the route and wake the selected local model on send. Preserve grants and individual job controls and avoid database writes when polling unchanged owner settings.
 - Add behavioral regression coverage for the recorded budget, completion, repeated-wait, evidence-reuse, source-selection and qualification scenarios.
 
 ## Qualification and remaining limits

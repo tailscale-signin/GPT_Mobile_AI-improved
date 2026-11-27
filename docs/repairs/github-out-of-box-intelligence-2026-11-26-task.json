@@ -1,0 +1,259 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "github-out-of-box-intelligence-2026-11-26",
+  "pullRequest": 2651,
+  "baseBranch": "feature/windows-native-benchmark-kit",
+  "baseSha": "acc720b54ef59f1de73c7b4a78aadcea83b18635",
+  "workingBranch": "work/github-out-of-box-20261126",
+  "intent": "Strengthen GitHub out-of-box defaults, evidence-bound context, always-on Gateway engineering, integrated observable Copilot and stable/cancellable Windows queues while preserving original accepted authority and independent grading.",
+  "state": "READY_FOR_REVIEW",
+  "authorization": "User requested Windows app integration, robust out-of-box GitHub mode, full Gateway intelligence/stability/efficiency investigation, built-in non-disableable Gateway engineering, Copilot integration and purpose-aware previews. Continue on the existing combined PR; do not make paid requests.",
+  "constraints": [
+    "Keep the existing theme, public previews and chat controls; remove the persistent Gateway engineering toggle card as requested.",
+    "Use the selected account/connection/repository/profile authority throughout each task; preserve access revocation and private-route restrictions.",
+    "Engineering cannot be disabled as a feature. Preserve individual job cancellation, prerequisites and exact PC/installation owner binding.",
+    "Copilot default migration occurs once; later explicit off, tool exclusions and current GitHub eligibility remain effective.",
+    "Preserve operation evidence and distinguish requested cancellation from confirmed local stop and unknown remote outcomes.",
+    "Reconcile concurrent branch advances before publication; bind qualification to exact source identity.",
+    "No paid or live product/model requests during synthetic verification."
+  ],
+  "checkpoints": [
+    {
+      "state": "INTAKE",
+      "sourceSha": "acc720b54ef59f1de73c7b4a78aadcea83b18635",
+      "details": "Verified main and both active PRs. The latest combined branch is PR2651 and retains PR2646 work; edits are isolated in a local worktree and will target that same active branch."
+    },
+    {
+      "state": "IMPLEMENTED_AND_FOCUSED_VALIDATION",
+      "sourceSha": "803c740faee1979c619c5ebdadb7487c0482d518",
+      "details": "Preserved concurrent voice/smoke advances. Reproduced and repaired account/installation setup, source residual-budget rejection, artifact quota re-pin/checkpoint failure, full-queue continuation ordering, terminal open counts and scheduler admission callback slot leak. Built-in Gateway and versioned Copilot defaults implemented; native queue controls and restored-generation cancellation under final validation."
+    },
+    {
+      "state": "CONCURRENT_SOURCE_RECONCILIATION",
+      "sourceSha": "4f341e2ab7e99f6b1935867e84f52eac23254935",
+      "details": "Preserved concurrent voice and immutable-source/cross-client evidence work. Three-way source reconciliation is under independent review; combined canonical gates will be rerun because Gateway payload changed."
+    },
+    {
+      "state": "COMBINED_GATEWAY_AND_CLIENT_VALIDATED",
+      "sourceSha": "d94cadd78dd1ac1c0ad1998e8c4bbca42a749ddb",
+      "details": "Preserved concurrent voice, source-retrieval and Copilot presentation work. Resolved native Jobs/catalog integration; repaired unread pointers misclassified as delivered source and required producer proof for the added Copilot semantic path. Combined Gateway production payload, focused Android/native contracts, canonical host gate and final Kotlin formatting pass. Hosted exact-commit WPF/Windows and full Android evidence remain pending."
+    }
+  ],
+  "measurements": {
+    "productQuality": null,
+    "physicalHandset": null,
+    "liveCopilotTask": null,
+    "finalWindowsBinary": null,
+    "paidRequestsInitiated": 0
+  },
+  "findings": [
+    {
+      "area": "source admission",
+      "result": "Fixture source retained increased from zero to 304/1367 characters at 4096/8192 context with identical required prompt and 37-token optional memory. No live quality or network saving measured."
+    },
+    {
+      "area": "always-on engineering",
+      "result": "Removed persistent card/polling and enable-disable controls. Legacy false requests reject; verified owner/viewer/revocation/readiness boundaries retained. Independent review found no new permission bypass."
+    },
+    {
+      "area": "scheduler",
+      "result": "Admitted progress-callback failure leaked an acquired model slot. Cleanup now releases ticket on progress or receipt failure and preserves the original exception."
+    },
+    {
+      "area": "queue",
+      "result": "Capacity was checked before replacing own paused predecessor; terminal failed/interrupted records could remain counted open. Transactional replacement/count and canonical terminal counts repaired."
+    },
+    {
+      "area": "Windows Jobs",
+      "result": "Added owner-scoped paginated retained-work readback, local-supervisor cancellation intent/receipts, pending-versus-confirmed presentation and reversible terminal removal."
+    },
+    {
+      "area": "Copilot",
+      "result": "Default-on migration and bound explicit later off; purpose/phase previews delivered immediately; supported remote lifecycle states mapped to agent adapter; opaque MCP receipts do not verify cloud acceptance."
+    },
+    {
+      "area": "existing safe behavior",
+      "result": "Noncooperative terminal stream cleanup already met its bounded allowance. HTTP429/403 after physical writes already retained dispatch evidence and paused without replay. Added regressions without production changes to those policies."
+    },
+    {
+      "area": "restored client-tool wait",
+      "result": "Actual journal restart left no live cancellation event, making Stop return409. Exact retained handoff can now terminate its local continuation, preserving IDs/fingerprints/result and unconfirmed remote tool effects."
+    },
+    {
+      "area": "cancel target race",
+      "result": "A revision change after review left native retry stuck on a stale target. Durable NOT_DISPATCHED receipts fence definitively rejected stop commands; absence/timeouts remain unknown."
+    },
+    {
+      "area": "Copilot preview trust",
+      "result": "Independent probe reproduced raw-tool semantic summary forging completion when elaboration was off. Local producer/call/digest/receipt proof is now required independently of elaboration; original probe is blocked."
+    },
+    {
+      "area": "failed cancellation persistence",
+      "result": "Strict generation commit errors now return structured uncertain503 and preserve original intent/readback. Corrupt/oversize/unreadable native cancellation history blocks new controls and overwrites until recovered and reloaded."
+    },
+    {
+      "area": "concurrent context format",
+      "result": "Unread selected ranges in the incoming source format were counted as delivered source and could synthesize empty excerpts. Three reproduced failures now pass with pointer-only coverage excluded."
+    },
+    {
+      "area": "concurrent Copilot semantic format",
+      "result": "Incoming copilot_observation now uses the same producer/call/digest/task proof as other Copilot progress. Raw JSON cannot bypass the proof gate when elaboration is disabled."
+    }
+  ],
+  "focusedValidation": {
+    "newEngineeringAlwaysOn": {
+      "tests": 6,
+      "status": "passed"
+    },
+    "engineeringHttpControlAndPhone": {
+      "tests": 56,
+      "status": "passed"
+    },
+    "newSchedulerRecovery": {
+      "tests": 3,
+      "status": "passed"
+    },
+    "newIntelligenceDefaults": {
+      "tests": 8,
+      "status": "passed"
+    },
+    "physicalMutationRateLimits": {
+      "tests": 1,
+      "subcases": 2,
+      "status": "passed"
+    },
+    "nativePortableCore": {
+      "assertions": 435,
+      "status": "passed",
+      "runtime": ".NET9.0.10 with bundled Roslyn; exact source and project implicit usings; not a WPF build",
+      "scope": "Repeated after incoming Jobs merge; 435 assertions pass. All four changed WPF sources syntax-parse; hosted WPF build still required."
+    },
+    "nativeChangedSyntax": {
+      "files": 4,
+      "status": "passed"
+    },
+    "preExpansionGateway": {
+      "tests": 2219,
+      "skips": 40,
+      "browserBridge": 7,
+      "diagnosticStressEvents": 50000,
+      "status": "passed",
+      "scope": "Before always-on/Copilot/queue/scheduler expansion; superseded by final gate when available"
+    },
+    "copilotKotlin": {
+      "tests": 116,
+      "classes": 10,
+      "status": "passed",
+      "scope": "Exact changed production source and Compose/viewmodel compile against retained JVM dependencies; not full Android or physical execution"
+    },
+    "copilotGateway": {
+      "tests": 23,
+      "status": "passed",
+      "scope": "22 supervisor/default tests and1 durable adapter lifecycle test; synthetic transports"
+    },
+    "queueControl": {
+      "tests": 21,
+      "status": "passed"
+    },
+    "queueAffectedModules": {
+      "tests": 257,
+      "skips": 1,
+      "status": "passed"
+    },
+    "queueFinalFocused": {
+      "tests": 118,
+      "status": "passed"
+    },
+    "copilotForgedProgress": {
+      "status": "blocked after repair",
+      "scope": "Independent original raw-summary reproduction emits no Copilot finding with evidence elaboration disabled; trusted receipt positives also pass"
+    },
+    "queueStorageFault": {
+      "tests": 45,
+      "status": "passed",
+      "scope": "All21 queue tests plus control-settings; actual SQLite abort preserves handoff and original intent with structured503"
+    },
+    "ktlint": {
+      "version": "1.3.1",
+      "files": 46,
+      "status": "passed"
+    },
+    "preReconciliationCanonicalGateway": {
+      "tests": 2262,
+      "skips": 40,
+      "browserBridge": 7,
+      "diagnosticStressEvents": 50000,
+      "status": "passed",
+      "scope": "Frozen feature payload before incoming4f341e2; final combined revision requires a new canonical gate."
+    },
+    "preReconciliationCanonicalHost": {
+      "tests": 848,
+      "skips": 1,
+      "status": "passed",
+      "scope": "Before incoming4f341e2; final combined revision requires regenerated metadata and canonical gate."
+    },
+    "combinedGateway": {
+      "tests": 2271,
+      "modules": 164,
+      "skips": 40,
+      "browserBridge": 7,
+      "diagnosticStressEvents": 50000,
+      "status": "passed",
+      "scope": "Canonical check_gateway.py on frozen combined Gateway payload; all production/package files remain identical after subsequent d94 integration. Only a shared-fixture test was updated, then validated separately."
+    },
+    "combinedSharedFixtures": {
+      "tests": 9,
+      "status": "passed",
+      "scope": "Incoming shared client binding fixture test after canonical Gateway gate; no Gateway production changes."
+    },
+    "combinedCopilotAndContext": {
+      "tests": 176,
+      "copilotTests": 119,
+      "contextTests": 30,
+      "independentMatchedLineProbe": 1,
+      "taskContextBundleTests": 26,
+      "status": "passed",
+      "scope": "Fresh exact-source production/UI compile plus JUnit; not full Android or physical execution."
+    },
+    "combinedQueueCatalog": {
+      "tests": 105,
+      "status": "passed",
+      "scope": "Six affected modules, including real journal restart, counters/rollback, exact cancellation identity and 10000-row visible-page catalog fixture."
+    },
+    "combinedCanonicalHost": {
+      "tests": 848,
+      "skips": 1,
+      "status": "passed",
+      "scope": "Canonical validate-local.sh fast on combined production sources, generated metadata, package hashes, secrets, Android regex/resources/icons and CI-policy checks. Checkpoint receipt update is followed by regenerated-reference verification."
+    }
+  },
+  "reviews": [
+    {
+      "area": "Gateway always-on",
+      "result": "Independent review found no new permission/readiness bypass. Grants, viewer/revocation, repository and current principal checks remain."
+    },
+    {
+      "area": "Gateway admission defaults",
+      "result": "Independent review found retained request/rejection/continuation identity preserved and no new authority from default lookup."
+    },
+    {
+      "area": "Copilot defaults/progress",
+      "result": "Independent review found and verified the null-context raw-summary issue fixed; later off and foreign binding cases remain guarded."
+    },
+    {
+      "area": "Queue cancellation and native history",
+      "result": "Independent review found strict-journal exception classification and unreadable local history gaps. Both repaired with behavioral tests; final review found no further concrete issue."
+    },
+    {
+      "area": "Concurrent source integration",
+      "result": "Independent native, queue/catalog and Copilot/context reviews preserved incoming source attribution, scheduler pressure and indexed inventory behavior. Two semantic integration defects reproduced and repaired; combined176 JVM cases,105 queue cases and435 native assertions pass."
+    }
+  ],
+  "historyBoundary": {
+    "activeEngineeringLimit": 32,
+    "retainedEngineeringLimit": 4096,
+    "terminalRemoval": "Reversible local presentation; no journal deletion or automatic archive",
+    "liveServerQueueObserved": false
+  }
+}

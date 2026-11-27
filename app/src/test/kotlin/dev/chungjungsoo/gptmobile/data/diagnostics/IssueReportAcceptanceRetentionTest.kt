@@ -33,6 +33,10 @@ class IssueReportAcceptanceRetentionTest {
                 "acceptance_ready_read_count",
                 "acceptance_additional_ready_read_count",
                 "acceptance_preparation_state",
+                "acceptance_fixture_creation_admissible",
+                "acceptance_acquisition_allowed",
+                "acceptance_cleanup_reserve",
+                "acceptance_fixture_start_minimum",
                 "repository_graph_observation",
                 "graph_input_blocked_count"
             )
@@ -49,6 +53,10 @@ class IssueReportAcceptanceRetentionTest {
                 JsonArray(listOf(JsonPrimitive("github_ci"), JsonPrimitive("github_read"))),
                 snapshot.values["acceptance_blocked_operation_families"]
             )
+            assertEquals(JsonPrimitive(false), snapshot.values["acceptance_fixture_creation_admissible"])
+            assertEquals(JsonPrimitive(true), snapshot.values["acceptance_acquisition_allowed"])
+            assertEquals(JsonPrimitive(0), snapshot.values["acceptance_cleanup_reserve"])
+            assertEquals(JsonPrimitive(0), snapshot.values["acceptance_fixture_start_minimum"])
             assertTrue(snapshot.omittedFields.isNotEmpty())
             assertTrue(snapshot.omittedFields.none { it in snapshot.values })
             assertTrue(snapshot.values.keys.none { it == "raw_failure" })

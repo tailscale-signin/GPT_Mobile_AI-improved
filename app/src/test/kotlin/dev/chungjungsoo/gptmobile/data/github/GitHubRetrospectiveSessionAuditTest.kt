@@ -31,6 +31,58 @@ class GitHubRetrospectiveSessionAuditTest {
         assertTrue(GitHubProgressPresentation.introduction(followUp.content).contains("available findings"))
     }
 
+    @Test fun experienceQuestionsReadPriorRunsAndDoNotAdoptAdditionalRepositoryWork() {
+        val request = "Tell me the issues you experienced using github and how to improve it"
+        val cfg = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(github = GitHubConversationContext("selected", "owner", "repo", "main", "a".repeat(40), "primary"))
+        fun turn(text: String) = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 7, chatId = 9, content = wrapped(text), platformType = null)
+        for (question in listOf(request, "What problems did you run into while using GitHub in our chat, and suggest fixes?", "Review the failures from our conversation and suggest fixes")) {
+            assertEquals(wrapped(question), GitHubTaskContinuity.localAuditTopic(listOf(turn(question)), cfg, "primary"))
+            assertTrue(GitHubTaskContinuity.sessionAdvice(question))
+            assertTrue(GitHubProgressPresentation.introduction(question).contains("this chat"))
+        }
+        assertTrue(GitHubTaskContinuity.sessionAudit("What problems did you experience using GitHub?"))
+        assertFalse(GitHubTaskContinuity.sessionAdvice("What problems did you experience using GitHub?"))
+        for (question in listOf("$request and implement the changes", "What issues did users experience using GitHub?", "Tell me the issues in the GitHub repo and how to improve it", "Review PR #9. $request")) {
+            assertNull(GitHubTaskContinuity.localAuditTopic(listOf(turn(question)), cfg, "primary"))
+        }
+    }
+
+    @Test fun reportCountsDistinctLengthLimitedRequestsAndRecognizesLegacyPageStops() {
+        fun run(id: String, error: String) = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+            runId = id, chatId = 9, userMessageId = 4, assistantMessageId = 5, profileUid = "p",
+            providerSnapshot = "p", modelSnapshot = "m", status = "BLOCKED", terminalError = error
+        )
+        val runs = listOf(
+            run("a", "The saved-page response contained unsupported output or exceeded its note allowance. Its pending pages remain checkpointed."),
+            run("b", "Claim verification reached its output limit. The repository observations and completed claim batches are saved.")
+        )
+        val failure = dev.chungjungsoo.gptmobile.data.diagnostics.ProviderFailureReceipt(
+            dev.chungjungsoo.gptmobile.data.diagnostics.ProviderFailureStage.CLAIM_VERIFICATION,
+            "provider",
+            "",
+            "",
+            dev.chungjungsoo.gptmobile.data.diagnostics.ProviderResponseFormat.CLAIM_JSON,
+            "OUTPUT_LIMIT",
+            dev.chungjungsoo.gptmobile.data.diagnostics.ProviderFinishCategory.LENGTH
+        )
+        fun entry(id: String, sequence: Long) = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticEvent(
+            eventId = sequence.toString(), processSession = "session", runId = "b", streamId = "s", sequence = sequence, capturedAtMillis = 1,
+            kind = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FAILURE_RECEIPT, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.REVIEWER,
+            invocationId = id, providerFailure = failure
+        )
+        val journal = dev.chungjungsoo.gptmobile.data.diagnostics.RunJournalSnapshot(
+            events = listOf(entry("first", 1), entry("first", 2), entry("second", 3), entry("private-id", 4).copy(runId = "unrelated")),
+            highWatermarks = emptyMap(),
+            droppedEvents = 0,
+            missingBatches = 0,
+            storageFailed = false
+        )
+        val report = GitHubSessionAudit.render(runs, emptyList(), journal, suggestChanges = true)
+        assertTrue(report, report.contains("2 claim-verification requests") && report.contains("across 1 run."))
+        assertTrue(report.contains("usable notes from a saved source page") && report.contains("most important claim first"))
+        assertFalse(report.contains("private-id") || report.contains("specific repair"))
+    }
+
     @Test fun localReportEligibilityRespectsSelectedProfileAttachmentsAndAcceptedWorkflow() {
         val primary = "primary"
         val config = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(github = GitHubConversationContext("chosen", "owner", "repo", "main", "a".repeat(40), primary))

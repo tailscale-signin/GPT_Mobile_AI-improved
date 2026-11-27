@@ -85,6 +85,8 @@ internal object GitHubChecklistSchedule {
         fun allowed(call: ProviderEvent.ToolCall) = acquisitionAllowed || admittedPlanned?.let { it.name == call.name && it.arguments == call.arguments } == true
         val reasons = unique.associateWith { call ->
             val prior = attempted(call)
+            val priorNames = (prior?.get("arguments") as? JsonObject)?.get("names") as? JsonArray
+            val targetedRecovery = (priorNames?.size ?: 0) > 1 || consumedAt[call] != null
             val projectedElsewhere = attemptsFor(call.name).lastOrNull()?.value?.let { receipt ->
                 val action = (receipt["arguments"] as? JsonObject)?.text("action").orEmpty()
                 receipt["success"] == JsonPrimitive(true) && action.isNotBlank() && action != call.arguments.text("action")
@@ -97,7 +99,7 @@ internal object GitHubChecklistSchedule {
                 !acquisitionAllowed -> "SCHEMA_ACQUISITION_RESERVE_ACTIVE"
                 discovery == null -> "DISCOVERY_TOOL_NOT_ADVERTISED"
                 budgetExcluded(prior, call.name) && !scopedAttempted(call) -> "SCHEMA_BUDGET_RECOVERY_REQUIRED"
-                prior?.get("success") == JsonPrimitive(true) && !scopedAttempted(call) -> "ACTION_SCHEMA_DISCOVERY_REQUIRED"
+                prior?.get("success") == JsonPrimitive(true) && targetedRecovery && !scopedAttempted(call) -> "ACTION_SCHEMA_DISCOVERY_REQUIRED"
                 projectedElsewhere && supportsAction && !scopedAttempted(call) -> "ACTION_SCHEMA_DISCOVERY_REQUIRED"
                 budgetExcluded(prior, call.name) -> "SCHEMA_BUDGET_RECOVERY_EXHAUSTED"
                 prior?.get("success") == JsonPrimitive(true) -> "TOOL_NOT_ADVERTISED_AFTER_DISCOVERY"

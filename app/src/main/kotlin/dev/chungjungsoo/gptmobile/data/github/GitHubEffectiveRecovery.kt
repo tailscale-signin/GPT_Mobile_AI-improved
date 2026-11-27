@@ -186,7 +186,12 @@ internal object GitHubEffectiveRecovery {
                     when (original.text("replay_budget_state")) {
                         "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH" -> " Reopen the original read from its saved repository revision and verify the returned page against its receipt."
                         "SAVED_PAGE_EXCEEDS_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE" -> " Reduce the requested range or increase the available context, then continue with the saved receipts."
-                        else -> " Follow the saved-page recovery details from this checkpoint."
+                        else -> when (original.text("replay_missing_record")) {
+                            "AUTHORIZED_REOPEN", "CHECKPOINT_IDENTITY" -> " Reopen the original authorized revision and match its source to the saved checkpoint."
+                            "NOTE_LIMIT", "READING_NOTES" -> " Resume the private read with a short note on the first relevant finding."
+                            "UNSUPPORTED_OUTPUT", "FRESH_PROVIDER_COMPLETION" -> " Resume the private read and wait for the selected model to finish its reading notes."
+                            else -> " Follow the saved-page recovery details from this checkpoint."
+                        }
                     }
                 )
             }

@@ -1021,6 +1021,8 @@ internal class GitHubEvidenceBook(
     }
 
     private fun substantiveReport(verdict: JsonObject?): Boolean = verdict != null &&
+        // A receipt-only fallback is rebuilt from the current ledger. Nesting it repeats the same review.
+        verdict["fallback"] != JsonPrimitive("receipt_only") &&
         verdict["progress_state"] != JsonPrimitive("BLOCKED_UNCHANGED") &&
         verdict["retained_findings_delivered"] != JsonPrimitive(true) &&
         (
@@ -1055,6 +1057,7 @@ internal class GitHubEvidenceBook(
                 prior["receipt_set_digest"] == saved["receipt_set_digest"] &&
                 prior["text_sha256"] == JsonPrimitive(digest(earlier))
             ) {
+                if (verdict["retained_findings_delivered"] == JsonPrimitive(true) && verdict["retained_findings_sha256"] == prior["text_sha256"]) return text to verdict
                 return "$earlier\n\n## Latest checkpoint\n\n$text" to verdict
             }
         }
@@ -1092,8 +1095,10 @@ internal class GitHubEvidenceBook(
         draft: String,
         batches: List<JsonObject?>,
         requirementIds: List<Set<String>>,
-        pending: Boolean
+        pending: Boolean,
+        singleClaimBatch: Int? = null
     ) {
+        require(singleClaimBatch == null || pending && singleClaimBatch in 1..batches.size && batches[singleClaimBatch - 1] == null)
         require(batches.size <= GitHubClaimBatches.MAX_BATCHES)
         require(batches.size == requirementIds.size)
         require(draft.length <= 1_048_576) { "Claim extraction draft exceeds the accepted session bound" }
@@ -1109,6 +1114,7 @@ internal class GitHubEvidenceBook(
                 // Keep the bounded source draft and finished batches after extraction.
                 // A later read can then invalidate only claims that no longer verify.
                 put("draft", draft)
+                singleClaimBatch?.let { put("single_claim_batch", it) }
                 put("batch_requirement_ids", JsonArray(requirementIds.map { ids -> JsonArray(ids.sorted().map(::JsonPrimitive)) }))
                 put("batches", JsonArray(batches.map { it ?: JsonNull }))
             }

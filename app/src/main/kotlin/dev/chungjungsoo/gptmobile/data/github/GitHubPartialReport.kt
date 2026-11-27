@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -90,6 +91,38 @@ internal object GitHubPartialReport {
             lines += "${safe(row.text("path"))}: ${row.text("captured_lines")} lines captured. $coverage" + cite(fact)
         }
         return if (lines.isEmpty()) "" else "**Established observations**\n\n" + lines.joinToString("\n") { "- $it" } + "\n\nThese retained observations do not establish completion of the requested task."
+    }
+
+    /** The comparison checkpoint owns these counts. A captured file is still open for correctness review. */
+    fun reviewProgress(review: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long): String? {
+        val coverage = review["comparison_coverage"] as? JsonObject ?: return null
+        val head = review.text("head_sha")
+        val checks = GitHubStatusEvidence.checks(
+            receipts.filterValues { it["repository"] == review["repository"] && it["binding"] == review["binding"] },
+            head,
+            now,
+            epoch
+        )
+        return buildString {
+            append("**Branch comparison** · Compared `").append(review.text("base_sha")).append("` with `").append(head).append("`. ")
+            append("The review captured source for ").append(coverage.text("changed_files_with_source_observation"))
+            append(" of ").append(coverage.text("changed_files_observed")).append(" changed files. Correctness findings still need verification.")
+            val pending = (coverage["pending_source_paths"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>().take(3)
+            if (pending.isNotEmpty()) {
+                append("\n\n**Files still to inspect** · ").append(pending.joinToString(", ") { "`${safe(it.content)}`" })
+                if (coverage.text("changed_files_without_source_observation").toIntOrNull()?.let { it > pending.size } == true) append(" and others")
+                append('.')
+            }
+            append("\n\n**Validation** · ")
+            if (checks.receiptIds.isEmpty()) {
+                append("Check results for this head remain unverified.")
+            } else {
+                append("The ").append(if (checks.complete) "complete" else "partial").append(" check snapshot recorded ")
+                append(checks.observedChecks).append(" checks and ").append(checks.observedStatuses).append(" commit statuses")
+                if (checks.outcomes.isNotEmpty()) append(" (").append(checks.outcomes.entries.joinToString(", ") { "${it.value} ${it.key}" }).append(')')
+                append('.')
+            }
+        }
     }
 
     private fun observation(summary: JsonObject, receiptId: kotlinx.serialization.json.JsonElement, reused: Boolean) =

@@ -413,6 +413,38 @@ class GitHubSavedPageCapacityTest {
         }
     }
 
+    @Test fun longPrivateNotesFitUtf8AcrossDeltasAndNeverAcknowledgeAnInterruptedOrUnsupportedRead() = runBlocking {
+        val fixture = Fixture()
+        val call = requireNotNull(fixture.next(tokens = 3000))
+        val exchanges = listOf(AgentToolExchange(listOf(call), listOf(fixture.read(call))))
+        var saved: String? = null
+        suspend fun read(limit: Int, vararg events: ProviderEvent): List<ProviderEvent> {
+            saved = null
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = SavedPageDeliveryRound.providerRound(
+                    exchanges,
+                    flow {
+                        events.forEach { emit(it) }
+                    }
+                )
+            }
+            return SavedPageDeliveryRound.read(session, exchanges, limit) { saved = it }.toList()
+        }
+        val note = "改😀. Next finding " + "x".repeat(50_000)
+        assertEquals(listOf(ProviderEvent.Completed), read(17, ProviderEvent.TextDelta(note.substring(0, 2)), ProviderEvent.TextDelta(note.substring(2)), ProviderEvent.Completed))
+        assertEquals("改😀.…", saved)
+        assertTrue(requireNotNull(saved).toByteArray(Charsets.UTF_8).size <= 17)
+        assertEquals(listOf(ProviderEvent.Completed), read(7, ProviderEvent.TextDelta("改😀"), ProviderEvent.Completed))
+        assertEquals("改😀", saved)
+        val tool = ProviderEvent.ToolCall("unexpected", call.name, call.arguments)
+        assertTrue(read(17, ProviderEvent.TextDelta(note), tool, ProviderEvent.Completed).single() is ProviderEvent.Failed)
+        assertNull(saved)
+        assertTrue(read(17, ProviderEvent.TextDelta(note)).single() is ProviderEvent.Failed)
+        assertNull(saved)
+        assertTrue(read(3, ProviderEvent.TextDelta(note), ProviderEvent.Completed).single() is ProviderEvent.Failed)
+        assertNull(saved)
+    }
+
     @Test fun twoAdmittedPagesKeepTheirOwnBodiesWhenLaterCallsReturnIdenticalBytes() {
         val admitted = List(2) { index ->
             val fixture = Fixture("delivery-source-$index")

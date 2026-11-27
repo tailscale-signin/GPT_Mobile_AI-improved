@@ -223,6 +223,46 @@ class GitHubReviewProgressTest {
         assertEquals(JsonPrimitive(1), state["comparison_coverage"]?.jsonObject?.get("changed_files_with_source_observation"))
     }
 
+    @Test fun reviewCountsSourceOnlyOnTheRevisionWhereTheChangedPathExists() {
+        val files = listOf(
+            json("""{"filename":"New.kt","status":"added"}"""),
+            json("""{"filename":"Gone.kt","status":"removed"}"""),
+            json("""{"filename":"After.kt","previous_filename":"Before.kt","status":"renamed"}""")
+        )
+        fun read(path: String, revision: String) = JsonObject(
+            receipt("github_read", json("""{"commit_sha":"$revision","ranges":[{"path":"$path"}]}"""), json("""{"commit_sha":"$revision","items":[{"path":"$path","commit_sha":"$revision","sha":"${"c".repeat(40)}","expected_blob_sha":"${"c".repeat(40)}","content":"fun example() = true","start_line":1,"end_line":1,"total_lines":1,"range_complete":true}]}""")) +
+                ("source_head_sha" to JsonPrimitive(revision))
+        )
+        val rows = mapOf("status" to status(), "comparison" to comparison(files), "wrong-added" to read("New.kt", base), "wrong-deleted" to read("Gone.kt", head), "wrong-renamed" to read("Before.kt", head))
+        fun count(receipts: Map<String, JsonObject>) = GitHubReviewComparison.plan(task, emptyList(), receipts)?.checkpoint?.get("comparison_coverage")?.jsonObject?.get("changed_files_with_source_observation")
+        assertEquals(JsonPrimitive(0), count(rows))
+        assertNotNull(GitHubReviewComparison.incompleteReason(task, rows))
+        val correct = rows + mapOf("added" to read("New.kt", head), "removed" to read("Gone.kt", base), "renamed" to read("Before.kt", base))
+        assertEquals(JsonPrimitive(3), count(correct))
+        assertNull(GitHubReviewComparison.incompleteReason(task, correct))
+    }
+
+    @Test fun interruptedBranchReviewSummarizesTheComparisonAndKeepsFullCoverageInTheReport() {
+        val files = (1..119).map { json("""{"filename":"src/File$it.kt","status":"modified"}""") }
+        val receipts = linkedMapOf(
+            "status" to status(),
+            "first" to comparison(files.take(100), page = 1, total = 119, more = true),
+            "second" to comparison(files.drop(100), page = 2, total = 119)
+        )
+        val (text, report) = GitHubEvidencePolicy.partial(receipts, 1000, 1, task, "REPLAY_EVIDENCE_REQUIRED")
+        assertTrue(text, text.contains("0 of 119 changed files"))
+        assertTrue(text.contains(base) && text.contains(head) && text.contains("src/File1.kt"))
+        assertFalse(text.contains("src/File4.kt") || text.contains("## Repository details"))
+        assertTrue(text.contains("results for this head remain unverified") && text.length < 1000)
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertEquals(JsonPrimitive(119), report.getValue("review_state").jsonObject.getValue("comparison_coverage").jsonObject["changed_files_without_source_observation"])
+        assertEquals(JsonPrimitive(true), report["compact_review_checkpoint"])
+        // Partial input must never become a complete comparison by being summarized.
+        val incomplete = GitHubEvidencePolicy.partial(receipts - "second", 1000, 1, task, "REPLAY_EVIDENCE_REQUIRED")
+        assertFalse(incomplete.first.contains("0 of 119 changed files"))
+        assertEquals(JsonPrimitive(false), incomplete.second["compact_review_checkpoint"])
+    }
+
     @Test fun missingBaselineUsesRetainedDecisionRatherThanExtractorQuestions() {
         val review = "Review this branch."
         val answer = json("""{"claims":[{"kind":"not_measured","subject":"Source correctness"}],"questions":["Should this review use the first parent instead?","Can we use more tool calls?"]}""")

@@ -115,6 +115,18 @@ class GitHubChecklistScheduleTest {
         }
     }
 
+    @Test fun successfulSingleNameDiscoveryDoesNotRepeatWithAnActionUnlessTheReceiptExplainsAnExclusion() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        val attempt = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_context"]}}""")
+        val unchanged = select(advertised = listOf(directory), receipts = mapOf("first" to attempt))
+        assertNull(unchanged.next)
+        assertEquals(JsonPrimitive("TOOL_NOT_ADVERTISED_AFTER_DISCOVERY"), unchanged.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+
+        val excluded = JsonObject(attempt + ("result" to json("""{"context_budget_excluded":["github_context"]}""")))
+        val recover = select(advertised = listOf(directory), receipts = mapOf("first" to excluded))
+        assertEquals(json("""{"names":["github_context"],"action":"repository"}"""), recover.next?.arguments)
+    }
+
     @Test fun anotherSelectorCanReacquireAnEvictedActionOnlyAfterAnObservedRead() {
         val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
         val branch = call(action = "commits").copy(arguments = json("""{"action":"commits","page":2}"""))

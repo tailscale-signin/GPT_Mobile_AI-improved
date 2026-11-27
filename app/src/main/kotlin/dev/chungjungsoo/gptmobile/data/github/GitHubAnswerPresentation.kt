@@ -49,9 +49,9 @@ internal object GitHubAnswerPresentation {
         val remaining = (resources["remaining_calls"] as? JsonPrimitive)?.intOrNull
         val limit = (resources["effective_call_limit"] as? JsonPrimitive)?.intOrNull
         val request = GitHubTaskContinuity.request(task)
-        val showCatalog = runtimeClaim(request) || capabilityRequest.containsMatchIn(request)
+        val showCatalog = capabilityRequest.containsMatchIn(request)
         // The full catalog stays in the execution ledger for the details view.
-        if (!showCatalog && remaining != 0) return@buildString
+        if (!showCatalog && !runtimeClaim(request) && remaining != 0) return@buildString
         if (remaining != null) {
             append("\n\nTool calls remaining: ").append(remaining)
             if (limit != null) append(" of ").append(limit)

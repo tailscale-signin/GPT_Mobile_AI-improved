@@ -56,9 +56,19 @@ internal object GitHubTaskContinuity {
     private val leadingSession = Regex("^$SESSION_SOURCE,? ")
     private val trailingSession = Regex(",? $SESSION_SOURCE$")
 
+    private const val PROBLEMS = "(?:issues?|errors?|failures?|problems?|bugs?|blockers?)"
+    private const val ADVICE = "(?:how (?:to|(?:we|you) (?:can|could)) improve (?:it|them|the integration|github)|(?:offer|list|suggest|recommend) (?:fixes|solutions|improvements))"
+    private val experiencedProblems = Regex(
+        """(?:(?:tell|show) me (?:about )?(?:the |any )?$PROBLEMS (?:that )?you (?:experienced|encountered|ran into)|(?:what|which) $PROBLEMS (?:did you (?:experience|encounter|run into)|have you (?:experienced|encountered|run into))) """ +
+            """(?:while |when )?(?:using|working with) github(?: (?:in|during) (?:this|our) (?:session|chat|conversation))?"""
+    )
+    private val adviceEnding = Regex(",? and $ADVICE$")
+
     fun sessionAdvice(text: String): Boolean {
         if (request(text).length > 300) return false
         val question = normalized(text)
+        val problem = question.replace(adviceEnding, "")
+        if (problem != question && (experiencedProblems.matches(problem) || sessionProblemReport.matches(problem) || retrospectiveSessionQuestion.matches(problem))) return true
         val subject = question.replaceFirst(leadingSession, "").replace(trailingSession, "")
         return subject != question && sessionAdviceQuestion.matches(subject)
     }
@@ -83,14 +93,15 @@ internal object GitHubTaskContinuity {
         return null
     }
 
-    fun sessionAudit(text: String): Boolean = request(text).length <= 300 &&
-        (
-            Regex(
-                "^(?:(?:list|find|show|identify|examine|review|audit|summarize) (?:me )?(?:all |the )?(?:issues|errors|failures|problems|bugs) (?:with|in|from|for) (?:this|the current|our) (?:github )?(?:session|chat|conversation)|audit (?:this|the current) (?:github )?(?:session|chat|conversation))(?: (?:using|with) github)?(?: and (?:offer|list|suggest) (?:fixes|solutions))?$"
-            ).matches(normalized(text)) ||
-                retrospectiveSessionQuestion.matches(normalized(text)) ||
-                sessionAdvice(text)
-            )
+    private val sessionProblemReport = Regex(
+        "(?:(?:list|find|show|identify|examine|review|audit|summarize) (?:me )?(?:all |the )?(?:issues|errors|failures|problems|bugs) (?:with|in|from|for) (?:this|the current|our) (?:github )?(?:session|chat|conversation)|audit (?:this|the current) (?:github )?(?:session|chat|conversation))(?: (?:using|with) github)?"
+    )
+
+    fun sessionAudit(text: String): Boolean {
+        if (request(text).length > 300) return false
+        val question = normalized(text)
+        return sessionProblemReport.matches(question) || retrospectiveSessionQuestion.matches(question) || experiencedProblems.matches(question) || sessionAdvice(text)
+    }
 
     // Full-question matching keeps a new repository action out of the local audit route.
     private val retrospectiveSessionQuestion = Regex(

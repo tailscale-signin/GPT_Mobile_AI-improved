@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -96,6 +97,17 @@ class GitHubClaimBatchesTest {
         val reduced = GitHubClaimBatches.withClaimLimit(original, 4)
         assertEquals(4, reduced.maxClaims)
         assertTrue("format_correction" !in Json.parseToJsonElement(reduced.payload).jsonObject)
+        val longCandidate = buildJsonObject {
+            put("claim_limit", 8)
+            put("claim_selection", "Initial selection")
+            put("candidate", "🙂".repeat(500))
+            put("catalog", JsonArray(listOf(JsonPrimitive("same evidence"))))
+        }
+        val focused = GitHubClaimBatches.withClaimLimit(original.copy(payload = longCandidate.toString()), 1)
+        val payload = Json.parseToJsonElement(focused.payload).jsonObject
+        assertTrue(payload.getValue("candidate").jsonPrimitive.content.toByteArray().size <= 768)
+        assertEquals(longCandidate["catalog"], payload["catalog"])
+        assertTrue(payload.getValue("claim_selection").jsonPrimitive.content.contains("one short supported claim"))
         val corrected = GitHubClaimBatches.withClaimLimit(reduced, 1, invalidResponse = true)
         val retry = Json.parseToJsonElement(corrected.payload).jsonObject
         assertEquals(JsonPrimitive(1), retry["claim_limit"])

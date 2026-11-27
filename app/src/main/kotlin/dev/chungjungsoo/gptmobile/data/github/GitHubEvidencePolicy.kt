@@ -418,16 +418,6 @@ internal object GitHubEvidencePolicy {
             )
         }
         val (observations, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, acceptedContract = acceptedContract, issueWork = issueWork)
-        val coverage = GitHubTaskCoverage.rows(receipts)
-        val operations = if (coverage.isEmpty()) {
-            ""
-        } else {
-            "\n\n## Recorded operations\n\n" + coverage.joinToString("\n") { row ->
-                "- **${safe(row.string("tool"))} / ${safe(row.string("action"))}:** ${row.string("successful_observations")} successful, ${row.string("failed_observations")} failed observations."
-            }
-        }
-        val established = GitHubPartialReport.fromReceipts(receipts).takeIf(String::isNotBlank)?.let { "$it\n\n" }.orEmpty()
-        val missingComparison = GitHubReviewComparison.incompleteReason(task, receipts)?.let { "\n\n**Branch review incomplete:** $it" }.orEmpty()
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts)
         val waitingForApproval = pendingApprovals.isNotEmpty()
         val fixturePending = pendingApprovals.filterIsInstance<JsonObject>().any { it.string("branch").startsWith("codex-self-test/") }
@@ -439,6 +429,9 @@ internal object GitHubEvidencePolicy {
             result?.get("keep_fixture") == JsonPrimitive(true)
         }
         val action = if (inspectExtractorFailure) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else recoveryAction(failureCode, receipts)
+        val reviewProgress = (report["review_state"] as? JsonObject)?.takeIf {
+            failureCode == "REPLAY_EVIDENCE_REQUIRED" && it["comparison_verified"] == JsonPrimitive(true) && !GitHubWorkflowPreset.implementation(task)
+        }?.let { GitHubPartialReport.reviewProgress(it, receipts, now, epoch) }
         val ending = when {
             waitingForApproval ->
                 "**Waiting for approval.** Resolve the existing approval card for its exact task, branch, expected head and staged patch. Generic Continue and Retry are paused." +
@@ -446,15 +439,30 @@ internal object GitHubEvidencePolicy {
             rejectedApprovals.isNotEmpty() ->
                 "**Change rejected.** The durable approval event confirms no mutation was published. " +
                     if (keepRejectedFixture) "Fixture intentionally retained by the user's Keep fixture choice." else "The fixture is queued for cleanup reconciliation and branch absence verification."
+            reviewProgress != null -> "**Next action:** ${recoveryText(action)}"
             else -> "**Task incomplete.** These observations and retained evidence do not establish unverified changes, tests or merges.\n\n**Next action:** ${recoveryText(action)}"
         }
         val fallbackScope = if (fallback.omitted > 0) "\n\nThis bounded summary inspected ${fallback.inspected} of ${fallback.candidates} successful trusted receipts. Omitted observations remain retained; their absence from this summary does not establish absence from the repository." else ""
-        val text = established + observations + operations + missingComparison + fallbackScope + "\n\n" + ending
+        val body = reviewProgress ?: run {
+            val coverage = GitHubTaskCoverage.rows(receipts)
+            val operations = if (coverage.isEmpty()) {
+                ""
+            } else {
+                "\n\n## Recorded operations\n\n" + coverage.joinToString("\n") { row ->
+                    "- **${safe(row.string("tool"))} / ${safe(row.string("action"))}:** ${row.string("successful_observations")} successful, ${row.string("failed_observations")} failed observations."
+                }
+            }
+            val established = GitHubPartialReport.fromReceipts(receipts).takeIf(String::isNotBlank)?.let { "$it\n\n" }.orEmpty()
+            val missingComparison = GitHubReviewComparison.incompleteReason(task, receipts)?.let { "\n\n**Branch review incomplete:** $it" }.orEmpty()
+            established + observations + operations + missingComparison + fallbackScope
+        }
+        val text = body + "\n\n" + ending
         return text to JsonObject(
             report + mapOf(
                 "partial" to JsonPrimitive(true),
                 "answer_available" to JsonPrimitive(true),
                 "fallback" to JsonPrimitive("receipt_only"),
+                "compact_review_checkpoint" to JsonPrimitive(reviewProgress != null),
                 "fallback_candidate_receipts" to JsonPrimitive(fallback.candidates),
                 "fallback_inspected_receipts" to JsonPrimitive(fallback.inspected),
                 "fallback_omitted_receipts" to JsonPrimitive(fallback.omitted),

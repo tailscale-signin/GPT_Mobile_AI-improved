@@ -47,7 +47,8 @@
     "Carry issue-intake evidence through Android and the report service. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request.",
     "Tap the central microphone to listen or finish speaking. Stop cancels the current voice turn and playback. Choose a reply language beside Text chat to switch the written and spoken reply together, or select Translate only to hear a direct translation.",
     "While the microphone is active, Voice Mode prepares authorized tool catalogues and searches saved memory locally as words settle. Later turns reuse session metadata and exact matching recall. Translation skips these preparations.",
-    "Gateway GitHub chats honor the saved reasoning preference and request the CI tools needed for the current task. Continue keeps the accepted request and verified evidence within the selected model’s context limit, and can restore a displaced tool after verified progress."
+    "Gateway GitHub chats honor the saved reasoning preference and request the CI tools needed for the current task. Continue keeps the accepted request and verified evidence within the selected model’s context limit, and can restore a displaced tool after verified progress.",
+    "Summarize GitHub session failures from preceding turns and show revision-bound review progress. Recover bounded private reading notes and persist reduced claim batches across interruption."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -643,7 +644,19 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubContinuationBudget.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistScheduleTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuationFindingTest.kt",
-    "docs/repairs/gateway-github-diagnostics-2026-11-26-task.json"
+    "docs/repairs/gateway-github-diagnostics-2026-11-26-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageReading.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAnswerPresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimBatches.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEffectiveRecovery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPartialReport.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimBatchesTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressContinuationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewProgressTest.kt",
+    "docs/repairs/github-review-recovery-build152-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

@@ -1307,7 +1307,7 @@ internal class GitHubVerifiedSession(
             emit(failure.copy(errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED"))
         } else if (!reviewOriginFailure(failure) && dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
-            val findings = evidence.retainedFindings()
+            val findings = evidence.retainedFindings() ?: evidence.retainedAnswer()?.takeIf { it.second["fallback"] == JsonPrimitive("receipt_only") }?.first
             if (findings != null) {
                 validatePublication()
                 emit(ProviderEvent.TextDelta("## Retained findings\n\n$findings\n\n**Current interruption:** ${failure.message}", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
@@ -1479,9 +1479,12 @@ internal class GitHubVerifiedSession(
             val previousProgressDigest = GitHubEvidenceBook.publishedChecklistDigest(previous)
             val stalled = progressDigest != null && previousProgressDigest == kotlinx.serialization.json.JsonPrimitive(progressDigest)
             val savedFindings = if (originalFailure != null && extraction == null && coverage == null) evidence.retainedFindings() else null
-            val retainedFindingsDelivered = savedFindings != null && savedFindings != renderedText && savedFindings.length.toLong() + renderedText.length < 1_000_000
+            val compactReview = report["compact_review_checkpoint"] == JsonPrimitive(true)
+            val retainedFindingsDelivered = !compactReview && savedFindings != null && savedFindings != renderedText && savedFindings.length.toLong() + renderedText.length < 1_000_000
             val text = if (retainedFindingsDelivered) {
                 "## Retained findings\n\n$savedFindings\n\n## Current checkpoint\n\n$renderedText"
+            } else if (compactReview && savedFindings != null) {
+                "$renderedText\n\nSend “Show the last useful report” to read the earlier findings."
             } else if (stalled && originalFailure == null) {
                 val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }
                 "No new test evidence or changed blockers since the saved checkpoint. ${receipts.size} receipts retained. " +
@@ -2056,6 +2059,10 @@ internal class GitHubVerifiedSession(
         }
         fun completedCount() = completed.count { it != null }
         val requirementIds = requests.map { it.requirementIds }
+        var singleClaimBatch = (saved?.get("single_claim_batch") as? JsonPrimitive)?.intOrNull?.takeIf {
+            samePlan && saved["pending"] == JsonPrimitive(true) && it in 1..requests.size && completed[it - 1] == null
+        }
+        suspend fun saveBatches(pending: Boolean) = evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending, singleClaimBatch)
         val attempt = GitHubClaimExtraction.Attempt()
         suspend fun failed(
             code: String,
@@ -2144,14 +2151,19 @@ internal class GitHubVerifiedSession(
         }
         return try {
             withTimeoutOrNull(90_000) {
-                evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = true)
+                saveBatches(pending = true)
                 for ((index, request) in requests.withIndex()) {
                     if (completed[index] != null) continue
                     validatePublication()
-                    val result = extractBatch(request, attempt)
+                    val selected = if (singleClaimBatch == index + 1) GitHubClaimBatches.withClaimLimit(request, 1) else request
+                    val result = extractBatch(selected, attempt) {
+                        singleClaimBatch = index + 1
+                        saveBatches(pending = true)
+                    }
                     validatePublication()
                     completed[index] = result
-                    evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = true)
+                    singleClaimBatch = null
+                    saveBatches(pending = true)
                 }
                 val batches = completed.map { requireNotNull(it) }
                 val result = withContext(computationDispatcher) {
@@ -2184,7 +2196,7 @@ internal class GitHubVerifiedSession(
                             .any { it["kind"] == JsonPrimitive("recommendation") && it["status"] == JsonPrimitive("INFERRED") }
                     ClaimExtraction(rendered, repairRecommendationVerified = repairVerified)
                 }
-                evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = false)
+                saveBatches(pending = false)
                 result
             } ?: failed(attempt.terminalFailure?.errorCode ?: "GITHUB_EXTRACTION_TIMEOUT", attempt.failureAtDeadline())
         } catch (failure: GitHubClaimExtraction.Failure) {
@@ -2192,7 +2204,7 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private suspend fun extractBatch(request: GitHubClaimBatches.Request, attempt: GitHubClaimExtraction.Attempt): JsonObject {
+    private suspend fun extractBatch(request: GitHubClaimBatches.Request, attempt: GitHubClaimExtraction.Attempt, saveOutputLimit: suspend () -> Unit): JsonObject {
         var current = request
         val rejectionRecovery = GitHubClaimExtraction.RejectionRecovery()
         while (true) {
@@ -2201,9 +2213,14 @@ internal class GitHubVerifiedSession(
             } catch (failure: GitHubClaimExtraction.Failure) {
                 if (rejectionRecovery.retry(failure, now, validatePublication)) continue
                 if (!failure.repairAllowed || failure.code !in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE") || current.maxClaims <= 1) throw failure
-                val limit = maxOf(1, current.maxClaims / 2)
+                val outputLimited = failure.code == "GITHUB_EXTRACTION_OUTPUT_LIMIT"
+                val limit = if (outputLimited) 1 else maxOf(1, current.maxClaims / 2)
                 val reduced = GitHubClaimBatches.withClaimLimit(current, limit, invalidResponse = failure.code == "GITHUB_EXTRACTION_INVALID_RESPONSE")
-                current = if (TextTokenEstimate.estimate(reduced.payload) <= inputLimit()) reduced else GitHubClaimBatches.withClaimLimit(request, limit)
+                val available = inputLimit()
+                current = if (TextTokenEstimate.estimate(reduced.payload) <= available) reduced else GitHubClaimBatches.withClaimLimit(request, limit)
+                if (TextTokenEstimate.estimate(current.payload) > available) throw failure
+                if (outputLimited) saveOutputLimit()
+                validatePublication()
             }
         }
     }

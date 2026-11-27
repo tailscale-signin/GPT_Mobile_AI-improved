@@ -366,7 +366,9 @@ class AgentRunner(
                     if (restore == null) {
                         emit(
                             AgentRunEvent.Provider(
-                                SavedPageDeliveryRound.blocked("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", "planning") {
+                                SavedPageDeliveryRound.blocked("The original source page could not be reopened from this checkpoint. Earlier notes and tool results are saved.", "planning") {
+                                    put("pending_saved_page_count", pending.size)
+                                    put("replay_allowance", admittedReplayLimit)
                                     put("replay_missing_record", "AUTHORIZED_REOPEN")
                                     val missing = pending.entries.firstOrNull()
                                     replaySource(exchanges, missing?.key, missing?.value)

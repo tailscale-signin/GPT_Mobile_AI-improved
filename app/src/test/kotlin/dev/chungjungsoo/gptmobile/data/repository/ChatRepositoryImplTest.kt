@@ -1311,6 +1311,25 @@ class ChatRepositoryImplTest {
         assertTrue(states.last() is ApiState.Done)
     }
 
+    @Test fun experienceQuestionAnswersFromEarlierRunOutcomesWithoutOpeningAProviderStream() = runBlocking {
+        val platform = customPlatform()
+        val github = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("conn", "owner", "repo", "main", "a".repeat(40), platform.uid)
+        val question = MessageV2(id = 109, chatId = 7, content = "Tell me the issues you experienced using github and how to improve it", platformType = null)
+        val api = RecordingOpenAIAPI(ArrayDeque())
+        val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
+        val earlier = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+            runId = "earlier", chatId = 7, userMessageId = 97, assistantMessageId = 98, profileUid = platform.uid,
+            providerSnapshot = "test", modelSnapshot = "test", status = "BLOCKED",
+            terminalError = "The saved-page response contained unsupported output or exceeded its note allowance. Its pending pages remain checkpointed."
+        )
+        coEvery { runs.sessionAuditRuns(7, "feedback", 109) } returns listOf(earlier)
+        val states = createRepository(openAIAPI = api, runsOverride = runs).completeChat(listOf(question), emptyList(), platform, "feedback", ChatMcpToolConfig(github = github)).toList()
+        val report = states.filterIsInstance<ApiState.Success>().single().textChunk
+        assertTrue(report, report.contains("usable notes from a saved source page") && report.contains("short source-linked note"))
+        assertEquals(0, api.streamChatCompletionCalls)
+        assertTrue(states.last() is ApiState.Done)
+    }
+
     @Test
     fun `GitHub greeting finishes before provider or repository preparation`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()

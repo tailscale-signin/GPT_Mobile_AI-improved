@@ -1,0 +1,36 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "initial_pr_head": "35b99dccffddc79f414cdb25e1672457d5878c91",
+  "pull_request": 2651,
+  "capture_build": 152,
+  "capture_commit": "7e119ed1f3e42bbfdb98dd1a531a68d14f98a7fc",
+  "intent": "Answer GitHub experience questions from this chat, bound private reading notes, retain claim-repair progress and summarize interrupted branch reviews once.",
+  "observed": {
+    "blocked_review_runs": 4,
+    "saved_page_note_limit_stops": 3,
+    "repeated_review_messages": 3,
+    "characters_per_repeated_message": 22549,
+    "partial_retrospective_runs": 2,
+    "length_limited_verifier_invocations": 8
+  },
+  "integrated_parent": "91ba332c74227e70209341d58c66eddb054b8c1f",
+  "validation": {
+    "scope": "Local JVM replay of the captured GitHub review and feedback request through the app entry points.",
+    "captured_review": {
+      "restored_operation_receipts": 42,
+      "previous_reply_characters": 22549,
+      "replayed_reply_characters": 784,
+      "additional_model_requests": 0,
+      "changed_files_with_observed_source": 18,
+      "changed_files_in_exact_comparison": 119,
+      "task_completion_verified": false
+    },
+    "session_feedback": {
+      "preceding_runs": 4,
+      "provider_streams_opened": 0
+    }
+  }
+}

@@ -207,6 +207,24 @@ class GitHubReceiptCompletionPipelineTest {
         }
     }
 
+    @Test fun receiptFallbacksCannotBecomeEarlierFindingsAndFullReportShowsOriginalOnlyOnce() = runTest {
+        val rows = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("review", "o/r", "main", emptySet(), load = { rows[it] }, save = { id, row -> rows[id] = row })
+        val original = "A verified finding on line 12"
+        val verified = Json.parseToJsonElement("""{"answer_verified":true,"evidence_receipt_ids":["r"]}""").jsonObject
+        val fallback = JsonObject(verified + ("fallback" to JsonPrimitive("receipt_only")))
+        repeat(2) {
+            book.retainAnswerIfCurrent("Receipt-only checkpoint $it", fallback, 0, emptySet())
+            assertEquals(null, book.retainedFindings())
+        }
+        book.retainAnswerIfCurrent(original, verified, 0, emptySet())
+        val delivered = JsonObject(fallback + mapOf("retained_findings_delivered" to JsonPrimitive(true), "retained_findings_sha256" to JsonPrimitive(GitHubEvidenceBook.digest(original))))
+        val combined = "$original\n\nCurrent checkpoint"
+        book.retainAnswerIfCurrent(combined, delivered, 0, emptySet())
+        assertEquals(original, book.retainedFindings())
+        assertEquals(combined, book.retainedAnswer(includeEarlierFindings = true)?.first)
+    }
+
     @Test fun aRepeatedCallCannotReplaceNativeProofOrRefreshItsCaptureTime() = runTest {
         var clock = 1000L
         val call = ProviderEvent.ToolCall(

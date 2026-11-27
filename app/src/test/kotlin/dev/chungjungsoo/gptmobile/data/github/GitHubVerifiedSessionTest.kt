@@ -1787,7 +1787,7 @@ class GitHubVerifiedSessionTest {
         }, {}, {}, { 1000 })
         val first = initial.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
         assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", first.errorCode)
-        val firstRequests = listOf(1 to 8, 2 to 8, 2 to 4, 2 to 2, 2 to 1)
+        val firstRequests = listOf(1 to 8, 2 to 8, 2 to 1)
         assertEquals(firstRequests, requests)
 
         val unavailableDraft = object : AgentProviderSession {
@@ -1798,7 +1798,7 @@ class GitHubVerifiedSessionTest {
             answer(response)
         }, {}, {}, { 1000 }, currentRequest = "Continue")
         val delivered = resumed.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(firstRequests + (2 to 8), requests)
+        assertEquals(firstRequests + (2 to 1), requests)
         assertTrue(delivered.any { it is ProviderEvent.TextDelta })
         val checkpoint = stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value
         assertEquals(JsonPrimitive(false), checkpoint["pending"])
@@ -2046,7 +2046,7 @@ class GitHubVerifiedSessionTest {
             }
         }, {}, {})
         val events = gate.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(listOf(8, 4), limits)
+        assertEquals(listOf(8, 1), limits)
         assertTrue(events.any { it is ProviderEvent.TextDelta })
         assertTrue((events.last() as ProviderEvent.Failed).errorCode != "GITHUB_EXTRACTION_OUTPUT_LIMIT")
     }

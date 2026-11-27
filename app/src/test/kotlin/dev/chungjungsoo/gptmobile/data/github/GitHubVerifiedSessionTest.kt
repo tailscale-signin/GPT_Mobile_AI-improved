@@ -44,6 +44,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun issueOnlyRepairChecksTheLiveOpenInventoryAndPublishesItsVerifiedEmptyResult() = runBlocking {
+        val task = "Fix all issues on the GitHub repo."
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_issue", "github_issue__selected")
+        val book = GitHubEvidenceBook("open-issues", "owner/repo", "main", setOf(tool.name), now = { 1000L })
+        book.retainTaskContract(task, 1, listOf(tool), 24)
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The complete empty intake resolves this request.")
+        }
+        var published: JsonObject? = null
+        val session = GitHubVerifiedSession(provider, book, task, { 8192 }, { error("No extraction needed") }, {}, {}, now = { 1000L }, authorizedTools = listOf(tool), remainingToolCalls = { 24 }, onPublication = { published = it })
+        val call = session.streamRound(listOf(tool), emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(tool.name, call.name)
+        assertEquals(JsonPrimitive("open"), call.arguments["state"])
+        assertEquals(JsonPrimitive(true), call.arguments["verify_live"])
+        val data = Json.parseToJsonElement("""{"resource_type":"issue","items":[],"returned":0,"total_count":0,"page":1,"has_more":false,"complete":true,"traversal_state":"COMPLETE"}""").jsonObject
+        val result = AgentToolResult(call.callId, ToolResultContent.Json(data), false, dispatched = true)
+        val events = session.streamRound(listOf(tool), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("0 open issues"))
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(JsonPrimitive(true), published?.get("completion_verified"))
+        assertTrue(published?.get("requirements")?.jsonArray?.all { it.jsonObject["acceptance_state"] == JsonPrimitive("PASS") } == true)
+        assertEquals(1, book.snapshot().first.size)
+        val facts = GitHubSemanticSummary.from(call.name, call.arguments, data)
+        assertEquals(JsonPrimitive(true), facts["open_issue_inventory_empty"])
+        val progress = GitHubChatProgress(task)
+        assertTrue(progress.observeResult(call, result.copy(executionReceipt = buildJsonObject { put("semantic_summary", facts) }))?.contains("0 open issues") == true)
+        assertFalse("open_issue_inventory_empty" in GitHubSemanticSummary.from(call.name, call.arguments, JsonObject(data + ("has_more" to JsonPrimitive(true)))))
+        assertFalse("open_issue_inventory_empty" in GitHubSemanticSummary.from(call.name, JsonObject(call.arguments + ("labels" to JsonPrimitive("bug"))), data))
+    }
+
     @Test fun recentCommitsPublishDirectlyFromTheBoundedRetainedRowsWithoutAModelRound() = runBlocking {
         val task = "Show recent commits"
         val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_context", "github_context__selected")

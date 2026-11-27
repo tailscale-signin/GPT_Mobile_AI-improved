@@ -91,6 +91,7 @@ class ProgressiveToolCatalog(
         codeResearch -> RepositoryToolHint.readOperations
         else -> dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
     }
+    private val issueIntake = githubMode && !integrationPreset && dev.chungjungsoo.gptmobile.data.github.GitHubIssueRemediation.requested(task)
     private val taskRequired = definitions.filter { definition ->
         definition.modelVisible &&
             !conversational &&
@@ -132,7 +133,7 @@ class ProgressiveToolCatalog(
         } else if (githubUpfront) {
             val rankedTask = ranked(task)
             window(
-                implementationTools + rankedTask.filter {
+                taskRequired.filter { issueIntake && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_issue" } + implementationTools + rankedTask.filter {
                     !codeResearch &&
                         !integrationPreset &&
                         (initialNames == null || it.name in initialNames) &&

@@ -12,6 +12,44 @@ class GitHubRetrospectiveSessionAuditTest {
     private val originalReportedQuestion = "What issues have you discovered this session that prevented you from doing the work?"
     private fun wrapped(text: String) = "GitHub workspace: owner/repository\nBranch: repair-branch\n\n$text"
 
+    @Test fun sessionRecommendationsAndTheirReportStayWithThePriorConversationTopic() {
+        val question = "From this current session, what upgrades and changes would you make to the repo to make sure GitHub integration is a lot more thorough and intelligent?"
+        fun user(id: Int, text: String) = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = id, chatId = 7, platformType = null, content = wrapped(text))
+        val first = user(1, question)
+        val followUp = user(2, "Please analyze and report.")
+        assertTrue(GitHubTaskContinuity.sessionAudit(question))
+        assertTrue(GitHubTaskContinuity.sessionAdvice("How would you improve GitHub integration based on our chat?"))
+        assertEquals(first.content, GitHubTaskContinuity.auditTopic(listOf(first, followUp)))
+        assertNull(GitHubTaskContinuity.auditTopic(listOf(first, user(2, "Review PR #9"), followUp)))
+        assertNull(GitHubTaskContinuity.auditTopic(listOf(first, followUp.copy(content = followUp.content.replace("repair-branch", "other")))))
+        assertNull(GitHubTaskContinuity.auditTopic(listOf(first, user(2, "Analyze and report on PR #12"))))
+        assertFalse(GitHubTaskContinuity.sessionAudit("$question Then implement the changes."))
+        assertFalse(GitHubTaskContinuity.sessionAudit("Based on this chat, what changes would you recommend to the app and merge them?"))
+        assertTrue(GitHubTaskContinuity.reportOnly(followUp.content))
+        assertFalse(GitHubTaskContinuity.reportOnly("Analyze and report on PR #12"))
+        assertTrue(GitHubProgressPresentation.introduction(question).contains("this chat"))
+        assertTrue(GitHubProgressPresentation.introduction(followUp.content).contains("available findings"))
+    }
+
+    @Test fun auditRecommendationsDependOnRecordedOutcomes() {
+        fun run(status: String, error: String? = null) = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+            runId = status, chatId = 7, userMessageId = 1, assistantMessageId = 2,
+            profileUid = "test", providerSnapshot = "local", modelSnapshot = "test", status = status, terminalError = error
+        )
+        val healthy = listOf(run("COMPLETED"))
+        val issues = run("EVIDENCE_MISSING").copy(startedAt = 100L, completedAt = 643L)
+        val interrupted = healthy + run("PARTIAL", "CONTINUATION_CONTEXT_CAPACITY: private detail") + issues
+        val tools = listOf(GitHubSessionToolCount("github_ci__selected", 31), GitHubSessionToolCount("github_issue__selected", 15), GitHubSessionToolCount("github_pr", 14), GitHubSessionToolCount("github_context", 15))
+        assertEquals(issues, GitHubSessionAudit.longestInterruptedRun(interrupted))
+        val report = GitHubSessionAudit.render(interrupted, emptyList(), null, suggestChanges = true, longestRunTools = tools)
+        assertTrue(report.contains("9m 3s") && report.contains("75 recorded tool events") && report.contains("`github_ci` (31)"))
+        assertFalse(report.contains("__selected"))
+        assertTrue(report.contains("3 retained runs in this chat, 1 completed"))
+        assertTrue(report.contains("Reserve space for the final report") && report.contains("first requirement"))
+        assertFalse(report.contains("private detail"))
+        assertFalse(GitHubSessionAudit.render(healthy, emptyList(), null, suggestChanges = true).contains("Reserve space"))
+    }
+
     @Test fun retrospectiveQuestionsUseSavedDiagnosticsWithoutBecomingExecutionControls() {
         val questions = listOf(
             reportedQuestion,

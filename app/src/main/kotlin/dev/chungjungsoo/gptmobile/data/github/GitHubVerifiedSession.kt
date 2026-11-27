@@ -77,6 +77,7 @@ internal class GitHubVerifiedSession(
     private var completedDecisionMillis = 0L
     private val capabilityRequest = GitHubCapabilityRequest.from(currentRequest)
     private val lookup = GitHubLookupRoute.request(task)
+    private val issueIntake = GitHubIssueRemediation.requested(task)
     private var initialLookupIssued = false
     private var executionCorrectionAttempted = false
     private var correctionProgress: Set<String> = emptySet()
@@ -128,7 +129,7 @@ internal class GitHubVerifiedSession(
     }
 
     override suspend fun completeFromReceipts(exchanges: List<AgentToolExchange>): Flow<ProviderEvent>? {
-        if ((!ciDiagnosis && lookup == null) ||
+        if ((!ciDiagnosis && lookup == null && !issueIntake) ||
             verificationOnlyRequested ||
             GitHubTaskContinuity.diagnostic(currentRequest) ||
             GitHubTaskContinuity.reportOnly(currentRequest)
@@ -155,6 +156,7 @@ internal class GitHubVerifiedSession(
         // authority. No replay body or verifier model is required for this response.
         val entry = when {
             ciDiagnosis -> GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION
+            issueIntake -> GitHubAcceptancePublicationEvidence.Entry.ISSUE_INTAKE
             observed.second["schema"] == JsonPrimitive("github.lookup-report.v1") -> GitHubAcceptancePublicationEvidence.Entry.LOOKUP_OBSERVATION
             else -> GitHubAcceptancePublicationEvidence.Entry.STATUS_SNAPSHOT
         }
@@ -170,10 +172,14 @@ internal class GitHubVerifiedSession(
     }
 
     private suspend fun renderLookupObservation(receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject>? {
-        if (lookup == null) return null
+        if (lookup == null && !issueIntake) return null
         val contract = evidence.acceptedPromptContract() ?: return null
         val repository = (contract["repository"] as? JsonPrimitive)?.contentOrNull ?: return null
         if (GitHubTaskContinuity.request(evidence.acceptedTaskRequest().orEmpty()) != GitHubTaskContinuity.request(task)) return null
+        if (issueIntake) {
+            val intake = evidence.issueRemediation(task) ?: return null
+            return withContext(computationDispatcher) { GitHubIssueRemediation.emptyIntakeReport(task, intake, contract, receipts, now(), epoch) }
+        }
         val branch = (contract["accepted_branch"] as? JsonPrimitive)?.contentOrNull
         return withContext(computationDispatcher) {
             if (Regex("(?i)\\bsummari[sz]e\\b").containsMatchIn(GitHubTaskContinuity.request(task))) {
@@ -653,7 +659,7 @@ internal class GitHubVerifiedSession(
             }
             return
         }
-        if (lookup != null && !delegate.handlesToolsInternally && !resumeClaimExtraction && !initialLookupIssued) {
+        if ((lookup != null || issueIntake) && !delegate.handlesToolsInternally && !resumeClaimExtraction && !initialLookupIssued) {
             firstRepositoryObservation(tools, exchanges)?.let { next ->
                 validatePublication()
                 initialLookupIssued = true
@@ -909,7 +915,7 @@ internal class GitHubVerifiedSession(
                 // If neither attempt started work, establish the selected repository through its
                 // ordinary read tool. The next provider round receives the real tool result.
                 firstRepositoryObservation(tools, exchanges)?.let { next ->
-                    if (lookup != null) initialLookupIssued = true
+                    if (lookup != null || issueIntake) initialLookupIssued = true
                     lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                     emit(next)
                     emit(ProviderEvent.Completed)
@@ -937,11 +943,21 @@ internal class GitHubVerifiedSession(
         val contract = evidence.acceptedPromptContract() ?: return null
         val repository = (contract["repository"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
         val trusted = tools.filter { it.modelVisible && evidence.trustsTool(it.name) }
-        if (lookup != null) {
+        if (lookup != null || issueIntake) {
             val accepted = evidence.acceptedTaskRequest() ?: return null
             val request = GitHubTaskContinuity.request(task)
             if (initialLookupIssued || delegate.handlesToolsInternally || resumeClaimExtraction || GitHubTaskContinuity.request(accepted) != request || GitHubTaskContinuity.request(currentRequest) != request) return null
-            return lookup.firstRead(trusted, repository, (contract["accepted_branch"] as? JsonPrimitive)?.contentOrNull)
+            val route = lookup ?: GitHubLookupRoute.Request(
+                GitHubLookupRoute.ISSUES,
+                number = null,
+                state = "open",
+                pageSize = 100,
+                newestFirst = false,
+                filesOnly = false,
+                patches = false,
+                exhaustive = true
+            ).takeIf { GitHubIssueRemediation.issueOnlyObligation(request, repository) } ?: return null
+            return route.firstRead(trusted, repository, (contract["accepted_branch"] as? JsonPrimitive)?.contentOrNull, verifyLive = issueIntake)
         }
         val contexts = trusted.filter { GitHubOperationTool.operationName(it.name) == "github_context" }
         if (contexts.isEmpty() || contexts.any { !it.name.githubReadFacadeMatches(contexts.first().name) }) return null
@@ -1580,6 +1596,7 @@ internal class GitHubVerifiedSession(
                         status != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
                         coverage != null -> GitHubAcceptancePublicationEvidence.Source.COVERAGE
                         selectedCiObservation != null -> GitHubAcceptancePublicationEvidence.Source.CI_OBSERVATION
+                        issueIntake && lookupObservation != null -> GitHubAcceptancePublicationEvidence.Source.ISSUE_INTAKE
                         lookupObservation?.second?.get("schema") == JsonPrimitive("github.lookup-report.v1") -> GitHubAcceptancePublicationEvidence.Source.LOOKUP_OBSERVATION
                         lookupObservation != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
                         extraction != null -> GitHubAcceptancePublicationEvidence.Source.CLAIM_EXTRACTION
@@ -1780,7 +1797,7 @@ internal class GitHubVerifiedSession(
             firstRepositoryObservation(continuationTools, continuationExchanges)?.let { next ->
                 validatePublication()
                 evidence.retainVerdict(JsonObject(report + ("response_delivered" to JsonPrimitive(false))))
-                if (lookup != null) initialLookupIssued = true
+                if (lookup != null || issueIntake) initialLookupIssued = true
                 executionCorrectionAttempted = true
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next)

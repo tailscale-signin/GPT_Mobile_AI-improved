@@ -12,10 +12,12 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** An exact lookup may request only a visible read on the accepted repository and connection. */
+@JvmOverloads
 internal fun GitHubLookupRoute.Request.firstRead(
     trustedTools: List<AgentToolDefinition>,
     repository: String,
-    branch: String?
+    branch: String?,
+    verifyLive: Boolean = false
 ): ProviderEvent.ToolCall? {
     val target = repository.split('/')
     if (target.size != 2 || target.any { it.isBlank() || it != it.trim() }) return null
@@ -27,6 +29,7 @@ internal fun GitHubLookupRoute.Request.firstRead(
         put("owner", target[0])
         put("repo", target[1])
         put("action", route.action)
+        if (verifyLive) put("verify_live", true)
         number?.let { put(if (route == GitHubLookupRoute.ISSUE) "issue_number" else "pull_number", it) }
         state?.let { put("state", it) }
         if (newestFirst) {

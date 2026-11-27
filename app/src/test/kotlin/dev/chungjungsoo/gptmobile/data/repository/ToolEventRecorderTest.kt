@@ -1182,6 +1182,7 @@ private class FakeAgentPersistenceDao :
     override suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun> = getCompletedRuns(chatId)
     override suspend fun rawGetIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun> = getIncompleteRuns(chatId, userMessageIds)
     override suspend fun sessionAuditToolFailures(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure> = emptyList()
+    override suspend fun sessionAuditToolCounts(runId: String): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolCount> = emptyList()
     override suspend fun rawRecoveryRun(runId: String): AgentRun? = recoveryRun(runId)
 
     override suspend fun synthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = unused()

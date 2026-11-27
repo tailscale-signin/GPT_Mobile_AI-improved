@@ -203,6 +203,9 @@ internal object GitHubSemanticSummary {
                     (statuses["statuses"] as? JsonArray)?.let { put("observed_statuses", it.size) }
                     (statuses["total_count"] as? JsonPrimitive)?.intOrNull?.let { put("reported_total_statuses", it) }
                 }
+                if (operation.githubOperationFamily() == "github_issue" && GitHubIssueRemediation.completeEmptyOpenPage(canonicalRequest, source)) {
+                    put("open_issue_inventory_empty", true)
+                }
                 if (operation.githubOperationFamily() == "github_pr" && action == "list") {
                     val items = (data["items"] ?: data["pull_requests"]) as? JsonArray
                     if (items != null && request.text("state") in setOf("", "open")) {

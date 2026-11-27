@@ -41,13 +41,7 @@ internal fun planResponseContinuation(
         it.copy(outputTokens = responseOutputAllowance(it, it.outputTokens.takeIf { output -> output > 0 } ?: 4096))
     }
     val reserve = limits.outputTokens
-    val toolResultReserve = if (advertisedTools.isEmpty()) 0 else (limits.contextTokens / 8).coerceAtMost(8192)
-    val safety = minOf(256, limits.contextTokens / 16)
-    val promptCeiling = when {
-        limits.contextTokens == Int.MAX_VALUE -> Int.MAX_VALUE.toLong()
-        fitProviderBudget -> RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - reserve - toolResultReserve) - 256
-        else -> limits.contextTokens.toLong() - reserve - toolResultReserve - safety
-    }
+    val defaultResultReserve = if (advertisedTools.isEmpty()) 0 else (limits.contextTokens / 8).coerceAtMost(8192)
     // Capture carry before optional replay can evict its completed saved-page pair.
     val reading = exchanges.flatMap { it.results }.mapNotNull { it.savedPageReading }
     val mandatoryReading = if (reading.isEmpty()) {
@@ -66,25 +60,49 @@ internal fun planResponseContinuation(
     }
     fun required(source: List<ConversationTurn>) = if (preserveFullInput) source else source.filter { it.isCurrentTurn }
     fun cost(source: List<ConversationTurn>) = ContextBudgetService.breakdown(source, system, advertisedTools).total
-    val bare = appendResponseContinuationContext(turns, instruction, "", emptyList(), retainedTaskContext, mandatoryReading)
+    // A future tool result is only a planning reserve. Fit it around the exact
+    // current request and schemas before rejecting a continuation locally.
+    val replayMargin = if (draft.isBlank()) 80 else 160
+    val toolResultReserve = if (fitProviderBudget && !preserveFullInput && defaultResultReserve > 0 && limits.contextTokens != Int.MAX_VALUE) {
+        val input = appendResponseContinuationContext(turns, instruction, "", emptyList(), "", mandatoryReading)
+        val requiredPrompt = cost(required(input)).toLong() + 256 + replayMargin
+        (limits.contextTokens - reserve - requiredPrompt - RequestAdmission.estimateSafety(requiredPrompt))
+            .coerceIn(minOf(512, defaultResultReserve).toLong(), defaultResultReserve.toLong()).toInt()
+    } else {
+        defaultResultReserve
+    }
+    val promptCeiling = when {
+        limits.contextTokens == Int.MAX_VALUE -> Int.MAX_VALUE.toLong()
+        fitProviderBudget -> RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - reserve - toolResultReserve) - 256
+        else -> limits.contextTokens.toLong() - reserve - toolResultReserve - minOf(256, limits.contextTokens / 16)
+    }
+    val brief = if (fitProviderBudget && !preserveFullInput) {
+        dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPolicy.fitWorkingBrief(retainedTaskContext) { candidate ->
+            val mandatory = appendResponseContinuationContext(turns, instruction, "", emptyList(), candidate, mandatoryReading)
+            cost(required(mandatory)).toLong() + replayMargin <= promptCeiling
+        }
+    } else {
+        retainedTaskContext
+    }
+    val bare = appendResponseContinuationContext(turns, instruction, "", emptyList(), brief, mandatoryReading)
     require(mandatoryReading.isEmpty() || cost(required(bare)) <= promptCeiling) {
         "CONTINUATION_CONTEXT_CAPACITY: The accepted task and mandatory saved-page reading context do not fit the continuation budget. No request was dispatched; the full partial answer is retained."
     }
-    val replayBudget = (promptCeiling - cost(required(bare)) - if (draft.isBlank()) 80 else 160)
+    val replayBudget = (promptCeiling - cost(required(bare)) - replayMargin)
         .coerceIn(0, 8192).toInt()
     val replayExchanges = if (fitProviderBudget && !preserveFullInput && exchanges.isNotEmpty() && ToolExchangeCompactor.estimateTokens(exchanges) > replayBudget) {
         ToolExchangeCompactor.compact(exchanges, replayBudget, (replayBudget / 3).coerceAtLeast(1), taskRequest = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content?.takeIf { retainedTaskContext.isNotBlank() })
     } else {
         exchanges
     }
-    val base = appendResponseContinuationContext(turns, instruction, "", replayExchanges, retainedTaskContext, mandatoryReading)
+    val base = appendResponseContinuationContext(turns, instruction, "", replayExchanges, brief, mandatoryReading)
     val tailBudget = (promptCeiling - cost(required(base)) - 40).coerceIn(0, 4096).toInt()
     require(draft.isBlank() || tailBudget >= 48) {
         "CONTINUATION_CONTEXT_CAPACITY: The original request, completed evidence, selected tool schemas and output allowance leave no room for a saved answer tail. The full partial answer is retained."
     }
     val repetitionAllowance = LongResponsePolicy.requestedRepetitionCharacters(turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty())
     val replay = LongResponsePolicy.continuationContext(draft, tailBudget.coerceAtLeast(0), repetitionAllowance)
-    var continued = appendResponseContinuationContext(turns, instruction, replay, replayExchanges, retainedTaskContext, mandatoryReading)
+    var continued = appendResponseContinuationContext(turns, instruction, replay, replayExchanges, brief, mandatoryReading)
     if (fitProviderBudget) {
         require(cost(required(continued)) <= promptCeiling) {
             "CONTINUATION_CONTEXT_CAPACITY: The accepted task and its retained evidence do not fit the current provider budget."
@@ -101,7 +119,7 @@ internal fun planResponseContinuation(
     val plan = if (preserveFullInput && advertisedTools.isEmpty()) {
         ContextBudgetService.planFullInput(continued, system, limits)
     } else {
-        ContextBudgetService.plan(continued, system, advertisedTools, limits)
+        ContextBudgetService.plan(continued, system, advertisedTools, limits, toolResultReserveCap = toolResultReserve)
     }
     require(
         plan.tools == advertisedTools &&

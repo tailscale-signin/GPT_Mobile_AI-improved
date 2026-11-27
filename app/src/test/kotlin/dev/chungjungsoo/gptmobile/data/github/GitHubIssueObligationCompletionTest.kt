@@ -21,6 +21,8 @@ class GitHubIssueObligationCompletionTest {
     @Test fun completeLiveEmptyIntakeFinishesOnlyIssueWorkWithoutInventingAMutation() {
         for (task in listOf(
             "Fix all open issues",
+            "Fix all issues on the GitHub repo.",
+            "Fix all issues in this repository.",
             "Please fix every open issue.",
             "Fix and close all open issues",
             "Examine all open issues, fix them all, and then close them.",
@@ -45,6 +47,9 @@ class GitHubIssueObligationCompletionTest {
 
     @Test fun emptyIntakeDoesNotWaiveUnrelatedCriteriaConditionsOrAnotherRepository() {
         for (task in listOf(
+            "Fix all issues on the GitHub repo and fix the PR checks",
+            "Fix all issues on other/project",
+            "Fix all issues on the GitHub repo with label release",
             "Fix all open issues and update README.md",
             "Fix all open issues\nUpdate README.md",
             "Close all open issues and run the integration tests",
@@ -81,6 +86,10 @@ class GitHubIssueObligationCompletionTest {
             JsonObject(original + ("repository_role" to JsonPrimitive("READ_SOURCE"))),
             JsonObject(original + ("evidence_origin" to JsonPrimitive("CACHED"))),
             changeResult(original, "has_more", JsonPrimitive(true)),
+            changeResult(original, "complete", JsonPrimitive(false)),
+            changeResult(original, "upstream_has_more", JsonPrimitive(true)),
+            changeResult(original, "pagination_progress", buildJsonObject { put("complete", false) }),
+            changeResult(original, "observationTruncated", JsonPrimitive(true)),
             changeResult(original, "returned", JsonPrimitive(1)),
             inventory(listOf(1))
         )
@@ -177,6 +186,7 @@ class GitHubIssueObligationCompletionTest {
     @Test fun actualRepairRequestsRetainDiagnosisPublishedChangesAndRevisionTests() {
         for (task in listOf(
             "Fix all open issues and then close them",
+            "Close all issues on the GitHub repo after you repair them",
             "Fix and close all open issues",
             "Review all issues and repair them and close them",
             "Close all open issues once fixed",

@@ -42,7 +42,7 @@ class GatewayChatSubmission @Inject constructor(
     /** Null leaves the turn on its selected client inference route, before any engineering submission. */
     suspend fun submitIfSupported(request: AgentRunRequest): GatewayChatHandoff? {
         val tools = request.chatToolConfig
-        if (tools?.github != null && GitHubTaskContinuity.sessionAudit(request.userMessages.lastOrNull()?.content.orEmpty())) return null
+        if (tools?.github != null && GitHubTaskContinuity.auditTopic(request.userMessages) != null) return null
         if (!chats.researchPersistenceAllowed(request.chatId)) return null
         val repair = tools?.githubDraftRepair
         val context = tools?.github

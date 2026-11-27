@@ -39,6 +39,56 @@ class ResponseContinuationPlanTest {
         assertTrue(prompt + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(prompt) + 512 <= 4096)
     }
 
+    @Test fun sixteenKContinuationFitsRankedFindingsWithoutDroppingSchemasOrTheOriginalRequest() {
+        val request = "Report on repository integration."
+        val schema = AgentToolDefinition("github_read", "S".repeat(14_700), buildJsonObject { put("type", "object") })
+        val system = "s".repeat(7_350)
+        val findings = (1..8).map { index ->
+            buildJsonObject {
+                put("receipt_id", "rank-$index")
+                put("observations", "retained observation ".repeat(12))
+            }
+        }
+        val brief = buildJsonObject {
+            put("schema", "github.working-brief.v1")
+            put("findings", kotlinx.serialization.json.JsonArray(findings))
+            put("omitted_observations", 3)
+        }
+        val plan = planResponseContinuation(
+            listOf(current(request)), system, TokenBudgetSettings(contextTokens = 16_384, outputTokens = 4096),
+            "", "Write the report.", emptyList(), advertisedTools = listOf(schema), fitProviderBudget = true, retainedTaskContext = brief.toString()
+        )
+        val sent = plan.turns.single().userMessage.content
+        val carried = kotlinx.serialization.json.Json.parseToJsonElement(sent.lineSequence().last()) as kotlinx.serialization.json.JsonObject
+        val rows = carried.getValue("findings") as kotlinx.serialization.json.JsonArray
+        assertTrue(rows.size in 1 until findings.size)
+        assertEquals(findings.take(rows.size), rows.toList())
+        assertEquals((3 + findings.size - rows.size).toString(), carried["omitted_observations"].toString())
+        assertTrue(sent.startsWith(request))
+        assertEquals(listOf(schema), plan.tools)
+        assertTrue(plan.promptTokens + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(plan.promptTokens.toLong()) + 4096 + plan.toolResultBytes / 3 <= 16_384)
+    }
+
+    @Test fun futureResultReserveYieldsToTheMandatoryInputButNeverConsumesTheOutputAllowance() {
+        val schema = AgentToolDefinition("github_read", "S".repeat(16_200), buildJsonObject { put("type", "object") })
+        val request = "Keep the original request, plan and provider limits."
+        val plan = planResponseContinuation(
+            listOf(current(request)),
+            "s".repeat(7_890),
+            TokenBudgetSettings(contextTokens = 16_384, outputTokens = 4096),
+            "A saved answer.",
+            "Continue.",
+            emptyList(),
+            advertisedTools = listOf(schema),
+            fitProviderBudget = true
+        )
+        assertEquals(4096, plan.outputTokens)
+        assertEquals(listOf(schema), plan.tools)
+        assertTrue(plan.toolResultBytes / 3 in 512 until 2048)
+        assertTrue(plan.turns.single().userMessage.content.endsWith("A saved answer."))
+        assertTrue(plan.promptTokens + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(plan.promptTokens.toLong()) + 4096 + plan.toolResultBytes / 3 <= 16_384)
+    }
+
     @Test fun automaticOutputUsesTheAdmittedContextReserveInsteadOfTheLargerRouteCeiling() {
         val settings = TokenBudgetSettings(contextTokens = 1024)
         val output = responseOutputAllowance(settings, routeOutputCap = 1024)

@@ -2027,18 +2027,21 @@ class ChatRepositoryImpl(
         }
         retainToolAdmission(runId, platform, userMessages.lastOrNull()?.chatId, dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage.STAGE_NOT_REACHED)
         val auditUser = userMessages.lastOrNull()
-        if (stage == null &&
-            chatToolConfig?.github?.mainProfileUid == platform.uid &&
-            auditUser != null &&
-            auditUser.attachments.isEmpty() &&
-            dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(auditUser.content)
-        ) {
+        val auditTopic = if (stage == null && chatToolConfig?.github?.mainProfileUid == platform.uid) {
+            dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.auditTopic(userMessages)
+        } else {
+            null
+        }
+        if (auditTopic != null && auditUser != null) {
+            emit(ApiState.ActivitySummary(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction(auditTopic)))
             val report = withContext(Dispatchers.IO) {
                 val runs = agentRunDao.sessionAuditRuns(auditUser.chatId, runId)
                 val ids = runs.map { it.runId }
                 val failures = if (ids.isEmpty()) emptyList() else agentPersistenceDao.sessionAuditToolFailures(ids)
                 val journal = if (ids.isEmpty()) null else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.snapshot(ids.toSet(), byteLimit = 512 * 1024, eventLimit = 500)
-                dev.chungjungsoo.gptmobile.data.github.GitHubSessionAudit.render(runs, failures, journal)
+                val longest = dev.chungjungsoo.gptmobile.data.github.GitHubSessionAudit.longestInterruptedRun(runs)
+                val counts = longest?.let { agentPersistenceDao.sessionAuditToolCounts(it.runId) }.orEmpty()
+                dev.chungjungsoo.gptmobile.data.github.GitHubSessionAudit.render(runs, failures, journal, suggestChanges = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAdvice(auditTopic), longestRunTools = counts)
             }
             emit(ApiState.Success(report))
             emit(ApiState.Done)

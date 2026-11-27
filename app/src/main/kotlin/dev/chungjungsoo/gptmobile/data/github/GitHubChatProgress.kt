@@ -73,6 +73,7 @@ internal class GitHubChatProgress(
     private val activeCalls = mutableSetOf<Pair<String, String>>()
     private val blockedCalls = mutableSetOf<Pair<String, String>>()
     private val observedProgress = linkedSetOf<Triple<String, Int, String>>()
+    private val localReadFailures = linkedMapOf<Pair<String, String>, String>()
     private val resultObservations = linkedMapOf<String, ResultObservation>()
     private val savedResults = linkedSetOf<String>()
     private var responseStarted = false
@@ -268,7 +269,21 @@ internal class GitHubChatProgress(
 
     /** Consume existing bounded facts; never parse or hash a raw tool body on the progress path. */
     @Synchronized fun observeResult(call: ProviderEvent.ToolCall, result: AgentToolResult): String? {
-        if (terminal || evidence?.closed == true || result.isError || call.callId != result.callId || "view_cursor" in call.arguments) return null
+        if (terminal || evidence?.closed == true || call.callId != result.callId) return null
+        if (result.isError) {
+            if (result.dispatched || !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)) return null
+            val subject = operation(call.name, call.arguments).subject
+            val admission = result.executionReceipt?.get("dependency_admission_reasons") as? JsonArray
+            val notice = when {
+                result.errorCode == "INVALID_ARGUMENTS" -> "The $subject request needs corrected arguments before it can run."
+                admission?.contains(JsonPrimitive("REPEAT_LIMIT")) == true -> "The repeated $subject request stopped at the local repeat limit."
+                else -> return null
+            }
+            localReadFailures[call.callId to call.name] = notice
+            while (localReadFailures.size > 256) localReadFailures.remove(localReadFailures.keys.first())
+            return notice
+        }
+        if ("view_cursor" in call.arguments) return null
         val saved = result.sharedResult || result.executionReceipt?.get("read_source") == JsonPrimitive("RETAINED")
         if (saved) {
             savedResults += call.callId
@@ -354,7 +369,7 @@ internal class GitHubChatProgress(
                         selectedAuthoredSummary = false
                         activity = milestone(name, true, false, progress.toolArgs)
                         nextStep = "inspect the ${operation.subject} error and identify whether a corrected request or connection recovery is needed"
-                        val finding = observation(name, true, false, progress.toolArgs)
+                        val finding = progress.toolCallId?.let { localReadFailures.remove(it to name) } ?: observation(name, true, false, progress.toolArgs)
                         rememberStep(finding, problemScope = problemScope)
                         queueTransition(terminalKey, problemScope, "BLOCKER", finding)
                         if (GitHubCopilotProgress.activity(name, progress.toolArgs ?: JsonObject(emptyMap())) != null) copilotUpdatePending = true
@@ -488,6 +503,7 @@ internal class GitHubChatProgress(
                 pendingSummary = null
                 activity = ""
                 resultObservations.clear()
+                localReadFailures.clear()
                 savedResults.clear()
                 pendingTransitions.clear()
             }
@@ -589,7 +605,7 @@ internal class GitHubChatProgress(
         val fields = listOf(
             "failed_job_step", "check_counts", "check_inventory_complete", "required_checks_state", "returned", "scanned_files", "search_complete",
             "open_issue_count", "open_pull_request_count", "workflow_definitions_observed", "workflow_inventory_complete", "changed_files_observed",
-            "open_pull_requests_observed", "open_pull_request_inventory_complete", "branch", "copilot_task", "copilot_request", "copilot_observation"
+            "open_pull_requests_observed", "open_pull_request_inventory_complete", "open_issue_inventory_empty", "branch", "copilot_task", "copilot_request", "copilot_observation"
         ).filter(facts::containsKey)
         if (fields.isEmpty() && resourceValues.isEmpty()) return null
         val value = JsonObject(facts.filterKeys(fields::contains).toSortedMap()).toString()
@@ -870,6 +886,9 @@ internal class GitHubChatProgress(
                     return observation("${quantity(returned, "matching file")} in the search page", "This search page returned ${quantity(returned, "matching file")} after inspecting ${quantity(scanned, "file")}. $coverage")
                 }
             }
+            if (name.githubOperationFamily() == "github_issue" && args["state"] == JsonPrimitive("open") && facts["open_issue_inventory_empty"] == JsonPrimitive(true)) {
+                return observation("0 open issues in the complete list", "The complete issue list contained 0 open issues.")
+            }
             val issues = count(facts, "open_issue_count")
             val pulls = count(facts, "open_pull_request_count")
             if (issues != null || pulls != null) {
@@ -971,7 +990,11 @@ internal class GitHubChatProgress(
                     "merge", "create", "update", "close" -> Operation("Checking PR request", "pull request action", "verify the requested action against the current pull request and its required checks", true)
                     else -> Operation("Inspecting PR changes", "pull request inspection", "compare the proposed changes with the requested behavior and outstanding review requirements")
                 }
-                "github_issue" -> Operation("Reading issue details", "issue inspection", "connect the reported symptoms and remaining requirements to the relevant implementation")
+                "github_issue" -> if (action == "list" && args?.get("state") == JsonPrimitive("open")) {
+                    Operation("Checking open issues", "open issue list", "check whether the complete list contains work to repair")
+                } else {
+                    Operation("Reading issue details", "issue inspection", "connect the reported symptoms and remaining requirements to the relevant implementation")
+                }
                 "github_stage_patch" -> Operation("Preparing patch", "patch request", "review the proposed changes and verify their approval and publication state before claiming they were applied", true)
                 "github_commit", "github_write" -> Operation("Checking change request", "change request", "verify whether the proposed change was accepted and then inspect the resulting branch state", true)
                 "github_release" -> when (action) {

@@ -19,6 +19,34 @@ class GitHubMeaningfulProgressTest {
     )
     private fun summaries(progress: GitHubChatProgress) = progress.tick().filterIsInstance<ApiState.ActivitySummary>()
 
+    @Test fun predispatchReadRejectionsExplainTheLocalCauseAndKeepRawProviderErrorsPrivate() {
+        for ((code, reason, expected) in listOf(
+            Triple("INVALID_ARGUMENTS", "", "needs corrected arguments"),
+            Triple("NOT_DISPATCHED", "REPEAT_LIMIT", "local repeat limit")
+        )) {
+            val progress = GitHubChatProgress("Review repository files")
+            progress.tick()
+            val call = ProviderEvent.ToolCall("read", "github_read", args("src/Reader.kt"))
+            progress.observe(event(call.callId, "tool_started"))
+            val result = AgentToolResult(
+                call.callId,
+                ToolResultContent.Text("private provider error"),
+                true,
+                dispatched = false,
+                errorCode = code,
+                executionReceipt = kotlinx.serialization.json.buildJsonObject {
+                    put("dependency_admission_reasons", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(reason))))
+                }
+            )
+            assertTrue(progress.observeResult(call, result)?.contains(expected) == true)
+            progress.observe(event(call.callId, "tool_failed"))
+            val summary = summaries(progress).single().text
+            assertTrue(summary, summary.contains(expected))
+            assertFalse(summary.contains("private provider error"))
+            assertEquals(null, GitHubChatProgress("read").observeResult(call, result.copy(dispatched = true)))
+        }
+    }
+
     @Test fun newBlockerIsImmediateOnceAndReplayTextOrCountersCannotCreateAnotherFinding() {
         var clock = 0L
         val progress = GitHubChatProgress { clock }

@@ -115,6 +115,20 @@ internal object GitHubEngineeringMemoryPolicy {
         return JsonObject(base + mapOf("findings" to JsonArray(retained), "omitted_observations" to JsonPrimitive(eligible.size - retained.size))).toString()
     }
 
+    /** Drop lowest-ranked whole observations first, preserving provenance and the omission count. */
+    fun fitWorkingBrief(brief: String, fits: (String) -> Boolean): String {
+        if (brief.isBlank() || fits(brief)) return brief
+        val data = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(brief) as? JsonObject }.getOrNull() ?: return brief
+        if (data["schema"] != JsonPrimitive("github.working-brief.v1")) return brief
+        val findings = data["findings"] as? JsonArray ?: return brief
+        val omitted = (data["omitted_observations"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return brief
+        for (keep in findings.size - 1 downTo 0) {
+            val smaller = JsonObject(data + mapOf("findings" to JsonArray(findings.take(keep)), "omitted_observations" to JsonPrimitive(omitted + findings.size - keep))).toString()
+            if (fits(smaller)) return smaller
+        }
+        return ""
+    }
+
     private fun boundedFindings(claims: List<JsonElement>): List<JsonObject> {
         val retained = mutableListOf<JsonObject>()
         val seen = mutableSetOf<List<JsonElement?>>()

@@ -389,6 +389,9 @@ interface AgentPersistenceDao :
     @Query("SELECT tool_name AS toolName, status, COUNT(*) AS count FROM tool_events WHERE run_id IN (:runIds) AND (is_error = 1 OR status IN ('FAILED', 'CANCELED')) GROUP BY tool_name, status ORDER BY count DESC, tool_name LIMIT 32")
     suspend fun sessionAuditToolFailures(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure>
 
+    @Query("SELECT tool_name AS toolName, COUNT(*) AS count FROM tool_events WHERE run_id = :runId GROUP BY tool_name ORDER BY count DESC, tool_name")
+    suspend fun sessionAuditToolCounts(runId: String): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolCount>
+
     @Query("SELECT * FROM tool_events WHERE run_id = :runId ORDER BY sequence")
     suspend fun rawGetToolEventsForRun(runId: String): List<ToolEvent>
 

@@ -119,12 +119,10 @@ class GitHubClaimExtractionTest {
         assertSame(original, result.providerFailure)
     }
 
-    @Test fun unknownAcceptanceAndExplicitReplayProhibitionsCannotBecomeLimitRecovery() = runBlocking {
+    @Test fun unknownAcceptanceAndExplicitAutomaticRetryProhibitionCannotBecomeLimitRecovery() = runBlocking {
         val conditions = listOf(
             buildJsonObject { put("remote_acceptance", "UNKNOWN") },
-            buildJsonObject { put("retryable", false) },
-            buildJsonObject { put("request_replay_allowed", false) },
-            buildJsonObject { put("logical_continuation_allowed", false) },
+            buildJsonObject { put("requires_reconciliation", true) },
             buildJsonObject { put("automatic_retry_allowed", false) }
         )
         for (details in conditions) {
@@ -136,11 +134,25 @@ class GitHubClaimExtractionTest {
         }
     }
 
+    @Test fun completedOutputLimitCanRepairAsNewBatchWithoutReplayingSameRequest() = runBlocking {
+        val details = buildJsonObject {
+            put("retryable", false)
+            put("request_replay_allowed", false)
+            put("logical_continuation_allowed", false)
+            put("remote_acceptance", "YES")
+        }
+        val original = ProviderEvent.Failed("Limit", errorCode = "OUTPUT_LIMIT", transportComplete = true, failureDetails = details)
+        val result = failed(flowOf(ProviderEvent.TextDelta("{\\"claims\\":["), original, ProviderEvent.Completed))
+
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", result.code)
+        assertTrue(result.repairAllowed)
+        assertEquals(JsonPrimitive(false), result.providerFailure?.failureDetails?.get("request_replay_allowed"))
+        assertEquals(JsonPrimitive(false), result.providerFailure?.failureDetails?.get("logical_continuation_allowed"))
+    }
+
     @Test fun laterFailuresCanOnlyTightenCompletedLimitRepair() = runBlocking {
         val first = ProviderEvent.Failed("Limit", errorCode = "OUTPUT_LIMIT", transportComplete = true, invocationId = "first-attempt")
         val laterFailures = listOf(
-            first.copy(failureDetails = buildJsonObject { put("retryable", false) }),
-            first.copy(failureDetails = buildJsonObject { put("request_replay_allowed", false) }),
             first.copy(failureDetails = buildJsonObject { put("automatic_retry_allowed", false) }),
             first.copy(transportComplete = false),
             ProviderEvent.Failed("HTTP 429", errorCode = "429")

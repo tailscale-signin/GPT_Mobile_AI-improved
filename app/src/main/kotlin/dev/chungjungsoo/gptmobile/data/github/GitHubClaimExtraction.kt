@@ -245,11 +245,11 @@ internal object GitHubClaimExtraction {
         }
     )
 
+    // A smaller claim batch is a new, read-only extraction over retained evidence.
+    // It is not a replay or continuation of the completed provider request, so
+    // request-level retry/replay/continuation flags must not suppress this repair.
     private fun completedLimitAllowsRepair(failure: ProviderEvent.Failed): Boolean =
         !outcomeUnknown(failure) &&
-            failure.failureDetails?.get("retryable") != JsonPrimitive(false) &&
-            failure.failureDetails?.get("request_replay_allowed") != JsonPrimitive(false) &&
-            failure.failureDetails?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
             failure.failureDetails?.get("automatic_retry_allowed") != JsonPrimitive(false) &&
             (failure.transportComplete || failure.failureDetails?.get("generation_completed") == JsonPrimitive(true)) &&
             failure.errorCode in setOf("OUTPUT_LIMIT", "COMPLETION_REPAIR_BUDGET_EXHAUSTED", "GITHUB_EXTRACTION_OUTPUT_LIMIT")

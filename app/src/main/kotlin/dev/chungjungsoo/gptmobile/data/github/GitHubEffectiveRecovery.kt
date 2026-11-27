@@ -38,7 +38,16 @@ internal object GitHubEffectiveRecovery {
         val currentRecoveryCode = report.text("current_failure_code").ifBlank { recoveryAttempt.text("recovery_code").ifBlank { recoveryAttempt.text("code") } }.ifBlank { report.text("failure_code") }
             .takeIf { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES }
         val layers = listOfNotNull(report, ledger, original, failure, recoveryAttempt)
-        val code = original.text("code").ifBlank { report.text("original_failure_code") }.ifBlank { report.text("failure_code") }.ifBlank { failure.text("code") }
+        val code = original.text("code").ifBlank { report.text("original_failure_code") }.ifBlank { report.text("failure_code") }.ifBlank { report.text("error_code") }.ifBlank { report.text("errorCode") }.ifBlank { failure.text("code") }.ifBlank { failure.text("error_code") }
+        val codeCandidates = listOf(
+            original.text("code"),
+            report.text("original_failure_code"),
+            report.text("failure_code"),
+            report.text("error_code"),
+            report.text("errorCode"),
+            failure.text("code"),
+            failure.text("error_code")
+        ).filter(String::isNotBlank)
         val stop = report["stop_reason"] as? JsonObject
         val action = sequenceOf(
             original.text("recovery_action"),
@@ -55,6 +64,14 @@ internal object GitHubEffectiveRecovery {
         val pendingApproval = layers.any { (it["pending_approvals"] as? JsonArray)?.isNotEmpty() == true } ||
             code == "WAITING_FOR_APPROVAL" ||
             action == "WAITING_FOR_APPROVAL"
+        val completedClaimExtractionRepair =
+            codeCandidates.any { it in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "OUTPUT_LIMIT") } &&
+                action in setOf("RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT", "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT") &&
+                layers.any { it.text("stage").equals("claim_extraction", ignoreCase = true) || it.text("failed_stage").equals("claim_extraction", ignoreCase = true) } &&
+                anyTrue("transport_complete") &&
+                layers.any { it.text("remote_acceptance").equals("YES", ignoreCase = true) || it.text("remote_acceptance").equals("ACCEPTED", ignoreCase = true) } &&
+                anyTrue("evidence_retention_complete") &&
+                !anyFalse("automatic_retry_allowed")
         val verifiedCompletion = report["completion_verified"] == JsonPrimitive(true) &&
             report["response_delivered"] == JsonPrimitive(true) &&
             !anyFalse("evidence_retention_complete") &&
@@ -72,7 +89,7 @@ internal object GitHubEffectiveRecovery {
                 action in setOf("RESTORE_AUTHORIZED_CONFIGURATION", "REFRESH_CHANGED_AUTHORITY") ->
                 Decision(Kind.REFRESH_AUTHORITY, "RESTORE_AUTHORIZED_CONFIGURATION", "Review changed authority")
             pendingApproval -> Decision(Kind.REVIEW_APPROVAL, "WAITING_FOR_APPROVAL", "Review approval")
-            currentRecoveryCode != null ->
+            currentRecoveryCode != null && !completedClaimExtractionRepair ->
                 if (currentRecoveryCode == "PROVIDER_WAIT_OUTCOME_UNKNOWN") Decision(Kind.RECONCILE_REMOTE_OUTCOME, "RECONCILE_REMOTE_OUTCOME", "Review uncertain write") else inspection(recoveryAttempt.text("next_action").ifBlank { "REVIEW_SAVED_RECOVERY" })
             // Durable completion supersedes a retained provider cooldown. Current
             // authority, approval and uncertain-outcome blockers above still win.
@@ -83,6 +100,8 @@ internal object GitHubEffectiveRecovery {
                 anyFalse("evidence_retention_complete") ||
                 report["task_outcome"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("REJECTED")) ->
                 inspection(action)
+            completedClaimExtractionRepair ->
+                Decision(Kind.CONTINUE_WORK, action, "Resume claim extraction with a smaller batch without replaying the completed provider request.")
             report["evidence_retention_complete"] == JsonPrimitive(true) &&
                 (original == null || original.text("code") in verificationCodes) &&
                 (code in verificationCodes || action == "RESUME_VERIFICATION") ->

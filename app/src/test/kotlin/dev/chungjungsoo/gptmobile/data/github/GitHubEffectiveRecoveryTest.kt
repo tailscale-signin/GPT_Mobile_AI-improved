@@ -10,6 +10,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEffectiveRecoveryTest {
+    @Test fun completedClaimExtractionLimitAllowsSmallerBatchResumeWithoutReplayingProviderRequest() {
+        val action = "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+        val decision = GitHubEffectiveRecovery.resolve(
+            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","evidence_retention_complete":true,"logical_continuation_allowed":false,"request_replay_allowed":false,"recovery_action":"$action"}""")
+        )
+
+        assertEquals(GitHubEffectiveRecovery.Kind.CONTINUE_WORK, decision.kind)
+        assertTrue(decision.continueWork)
+        assertEquals(action, decision.action)
+        assertEquals(JsonPrimitive(false), decision.json()["request_replay_allowed"])
+    }
+
+    @Test fun claimExtractionRepairStillRequiresCompletedRetainedEvidenceAndKnownAcceptance() {
+        val action = "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+        val blocked = listOf(
+            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":false,"remote_acceptance":"YES","evidence_retention_complete":true,"logical_continuation_allowed":false,"recovery_action":"$action"}"""),
+            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"UNKNOWN","evidence_retention_complete":true,"logical_continuation_allowed":false,"recovery_action":"$action"}"""),
+            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","evidence_retention_complete":false,"logical_continuation_allowed":false,"recovery_action":"$action"}"""),
+            json("""{"failure_code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","evidence_retention_complete":true,"automatic_retry_allowed":false,"logical_continuation_allowed":false,"recovery_action":"$action"}""")
+        )
+
+        blocked.forEach { report ->
+            val decision = GitHubEffectiveRecovery.resolve(report)
+            assertEquals(GitHubEffectiveRecovery.Kind.INSPECT_FAILURE, decision.kind)
+            assertFalse(decision.continueWork)
+        }
+    }
+
     private fun fault() = buildJsonObject {
         put("failure_code", "GITHUB_VERIFICATION_INTERNAL_ERROR")
         put("task_outcome", "PARTIAL")

@@ -38,21 +38,26 @@ internal object GitHubEffectiveRecovery {
         val currentRecoveryCode = report.text("current_failure_code").ifBlank { recoveryAttempt.text("recovery_code").ifBlank { recoveryAttempt.text("code") } }.ifBlank { report.text("failure_code") }
             .takeIf { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES }
         val layers = listOfNotNull(report, ledger, original, failure, recoveryAttempt)
-        val code = original.text("code").ifBlank { report.text("original_failure_code") }.ifBlank { report.text("failure_code") }.ifBlank { report.text("error_code") }.ifBlank { report.text("errorCode") }.ifBlank { failure.text("code") }.ifBlank { failure.text("error_code") }
+        val code = original.text("code").ifBlank { report.text("original_failure_code") }.ifBlank { report.text("failure_code") }.ifBlank { report.text("error_code") }.ifBlank { report.text("errorCode") }.ifBlank { report.text("reason_code") }.ifBlank { failure.text("code") }.ifBlank { failure.text("error_code") }
         val codeCandidates = listOf(
             original.text("code"),
+            original.text("error_code"),
             report.text("original_failure_code"),
             report.text("failure_code"),
             report.text("error_code"),
             report.text("errorCode"),
+            report.text("reason_code"),
             failure.text("code"),
-            failure.text("error_code")
+            failure.text("error_code"),
+            failure.text("reason_code")
         ).filter(String::isNotBlank)
         val stop = report["stop_reason"] as? JsonObject
         val action = sequenceOf(
             original.text("recovery_action"),
             original.text("next_action"),
             report.text("recovery_action"),
+            report.text("recorded_recovery_action"),
+            original.text("recorded_recovery_action"),
             if (original == null) failure.text("recovery_action") else "",
             stop.text("recovery_action"),
             ledger.text("recovery")

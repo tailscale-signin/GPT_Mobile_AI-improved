@@ -248,12 +248,23 @@ internal object GitHubClaimExtraction {
     // A smaller claim batch is a new, read-only extraction over retained evidence.
     // It is not a replay of the original request, but explicit no-retry or
     // reconciliation facts still prohibit automatic repair.
-    private fun completedLimitAllowsRepair(failure: ProviderEvent.Failed): Boolean =
-        !outcomeUnknown(failure) &&
-            listOf("retryable", "request_replay_allowed", "logical_continuation_allowed", "automatic_retry_allowed")
-                .none { failure.failureDetails?.get(it) == JsonPrimitive(false) } &&
-            (failure.transportComplete || failure.failureDetails?.get("generation_completed") == JsonPrimitive(true)) &&
+    private fun completedLimitAllowsRepair(failure: ProviderEvent.Failed): Boolean {
+        val details = failure.failureDetails
+        if (outcomeUnknown(failure) || details?.get("automatic_retry_allowed") == JsonPrimitive(false)) return false
+
+        // A smaller batch is a new, read-only extraction over retained evidence. It never
+        // replays the original request or continues its logical invocation. If the provider
+        // explicitly denied those operations, require proof that the original generation
+        // was accepted/completed before allowing this distinct extraction.
+        val explicitNoReplay = listOf("retryable", "request_replay_allowed", "logical_continuation_allowed")
+            .any { details?.get(it) == JsonPrimitive(false) }
+        val acceptedOrCompleted = details?.get("remote_acceptance") in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED")) ||
+            details?.get("generation_completed") == JsonPrimitive(true)
+        if (explicitNoReplay && !acceptedOrCompleted) return false
+
+        return (failure.transportComplete || details?.get("generation_completed") == JsonPrimitive(true)) &&
             failure.errorCode in setOf("OUTPUT_LIMIT", "COMPLETION_REPAIR_BUDGET_EXHAUSTED", "GITHUB_EXTRACTION_OUTPUT_LIMIT")
+    }
 
     private fun rejectedLimit(failure: ProviderEvent.Failed): ProviderLimitDecision? = failure.providerLimit?.takeIf { limit ->
         limit.knownNotAccepted &&

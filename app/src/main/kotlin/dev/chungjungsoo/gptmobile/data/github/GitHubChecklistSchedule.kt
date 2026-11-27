@@ -36,7 +36,9 @@ internal object GitHubChecklistSchedule {
                             // dispatch the incomplete candidate.
                             GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) &&
                                 call.arguments.text("action").isNotBlank() &&
-                                GitHubActionSchema.project(tool, call.arguments.text("action")) != null
+                                GitHubActionSchema.project(tool, call.arguments.text("action"))?.let { projected ->
+                                    ToolArgumentValidator.errors(call.arguments, projected.inputSchema).isEmpty()
+                                } == true
                             )
                     )
         }

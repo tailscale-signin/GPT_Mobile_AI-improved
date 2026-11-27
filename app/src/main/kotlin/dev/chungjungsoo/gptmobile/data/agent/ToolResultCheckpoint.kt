@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,6 +25,30 @@ object ToolResultCheckpoint {
         runCatching {
             (Json.parseToJsonElement(event.result.orEmpty()) as? JsonObject)?.get("execution") as? JsonObject
         }.getOrNull()
+    }
+
+    /** Only the original local decision's bound receipt can project a failure-shaped wait. */
+    fun waitingForUserChoice(event: ToolEvent): Boolean {
+        val name = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.NAME
+        val pending = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.PENDING
+        if (!event.isError || event.toolName != name || event.modelToolName != name) return false
+        if (event.status !in setOf(ToolEventStatus.PENDING, ToolEventStatus.RUNNING, ToolEventStatus.WAITING_FOR_USER, ToolEventStatus.FAILED)) return false
+        val receipt = execution(event) ?: return false
+        if (receipt["schema"] != JsonPrimitive("gptmobile.tool-execution.v1") ||
+            receipt["call_id"] != JsonPrimitive(event.callId) ||
+            receipt["run_id"] != JsonPrimitive(event.runId) ||
+            receipt["event_id"] != JsonPrimitive(event.eventId) ||
+            receipt["tool"] != JsonPrimitive(name) ||
+            receipt["error_code"] != JsonPrimitive(pending) ||
+            receipt["dispatched"] != JsonPrimitive(false) ||
+            receipt["execution_state"] != JsonPrimitive("PRECHECK_REJECTED") ||
+            receipt["requires_reconciliation"] != JsonPrimitive(false)
+        ) {
+            return false
+        }
+        val payload = runCatching { Json.parseToJsonElement(read(event, "payload").orEmpty()) as? JsonObject }.getOrNull() ?: return false
+        val promptId = (payload["choice_prompt_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        return payload["status"] == JsonPrimitive(pending) && promptId?.matches(Regex("[a-f0-9]{64}")) == true
     }
 
     /** Native rejection or a normalized precheck can prove no effect; uncertainty never can. */
@@ -66,3 +91,6 @@ object ToolResultCheckpoint {
 
 fun ToolEvent.recoveryResult(): String? = ToolResultCheckpoint.read(this, "payload")
 fun ToolEvent.displayResult(): String? = ToolResultCheckpoint.read(this, "display")
+
+/** A durable user wait retains its failure-shaped control receipt without reporting a tool failure. */
+fun ToolEvent.isToolFailure(): Boolean = (status == ToolEventStatus.FAILED || isError) && !ToolResultCheckpoint.waitingForUserChoice(this)

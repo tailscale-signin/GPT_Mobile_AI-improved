@@ -386,7 +386,7 @@ interface AgentPersistenceDao :
     @Query("SELECT * FROM tool_events WHERE run_id IN (:runIds) ORDER BY run_id, sequence")
     suspend fun rawGetToolEvents(runIds: List<String>): List<ToolEvent>
 
-    @Query("SELECT tool_name AS toolName, status, COUNT(*) AS count FROM tool_events WHERE run_id IN (:runIds) AND (is_error = 1 OR status IN ('FAILED', 'CANCELED')) GROUP BY tool_name, status ORDER BY count DESC, tool_name LIMIT 32")
+    @Query("SELECT tool_name AS toolName, status, COUNT(*) AS count FROM tool_events WHERE run_id IN (:runIds) AND status != 'WAITING_FOR_USER' AND (is_error = 1 OR status IN ('FAILED', 'CANCELED')) GROUP BY tool_name, status ORDER BY count DESC, tool_name LIMIT 32")
     suspend fun sessionAuditToolFailures(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure>
 
     @Query("SELECT tool_name AS toolName, COUNT(*) AS count FROM tool_events WHERE run_id = :runId GROUP BY tool_name ORDER BY count DESC, tool_name")
@@ -429,7 +429,10 @@ interface AgentPersistenceDao :
             error = :error
         WHERE event_id = :eventId
             AND call_id = :callId
-            AND status IN ('PENDING', 'RUNNING')
+            AND (status IN ('PENDING', 'RUNNING') OR
+                (:expectedWaitingResult IS NOT NULL AND result = :expectedWaitingResult
+                 AND status IN ('WAITING_FOR_USER', 'FAILED')
+                 AND tool_name = 'github_decide' AND model_tool_name = 'github_decide'))
         """
     )
     suspend fun finishToolEvent(
@@ -440,7 +443,8 @@ interface AgentPersistenceDao :
         status: String,
         isError: Boolean,
         completedAt: Long,
-        error: String?
+        error: String?,
+        expectedWaitingResult: String? = null
     ): Int
 
     @Query("UPDATE tool_events SET status = 'CANCELED', completed_at = :completedAt WHERE run_id = :runId AND status IN ('PENDING', 'RUNNING')")

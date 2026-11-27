@@ -67,6 +67,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Unified intelligence and interface update
 
+- Saved choices show a waiting state in tool history, do not trigger automatic failure reports, and retain their original receipts when resumed.
 - Persist GitHub decisions before presentation, park waiting invocations without occupying model workers, retain original task and profile identity, and exclude user waits only from relative active-time allowances.
 - Collapse the full GitHub header to one saved arrow control, use standard report modal ownership, match startup surfaces to supported theme colors, and engage the conversation anchor on manual bottom arrival.
 - Show Resume and Discard for persisted interrupted runs, preserving existing original-job reconciliation, tool receipts and provider-aware checkpoint recovery.

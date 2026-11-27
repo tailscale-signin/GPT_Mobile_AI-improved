@@ -76,6 +76,7 @@ data class ToolEvent(
 object ToolEventStatus {
     const val PENDING = "PENDING"
     const val RUNNING = "RUNNING"
+    const val WAITING_FOR_USER = "WAITING_FOR_USER"
     const val COMPLETED = "COMPLETED"
     const val FAILED = "FAILED"
     const val CANCELED = "CANCELED"

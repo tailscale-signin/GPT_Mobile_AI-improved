@@ -3113,7 +3113,12 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentRunDao.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapturedProviderAuthority.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolResultCheckpoint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ToolEvent.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt",
@@ -3128,7 +3133,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/InterruptedRunDiscardTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecordTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthorityTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3145,7 +3153,8 @@
         "Persist a choice before exposing it and park its original invocation without retaining an active model worker. Rehydration restores the original source message, profile, workspace, operation and choice identity.",
         "Duplicate answers are serialized, uncertain mutations are reconciled, and changed branch circumstances require the existing continuation authority checks.",
         "Only explicit relative task allowances exclude durable user-choice waiting intervals. Absolute user deadlines remain wall-clock deadlines.",
-        "An interrupted persisted run exposes Resume even without a terminal error string. Resume retains original job and task identity; checkpoint continuation does not claim exact provider stream resumption."
+        "An interrupted persisted run exposes Resume even without a terminal error string. Resume retains original job and task identity; checkpoint continuation does not claim exact provider stream resumption.",
+        "An identity-bound undispatched choice receipt projects a quiet waiting state, never success or tool failure. Retain the original no-effect receipt for recovery; only a compare-and-set against its exact saved bytes can finish the original call, and late waiting observations cannot replace an answered result."
       ],
       "routing": {
         "role": "executor",
@@ -3788,6 +3797,11 @@
       "bytes": 3464,
       "sha256": "c1d9ad263438ea8701324b55ca4f987e74c3996519a86575d1e09bf19242afef"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolResultCheckpoint.kt": {
+      "blob_sha": "75a458e627fb5aac8df179322a107df86ecd832e",
+      "bytes": 5749,
+      "sha256": "7a0a12d93fcbbb4d0639165b9417591629e27131feedb96150d20bf6a683612d"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/UniversalToolRegistry.kt": {
       "blob_sha": "b6f3191a872d673770a325bb251e81772ddc6af4",
       "bytes": 7668,
@@ -4019,9 +4033,9 @@
       "sha256": "d19aefd67c3a3d6dbcbc2765bd872ca651c97d6468f172bf70651312a2e38084"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt": {
-      "blob_sha": "b59cb1092e12b73cb804dd4b2a901ab6df3bd8d0",
-      "bytes": 141904,
-      "sha256": "d0fea84e3d91a5f509a40a374b6d45841f84823f0d14cee43cbd3d2547ad08b1"
+      "blob_sha": "997f5b4a74562a42833208c9a55d5b33885769a1",
+      "bytes": 142227,
+      "sha256": "f52a888415d05f3b4804dc8aad771ef39d5725c29a03039d172c1654a3548471"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentRunDao.kt": {
       "blob_sha": "e9662162f4e278d78a86f4b60ef998ca9b047c21",
@@ -4037,6 +4051,11 @@
       "blob_sha": "5488d2896469e85055a0fe739a4585969a328c85",
       "bytes": 3771,
       "sha256": "ef8e7d220d195bfd97ef1ee85e3f43b24fbbbb964b6941659e3a29debbf1e712"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ToolEvent.kt": {
+      "blob_sha": "ab3ac7062401ae1a2062945242b10b838adec7d9",
+      "bytes": 2343,
+      "sha256": "63c4bf6822c1168891b689d54f90dbec23b60918c12531c394e457c8774761cc"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicy.kt": {
       "blob_sha": "a3a383fe41a58f0b94e8bb13ecb326cbe317d618",
@@ -4833,6 +4852,11 @@
       "bytes": 42092,
       "sha256": "b53e64d667f70cf897c876932e5e87318388a81dd5f7c2335af01124c15200f8"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt": {
+      "blob_sha": "c298716ffd34d7823e96dc56f8c02398ece5c0f1",
+      "bytes": 17984,
+      "sha256": "fad8f7d082b7a84328746671b818dcb27fa506ca4bc997a4d4ab7f432ca2958d"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchImplementationArtifact.kt": {
       "blob_sha": "1418198ad276146c975983dd2083c535fb203cf1",
       "bytes": 4272,
@@ -5322,6 +5346,11 @@
       "blob_sha": "0bd40ca5c28c69c825d1f4b5b49ac873c40a7c78",
       "bytes": 38524,
       "sha256": "d498cf4b041a1d23159746ed01eac77db3119f943d6fc5f0b94f73886cbc54b0"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt": {
+      "blob_sha": "b350e613c90f8f340e2ddd7cd1f43efec5ba00f9",
+      "bytes": 37995,
+      "sha256": "28203a2c134afdef96701a34f37253022041693f7d948b4e0066c0ca52a469a9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt": {
       "blob_sha": "80441be1d251fa17143a918f0415910a8bed5b1f",
@@ -6068,6 +6097,11 @@
       "bytes": 3904,
       "sha256": "802fda20125db7fb665619e3d66f1c20f4e48a1783602bc6acbeb0edd1c90179"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt": {
+      "blob_sha": "c1086d615a73c22fe6f535b8c5ad30520f113d87",
+      "bytes": 10657,
+      "sha256": "9cd76542cce2b8c09e7a3d6a7afc13ac13984abaa4c2589a00236090033f73b6"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ConversationRecoveryReportSubmissionTest.kt": {
       "blob_sha": "2282a2f0b52ce1cbd148bac71f514877d1425a4f",
       "bytes": 10493,
@@ -6167,6 +6201,11 @@
       "blob_sha": "c8337987c13f8f771b83325b8487ad92898658fb",
       "bytes": 9830,
       "sha256": "3f5434a26ab0b5fa9a0745e16ba14729ae758eeb43dd21c2a4ab47badc7b31cf"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt": {
+      "blob_sha": "6097dcd5d47455de22b3a38f37bc559f82ff290b",
+      "bytes": 41116,
+      "sha256": "de7711c921e774010643803a2688f99e63889ddd5fef18a290fcdbc9a23173fc"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt": {
       "blob_sha": "ede7fac058f8c712531a7f7d9fd53093c1059d14",
@@ -6747,6 +6786,11 @@
       "blob_sha": "8807d888a0115c5af6ee260796f3f966967ba2d5",
       "bytes": 2297,
       "sha256": "d050de3ec707263095a1ebba16abceef203fddff9c5c118ccae8c83f7093c6da"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt": {
+      "blob_sha": "2ef3bcfb690e778ef08070734f47611010a10455",
+      "bytes": 90724,
+      "sha256": "c007f1fa27ba29aa915d01765e4729dd8d5fec8e91bab51822b9cddc80d621d5"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/DirectResearchModelFactoryTest.kt": {
       "blob_sha": "c4b51d6ba28e5e2ccc42da7f357e8682841000fd",
@@ -7779,9 +7823,9 @@
       "sha256": "ff86b577d7763b325cef1bdbc2d1f6afd9827d0d9c9ae0e67d318b0657e49da8"
     },
     "docs/repairs/unified-intelligence-interface-2026-11-27.md": {
-      "blob_sha": "bdbee305e88cac03392374bb828a1931a62f1417",
-      "bytes": 9574,
-      "sha256": "b37ef6c69132dd6597810b2664061788f773c785f78a6a07d3891dc95c166e58"
+      "blob_sha": "79d385d3f88b0edef778a08931359d14dc99fe36",
+      "bytes": 9733,
+      "sha256": "792f7e6141f829f0bbf31692a615f9121a40c7a36f3891b1c3273608a67c5032"
     },
     "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json": {
       "blob_sha": "42f994ae58dfd4ee2cda425f470d2c24bd82d235",

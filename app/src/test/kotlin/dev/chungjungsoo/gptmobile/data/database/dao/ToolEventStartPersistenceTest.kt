@@ -3,6 +3,10 @@ package dev.chungjungsoo.gptmobile.data.database.dao
 import android.app.Application
 import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -34,6 +38,41 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ToolEventStartPersistenceTest {
+    @Test fun savedDecisionWaitUsesBoundCompareAndSetAndNeverOverwritesACompletedAnswer() = withDatabase { db ->
+        val dao = db.agentPersistenceDao()
+        val recorder = ToolEventRecorder(dao, db.agentRunDao())
+        val started = recorder.startTool("run", 0, "choice", "github_decide", "github_decide", buildJsonObject { put("question", "Choose a strategy") }, startedAt = 10)
+        val pending = AgentToolResult(
+            started.callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("status", "GITHUB_CHOICE_PENDING")
+                    put("choice_prompt_id", "a".repeat(64))
+                }
+            ),
+            isError = true,
+            dispatched = false,
+            sharedResult = true,
+            errorCode = "GITHUB_CHOICE_PENDING"
+        )
+        val waiting = requireNotNull(recorder.finishTool(started.eventId, pending, 11))
+        assertEquals(ToolEventStatus.WAITING_FOR_USER, waiting.status)
+        assertTrue(ToolResultCheckpoint.confirmsNoEffect(waiting))
+        assertTrue(dao.sessionAuditToolFailures(listOf("run")).isEmpty())
+        assertEquals(0, dao.finishToolEvent(waiting.eventId, waiting.callId, "unbound", "TEXT", ToolEventStatus.COMPLETED, false, 12, null))
+        assertEquals(0, dao.finishToolEvent(waiting.eventId, waiting.callId, "stale", "TEXT", ToolEventStatus.COMPLETED, false, 12, null, "different saved receipt"))
+        assertEquals(0, dao.finishToolEvent(waiting.eventId, "other-call", "foreign", "TEXT", ToolEventStatus.COMPLETED, false, 12, null, waiting.result))
+        assertEquals(waiting, dao.rawGetToolEventById(waiting.eventId))
+
+        val restored = ToolEventRecorder(dao, db.agentRunDao())
+        assertEquals(waiting, restored.startTool("run", 99, "choice", "github_decide", "github_decide", buildJsonObject {}, startedAt = 12))
+        val completed = requireNotNull(restored.finishTool(waiting.eventId, AgentToolResult(waiting.callId, ToolResultContent.Text("Saved answer"), false, dispatched = false, sharedResult = true), 13))
+        assertEquals(ToolEventStatus.COMPLETED, completed.status)
+        assertEquals("Saved answer", completed.recoveryResult())
+        assertNull(restored.finishTool(waiting.eventId, pending, 14))
+        assertEquals(listOf(completed), dao.rawGetToolEventsForRun("run"))
+    }
+
     @Test fun recreatedRecorderAppendsAfterSavedEventsAndKeepsCompletedEvidence() = withDatabase { db ->
         val first = start(ToolEventRecorder(db.agentPersistenceDao(), db.agentRunDao()), "first")
         assertEquals(1, db.agentPersistenceDao().finishToolEvent(first.eventId, first.callId, "Saved exact evidence", "TEXT", ToolEventStatus.COMPLETED, false, 11, null))

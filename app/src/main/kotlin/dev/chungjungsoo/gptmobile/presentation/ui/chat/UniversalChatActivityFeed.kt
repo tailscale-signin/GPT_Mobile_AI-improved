@@ -166,7 +166,8 @@ internal fun UniversalChatActivityFeed(
  * A typed source-owned aggregate for the universal activity feed.
  *
  * Every count comes from a retained ToolEvent. We do not inspect or display
- * model-generated prose, tool arguments, result bodies, URLs or credentials.
+ * model-generated prose, tool arguments, URLs or credentials. Only a bound local
+ * decision receipt can project an old failure-shaped record as a user wait.
  * An execution's COMPLETED state does not establish valid results or task
  * acceptance. Last known state wins for the same stable run/call identity.
  */
@@ -175,9 +176,10 @@ internal data class ObservedToolReceiptSummary(
     val failed: Int,
     val canceled: Int,
     val ongoing: Int,
-    val unknown: Int
+    val unknown: Int,
+    val waiting: Int = 0
 ) {
-    val total: Int get() = completed + failed + canceled + ongoing + unknown
+    val total: Int get() = completed + failed + canceled + ongoing + unknown + waiting
 }
 
 internal fun observedToolReceiptSummary(events: List<ToolEvent>): ObservedToolReceiptSummary? {
@@ -193,15 +195,17 @@ internal fun observedToolReceiptSummary(events: List<ToolEvent>): ObservedToolRe
     // A chart is useful for a genuine collection, not one or two tool calls.
     if (unique.size < 3) return null
     val completed = unique.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
-    val failed = unique.count { it.status == ToolEventStatus.FAILED || it.status == ToolEventStatus.COMPLETED && it.isError }
+    val failed = unique.count { (it.status == ToolEventStatus.FAILED || it.status == ToolEventStatus.COMPLETED && it.isError) && !dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.waitingForUserChoice(it) }
     val canceled = unique.count { it.status == ToolEventStatus.CANCELED }
-    val ongoing = unique.count { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
+    val waiting = unique.count { dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.waitingForUserChoice(it) }
+    val ongoing = unique.count { (it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING) && !dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.waitingForUserChoice(it) }
     return ObservedToolReceiptSummary(
         completed = completed,
         failed = failed,
         canceled = canceled,
         ongoing = ongoing,
-        unknown = unique.size - completed - failed - canceled - ongoing
+        unknown = unique.size - completed - failed - canceled - ongoing - waiting,
+        waiting = waiting
     )
 }
 
@@ -214,6 +218,7 @@ internal fun toolReceiptCsv(summary: ObservedToolReceiptSummary): String =
             "Failed" to summary.failed,
             "Canceled" to summary.canceled,
             "Pending or running" to summary.ongoing,
+            "Waiting for your choice" to summary.waiting,
             "Unknown state" to summary.unknown
         ).forEach { (label, count) ->
             append(label).append(',').append(count).append("\r\n")
@@ -230,6 +235,7 @@ private fun ObservedToolReceiptChart(summary: ObservedToolReceiptSummary) {
         Triple("Failed", summary.failed, scheme.error),
         Triple("Canceled", summary.canceled, scheme.tertiary),
         Triple("Pending or running", summary.ongoing, scheme.secondary),
+        Triple("Waiting for your choice", summary.waiting, scheme.tertiary),
         Triple("Unknown state", summary.unknown, scheme.onSurfaceVariant)
     ).filter { it.second > 0 }
     Column(

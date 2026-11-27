@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,12 +65,14 @@ private const val TOOL_TRACE_TEXT_LIMIT = 1024
 
 sealed interface ToolCallState {
     data object Running : ToolCallState
+    data object WaitingForUser : ToolCallState
     data object Completed : ToolCallState
     data class Failed(val isError: Boolean) : ToolCallState
     data object Canceled : ToolCallState
 }
 
 fun ToolEvent.toToolCallState(): ToolCallState = when {
+    dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.waitingForUserChoice(this) -> ToolCallState.WaitingForUser
     status == ToolEventStatus.RUNNING || status == ToolEventStatus.PENDING -> ToolCallState.Running
     status == ToolEventStatus.FAILED || isError -> ToolCallState.Failed(isError)
     status == ToolEventStatus.CANCELED -> ToolCallState.Canceled
@@ -282,6 +285,12 @@ internal fun ToolStatusIndicator(state: ToolCallState, modifier: Modifier = Modi
             strokeWidth = 2.dp,
             color = MaterialTheme.colorScheme.primary
         )
+        ToolCallState.WaitingForUser -> Icon(
+            imageVector = Icons.Rounded.Pause,
+            contentDescription = stringResource(R.string.tool_trace_status_waiting_for_choice),
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = modifier.size(18.dp)
+        )
         is ToolCallState.Failed, is ToolCallState.Canceled -> Icon(
             imageVector = Icons.Rounded.Close,
             contentDescription = "Failed",
@@ -354,6 +363,7 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
             events.any { it.toToolCallState() is ToolCallState.Running } -> ToolCallState.Running
             events.any { it.toToolCallState() is ToolCallState.Failed } -> ToolCallState.Failed(true)
             events.any { it.toToolCallState() is ToolCallState.Canceled } -> ToolCallState.Canceled
+            events.any { it.toToolCallState() is ToolCallState.WaitingForUser } -> ToolCallState.WaitingForUser
             else -> ToolCallState.Completed
         }
     }
@@ -440,6 +450,7 @@ private fun ToolTraceRepeatedGroupCard(group: ToolTraceDisplayItem.RepeatedGroup
             group.events.any { it.toToolCallState() is ToolCallState.Running } -> ToolCallState.Running
             group.events.any { it.toToolCallState() is ToolCallState.Failed } -> ToolCallState.Failed(true)
             group.events.any { it.toToolCallState() is ToolCallState.Canceled } -> ToolCallState.Canceled
+            group.events.any { it.toToolCallState() is ToolCallState.WaitingForUser } -> ToolCallState.WaitingForUser
             else -> ToolCallState.Completed
         }
     }
@@ -505,12 +516,14 @@ private fun toolTraceLabels() = ToolTraceLabels(
     stringResource(R.string.tool_trace_arguments),
     stringResource(R.string.tool_trace_result),
     ToolTraceLabels.Default.exportHeader,
-    stringResource(R.string.tool_trace_timing_started_at)
+    stringResource(R.string.tool_trace_timing_started_at),
+    stringResource(R.string.tool_trace_status_waiting_for_choice)
 )
 
 @Composable
 private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
-    val callDescription = stringResource(R.string.tool_trace_call_content_description, event.callId, event.status.lowercase(Locale.ROOT))
+    val waiting = event.toToolCallState() == ToolCallState.WaitingForUser
+    val callDescription = stringResource(R.string.tool_trace_call_content_description, event.callId, if (waiting) labels.waitingForChoice else event.status.lowercase(Locale.ROOT))
     val serviceInfo = resolveToolServiceInfo(event.toolName, event.modelToolName, event.connectionNameSnapshot, event.connectionUidSnapshot)
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -536,13 +549,13 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
             }
             Spacer(Modifier.height(4.dp))
             if (event.modelToolName != event.toolName) ToolTraceLine(labels.modelTool, event.modelToolName)
-            ToolTraceLine(labels.status, event.status)
+            ToolTraceLine(labels.status, if (waiting) labels.waitingForChoice else event.status)
             ToolTraceLine(labels.callId, event.callId)
             if (!serviceInfo.isGateway) {
                 connectionLabel(event)?.let { ToolTraceLine(labels.connection, it) }
             }
             toolTimingLabel(event, labels)?.let { ToolTraceLine(labels.timing, it) }
-            event.error?.takeIf { it.isNotBlank() }?.let { ToolTraceLine(labels.error, toolEventErrorText(it)) }
+            event.error?.takeIf { !waiting && it.isNotBlank() }?.let { ToolTraceLine(labels.error, toolEventErrorText(it)) }
             ToolTraceBlockText(labels.arguments, event.arguments)
             if (event.resultType == ToolEventResultType.EMPTY) {
                 ToolTraceLine(labels.result, "✓ Completed — No results")
@@ -597,6 +610,7 @@ internal fun toolTraceStatusSummary(
         events.any { it.toToolCallState() is ToolCallState.Running } -> ToolCallState.Running
         events.any { it.toToolCallState() is ToolCallState.Failed } -> ToolCallState.Failed(true)
         events.any { it.toToolCallState() is ToolCallState.Canceled } -> ToolCallState.Canceled
+        events.any { it.toToolCallState() is ToolCallState.WaitingForUser } -> ToolCallState.WaitingForUser
         else -> ToolCallState.Completed
     }
     val effectiveState = if (overallState == ToolCallState.Completed) derivedState else overallState
@@ -606,6 +620,7 @@ internal fun toolTraceStatusSummary(
         val toolName = distinctToolNames.single()
         return when (effectiveState) {
             ToolCallState.Running -> "${smartToolVerb(toolName)}..."
+            ToolCallState.WaitingForUser -> labels.waitingForChoice
             ToolCallState.Completed -> completedToolVerb(toolName)
             is ToolCallState.Failed -> {
                 val noun = if (count == 1) labels.call else labels.calls
@@ -621,6 +636,7 @@ internal fun toolTraceStatusSummary(
     val noun = if (count == 1) labels.call else labels.calls
     return when (effectiveState) {
         ToolCallState.Running -> "${labels.running.replaceFirstChar { it.uppercase(Locale.ROOT) }} $count $noun..."
+        ToolCallState.WaitingForUser -> labels.waitingForChoice
         is ToolCallState.Failed -> {
             val failedCount = events.count { it.toToolCallState() is ToolCallState.Failed }
             if (failedCount == count) {
@@ -709,15 +725,16 @@ internal fun formatToolTraceMarkdown(events: List<ToolEvent>, labels: ToolTraceL
     return buildString {
         appendLine("## ${labels.exportHeader(events.size)}")
         filterToolEvents(events, "").forEach { event ->
+            val waiting = event.toToolCallState() == ToolCallState.WaitingForUser
             appendLine()
             appendLine("### ${event.sequence + 1}. ${event.toolName}")
-            appendLine("- ${labels.status}: ${event.status}")
+            appendLine("- ${labels.status}: ${if (waiting) labels.waitingForChoice else event.status}")
             appendLine("- ${labels.callId}: ${event.callId}")
             connectionLabel(event)?.let { appendLine("- ${labels.connection}: $it") }
             appendLine("- ${labels.tool}: ${event.toolName}")
             if (event.modelToolName != event.toolName) appendLine("- ${labels.modelTool}: ${event.modelToolName}")
             timingLabel(event, labels)?.let { appendLine("- ${labels.timing}: $it") }
-            event.error?.takeIf { it.isNotBlank() }?.let { appendLine("- ${labels.error}: ${boundedText(it)}") }
+            event.error?.takeIf { !waiting && it.isNotBlank() }?.let { appendLine("- ${labels.error}: ${boundedText(it)}") }
             appendIndentedBlock(labels.arguments, event.arguments)
             event.displayResult()?.takeIf { it.isNotBlank() }?.let { appendIndentedBlock(labels.result, it) }
         }
@@ -783,7 +800,8 @@ data class ToolTraceLabels(
     val arguments: String,
     val result: String,
     val exportHeader: (Int) -> String,
-    val startedAt: String
+    val startedAt: String,
+    val waitingForChoice: String = "Waiting for your choice"
 ) {
     companion object {
         val Default = ToolTraceLabels(

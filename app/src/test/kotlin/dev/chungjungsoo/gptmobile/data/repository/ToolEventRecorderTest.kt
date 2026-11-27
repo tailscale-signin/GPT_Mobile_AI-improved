@@ -2,8 +2,10 @@ package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentResourceLink
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.displayResult
+import dev.chungjungsoo.gptmobile.data.agent.isToolFailure
 import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
@@ -25,6 +27,11 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.voice.SpeakingReplyRow
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.ToolCallState
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.formatToolTraceMarkdown
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.observedToolReceiptSummary
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.toToolCallState
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.toolTraceStatusSummary
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
@@ -45,6 +52,139 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEventRecorderTest {
+    @Test fun durableChoiceWaitIsNeutralAndTheOriginalCallCanFinishAfterRestart() = runBlocking {
+        val logs = mutableListOf<Triple<String, String?, Map<String, Any?>>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), any(), any(), any(), any(), any()) } answers {
+                if (arg<String>(1).startsWith("Finished")) logs += Triple(arg(2), arg(3), arg(5))
+                Unit
+            }
+            for (legacy in listOf(false, true)) {
+                val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("choice-$legacy", "github_decide", buildJsonObject { put("question", "Choose a strategy") })
+                val trace = ToolTraceSession("waiting-$legacy", emptyList(), recorder, java.util.concurrent.atomic.AtomicInteger())
+                val started = trace.start(call)
+                val pending = AgentToolResult(
+                    call.callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("status", "GITHUB_CHOICE_PENDING")
+                            put("choice_prompt_id", "a".repeat(64))
+                        }
+                    ),
+                    isError = true,
+                    dispatched = false,
+                    sharedResult = true,
+                    errorCode = "GITHUB_CHOICE_PENDING"
+                )
+                trace.finish(call, pending)
+                var saved = requireNotNull(dao.rawGetToolEventById(started.eventId))
+                assertEquals(ToolEventStatus.WAITING_FOR_USER, saved.status)
+                assertTrue(saved.isError)
+                assertEquals(null, saved.error)
+                assertTrue(ToolResultCheckpoint.confirmsNoEffect(saved))
+                assertTrue(ToolResultCheckpoint.waitingForUserChoice(saved))
+                assertFalse(ToolResultCheckpoint.waitingForUserChoice(saved.copy(runId = "foreign-run")))
+                assertFalse(ToolResultCheckpoint.waitingForUserChoice(saved.copy(eventId = "foreign-event")))
+                assertFalse(ToolResultCheckpoint.waitingForUserChoice(saved.copy(callId = "foreign-call")))
+                assertFalse(saved.isToolFailure())
+                assertEquals("GITHUB_CHOICE_PENDING", ToolResultCheckpoint.execution(saved)?.get("error_code")?.jsonPrimitive?.content)
+                assertEquals(Triple("I", null, emptyMap<String, Any?>()), logs.last())
+                if (legacy) {
+                    saved = saved.copy(status = ToolEventStatus.FAILED, error = pending.content.toString())
+                    dao.rows[dao.rows.indexOfFirst { it.eventId == saved.eventId }] = saved
+                }
+                assertEquals(ToolCallState.WaitingForUser, saved.toToolCallState())
+                assertFalse(saved.isToolFailure())
+                assertEquals("Waiting for your choice", toolTraceStatusSummary(listOf(saved)))
+                val markdown = formatToolTraceMarkdown(listOf(saved))
+                assertFalse(markdown.contains("- Error:"))
+                assertFalse(markdown.contains("Status: FAILED"))
+                val observed = requireNotNull(
+                    observedToolReceiptSummary(
+                        listOf(
+                            saved,
+                            saved.copy(eventId = "finished-read", callId = "finished-read", toolName = "read", modelToolName = "read", status = ToolEventStatus.COMPLETED, isError = false, result = null),
+                            saved.copy(eventId = "failed-read", callId = "failed-read", toolName = "read", modelToolName = "read", status = ToolEventStatus.FAILED, result = null)
+                        )
+                    )
+                )
+                assertEquals(3, observed.total)
+                assertEquals(1, observed.waiting)
+                assertEquals(1, observed.completed)
+                assertEquals(1, observed.failed)
+                assertEquals(0, observed.ongoing)
+                assertEquals(0, observed.unknown)
+
+                var lookups = 0
+                val answered = object : dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+                    override val definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("github_decide", "Saved decision", buildJsonObject {})
+                    override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                        lookups++
+                        return AgentToolResult(callId, ToolResultContent.Text("Saved answer"), false, dispatched = false, sharedResult = true)
+                    }
+                }
+                val recovered = dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext(emptyList(), emptyList(), listOf(saved), rootWorkId = "root")
+                    .reuseCompletedTool(answered, "github_decide", null).execute(call.callId, call.arguments)
+                assertEquals(1, lookups)
+                assertFalse(recovered.isError)
+                val restored = ToolTraceSession("waiting-$legacy", emptyList(), recorder, java.util.concurrent.atomic.AtomicInteger())
+                assertEquals(started.eventId, restored.start(call).eventId)
+                restored.finish(call, recovered)
+                val complete = requireNotNull(dao.rawGetToolEventById(started.eventId))
+                assertEquals(ToolEventStatus.COMPLETED, complete.status)
+                assertFalse(complete.isError)
+                assertEquals("Saved answer", complete.recoveryResult())
+                assertEquals(1, dao.rows.count { it.runId == started.runId })
+                // A late duplicate wait cannot overwrite the delivered answer.
+                restored.start(call)
+                restored.finish(call, pending)
+                assertEquals(complete, dao.rawGetToolEventById(started.eventId))
+            }
+            assertTrue(logs.none { it.first == "E" })
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun onlyTheExactUndispatchedDecisionWaitSuppressesFailureReporting() = runBlocking {
+        val levels = mutableListOf<String>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), any(), any(), any(), any(), any()) } answers {
+                if (arg<String>(1).startsWith("Finished")) levels += arg<String>(2)
+                Unit
+            }
+            for ((index, scenario) in listOf("other_tool", "other_model_name", "dispatched", "real_failure", "invalid_prompt", "foreign_receipt").withIndex()) {
+                val name = if (scenario == "other_tool") "github_read" else "github_decide"
+                val modelName = if (scenario == "other_model_name") "github_decide__untrusted" else name
+                val event = recorder.startTool("contrast", index, "contrast-$index", name, modelName, buildJsonObject {}, startedAt = 10L)
+                val result = AgentToolResult(
+                    event.callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("status", "GITHUB_CHOICE_PENDING")
+                            put("choice_prompt_id", if (scenario == "invalid_prompt") "unbound" else "a".repeat(64))
+                        }
+                    ),
+                    isError = true,
+                    dispatched = scenario == "dispatched",
+                    sharedResult = true,
+                    errorCode = if (scenario == "real_failure") "NETWORK_TIMEOUT" else "GITHUB_CHOICE_PENDING",
+                    executionReceipt = if (scenario == "foreign_receipt") buildJsonObject { put("call_id", "different-call") } else null
+                )
+                val saved = requireNotNull(recorder.finishTool(event.eventId, result, 20, error = "Observed failure"))
+                assertEquals(scenario, ToolEventStatus.FAILED, saved.status)
+                assertEquals("Observed failure", saved.error)
+                assertFalse(ToolResultCheckpoint.waitingForUserChoice(saved))
+                assertTrue(saved.isToolFailure())
+                assertEquals("E", levels.last())
+            }
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
     @Test fun foreignReceiptCannotPublishProducerReservedPersistenceOrRepeatFields() = runBlocking {
         val reserved = buildJsonObject {
             put("sqlite_constraint_kind", "FOREIGN_KEY")
@@ -1104,7 +1244,6 @@ private class FakeAgentRunDao :
     override suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState> = emptyList()
     override suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Int = 0
     override suspend fun finishGatewayRecovery(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0
-    override suspend fun discardInterrupted(runId: String, expectedFence: Long, completedAt: Long): Int = 0
     override suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int = 0
     override suspend fun rawGetById(runId: String): AgentRun? = getById(runId)
     override suspend fun rawGetByChatId(chatId: Int): List<AgentRun> = getByChatId(chatId)
@@ -1120,10 +1259,26 @@ private class FakeAgentRunDao :
     override fun observeUnreportedOutputLengths(limit: Int): Flow<List<dev.chungjungsoo.gptmobile.data.database.dao.RunOutputLength>> = MutableStateFlow(emptyList())
 
     var advancedSequence: Pair<String, Int>? = null
+    val runs = mutableMapOf<String, AgentRun>()
+    val ownedMessageSlots = mutableMapOf<Int, Pair<String, Long>>()
 
-    override suspend fun upsert(run: AgentRun) = Unit
-    override suspend fun getById(runId: String): AgentRun? = null
-    override suspend fun getByChatId(chatId: Int): List<AgentRun> = emptyList()
+    override suspend fun upsert(run: AgentRun) {
+        runs[run.runId] = run
+    }
+    override suspend fun getById(runId: String): AgentRun? = runs[runId]
+    override suspend fun getByChatId(chatId: Int): List<AgentRun> = runs.values.filter { it.chatId == chatId }
+    override suspend fun discardInterrupted(runId: String, expectedFence: Long, completedAt: Long): Int {
+        val run = runs[runId] ?: return 0
+        if (run.ownershipFence != expectedFence ||
+            run.gatewayJobId != null ||
+            run.status !in setOf("INTERRUPTED", "FAILED", "PARTIAL", "EVIDENCE_MISSING", "BLOCKED") ||
+            ownedMessageSlots[run.assistantMessageId] != (run.runId to run.ownershipFence)
+        ) {
+            return 0
+        }
+        runs[runId] = run.copy(status = "CANCELED", completedAt = completedAt, terminalError = null)
+        return 1
+    }
     override fun observeByChatId(chatId: Int): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
     override fun observeRecent(limit: Int): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
     override suspend fun updateStatus(
@@ -1302,12 +1457,20 @@ private class FakeAgentPersistenceDao :
         status: String,
         isError: Boolean,
         completedAt: Long,
-        error: String?
+        error: String?,
+        expectedWaitingResult: String?
     ): Int {
         val index = rows.indexOfFirst {
             it.eventId == eventId &&
                 it.callId == callId &&
-                it.status in listOf(ToolEventStatus.PENDING, ToolEventStatus.RUNNING)
+                (
+                    it.status in listOf(ToolEventStatus.PENDING, ToolEventStatus.RUNNING) ||
+                        expectedWaitingResult != null &&
+                        it.result == expectedWaitingResult &&
+                        it.toolName == "github_decide" &&
+                        it.modelToolName == "github_decide" &&
+                        it.status in listOf(ToolEventStatus.WAITING_FOR_USER, ToolEventStatus.FAILED)
+                    )
         }
         if (index < 0) return 0
         rows[index] = rows[index].copy(

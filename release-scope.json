@@ -66,7 +66,8 @@
     "Fit exact whole-line source excerpts into small Gateway context windows while keeping omitted lines ineligible for edits.",
     "Preserve accepted task authority across a compatible intelligence-level increase after restart, and use the original verification reserve for missing CI results at the exact published commit and run attempt.",
     "Preserve deadline provenance through recovery and diagnostic reports, and deliver checkpointed, validated Gateway text before slower diagnostic persistence.",
-    "Require an observed positive caption-renderer count before playback or restored benchmark reports qualify successfully."
+    "Require an observed positive caption-renderer count before playback or restored benchmark reports qualify successfully.",
+    "Saved choices show a waiting state in tool history, do not trigger automatic failure reports, and retain their original receipts when resumed."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -792,7 +793,20 @@
     "docs/repairs/intelligence-diagnostic-completion-2026-11-27.md",
     "gateway/tests/test_gateway_message_contract.py",
     "gateway/tests/test_gateway_task_context.py",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorkerTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorkerTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolResultCheckpoint.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ToolEvent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AgentFlightRecorderCard.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UniversalChatActivityFeed.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DebugDiagnosticsViewModel.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/UsageStatisticsViewModel.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubWorkflowPresentation.kt",
+    "app/src/main/res/values/strings.xml",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

@@ -346,6 +346,7 @@
     <string name="tool_trace_call_singular">tool call</string>
     <string name="tool_trace_call_plural">tool calls</string>
     <string name="tool_trace_status_running">Running</string>
+    <string name="tool_trace_status_waiting_for_choice">Waiting for your choice</string>
     <string name="tool_trace_status_failed">Failed</string>
     <string name="tool_trace_status_completed_with_errors">Completed with errors</string>
     <string name="tool_trace_status_canceled">Canceled</string>

@@ -60,7 +60,7 @@ class DebugDiagnosticsViewModel @Inject constructor(
             failedRuns = runs.count { it.status == AgentRunStatus.FAILED },
             activeRuns = runs.count { it.status == AgentRunStatus.RUNNING || it.status == AgentRunStatus.QUEUED },
             completedToolCalls = tools.count { it.status == ToolEventStatus.COMPLETED },
-            failedToolCalls = tools.count { it.status == ToolEventStatus.FAILED },
+            failedToolCalls = tools.count { it.status == ToolEventStatus.FAILED && !dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.waitingForUserChoice(it) },
             averageRunDurationMs = runs.mapNotNull { run ->
                 val start = run.startedAt ?: return@mapNotNull null
                 val end = run.completedAt ?: return@mapNotNull null

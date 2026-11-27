@@ -156,16 +156,26 @@ class ToolEventRecorder @Inject constructor(
             !normalizedResult.isError && content.value.isBlank() -> ToolEventResultType.EMPTY
             else -> content.type
         }
+        val waitingForChoice = !normalizedResult.dispatched &&
+            normalizedResult.errorCode == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.PENDING &&
+            startedEvent?.takeIf { it.callId == normalizedResult.callId }?.copy(result = stored, resultType = resultType, isError = normalizedResult.isError)
+                ?.let(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint::waitingForUserChoice) == true
+        val failure = normalizedResult.isError && !waitingForChoice
 
         val affectedRows = dao.finishToolEvent(
             eventId = eventId,
             callId = normalizedResult.callId,
             result = stored,
             resultType = resultType,
-            status = if (normalizedResult.isError) ToolEventStatus.FAILED else ToolEventStatus.COMPLETED,
+            status = when {
+                waitingForChoice -> ToolEventStatus.WAITING_FOR_USER
+                failure -> ToolEventStatus.FAILED
+                else -> ToolEventStatus.COMPLETED
+            },
             isError = normalizedResult.isError,
             completedAt = completedAt,
-            error = if (normalizedResult.isError) safeError else null
+            error = if (failure) safeError else null,
+            expectedWaitingResult = startedEvent?.takeIf(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint::waitingForUserChoice)?.result
         )
         if (affectedRows != 1) return null
         val archivedSourceFailure = ToolReportDiagnostics.archivedSourceFailure(startedEvent, normalizedResult)
@@ -175,22 +185,23 @@ class ToolEventRecorder @Inject constructor(
             normalizedResult.outputBudgetExhausted
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Tool",
-            "Finished · runId=${startedEvent?.runId.orEmpty()} · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
+            "Finished · runId=${startedEvent?.runId.orEmpty()} · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=$failure · dispatched=${normalizedResult.dispatched}" +
                 " · errorCode=${normalizedResult.errorCode ?: "none"}" +
                 ToolPrecheckEvidence.reasonCode(normalizedResult)?.let { " · reasonCode=$it" }.orEmpty() +
                 precheckArgumentShape(startedEvent?.arguments, normalizedResult) +
                 " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(normalizedResult)}" +
+                (if (waitingForChoice) " · waitingForChoice=true" else "") +
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
-                if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
-            if (normalizedResult.isError && !archivedSourceFailure || withheldRead) "E" else "I",
+                if (failure) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
+            if (failure && !archivedSourceFailure || withheldRead) "E" else "I",
             reportCode = (
                 if (withheldRead) {
                     "BUDGET_RESTRICTED"
                 } else {
                     captureIssueReport { ToolReportDiagnostics.reportCode(startedEvent, normalizedResult) }
                 }
-                ).takeUnless { healthEvent || archivedSourceFailure },
-            reportFields = if (healthEvent || archivedSourceFailure || !normalizedResult.isError && !withheldRead) {
+                ).takeUnless { healthEvent || archivedSourceFailure || waitingForChoice },
+            reportFields = if (healthEvent || archivedSourceFailure || waitingForChoice || !normalizedResult.isError && !withheldRead) {
                 emptyMap()
             } else {
                 buildMap<String, Any?> {

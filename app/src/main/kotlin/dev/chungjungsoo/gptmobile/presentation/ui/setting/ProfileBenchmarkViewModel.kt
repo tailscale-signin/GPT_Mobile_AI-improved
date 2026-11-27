@@ -349,7 +349,7 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
     val everydayTools = combine(runDao.observeRecent(10_000), persistenceDao.observeRecentToolEvents(10_000), days) { runs, events, range ->
         val since = if (range == 0) 0L else System.currentTimeMillis() / 1000 - range.toLong() * 24 * 60 * 60
         val byId = runs.associateBy { it.runId }
-        events.filter { (it.startedAt ?: 0) >= since && it.status in setOf(ToolEventStatus.COMPLETED, ToolEventStatus.FAILED) }
+        events.filter { (it.startedAt ?: 0) >= since && it.status in setOf(ToolEventStatus.COMPLETED, ToolEventStatus.FAILED) && !dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.waitingForUserChoice(it) }
             .mapNotNull { event -> byId[event.runId]?.let { Triple(it.profileUid, it.providerSnapshot, it.modelSnapshot) to event } }
             .groupBy({ it.first }, { it.second }).map { (key, tools) ->
                 val failures = tools.count { it.isError || it.status == ToolEventStatus.FAILED }

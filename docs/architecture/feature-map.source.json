@@ -3109,7 +3109,12 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentRunDao.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapturedProviderAuthority.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolResultCheckpoint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ToolEvent.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt",
@@ -3124,7 +3129,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/InterruptedRunDiscardTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecordTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthorityTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3141,7 +3149,8 @@
         "Persist a choice before exposing it and park its original invocation without retaining an active model worker. Rehydration restores the original source message, profile, workspace, operation and choice identity.",
         "Duplicate answers are serialized, uncertain mutations are reconciled, and changed branch circumstances require the existing continuation authority checks.",
         "Only explicit relative task allowances exclude durable user-choice waiting intervals. Absolute user deadlines remain wall-clock deadlines.",
-        "An interrupted persisted run exposes Resume even without a terminal error string. Resume retains original job and task identity; checkpoint continuation does not claim exact provider stream resumption."
+        "An interrupted persisted run exposes Resume even without a terminal error string. Resume retains original job and task identity; checkpoint continuation does not claim exact provider stream resumption.",
+        "An identity-bound undispatched choice receipt projects a quiet waiting state, never success or tool failure. Retain the original no-effect receipt for recovery; only a compare-and-set against its exact saved bytes can finish the original call, and late waiting observations cannot replace an answered result."
       ],
       "routing": {
         "role": "executor",

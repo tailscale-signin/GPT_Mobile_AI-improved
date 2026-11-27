@@ -45,6 +45,39 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class ToolPrecheckIssueReportTest {
+    @Test fun durableDecisionWaitDoesNotQueueAutomaticFailureButActualDecisionFailureStillDoes() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val event = ToolEvent("choice-event", "choice-run", 0, "choice-call", null, null, "github_decide", "github_decide", "{}", null, null, ToolEventStatus.RUNNING, startedAt = 1)
+        val dao = mockk<AgentPersistenceDao>()
+        coEvery { dao.getToolEventById(event.eventId) } returns event
+        coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
+        val recorder = ToolEventRecorder(dao, mockk())
+        recorder.finishTool(
+            event.eventId,
+            AgentToolResult(
+                event.callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("status", "GITHUB_CHOICE_PENDING")
+                        put("choice_prompt_id", "a".repeat(64))
+                    }
+                ),
+                isError = true,
+                dispatched = false,
+                sharedResult = true,
+                errorCode = "GITHUB_CHOICE_PENDING"
+            ),
+            2
+        )
+        assertTrue(IssueReportIncidents.pending.value.isEmpty())
+
+        recorder.finishTool(event.eventId, ToolResultEnvelope.error(event.callId, "TOOL_FAILURE", "The decision could not be saved", dispatched = false), 3)
+        val incident = IssueReportIncidents.pending.value.single()
+        assertEquals("TOOL_FAILURE", incident.errorCode)
+        assertEquals("TOOL_RESULT", incident.context?.source)
+        assertEquals(false, incident.context?.dispatched)
+    }
+
     @Test fun aLocallyRejectedGitHubRequestKeepsItsCanonicalPolicyCodeThroughRecording() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting(record = {})

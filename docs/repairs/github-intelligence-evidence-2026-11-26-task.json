@@ -51,6 +51,14 @@
       "workflowRun": 45918575936,
       "job": 140244972763,
       "details": "The Android unit suite reported two failures in 15,118 tests. The integrated phone enum added ISSUE_INTAKE while the service contract and count assertion still described the earlier wire format. A truncated tree read with no directory identity threw a generic exception before the incomplete-tree result could be returned. Both paths remain present at the source revision."
+    },
+    {
+      "state": "DETERMINISTIC_NATIVE_BENCHMARK_CANCELLATION",
+      "sourceSha": "3b08292a3e915fb7c43045a3fb5fc810e4184be0",
+      "observedHead": "cda4933854bf41ff61ee77d70d378d2a14e9254b",
+      "workflowRun": 45919757490,
+      "job": 140248455283,
+      "details": "The API 34 emulator rendered the Stop benchmark button, but the unpacked benchmark finished before Compose injected the tap. The stack identified VoiceEntryInstrumentedTest.kt:59 and the last rendered stop semantics. The same test remains on the integrated head. Hold initial model discovery in the isolated test directory until the real Stop button accepts cancellation, then verify the cancelled run identity and complete stage inventory in its exported JSON."
     }
   ],
   "verification": {

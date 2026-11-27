@@ -1,8 +1,8 @@
-# Android 0.9.66.18 — runtime audit repairs and unified GitHub/Gateway work
+# Android 0.9.66.19 — GitHub intelligence, voice and Windows Gateway
 
-Android build **152** and Windows Gateway **18.1.5** use the Gateway 18 contract.
+Android build **153** and Windows Gateway **18.1.6** use the Gateway 18 contract.
 
-This release implements the sixteen findings from the November 26 build-151 runtime audit and reconciles concurrent GitHub intelligence changes through `b13ed65e034c50e282aeb11bc50356d39d0ce9f7` on PR #2646. The release base is `0e625e250117475446b8f216df2501ddbef168f2`.
+This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 for the intelligence upgrade in PR #2651. PR #2646 requested the earlier versions from main commit `6435462ac6f306d63b720205a9f2aafc33de1e4d`. This release keeps its sixteen build-151 runtime repairs and adds the changes listed below.
 
 ## Changes
 

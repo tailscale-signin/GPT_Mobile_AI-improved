@@ -36,6 +36,13 @@
       "sourceSha": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
       "observedHead": "cb6518738c3d9cf6c6315b1a9d379811ca924dc7",
       "details": "Android lint job 140223904547 in workflow 45912349608 reported NonObservableLocale in the voice benchmark results. The same expression remained in the integrated source. Use the active Compose locale to format benchmark measurements as the language changes."
+    },
+    {
+      "state": "SUCCESSOR_RELEASE_REQUEST",
+      "sourceSha": "589b11bb9ec19f29f8f201009482ade0c875700c",
+      "mainSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+      "predecessorReleaseWorkflowRun": 45919342950,
+      "details": "PR 2646 reached main with the Android 0.9.66.18 build 152 and Gateway 18.1.5 publication request. With the same versions, both release trigger decisions were false for PR 2651. Reserve Android 0.9.66.19 build 153 and Gateway 18.1.6 for this PR so the signed assets can identify its own qualified merge."
     }
   ],
   "verification": {

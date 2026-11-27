@@ -1,8 +1,8 @@
 {
-  "version": "0.9.66.18",
-  "versionCode": 152,
+  "version": "0.9.66.19",
+  "versionCode": 153,
   "qualification": "scoped",
-  "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+  "baseCommit": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
   "changes": [
     "Voice Mode can speak one brief acknowledgment in the selected language while an answer is pending. A running lookup gets a search cue, and quick answers take priority. Speech model preparation overlaps audio setup, and stable opening words can play during a provider pause.",
     "Use one capacity-bound context plan before optional repository context, with a usable tool replay reserve, current-request protection, compact schema staging and retention of the previous user request.",
@@ -604,8 +604,8 @@
     "scripts/tests/test_mediapipe_speech.py"
   ],
   "publicationRequest": {
-    "android": "0.9.66.18",
-    "versionCode": 152,
-    "gateway": "18.1.5"
+    "android": "0.9.66.19",
+    "versionCode": 153,
+    "gateway": "18.1.6"
   }
 }

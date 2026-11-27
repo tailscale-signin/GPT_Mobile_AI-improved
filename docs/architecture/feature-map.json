@@ -6905,9 +6905,9 @@
       "sha256": "5604e6f01caf3347e52b0413e2ed9e3e40157bc56c75ced69ef89ad6896cb1a9"
     },
     "docs/architecture/repository-guide.md": {
-      "blob_sha": "307e28961a531f42f7f33b47da2226e9011e24b7",
+      "blob_sha": "050dfc822b2f54d286ff4f718de050949f440690",
       "bytes": 21418,
-      "sha256": "2c07cb8ea1e5f8b2720c4edecf88c7f4a3f82072cb4e4abe4b41055f4376ba78"
+      "sha256": "5d56a06df0edb156fd432460956344bf2b1345af3510e08051101c6b338de60f"
     },
     "docs/architecture/voice-streaming.md": {
       "blob_sha": "4e1a5bef1f09bd038c121bb8b657d4ceab796f63",

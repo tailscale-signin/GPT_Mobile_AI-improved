@@ -268,6 +268,8 @@ for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
     'readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh',
     'microphoneAndLanguageControlsFollowTheTurnAndPickerState',
+    'translationKeepsTheSourceAboveTheResponseAndControlsAcrossCaptures',
+    'translationSourceFadesWithinOneSecondAndKeepsItsOpacityOnPartialCorrections',
     'theProfilePickerChangesProfileOnlyBetweenTurns',
     'drawnHighlightsKeepGlyphGeometryAndSilenceKeepsItsPlace',
     'accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing',

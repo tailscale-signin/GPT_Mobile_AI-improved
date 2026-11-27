@@ -42,6 +42,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTiming
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPrompt
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -182,6 +183,102 @@ class VoiceConversationInstrumentedTest {
             microphone.assertContentDescriptionEquals(if (phase == VoicePhase.LISTENING) "Finish speaking" else "Stop").performClick()
         }
         compose.runOnIdle { assertEquals(6, presses) }
+    }
+
+    @Test fun translationKeepsTheSourceAboveTheResponseAndControlsAcrossCaptures() {
+        val words = "Where is the train station?"
+        val translated = "Où est la gare ?"
+        val source = VoiceTranslationPrompt(1L, words)
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.LISTENING, transcript = words, translationPrompt = source))
+        val translating = mutableStateOf(true)
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.4f)) {
+                MaterialTheme {
+                    Box(Modifier.width(320.dp).fillMaxHeight()) {
+                        VoiceConversationScreen(state(session.value).copy(translationMode = translating.value, captions = false), actions())
+                    }
+                }
+            }
+        }
+        val top = compose.onNodeWithTag("voice_translation_source")
+        val bottom = compose.onNodeWithTag("voice_caption_text")
+        top.assertTextEquals(words).assertIsDisplayed()
+        bottom.assertDoesNotExist()
+        val microphone = compose.onNodeWithTag("voice_microphone_toggle")
+        val controls = microphone.fetchSemanticsNode().boundsInRoot
+        for (phase in listOf(VoicePhase.THINKING, VoicePhase.SPEAKING, VoicePhase.PAUSED, VoicePhase.STARTING)) {
+            compose.runOnIdle { session.value = session.value.copy(phase = phase, transcript = "", reply = translated) }
+            top.assertTextEquals(words).assertIsDisplayed()
+            bottom.assertTextEquals(translated).assertIsDisplayed()
+            assertTrue(top.fetchSemanticsNode().boundsInRoot.bottom <= bottom.fetchSemanticsNode().boundsInRoot.top)
+            assertTrue(bottom.fetchSemanticsNode().boundsInRoot.bottom <= controls.top)
+            assertEquals(controls, microphone.fetchSemanticsNode().boundsInRoot)
+        }
+        compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.LISTENING, translationPrompt = null) }
+        top.assertDoesNotExist()
+        bottom.assertTextEquals(translated)
+        val longText = "A long dictated translation prompt. ".repeat(80)
+        compose.runOnIdle { session.value = session.value.copy(translationPrompt = VoiceTranslationPrompt(2L, longText), reply = "", phase = VoicePhase.THINKING) }
+        top.assertTextEquals(longText).assertIsDisplayed()
+        bottom.assertTextEquals(translated).assertIsDisplayed()
+        assertEquals(controls, microphone.fetchSemanticsNode().boundsInRoot)
+        compose.runOnIdle { session.value = session.value.copy(reply = "Le prochain train arrive.", replyComplete = true) }
+        bottom.assertTextEquals("Le prochain train arrive.")
+        compose.runOnIdle { translating.value = false }
+        top.assertDoesNotExist()
+        bottom.assertDoesNotExist()
+    }
+
+    @Test fun translationSourceFadesWithinOneSecondAndKeepsItsOpacityOnPartialCorrections() {
+        val source = mutableStateOf<VoiceTranslationPrompt?>(null)
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(background = Color.White, onSurface = Color.Black)) {
+                VoiceConversationScreen(state(VoiceState(phase = VoicePhase.LISTENING, translationPrompt = source.value)).copy(translationMode = true), actions())
+            }
+        }
+        val top = compose.onNodeWithTag("voice_translation_source")
+        fun ink(): Int {
+            val bitmap = top.captureToImage().asAndroidBitmap()
+            var darkest = 0
+            for (y in 0 until bitmap.height) {
+                for (x in 0 until bitmap.width) {
+                    val pixel = bitmap.getPixel(x, y)
+                    darkest = maxOf(darkest, (255 - android.graphics.Color.red(pixel)) * android.graphics.Color.alpha(pixel) / 255)
+                }
+            }
+            return darkest
+        }
+        fun settleComposition() {
+            repeat(2) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+            }
+        }
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { source.value = VoiceTranslationPrompt(1L, "Where is the station?") }
+            settleComposition()
+            compose.mainClock.advanceTimeBy(160)
+            val entering = ink()
+            compose.mainClock.advanceTimeBy(240)
+            val middle = ink()
+            compose.mainClock.advanceTimeBy(480)
+            val fullyVisible = ink()
+            assertTrue("Fade in: $entering, $middle, $fullyVisible", entering < middle && middle < fullyVisible && fullyVisible > 220)
+            compose.runOnIdle { source.value = VoiceTranslationPrompt(1L, "Where is the train station?") }
+            settleComposition()
+            top.assertTextEquals("Where is the train station?")
+            assertTrue(ink() >= fullyVisible - 10)
+            compose.runOnIdle { source.value = null }
+            settleComposition()
+            compose.mainClock.advanceTimeBy(112)
+            val exiting = ink()
+            assertTrue("Fade out: $exiting of $fullyVisible", exiting in 1 until fullyVisible)
+            compose.mainClock.advanceTimeBy(200)
+            top.assertDoesNotExist()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
     }
 
     @Test fun theProfilePickerChangesProfileOnlyBetweenTurns() {

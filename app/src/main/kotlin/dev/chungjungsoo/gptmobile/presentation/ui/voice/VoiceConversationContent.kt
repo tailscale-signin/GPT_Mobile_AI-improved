@@ -1,5 +1,12 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.rememberTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -40,9 +47,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,6 +80,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPrompt
 import dev.chungjungsoo.gptmobile.data.voice.microphoneAction
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 
@@ -121,7 +132,7 @@ internal class VoiceConversationActions(
 )
 
 @Composable
-internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: VoiceConversationActions) {
+internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: VoiceConversationActions, roomId: Int = 0) = key(roomId) {
     val colors = MaterialTheme.colorScheme
     Column(
         Modifier.fillMaxSize().background(
@@ -135,10 +146,57 @@ internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: V
         VoiceConversationHeader(state, actions)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val compact = maxHeight < 420.dp || LocalDensity.current.fontScale > 1.3f
-            VoiceConversationStatus(state, actions, compact, Modifier.fillMaxSize())
+            val sourceHeight = maxHeight * .30f
+            val replyHeight = maxHeight * .48f
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                VoiceTranslationSource(state.session.translationPrompt.takeIf { state.translationMode }, Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = sourceHeight))
+                VoiceConversationStatus(state, actions, compact, Modifier.weight(1f).fillMaxWidth())
+                if (state.translationMode) {
+                    VoiceTranslationReply(state, compact, Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = replyHeight))
+                }
+            }
         }
         VoiceConversationControls(state, actions)
     }
+}
+
+@Composable
+private fun VoiceTranslationSource(prompt: VoiceTranslationPrompt?, modifier: Modifier) {
+    val latest by rememberUpdatedState(prompt)
+    val target = remember { MutableTransitionState<Long?>(null) }
+    target.targetState = prompt?.captureId
+    val transition = rememberTransition(target, label = "Translation source")
+    transition.AnimatedContent(
+        modifier = modifier,
+        contentAlignment = Alignment.TopCenter,
+        transitionSpec = { (fadeIn(tween(750)) togetherWith fadeOut(tween(250))).using(null) }
+    ) { captureId ->
+        if (captureId != null) {
+            var lastWords by remember(captureId) { mutableStateOf("") }
+            val words = latest?.takeIf { it.captureId == captureId }?.text ?: lastWords
+            SideEffect { lastWords = words }
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("You", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(words, Modifier.testTag("voice_translation_source"), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceTranslationReply(state: VoiceConversationUiState, compact: Boolean, modifier: Modifier) {
+    val current = state.session
+    var previous by remember { mutableStateOf<VoiceState?>(null) }
+    if (current.reply.isNotBlank() && (previous?.reply != current.reply || previous?.readingDetails != current.readingDetails)) {
+        SideEffect {
+            previous = VoiceState(reply = current.reply, readingDetails = current.readingDetails, replyComplete = true, captionPresentationId = current.captionPresentationId)
+        }
+    }
+    val display = current.takeIf { it.reply.isNotBlank() } ?: previous ?: return
+    VoiceLiveCaptions(display, compact, modifier, state.captionCursor.takeIf { display === current }, replyOnly = true)
 }
 
 @Composable
@@ -205,7 +263,7 @@ private fun VoiceConversationStatus(state: VoiceConversationUiState, actions: Vo
             VoiceWave(state.session, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(if (compact) 64.dp else 104.dp).clearAndSetSemantics {}, state.outputLevel, state.inputLevel)
         }
         val content: @Composable () -> Unit = {
-            if (state.captions) VoiceLiveCaptions(state.session, compact, Modifier.widthIn(max = 560.dp).fillMaxWidth(), state.captionCursor)
+            if (state.captions && !state.translationMode) VoiceLiveCaptions(state.session, compact, Modifier.widthIn(max = 560.dp).fillMaxWidth(), state.captionCursor)
             VoiceConversationSetup(state, actions)
             VoiceConversationRecovery(state, actions)
         }

@@ -280,6 +280,7 @@ private fun VoiceChatSessionScreen(
     val inputs by model.pendingMcpInput.collectAsStateWithLifecycle()
     val consent by model.pendingFreeToolConsent.collectAsStateWithLifecycle()
     var retainedTranscript by rememberSaveable { mutableStateOf("") }
+    var retainedTranslationSource by rememberSaveable { mutableStateOf<String?>(null) }
     var retainedReply by rememberSaveable { mutableStateOf("") }
     var retainedReview by rememberSaveable { mutableStateOf(false) }
     var retainedSubmittedRequestId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -287,7 +288,7 @@ private fun VoiceChatSessionScreen(
     val speakingNotification by runtimeOwner.background.notification.collectAsStateWithLifecycle()
     val runtime = remember(model, stores, runtimeOwner) {
         runtimeOwner.acquire(model, stores) { session ->
-            session.restore(retainedTranscript, retainedReply, retainedReview, pending = false, pendingRequestId = retainedSubmittedRequestId)
+            session.restore(retainedTranscript, retainedReply, retainedReview, pending = false, pendingRequestId = retainedSubmittedRequestId, translationSource = retainedTranslationSource)
             if (retainedMuted) session.mute()
         }
     }
@@ -313,6 +314,7 @@ private fun VoiceChatSessionScreen(
     SideEffect {
         if (state.phase != VoicePhase.CLOSED) {
             retainedTranscript = state.transcript
+            retainedTranslationSource = state.translationPrompt?.text
             retainedReply = state.reply
             retainedReview = state.hasDraft
             retainedSubmittedRequestId = state.submittedDraftRequestId
@@ -723,7 +725,20 @@ private fun VoiceChatSessionScreen(
                 voiceOpeningPlan(model.voiceAdmission.value, currentSession.transcript, chatView, room.id, selectedProfile?.uid, messageSnapshot, runSnapshot, model.toolEventsByRun.value, synthesis.language) == it
             }
             val next = playback.next(opening?.identity) ?: return@LaunchedEffect
-            if (!session.beginMessage(next.identity.key, diagnosticRunId = next.identity.runId, readAloud = next.readAloud)) {
+            val source = if (translationMode) {
+                val run = runSnapshot[next.identity.runId]
+                messageSnapshot.userMessages.lastOrNull()?.takeIf { user ->
+                    run != null &&
+                        run.chatId == room.id &&
+                        run.assistantMessageId == next.identity.messageId &&
+                        user.chatId == run.chatId &&
+                        user.id == run.userMessageId &&
+                        user.timeline.any { it.voiceResponsePolicy?.translationOnly == true }
+                }?.content
+            } else {
+                null
+            }
+            if (!session.beginMessage(next.identity.key, diagnosticRunId = next.identity.runId, readAloud = next.readAloud, translationSource = source)) {
                 playback.finish()
                 return@LaunchedEffect
             }
@@ -1129,6 +1144,7 @@ private fun VoiceChatSessionScreen(
         },
         conversation = {
             VoiceConversationScreen(
+                roomId = room.id,
                 state = VoiceConversationUiState(
                     profileName = profileName,
                     profiles = profiles.filter { it.enabled },

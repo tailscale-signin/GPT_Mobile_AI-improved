@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "9625a9181585a65ce8a78660bbd3701b525a3393a959b82a2336573e8002d0a3"
+    val sourceDigest: String = "6df2f22a03bdef866e44c615b0966def0ca49797efc1dbedc3e641c0353eadf1"
     val fileCount: Int = 3214
-    val lineCount: Int = 553592
+    val lineCount: Int = 553695
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -25,7 +25,7 @@ object AppAuditSourceInventory {
     )
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 76, 8932),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 619, 109410),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 619, 109490),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9297),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 265, 48324),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 104, 24815),
@@ -43,7 +43,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 109, 17574),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 152, 25286),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 56, 8339),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 153, 27098),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 153, 27121),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 297, 108793),

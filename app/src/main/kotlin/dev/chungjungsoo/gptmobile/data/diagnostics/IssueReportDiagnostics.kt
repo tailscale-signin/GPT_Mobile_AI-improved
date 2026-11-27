@@ -312,7 +312,7 @@ internal data class IssueReportDiagnostics(
 
         // A single retained criterion must not hide the other observed blocker categories.
         private val acceptanceBlockerTotals = setOf("acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total")
-        private val githubPrerequisiteFields = setOf("repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation")
+        private val githubPrerequisiteFields = setOf("repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation", "acceptance_prerequisite_blockers", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count", "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_preparation_state")
         private val graphPolicyFields = setOf("branch_protection_http_status", "branch_rules_http_status")
         private val graphPolicyBlockers = setOf("GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED")
         private val conflictEvidenceFields = setOf(
@@ -732,7 +732,12 @@ internal data class IssueReportDiagnostics(
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
                 val retainedCriteria = criterionFields.firstNotNullOfOrNull { (values[it] as? JsonArray)?.size } ?: 0
-                val criterionFloor = if (version == 3 && retainedCriteria > 0) {
+                val acceptancePrerequisiteFloor = if (version == 3 && area == "ACCEPTANCE") {
+                    githubPrerequisiteFields.filter { it in values }.toSet()
+                } else {
+                    emptySet()
+                }
+                val criterionFloor = acceptancePrerequisiteFloor + if (version == 3 && retainedCriteria > 0) {
                     setOf("unmet_criterion_count", "unmet_criterion_omitted_count") + if (retainedCriteria == 1) criterionFields else emptySet()
                 } else {
                     emptySet()

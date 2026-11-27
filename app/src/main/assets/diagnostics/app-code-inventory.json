@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "8265ddb2ab6d65faf94f0fa3911b1b23509e88668066a7d7ebc6c9299c61f0ce",
+  "source_digest": "352c77223825328a5e7da1de5e7bf32f77095e8a8e70c2e0fd81a72f8779c497",
   "file_count": 3214,
   "indexed_line_count": 553919,
   "line_coverage_available": false,
@@ -7417,7 +7417,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "0bef3c3821792ca654ab4a3127faccc1b0b8ac2c8bd8aec99c8a74c7fd7f1d31",
+      "sha256": "2375e3029446210a923275bd388635f6643e4884a5033609652a28f3fd53f91b",
       "indexed_lines": 203
     },
     {

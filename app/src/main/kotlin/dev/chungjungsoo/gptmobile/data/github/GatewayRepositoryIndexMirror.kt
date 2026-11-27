@@ -59,8 +59,13 @@ internal class GatewayRepositoryIndexMirror(private val store: GitHubRepositoryS
                 null
             }
         } else {
-            require(pending != null && pending["generation"] == page["generation"] && pending["transfer_id"] == page["transfer_id"] &&
-                pending["next_offset"] == page["offset"] && pending.text("commit_sha") == commitSha && pending.text("access_scope") == access
+            require(
+                pending != null &&
+                    pending["generation"] == page["generation"] &&
+                    pending["transfer_id"] == page["transfer_id"] &&
+                    pending["next_offset"] == page["offset"] &&
+                    pending.text("commit_sha") == commitSha &&
+                    pending.text("access_scope") == access
             ) { "Repository index page does not continue the retained transfer." }
             pending
         }
@@ -117,7 +122,18 @@ internal class GatewayRepositoryIndexMirror(private val store: GitHubRepositoryS
             put("graph", metadata)
             put("observed_branch_head", page.getValue("observed_branch_head"))
             put("synchronized_at", System.currentTimeMillis())
-            put("state", if (!completed) "UPDATING" else if (page["stale"] == JsonPrimitive(true)) "OFFLINE_SNAPSHOT" else if (metadata["coverage_complete"] == JsonPrimitive(true)) "UP_TO_DATE" else "PARTIAL_INDEX")
+            put(
+                "state",
+                if (!completed) {
+                    "UPDATING"
+                } else if (page["stale"] == JsonPrimitive(true)) {
+                    "OFFLINE_SNAPSHOT"
+                } else if (metadata["coverage_complete"] == JsonPrimitive(true)) {
+                    "UP_TO_DATE"
+                } else {
+                    "PARTIAL_INDEX"
+                }
+            )
         }
         if (completed) {
             require((page["record_count"] as? JsonPrimitive)?.intOrNull == entries.size)

@@ -3468,7 +3468,9 @@ class ChatRepositoryImpl(
             val live = settingRepository.getFeatureSettings()
             val current = settingRepository.fetchPlatformV2s().singleOrNull { it.uid == platform.uid } ?: return false
             val selectedTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, live, platform.uid)
-            return current.enabled && !current.disableAllTools && !current.disableRemoteTools &&
+            return current.enabled &&
+                !current.disableAllTools &&
+                !current.disableRemoteTools &&
                 selectedTools?.allToolsDisabled != true &&
                 "deep_research" !in selectedTools?.disabledToolIds.orEmpty() &&
                 dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.settings(live, platform.uid, chatToolConfig?.github)?.webSearch != false &&
@@ -7614,9 +7616,16 @@ class ChatRepositoryImpl(
                 }
 
                 is AgentRunEvent.ToolFinished -> {
-                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.TOOL_RESULT, successful = !runEvent.result.isError)
+                    val waitingForChoice = runEvent.call.name == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.NAME &&
+                        runEvent.call.callId == runEvent.result.callId &&
+                        runEvent.result.errorCode == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.PENDING &&
+                        !runEvent.result.dispatched
+                    val choiceProgress = "Choice saved. Waiting for your decision."
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.TOOL_RESULT, successful = if (waitingForChoice) null else !runEvent.result.isError)
                     trace.finish(runEvent.call, runEvent.result)?.let { emit(it) }
-                    if (githubChat) {
+                    if (waitingForChoice) {
+                        emit(ApiState.ProgressCheckpoint(choiceProgress))
+                    } else if (githubChat) {
                         val milestone = githubProgress?.observeResult(runEvent.call, runEvent.result)
                             ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress.milestone(runEvent.call.name, runEvent.result.isError, runEvent.result.sharedResult, runEvent.call.arguments)
                         emit(ApiState.ProgressCheckpoint(milestone))
@@ -7627,16 +7636,42 @@ class ChatRepositoryImpl(
                     // A provider-owned ToolResult may echo its gateway terminal
                     // event. Only a locally started call overrides that suppression.
                     if (!gatewayTelemetrySeen || nativeFinished) {
-                        if (runEvent.result.isError) providerToolFailures += 1 else providerUsefulToolCalls += 1
+                        if (!waitingForChoice) {
+                            if (runEvent.result.isError) providerToolFailures += 1 else providerUsefulToolCalls += 1
+                        }
                         emit(
                             ApiState.GatewayProgressChanged(
                                 providerProgress(
-                                    event = if (runEvent.result.isError) "tool_failed" else "tool_completed",
-                                    stage = "tools",
-                                    message = if (runEvent.result.isError) "${runEvent.call.name} failed" else "Completed ${runEvent.call.name}",
+                                    event = if (waitingForChoice) {
+                                        "tool_blocked"
+                                    } else if (runEvent.result.isError) {
+                                        "tool_failed"
+                                    } else {
+                                        "tool_completed"
+                                    },
+                                    stage = if (waitingForChoice) "waiting_for_user" else "tools",
+                                    message = if (waitingForChoice) {
+                                        choiceProgress
+                                    } else if (runEvent.result.isError) {
+                                        "${runEvent.call.name} failed"
+                                    } else {
+                                        "Completed ${runEvent.call.name}"
+                                    },
                                     toolName = runEvent.call.name,
-                                    status = if (runEvent.result.isError) "failed" else "completed",
-                                    resultQuality = if (runEvent.result.isError) "error" else "useful"
+                                    status = if (waitingForChoice) {
+                                        "waiting_for_user"
+                                    } else if (runEvent.result.isError) {
+                                        "failed"
+                                    } else {
+                                        "completed"
+                                    },
+                                    resultQuality = if (waitingForChoice) {
+                                        "pending"
+                                    } else if (runEvent.result.isError) {
+                                        "error"
+                                    } else {
+                                        "useful"
+                                    }
                                 ).copy(toolCallId = runEvent.call.callId, toolArgs = runEvent.call.arguments)
                             )
                         )

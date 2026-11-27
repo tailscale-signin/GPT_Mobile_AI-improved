@@ -673,8 +673,11 @@ class AgentToolResolver @Inject constructor(
                 tools.sortedBy { it.modelToolName }.joinToString("|") { "${it.modelToolName}:${it.connectionUid}:${it.authorizationIdentity}" }
         )
         val snapshot = registry.prepare(
-            "$profileUid:${message?.chatId ?: 0}", authority, tools.associateBy { it.modelToolName }.values.map { it.tool.definition },
-            tools.associate { it.modelToolName to it.connectionUid }, persistent
+            "$profileUid:${message?.chatId ?: 0}",
+            authority,
+            tools.associateBy { it.modelToolName }.values.map { it.tool.definition },
+            tools.associate { it.modelToolName to it.connectionUid },
+            persistent
         )
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "HOST_REGISTRY · tools=${snapshot.toolCount} · reusedSchemas=${snapshot.reusedSchemas} · persisted=${snapshot.persisted} · authority=LIVE_RESOLVER · scope=PROFILE_CONVERSATION")
     }
@@ -1883,8 +1886,9 @@ class AgentToolResolver @Inject constructor(
         val followup = Regex("(?i)\\b(continue|resume|implement|apply|integrate|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|changes?|patch|push|pushing|commit|committing|branch|release|review|test|build|write|writing)\\b").containsMatchIn(task)
         val selectedTask = when {
             explicit -> task
-            followup && (selectedRepository || previous != null) -> task + " in the selected repository" +
-                if (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(task)) "\n" + previous.orEmpty() else ""
+            followup && (selectedRepository || previous != null) ->
+                task + " in the selected repository" +
+                    if (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(task)) "\n" + previous.orEmpty() else ""
             else -> task
         }
         // Catalogue selection must inspect the whole request before compacting its

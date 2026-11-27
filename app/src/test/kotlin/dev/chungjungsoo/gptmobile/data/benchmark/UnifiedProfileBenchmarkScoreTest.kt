@@ -130,9 +130,11 @@ class UnifiedProfileBenchmarkScoreTest {
 
     @Test fun wrongAnswerNeverReceivesSpeedCreditAndMissingTimingRemainsUnknown() {
         val original = run()
-        val bad = original.copy(samples = original.samples.map {
-            if (it.testId == "speed-short-1") it.copy(outcome = BenchmarkOutcome.FAILED, validation = it.validation!!.copy(gradePassed = false)) else it
-        })
+        val bad = original.copy(
+            samples = original.samples.map {
+                if (it.testId == "speed-short-1") it.copy(outcome = BenchmarkOutcome.FAILED, validation = it.validation!!.copy(gradePassed = false)) else it
+            }
+        )
         assertEquals(95.0, unifiedProfileBenchmarkScore(bad)!!.overall!!, 0.0001)
         val missing = original.copy(samples = original.samples.map { if (it.testId == "speed-short-1") it.copy(firstTextMs = null) else it })
         assertNull(unifiedProfileBenchmarkScore(missing)!!.categories.single { it.category == UnifiedBenchmarkCategory.EFFICIENCY }.score)

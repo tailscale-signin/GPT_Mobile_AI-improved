@@ -464,7 +464,7 @@ private fun IssueSubmissionDialog(
                 }
             }
         },
-        dismissButton = { TextButton(onClick = onClose, enabled = !saving) { Text(stringResource(R.string.close)) } },
+        dismissButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.close)) } },
         confirmButton = {
             when {
                 report.state == IssueReportOutbox.State.SENT -> TextButton(onClick = onView) { Text(stringResource(R.string.issue_report_view)) }

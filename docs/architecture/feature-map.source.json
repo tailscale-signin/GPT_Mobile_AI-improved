@@ -1131,7 +1131,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionFailureTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionRecoveryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceCompactionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceCompactionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorkerTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -1166,7 +1167,7 @@
         "Reports containing the new GitHub policy-selection fields require their distinct receiver capability before exact approved bytes are dispatched; older reports retain their existing delivery requirements.",
         "Android recognition incidents retain the owning capture attempt, observed dispatch and failure phase; local retry pacing is not a measured platform quota reset, and raw attempt identity never leaves the approved diagnostic projection.",
         "Compact acceptance reports prioritize observed blocker totals alongside deadline evidence; omitted criterion rows do not hide recorded blocker counts, and absent counts remain unknown.",
-        "Report dialogs use standard Compose modal ownership. Every close event clears UI ownership immediately and idempotently; an accepted durable outbox submission retains its identity independently."
+        "Report dialogs use standard Compose modal ownership. Every close event advances ownership immediately; late outbox completions cannot reopen dismissed controls or replace a later selection. Newly delivered submissions close to the conversation, while deliberately opened historical receipts remain inspectable."
       ],
       "routing": {
         "role": "user_control",

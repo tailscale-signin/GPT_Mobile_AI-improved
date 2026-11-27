@@ -540,7 +540,9 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         // A pending choice is neither a completed operation nor an uncertain write.
         if (call.name == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.NAME &&
             result.errorCode == dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool.PENDING
-        ) return
+        ) {
+            return
+        }
         saveResult(call, result, claimed = false)
     }
 

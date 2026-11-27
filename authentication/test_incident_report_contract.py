@@ -1986,6 +1986,7 @@ class IncidentReportContractTest(unittest.TestCase):
         source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text()
         from authentication import issue_report_diagnostics as contract
         for name, expected in (("preparationStates", contract.ENUMS["acceptance_preparation_state"]),
+                               ("deadlineSources", contract.ENUMS["task_deadline_source"]),
                                ("operationFamilies", contract.ENUM_LISTS["acceptance_blocked_operation_families"]),
                                ("policyRecoveryHints", contract.ENUMS["status_policy_recovery_hint"]),
                                ("fields", contract.ACCEPTANCE_RECOVERY_FIELDS)):
@@ -1994,6 +1995,20 @@ class IncidentReportContractTest(unittest.TestCase):
                 match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
             self.assertIsNotNone(match, name)
             self.assertEqual(expected, set(re.findall(r'"([^"\n]+)"', match.group(1))), name)
+
+    def test_deadline_provenance_and_user_wait_clock_are_closed_acceptance_evidence(self):
+        for source in ("ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"):
+            for clock in ("WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES"):
+                values = {"task_deadline_source": source, "task_deadline_clock": clock,
+                          "task_deadline_elapsed_seconds": 12, "task_deadline_remaining_seconds": 48}
+                capture = self.capture("ACCEPTANCE", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", values))
+        for field in ("task_deadline_source", "task_deadline_clock"):
+            for bad in ("private task text", "", None, True, 1, ["WALL_CLOCK"]):
+                with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
 
     def test_admission_diagnostics_preserve_typed_capacity_queue_and_preflight(self):
         samples = {

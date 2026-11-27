@@ -37,8 +37,11 @@ internal fun UnifiedProfileBenchmarkPanel(
     val result = remember(run) { run?.let(::unifiedProfileBenchmarkScore) }
     val earlier = remember(previous, run) {
         previous?.takeIf {
-            run != null && it.configKey == run.configKey && it.executionPolicy == run.executionPolicy &&
-                it.suiteVersion == run.suiteVersion && it.fixtureRotationSeed == run.fixtureRotationSeed
+            run != null &&
+                it.configKey == run.configKey &&
+                it.executionPolicy == run.executionPolicy &&
+                it.suiteVersion == run.suiteVersion &&
+                it.fixtureRotationSeed == run.fixtureRotationSeed
         }?.let(::unifiedProfileBenchmarkScore)?.takeIf { it.comparable }
     }
     fun score(value: Double) = String.format(Locale.ROOT, "%.1f", value)

@@ -9,6 +9,7 @@ import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequest
 import androidx.work.Operation
 import androidx.work.ProgressUpdater
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -29,6 +30,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -305,9 +308,154 @@ class IssueReportWorkerTest {
         }
     }
 
+    @Test fun dismissingDuringSaveKeepsAcceptedOutboxWorkWithoutReopeningTheModal() = runBlocking {
+        withReportModel(listOf(route)) { model, _, _ ->
+            val accepted = CompletableDeferred<IssueReportOutbox.Entry>()
+            val finish = CompletableDeferred<Unit>()
+            mockkObject(IssueReportWorker.Companion)
+            try {
+                coEvery { IssueReportWorker.enqueue(context, any(), any()) } coAnswers {
+                    val saved = IssueReportOutbox.forContext(context).approve(secondArg())
+                    accepted.complete(saved)
+                    finish.await()
+                    saved
+                }
+                model.openManual()
+                val preview = requireNotNull(model.manualPreview.value)
+                val draft = IssueReportViewModel.ManualDraft(title = "Saved report", description = "Approved contents")
+                model.updateDraft(draft)
+                model.submitManual(preview, draft, route)
+                val saved = withTimeout(5000) { accepted.await() }
+                model.closeManual()
+                model.closeManual()
+                assertFalse(model.manual.value)
+                finish.complete(Unit)
+                withTimeout(5000) { model.saving.first { !it } }
+                assertFalse(model.manual.value)
+                assertNull(model.submission.value)
+                assertEquals(saved.payload, IssueReportOutbox.forContext(context).load(saved.reportId)?.payload)
+                assertTrue(model.reports.value.any { it.reportId == saved.reportId })
+            } finally {
+                finish.complete(Unit)
+                unmockkObject(IssueReportWorker.Companion)
+            }
+        }
+    }
+
+    @Test fun aLateSaveCannotReplaceADeliberatelySelectedHistoricalReceipt() = runBlocking {
+        val other = report.copy(reportId = "86e95542-d7a6-40a5-a9dc-4a91e7466074", title = "Previous report")
+        val outbox = IssueReportOutbox.forContext(context)
+        outbox.approve(other)
+        outbox.sent(other.reportId, 321)
+        withReportModel(listOf(route)) { model, _, _ ->
+            val accepted = CompletableDeferred<Unit>()
+            val finish = CompletableDeferred<Unit>()
+            mockkObject(IssueReportWorker.Companion)
+            try {
+                coEvery { IssueReportWorker.enqueue(context, any(), any()) } coAnswers {
+                    val saved = outbox.approve(secondArg())
+                    accepted.complete(Unit)
+                    finish.await()
+                    saved
+                }
+                model.openManual()
+                val preview = requireNotNull(model.manualPreview.value)
+                model.submitManual(preview, IssueReportViewModel.ManualDraft(title = "New report", description = "Approved new contents"), route)
+                withTimeout(5000) { accepted.await() }
+                model.selectReport(other.reportId)
+                withTimeout(5000) { model.submission.first { it?.reportId == other.reportId } }
+                finish.complete(Unit)
+                withTimeout(5000) { model.saving.first { !it } }
+                assertEquals(other.reportId, model.submission.value?.reportId)
+                assertEquals(IssueReportOutbox.State.SENT, model.submission.value?.state)
+                assertEquals(preview.reportId, outbox.load(preview.reportId)?.reportId)
+            } finally {
+                finish.complete(Unit)
+                unmockkObject(IssueReportWorker.Companion)
+            }
+        }
+    }
+
+    @Test fun successfulDeliveryClosesItsOwnedSubmissionButHistoricalInspectionStaysOpen() = runBlocking {
+        val changes = MutableSharedFlow<List<WorkInfo>>(replay = 1).apply { tryEmit(emptyList()) }
+        withReportModel(listOf(route), workChanges = changes) { model, _, _ ->
+            model.openManual()
+            val preview = requireNotNull(model.manualPreview.value)
+            model.submitManual(preview, IssueReportViewModel.ManualDraft(title = "New report", description = "Approved contents"), route)
+            withTimeout(5000) { model.submission.first { it?.reportId == preview.reportId } }
+            val outbox = IssueReportOutbox.forContext(context)
+            outbox.sent(preview.reportId, 456)
+            changes.emit(emptyList())
+            withTimeout(5000) { model.reports.first { rows -> rows.any { it.reportId == preview.reportId && it.state == IssueReportOutbox.State.SENT } } }
+            withTimeout(5000) { model.submission.first { it == null } }
+            assertFalse(model.manual.value)
+            model.selectReport(preview.reportId)
+            assertEquals(456, withTimeout(5000) { model.submission.first { it?.state == IssueReportOutbox.State.SENT } }?.issueNumber)
+            val updated = outbox.sent(preview.reportId, 456)
+            changes.emit(emptyList())
+            withTimeout(5000) { model.reports.first { rows -> rows.any { it.reportId == preview.reportId && it.updatedAtMillis == updated.updatedAtMillis } } }
+            assertEquals(preview.reportId, model.submission.value?.reportId)
+            assertEquals(IssueReportOutbox.State.SENT, model.submission.value?.state)
+        }
+    }
+
+    @Test fun dismissingARetryKeepsItsQueueWithoutReopeningTheReceipt() = runBlocking {
+        val outbox = IssueReportOutbox.forContext(context)
+        outbox.approve(report)
+        outbox.failed(report.reportId, IssueReportSubmission.Failure("REPORT_DESTINATION_REQUIRED", true, automaticRetry = false), automaticRetry = false)
+        withReportModel(listOf(route)) { model, _, _ ->
+            val accepted = CompletableDeferred<Unit>()
+            val finish = CompletableDeferred<Unit>()
+            mockkObject(IssueReportWorker.Companion)
+            try {
+                coEvery { IssueReportWorker.retry(context, report.reportId, route) } coAnswers {
+                    val saved = outbox.queue(report.reportId, manualRetry = true)
+                    accepted.complete(Unit)
+                    finish.await()
+                    saved
+                }
+                model.selectReport(report.reportId)
+                model.retrySubmission(report.reportId, route)
+                withTimeout(5000) { accepted.await() }
+                model.closeSubmission()
+                finish.complete(Unit)
+                withTimeout(5000) { model.saving.first { !it } }
+                assertNull(model.submission.value)
+                assertEquals(IssueReportOutbox.State.QUEUED, outbox.load(report.reportId)?.state)
+            } finally {
+                finish.complete(Unit)
+                unmockkObject(IssueReportWorker.Companion)
+            }
+        }
+    }
+
+    @Test fun failedSaveLeavesTheOwnedDialogUsableWithItsOriginalDraft() = runBlocking {
+        withReportModel(listOf(route)) { model, _, _ ->
+            mockkObject(IssueReportWorker.Companion)
+            try {
+                coEvery { IssueReportWorker.enqueue(context, any(), any()) } throws java.io.IOException("Local save failed")
+                model.openManual()
+                val preview = requireNotNull(model.manualPreview.value)
+                val draft = IssueReportViewModel.ManualDraft(title = "Unsent report", description = "Original contents")
+                model.updateDraft(draft)
+                model.submitManual(preview, draft, route)
+                withTimeout(5000) { model.error.first { it == IssueReportViewModel.Notice.SaveFailed } }
+                withTimeout(5000) { model.saving.first { !it } }
+                assertTrue(model.manual.value)
+                assertEquals(draft, model.draft.value)
+                assertEquals(preview.reportId, model.manualPreview.value?.reportId)
+                assertNull(model.submission.value)
+                assertFalse(model.saving.value)
+            } finally {
+                unmockkObject(IssueReportWorker.Companion)
+            }
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun withReportModel(
         initialRoutes: List<IssueReportRoute>,
+        workChanges: Flow<List<WorkInfo>>? = null,
         block: suspend (IssueReportViewModel, MutableStateFlow<List<IssueReportRoute>>, WorkManager) -> Unit
     ) {
         val available = MutableStateFlow(initialRoutes)
@@ -319,7 +467,7 @@ class IssueReportWorkerTest {
         every { operation.result } returns ImmediateFuture(Operation.SUCCESS)
         every { manager.getWorkInfosByTagFlow(any()) } answers {
             if (firstArg<String>() == IssueReportWorker.TAG) initialized.complete(Unit)
-            flowOf(emptyList())
+            workChanges ?: flowOf(emptyList())
         }
         every { manager.enqueueUniqueWork(any(), ExistingWorkPolicy.KEEP, any<OneTimeWorkRequest>()) } returns operation
         Dispatchers.setMain(UnconfinedTestDispatcher())

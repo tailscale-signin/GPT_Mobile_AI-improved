@@ -178,7 +178,8 @@ internal class GitHubRepositorySession(
             fetch = { sha ->
                 val directoryKey = "phone-graph:directory-v$GITHUB_TREE_CACHE_VERSION:$sha"
                 cachedSource(scope, directoryKey)?.takeUnless { retryDiscovery } ?: GitHubRepositoryIndex.checkedPinnedTree(
-                    request("${root(context.owner, context.repo)}/git/trees/$sha"), sha
+                    request("${root(context.owner, context.repo)}/git/trees/$sha"),
+                    sha
                 ).also { if (it["truncated"] == JsonPrimitive(false)) store.write(scope, directoryKey, it) }
             },
             retryFailed = retryDiscovery,

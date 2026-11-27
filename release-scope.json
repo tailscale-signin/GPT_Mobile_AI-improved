@@ -791,7 +791,8 @@
     "docs/repairs/intelligence-diagnostic-completion-2026-11-27-task.json",
     "docs/repairs/intelligence-diagnostic-completion-2026-11-27.md",
     "gateway/tests/test_gateway_message_contract.py",
-    "gateway/tests/test_gateway_task_context.py"
+    "gateway/tests/test_gateway_task_context.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorkerTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

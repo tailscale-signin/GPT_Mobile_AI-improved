@@ -8,7 +8,7 @@ import kotlinx.serialization.json.put
 internal data class ResearchImplementationArtifact(val id: String, val runId: String, val text: String, val sourceIds: List<String>) {
     companion object {
         private val action = Regex("(?i)\\b(?:implement|apply|integrate|use|build|add|compare|explain)\\b")
-        private val reference = Regex("(?i)\\b(?:those|these|that|above|previous|earlier|findings?|recommendations?|improvements?|first|second|third|fourth|fifth|faster|number\\s+\\d+)\\b")
+        private val reference = Regex("(?i)\\b(?:those|these|that|above|previous|earlier|findings?|recommendations?|improvements?|first|second|third|fourth|fifth|faster|number\\s+(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten))\\b")
 
         fun requested(request: String): Boolean = action.containsMatchIn(request) && reference.containsMatchIn(request)
 

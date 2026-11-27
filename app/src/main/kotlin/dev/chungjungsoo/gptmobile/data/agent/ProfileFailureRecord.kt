@@ -53,10 +53,15 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val toolReconciliation: JsonObject? = null
 ) {
-    val isUserInputRequired: Boolean get() = dispatched == false && (
-        category == "REVIEW_INPUT_REQUIRED" && phase == "review_comparison" && "SELECT_REVIEW_BASELINE" in recoveryActions ||
-            category == "GITHUB_CHOICE_PENDING" && phase == "user_decision" && "ANSWER_SAVED_CHOICE" in recoveryActions
-        )
+    val isUserInputRequired: Boolean get() = dispatched == false &&
+        (
+            category == "REVIEW_INPUT_REQUIRED" &&
+                phase == "review_comparison" &&
+                "SELECT_REVIEW_BASELINE" in recoveryActions ||
+                category == "GITHUB_CHOICE_PENDING" &&
+                phase == "user_decision" &&
+                "ANSWER_SAVED_CHOICE" in recoveryActions
+            )
 
     /** An expired local view needs its original source receipt, never a generic cursor retry. */
     val isSavedViewUnavailable: Boolean get() = category == "SAVED_VIEW_UNAVAILABLE"

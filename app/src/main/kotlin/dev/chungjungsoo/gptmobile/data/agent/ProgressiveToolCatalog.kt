@@ -106,7 +106,8 @@ class ProgressiveToolCatalog(
             !conversational &&
             (
                 definition.name == "read_recovery_context" ||
-                    AgentToolCapability.USER_DECISION in definition.capabilities && (!definition.name.startsWith("github_") || requestIntent.repository) ||
+                    AgentToolCapability.USER_DECISION in definition.capabilities &&
+                    (!definition.name.startsWith("github_") || requestIntent.repository) ||
                     lookup?.matchesTool(definition) == true ||
                     (
                         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in plannedOperations &&

@@ -900,8 +900,11 @@ internal class GitHubEvidenceBook(
         val expectedWorkspace = GitHubChatDecisions.workspaceKey(context)
         val retained = (contract["decision_waits"] as? JsonObject)?.toMutableMap() ?: mutableMapOf()
         decisions.filter {
-            it.chatId == chatId && it.sourceMessageId == source && it.workspace == expectedWorkspace &&
-                it.profileUid == context.mainProfileUid && it.offeredAtMillis != null
+            it.chatId == chatId &&
+                it.sourceMessageId == source &&
+                it.workspace == expectedWorkspace &&
+                it.profileUid == context.mainProfileUid &&
+                it.offeredAtMillis != null
         }.forEach { decision ->
             val offered = requireNotNull(decision.offeredAtMillis)
             val previous = retained[decision.id] as? JsonObject
@@ -933,10 +936,18 @@ internal class GitHubEvidenceBook(
         val requestedTask = (contract?.get("requested_actions") as? JsonPrimitive)?.contentOrNull.orEmpty()
         val paused = if (GitHubDecisionWaitClock.allowsPause(requestedTask)) acceptedAt?.let { GitHubDecisionWaitClock.pausedMillis(it, observed, waits) } ?: 0 else 0
         val admission = GitHubExecutionLimits.admission(effective, observed - paused, requireAcceptedContract)
-        return if (paused == 0L) admission else admission.copy(timing = JsonObject(admission.timing + buildJsonObject {
-            put("task_deadline_clock", "ACTIVE_EXCLUDING_USER_CHOICES")
-            put("task_user_choice_wait_ms", paused)
-        }))
+        return if (paused == 0L) {
+            admission
+        } else {
+            admission.copy(
+                timing = JsonObject(
+                    admission.timing + buildJsonObject {
+                        put("task_deadline_clock", "ACTIVE_EXCLUDING_USER_CHOICES")
+                        put("task_user_choice_wait_ms", paused)
+                    }
+                )
+            )
+        }
     }
 
     suspend fun taskAdmissionFailure(): ProviderEvent.Failed? = renewalFailure ?: executionAdmission().failure()

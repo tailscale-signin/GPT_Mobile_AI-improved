@@ -58,10 +58,14 @@ internal fun unifiedProfileBenchmarkScore(run: BenchmarkRun): UnifiedProfileBenc
         // fixture. Matching a changed receipt to a changed imported plan is insufficient.
         if (accepted != test) return null
         return samples[test.id]?.singleOrNull()?.takeIf {
-            it.fixtureContentHash == accepted.contentHash && it.validatorVersion == accepted.validatorVersion &&
+            it.fixtureContentHash == accepted.contentHash &&
+                it.validatorVersion == accepted.validatorVersion &&
                 it.outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED) &&
-                it.terminalReceived == true && it.knownExecuted() && !it.warmup &&
-                it.category == accepted.category && it.workload == accepted.workload &&
+                it.terminalReceived == true &&
+                it.knownExecuted() &&
+                !it.warmup &&
+                it.category == accepted.category &&
+                it.workload == accepted.workload &&
                 it.evidenceScope == if (test.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD) {
                     "OFFLINE_ENGINEERING_SIMULATION"
                 } else {
@@ -129,8 +133,12 @@ internal fun unifiedProfileBenchmarkScore(run: BenchmarkRun): UnifiedProfileBenc
     val planned = categories.sumOf { it.planned }
     val complete = validManifest && run.finished && !run.canceled && run.stoppedReason == null && categories.all { it.complete }
     return UnifiedProfileBenchmarkScore(
-        run.id, categories,
+        run.id,
+        categories,
         if (complete) categories.sumOf { requireNotNull(it.score) * it.category.weight } / 100.0 else null,
-        evaluated, planned, complete, if (planned == 0) 0.0 else evaluated * 100.0 / planned
+        evaluated,
+        planned,
+        complete,
+        if (planned == 0) 0.0 else evaluated * 100.0 / planned
     )
 }

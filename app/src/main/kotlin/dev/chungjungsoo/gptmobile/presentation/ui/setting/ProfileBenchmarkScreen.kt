@@ -356,7 +356,16 @@ fun ProfileBenchmarkScreen(
                 }
             }
             if (tab == 0 || tab == 3 || tab == STANDARD_BENCHMARK_TAB) {
-                items(if (tab == STANDARD_BENCHMARK_TAB) batches.filter { it.mode == BenchmarkMode.STANDARD && it.items.any { item -> item.profile.uid == selected?.uid } }.take(1) else if (tab == 0) batches.take(1) else batches.take(100), key = { "queue.${it.id}" }) { batch ->
+                items(
+                    if (tab == STANDARD_BENCHMARK_TAB) {
+                        batches.filter { it.mode == BenchmarkMode.STANDARD && it.items.any { item -> item.profile.uid == selected?.uid } }.take(1)
+                    } else if (tab == 0) {
+                        batches.take(1)
+                    } else {
+                        batches.take(100)
+                    },
+                    key = { "queue.${it.id}" }
+                ) { batch ->
                     if (batch.mode == BenchmarkMode.APP_AUDIT) {
                         AppAuditResultCard(
                             batch = batch,

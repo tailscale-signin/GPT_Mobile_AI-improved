@@ -68,7 +68,9 @@ class GatewayGraphRepository @Inject constructor(
                     verifyAdmission(context, admitted.gateway.uid, admitted)
                     admissionAllowed()
                 }
-            ) return@withLock true
+            ) {
+                return@withLock true
+            }
         }
         false // The durable cursor resumes on the next connection/maintenance slice.
     }

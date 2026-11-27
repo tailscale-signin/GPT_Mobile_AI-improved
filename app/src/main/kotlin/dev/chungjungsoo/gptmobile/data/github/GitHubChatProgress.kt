@@ -381,16 +381,17 @@ internal class GitHubChatProgress(
                         blocked++
                         pendingSummary = null
                         selectedAuthoredSummary = false
-                        activity = "${operation.subject.replaceFirstChar(Char::uppercase)} blocked${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
-                        nextStep = "inspect the recorded blocker and identify the required approval, setup or correction before continuing"
+                        val waitingForChoice = name == "github_decide" && progress.status == "waiting_for_user"
+                        activity = if (waitingForChoice) "Choice saved; waiting for your decision" else "${operation.subject.replaceFirstChar(Char::uppercase)} blocked${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
+                        nextStep = if (waitingForChoice) "wait for the saved choice, then resume the original task from its checkpoint" else "inspect the recorded blocker and identify the required approval, setup or correction before continuing"
                         val decision = progress.status?.lowercase(java.util.Locale.ROOT) in setOf("awaiting_approval", "waiting_for_approval")
-                        val finding = if (decision) {
-                            "The ${operation.subject}${focusClause(progress.toolArgs)} needs approval before continuing; the requested action has not been verified."
-                        } else {
-                            "The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified."
+                        val finding = when {
+                            waitingForChoice -> "The choice is saved and is waiting for your decision before the original task resumes."
+                            decision -> "The ${operation.subject}${focusClause(progress.toolArgs)} needs approval before continuing; the requested action has not been verified."
+                            else -> "The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified."
                         }
                         rememberStep(finding, problemScope = problemScope)
-                        queueTransition(terminalKey, problemScope, if (decision) "DECISION" else "BLOCKER", finding)
+                        queueTransition(terminalKey, problemScope, if (decision || waitingForChoice) "DECISION" else "BLOCKER", finding)
                         if (GitHubCopilotProgress.activity(name, progress.toolArgs ?: JsonObject(emptyMap())) != null) copilotUpdatePending = true
                     }
                     "tool_completed", "tool_finished", "tool_skipped" -> {

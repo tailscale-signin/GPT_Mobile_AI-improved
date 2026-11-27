@@ -46,7 +46,8 @@ internal object PhoneRepositoryTreeDiscovery {
             val children = requireNotNull(listing["tree"] as? JsonArray)
             // A non-recursive listing must identify each immediate child. If it
             // is also truncated, keep the old usable skeleton and exact frontier.
-            if (listing["truncated"] != JsonPrimitive(false) || children.any {
+            if (listing["truncated"] != JsonPrimitive(false) ||
+                children.any {
                     val name = it.jsonObject.text("path")
                     name.isBlank() || name in setOf(".", "..") || name.any { c -> c == '/' || c == '\\' || c.isISOControl() }
                 }

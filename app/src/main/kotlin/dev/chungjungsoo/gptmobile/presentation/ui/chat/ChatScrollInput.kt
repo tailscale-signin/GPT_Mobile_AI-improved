@@ -104,7 +104,8 @@ internal fun rememberChatScrollInput(
         snapshotFlow {
             listState.layoutInfo.totalItemsCount > 0 &&
                 (!listState.canScrollForward || listState.gitHubDistanceToBottom() <= bottomTolerancePx) &&
-                !listState.isScrollInProgress && !input.dragging
+                !listState.isScrollInProgress &&
+                !input.dragging
         }.distinctUntilChanged().collect { atRestAtBottom ->
             if (atRestAtBottom) currentFollowIfAtBottom()
         }

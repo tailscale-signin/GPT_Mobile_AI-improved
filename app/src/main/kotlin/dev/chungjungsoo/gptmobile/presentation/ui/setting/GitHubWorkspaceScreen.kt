@@ -328,13 +328,15 @@ fun GitHubWorkspaceScreen(
                             }
                         }
                     }
-                    if (headerExpanded) Column(Modifier.padding(horizontal = 16.dp)) {
-                        GitHubChatProgress(
-                            visibleProgrammer,
-                            engineeringBinding?.job,
-                            nativeApprovalProgress,
-                            engineeringRunId = engineeringBinding?.localRunId ?: engineeringBinding?.request?.requestId
-                        )
+                    if (headerExpanded) {
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            GitHubChatProgress(
+                                visibleProgrammer,
+                                engineeringBinding?.job,
+                                nativeApprovalProgress,
+                                engineeringRunId = engineeringBinding?.localRunId ?: engineeringBinding?.request?.requestId
+                            )
+                        }
                     }
                     if (headerExpanded && collapsibleHeader && commandContext != null) visibleProgrammer.chatId?.let { GitHubChatChecks(it) }
                 }
@@ -356,15 +358,17 @@ fun GitHubWorkspaceScreen(
                             expandedHeight = if (collapsibleHeader) 48.dp else 64.dp,
                             title = {
                                 val repository = state.selection ?: savedContext?.repository
-                                if (headerExpanded) Column {
-                                    Text(repository?.fullName ?: "Set up GitHub", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(
-                                        repository?.ref ?: connection.name,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                if (headerExpanded) {
+                                    Column {
+                                        Text(repository?.fullName ?: "Set up GitHub", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            repository?.ref ?: connection.name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             },
                             navigationIcon = { if (headerExpanded) IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },

@@ -13,7 +13,7 @@ class IntelligenceIntentTest {
     }
 
     @Test fun scopedQuestionsAndAcceptedImplementationFollowupsRetainRepositoryContext() {
-        for (request in listOf("List open issues", "Show PR #12", "Inspect commits", "How does our app handle tool caching?", "Where is the choice prompt implemented?", "Implement the first three improvements", "Apply those improvements to our latest branch", "continue")) {
+        for (request in listOf("List open issues", "Show PR #12", "Inspect commits", "How does our app handle tool caching?", "Where is the choice prompt implemented?", "Implement the first three improvements", "Implement number four", "Apply number 4", "Apply those improvements to our latest branch", "continue")) {
             assertTrue(request, IntelligenceIntent.from(request, selectedRepository = true).repository)
         }
         assertFalse(IntelligenceIntent.from("Implement the first three improvements", selectedRepository = false).repository)

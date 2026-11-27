@@ -32,10 +32,13 @@ class RepositoryMapToolTest {
             buildJsonObject { put("map_source", request.getValue("map_source")) }
         }
         tool.execute("automatic", buildJsonObject { put("action", "status") })
-        tool.execute("explicit-phone", buildJsonObject {
-            put("action", "status")
-            put("map_source", "phone")
-        })
+        tool.execute(
+            "explicit-phone",
+            buildJsonObject {
+                put("action", "status")
+                put("map_source", "phone")
+            }
+        )
         tool.execute("task-context", buildJsonObject { put("action", "task_context_bundle") })
         assertEquals(listOf("gateway", "phone", "phone").map(::JsonPrimitive), sources)
         assertEquals(1, selections)

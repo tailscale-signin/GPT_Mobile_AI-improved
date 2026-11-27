@@ -111,7 +111,8 @@ class UniversalToolRegistry @Inject constructor(private val store: GitHubReposit
 
     private suspend fun read(identity: String): JsonObject? = try {
         store.read(identity, "universal-tool-registry")?.takeIf {
-            it["schema"] == JsonPrimitive(1) && it["tools"] is JsonArray &&
+            it["schema"] == JsonPrimitive(1) &&
+                it["tools"] is JsonArray &&
                 it["digest"] == JsonPrimitive(GitHubRepositoryStateStore.digest(it.getValue("tools").toString()))
         }
     } catch (cancelled: CancellationException) {

@@ -37,8 +37,12 @@ class GatewayIndexSyncService @Inject constructor(
                     graphs.synchronize(selected) {
                         val current = rooms.getChatRoom(roomId)
                         val live = settings.getFeatureSettings()
-                        current != null && !current.isTemporary && !current.privacyModeEnabled && !current.privacyModeLocked &&
-                            live.githubBlobCache && live.conversationGitHub[roomId] == selected
+                        current != null &&
+                            !current.isTemporary &&
+                            !current.privacyModeEnabled &&
+                            !current.privacyModeLocked &&
+                            live.githubBlobCache &&
+                            live.conversationGitHub[roomId] == selected
                     }
                 }
             } catch (cancelled: CancellationException) {

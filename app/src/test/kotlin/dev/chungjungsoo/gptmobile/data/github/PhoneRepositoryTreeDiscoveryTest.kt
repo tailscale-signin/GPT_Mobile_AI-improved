@@ -63,9 +63,11 @@ class PhoneRepositoryTreeDiscoveryTest {
     @Test fun mismatchedDirectoryIdentityNeverReplacesThePriorCheckpoint() = runTest {
         val initial = PhoneRepositoryTreeDiscovery.initial(tree(root, emptyList(), true), root)
         var changed = false
-        assertTrue(runCatching {
-            PhoneRepositoryTreeDiscovery.advance(initial, { tree(sha(2), listOf(entry("foreign.kt", sha(1)))) }) { changed = true }
-        }.isFailure)
+        assertTrue(
+            runCatching {
+                PhoneRepositoryTreeDiscovery.advance(initial, { tree(sha(2), listOf(entry("foreign.kt", sha(1)))) }) { changed = true }
+            }.isFailure
+        )
         assertFalse(changed)
     }
 

@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.DeviceLocationTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubDecisionTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
@@ -627,6 +628,87 @@ class ChatRepositoryImplTest {
         assertEquals(2, progress.summarySnapshot().completed)
         assertEquals(0, progress.summarySnapshot().failed)
         assertEquals(0, progress.summarySnapshot().pending)
+    }
+
+    @Test fun savedChoiceProgressWaitsWithoutRecordingAFailedOrCompletedTool() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>()
+        coEvery { trace.gateway(any()) } returns null
+        coEvery { trace.finish(any(), any()) } returns null
+        val choice = ProviderEvent.ToolCall("saved-choice", GitHubDecisionTool.NAME, buildJsonObject { put("question", "Which layout?") })
+        val pending = AgentToolResult(choice.callId, ToolResultContent.Text("The choice is saved"), true, sharedResult = true, dispatched = false, errorCode = GitHubDecisionTool.PENDING)
+        for (githubChat in listOf(false, true)) {
+            for (gatewaySeen in listOf(false, true)) {
+                val events = buildList {
+                    if (gatewaySeen) add(AgentRunEvent.Provider(ProviderEvent.GatewayProgressUpdate(GatewayProgress(origin = "gateway", event = "reasoning_started"))))
+                    add(AgentRunEvent.ToolStarted(choice))
+                    add(AgentRunEvent.ToolFinished(choice, pending))
+                }
+                val states = repository.streamAgentEvents(
+                    flowOf(*events.toTypedArray()),
+                    customPlatform(),
+                    "saved-choice-$githubChat-$gatewaySeen",
+                    1,
+                    trace,
+                    dispatchAuthority = RequestAuthorizationGuard("selected", null) {},
+                    githubChat = githubChat
+                ).toList()
+                val waiting = states.filterIsInstance<ApiState.GatewayProgressChanged>().map { it.progress }.single { it.event == "tool_blocked" }
+                assertEquals("waiting_for_user", waiting.stage)
+                assertEquals("waiting_for_user", waiting.status)
+                assertEquals("pending", waiting.resultQuality)
+                assertEquals(0, waiting.noProgress)
+                assertEquals(0, waiting.usefulToolCalls)
+                assertTrue(waiting.message.orEmpty().contains("Choice saved"))
+                assertTrue(states.filterIsInstance<ApiState.ProgressCheckpoint>().any { it.text.contains("Waiting for your decision") })
+                assertFalse(states.filterIsInstance<ApiState.GatewayProgressChanged>().any { it.progress.event in setOf("tool_failed", "tool_completed") })
+                val progress = GitHubChatProgress { 0L }
+                progress.tick()
+                states.forEach { progress.forward(it) }
+                val snapshot = progress.summarySnapshot()
+                assertEquals(0, snapshot.failed)
+                assertEquals(0, snapshot.completed)
+                assertEquals(0, snapshot.pending)
+                assertEquals(1, snapshot.blocked)
+                assertTrue(snapshot.activity.contains("waiting for your decision"))
+                assertTrue(snapshot.recentSteps.any { it.contains("choice is saved") })
+            }
+        }
+        assertTrue(pending.isError)
+        io.mockk.coVerify(exactly = 4) { trace.finish(choice, pending) }
+    }
+
+    @Test fun pendingChoiceProgressDoesNotHideCancelledChoicesOrOtherToolFailures() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>()
+        coEvery { trace.finish(any(), any()) } returns null
+        val calls = listOf(
+            ProviderEvent.ToolCall("cancelled-choice", GitHubDecisionTool.NAME, JsonObject(emptyMap())),
+            ProviderEvent.ToolCall("failed-read", "github_read", JsonObject(emptyMap())),
+            ProviderEvent.ToolCall("unrelated-code", "other_tool", JsonObject(emptyMap())),
+            ProviderEvent.ToolCall("dispatched-choice", GitHubDecisionTool.NAME, JsonObject(emptyMap()))
+        )
+        val results = listOf(
+            AgentToolResult(calls[0].callId, ToolResultContent.Text("User stopped"), true, sharedResult = true, dispatched = false, errorCode = "GITHUB_USER_STOP"),
+            AgentToolResult(calls[1].callId, ToolResultContent.Text("Read failed"), true, dispatched = true, errorCode = "READ_FAILED"),
+            AgentToolResult(calls[2].callId, ToolResultContent.Text("Unrelated tool failed"), true, dispatched = false, errorCode = GitHubDecisionTool.PENDING),
+            AgentToolResult(calls[3].callId, ToolResultContent.Text("Unexpected dispatched result"), true, dispatched = true, errorCode = GitHubDecisionTool.PENDING)
+        )
+        val events = calls.zip(results).flatMap { (call, result) -> listOf(AgentRunEvent.ToolStarted(call), AgentRunEvent.ToolFinished(call, result)) }
+        val states = repository.streamAgentEvents(
+            flowOf(*events.toTypedArray()),
+            customPlatform(),
+            "real-tool-failures",
+            calls.size,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {},
+            githubChat = true
+        ).toList()
+        val failures = states.filterIsInstance<ApiState.GatewayProgressChanged>().map { it.progress }.filter { it.event == "tool_failed" }
+        assertEquals(calls.map { it.callId }, failures.map { it.toolCallId })
+        assertEquals(listOf(1, 2, 3, 4), failures.map { it.noProgress })
+        assertTrue(failures.all { it.status == "failed" && it.resultQuality == "error" })
+        assertFalse(states.filterIsInstance<ApiState.GatewayProgressChanged>().any { it.progress.event == "tool_blocked" })
     }
 
     @Test fun combinedWriterControlsRejectBeforeBudgetAdmissionAndExplicitAutoUsesTheSameProfile() = runBlocking {

@@ -54,12 +54,15 @@ class GatewayRepositoryIndexMirrorTest {
         put("schema_version", 1)
         put("access_scope", "c".repeat(32))
         put("status", if (next == null) "SYNCHRONIZED" else "UPDATING")
-        put("graph", buildJsonObject {
-            put("repository", "owner/repo")
-            put("branch", "main")
-            put("commit_sha", revision)
-            put("coverage_complete", true)
-        })
+        put(
+            "graph",
+            buildJsonObject {
+                put("repository", "owner/repo")
+                put("branch", "main")
+                put("commit_sha", revision)
+                put("coverage_complete", true)
+            }
+        )
         put("observed_branch_head", revision)
         put("generation", generation(all))
         put("transfer_id", "d".repeat(32))
@@ -166,9 +169,11 @@ class GatewayRepositoryIndexMirrorTest {
         val mirror = GatewayRepositoryIndexMirror(GitHubRepositoryStateStore(), "account")
         mirror.accept(page(listOf(row("old.kt"))), firstSha)
         var calls = 0
-        assertTrue(runCatching {
-            mirror.accept(page(listOf(row("new.kt")), revision = nextSha), nextSha) { ++calls < 3 }
-        }.isFailure)
+        assertTrue(
+            runCatching {
+                mirror.accept(page(listOf(row("new.kt")), revision = nextSha), nextSha) { ++calls < 3 }
+            }.isFailure
+        )
         assertEquals(JsonPrimitive(firstSha), mirror.snapshot()?.get("commit_sha"))
     }
 }

@@ -5,11 +5,11 @@ import dev.chungjungsoo.gptmobile.data.context.EngineeringProfileSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
-import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
-import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -235,11 +235,19 @@ internal object GitHubChatPolicy {
         if (!config.webSearch) return request.research?.copy(researchToggle = false)
         request.research?.let { return it } // Includes explicit OFF and the user's chosen depth/scope.
         val configured = features.delegationFor(uid).deepResearch
-        if (!deepResearchRequest.containsMatchIn(text.trim()) || !configured.enabled || configured.effort <= 0 ||
-            !features.researchFeature.enabled || !features.isToolPluginEnabledForProfile(uid, ToolPluginId.DEEP_RESEARCH) ||
-            !features.isToolPluginEnabledForProfile(uid, ToolPluginId.WEB_SEARCH) || !features.isToolPluginEnabledForProfile(uid, ToolPluginId.READ_URL) ||
-            "deep_research" in request.disabledToolIds || !request.isToolEnabled(listOf("web_search")) || !request.isToolEnabled(listOf("read_url"))
-        ) return null
+        if (!deepResearchRequest.containsMatchIn(text.trim()) ||
+            !configured.enabled ||
+            configured.effort <= 0 ||
+            !features.researchFeature.enabled ||
+            !features.isToolPluginEnabledForProfile(uid, ToolPluginId.DEEP_RESEARCH) ||
+            !features.isToolPluginEnabledForProfile(uid, ToolPluginId.WEB_SEARCH) ||
+            !features.isToolPluginEnabledForProfile(uid, ToolPluginId.READ_URL) ||
+            "deep_research" in request.disabledToolIds ||
+            !request.isToolEnabled(listOf("web_search")) ||
+            !request.isToolEnabled(listOf("read_url"))
+        ) {
+            return null
+        }
         return MultiSearchResearchSelection(researchToggle = true, depth = configured.effort.coerceIn(1, 100), scope = ResearchContentScope.WEB_ONLY)
     }
 

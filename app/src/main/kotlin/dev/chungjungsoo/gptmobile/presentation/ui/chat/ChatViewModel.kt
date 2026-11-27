@@ -2879,8 +2879,11 @@ class ChatViewModel @Inject constructor(
             _attachmentNotice.value = "Resolve the existing GitHub approval card before continuing this task."
             return
         }
-        if (!answeredDecision && (dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(failureDetails) ||
-            dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(currentAssistantMessage.content))
+        if (!answeredDecision &&
+            (
+                dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(failureDetails) ||
+                    dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(currentAssistantMessage.content)
+                )
         ) {
             _attachmentNotice.value = "The time allowance ended. Send “Continue for 10 minutes” to reopen the saved task."
             return

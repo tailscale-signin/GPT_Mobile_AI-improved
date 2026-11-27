@@ -32,7 +32,7 @@ class GitHubChecklistScheduleTest {
         val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
         val pullRequest = GitHubOperationTool.definition("github_pr")
         val pending = call(pullRequest.name, "comments")
-        val priorAction = json("""{"trusted":true,"success":true,"tool":"github_pr","arguments":{"action":"headers","pull_number":2651}}""")
+        val priorAction = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_pr"],"action":"headers"}}""")
         val receipts = mapOf("prior-action" to priorAction)
         val unrelatedInventoryRead = call(context.name, "repository")
 

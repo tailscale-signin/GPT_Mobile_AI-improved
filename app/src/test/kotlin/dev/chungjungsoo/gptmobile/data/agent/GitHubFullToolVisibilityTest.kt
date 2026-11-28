@@ -37,6 +37,7 @@ class GitHubFullToolVisibilityTest {
         val definitions = github + hidden + optional
         repeat(2) { continuation ->
             val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, if (continuation == 0) "Inspect the repository" else "continue", setOf(github.first().name), githubMode = true))
+            val windowLimit = if (continuation == 0) ProgressiveToolCatalog.MAX_TOOLS else ProgressiveToolCatalog.INITIAL_TOOLS
             val allowed = definitions + catalog.definition
             val initial = catalog.selected(allowed)
             assertTrue(initial.any { GitHubOperationTool.operationName(it.name) == "github_context" })
@@ -48,8 +49,17 @@ class GitHubFullToolVisibilityTest {
             assertFalse(catalog.execute("discover-optional", buildJsonObject { put("query", "optional_80") }).isError)
             val shifted = catalog.selected(allowed)
             assertTrue(shifted.contains(optional.last()))
-            assertTrue(shifted.count { it.name != ProgressiveToolCatalog.NAME } <= ProgressiveToolCatalog.INITIAL_TOOLS)
-            assertFalse("The bounded window may evict a prior schema without revoking it", shifted.contains(deferred))
+            assertTrue(shifted.count { it.name != ProgressiveToolCatalog.NAME } <= windowLimit)
+            // Rotate enough distinct schemas to exercise eviction in both the
+            // ordinary eight-tool window and the existing advanced sixteen-tool window.
+            val replacement = optional.drop(40).take(12)
+            val rotatedResult = catalog.execute("rotate-optional", buildJsonObject { put("names", JsonArray(replacement.map { JsonPrimitive(it.name) })) })
+            assertFalse(rotatedResult.isError)
+            assertFalse(rotatedResult.dispatched)
+            val rotated = catalog.selected(allowed)
+            assertTrue(rotated.containsAll(replacement.take(windowLimit)))
+            assertTrue(rotated.count { it.name != ProgressiveToolCatalog.NAME } <= windowLimit)
+            assertFalse("The bounded window may evict a prior schema without revoking it", rotated.contains(deferred))
             val inventory = mutableSetOf<String>()
             var arguments = JsonObject(emptyMap())
             var pages = 0

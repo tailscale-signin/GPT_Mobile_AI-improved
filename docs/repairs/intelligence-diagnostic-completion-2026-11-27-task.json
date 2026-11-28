@@ -8,7 +8,7 @@
   "workingBranch": "feature/windows-native-benchmark-kit",
   "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
   "intent": "Implement remaining diagnostic source-delivery, context, durable-task, acceptance, CI, Gateway and voice corrections on the live PR while preserving concurrent work.",
-  "state": "CI_INTEGRATION_FOLLOWUP_LOCAL_VALIDATED_PENDING_HOSTED_CI",
+  "state": "ACCOUNT_SCOPE_AND_CATALOG_FOLLOWUP_LOCAL_VALIDATED_PENDING_HOSTED_CI",
   "authorization": "User requested implementation of the supplied November 27 diagnostic findings in the latest PR branches.",
   "constraints": [
     "Reconcile current remote head before writes and retain concurrent commits.",
@@ -366,6 +366,157 @@
         "files": 23,
         "status": "PASS"
       }
+    },
+    "hostedBaselineF043": {
+      "headSha": "f04372e40a04cbb3d332463ef8c9ad0327c63945",
+      "testedMergeSha": "bf04d526a94d2a13d62e0c427f318cbb1c26c5c6",
+      "identicalTreeSha": "2a53084f505fb1a4cbe311f54168ba6c699ebd10",
+      "android": {
+        "status": "BOTH_FULL_UNIT_SUITES_FAILED_SAME_TWO_ASSERTIONS",
+        "failedTests": [
+          "GitHubFullToolVisibilityTest.githubModeRetainsEveryAuthorizedFamilyAcrossBoundedContinuationCatalogs",
+          "GitHubTaskAcceptanceScopeTest.aSavedGitHubWorkspaceDoesNotRequireSourceRetrievalForGeneralOrResearchQuestions"
+        ],
+        "standard": {
+          "tests": 15461,
+          "suites": 2016,
+          "failures": 2,
+          "errors": 0,
+          "skipped": 6,
+          "downloadHashVerified": true,
+          "productionCompilation": "PASS",
+          "unitSourceCompilation": "PASS",
+          "runId": 46091133075,
+          "jobId": 140812063353,
+          "artifactId": 15242886039,
+          "artifactBytes": 6674833,
+          "artifactSha256": "bcc2d12916676c07e4665c1718f78e2aefcedccfb762635e7e6e3853d9d30bf0"
+        },
+        "geniex": {
+          "tests": 15461,
+          "suites": 2016,
+          "failures": 2,
+          "errors": 0,
+          "skipped": 6,
+          "downloadHashVerified": true,
+          "productionCompilation": "PASS",
+          "unitSourceCompilation": "PASS",
+          "runId": 46091133125,
+          "jobId": 140812087418,
+          "artifactId": 15243060362,
+          "artifactSha256": "ea50142e1e31b971e4c985cca1c15f2d9c613d307afd0e3466a2c41d21bea094",
+          "artifactBytes": 1663552
+        }
+      },
+      "gatewayMatrix": {
+        "status": "PASS",
+        "runId": 46091132973,
+        "environments": [
+          "ubuntu-python-3.12",
+          "ubuntu-python-3.13",
+          "windows-python-3.12",
+          "windows-python-3.13"
+        ],
+        "casesPerEnvironment": 2324,
+        "modulesPerEnvironment": 166,
+        "linuxSkips": 33,
+        "windowsSkips": 49,
+        "browserTestsPerEnvironment": 7,
+        "authenticationTestsPerEnvironment": 249,
+        "stressEventsPerEnvironment": 50000,
+        "managedDockerTests": 41,
+        "windowsUtf8Contract": "PASS_ON_BOTH_VERSIONS"
+      },
+      "windowsInstaller": {
+        "status": "PASS",
+        "runId": 46091132983,
+        "jobId": 140812028691,
+        "artifactId": 15242195085,
+        "artifactBytes": 165115474,
+        "githubArtifactSha256": "04b097aee3b1d37511fd4e8b7e2855546ef18b770f48d3848c864c93d534ec33",
+        "version": "18.1.6",
+        "packagedSmokeScenarios": 16,
+        "nativeBridgeAssertions": 435,
+        "artifactBinaryDownloaded": false,
+        "publication": "SKIPPED_ON_PR"
+      },
+      "apkCatalog": {
+        "status": "PASS",
+        "runId": 46091133082,
+        "tests": 35,
+        "failures": 0,
+        "skipped": 0,
+        "artifactId": 15241469606,
+        "artifactSha256": "55992138f659c0cbc64f173da004d3f1874a3e3852861067e1e4184547563952",
+        "downloadHashVerified": true
+      },
+      "emulatorAcceptance": {
+        "status": "PASS",
+        "runId": 46091132990,
+        "api36": {
+          "jobId": 140813498591,
+          "invocations": 32,
+          "tests": 131,
+          "passed": 131,
+          "skipped": 0,
+          "artifactId": 15241369674,
+          "githubArtifactSha256": "48762b2cd4631b6e4e2fdaf9148d6866d8d6d99f2afe64dcd4535c55491b0611"
+        },
+        "api34": {
+          "jobId": 140813498353,
+          "invocations": 32,
+          "tests": 131,
+          "passed": 130,
+          "skipped": 1,
+          "skipReason": "Emulator has no English Android TTS voice; the same fallback test passed on API 36.",
+          "artifactId": 15242407471,
+          "githubArtifactSha256": "da7e67d6c9b833df68bc82925dfd7c0855457c37fb9ed40e81af41f782245fa4"
+        }
+      },
+      "scope": "Exact historical baseline receipts; failed unit suites and later source revisions are not promoted to verified completion."
+    },
+    "accountScopeAndCatalogFollowup": {
+      "parentSha": "f04372e40a04cbb3d332463ef8c9ad0327c63945",
+      "accountScopeFocused": {
+        "status": "PASS",
+        "tests": 15,
+        "baseline": "Original hosted account-inventory assertion reproduced against f043; strengthened regression adds an independent intent-level reproduction.",
+        "boundary": "Actual source intent/scope/history paths with declared storage/data and unused-MCP ports."
+      },
+      "catalogFocused": {
+        "status": "PASS",
+        "tests": 1,
+        "scenarios": 2,
+        "baseline": "The exact original f043 visibility method fails at its existing eight-tool bound assertion.",
+        "current": "Full amended method passes both initial and continuation scenarios, bounded rotation/eviction, complete inventory, rediscovery, allowed-set revocation and tool-free final verification.",
+        "boundary": "Actual full ProgressiveToolCatalog, native schema builder, action projection/validation, byte-token estimator and routing/product catalogs; unrelated logging/provider/MCP execution and unused next-action boundaries are declared doubles."
+      },
+      "hostCanonical": {
+        "status": "PASS",
+        "command": "bash scripts/validate-local.sh fast",
+        "tests": 850,
+        "skipped": 1,
+        "sourceFilesUnchangedAfterRun": true
+      },
+      "hostedContainingCommit": {
+        "status": "PENDING"
+      },
+      "runtimeToolWindows": {
+        "ordinary": 8,
+        "advanced": 16,
+        "changed": false
+      },
+      "kotlinFormatting": {
+        "status": "PASS",
+        "version": "1.3.1",
+        "changedFiles": 5
+      },
+      "sourceHashChecks": {
+        "catalogHarnessInputs": 24,
+        "scopeHarnessInputs": 36,
+        "mismatches": 0,
+        "note": "Inputs overlap; these are not unique source-file or test counts."
+      }
     }
   },
   "qualification": {
@@ -450,37 +601,20 @@
   },
   "publishedImplementationSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65",
   "latestFollowup": {
-    "parentSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
+    "parentSha": "f04372e40a04cbb3d332463ef8c9ad0327c63945",
     "files": {
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": "83d418516872c7d1fa4b507a8c6f3cd2e9e2c83ac3c676314d08f7cc05ca9e4c",
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt": "81ce0ba561927ff6b4550c9aa3863427d6ebfc7944cf4aaceae78d5ad53113e1",
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt": "a57fcac7aefc917bd4f4ab3e76a7aebd0d211f3670f3ec6ef5d7832157b698f5",
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "ce1e8804cfa59a0c87061743b98d26ebbd0df28d18cfbfd7ecf23780512fd5d9",
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt": "030c1a9e45344cb201050de6adbdb361351d1ae94f72b13c7906524da8e44ee1",
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt": "41b526e4c6d91e8c7fcdcdf8c303bde90212c57606155a496d4a060c50c3d37a",
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt": "2ac6baebe029e5adc2ce90e88edb5e6f6a4ccea9c46158b32af26f45bf015ac4",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": "34f8581d3e6e07b490ba548b0a30d4781b975741b07bc6edd7e3234b57ec426a",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt": "294191d7cae94adbe048bf123ca56872155dcf5e812fc5156536e1dd47f98ef7",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt": "20756199d941088713735223cdbd6abf034b83f2ddb1134ec18f970ddb21d714",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlanTest.kt": "fc08e9620fec6ac1594c82de360fcadb5075a867481a34d6be2fca1df769430d",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchDeliveryProofTest.kt": "bacd06461f756427e299281fa104b4fdf4670e58e26853b88ce4c8a8e64e4ffd",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplayDeliveryRunnerTest.kt": "2ad7b16f7d0e3c7603db480baab6e132f80f4b6d509baa4b211208055eb63cce",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt": "371cb7cdbf1f4d831057375735be60077e8537cc7c367f6e677c2fb5ac352722",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/InterruptedRunDiscardTest.kt": "cab42e7bffcffc147acc3834842677c63222d594475e108c3cd5d6a087a2e917",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnosticsTest.kt": "b31a41a74b013d4b05634cf5e3c3e564d1f1c8459767e3d69ea8adc20da49dfd",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt": "6b5ade464faba2f381aa2b1ab82b768197c4273b64d50368c47561247f43341f",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidenceTest.kt": "dd120695263baf1984399aa651ab7d993b6f9b65c59ac33862fba0c8b741c262",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadinessTest.kt": "7ae8fc22ab127292ae4c8e34b520f5e3f656746e666b2aeda6cd9406d645369c",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt": "60cc54d81bd3e06fe1c8773b9d07de0cbf1e7e870959c894894d7f4aa477881c",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "27eeacb09cb9b690af72b966d73761911f01e643b8c05aad6208587a80905b86",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImplTest.kt": "4718d1ec4dc737da90f8ee621d801fb40bfb1b37452b2af919e5d16a5fd8a437",
-      "authentication/test_incident_report_contract.py": "e74faa41527f9e64781ea9fdcedf27f91547c3072b74b45bf8dba2ead840998b"
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt": "98d78f810eaf477db64ce3fe56c78761a13db74f5d6495a4e09a2760ade88bc6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "2388c914d8c97f71acbd83cb2379090079cdc88de5ced453644ebf4a0f55c8b1",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt": "c52d62b1f33220aac7e3ea69f5d9eb395f6c0f8a7b5a487c73b98079e64c6091",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScopeTest.kt": "5412a85e2f55ee827b2fc9ab592b2961042556f5e457d97ba3d6d6cf839c3a60",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": "e60dae9c86ce60a24762071298392eafcb6fbee0000b8825ade2ce5a530447cc"
     },
-    "change": "Repair hosted Windows UTF-8 contract reading and full Android integration failures while preserving accepted authority, exact source identity and existing limits."
+    "change": "Keep account repository inventory outside selected-source intelligence and verify eviction/rediscovery under the existing eight/sixteen-tool windows; runtime ceilings remain unchanged."
   },
   "publishedFollowupShas": [
     "7bfaf530b0f66c07940358e0c09d204f5be3d20b",
-    "86e232f59e02e8abe7e3fc806a0255810f4c01f8"
+    "86e232f59e02e8abe7e3fc806a0255810f4c01f8",
+    "12dafb588273d641d2dad12bbd906484e03e7d52"
   ],
   "followupHistory": [
     {
@@ -500,6 +634,36 @@
       },
       "change": "Keep legacy exact-receipt choice waits neutral in the bounded session audit, preserving real failures and all 32 visible failure groups.",
       "publishedSha": "86e232f59e02e8abe7e3fc806a0255810f4c01f8"
+    },
+    {
+      "parentSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
+      "files": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": "83d418516872c7d1fa4b507a8c6f3cd2e9e2c83ac3c676314d08f7cc05ca9e4c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt": "81ce0ba561927ff6b4550c9aa3863427d6ebfc7944cf4aaceae78d5ad53113e1",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt": "a57fcac7aefc917bd4f4ab3e76a7aebd0d211f3670f3ec6ef5d7832157b698f5",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "ce1e8804cfa59a0c87061743b98d26ebbd0df28d18cfbfd7ecf23780512fd5d9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt": "030c1a9e45344cb201050de6adbdb361351d1ae94f72b13c7906524da8e44ee1",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt": "41b526e4c6d91e8c7fcdcdf8c303bde90212c57606155a496d4a060c50c3d37a",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt": "2ac6baebe029e5adc2ce90e88edb5e6f6a4ccea9c46158b32af26f45bf015ac4",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": "34f8581d3e6e07b490ba548b0a30d4781b975741b07bc6edd7e3234b57ec426a",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt": "294191d7cae94adbe048bf123ca56872155dcf5e812fc5156536e1dd47f98ef7",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt": "20756199d941088713735223cdbd6abf034b83f2ddb1134ec18f970ddb21d714",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlanTest.kt": "fc08e9620fec6ac1594c82de360fcadb5075a867481a34d6be2fca1df769430d",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchDeliveryProofTest.kt": "bacd06461f756427e299281fa104b4fdf4670e58e26853b88ce4c8a8e64e4ffd",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplayDeliveryRunnerTest.kt": "2ad7b16f7d0e3c7603db480baab6e132f80f4b6d509baa4b211208055eb63cce",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt": "371cb7cdbf1f4d831057375735be60077e8537cc7c367f6e677c2fb5ac352722",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/InterruptedRunDiscardTest.kt": "cab42e7bffcffc147acc3834842677c63222d594475e108c3cd5d6a087a2e917",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnosticsTest.kt": "b31a41a74b013d4b05634cf5e3c3e564d1f1c8459767e3d69ea8adc20da49dfd",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt": "6b5ade464faba2f381aa2b1ab82b768197c4273b64d50368c47561247f43341f",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidenceTest.kt": "dd120695263baf1984399aa651ab7d993b6f9b65c59ac33862fba0c8b741c262",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadinessTest.kt": "7ae8fc22ab127292ae4c8e34b520f5e3f656746e666b2aeda6cd9406d645369c",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt": "60cc54d81bd3e06fe1c8773b9d07de0cbf1e7e870959c894894d7f4aa477881c",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "27eeacb09cb9b690af72b966d73761911f01e643b8c05aad6208587a80905b86",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImplTest.kt": "4718d1ec4dc737da90f8ee621d801fb40bfb1b37452b2af919e5d16a5fd8a437",
+        "authentication/test_incident_report_contract.py": "e74faa41527f9e64781ea9fdcedf27f91547c3072b74b45bf8dba2ead840998b"
+      },
+      "change": "Repair hosted Windows UTF-8 contract reading and full Android integration failures while preserving accepted authority, exact source identity and existing limits.",
+      "publishedSha": "12dafb588273d641d2dad12bbd906484e03e7d52"
     }
   ]
 }

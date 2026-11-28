@@ -29,6 +29,9 @@ internal data class IntelligenceIntent(val repository: Boolean, val research: Bo
         private val repositoryTopic = Regex("(?i)^(?:github\\s+)?(?:repo(?:sitory)?|git|codebase)(?:\\s+status)?[.!?\\s]*$")
         private val sourceRead = Regex("(?i)^(?:please\\s+)?(?:read|inspect|review|show)\\s+(?:the\\s+)?(?:source(?: code)?|code)[.!?\\s]*$")
 
+        // Account inventory has no selected source revision. Additional repository work falls through.
+        private val accountRepositoryInventory = Regex("(?i)^(?:please\\s+)?(?:list|show(?:\\s+me)?|find)\\s+(?:(?:all|the)\\s+)*(?:(?:my|accessible|available)\\s+(?:github\\s+)?(?:repos|repositories)|(?:github\\s+)?(?:repos|repositories)\\s+(?:I|we)\\s+(?:can\\s+access|have\\s+access\\s+to))(?:\\s+on\\s+github)?[.!?\\s]*$")
+
         internal fun externalServiceOnly(request: String): Boolean {
             val text = GitHubTaskContinuity.request(request)
             return externalDestination.containsMatchIn(text) &&
@@ -40,7 +43,7 @@ internal data class IntelligenceIntent(val repository: Boolean, val research: Bo
             val text = GitHubTaskContinuity.request(request).trim()
             if (CurrentRequestContract.from(text).conversational || GitHubCapabilityRequest.from(text) != null) return IntelligenceIntent(false, false)
             val research = researchRequest.containsMatchIn(text)
-            if (externalServiceOnly(text)) return IntelligenceIntent(false, research)
+            if (externalServiceOnly(text) || accountRepositoryInventory.matches(text)) return IntelligenceIntent(false, research)
             val repository = capabilityPrefix.matches(text.lineSequence().firstOrNull().orEmpty()) ||
                 GitHubLookupRoute.from(text) != null ||
                 GitHubCiObservationReport.matches(text) ||

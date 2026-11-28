@@ -228,6 +228,46 @@ progress, capacity and virtual-clock failures. These actual-source harnesses use
 declared application boundaries; the revised full runner, provider, Room and
 Robolectric tests still require the containing commit's hosted run.
 
+### Remaining full-suite failures at `f04372e4`
+
+Both unfiltered suites subsequently completed at
+`f04372e40a04cbb3d332463ef8c9ad0327c63945`: 15,461 tests in 2,016 suites,
+with two failures, no errors and six skips in each configuration. Standard
+artifact `15242886039` and GenieX artifact `15243060362` were downloaded and
+their SHA-256 digests verified. Both identify the same two failing assertions.
+The actual PR checkout, `bf04d526a94d2a13d62e0c427f318cbb1c26c5c6`, has
+the same tree `2a53084f505fb1a4cbe311f54168ba6c699ebd10` as that head.
+
+The account-level request “List my GitHub repositories” incorrectly inherited
+the saved workspace's source revision through the repository-intent matcher.
+A whole-request account-inventory guard now keeps that discovery unbound to a
+selected source. Compound requests that also ask for repository work retain
+their acceptance and exact-head binding. The original failing assertion is
+preserved alongside account-phrase variants and mixed-request regressions.
+
+The catalog regression still assumed the ordinary eight-tool window after an
+explicit repository task selected the existing sixteen-tool advanced window.
+The existing maximum is now named `MAX_TOOLS`; its value and admission behavior
+are unchanged. The test checks both window sizes, deliberately rotates enough
+distinct schemas to evict the earlier tool, then verifies complete authorized
+inventory, rediscovery, revocation and a tool-free verification pass.
+
+Fresh focused JVM runs reproduce the original scope and catalog assertions
+against `f04372e4`. The repaired scope/intent/history harness passes 15 cases.
+The actual catalog and native schemas pass the complete amended regression,
+including both initial and continuation scenarios and all later authority checks.
+Their declared storage/provider boundaries remain separate from a full Android
+run; the new containing revision still requires hosted verification.
+
+That same `f04372e4` revision passed all four hosted Gateway combinations
+(Linux/Windows, Python 3.12/3.13), including all 249 authentication tests on
+both Windows versions. The installer run `46091132983` passed its 16 packaged
+smoke scenarios and retained artifact `15242195085`. API 36 acceptance passed
+131 instrumentation executions; API 34 passed 130 with one existing assumption
+skip because its emulator had no English TTS voice. These are exact historical
+receipts for `f04372e4`. The containing account-scope/catalog correction requires
+its own hosted checks and does not convert either failed unit suite into a pass.
+
 ## Coverage of the requested correction areas
 
 “Existing” below means a current runtime path and named behavioral tests were
@@ -278,7 +318,7 @@ reviewed. The final validation receipts specify which suites were actually run.
 | Engineering defaults | Built-in Gateway engineering and verified-owner/readiness/revocation checks remain intact. |
 | Copilot | Existing default integration and receipt-bound progress retained. No live Copilot task or entitlement qualification is claimed. |
 | Context contract | Exact source/projection identity and whole-line Gateway admission tested; local saved-page reads retain their connection and source identity. |
-| Installer | Hosted review builds passed at `6913b7a2`, `486055ee` and `79981ac5`, including fresh install, repair, restart and uninstall. The latest receipt is run `46079690019`, artifact `15237435534`. Any later source commit requires its own check receipt. |
+| Installer | The hosted `f04372e4` review build passed fresh install, repair, restart, rollback, scoped firewall and uninstall checks: run `46091132983`, artifact `15242195085`. Any later source commit requires its own check receipt. |
 | Concurrent workers | Existing worktree/lease/head fencing retained; this task records its base and reconciles remote advances before publication. |
 | Benchmarking | Native campaign/import/grading contracts exercised with synthetic fixtures. Comparative ChatGPT/Codex/Claude/GPT Mobile scores require actual matched product captures. |
 
@@ -320,7 +360,7 @@ receipts.
 | Executed validation | Result |
 | --- | --- |
 | Canonical Gateway gate | 2,324 Python tests across 166 isolated suites on the combined diagnostic/audit payload, with 40 environment skips; seven browser-bridge tests passed; the 50,000-event durability stress passed. |
-| Canonical host gate | 848 tests with one environment skip; policy, generated metadata, package hashes, secret scan, Android regex and resource checks passed. |
+| Canonical host gate at `f04372e4` | 850 tests with one environment skip; policy, generated metadata, package hashes, secret scan, Android regex and resource checks passed. |
 | Authentication/report service | All 249 tests passed on the combined diagnostic/audit payload, including the incoming typed dispatch and voice evidence contracts. |
 | Focused source recovery JVM | All five tests passed. |
 | Focused restored authority JVM | All seven tests passed. |

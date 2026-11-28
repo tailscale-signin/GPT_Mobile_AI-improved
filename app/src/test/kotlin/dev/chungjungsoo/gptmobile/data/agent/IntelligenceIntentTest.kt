@@ -6,7 +6,7 @@ import org.junit.Test
 
 class IntelligenceIntentTest {
     @Test fun selectedWorkspaceDoesNotTurnGeneralQuestionsIntoRepositoryTasks() {
-        for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "Review GitHub pricing", "Show GitHub pricing", "Read source materials about climate", "Create a file in Google Drive", "Review Google Drive files", "Create hello.py in Google Drive", "Apply those changes in Google Drive", "Update the file in Dropbox", "What tools can you use in this chat?")) {
+        for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "Review GitHub pricing", "Show GitHub pricing", "Read source materials about climate", "Create a file in Google Drive", "Review Google Drive files", "Create hello.py in Google Drive", "Apply those changes in Google Drive", "Update the file in Dropbox", "What tools can you use in this chat?", "List my GitHub repositories", "Please show me all my repositories.", "Show available GitHub repos", "List accessible repositories", "Find the repositories I can access on GitHub")) {
             assertFalse(request, IntelligenceIntent.from(request, selectedRepository = true).repository)
             assertFalse(request, IntelligenceIntent.from(request, selectedRepository = false).repository)
         }

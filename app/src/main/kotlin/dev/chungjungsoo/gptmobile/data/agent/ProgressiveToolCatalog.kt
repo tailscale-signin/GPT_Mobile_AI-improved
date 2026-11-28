@@ -36,7 +36,7 @@ class ProgressiveToolCatalog(
     private val requestIntent = IntelligenceIntent.from(task, selectedRepository = githubMode)
     private val githubUpfront = githubMode && requestIntent.repository && !scopedRead || integrationPreset
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
-    private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
+    private val toolAllowance get() = if (advanced) MAX_TOOLS else INITIAL_TOOLS
     private val schemaAllowance get() = minOf(
         if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE,
         contextSchemaAllowance(contextCeilingTokens)
@@ -1135,6 +1135,7 @@ class ProgressiveToolCatalog(
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }
         const val NAME = "discover_available_tools"
         const val INITIAL_TOOLS = 8
+        const val MAX_TOOLS = 16
         private val STOP_WORDS = setOf("the", "and", "for", "this", "that", "with", "please", "can", "could", "use", "help", "what", "how", "all", "work", "continue")
 
         // Leaves room for the discovery schema and source content in the parent request planner.

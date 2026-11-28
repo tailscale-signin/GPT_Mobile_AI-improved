@@ -47,11 +47,25 @@ class GitHubTaskAcceptanceScopeTest {
     }
 
     @Test fun aSavedGitHubWorkspaceDoesNotRequireSourceRetrievalForGeneralOrResearchQuestions() {
-        for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "List my GitHub repositories")) {
+        for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "List my GitHub repositories", "Please show me all my repositories.", "Show available GitHub repos", "List accessible repositories", "Find the repositories I can access on GitHub")) {
             val scope = GitHubTaskScope.select(request, workspace, listOf(target), true)
             assertFalse(request, scope.usesRepositoryIntelligence)
             assertFalse(request, scope.requiresAcceptance)
             assertNull(scope.observedCommitSha)
+        }
+    }
+
+    @Test fun accountDiscoveryDoesNotHideExplicitRepositoryWorkInTheSameRequest() {
+        for (request in listOf(
+            "Inspect the selected repository",
+            "List my GitHub repositories, then fix app.kt in this repository",
+            "List accessible GitHub repositories, then update app.kt in the selected repository",
+            "Create hello.py in Google Drive and commit its reference in our repository"
+        )) {
+            val scope = GitHubTaskScope.select(request, workspace, listOf(target), true)
+            assertTrue(request, scope.usesRepositoryIntelligence)
+            assertTrue(request, scope.requiresAcceptance)
+            assertEquals(target.observedCommitSha, scope.observedCommitSha)
         }
     }
 

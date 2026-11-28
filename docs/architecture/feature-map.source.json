@@ -3833,7 +3833,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt",
         "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffectTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffectTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3842,18 +3843,18 @@
         "docs/repairs/bidirectional-voice-translation-2026-11-28.md",
         "docs/repairs/bidirectional-voice-translation-2026-11-28-task.json",
         "docs/audits/voice-translation-language-model-2026-11-28.json",
-        "docs/repairs/voice-output-preference-restoration-2026-11-28-task.json"
+        "docs/repairs/voice-output-preference-restoration-2026-11-28-task.json",
+        "docs/repairs/voice-session-readiness-restoration-2026-11-28-task.json"
       ],
       "invariants": [
-        "Each accepted utterance resolves from a confident in-pair transcript prediction or an explicit spoken-language choice to the opposite language and that language's separately saved voice. Unknown or outside-pair input retains a reviewable draft.",
-        "The bundled detector examines global competitors locally before pair membership. Transcript classification does not establish physical ASR accuracy or reliable mixed-language identification.",
-        "Automatic capture requires Android 14 or later, on-device speech support and both installed locales. English-only Moonshine is admitted only for an explicitly selected English source in translation mode.",
-        "Draft identity, exact text, generation, access and phase fence the immutable destination and factory before submission. Stop, edits, settings changes and lost ownership prevent a late result from dispatching or reviving playback.",
-        "Accepted fixed translation policies preserve the reply destination for replay. Missing metadata defers admission; a previous language or unrelated voice cannot substitute for the accepted destination.",
-        "Azelma and Estelle use an explicitly installed and verified Pocket Multilingual CPU pack. Per-turn factories snapshot settings without overwriting ordinary engine preferences or the other language's voice.",
-        "Questions and commands remain isolated translation source text. Existing no-tools, no-persona and no-history request boundaries remain authoritative.",
-        "Translated streaming and replay require the selected local voice. A synthesis failure cannot silently substitute Android TTS; ordinary playback retains its existing recovery behavior.",
-        "Restoring the screen waits for saved voice preferences before configuring output, preserving the retained accepted translation engine until its settings are ready."
+        "Each utterance selects the opposite language's saved voice from confident in-pair transcript detection or explicit source. Keep unknown or outside-pair input reviewable.",
+        "Local detection checks global competitors before pair filtering; transcripts cannot qualify ASR accuracy or reliable mixed-language detection.",
+        "Auto capture needs Android 14+, on-device support and both installed locales. Explicit sources require a recognizer/model supporting the language.",
+        "Bind destination/factory to draft ID/text, generation, access and phase before submit. Stop, edits, settings or lost ownership fence late dispatch/playback.",
+        "Replay keeps its fixed accepted destination; missing metadata defers admission. Translation/replay require its local voice, with no prior-language, other-voice or Android TTS substitution. Ordinary recovery is unchanged.",
+        "Azelma/Estelle require an explicitly installed, verified Pocket Multilingual CPU pack. Per-turn snapshots preserve ordinary preferences and each language's voice.",
+        "Translate questions/commands as source text with no tools, persona or conversation history.",
+        "Configure output after saved preferences load. Pending readiness blocks new work while preserving authorized owned retained playback."
       ],
       "routing": {
         "role": "user_control",

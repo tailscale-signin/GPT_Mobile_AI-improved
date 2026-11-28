@@ -109,6 +109,7 @@ class WorkflowPolicyTest(unittest.TestCase):
             'dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionRoutingTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest',
+            'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionReadinessTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPairTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetectorTest',

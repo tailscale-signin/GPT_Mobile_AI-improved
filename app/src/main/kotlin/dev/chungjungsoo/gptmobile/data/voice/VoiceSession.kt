@@ -148,13 +148,14 @@ class VoiceSession(
     private var enabled = false
     private var permission = false
     private var foreground = false
+    private var readyForNewWork = true
     private var audioHeld = false
     private var generation = 0L
     private var preparingPlaybackOwner: Long? = null
 
     /** A suspended replay preparation cannot survive any capture/playback cancellation. */
-    internal fun playbackPreparationOwner(): Long = generation.also { preparingPlaybackOwner = it }
-    internal fun ownsPlaybackPreparation(owner: Long): Boolean = preparingPlaybackOwner == owner && generation == owner && accessAllowed() && state.phase == VoicePhase.PAUSED
+    internal fun playbackPreparationOwner(): Long? = generation.takeIf { accessAllowed() && state.phase == VoicePhase.PAUSED }?.also { preparingPlaybackOwner = it }
+    internal fun ownsPlaybackPreparation(owner: Long?): Boolean = owner != null && preparingPlaybackOwner == owner && generation == owner && accessAllowed() && state.phase == VoicePhase.PAUSED
     private var diagnosticProbe = diagnosticTrace.advance(generation)
     init {
         audio.bindDiagnostics(diagnosticProbe)
@@ -251,8 +252,9 @@ class VoiceSession(
         interruptionEnabled = enabled
         syncInterruption()
     }
+    private fun interruptionAllowed() = interruptionEnabled == true && accessAllowed() && permission && !state.muted
     private fun syncInterruption() {
-        audio.configureInterruption(interruptionEnabled == true && foreground) { if (accessAllowed() && state.phase == VoicePhase.SPEAKING) interrupt() }
+        audio.configureInterruption(interruptionAllowed()) { if (interruptionAllowed() && state.phase == VoicePhase.SPEAKING) interrupt() }
     }
     var speakWhileGenerating = true
     internal var performanceMode = VoicePerformanceMode.BALANCED
@@ -543,7 +545,7 @@ class VoiceSession(
         captionSearchFrom = 0
         audio.bindDiagnostics(diagnosticProbe)
     }
-    private fun accessAllowed() = enabled && foreground && !audioHeld && state.phase != VoicePhase.CLOSED
+    private fun accessAllowed() = enabled && readyForNewWork && foreground && !audioHeld && state.phase != VoicePhase.CLOSED
 
     // Only an already admitted utterance can outlive the visible screen.
     internal var backgroundPlayback = false
@@ -567,20 +569,32 @@ class VoiceSession(
     internal fun holdAudio(held: Boolean) {
         if (audioHeld == held) return
         audioHeld = held
+        if (interruptionEnabled == true) syncInterruption()
         if (held) pause("speech_benchmark_running")
         // The screen still owns listening intent. Releasing a worker must not replay
         // a saved answer, submit a draft, or resume a muted/paused session by itself.
     }
 
-    fun access(enabled: Boolean, permission: Boolean, foreground: Boolean) {
+    /** Screen hydration gates new work; it does not revoke a reply already owned by playback. */
+    fun access(enabled: Boolean, permission: Boolean, foreground: Boolean, readyForNewWork: Boolean = this.readyForNewWork) {
+        val interruptionWasAllowed = interruptionAllowed()
         this.enabled = enabled
         this.permission = permission
-        val visibilityChanged = this.foreground != foreground
+        this.readyForNewWork = readyForNewWork
         this.foreground = foreground
-        if (visibilityChanged && interruptionEnabled == true) syncInterruption()
+        if (interruptionWasAllowed != interruptionAllowed()) syncInterruption()
         diagnosticProbe.access(permission, foreground, state.muted)
-        if (!foreground && backgroundPlayback && preparingDraft == null && preparingPlaybackOwner == null && playbackAllowed()) return
-        if ((!accessAllowed() || !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) && state.phase != VoicePhase.CLOSED) {
+        val retainedPlayback = backgroundPlayback &&
+            preparingDraft == null &&
+            preparingPlaybackOwner == null &&
+            streamId != null &&
+            streamAudio &&
+            waiting &&
+            state.phase in setOf(VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING) &&
+            playbackAllowed()
+        if ((!foreground || !readyForNewWork) && retainedPlayback) return
+        val capturePermissionMissing = !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
+        if ((!accessAllowed() || capturePermissionMissing) && state.phase != VoicePhase.CLOSED) {
             pause(
                 if (!foreground) {
                     "lifecycle_background"
@@ -588,8 +602,10 @@ class VoiceSession(
                     "voice_disabled"
                 } else if (audioHeld) {
                     "speech_benchmark_running"
-                } else {
+                } else if (capturePermissionMissing) {
                     "permission_changed"
+                } else {
+                    "screen_not_ready"
                 }
             )
         }
@@ -1154,6 +1170,7 @@ class VoiceSession(
         recognitionFailures = 0
         update(state.copy(muted = !state.muted))
         diagnosticProbe.muted(state.muted)
+        if (interruptionEnabled == true) syncInterruption()
         if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.THINKING, VoicePhase.REVIEWING)) return
         if (state.muted) {
             pause()

@@ -183,6 +183,7 @@ jobs:
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionRoutingTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionReadinessTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPairTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetectorTest' \

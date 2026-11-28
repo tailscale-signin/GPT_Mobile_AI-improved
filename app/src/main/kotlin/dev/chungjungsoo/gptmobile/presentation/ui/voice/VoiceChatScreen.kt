@@ -338,7 +338,8 @@ private fun VoiceChatSessionScreen(
     val enabled = features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT)
     val savedPreferences by voiceSettings.preferences.collectAsStateWithLifecycle()
     var preferencesApplied by remember(runtime) { mutableStateOf(false) }
-    val currentEnabled by rememberUpdatedState(enabled && preferencesApplied && loaded && roomReady && backend.loaded)
+    val currentEnabled by rememberUpdatedState(enabled && loaded && roomReady && backend.loaded)
+    val currentReadyForNewWork by rememberUpdatedState(preferencesApplied)
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     var listenAfterPermission by rememberSaveable { mutableStateOf(false) }
     var permissionRequestInFlight by rememberSaveable { mutableStateOf(false) }
@@ -705,7 +706,7 @@ private fun VoiceChatSessionScreen(
     val permissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionRequestInFlight = false
         permission = granted
-        session.access(currentEnabled, granted, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        session.access(currentEnabled, granted, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED), readyForNewWork = currentReadyForNewWork)
         if (!granted) {
             listenAfterPermission = false
             session.permissionDenied()
@@ -720,7 +721,7 @@ private fun VoiceChatSessionScreen(
         }
         applyAudioConfiguration()
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        session.access(currentEnabled, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED), readyForNewWork = currentReadyForNewWork)
         if (permission) {
             session.listenForConversation()
         } else {
@@ -804,7 +805,7 @@ private fun VoiceChatSessionScreen(
                     runtimeOwner.resume()
                     permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                     session.holdAudio(benchmarkOwnership.value != null)
-                    session.access(currentEnabled, permission, true)
+                    session.access(currentEnabled, permission, true, readyForNewWork = currentReadyForNewWork)
                 }
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     session.stopAutomaticListening()
@@ -812,7 +813,7 @@ private fun VoiceChatSessionScreen(
                     if (event == Lifecycle.Event.ON_STOP) benchmarkOwner.cancel()
                     refreshMutedBaseline = true
                     kokoroOutput?.cancelPrewarm()
-                    session.access(currentEnabled, permission, false)
+                    session.access(currentEnabled, permission, false, readyForNewWork = currentReadyForNewWork)
                     systemAudio.releaseRecognition(preservePlayback = session.backgroundPlayback)
                     runtimeOwner.pause(runtime)
                 }
@@ -825,14 +826,14 @@ private fun VoiceChatSessionScreen(
             benchmarkOwner.cancel()
             refreshMutedBaseline = true
             kokoroOutput?.cancelPrewarm()
-            session.access(currentEnabled, permission, false)
+            session.access(currentEnabled, permission, false, readyForNewWork = currentReadyForNewWork)
             systemAudio.releaseRecognition(preservePlayback = session.backgroundPlayback)
             runtimeOwner.pause(runtime)
         }
     }
-    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, permission, listenAfterPermission, recognitionReady, microphoneCuePrepared, settingsOpen, routeOpen, benchmarkRunning) {
+    LaunchedEffect(currentEnabled, currentReadyForNewWork, voiceReady, lifecycleState, permission, listenAfterPermission, recognitionReady, microphoneCuePrepared, settingsOpen, routeOpen, benchmarkRunning) {
         session.holdAudio(benchmarkOwnership.value != null)
-        session.access(currentEnabled, permission, lifecycleState == Lifecycle.State.RESUMED)
+        session.access(currentEnabled, permission, lifecycleState == Lifecycle.State.RESUMED, readyForNewWork = currentReadyForNewWork)
         if (listenAfterPermission && permission && lifecycleState == Lifecycle.State.RESUMED && voiceReady && preferencesApplied && microphoneCuePrepared) {
             listenAfterPermission = false
             if (!settingsOpen && !routeOpen && recognitionReady && session.state.microphoneAction == VoiceMicrophoneAction.LISTEN) listen()
@@ -1052,9 +1053,9 @@ private fun VoiceChatSessionScreen(
     }
     fun readResponse(identity: VoiceMessageIdentity, text: String, includeDetails: Boolean = false) {
         session.holdAudio(benchmarkOwnership.value != null)
-        if (benchmarkOwnership.value != null || text.isBlank()) return
+        if (benchmarkOwnership.value != null || text.isBlank() || !preferencesApplied) return
         pauseCapture()
-        session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        session.access(currentEnabled, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED), readyForNewWork = currentReadyForNewWork)
         fun begin() {
             if (session.beginMessage(identity.key, manual = true, diagnosticRunId = identity.runId.ifBlank { identity.key }, includeDetails = includeDetails)) {
                 playback.manual(identity)
@@ -1076,7 +1077,7 @@ private fun VoiceChatSessionScreen(
                 return
             }
             session.pause("translation_replay_preparing")
-            val owner = session.playbackPreparationOwner()
+            val owner = session.playbackPreparationOwner() ?: return
             val ticket = ++translationReplayGeneration
             settingsScope.launch {
                 try {

@@ -1,0 +1,396 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "startingHead": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+  "authorization": "Implement the reviewed fixes, preserve concurrent work, require green PR and main checks, then verify Android and Gateway publication.",
+  "intent": "Continue an accepted retained reply while a recreated voice screen applies its preferences; block new capture, submission and replay preparation until readiness returns.",
+  "state": "implementation_and_focused_review_passed_pending_current_head_gates",
+  "finding": {
+    "origin": "Independent review of a06 output configuration restoration follow-up, corroborated by the session/runtime reviewer.",
+    "cause": "VoiceChatScreen folds preferencesApplied into session enabled access. A resumed lifecycle can report enabled=false before preference hydration, causing VoiceSession to pause an otherwise authorized retained reply.",
+    "scope": "Adjacent pre-existing lifecycle behavior; the a06 output configuration helper is valid and preserved.",
+    "baseline": "Actual production VoiceSession reaches SPEAKING, survives background ownership, then pauses on restored-composition access while preferences are unavailable. The focused preservation regression fails with expected SPEAKING versus actual PAUSED."
+  },
+  "requiredInvariants": [
+    "Retained playback continues only under existing accepted reply, live audio ownership and current feature/conversation authorization.",
+    "Readiness does not authorize new capture, draft preparation/submission, replay preparation or automatic listening.",
+    "Microphone interruption monitoring follows permission and readiness as well as actual foreground; readiness changes cannot start capture early.",
+    "Actual foreground remains truthful in access diagnostics.",
+    "Explicit disablement, benchmark ownership, Stop, permission revocation affecting capture and existing background policy remain effective.",
+    "Existing three-argument access callers preserve the current readiness state.",
+    "The output factory restoration helper and prior translation/cancellation regressions remain in force."
+  ],
+  "validation": [
+    {
+      "check": "Pre-fix real-session reproduction",
+      "compileExitCode": 0,
+      "testExitCode": 1,
+      "result": "expected_failure",
+      "assertion": "Expected SPEAKING but actual PAUSED during resumed lifecycle access before preference hydration."
+    },
+    {
+      "check": "Actual-source session behavior suite",
+      "compileExitCode": 0,
+      "testExitCode": 0,
+      "testsPassed": 82,
+      "newRegressionCases": 9,
+      "assertionsEnabled": true,
+      "testClasses": [
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionReadinessTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceContinuousListeningTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest"
+      ],
+      "sourceInputsVerified": 43,
+      "compilerHeapMiB": 384,
+      "compilationLayout": "Full production sources and full test classes compiled separately with Kotlin friend paths; no source extraction.",
+      "scope": "Full exact VoiceSession, VoiceTranslationPair, VoiceResponsePolicy, VoiceMessagePlayback, VoiceTranslationPlaybackPolicy and supporting text/audio policies plus complete selected test classes on the host JVM. Serialization-enabled compilation; fake audio drives real lifecycle transitions. These selected tests do not execute serialization round trips. No language detector/model or Pocket runtime is executed. No Compose composition, Android permission dialog, SoundPool/device audio, microphone hardware, native recognizer or complete Android build qualification.",
+      "ports": "Unrelated reporting/diagnostic sinks, Room receiver DTOs, ProfileFailureRecord DTO, speech execution evidence marker, thinking-cue/caption-provenance DTOs, native-recognizer settings interface, monitor interface and engine factory marker are explicit host ports and a LocalVoiceAsset download descriptor. No VoiceSession, translation pair, language/voice catalog or policy implementation is extracted or replaced. Probe includes the fc0 fromCapture argument.",
+      "sourceSha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "aa33b80005794f0f27c297f71d281edb3a4c74b5d70d8f4df611dff019f690ba",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt": "157e21df939abb17632ce58b7979f1de7c797231619f864d2a98d12788b8f1c7",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt": "a7ef6b2eb1a4ab570184017cff4f9a9427c562624dd8b1ac2872e115fcf98b1c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt": "c4e398159fbe183935089dc7b82ac3ded7db1c71c72cd9a92147f94de47f8c12",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpokenLead.kt": "7152bd7516382ca313488316e273c08b8daa33abe5744e70a58408fdf47eddea",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseBoundaries.kt": "7a3fd7fcf7ff96ce62c225351c4093677ef894a1bd93a2d49bb0a12a5fa52e6e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt": "e36df9293cb143042a539d8bc4233d10a5516b909dfccc185f188ac09238804e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalizedVoiceReadings.kt": "4869aff6adc3e6ce216721f9a6a522df551495f38584123167643b6f57910308",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt": "479b2edced99998d36fe8453a74db86fc659c1e089f7f9ebf85ae7e196f60bce",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePresentationSignals.kt": "07452e838d73ca758348da9600d6d209c5aa889241de4c148527addcdac3d274",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailure.kt": "5ee58566080cf7b5e6eb396559bc092c86c84932750acb2ed83c001e1ccea20d",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt": "e00126a2928592a024d9626f08a386388d531cdb9af0f86e81b49783a59733b0",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionFailure.kt": "25c10dfa9d978ab34398ad25c06ae4f0b18eea384f9804a3e60b939c976ec145",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTurnAdmission.kt": "852adfd400641c428c817e5ad6be2cae40782d1a2e2bdd88141915268e9661f9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt": "a9b91ed12c849a8f82fb87e2ee4528aa13c8ce8c90650ea6bbb19d6432effedc",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt": "61cc04567e272b28bf5cd315245fe92b02e22bbc51dd9389cf93bc39d97792e4",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt": "00d68c1a0c9f5414ce65986fe8a413d87c284fb125d0e4d972a854e942fd9da9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicy.kt": "3d772e084f5200f1de730a57a82798095a0b606c14e1d1c145f9429b57d34927",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceHistory.kt": "53a1e4c4dfdea0feb099426bb73f133063983a615765dd140c3ccad3aa900de6",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceReplyFailureDiagnostics.kt": "c65b464e2ae4d867f900149fd28c58e9513b6d49498c4307733607b20f9f308f",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionFailureDiagnostics.kt": "e668e17938ae70cfd5a58f10cedd550f5033f71faae9d4de4c17290d814d680c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechJoinTracker.kt": "6ee7193efa048a2b8ffd71f16e81821cca1328a96b9342d826176af1d0ec43d0",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "91f650802abaab8b9ed99b81143a2bae5a41b42b0e8a164c232659649ca2ac53",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionInput.kt": "c8da5aeed07edd4a48e86092bb7dbcf72c2bf6d53ff50aa8e4de612732d1a1da",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionBackend.kt": "326112e3b1eb023a2278f035220a37e865341070d44b3d0d4de755ad1beb961c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoice.kt": "5beef69fc7913b0478cbb174098dba3ff2abb133cd095312e896a48a22ba9989",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceListeningPolicy.kt": "4021997d470f894b14ad6efdf257e519aee8bb3b27393cc3eed73f1c3c683b8d",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt": "297ea564977a0c82ad17695afc28d75d784bbd01f84daaef98dd732746dc6936",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFeedback.kt": "444d13dc8b5fbb190a27b8c0eb70af178fe81c46b4fcc1f52a7acd3ac15acb42",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt": "1df95ede2892959a12918ab19dfd07a4fb319133e592093f20ca31b46343fb03",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt": "596193b7a71486abd0d8636b54949e1720a1ee14c8915d225578389de7f7c3e6",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSource.kt": "cc91ba1f89b5da1fd9a915e38ce9d46d2ae0e4076651979994cb6796da526563",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt": "3e301d33316c9ecd8faf0bc7f1ff3d6a353a173aa5a08aabbe82cf71008fadc9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechVoices.kt": "36cd35cbb3bcff60d50014910685717cdf48446d9dd23b29267a33e0e4d8e113",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt": "767be5bf9a4ec057012b5870adbb340c1a154fe3522988684aadbacd9b5b92e4",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMessagePlayback.kt": "7c884dd6b44e4076a602c7e73cfb816fc6167ff2532b2a0e51fb38788f9a4825",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicy.kt": "8f6b2708f6cd39b33145583fc1a80420d817e8e559f12ec8216c5287cdf00680",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt": "11446f5ddeb6e9364e3b3e90a370832acd9069f64289fcc169a9b8a49c89a0f7",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt": "4a1c8a2ccc1ee03fd0ffa4ed5cba3e33172ce125c0645d2688b0bc799e697e79",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceContinuousListeningTest.kt": "c69d9b53a0735e4e34250fd53ede3184a070f3fa299c10548b10cf94c095f678",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionAdmissionRecoveryTest.kt": "9f662085be3a4118dc44fd5ee2014b302bff2bcbc10d78d3dd35f54eae43db66",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt": "fb4c29b3c734be5829a615c1d84a1d8db66ed634b7b1503f70b26e95559141af",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDraftPreparationTest.kt": "77c29601b90e08c1646ea171a5a4de1da806b64c35c34aea4d48ae5f26f395d2"
+      },
+      "sourceStage": "Readiness patch on a06e5053, before concurrent streaming-recognition integration; source hashes below preserve that tested historical snapshot."
+    },
+    {
+      "check": "Independent frozen-patch review",
+      "result": "no_remaining_actionable_findings",
+      "scope": "Retained owner boundaries, new-work rejection, readiness-default preservation, interruption monitoring, explicit revocations, callback freshness, and evidence source hashes."
+    },
+    {
+      "check": "Ktlint 1.3.1 and scoped whitespace",
+      "result": "passed"
+    },
+    {
+      "check": "Canonical fast gate before concurrent streaming-recognition integration",
+      "result": "passed",
+      "baseHead": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+      "hostTests": 863,
+      "skipped": 1,
+      "logSha256": "62907ba2bcf8b925ffae4533d908f056ad09a40faf03425c859dd7b2ee56157d",
+      "scope": "Generated references, audit inventory, repository Python checks, Android syntax/resource/configuration checks; full Android CI remains required."
+    },
+    {
+      "check": "Integrated canonical fast gate",
+      "result": "passed",
+      "localCommit": "03787f62701b1a15e55c5f93fc1d67be4ba4f700",
+      "remoteParent": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "hostTests": 870,
+      "skipped": 1,
+      "logSha256": "6722013118303e2cf4e03eacbb384d09b51d0478b7427f62fac20cb145cccd88",
+      "scope": "Repository host checks and generated/syntax/resource/configuration contracts. Full Android CI remains required."
+    },
+    {
+      "check": "Integrated committed full-history secret scan",
+      "result": "passed",
+      "localCommit": "03787f62701b1a15e55c5f93fc1d67be4ba4f700",
+      "commitsScanned": 6732,
+      "realBoundaryControls": 176,
+      "allControlsPassed": true,
+      "findings": 0,
+      "identityReportComplete": true,
+      "scanner": "Gitleaks 8.30.1",
+      "logSha256": "01327dfc782ce5daab8240415cd4f6a49adb8847755b10c4e82e5d5a5b33954f",
+      "scope": "Materialized non-shallow local Git history including retained backup refs; hosted CI independently verifies its exact ref population."
+    },
+    {
+      "check": "Integrated actual-source session and recognition timing suite",
+      "result": "passed",
+      "sourceParent": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "localCommit": "03787f62701b1a15e55c5f93fc1d67be4ba4f700",
+      "compileExitCode": 0,
+      "testExitCode": 0,
+      "testsPassed": 91,
+      "assertionsEnabled": true,
+      "testClasses": [
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionReadinessTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceContinuousListeningTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionSessionTest"
+      ],
+      "sourceInputsVerified": 46,
+      "compilerHeapMiB": 384,
+      "compilationLayout": "Full production sources and full test classes compiled separately with Kotlin friend paths; no source extraction.",
+      "scope": "Full exact VoiceSession, VoiceTranslationPair, VoiceResponsePolicy, VoiceMessagePlayback, VoiceTranslationPlaybackPolicy and supporting text/audio policies plus complete selected test classes on the host JVM. Serialization-enabled compilation; fake audio drives real lifecycle transitions. These selected tests do not execute serialization round trips. Actual VoiceRecognitionTranscript, VoiceRecognitionModel and complete VoiceRecognitionSessionTest are included. The Moonshine 0.1.6 SDK classes supply its declared architecture constants; no SDK native method is executed. No language detector/model or Pocket runtime is executed. No Compose composition, Android permission dialog, SoundPool/device audio, microphone hardware, native recognizer or complete Android build qualification.",
+      "ports": "Unrelated reporting/diagnostic sinks, Room receiver DTOs, ProfileFailureRecord DTO, speech execution evidence marker, thinking-cue/caption-provenance DTOs, monitor interface and engine factory marker are explicit host ports and a LocalVoiceAsset download descriptor. No VoiceSession, translation pair, language/voice catalog or policy implementation is extracted or replaced. Probe includes the fc0 fromCapture argument.",
+      "sourceSha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "d26e439d194521c62bea8a1a7ae1ad07cffc478dc29b98a714e97479ae9e6b2f",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt": "157e21df939abb17632ce58b7979f1de7c797231619f864d2a98d12788b8f1c7",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt": "a7ef6b2eb1a4ab570184017cff4f9a9427c562624dd8b1ac2872e115fcf98b1c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt": "c4e398159fbe183935089dc7b82ac3ded7db1c71c72cd9a92147f94de47f8c12",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpokenLead.kt": "7152bd7516382ca313488316e273c08b8daa33abe5744e70a58408fdf47eddea",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseBoundaries.kt": "7a3fd7fcf7ff96ce62c225351c4093677ef894a1bd93a2d49bb0a12a5fa52e6e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt": "e36df9293cb143042a539d8bc4233d10a5516b909dfccc185f188ac09238804e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalizedVoiceReadings.kt": "4869aff6adc3e6ce216721f9a6a522df551495f38584123167643b6f57910308",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt": "479b2edced99998d36fe8453a74db86fc659c1e089f7f9ebf85ae7e196f60bce",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePresentationSignals.kt": "07452e838d73ca758348da9600d6d209c5aa889241de4c148527addcdac3d274",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailure.kt": "5ee58566080cf7b5e6eb396559bc092c86c84932750acb2ed83c001e1ccea20d",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt": "e00126a2928592a024d9626f08a386388d531cdb9af0f86e81b49783a59733b0",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionFailure.kt": "25c10dfa9d978ab34398ad25c06ae4f0b18eea384f9804a3e60b939c976ec145",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTurnAdmission.kt": "852adfd400641c428c817e5ad6be2cae40782d1a2e2bdd88141915268e9661f9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt": "a9b91ed12c849a8f82fb87e2ee4528aa13c8ce8c90650ea6bbb19d6432effedc",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt": "61cc04567e272b28bf5cd315245fe92b02e22bbc51dd9389cf93bc39d97792e4",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt": "00d68c1a0c9f5414ce65986fe8a413d87c284fb125d0e4d972a854e942fd9da9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicy.kt": "3d772e084f5200f1de730a57a82798095a0b606c14e1d1c145f9429b57d34927",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceHistory.kt": "53a1e4c4dfdea0feb099426bb73f133063983a615765dd140c3ccad3aa900de6",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceReplyFailureDiagnostics.kt": "c65b464e2ae4d867f900149fd28c58e9513b6d49498c4307733607b20f9f308f",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionFailureDiagnostics.kt": "e668e17938ae70cfd5a58f10cedd550f5033f71faae9d4de4c17290d814d680c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechJoinTracker.kt": "6ee7193efa048a2b8ffd71f16e81821cca1328a96b9342d826176af1d0ec43d0",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "66e640bcc9c46d9dd96dfebae64b44c7f7cdd52814346de774253b6695e1a5c2",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionInput.kt": "fbb2de8fc7a00c54f2333a7b0f84ac98065e30b531b58f79388dd9d4b2e2612f",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionBackend.kt": "6ada878d7fee9614157dc0a78eea2e20f854a90694bb322c6934917d591d4f88",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoice.kt": "5beef69fc7913b0478cbb174098dba3ff2abb133cd095312e896a48a22ba9989",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceListeningPolicy.kt": "4021997d470f894b14ad6efdf257e519aee8bb3b27393cc3eed73f1c3c683b8d",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionTranscript.kt": "a6c572feca8d549ecdc90c9cc2d07c92260cccd5f0e7bb32b7f6020babd543e7",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModel.kt": "b5010aa0eeea4b380e5a1944b410a6bfeb63c07ab50b3f82b1f8bf5bd1fcf483",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt": "297ea564977a0c82ad17695afc28d75d784bbd01f84daaef98dd732746dc6936",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFeedback.kt": "444d13dc8b5fbb190a27b8c0eb70af178fe81c46b4fcc1f52a7acd3ac15acb42",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt": "1df95ede2892959a12918ab19dfd07a4fb319133e592093f20ca31b46343fb03",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt": "596193b7a71486abd0d8636b54949e1720a1ee14c8915d225578389de7f7c3e6",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSource.kt": "cc91ba1f89b5da1fd9a915e38ce9d46d2ae0e4076651979994cb6796da526563",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt": "20c24a056407535e258cc85b9787bf1c7ef2b451cd8864d26a7c5cfef40b5467",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechVoices.kt": "36cd35cbb3bcff60d50014910685717cdf48446d9dd23b29267a33e0e4d8e113",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt": "767be5bf9a4ec057012b5870adbb340c1a154fe3522988684aadbacd9b5b92e4",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMessagePlayback.kt": "7c884dd6b44e4076a602c7e73cfb816fc6167ff2532b2a0e51fb38788f9a4825",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicy.kt": "8f6b2708f6cd39b33145583fc1a80420d817e8e559f12ec8216c5287cdf00680",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt": "11446f5ddeb6e9364e3b3e90a370832acd9069f64289fcc169a9b8a49c89a0f7",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt": "4a1c8a2ccc1ee03fd0ffa4ed5cba3e33172ce125c0645d2688b0bc799e697e79",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceContinuousListeningTest.kt": "c69d9b53a0735e4e34250fd53ede3184a070f3fa299c10548b10cf94c095f678",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionAdmissionRecoveryTest.kt": "9f662085be3a4118dc44fd5ee2014b302bff2bcbc10d78d3dd35f54eae43db66",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt": "fb4c29b3c734be5829a615c1d84a1d8db66ed634b7b1503f70b26e95559141af",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDraftPreparationTest.kt": "77c29601b90e08c1646ea171a5a4de1da806b64c35c34aea4d48ae5f26f395d2",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionSessionTest.kt": "2f2acdc38960a598b4333d997d1a070adaefd745156f2f3cd033b8e9c066d989"
+      },
+      "evidenceDigests": {
+        "manifest.json": "45a2e91a5441498129a2c41d2827c58328d8796c69b952031deffe1824dae401",
+        "qualification.json": "41e8371e1a13395478be9c422ad9f79224fc790ad4fe6f6558899b81e9777b7f",
+        "compile-production.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "compile-tests.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "junit.log": "3267973b39ab36f46fbbe4775fadde62a1068ad7da768ebab54d8406f85dd561"
+      }
+    },
+    {
+      "check": "Independent integrated Session and Screen review, ktlint and scoped whitespace",
+      "result": "passed",
+      "findings": "No actionable integration defects. Incoming input timing retains stream/revision and session generation/permission checks; input and output clocks remain separate.",
+      "scope": "Full selected JVM behavior and source review; full Android compilation remains required."
+    },
+    {
+      "check": "Combined readiness and native-manifest canonical fast gate before retirement follow-up",
+      "result": "passed",
+      "hostTests": 874,
+      "skipped": 1,
+      "logSha256": "56a48ee827e094064348ad51c26731a0169758830ced177565528a4f3682e733",
+      "scope": "Repository host checks; subsequent native retirement correction will receive its own focused qualification and final host gate."
+    },
+    {
+      "check": "Incoming native and benchmark review",
+      "result": "reviewed_with_native_retirement_followup_required",
+      "scope": "No additional timing/scoring defect. Native cancellation-holder drain and checked cleanup failures require the independently identified retirement follow-up before merge. Physical GPU/NPU, acoustic and battery qualification remain unmeasured."
+    },
+    {
+      "check": "Readback after e1f2 integration",
+      "result": "passed",
+      "sourceInputsVerified": 46,
+      "scope": "All integrated91-test source hashes are unchanged; no duplicate session execution is claimed."
+    },
+    {
+      "check": "Final integrated e1c7 canonical fast gate",
+      "result": "passed",
+      "testedLocalCommit": "e40ac2678b56d6b9a3c497580db271b6f8e952f8",
+      "parentHead": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+      "hostTests": 875,
+      "skipped": 1,
+      "logSha256": "3dd633976b7d05c5a2db219c712179b243e7ee23e592dfa8717044a2bcb28cd5",
+      "scope": "Readiness repair plus adopted SDK preparation fix, full orchestrator receipt regression and concurrent instrumentation scrolling correction. Native retirement follow-up and full exact-head CI remain required."
+    }
+  ],
+  "release": {
+    "android": "0.9.66.19",
+    "versionCode": 153,
+    "gateway": "18.1.6",
+    "qualification": "scoped",
+    "mergeAndPublication": "pending_current_head_gates"
+  },
+  "limitations": [
+    "Host behavior regressions do not qualify physical playback, recognition, hardware placement or whole Android application execution.",
+    "Exact integrated PR checks and merged-main checks must pass before coordinated release publication."
+  ],
+  "regressionClass": "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionReadinessTest",
+  "regressionPath": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt",
+  "implementation": {
+    "session": "Separate readyForNewWork from enabled/permission/actual foreground. Existing three-argument access calls retain readiness. A narrow live playback-owner path permits retained output to drain while new work remains gated.",
+    "screen": "Every access boundary uses live authorization/readiness values; the access effect keys those exact values. Manual replay waits for preference readiness.",
+    "capture": "Interruption monitoring follows readiness, actual foreground, permission, mute and benchmark ownership. Late callbacks recheck authorization.",
+    "outputConfiguration": "The independently added a06 VoiceOutputConfigurationEffect remains unchanged."
+  },
+  "evidenceDigests": {
+    "before/manifest.json": "fbc7b1c535d4af6c91016255c39a67e9b51ae937daf3e0cc25345904a8650d0b",
+    "before/junit.log": "69f6ffa6019ddfe4dfd4017217b473b3a39e8aff51e2fea0e0f8b2e337823725",
+    "before/qualification.json": "a7fa288f011590d5d988ce09cdcd0ecd3e1ea980d346769fcc95e421b230574f",
+    "after/manifest.json": "1bc3da953763ef0e65d92cf4588a65cce0d5a4d4b1e7dc87c497416c1ede160f",
+    "after/junit.log": "b4edad96d28fb6ba9e3a0ff5e7e2a23713d3e274e764da52a506ebd36d6f6fa0",
+    "after/qualification.json": "f8f27dddcae35b918e1044f4e210b99f7fde0d8ccc3c769c9147544ee2ed9b82"
+  },
+  "concurrentIntegration": {
+    "head": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+    "preservedCommits": [
+      "b446675c505a1264ffecc870e97bc79e46510aff",
+      "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "e1f2ef3dfa45359cf230f0ed64600b5d5868e182",
+      "e1c7ffb0268094cc584a909b345f383672f6bfbb"
+    ],
+    "scope": "Streaming recognition model selection, verified CPU/GPU/NPU packs, native lifecycle and timed input transcripts were preserved; the approved readiness change was replayed on this head.",
+    "sourceMerge": "VoiceSession and VoiceChatScreen combined without textual conflicts. Generated records were regenerated from integrated source; release-scope additions were merged without removing incoming changes or limitations.",
+    "releaseLimitationsRetained": 29,
+    "featureMap": "Only descriptive invariants were compacted, with all paths/tests/documents retained and the existing 512 KiB limit unchanged. Explicit-source routing text now reflects recognizer/model language support.",
+    "instrumentationFollowup": "Preserved e1c7 scrolling/materialization before translation control visibility and touch assertions; all existing installation, selection and microphone callback assertions remain."
+  },
+  "preStreamingFrozenChangedSourcesSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "aa33b80005794f0f27c297f71d281edb3a4c74b5d70d8f4df611dff019f690ba",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "4c806d1e4197390d957268f0fb8a45020ec1dee124a46d83be783cd664de1955",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt": "11446f5ddeb6e9364e3b3e90a370832acd9069f64289fcc169a9b8a49c89a0f7"
+  },
+  "integratedReviewedSourcesSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "d26e439d194521c62bea8a1a7ae1ad07cffc478dc29b98a714e97479ae9e6b2f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "02efc80cee426a247e36723ae2d321e5b7645b14e1a4be418b11309d504c50a5",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt": "11446f5ddeb6e9364e3b3e90a370832acd9069f64289fcc169a9b8a49c89a0f7",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionSessionTest.kt": "2f2acdc38960a598b4333d997d1a070adaefd745156f2f3cd033b8e9c066d989"
+  },
+  "nativePreparationRepair": {
+    "observedFailure": {
+      "head": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "run": 46119554486,
+      "job": 140900824345,
+      "step": 5,
+      "error": "KeyError: 'dispatchBuild'",
+      "phase": "input preparation before JNI execution"
+    },
+    "cause": "The host-library publisher manifest was incorrectly passed to ASR header preparation, which requires the audited QAIRT SDK manifest.",
+    "change": "Route the SDK and host-library manifests separately, retain both receipt digests, and validate the SDK version and matching header pins before any dependency download. No fallback or verification relaxation.",
+    "sourceSha256": {
+      "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py": "7d6bf6321109177ca4e8a407bb1c92f30a6f93da0fa2955fa2bcb2f31c68c7de",
+      "scripts/prepare_kokoro_native_host.py": "4ccf8520b27a935341e010911500ce37237fc61ba0bc41f555e7e6157e6c43ec",
+      "scripts/tests/test_streaming_asr_inputs.py": "20bbf28ac9d91b77405ec651557e464536a402fead43fe75c87eb274b79e3830"
+    },
+    "focusedValidation": {
+      "command": "python3 -m unittest scripts.tests.test_streaming_asr_inputs scripts.tests.test_kokoro_native_host_inputs -v",
+      "exitCode": 0,
+      "testsPassed": 19,
+      "testMethods": {
+        "scripts/tests/test_streaming_asr_inputs.py": [
+          "test_sdk_manifest_matches_the_native_build_and_published_header_pin",
+          "test_host_library_manifest_is_rejected_before_dependency_downloads",
+          "test_inconsistent_sdk_header_pins_are_rejected_before_downloads",
+          "test_complete_host_preparation_routes_distinct_sdk_and_host_manifests",
+          "test_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive",
+          "test_ignored_mislabeled_or_truncated_sdk_ranges_fail",
+          "test_offline_qnn_headers_cannot_fall_back_to_network",
+          "test_failed_dependency_download_preserves_existing_cache_bytes",
+          "test_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions",
+          "test_production_jni_execution_is_part_of_the_required_native_gate",
+          "test_unknown_or_insufficient_host_memory_fails_admission_without_qualifying_the_model"
+        ],
+        "scripts/tests/test_kokoro_native_host_inputs.py": [
+          "test_pinned_model_extracts_only_selected_regular_files",
+          "test_corrupt_or_incomplete_model_cannot_become_prepared_inputs",
+          "test_model_duplicate_link_and_traversal_are_rejected",
+          "test_ort_requires_real_header_library_and_matching_version_inventory",
+          "test_ort_duplicate_symlink_and_path_traversal_are_rejected",
+          "test_failed_download_does_not_publish_partial_input_directory",
+          "test_host_pins_remain_the_actual_production_native_and_model_inputs",
+          "test_full_native_context_execution_is_a_required_workflow_job"
+        ]
+      },
+      "executionEvidence": "Observed exec_command result chunk dee54b; unittest reported Ran 19 tests in 0.016s, OK. Receipt written afterwards without rerunning tests.",
+      "scopedDiffCheckPassed": true
+    },
+    "limitations": [
+      "Preparation routing and negative input boundaries are tested with mocked network/archive operations; no full SDK/model download or native compilation/inference was run.",
+      "The unchanged required native-context hosted gate must run again on the final head."
+    ],
+    "qualificationReceiptSha256": "4fc4cbe244c7718e78ae47e352699176d28dcb24a573434370f5512d9bcf20c4",
+    "sourceStage": "Historical independently tested alternative, superseded before publication by the concurrent e1f2 repair. The final tree uses e1f2 production validation and manifest routing.",
+    "adoptedCommit": "e1f2ef3dfa45359cf230f0ed64600b5d5868e182",
+    "retainedCoverage": "Retain the complementary complete host orchestrator success path and two-manifest receipt assertions; preserve every incoming regression and stronger SDK validation.",
+    "adoptedValidation": {
+      "sourceBaseCommit": "e1f2ef3dfa45359cf230f0ed64600b5d5868e182",
+      "adoptedImplementationCommit": "e1f2ef3dfa45359cf230f0ed64600b5d5868e182",
+      "sourceSha256": {
+        "local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py": "8967b4f5840c35e238b050007cf600ccd7b4655195d99b60b42ff21d31009fff",
+        "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py": "b717befeafad7b0f0af535620fd4af3be62d000dcb88148bf1fe2cbe677ec0bb",
+        "scripts/prepare_kokoro_native_host.py": "07ed807df6b7e88bb6d697182c6ab9a63567f5ceff454162e4941f5d0e266b7d",
+        "scripts/tests/test_streaming_asr_inputs.py": "b8e8a83adb5c8e5ce0903c11fa662be1a75f9f358ec9bf6eaeaf7d081f344d31",
+        "scripts/tests/test_kokoro_native_host_inputs.py": "edc7c63248f66a42a13c28987ddc25dce929ddcdff716482247d2927242582b3"
+      },
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "scripts.tests.test_streaming_asr_inputs",
+        "scripts.tests.test_kokoro_native_host_inputs",
+        "-v"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.14,
+      "logSha256": "5d1180c22b20901f705a44cfe2b4684eb5785429bb06fa229f7f88866e57cfba",
+      "scopedDiffCheckExit": 0,
+      "scope": "Full host-preparation orchestrator exercised through mocked downloads/extractors; verified separate SDK and host-library call routing, receipt digests, and input-only/unqualified flags. No native execution or full Android qualification."
+    },
+    "adoptedQualificationSha256": "b01d062dfd373fba23a386fa0d22331bd723fb00cb06b770a3df5564da7930b1"
+  },
+  "outstanding": [
+    "Adopt and independently review the concurrently implemented checked native retirement repair, including partial initialization and staged host fixture inputs.",
+    "Require all applicable checks on the final PR head and merged main, then verify both release publications."
+  ]
+}

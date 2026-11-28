@@ -6,7 +6,9 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 NATIVE = ROOT / "local-kokoro-runtime/src/main/cpp"
 SDK_MANIFEST = ROOT / "docs/audits/qnn-runtime-candidate.json"
 HOST_MANIFEST = ROOT / "docs/audits/qnn-host-probe-publisher-2.8.json"
+
+sys.path.insert(0, str(ROOT / "scripts"))
+import prepare_kokoro_native_host as kokoro_host
 
 
 def load(name, path):
@@ -137,6 +142,41 @@ class StreamingAsrInputsTest(unittest.TestCase):
             with patch.object(headers.urllib.request, "urlopen", side_effect=AssertionError("network forbidden")):
                 with self.assertRaisesRegex(ValueError, "missing or differ"):
                     headers.prepare(SDK_MANIFEST, root, offline=True)
+
+    def test_complete_host_preparation_routes_distinct_sdk_and_host_manifests(self):
+        observed = []
+
+        def download(record, target):
+            target.write_bytes(b"fixture archive")
+            return target
+
+        def asr_dependencies(output, manifest):
+            self.assertEqual(SDK_MANIFEST, manifest)
+            self.assertEqual(kokoro_host.QNN_SDK_MANIFEST, manifest)
+            self.assertEqual("2.52.0.261104", headers.sdk_manifest(manifest)["dispatchBuild"]["qairtSdkVersion"])
+            observed.append(("asr", manifest))
+
+        def qnn_libraries(manifest, output):
+            self.assertEqual(HOST_MANIFEST, manifest)
+            self.assertEqual(kokoro_host.QNN_HOST_MANIFEST, manifest)
+            self.assertEqual(1, json.loads(manifest.read_text())["schemaVersion"])
+            observed.append(("host", manifest))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "prepared"
+            with patch.object(kokoro_host, "checked_download", side_effect=download), \
+                    patch.object(kokoro_host, "native_preparer", return_value=SimpleNamespace(prepare=asr_dependencies)), \
+                    patch.object(kokoro_host, "prepare_asr"), \
+                    patch.object(kokoro_host, "extract_ort"), \
+                    patch.object(kokoro_host, "extract_model"), \
+                    patch.object(kokoro_host, "prepare_qnn", side_effect=qnn_libraries):
+                kokoro_host.prepare(output)
+            self.assertEqual(["asr", "host"], [kind for kind, _ in observed])
+            receipt = json.loads((output / "inputs.json").read_text())
+            self.assertEqual(kokoro_host.digest(observed[0][1]), receipt["qnnSdkManifestSha256"])
+            self.assertEqual(kokoro_host.digest(observed[1][1]), receipt["qnnPublisherManifestSha256"])
+            self.assertFalse(receipt["modelExecuted"])
+            self.assertFalse(receipt["physicalDeviceQualified"])
 
     def test_failed_dependency_download_preserves_existing_cache_bytes(self):
         good = b"verified archive"

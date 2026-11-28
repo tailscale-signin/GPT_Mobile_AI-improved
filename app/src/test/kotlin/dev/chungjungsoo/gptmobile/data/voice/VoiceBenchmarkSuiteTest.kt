@@ -133,6 +133,14 @@ class VoiceBenchmarkSuiteTest {
         }
     }
 
+    @Test fun onlyNativeAutoCasesUseCalibrationAndExplicitSweepsStayFixed() {
+        val native = stages.filter { it.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO }
+        assertTrue(native.filterNot { it.label.contains("CPU threads") }.all { it.useCalibratedThreads })
+        assertTrue(native.filter { it.label.contains("CPU threads") }.all { !it.useCalibratedThreads })
+        assertTrue(stages.filterNot { it.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO }.none { it.useCalibratedThreads })
+        assertTrue(fullVoiceBenchPlan(2, 1f, 8).none { it.useCalibratedThreads })
+    }
+
     @Test fun currentCalibrationUsesTheSelectedStreamingVoiceOnlyInItsOwnPack() {
         fun config(engine: VoiceSpeechBenchmarkEngine, id: String) = stages.first {
             it.engine == engine && it.calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS

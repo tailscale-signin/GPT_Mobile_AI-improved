@@ -201,7 +201,10 @@ internal object AppAssistedSearch {
                     }
                     if (text.isNotBlank()) enriched[index] = JsonObject(source + ("pageText" to JsonPrimitive(pageExcerpt(task, text))))
                 }
-                if (page.toolCallBudgetExhausted || page.outputBudgetExhausted) break
+                if (page.toolCallBudgetExhausted || page.outputBudgetExhausted || page.combinedWorkBudgetExhausted) {
+                    emit(ApiState.Notice("I’ve reached this turn’s limit for opening pages. The search results are still available.", true))
+                    break
+                }
             }
         }
         return compactEvidence(task, enriched, maxCharacters)

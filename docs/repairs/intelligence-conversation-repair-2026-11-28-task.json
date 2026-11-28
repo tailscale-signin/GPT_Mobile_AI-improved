@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "intelligence-conversation-repair-2026-11-28",
+  "pullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "startingHead": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+  "intent": "Analyze diagnostic conversation 6c5ad732, preserve prior intelligence changes at the latest PR head, repair discovery/admission, batching/recovery and all evidenced residual defects; verify truthful completion and preserve concurrent work.",
+  "state": "IMPLEMENTED_AND_LOCALLY_VERIFIED",
+  "authorization": "User requested analysis, maximum intelligence improvements, old changes applied to latest PR branch and fixes for all possible log issues.",
+  "constraints": [
+    "Preserve selected connection/account/repository authority and explicit tool exclusions.",
+    "Keep mutations, tests, source delivery and final success tied to observed evidence.",
+    "Reconcile live PR head before push without force or lost concurrent commits.",
+    "Do not include private diagnostic conversation or credentials in repository artifacts."
+  ],
+  "checkpoints": [
+    {
+      "state": "INTAKE",
+      "sourceSha": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+      "details": "Confirmed #2651 is latest open PR; diagnostic integrity verified. Main selected run blocked before any provider invocation despite an admitted local discovery handle and 243 remaining calls."
+    },
+    {
+      "state": "REMOTE_RECONCILED",
+      "sourceSha": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+      "details": "Stashed local repairs, fast-forwarded to concurrent saved-chat identity and caption revision commit, and reapplied with no conflict. Feature-map source auto-merged; all prior source commits retained. Captured synthetic merge tree matches preserved d45c75f0 exactly."
+    },
+    {
+      "state": "CONCURRENT_VOICE_UPDATE_RECONCILED",
+      "sourceSha": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+      "details": "Preserved microphone and automatic-listening fixes. Resolved only generated feature-map and release-scope metadata conflicts using exact local additions on current remote metadata; regenerated references. All saved source/test and untracked artifact bytes verified unchanged after restore."
+    },
+    {
+      "state": "LOCAL_VERIFICATION_COMPLETED",
+      "details": "67 focused JVM cases passed; all 253 authentication tests passed; the canonical fast gate completed 863 cases (862 passed, 1 optional compiler fixture skipped); all 24 changed Kotlin files passed ktlint. Qualified source/test hashes were checked after concurrent reconciliation. Full Android validation is pending; the memory preflight was respected.",
+      "parentSha": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+      "sourceBinding": "Qualified current source/test hashes in the validation receipts identify the tested uncommitted patch over this parent; the containing Git commit publishes those exact files."
+    },
+    {
+      "state": "FINAL_REMOTE_RECONCILED",
+      "sourceSha": "5098014b93b75e391cf56cafef8fdaeb148b0df2",
+      "details": "Fast-forwarded the concurrent whitespace correction in three voice JUnit logs. No overlap or source/test change; all 67 qualified current source/test hashes still match."
+    },
+    {
+      "state": "CONCURRENT_APPEND_EVIDENCE_RECONCILED",
+      "sourceSha": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+      "details": "Preserved incoming unknown-append producer and guarded public alias. Integrated exact causal code, corrected fallback expectation, and passed four current producer/normalizer host checks. Earlier eight-case incoming qualification remains historical; full module assertions remain pending."
+    },
+    {
+      "state": "LATEST_INTEGRATION_VERIFIED",
+      "parentSha": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+      "details": "71 focused JVM checks passed with exact declared scopes; 253 authentication sources unchanged; canonical fast gate repeated after append integration passed 862 cases with one optional compiler fixture skipped; all 25 changed Kotlin files passed ktlint. Full Android remains pending."
+    },
+    {
+      "state": "PUBLIC_DECLARATION_POLICY_RECONCILED",
+      "sourceSha": "df074e10b52cc6413db894499706e16609ff5a21",
+      "details": "Preserved concurrent exact-path/full-line public-declaration scanner exceptions and negative controls. All 68 qualified source/test hashes and all 25 formatting inputs remain unchanged; generated navigation is refreshed and canonical host gate is repeated."
+    },
+    {
+      "state": "FINAL_HOST_GATE_PASSED",
+      "parentSha": "df074e10b52cc6413db894499706e16609ff5a21",
+      "details": "Final canonical fast gate passed with 862 passing cases and one optional compiler fixture skipped. All 68 qualified source/test hashes and 25 formatting inputs match; source tree is ready for guarded publication."
+    }
+  ],
+  "validation": [
+    {
+      "kind": "SOURCE_BOUND_RECEIPT",
+      "path": "docs/repairs/intelligence-batch-recovery-2026-11-28-validation.json"
+    },
+    {
+      "kind": "SOURCE_BOUND_RECEIPT",
+      "path": "docs/repairs/intelligence-diagnostics-2026-11-28-validation.json"
+    },
+    {
+      "kind": "SOURCE_BOUND_RECEIPT",
+      "path": "docs/repairs/intelligence-discovery-2026-11-28-validation.json"
+    },
+    {
+      "kind": "SOURCE_BOUND_RECEIPT",
+      "path": "docs/repairs/intelligence-index-sync-2026-11-28-validation.json"
+    },
+    {
+      "kind": "CANONICAL_HOST_GATE",
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "PASS",
+      "tests": 863,
+      "skipped": 1,
+      "receipt": "docs/repairs/intelligence-conversation-repair-2026-11-28-validation.json"
+    }
+  ],
+  "reconciledParent": "df074e10b52cc6413db894499706e16609ff5a21",
+  "preservedAncestors": [
+    "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+    "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+    "90865091851416a53e1c1c700300dad011bf92a5",
+    "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+    "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+    "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "74ba873cad202e7a99d5fa0681fc75a75b334614",
+    "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+    "5098014b93b75e391cf56cafef8fdaeb148b0df2",
+    "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+    "df074e10b52cc6413db894499706e16609ff5a21"
+  ],
+  "archive": {
+    "sha256": "335fcd51938d2469988e7b1b872fc48d6332bd9e318787b78b150e23035b445c",
+    "members": 21,
+    "pathAndPayloadIntegrity": "PASS",
+    "privatePayloadsCommitted": false,
+    "capturedAppVersion": "0.9.66.19",
+    "capturedAppBuild": 153,
+    "capturedAppCommit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+    "capturedCommitKind": "SYNTHETIC_PR_MERGE",
+    "capturedTree": "41702557ff02f70781efed4eab8a7abc593ab508",
+    "identicalSourceTreeAncestor": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9"
+  },
+  "selectedRun": {
+    "task": "Test all GitHub tools",
+    "successfulToolReceipts": 13,
+    "observedHttpReads": 19,
+    "observedMutations": 0,
+    "retainedProviderInvocations": 0,
+    "requiredCapabilitiesVerified": 9,
+    "requiredCapabilityCount": 126,
+    "excludedCapabilities": 6,
+    "remainingToolCalls": 243,
+    "acceptedToolCalls": 256,
+    "admittedToolCount": 8,
+    "resolvedToolCount": 27,
+    "ciPagesWithDistinctRunIds": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "runIdsPerCiPage": 30,
+    "initialFailureCode": "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
+  },
+  "repairs": [
+    {
+      "id": "AUTHORITATIVE_PROGRESS_BEFORE_COMPACTION",
+      "result": "Observe full current tool batch before presentation changes; carry only bounded stop reason into loop."
+    },
+    {
+      "id": "BOUNDED_CHECKLIST_DISCOVERY_FAIRNESS",
+      "result": "Interleave authorized reads, exact schema acquisition and contiguous version-bound inventory pages without renewing source staleness."
+    },
+    {
+      "id": "COMPLETE_TOOL_BATCH_RECOVERY",
+      "result": "Charge observed complete-frame call counts and allow the existing single bounded smaller correction; never dispatch rejected prefix."
+    },
+    {
+      "id": "COMBINED_STAGE_SETTLEMENT",
+      "result": "Settle BLOCKED and EVIDENCE_MISSING as distinct non-success statuses; preserve pending approval reserve and clear wait only on resumed admission."
+    },
+    {
+      "id": "OPTIONAL_SEARCH_PAGE_BUDGET",
+      "result": "Stop optional reads on shared Combined-work refusal; retain search summaries and links."
+    },
+    {
+      "id": "EXACT_TYPED_FAILURE_DIAGNOSTICS",
+      "result": "Preserve known required-tool/application causes with closed Android and receiver vocabulary; preserve uncertain transport and prevent unrelated usage attribution."
+    },
+    {
+      "id": "CURRENT_BACKGROUND_SYNC_ELIGIBILITY",
+      "result": "Skip contexts with disabled tools, session-only memory or missing explicit engineering Gateway before consuming synchronization slots."
+    }
+  ],
+  "qualificationLimits": [
+    "No local full Android build: required 8960 MiB verified RAM/cgroup headroom was unavailable; guard was not overridden.",
+    "Focused Kotlin JVM tests use declared platform ports and exact method extracts where noted; complete Android module integration remains a hosted gate.",
+    "No handset, live provider, live Gateway, acoustic quality or measured intelligence/latency qualification is claimed.",
+    "Provider quota, DNS, connector credentials, disabled profiles, read-only conversations and uncertain remote completions remain explicit external conditions or policy outcomes."
+  ],
+  "receiverCompatibility": {
+    "feature": "APPLICATION_FAILURE_CAUSES_V1",
+    "state": "SOURCE_IMPLEMENTED_NOT_DEPLOYED",
+    "behavior": "Extended readiness is required only for new application-code positions and required-tool provider_failure_code values. Unsupported receivers reject before POST; approved bytes and identity remain intact. Legacy top-level required-tool codes retain existing direct submission."
+  },
+  "publicationStatus": "READY_FOR_PUSH_HOSTED_QUALIFICATION_PENDING"
+}

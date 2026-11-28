@@ -1,0 +1,100 @@
+{
+  "schema": "gptmobile.intelligence-discovery-validation.v1",
+  "tested_worktree_base": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+  "changes_uncommitted_at_qualification": true,
+  "finding": "Runner progress observed bounded replay after complete CI rows were removed. Independent checklist discovery also waited behind already advertised reads.",
+  "runtime": {
+    "kotlin": "2.4.21",
+    "java_target": 21,
+    "junit": "4.13.2",
+    "coroutines": "1.11.0",
+    "ktlint": "1.3.1"
+  },
+  "host_validation": {
+    "compile_exit": 0,
+    "test_exit": 0,
+    "tests_executed": 24,
+    "tests_passed": 24,
+    "suites": [
+      {
+        "name": "GitHubChecklistFairnessTest",
+        "tests": 3,
+        "scope": "Full production scheduler and native ProgressiveToolCatalog with current schemas; logged 27 inventory identities, 26 visible contracts, and 8 admitted handles. Auxiliary non-GitHub schema bodies are inert fixtures."
+      },
+      {
+        "name": "GitHubChecklistDiscoveryProgressTest",
+        "tests": 3,
+        "scope": "Full production investigation and checklist discovery progress with native catalog results; six issued pages, schema action handoffs, replay/unknown-name/version/cursor rejection."
+      },
+      {
+        "name": "FreshIngressTest",
+        "tests": 2,
+        "scope": "Exact current AgentRunner fresh observation expression with full CI progress, bounded visible content, and 30-row retained payloads. This is an ingress boundary fixture, not execution of the full AgentRunner class."
+      },
+      {
+        "name": "GitHubChecklistScheduleTest",
+        "tests": 16,
+        "scope": "Unchanged checked-in regression bodies; two cases requiring the full self-test recipe planner are excluded from this host fixture."
+      }
+    ],
+    "production_scope": "Complete scheduler, authorized catalog, progressive catalog core, CI progress, investigation progress and checklist discovery progress. Current-source slices provide definition generation, argument/read authorization, invocation records and parsing. Unused Android, persistence, network, search and fixture cleanup boundaries fail closed.",
+    "limits": "No provider HTTP request, Android instrumentation, device run, or full Android application build was performed."
+  },
+  "negative_control": {
+    "baseline_commit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "scope": "Restore baseline scheduler and investigation progress plus exact old retainedContent-stripping ingress statement; run identical fixtures and supporting dependency versions.",
+    "compile_exit": 0,
+    "test_exit": 1,
+    "tests_executed": 24,
+    "expected_regressions_failed": 6,
+    "failures": [
+      "Catalog fallback must remain currently authorized.",
+      "Catalog traversal must receive bounded turns ahead of independent reads.",
+      "The logged 27-contract/8-handle profile must expose its hidden read before more CI pagination.",
+      "A new exact action schema must receive its single required handoff allowance.",
+      "An explicit checklist must traverse exact issued catalog pages beyond four control rounds.",
+      "Fresh retained run identities must reach progress before visible projection removes them."
+    ]
+  },
+  "preserved_boundaries": [
+    "Current authorization and selected connection identity",
+    "Verification and fixture cleanup reserves",
+    "Exact returned catalog cursor and version",
+    "Original tool call and output ceilings",
+    "Duplicate source no-progress guard",
+    "General engineering discovery no-progress guard"
+  ],
+  "full_runner_regression": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFreshProgressRunnerTest.kt",
+    "tests": 2,
+    "status": "ADDED_NOT_EXECUTED_IN_FULL_ANDROID_RUNNER_LOCALLY",
+    "expected_behavior": "Six distinct retained pages continue; identical run IDs on changing page arguments stop after the fifth dispatch."
+  },
+  "format_validation": {
+    "ktlint_exit": 0,
+    "git_diff_check_exit": 0
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "80c255bdc472dcea3fa7476bbdc018f29e01b08ef52ebf7ae88d89aa0e805b39",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubChecklistDiscoveryProgress.kt": "282881399e3afd329913f400688f0ac2906d76e656473f1ab3a20ff7fe8055e0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": "4e91981f82aeb123a8534578ed2a0e28eef23b3c7c9a2fecf69a3af33fbd09fe",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiReadProgress.kt": "ed5ed63a5d6439ea87fe5a23526791a299e69c71736eb0cf04c4055631a45764",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "364c35f4ad10729765076f8440238076a79a466e4361a3bb6d59673eb12a847c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt": "d769932468be729629c8e46191d04a68d2f855e227d32c8e851c543fcfdc3c81",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuthorizedCatalog.kt": "ad36482362f351b2ef65e0b036df49751802427653f4af890a75ab27ecdc86a7"
+  },
+  "test_source_sha256": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistFairnessTest.kt": "a375509ae99eff23977a55889ad25df54f243289caa12501a04b1f7784708635",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubChecklistDiscoveryProgressTest.kt": "d5cb1e9ae1263e68f4985bcccab8dba3e8f919c66c1b78f02ab519ac4cfea463",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFreshProgressRunnerTest.kt": "cd2684e2aed06f6facdfcfd6d9fce2cad1bac9028a4bd101a96336d032fbbb7e",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistScheduleTest.kt": "97e85b6370ac691c85b7c51b277520643e0a6dc6339cd1fdf07ffd72189b9a89"
+  },
+  "evidence_sha256": {
+    "current_compile_log": "6f636367e9975a030d850aec4641422af2417f127da55d728d0ebc8cef03613f",
+    "current_test_log": "d52afee0bf8d4e3c6b4d299f7d5427617d01848ae4c9f2b80823bb4403e5747a",
+    "baseline_compile_log": "6f636367e9975a030d850aec4641422af2417f127da55d728d0ebc8cef03613f",
+    "baseline_test_log": "cf733352e29bf261dd98c89b67dff3accfb4b16a198a94ff15b99482116bfa2a",
+    "ktlint_log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "host_harness": "e0081e0e46867a51b9aca476c90fbc5444a5faf4bd0876dade0b004c7090df56"
+  }
+}

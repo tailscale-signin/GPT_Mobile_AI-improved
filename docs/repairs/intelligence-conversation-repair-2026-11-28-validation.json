@@ -1,0 +1,192 @@
+{
+  "schema": "integration-validation-v1",
+  "state": "LOCAL_GATES_PASSED_HOSTED_ANDROID_PENDING",
+  "reconciledParent": "df074e10b52cc6413db894499706e16609ff5a21",
+  "canonicalHost": {
+    "command": "bash scripts/validate-local.sh fast",
+    "exit": 0,
+    "durationSeconds": 35.19,
+    "unittestTests": 863,
+    "unittestPassed": 862,
+    "unittestSkipped": 1,
+    "skippedTest": "test_jvm_call_index.RealCompilerTest.test_mixed_language_overload_call_chain_and_body_only_edit",
+    "skipReason": "JVM_GRAPH_ASM and kotlinc/JVM_GRAPH_KOTLIN_CLASSPATH are not configured for this optional real-compiler fixture.",
+    "logSha256": "28f905e2c3c7aace4b1daefaf3b04b261f3729a4005196c606e9678299a35543",
+    "checks": [
+      "CI policy",
+      "architecture and agent metadata",
+      "revision-bound feature navigation",
+      "diagnostic schema",
+      "app audit inventory",
+      "dependency catalog",
+      "Gateway package shape",
+      "secret scan",
+      "863 host unittest cases",
+      "Android regex policy",
+      "resource and icon preflight",
+      "QNN metadata provenance",
+      "diff whitespace"
+    ],
+    "initialAttempt": {
+      "exit": 1,
+      "reason": "Referenced audit document changed after initial generation; repository reference regenerated before the successful gate."
+    }
+  },
+  "authentication": {
+    "command": "python3 -m unittest discover -s authentication -t . -p test_*.py",
+    "exit": 0,
+    "tests": 253,
+    "failures": 0,
+    "durationSeconds": 2.063,
+    "sourceFiles": 19,
+    "sourcesUnchanged": true,
+    "sourceManifestSha256": "447e896581684f31c1a9785b96e1b982ef9d4f55e721f5d06d452fe0c2b60745",
+    "logSha256": "fb575c99d7cb6ddcba8578fce8eabbfeccc34cbeafe7913363298c5bc7d09df4"
+  },
+  "focusedJvm": {
+    "tests": 71,
+    "failures": 0,
+    "scopes": [
+      {
+        "name": "discovery/scheduler/progress",
+        "tests": 24
+      },
+      {
+        "name": "complete CombinedTurnBudgetTest",
+        "tests": 21
+      },
+      {
+        "name": "parser and exact recovery boundary",
+        "tests": 5
+      },
+      {
+        "name": "AppAssistedSearch with explicit boundary ports",
+        "tests": 2
+      },
+      {
+        "name": "receipt, exact code/voice and integrated append producer/normalizer",
+        "tests": 14
+      },
+      {
+        "name": "Gateway sync eligibility with explicit Android record ports",
+        "tests": 5
+      }
+    ],
+    "receipts": [
+      "docs/repairs/intelligence-batch-recovery-2026-11-28-validation.json",
+      "docs/repairs/intelligence-diagnostics-2026-11-28-validation.json",
+      "docs/repairs/intelligence-discovery-2026-11-28-validation.json",
+      "docs/repairs/intelligence-index-sync-2026-11-28-validation.json"
+    ],
+    "qualification": "Exact compiled sources, method extracts and ports are declared in each receipt. This does not qualify complete Android module execution."
+  },
+  "formatting": {
+    "tool": "ktlint 1.3.1",
+    "exit": 0,
+    "files": 25,
+    "sourcesUnchanged": true,
+    "sourceSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "80c255bdc472dcea3fa7476bbdc018f29e01b08ef52ebf7ae88d89aa0e805b39",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt": "d260647d9d2c7257fa5df32611004fab611eb4ca767a0ddc463301235c95ce49",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubChecklistDiscoveryProgress.kt": "282881399e3afd329913f400688f0ac2906d76e656473f1ab3a20ff7fe8055e0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": "4e91981f82aeb123a8534578ed2a0e28eef23b3c7c9a2fecf69a3af33fbd09fe",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "94e5686d49ab08a29f9def0d7932185e29c041f571710412d80ee37d89149cb8",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": "bd32dc575010bfded8c40c482b82bc26a0feee7789fcf5f9233c4407eb0f4286",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": "9f23a2b0ba179172f4abe85897618f52f7483eacd318711fa7aeaefb45dd28ec",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt": "9e0c6b67c0b5df97d59a8325efba5658114a1d4d78d92550d70c5f2b3d11bda7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": "be26be6fa83b5fa869ca0ede96f10bbe8454249e3c139d609b20decb36c92ca6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "ff08123c95a83792cc87f029cce53c4d0a512b8ffcb93870c24c4d0c5a0eca30",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncEligibility.kt": "ac08d1820a176276f293fc1980d06cec74baf73fad69a54f344ad8c0a5cc11fb",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncService.kt": "addcbc5ab0b25621a523bfd00841ed6fa69c8d428eda2b695e075b244f3175b6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt": "d769932468be729629c8e46191d04a68d2f855e227d32c8e851c543fcfdc3c81",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt": "3bab344ace84562f029b60e11f80f31a60d627e594033baf3c05f3c275f2b6eb",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt": "5a0cdbebec11f6c05f3e45561c5840de57dde09be3f0038fda201eba5deedede",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubChecklistDiscoveryProgressTest.kt": "d5cb1e9ae1263e68f4985bcccab8dba3e8f919c66c1b78f02ab519ac4cfea463",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFreshProgressRunnerTest.kt": "cd2684e2aed06f6facdfcfd6d9fce2cad1bac9028a4bd101a96336d032fbbb7e",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRoundAdmissionTest.kt": "34fc47591f664d5c3f0999bbd08884f65602a4a425476494a1f2054557ec28f4",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppOwnedFailureCodesTest.kt": "cef7a96a21eb9b9c062f79b969f8efb0040855d91c89404e0409819b2af5f357",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt": "171b6f307809ef3d084a5399263ac068f5a8f8882a5d4e5dfcb3788715e3b5ad",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt": "6d7231e5620a92c1ee69f73beebeda0a49b484351c97f26893eb1e1642a4d580",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt": "a5b1f10d99a5f60cb724a7aa474ea06694661bc6b8230f110ad7bc5fc6845ba2",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncEligibilityTest.kt": "13d338986195e56d77188ab369ceba9cfaa5704c8a9ba0b897eb6f9feb8d68fd",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistFairnessTest.kt": "a375509ae99eff23977a55889ad25df54f243289caa12501a04b1f7784708635",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchBudgetTest.kt": "d7c2b65d4d76600aeac41bdac10d45cf027029747d28655eb6a593f17ee5a479"
+    }
+  },
+  "sourceBinding": {
+    "qualifiedCurrentSourceFiles": 68,
+    "allHashesMatchedAfterReconciliation": true,
+    "sourceManifestSha256": "91ff5290601494af1580497fce357c6e641c9dcc2b991472da5bb8a8bf082b76",
+    "receiptSha256": {
+      "docs/repairs/intelligence-batch-recovery-2026-11-28-validation.json": "dc5681030101df128e2fb908bc5a3347fc3793a4daf9bec1da746e10205dd18e",
+      "docs/repairs/intelligence-diagnostics-2026-11-28-validation.json": "2d329e27aa9f4a8d6e6d2a8e621ff8124715f81824509e8160bc4c51d2225964",
+      "docs/repairs/intelligence-discovery-2026-11-28-validation.json": "24f675b574dcc87cc668fec3928f249184ce5400b97caf4aaf0ddf1ca69f5051",
+      "docs/repairs/intelligence-index-sync-2026-11-28-validation.json": "a2ab0bc53547b0c01231ff439517bad3961c1916673c42a9b6c8a3509ca0f142"
+    }
+  },
+  "androidPreflight": {
+    "command": "python3 scripts/check_android_compile_memory.py",
+    "exit": 1,
+    "receipt": {
+      "availableBytes": null,
+      "cgroups": null,
+      "heapMiB": 6144,
+      "metaspaceMiB": 768,
+      "ram": {
+        "MemAvailable": 5253701632,
+        "MemTotal": 10451427328,
+        "SwapFree": 0,
+        "SwapTotal": 0
+      },
+      "requiredBytes": 9395240960,
+      "reserveMiB": 2048,
+      "schemaVersion": 1,
+      "status": "UNKNOWN",
+      "swapCountsAsHeadroom": false
+    },
+    "androidSdkConfigured": false,
+    "fullAndroidBuildStarted": false
+  },
+  "independentReviews": [
+    "Raw progress observation before all presentation transforms",
+    "Bounded discovery and schedule fairness with authorization/reserve guards",
+    "Combined accounting and serializer compatibility",
+    "Gateway sync eligibility against live authority requirements",
+    "Closed receiver code parity and extended capability selection",
+    "Unknown-outcome preservation and rejection of contradictory replay hints"
+  ],
+  "pending": [
+    "Complete Android production/test compilation and full runner/report-submission integration at the published commit.",
+    "Hosted required checks and aggregate qualification for the exact new PR head.",
+    "Updated report receiver deployment advertising APPLICATION_FAILURE_CAUSES_V1.",
+    "Any physical-device or live-provider/Gateway performance and answer-quality measurement."
+  ],
+  "claimsExcluded": [
+    "No full Android build or handset qualification.",
+    "No claim that external quota/network/configuration failures were repaired.",
+    "No measured model intelligence score or latency improvement.",
+    "No deployment or release publication."
+  ],
+  "testedWorktreeParent": "df074e10b52cc6413db894499706e16609ff5a21",
+  "postQualificationReconciliation": {
+    "commit": "5098014b93b75e391cf56cafef8fdaeb148b0df2",
+    "change": "Whitespace-only cleanup in three concurrent voice JUnit evidence logs.",
+    "qualifiedSourcesUnchanged": true,
+    "currentSourceHashesRechecked": 67
+  },
+  "concurrentAppendIntegration": {
+    "commit": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+    "producer": "Preserved unchanged.",
+    "normalizer": "Retains guarded REMOTE_OUTCOME_UNKNOWN public alias and exact causal COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN; incomplete ownership retains only exact fallback code and supplied facts.",
+    "focusedChecksPassed": 4,
+    "fullModuleAssertions": "PENDING",
+    "canonicalHostRepeatedAfterIntegration": true
+  },
+  "finalPolicyReconciliation": {
+    "commit": "df074e10b52cc6413db894499706e16609ff5a21",
+    "runtimeAndTestInputsUnchanged": true,
+    "verifiedSourceFiles": 68,
+    "changes": "Exact public-declaration scanner allowlists, negative controls and mapped evidence metadata.",
+    "canonicalHostRepeated": true
+  }
+}

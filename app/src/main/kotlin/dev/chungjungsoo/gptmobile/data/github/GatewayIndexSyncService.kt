@@ -23,10 +23,12 @@ class GatewayIndexSyncService @Inject constructor(
     suspend fun synchronizeKnownRepositories() = synchronization.withLock {
         val features = settings.getFeatureSettings()
         if (!features.githubBlobCache) return@withLock
+        val profiles = settings.fetchPlatformV2s()
         // Private/temporary conversations need their request-scoped privacy
         // authority. An unrelated network callback must not reconstruct it.
         val eligible = rooms.getChatRooms().filter { !it.isTemporary && !it.privacyModeEnabled && !it.privacyModeLocked }
             .sortedByDescending { it.updatedAt }.mapNotNull { room -> features.conversationGitHub[room.id]?.let { room.id to it } }
+            .filter { (_, selected) -> GatewayIndexSyncEligibility.configured(selected, profiles, features) }
             .distinctBy { (_, context) -> listOf(context.connectionUid, context.owner.lowercase(), context.repo.lowercase(), context.ref, context.mainProfileUid) }
         if (eligible.isEmpty()) return@withLock
         repeat(minOf(4, eligible.size)) {

@@ -73,6 +73,8 @@ class IssueReportIncidentsTest {
         assertEquals(JsonPrimitive("APPLICATION"), diagnostics.values["incident_origin"])
         assertEquals(JsonPrimitive("TYPED_EVIDENCE"), diagnostics.values["incident_evidence_status"])
         assertEquals(JsonPrimitive("EXPLICIT_CAUSE"), diagnostics.values["causal_provenance"])
+        assertEquals(JsonPrimitive("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN"), diagnostics.values["causal_failure_code"])
+        assertTrue(IssueReportCodes.APPLICATION_FAILURE_CAUSES_FEATURE in diagnostics.requiredServiceFeatures())
         assertEquals(JsonPrimitive(IssueReportContext.identifierHash("incident-cause:EXPLICIT_CAUSE", "private-snapshot:private-revision:0")), diagnostics.values["causal_id_hash"])
         assertEquals(JsonPrimitive(IssueReportContext.identifierHash("chat-error-code", failure.errorCode)), diagnostics.values["original_error_code_hash"])
         assertNull(context.dispatched)
@@ -97,7 +99,19 @@ class IssueReportIncidentsTest {
         )
         for ((index, incomplete) in listOf(emptyMap(), fields - "failure_origin", fields + ("failure_origin" to "PROVIDER"), fields + ("retryable" to true), fields + ("requires_reconciliation" to false)).withIndex()) {
             IssueReportIncidents.chatFailure("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", false, null, incomplete + ("run_id" to "incomplete-$index"))
-            assertEquals("CHAT_FAILED", IssueReportIncidents.pending.value.last().errorCode)
+            val report = IssueReportIncidents.pending.value.last()
+            assertEquals("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", report.errorCode)
+            assertFalse(report.errorCode == "REMOTE_OUTCOME_UNKNOWN")
+            val context = requireNotNull(report.context)
+            assertEquals(incomplete["recovery_action"], context.recoveryAction)
+            assertEquals(incomplete["retryable"], context.retryable)
+            assertEquals(incomplete["resume_allowed"], context.resumeAllowed)
+            assertEquals(incomplete["requires_reconciliation"], context.requiresReconciliation)
+            assertEquals(JsonPrimitive("UNAVAILABLE"), context.diagnostics?.values?.get("causal_provenance"))
+            assertNull(context.dispatched)
+            assertNull(context.remoteAcceptance)
+            assertNull(context.httpStatus)
+            assertNull(context.invocationIdHash)
         }
     }
 
@@ -931,6 +945,31 @@ class IssueReportIncidentsTest {
         val specificCategories = ErrorCategory.entries.map { it.name }.toSet() - setOf("CLIENT_CANCELLED", "UNKNOWN")
         val missing = (ProviderContractFailure.codes + specificCategories) - IssueReportCodes.allowed
         assertEquals(emptySet<String>(), missing)
+    }
+
+    @Test
+    fun typedApplicationRejectionsRemainActionableWithoutChangingUnknownRemoteOutcome() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val codes = listOf("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", "GATEWAY_CONVERSATION_READ_ONLY", "TOOL_BATCH_REJECTED", "TOOL_BATCH_OVERSIZE")
+        for (code in codes) {
+            IssueReportIncidents.chatFailure(
+                code,
+                false,
+                null,
+                mapOf("run_id" to "private-$code", "requires_reconciliation" to true, "remote_acceptance" to "UNKNOWN", "message" to "private provider body")
+            )
+        }
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(codes, reports.map { it.errorCode })
+        for (report in reports) {
+            assertEquals(true, report.context?.requiresReconciliation)
+            assertEquals("UNKNOWN", report.context?.remoteAcceptance)
+            assertNull(report.context?.retryable)
+            assertNull(report.context?.resumeAllowed)
+            assertEquals(JsonPrimitive(report.errorCode), report.context?.diagnostics?.values?.get("causal_failure_code"))
+            assertFalse(report.toString().contains("private provider body"))
+            assertFalse(report.toString().contains("private-${report.errorCode}"))
+        }
     }
 
     @Test

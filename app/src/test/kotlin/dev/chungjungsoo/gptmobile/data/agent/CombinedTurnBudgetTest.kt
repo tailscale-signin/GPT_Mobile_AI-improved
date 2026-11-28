@@ -14,6 +14,66 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedTurnBudgetTest {
+    @Test fun blockedAndMissingEvidenceStagesRetainTheirOutcomesWithoutLeakingContributorReserves() = runBlocking {
+        for (outcome in listOf("BLOCKED", "EVIDENCE_MISSING")) {
+            val context = context(CombinedHardLimits(totalTokens = 40))
+            val budget = CombinedTurnBudgetStore.inMemory().open(context)
+            assertTrue(budget.reserve(context.forRole(CombinedRunRole.RESEARCH), "before-terminal", CombinedResourceQuota(20, 0)) is CombinedBudgetAdmission.Denied)
+            budget.finishStage("contributor:a", outcome, "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE")
+            val settled = budget.snapshot()
+            assertEquals("$outcome:REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", settled.stageOutcomes["contributor:a"])
+            assertTrue("contributor:a" in settled.completedWork)
+            assertEquals(0, settled.workAccounting?.succeeded)
+            assertEquals(if (outcome == "BLOCKED") 1 else 0, settled.workAccounting?.blocked)
+            assertEquals(if (outcome == "EVIDENCE_MISSING") 1 else 0, settled.workAccounting?.evidenceMissing)
+            budget.finishStage("contributor:a", outcome, "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE")
+            assertEquals(settled, budget.snapshot())
+            val restored = CombinedTurnBudget(Json.decodeFromString(Json.encodeToString(settled)))
+            assertEquals(settled.workAccounting, restored.snapshot().workAccounting)
+            assertTrue(restored.reserve(context.forRole(CombinedRunRole.RESEARCH), "after-terminal", CombinedResourceQuota(20, 0)) is CombinedBudgetAdmission.Granted)
+            assertFalse(restored.snapshot().closed)
+        }
+    }
+
+    @Test fun approvalPauseKeepsStagePendingAndProtectedUntilActualSettlement() = runBlocking {
+        val context = context(CombinedHardLimits(totalTokens = 40))
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        budget.finishStage("contributor:a", "WAITING_FOR_APPROVAL", "Review the retained request")
+        val waiting = budget.snapshot()
+        assertTrue("contributor:a" in waiting.pendingWork)
+        assertFalse("contributor:a" in waiting.completedWork)
+        assertFalse("contributor:a" in waiting.stageOutcomes)
+        assertEquals("WAITING_FOR_APPROVAL:Review the retained request", waiting.resourceWaits["contributor:a"])
+        assertEquals(1, waiting.workAccounting?.waitingForResource)
+        assertEquals(0, waiting.workAccounting?.terminal)
+        val restored = CombinedTurnBudget(Json.decodeFromString(Json.encodeToString(waiting)))
+        assertTrue(restored.reserve(context.forRole(CombinedRunRole.RESEARCH), "cannot-steal-waiting-reserve", CombinedResourceQuota(20, 0)) is CombinedBudgetAdmission.Denied)
+        assertTrue(restored.snapshot().reservations.isEmpty())
+        assertTrue(restored.reserve(context, "resumed-stage", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Granted)
+        assertTrue(restored.snapshot().resourceWaits.isEmpty())
+        restored.finishStage("contributor:a", "COMPLETED")
+        assertTrue(restored.snapshot().resourceWaits.isEmpty())
+        assertEquals(1, restored.snapshot().workAccounting?.succeeded)
+        val finished = restored.snapshot()
+        restored.finishStage("contributor:a", "WAITING_FOR_APPROVAL", "Stale callback")
+        assertEquals(finished, restored.snapshot())
+    }
+
+    @Test fun finalizationApprovalPauseDoesNotAuthorizeAutomaticRetryOrConsumeFinalReserve() = runBlocking {
+        val context = context()
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        budget.finishStage("finalization", "WAITING_FOR_APPROVAL")
+        val paused = budget.snapshot()
+        assertEquals("WAITING_FOR_APPROVAL", paused.deliveryStatus)
+        assertFalse(paused.retryEligible)
+        assertEquals(CombinedBudgetRecoveryAction.NONE, paused.recoveryAction)
+        assertFalse("finalization" in paused.completedWork)
+        assertTrue(paused.reservations.isEmpty())
+        budget.finishStage("finalization", "EVIDENCE_MISSING", "Review found no proof")
+        assertEquals(1, budget.snapshot().workAccounting?.evidenceMissing)
+        assertTrue(budget.snapshot().resourceWaits.isEmpty())
+    }
+
     @Test fun githubIntegrationUsesOneAcceptedAllowanceAcrossProfilesAtLowEffort() = runBlocking {
         val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 0), listOf("a", "b"), emptyMap(), "Test all GitHub tools")
         val plan = CombinedPolicyResolver.resolve(requested, hardLimits = CombinedHardLimits(toolOperations = 9), githubIntegrationCalls = 9)

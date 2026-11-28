@@ -150,10 +150,47 @@ internal object GitHubChecklistSchedule {
             it.name.githubOperationFamily() == "github_commit" && it.arguments["action"] in setOf(JsonPrimitive("delete_branch"), JsonPrimitive("delete_fixture_branch"))
         }
         val cleanupPrerequisite = admittedPlanned?.takeIf { it in ready && it.callId.startsWith("fixture-") && GitHubChecklistBudget.cleanupReserve(receipts) > 0 }
-        // A targeted reacquisition belongs to the pending action; do not let an unrelated
-        // ready inventory read displace its exact schema. Broad discovery still yields to
-        // independent executable reads so one hidden tool cannot starve the rest.
-        val next = cleanup ?: cleanupPrerequisite ?: discover?.takeIf { scoped != null } ?: ready.firstOrNull() ?: discover ?: catalog?.takeIf { acquisitionAllowed && executable(it) }
+        val observations = receipts.values.filter {
+            it["trusted"] == JsonPrimitive(true) &&
+                it["verification_eligible"] != JsonPrimitive(false) &&
+                it["repository_role"] != JsonPrimitive("READ_SOURCE")
+        }
+        fun schemaAcquisition(receipt: JsonObject): Boolean = receipt.text("tool") == GitHubAuthorizedCatalog.TOOL &&
+            ((receipt["arguments"] as? JsonObject)?.get("names") as? JsonArray)?.isNotEmpty() == true
+        fun authorizedRead(receipt: JsonObject): Boolean {
+            val name = receipt.text("tool")
+            val args = receipt["arguments"] as? JsonObject ?: return false
+            return authorized.any { it.modelVisible && it.name == name } && GitHubAuthorizationBoundary.isReplayableRead(name, args)
+        }
+        val readsSinceSchema = observations.asReversed().takeWhile { !schemaAcquisition(it) }.count(::authorizedRead)
+        val catalogBurst = observations.asReversed().takeWhile { it.text("tool") == GitHubAuthorizedCatalog.TOOL && !schemaAcquisition(it) }.size
+        val catalogReady = catalog?.takeIf { it.name == GitHubAuthorizedCatalog.TOOL && acquisitionAllowed && authorizedCall(it) && executable(it) }
+        val acquiredRead = observations.lastOrNull(::schemaAcquisition)?.takeIf { readsSinceSchema == 0 && it["success"] == JsonPrimitive(true) }?.let { receipt ->
+            val args = receipt["arguments"] as JsonObject
+            val acquiredNames = (args["names"] as JsonArray).filterIsInstance<JsonPrimitive>().map { it.content }
+            ready.firstOrNull { call ->
+                GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) &&
+                    acquiredNames.any { it.githubReadFacadeMatches(call.name) } &&
+                    (args.text("action").isBlank() || args["action"] == call.arguments["action"])
+            }
+        }
+        // A pending action retains its targeted schema. Otherwise give hidden families
+        // a turn after two reads, and establish the catalog denominator after the first
+        // observed read. At most two directory pages may precede another ready read.
+        // Large inventories and CI pagination therefore cannot starve one another.
+        val selected = when {
+            cleanup != null -> cleanup to "FIXTURE_CLEANUP"
+            cleanupPrerequisite != null -> cleanupPrerequisite to "FIXTURE_CLEANUP_PREREQUISITE"
+            acquiredRead != null -> acquiredRead to "ACQUIRED_SCHEMA_READ"
+            discover != null && scoped != null -> discover to "PENDING_ACTION_SCHEMA"
+            discover != null && (ready.isEmpty() || readsSinceSchema >= 2) -> discover to "BOUNDED_SCHEMA_ACQUISITION"
+            catalogReady != null && catalogBurst < 2 && observations.any { it["success"] == JsonPrimitive(true) && authorizedRead(it) } -> catalogReady to "BOUNDED_CATALOG_TRAVERSAL"
+            ready.isNotEmpty() -> ready.first() to "READY_ACTION"
+            discover != null -> discover to "SCHEMA_ACQUISITION"
+            catalogReady != null -> catalogReady to "CATALOG_TRAVERSAL"
+            else -> null
+        }
+        val next = selected?.first
         val snapshot = buildJsonObject {
             put("schema", "github.checklist-schedule.v1")
             put("receipt_set_digest", receiptSetDigest(receipts))
@@ -164,6 +201,7 @@ internal object GitHubChecklistSchedule {
             put("blocked_candidate_count", unique.size - ready.size)
             put("acquisition_allowed", acquisitionAllowed)
             put("catalog_denominator_unchanged", true)
+            selected?.second?.let { put("selection_reason", it) }
             next?.let { put("next_call", call(it)) }
             put(
                 "candidates",

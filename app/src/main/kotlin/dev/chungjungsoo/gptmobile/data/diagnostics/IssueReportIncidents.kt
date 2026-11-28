@@ -444,6 +444,7 @@ internal object IssueReportIncidents {
         val diagnosticFields = if (appendCompletionUnknown) {
             fields + mapOf(
                 "diagnostic_area" to "INCIDENT",
+                "causal_failure_code" to code,
                 "original_error_code_hash" to IssueReportContext.identifierHash("chat-error-code", code)
             )
         } else if (verificationReserveReached && publicCode == "GITHUB_TASK_INCOMPLETE") {

@@ -12,6 +12,76 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_application_rejection_codes_preserve_approved_uncertain_outcomes(self):
+        for code in ("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", "GATEWAY_CONVERSATION_READ_ONLY",
+                     "TOOL_BATCH_REJECTED", "TOOL_BATCH_OVERSIZE"):
+            with self.subTest(code=code):
+                capture = self.capture("INCIDENT", {"causal_failure_code": code})
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code, events=["-1ms E chat " + code])
+                report["context"].update(source="CHAT_FAILURE", requiresReconciliation=True, remoteAcceptance="UNKNOWN")
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["title"])
+                self.assertIn(code, issue["body"])
+                self.assertTrue(report["context"]["requiresReconciliation"])
+                self.assertEqual("UNKNOWN", report["context"]["remoteAcceptance"])
+                self.assertNotIn("retryable", report["context"])
+                self.assertNotIn("dispatched", report["context"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
+    def test_read_only_voice_admission_retains_its_cause_without_dispatch_facts(self):
+        capture = self.capture("VOICE", {"incident_phase": "message_admission", "causal_failure_code": "VOICE_SESSION_FAILED",
+                                        "voice_chat_failure_code": "GATEWAY_CONVERSATION_READ_ONLY",
+                                        "voice_chat_failure_phase": "message_admission", "incident_origin": "APPLICATION"})
+        report = self.report(capture)
+        report.update(feature="voice", errorCode="VOICE_SESSION_FAILED")
+        report["context"].update(source="VOICE_STATE", stage="message_admission")
+        report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("GATEWAY_CONVERSATION_READ_ONLY", issue["body"])
+        self.assertNotIn("dispatched", report["context"])
+        self.assertNotIn("retryable", report["context"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
+    def test_required_tool_codes_survive_provider_receipt_submission_as_local_admission(self):
+        codes = ("REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+                 "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE")
+        for code in codes:
+            with self.subTest(code=code):
+                capture = self.capture("PROVIDER", {"provider_failure_code": code, "causal_failure_code": code,
+                                                    "provider_failure_stage": "ADMISSION", "provider_failure_domain": "APPLICATION_VERIFICATION"})
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code)
+                report["context"].update(source="CHAT_FAILURE", stage="tool_admission", dispatched=False)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["body"])
+                self.assertIn("APPLICATION_VERIFICATION", issue["body"])
+                self.assertFalse(report["context"]["dispatched"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
+    def test_application_failure_vocabulary_rejects_private_variants_in_every_field(self):
+        app_codes = ("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", "GATEWAY_CONVERSATION_READ_ONLY",
+                     "TOOL_BATCH_REJECTED", "TOOL_BATCH_OVERSIZE")
+        required_codes = ("REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+                          "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE")
+        fields = [("INCIDENT", "causal_failure_code", app_codes), ("VOICE", "voice_chat_failure_code", app_codes),
+                  ("PROVIDER", "provider_failure_code", required_codes)]
+        for area, field, codes in fields:
+            for code in codes:
+                for private in (code + "_PRIVATE_TOKEN", code + ": private provider body", code.lower()):
+                    with self.subTest(field=field, value=private), self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture(area, {field: private}))
+        for code in app_codes:
+            with self.subTest(top_level=code), self.assertRaises(ReportError):
+                report = self.report(self.capture("INCIDENT"))
+                report["errorCode"] = code + "_PRIVATE_TOKEN"
+                issue_from_report(report)
+
     def test_provider_quota_group_retains_bounded_hashed_occurrences(self):
         fields = {"provider_configuration_hash": "c" * 64, "provider_quota_occurrences": 3, "provider_quota_span_ms": 500,
                   "provider_quota_invocation_hashes": ["a" * 64, "b" * 64]}

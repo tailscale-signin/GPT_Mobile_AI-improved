@@ -128,6 +128,7 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            IssueReportCodes.APPLICATION_FAILURE_CAUSES_FEATURE,
             RepositoryOperationReportContract.FEATURE,
             IssueReport.FRAMEWORK_EXCEPTION_FRAMES_FEATURE,
             ExecutionCompletionDiagnostics.FEATURE,
@@ -212,6 +213,11 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                if (codes.any { it in IssueReportCodes.applicationFailureCauses } ||
+                    code(diagnostics?.values?.get("provider_failure_code")) in ProviderFailureReceipt.REQUIRED_TOOL_CODES
+                ) {
+                    add(IssueReportCodes.APPLICATION_FAILURE_CAUSES_FEATURE)
+                }
                 // READ_DEADLINE already belongs to the top-level, context and event contract.
                 // Its new tool diagnostic projection still negotiates through requiredServiceFeatures().
                 if (codes.any { it != "READ_DEADLINE" && it in RepositoryOperationReportContract.errorCodes }) add(RepositoryOperationReportContract.FEATURE)

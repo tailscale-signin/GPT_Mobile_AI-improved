@@ -104,6 +104,15 @@ data class ProviderFailureReceipt(
             it in setOf("provider_reported", "runtime_reported", "gateway_reported", "mixed_reported", "gateway_reported_partial", "estimated", "unavailable") || it.matches(Regex("(?:provider|runtime|gateway|mixed)_reported_(?:initial|interim)"))
         }
 
+        internal val REQUIRED_TOOL_CODES = setOf(
+            "REQUIRED_TOOL_ACQUISITION_PENDING",
+            "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+            "REQUIRED_TOOL_ACQUISITION_FAILED",
+            "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE",
+            "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION",
+            "REQUIRED_TOOL_AUTHORIZATION_REQUIRED"
+        )
+
         // Provider error strings are untrusted content, even when they look like an enum.
         private val ERROR_CODES = setOf(
             "MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED",
@@ -120,7 +129,7 @@ data class ProviderFailureReceipt(
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "CLIENT_TOOL_RESULTS_REQUIRED", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
             "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", PrivacyFailureEvidence.CODE, PrivacyFinalRequestFailureEvidence.CODE
-        ) + ExecutionCompletionDiagnostics.codes + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
+        ) + REQUIRED_TOOL_CODES + ExecutionCompletionDiagnostics.codes + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
             dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES + setOf(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
             dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.map { it.code } +
@@ -134,13 +143,45 @@ data class ProviderFailureReceipt(
             val applicationGuard = code in setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_REVIEW_COMPARISON_REQUIRED")
             val comparisonPrerequisite = failedStage == "review_comparison"
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+            val requiredToolAdmission = code in REQUIRED_TOOL_CODES && failedStage in setOf("tool_readiness", "tool_admission")
+            // The classifier may infer NO from a local readiness phase. An explicit
+            // positive or uncertain earlier observation remains authoritative.
+            val observedToolAcceptance = if (requiredToolAdmission) {
+                when (failure.failureDetails?.get("remote_acceptance")) {
+                    JsonPrimitive("YES"), JsonPrimitive("ACCEPTED") -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES
+                    JsonPrimitive("UNKNOWN") -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN
+                    else -> null
+                }
+            } else {
+                null
+            }
+            val requiredToolOutcomeUncertain = requiredToolAdmission &&
+                (
+                    observedToolAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN ||
+                        classified.category in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN") ||
+                        (failure.failureDetails?.get("dispatch_state") as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT) in setOf("UNKNOWN", "UNKNOWN_OUTCOME") ||
+                        failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true) ||
+                        failure.failureDetails?.get("command_outcome_unknown") == JsonPrimitive(true)
+                    )
+            // A rejected local schema/admission step is not a provider failure.
+            // Require typed negative dispatch evidence and retain any positive
+            // or uncertain earlier transport observation without relabelling it.
+            val requiredToolAdmissionRejected = requiredToolAdmission &&
+                !requiredToolOutcomeUncertain &&
+                observedToolAcceptance == null &&
+                failure.failureDetails?.get("dispatched") == JsonPrimitive(false) &&
+                classified.dispatched == false &&
+                classified.remoteAcceptance != dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES &&
+                classified.httpRequestDispatched != true &&
+                classified.upstreamInferenceDispatched != true &&
+                classified.dispatchState != "DISPATCHED"
             val privacyFinalOutcome = PrivacyFinalRequestFailureEvidence.observedOutcome(failure.errorCode, failure.failureDetails)
             val privacyFinalUnsent = privacyFinalOutcome != null && classified.dispatched == false && classified.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO
             val invocationId = failure.invocationId ?: classified.invocationId
-            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal || applicationGuard || comparisonPrerequisite || privacyFinalUnsent }?.takeIf {
+            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal || applicationGuard || comparisonPrerequisite || privacyFinalUnsent || requiredToolAdmissionRejected }?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
             }
-            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)?.takeUnless { applicationGuard || comparisonPrerequisite || privacyFinalUnsent }
+            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)?.takeUnless { applicationGuard || comparisonPrerequisite || privacyFinalUnsent || requiredToolAdmissionRejected }
             // A finish-only stream frame cannot hide usage already attached to
             // this failure. Never fill it from another invocation's last frame.
             val correlatedUsage = matchingUsage?.copy(
@@ -170,7 +211,7 @@ data class ProviderFailureReceipt(
                 code == PrivacyFinalRequestFailureEvidence.CODE -> if (privacyFinalOutcome != null) ProviderFailureStage.ADMISSION else ProviderFailureStage.GENERATION
                 // The failed preparation stage does not establish whether prior
                 // work in this run was dispatched or has an uncertain outcome.
-                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || privacyAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
+                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || privacyAdmissionRejected || failure.localBudgetRefusal || requiredToolAdmissionRejected -> ProviderFailureStage.ADMISSION
                 classified.isUserInputRequired || classified.isEngineeringSetup || code == "GITHUB_TASK_IDENTITY_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
@@ -204,10 +245,14 @@ data class ProviderFailureReceipt(
                 finish == ProviderFinishCategory.LENGTH || code in setOf("OUTPUT_LIMIT", "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "COMPLETION_REPAIR_BUDGET_EXHAUSTED") || dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(failure.message),
                 failure.transportComplete, correlatedUsage?.outputTokens?.takeIf { it >= 0 }, correlatedUsage?.reasoningTokens?.takeIf { it >= 0 },
                 dispatched = classified.dispatched,
-                remoteAcceptance = classified.remoteAcceptance,
+                remoteAcceptance = observedToolAcceptance ?: if (requiredToolOutcomeUncertain && classified.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO) {
+                    dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN
+                } else {
+                    classified.remoteAcceptance
+                },
                 generationCompleted = classified.generationCompleted,
-                requestReplayAllowed = classified.requestReplayAllowed,
-                logicalContinuationAllowed = if (code == PrivacyFinalRequestFailureEvidence.CODE || classified.category in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN") || failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true)) {
+                requestReplayAllowed = if (requiredToolOutcomeUncertain) false else classified.requestReplayAllowed,
+                logicalContinuationAllowed = if (requiredToolOutcomeUncertain || code == PrivacyFinalRequestFailureEvidence.CODE || classified.category in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN") || failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true)) {
                     false
                 } else {
                     (failure.failureDetails?.get("logical_continuation_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
@@ -219,7 +264,7 @@ data class ProviderFailureReceipt(
                     applicationGuard -> FailureDomain.APPLICATION_VERIFICATION
                     comparisonPrerequisite -> if (code == "REVIEW_INPUT_REQUIRED") FailureDomain.APPLICATION_VERIFICATION else FailureDomain.TOOL_EXECUTION
                     code == PrivacyFinalRequestFailureEvidence.CODE -> if (privacyFinalOutcome != null) FailureDomain.APPLICATION_VERIFICATION else FailureDomain.UNKNOWN
-                    profileSelectionRejected || githubCooldownActive || code == PrivacyFailureEvidence.CODE || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
+                    profileSelectionRejected || githubCooldownActive || code == PrivacyFailureEvidence.CODE || failure.localBudgetRefusal || requiredToolAdmissionRejected -> FailureDomain.APPLICATION_VERIFICATION
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL

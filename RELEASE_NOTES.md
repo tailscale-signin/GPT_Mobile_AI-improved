@@ -1,5 +1,14 @@
 # Android 0.9.66.19 — GitHub intelligence, voice and Windows Gateway
 
+## Conversation intelligence diagnostic follow-up
+
+- Count fresh CI results before shortening them for the next prompt, and give hidden GitHub tools a bounded discovery turn during all-tools verification.
+- Recover a completely rejected oversized tool batch once within the accepted allowance, without dispatching a rejected prefix.
+- Settle blocked and missing-evidence Combined stages correctly, preserve approval-wait reserves, and stop optional page opening after the shared work allowance is exhausted.
+- Preserve exact known local admission and application failure codes in diagnostic reports, and skip background repository synchronization for currently unconfigured or disabled profiles.
+
+New diagnostic cause values require an updated report receiver; clients verify support before sending them.
+
 ## Pocket default and benchmark follow-up
 
 - Use English Pocket streaming CPU by default and in first-launch setup while preserving explicit saved engines and cancelled installations.

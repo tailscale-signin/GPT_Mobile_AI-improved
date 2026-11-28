@@ -69,7 +69,11 @@ data class CombinedWorkAccounting(
     val budgetBlocked: Int,
     val legacyTerminalUnknown: Int,
     val waitingForResource: Int,
-    val pending: Int
+    val pending: Int,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val blocked: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val evidenceMissing: Int = 0
 )
 
 @Serializable
@@ -160,7 +164,9 @@ data class CombinedBudgetSnapshot(
                 statuses["PARTIAL"] ?: 0, statuses["SKIPPED"] ?: 0, statuses["CANCELLED"] ?: 0,
                 statuses["INTERRUPTED"] ?: 0, statuses["BUDGET_BLOCKED"] ?: 0,
                 statuses["LEGACY_TERMINAL_UNKNOWN"] ?: 0, (resourceWaits.keys - terminal).size,
-                (pendingWork.keys - terminal).size
+                (pendingWork.keys - terminal).size,
+                blocked = statuses["BLOCKED"] ?: 0,
+                evidenceMissing = statuses["EVIDENCE_MISSING"] ?: 0
             )
         )
     }
@@ -355,6 +361,7 @@ class CombinedTurnBudget(
         commit(
             next.copy(
                 reservations = next.reservations + (attemptId to reservation),
+                resourceWaits = next.resourceWaits - owner,
                 finalizationWriterUid = if (context.requested.appendContinuations && context.role == CombinedRunRole.SYNTHESIS) context.profileUid else next.finalizationWriterUid,
                 stageOutcomes = if (context.role.finalization) next.stageOutcomes - "finalization" else next.stageOutcomes,
                 deliveryStatus = if (context.role.finalization) "WRITING" else next.deliveryStatus,
@@ -471,6 +478,23 @@ class CombinedTurnBudget(
         // delivery disposition is final. Replaying them must not undo explicit Use Reply/cancel.
         if (state.closed || state.cancelled) return@withLock
         require(ownerKey == "finalization" || ownerKey in state.plan.baselineByOwner || ownerKey in state.pendingWork || ownerKey in state.plan.requested.participantUids.map { "contributor:$it" })
+        // Approval ends this provider attempt, but the accepted stage still needs
+        // its original reserve when the user returns. Do not settle it as failure
+        // or release another contributor's funding while the choice is pending.
+        if (outcome == "WAITING_FOR_APPROVAL") {
+            if (ownerKey in state.completedWork) return@withLock
+            val wait = "WAITING_FOR_APPROVAL" + reason?.takeIf(String::isNotBlank)?.take(300)?.let { ":$it" }.orEmpty()
+            if (state.resourceWaits[ownerKey] == wait) return@withLock
+            commit(
+                state.copy(
+                    resourceWaits = state.resourceWaits + (ownerKey to wait),
+                    stageOutcomes = state.stageOutcomes - ownerKey,
+                    deliveryStatus = if (ownerKey == "finalization") "WAITING_FOR_APPROVAL" else state.deliveryStatus,
+                    retryEligible = if (ownerKey == "finalization") false else state.retryEligible
+                )
+            )
+            return@withLock
+        }
         require(outcome in TERMINAL_OUTCOMES)
         val recorded = if (reason.isNullOrBlank()) outcome else "$outcome:${reason.take(300)}"
         if (state.stageOutcomes[ownerKey] == recorded) return@withLock
@@ -718,7 +742,7 @@ class CombinedTurnBudget(
     }
 
     companion object {
-        private val TERMINAL_OUTCOMES = setOf("COMPLETED", "FAILED", "CANCELLED", "BUDGET_BLOCKED", "INTERRUPTED", "PARTIAL")
+        private val TERMINAL_OUTCOMES = setOf("COMPLETED", "FAILED", "CANCELLED", "BUDGET_BLOCKED", "INTERRUPTED", "PARTIAL", "BLOCKED", "EVIDENCE_MISSING")
     }
 }
 

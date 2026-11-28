@@ -92,6 +92,7 @@ def create_app(public_url, reporter, rate_key):
                 "DEVICE_PRIVACY_POLICY_CHANGE_V1",
                 "VOICE_FALLBACK_CAUSES_V1",
                 "STAGED_DISPATCH_EVIDENCE_V1",
+                "APPLICATION_FAILURE_CAUSES_V1",
             ])
         return response
 

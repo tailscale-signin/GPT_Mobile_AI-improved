@@ -21,6 +21,7 @@ internal class GitHubInvestigationProgress(private val acceptedTask: String = ""
     private var staleRounds = 0
     private var alternateReadReplanUsed = false
     private val ciProgress = GitHubCiReadProgress()
+    private val checklistDiscovery = GitHubChecklistDiscoveryProgress(acceptedTask)
 
     fun observe(exchange: AgentToolExchange): String? {
         var acquired = false
@@ -30,9 +31,13 @@ internal class GitHubInvestigationProgress(private val acceptedTask: String = ""
             val call = calls[result.callId] ?: continue
             val payload = (result.content as? ToolResultContent.Json)?.value as? JsonObject
             if (result.isError || payload?.get("schema") == JsonPrimitive("github.repeat.v1")) continue
-            // Tool discovery and answered questions are necessary control steps,
-            // but alternating them cannot renew the source-acquisition allowance.
-            if (call.name == ProgressiveToolCatalog.NAME || call.name.githubOperationFamily() == "github_decide") continue
+            // Required checklist pages/schema handoffs may finish their bounded work,
+            // but neither they nor answered questions reset source-acquisition staleness.
+            if (call.name == ProgressiveToolCatalog.NAME) {
+                if (checklistDiscovery.advances(call, result)) requiredCoverageAdvanced = true
+                continue
+            }
+            if (call.name.githubOperationFamily() == "github_decide") continue
             // Native search pagination is traversal evidence. A changed response hash,
             // query or cursor alone must not restart the useful-source progress budget.
             val raw = ((result.retainedContent ?: result.content) as? ToolResultContent.Json)?.value as? JsonObject

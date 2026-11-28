@@ -774,7 +774,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderCooldownContinuationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryProgressTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogNullActionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/DispatchPolicyRecoveryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/DispatchPolicyRecoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRoundAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppOwnedFailureCodesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -793,7 +796,8 @@
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
         "docs/repairs/github-mode-intelligence-2026-11-26.md",
         "docs/repairs/open-issue-sweep-2026-11-27.md",
-        "docs/repairs/open-issue-sweep-2026-11-27-task.json"
+        "docs/repairs/open-issue-sweep-2026-11-27-task.json",
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -811,7 +815,8 @@
         "Both constrained-heap CI invocations retain Gradle worker lifecycle and actual heap command evidence without changing their exact suite selectors, memory limits, retry policy or timeout.",
         "Cursor-only restoration requires exact issued selectors proof and current schema validity; restored local contents do not imply dispatch.",
         "A completed private saved-page read requires a fresh provider response for the exact projected exchanges and atomically retains bounded source-bound reading notes with its delivery acknowledgements. Later requests and restart carry those notes as untrusted derived context, never current raw source or verified claims. Legacy delivery receipts without notes replay retained bodies within the original budget; private conversation transport stays admission-gated, and intermediate notes cannot invoke public progress callbacks.",
-        "Provider cooldowns and successful tool handoffs never consume transport-recovery allowance. Every resumed retry preserves original causes, deadlines and uncertain-write reconciliation."
+        "Provider cooldowns and successful tool handoffs never consume transport-recovery allowance. Every resumed retry preserves original causes, deadlines and uncertain-write reconciliation.",
+        "Complete-frame and streamed-slot tool count rejection can request only the existing bounded correction; charge all observed calls and never dispatch a rejected prefix."
       ],
       "routing": {
         "role": "executor",
@@ -1251,7 +1256,8 @@
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
         "docs/repairs/unified-intelligence-interface-2026-11-27.md",
         "docs/repairs/diagnostics-2794-2827-2026-11-28.md",
-        "docs/repairs/diagnostics-2794-2827-2026-11-28-task.json"
+        "docs/repairs/diagnostics-2794-2827-2026-11-28-task.json",
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -1270,7 +1276,9 @@
         "Android recognition incidents retain the owning capture attempt, observed dispatch and failure phase; local retry pacing is not a measured platform quota reset, and raw attempt identity never leaves the approved diagnostic projection.",
         "Compact acceptance reports prioritize observed blocker totals alongside deadline evidence; omitted criterion rows do not hide recorded blocker counts, and absent counts remain unknown.",
         "Report dialogs use standard Compose modal ownership. Every close event advances ownership immediately; late outbox completions cannot reopen dismissed controls or replace a later selection. Newly delivered submissions close to the conversation, while deliberately opened historical receipts remain inspectable.",
-        "Only the complete application-owned unknown-append recovery tuple maps to REMOTE_OUTCOME_UNKNOWN; preserve the original code hash and review/no-replay boundaries without inventing transport evidence."
+        "Only the complete application-owned unknown-append recovery tuple maps to REMOTE_OUTCOME_UNKNOWN; preserve the original code hash and review/no-replay boundaries without inventing transport evidence.",
+        "Known explicitly undispatched tool admission failures retain their exact code and application-verification domain without borrowing earlier provider usage; uncertain remote outcomes and private payload boundaries remain intact.",
+        "New application failure causes and required-tool provider-code projections require APPLICATION_FAILURE_CAUSES_V1 from extended readiness before exact approved bytes are submitted; legacy code positions do not gain an unnecessary capability requirement."
       ],
       "routing": {
         "role": "user_control",
@@ -1448,7 +1456,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderDispatchEvidence.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DispatchStageDiagnostics.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DispatchStageDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt",
@@ -1463,7 +1472,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlanTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderDispatchEvidenceTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DispatchStageDiagnosticsTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DispatchStageDiagnosticsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1477,7 +1487,8 @@
         "docs/ci-cd/provider-ordinary-ci-2026-11-24-task.md",
         "docs/repairs/responses-retained-backend-work-2026-11-24-task.json",
         "docs/repairs/responses-retained-http400-2026-11-24-task.json",
-        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
+        "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
@@ -2401,14 +2412,20 @@
         "combined mode"
       ],
       "paths": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt"
       ],
       "tests": [
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SharedMultiChatCreationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SharedMultiChatCreationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt"
       ],
       "commands": [],
-      "documents": [],
-      "invariants": [],
+      "documents": [
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
+      ],
+      "invariants": [
+        "Blocked and missing-evidence stages settle as distinct non-success outcomes; approval waits retain pending work and its protected reserve without granting retries."
+      ],
       "routing": {
         "role": "user_control",
         "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt",
@@ -2689,22 +2706,26 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchImplementationArtifact.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSessionStore.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchRecoveryEvidence.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceAdmissionRegressionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchImplementationArtifactTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/DirectResearchModelFactoryTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchRecoveryEvidenceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchBudgetTest.kt"
       ],
       "commands": [],
       "documents": [
-        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md",
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
       ],
       "invariants": [
         "A research follow-up reuses a bounded projection of the existing same-conversation research session only when captured source versions, passages and exact quotes still verify.",
-        "Historical research remains untrusted evidence. Its finding IDs do not replace the numbered recommendations in the actual conversation, and it cannot authorize repository changes."
+        "Historical research remains untrusted evidence. Its finding IDs do not replace the numbered recommendations in the actual conversation, and it cannot authorize repository changes.",
+        "An authoritative shared Combined-work refusal stops optional page opening while retaining prior search summaries; unread pages cannot become inspected evidence."
       ],
       "routing": {
         "role": "evidence",
@@ -3374,7 +3395,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReserve.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimWindows.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimWindows.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubChecklistDiscoveryProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReceiptCompletionPipelineTest.kt",
@@ -3389,14 +3412,18 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReserveTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCallBudgetCheckpointTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimWindowsTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimWindowsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistFairnessTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubChecklistDiscoveryProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFreshProgressRunnerTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
         "docs/repairs/github-mode-intelligence-2026-11-26.md",
-        "docs/repairs/intelligence-diagnostic-completion-2026-11-27.md"
+        "docs/repairs/intelligence-diagnostic-completion-2026-11-27.md",
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
       ],
       "invariants": [
         "Complete trusted bounded lookups from native receipts before provider replay admission, while retaining the normal publication proof and current authority checks.",
@@ -3404,7 +3431,9 @@
         "Reuse only completed attempt-pinned reads whose exact job inventory or log range is covered. Live refresh, new attempts and uncovered bytes remain new work.",
         "Retained findings remain bound to the same accepted task and evidence epoch. An interruption remains partial and cannot manufacture completion or replay authority.",
         "Attempt retained failure delivery at most once per run collection, and never after authority invalidation or an unknown operation outcome; a later explicit resume receives a fresh delivery boundary.",
-        "Capture the complete original provider invocation before applying accepted repository or revision scope; effective arguments may narrow the request without replacing its immutable identity proof."
+        "Capture the complete original provider invocation before applying accepted repository or revision scope; effective arguments may narrow the request without replacing its immutable identity proof.",
+        "Judge progress once from the authoritative current tool results before presentation compaction or instruction appends; keep only bounded progress state afterward.",
+        "An explicit all-tools checklist fairly interleaves exact schema acquisition, version-bound directory traversal and independent authorized reads; discovery cannot renew source staleness or expand permission and budget."
       ],
       "routing": {
         "role": "executor",
@@ -3666,24 +3695,28 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirror.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncService.kt",
         "gateway/v14/code_graph/maintenance.py",
-        "gateway/v14/code_graph/sync.py"
+        "gateway/v14/code_graph/sync.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncEligibility.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRepositoryIndexMirrorTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryTreeDiscoveryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositorySourcePriorityTest.kt",
-        "gateway/tests/test_gateway_repository_index_sync.py"
+        "gateway/tests/test_gateway_repository_index_sync.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncEligibilityTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
         "python3 gateway/check_gateway.py"
       ],
       "documents": [
-        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md",
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
       ],
       "invariants": [
         "Keep the previous verified snapshot until all compressed pages and the complete target generation validate under current authority.",
-        "Retain a bounded subtree frontier and immutable source identities across restart; partial coverage stays explicit."
+        "Retain a bounded subtree frontier and immutable source identities across restart; partial coverage stays explicit.",
+        "Background Gateway mirror scheduling skips unconfigured or disabled profiles using current local settings; it never grants access, and every read still rechecks live authority."
       ],
       "routing": {
         "role": "evidence",

@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.ChatCompletionsEventAssembler
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -11,6 +14,68 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolRoundAdmissionTest {
+    @Test fun completeCallOverflowRetriesOnceWithoutDispatchingRejectedWrites() = runBlocking {
+        var rounds = 0
+        val executed = mutableListOf<String>()
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("update_record", "Update an authorized record", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                executed += callId
+                return AgentToolResult(callId, ToolResultContent.Text("Updated once"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                when (rounds++) {
+                    0 -> {
+                        val assembler = ChatCompletionsEventAssembler()
+                        val rejected = List(32) { index ->
+                            ChatToolCallDelta(index, "rejected-$index", function = ChatFunctionDelta("update_record", "{}"))
+                        }
+                        assembler.accept(null, null, rejected, "tool_calls").forEach { emit(it) }
+                    }
+                    1 -> {
+                        assertTrue(tools.single().description.contains("at most 1 total calls"))
+                        assertTrue(exchanges.isEmpty())
+                        assertTrue(executed.isEmpty())
+                        emit(ProviderEvent.ToolCall("corrected", "update_record", buildJsonObject {}))
+                    }
+                    else -> {
+                        assertEquals(listOf("corrected"), exchanges.flatMap { it.calls }.map { it.callId })
+                        emit(ProviderEvent.TextDelta("Updated the authorized record once"))
+                    }
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxToolCallsPerRound = 8)).run(session, listOf(tool)).toList()
+        assertEquals(3, rounds)
+        assertEquals(listOf("corrected"), executed)
+        assertEquals(1, events.filterIsInstance<AgentRunEvent.Notice>().count { "smaller batch" in it.message })
+        assertEquals(listOf("corrected"), events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.call.callId })
+    }
+
+    @Test fun completeCallOverflowChargesObservedCallsBeforeConsideringRepair() = runBlocking {
+        var rounds = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("lookup", "Lookup", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult = error("No calls fit")
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (rounds++ == 0) throw ToolBatchOversizeException("COMPLETE_CALL_COUNT", 32, 8, 32)
+                assertTrue(tools.isEmpty())
+                assertTrue(exchanges.isEmpty())
+                emit(ProviderEvent.TextDelta("The rejected batch exhausted the observed-call allowance"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxObservedToolCalls = 32, maxToolCallsPerRound = 8)).run(session, listOf(tool)).toList()
+        assertEquals(2, rounds)
+        assertTrue(events.none { it is AgentRunEvent.ToolFinished })
+        assertTrue(events.filterIsInstance<AgentRunEvent.Notice>().none { "smaller batch" in it.message })
+    }
+
     @Test fun parserSlotOverflowRetriesOneSmallBatchWithoutExecutingRejectedCalls() = runBlocking {
         var rounds = 0
         var executions = 0

@@ -60,6 +60,11 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if (listOf("causal_failure_code", "voice_chat_failure_code").any { (values[it] as? JsonPrimitive)?.contentOrNull in IssueReportCodes.applicationFailureCauses } ||
+            (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in ProviderFailureReceipt.REQUIRED_TOOL_CODES
+        ) {
+            add(IssueReportCodes.APPLICATION_FAILURE_CAUSES_FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in ExecutionCompletionDiagnostics.providerBudgetFields } ||
             (values["provider_wait_no_wait_reason"] as? JsonPrimitive)?.contentOrNull in ExecutionCompletionDiagnostics.providerLimitRefusals
         ) {
@@ -549,7 +554,7 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to setOf("GITHUB_TASK_IDENTITY_CHANGED", "PRIVACY_SERVICE_UNVERIFIED") + ExecutionCompletionDiagnostics.codes + GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "REQUEST_BYTES_EXCEEDED", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE, PrivacyFinalRequestFailureEvidence.CODE),
+            "provider_failure_code" to setOf("GITHUB_TASK_IDENTITY_CHANGED", "PRIVACY_SERVICE_UNVERIFIED") + ProviderFailureReceipt.REQUIRED_TOOL_CODES + ExecutionCompletionDiagnostics.codes + GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "REQUEST_BYTES_EXCEEDED", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE, PrivacyFinalRequestFailureEvidence.CODE),
             GatewayCapabilityFailureEvidence.KIND to GatewayCapabilityFailureEvidence.kinds,
             GatewayCapabilityFailureEvidence.DECODE_REASON to GatewayCapabilityFailureEvidence.decodeReasons,
             "privacy_reason_code" to PrivacyFailureEvidence.reasonCodes,

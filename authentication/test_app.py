@@ -601,6 +601,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.append("DEVICE_PRIVACY_POLICY_CHANGE_V1")
         additions.append("VOICE_FALLBACK_CAUSES_V1")
         additions.append("STAGED_DISPATCH_EVIDENCE_V1")
+        additions.append("APPLICATION_FAILURE_CAUSES_V1")
         additions.insert(additions.index("GITHUB_VALIDATION_CONTEXT_V1") + 1, "CAPABILITY_READINESS_EVIDENCE_V1")
         additions.insert(additions.index("CAPABILITY_READINESS_EVIDENCE_V1") + 1, "RESEARCH_RECOVERY_EVIDENCE_V1")
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")

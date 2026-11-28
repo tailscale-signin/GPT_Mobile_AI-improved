@@ -674,7 +674,7 @@ class AgentRunner(
                 // operation is a progress boundary, not another retry of that outage.
                 recoveryState.githubRecoveries = 0
             }
-            val stalled = if (limits.githubTask) exchanges.lastOrNull()?.let(investigation::observe) else null
+            val stalled = completed.batch.investigationStall
             if ((unsuccessfulGitHubRounds >= 3 || stalled != null) && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
                 val replan = if (automaticRecovery != null && !session.handlesToolsInternally && !retainedUnknownOutcome && unknownOutcomes.isEmpty()) {
                     resumeGitHubInvestigation(investigation, ciInvestigation, exposedDefinitions.filter { it.name in executableToolByName }, exchanges, consumedCallIds)
@@ -1947,7 +1947,9 @@ class AgentRunner(
             exposedDefinitions.isNotEmpty() &&
             observedToolCalls < observedLimit &&
             rounds < limits.maxRounds &&
-            round.batchRejection?.contains("threshold=STREAM_TOOL_SLOTS") == true
+            round.batchRejection?.let { rejection ->
+                rejection.contains("threshold=STREAM_TOOL_SLOTS ") || rejection.contains("threshold=COMPLETE_CALL_COUNT ")
+            } == true
         ) {
             val batchSize = 1
             val repaired = (if (limits.githubMode) exposedDefinitions else exposedDefinitions.take(4)).map { definition ->
@@ -2056,7 +2058,7 @@ class AgentRunner(
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
-    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean, val finalResponseReason: GitHubIntegrationFinalization.Reason?)
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean, val finalResponseReason: GitHubIntegrationFinalization.Reason?, val investigationStall: String?)
 
     /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
@@ -2087,6 +2089,11 @@ class AgentRunner(
                 isError = true
             )
         }.toMutableList()
+        // Progress consumes the authoritative current result once, before replay
+        // projection or wrap-up instructions can remove run IDs, source ranges
+        // or catalog page identities. Only bounded progress state and a stop
+        // reason survive; full result bodies leave the in-memory exchange below.
+        val investigationStall = if (limits.githubTask) investigation.observe(AgentToolExchange(calls, allResults)) else null
         // Discovery that leaves the advertised set unchanged is not research progress.
         // After two such rounds, stop discovery. GitHub execution can continue with
         // its attached operations; unrelated conversations can finish from evidence.
@@ -2270,7 +2277,7 @@ class AgentRunner(
         ).exchanges
         exchanges.clear()
         exchanges.addAll(retained)
-        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError }, finalResponseReason)
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError }, finalResponseReason, investigationStall)
     }
 
     private data class RoundResult(
@@ -2711,7 +2718,9 @@ class AgentRunner(
             if (error is ToolBatchOversizeException) {
                 batchRejection = error.message
                 batchRejected = true
-                if (error.threshold == "STREAM_TOOL_SLOTS") parserObservedCalls = error.observedValue?.coerceIn(0, 1024) ?: 0
+                if (error.threshold in setOf("STREAM_TOOL_SLOTS", "COMPLETE_CALL_COUNT")) {
+                    parserObservedCalls = error.observedValue?.coerceIn(0, 1024) ?: 0
+                }
                 return@catch
             }
             failureTransportComplete = false

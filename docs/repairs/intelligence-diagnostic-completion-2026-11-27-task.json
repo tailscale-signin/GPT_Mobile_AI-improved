@@ -8,7 +8,7 @@
   "workingBranch": "feature/windows-native-benchmark-kit",
   "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
   "intent": "Implement remaining diagnostic source-delivery, context, durable-task, acceptance, CI, Gateway and voice corrections on the live PR while preserving concurrent work.",
-  "state": "ACCOUNT_SCOPE_AND_CATALOG_FOLLOWUP_LOCAL_VALIDATED_PENDING_HOSTED_CI",
+  "state": "DIAGNOSTIC_PREFLIGHT_FOLLOWUP_LOCAL_VALIDATED_PENDING_HOSTED_CI",
   "authorization": "User requested implementation of the supplied November 27 diagnostic findings in the latest PR branches.",
   "constraints": [
     "Reconcile current remote head before writes and retain concurrent commits.",
@@ -78,6 +78,11 @@
       "state": "FULL_UNIT_INTEGRATION_CORRECTIONS",
       "sourceSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
       "details": "Retained hash-verified unfiltered unit report:15,457 cases,24 failures,6 skips,2,016 suites. Corrected repository/status/source relevance, explicit external destinations, same-conversation intent restoration, authorized discovery ranking, compact target prose, immutable saved-page progress and mandatory continuation capacity. Aligned stale fixtures with authenticated metadata, immutable page bodies, windowed extraction, coherent virtual time, recovery provenance, observed voice fields, Room updates and live opt-outs. No gate, timeout, ceiling or authority bypass. Focused actual-source regressions and independent routing review pass; full revised integration requires hosted execution."
+    },
+    {
+      "state": "CONCURRENT_DIAGNOSTIC_RECOVERY_RECONCILED",
+      "sourceSha": "e5d6ffdae20ea5a34b27b58f13f921a8e08d05f6",
+      "details": "Preserved tool-discovery handoffs, compact blocked reports, protected diagnostic projections and immutable commit pagination recovery. Superseded 34a Android jobs were canceled before unit/device execution. Reproduced e5d preflight EOF failures; normalized four logs and declared 24 exact missing paths without qualification or test-policy changes."
     }
   ],
   "validation": {
@@ -517,6 +522,92 @@
         "mismatches": 0,
         "note": "Inputs overlap; these are not unique source-file or test counts."
       }
+    },
+    "hostedBaseline34a": {
+      "sourceSha": "34a89430fab0e0862546590468724ac24e23ea50",
+      "mergeSha": "97cd4fa49ace1375c026889b4f14b1147619fa18",
+      "treeSha": "3762fffb78452401928ea837574af154bc27eeb9",
+      "fullUnitRuns": [
+        {
+          "runId": 46096006570,
+          "configuration": "standard",
+          "status": "CANCELLED_BEFORE_UNIT_EXECUTION"
+        },
+        {
+          "runId": 46096006586,
+          "configuration": "GenieX",
+          "status": "CANCELLED_BEFORE_UNIT_EXECUTION",
+          "productionKotlinCompilation": "PASS"
+        }
+      ],
+      "gateway": {
+        "runId": 46096006618,
+        "linux312": "PASS",
+        "linux313": "PASS",
+        "testsPerLinuxJob": 2324,
+        "modules": 166,
+        "skipsPerLinuxJob": 33,
+        "browserTestsPerJob": 7,
+        "stressEventsPerJob": 50000,
+        "authenticationTestsPerJob": 249,
+        "managedDockerTests": 41,
+        "windows312": "CANCELLED_BEFORE_AUTHENTICATION",
+        "windows313": "CANCELLED_BEFORE_AUTHENTICATION"
+      },
+      "windowsInstaller": {
+        "runId": 46096006482,
+        "jobId": 140827366898,
+        "status": "PASS",
+        "desktopTests": 242,
+        "campaignTests": 89,
+        "networkTests": 15,
+        "dashboardTests": 20,
+        "nativeBridgeAssertions": 435,
+        "packagedSmokeScenarios": 16,
+        "artifactId": 15243009987,
+        "artifactSizeBytes": 165120022,
+        "artifactSha256": "afab694766ee36d6602c8e394a92ad123934ccc5bab4f9a3ef0175609f50285b",
+        "productionPublication": "SKIPPED"
+      },
+      "androidAcceptance": {
+        "runId": 46096006474,
+        "status": "CANCELLED_WITHOUT_TEST_EXECUTION"
+      },
+      "minifiedNative": {
+        "runId": 46096006479,
+        "status": "CANCELLED_BEFORE_DEVICE_TEST_EXECUTION"
+      },
+      "note": "Historical revision only. A passing compile or canceled job is not a complete test result; later revisions require their own receipts."
+    },
+    "diagnosticPreflightFollowup": {
+      "parentSha": "e5d6ffdae20ea5a34b27b58f13f921a8e08d05f6",
+      "reproducedFailure": {
+        "runId": 46097097981,
+        "jobId": 140830941284,
+        "cause": "Four extra blank EOF lines in retained JUnit logs"
+      },
+      "exactScopePathsAdded": 24,
+      "preservedManifestFields": [
+        "version",
+        "versionCode",
+        "qualification",
+        "baseCommit",
+        "limitations",
+        "requiredWorkflows",
+        "publicationRequest"
+      ],
+      "fullBaseWhitespaceCheck": "PASS",
+      "strictReleaseScope": "PASS",
+      "hostCanonical": {
+        "status": "PASS",
+        "command": "bash scripts/validate-local.sh fast",
+        "tests": 850,
+        "skipped": 1,
+        "source": "Reconciled e5d source with preflight correction; no runtime changes in this follow-up."
+      },
+      "hostedContainingCommit": {
+        "status": "PENDING"
+      }
     }
   },
   "qualification": {
@@ -601,20 +692,21 @@
   },
   "publishedImplementationSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65",
   "latestFollowup": {
-    "parentSha": "f04372e40a04cbb3d332463ef8c9ad0327c63945",
+    "parentSha": "e5d6ffdae20ea5a34b27b58f13f921a8e08d05f6",
     "files": {
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt": "98d78f810eaf477db64ce3fe56c78761a13db74f5d6495a4e09a2760ade88bc6",
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "2388c914d8c97f71acbd83cb2379090079cdc88de5ced453644ebf4a0f55c8b1",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt": "c52d62b1f33220aac7e3ea69f5d9eb395f6c0f8a7b5a487c73b98079e64c6091",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScopeTest.kt": "5412a85e2f55ee827b2fc9ab592b2961042556f5e457d97ba3d6d6cf839c3a60",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": "e60dae9c86ce60a24762071298392eafcb6fbee0000b8825ade2ce5a530447cc"
+      "release-scope.json": "38133ebb47ee275d9168260f7a36b5a56cacd955eb73aca21dfe39caea5613ab",
+      "docs/repairs/evidence/diagnostic-4651922c/recovery-junit.log": "e3b445e9d89d0e56476806f98b95f833c29f5530a6e2ae84878d2c4b9d1920bc",
+      "docs/repairs/evidence/diagnostic-4651922c/reports-junit.log": "ea7bb0210e902699ca1450ef2d3e4e12a26f514cf47827d15845ceefc374153d",
+      "docs/repairs/evidence/diagnostic-4651922c/runtime-junit.log": "0cb032100b723831c53d2567a4387a5d997732cb57383aa7b1138d6e37b623cb",
+      "docs/repairs/evidence/diagnostic-4651922c/tools-junit.log": "aed17c0c9096ee3dfed9f0b4a963f62fcf99afaf41adfb8524ec1037f98a0d99"
     },
-    "change": "Keep account repository inventory outside selected-source intelligence and verify eviction/rediscovery under the existing eight/sixteen-tool windows; runtime ceilings remain unchanged."
+    "change": "Normalize four retained JUnit log endings and declare 24 exact reviewed diagnostic/pagination paths while preserving every release qualification, required workflow, version, base and limitation."
   },
   "publishedFollowupShas": [
     "7bfaf530b0f66c07940358e0c09d204f5be3d20b",
     "86e232f59e02e8abe7e3fc806a0255810f4c01f8",
-    "12dafb588273d641d2dad12bbd906484e03e7d52"
+    "12dafb588273d641d2dad12bbd906484e03e7d52",
+    "e92621adce3d20eaebce5b96bdb8c42f22e62c17"
   ],
   "followupHistory": [
     {
@@ -664,6 +756,18 @@
       },
       "change": "Repair hosted Windows UTF-8 contract reading and full Android integration failures while preserving accepted authority, exact source identity and existing limits.",
       "publishedSha": "12dafb588273d641d2dad12bbd906484e03e7d52"
+    },
+    {
+      "parentSha": "f04372e40a04cbb3d332463ef8c9ad0327c63945",
+      "files": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt": "98d78f810eaf477db64ce3fe56c78761a13db74f5d6495a4e09a2760ade88bc6",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "2388c914d8c97f71acbd83cb2379090079cdc88de5ced453644ebf4a0f55c8b1",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt": "c52d62b1f33220aac7e3ea69f5d9eb395f6c0f8a7b5a487c73b98079e64c6091",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScopeTest.kt": "5412a85e2f55ee827b2fc9ab592b2961042556f5e457d97ba3d6d6cf839c3a60",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": "e60dae9c86ce60a24762071298392eafcb6fbee0000b8825ade2ce5a530447cc"
+      },
+      "change": "Keep account repository inventory outside selected-source intelligence and verify eviction/rediscovery under the existing eight/sixteen-tool windows; runtime ceilings remain unchanged.",
+      "publishedSha": "e92621adce3d20eaebce5b96bdb8c42f22e62c17"
     }
   ]
 }

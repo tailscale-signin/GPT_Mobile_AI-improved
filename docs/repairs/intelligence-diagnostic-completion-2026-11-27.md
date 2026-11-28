@@ -268,6 +268,41 @@ skip because its emulator had no English TTS voice. These are exact historical
 receipts for `f04372e4`. The containing account-scope/catalog correction requires
 its own hosted checks and does not convert either failed unit suite into a pass.
 
+## Concurrent diagnostic recovery and preflight follow-up
+
+The implementation was preserved through `e92621ad`, the diagnostic handoff/export
+changes at `34a89430`, and immutable commit-pagination recovery at `e5d6ffda`.
+The incoming source keeps current authorization, incomplete-history and one-shot
+recovery guards. It does not change the accepted deadline or total tool allowance.
+The current task does not inherit issue-closure instructions recorded in another
+diagnostic report.
+
+At `34a89430`, the canonical host gate passed 850 tests with one skip. Fresh
+actual-source harnesses passed 15 scope/history cases, 16 extraction/window/budget
+cases and the full catalog regression with both eight- and sixteen-tool scenarios.
+These declared-boundary harnesses are separate from complete Android integration.
+The exact-head Windows installer run `46096006482` passed its 16 packaged smoke
+scenarios and retained artifact `15243009987`. Both Linux Gateway configurations
+passed all 2,324 cases, seven browser checks, 50,000-event stress and 249
+authentication cases. The Windows Gateway jobs were canceled by the next source
+push before their authentication stage, so they supply no Windows pass receipt.
+
+The standard and GenieX full unit jobs at that revision were canceled before
+test execution. GenieX production compilation passed, but that observation is
+not a unit-test result. API acceptance and minified/native checks were also
+canceled without executing their device tests. Earlier complete receipts remain
+historical; canceled runs do not qualify a later source revision.
+
+The `e5d6ffda` diagnostic preflight (`46097097981`, job `140830941284`)
+reproduced four extra blank lines at the end of newly retained JUnit logs. The
+follow-up normalizes those four log endings, preserving their results, and adds
+24 omitted, individually reviewed file paths to the release-scope manifest.
+It also describes the corresponding diagnostic and pagination changes. The
+version, base, required workflows, qualification and every disclosed limitation
+remain unchanged. No wildcard, test skip, timeout increase or authority change
+is introduced. The containing commit requires fresh hosted verification; its
+final check receipts remain associated with that exact revision in GitHub Actions.
+
 ## Coverage of the requested correction areas
 
 “Existing” below means a current runtime path and named behavioral tests were

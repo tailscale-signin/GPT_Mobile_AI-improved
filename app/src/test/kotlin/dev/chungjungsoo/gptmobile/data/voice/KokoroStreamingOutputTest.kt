@@ -369,6 +369,81 @@ class KokoroStreamingOutputTest {
         }
     }
 
+    @Test fun confirmedWarmReleaseWaitsForNativeDestructionAndDoesNotCloseTheOutputOwner() {
+        val created = CountDownLatch(1)
+        val closing = CountDownLatch(1)
+        val allowClose = CountDownLatch(1)
+        val retired = AtomicBoolean()
+        val acknowledged = CountDownLatch(1)
+        val engine = object : VoicePhraseEngine {
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() {
+                closing.countDown()
+                check(allowClose.await(5, TimeUnit.SECONDS))
+                retired.set(true)
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, beforeCreate = { created.countDown() }) { output ->
+            try {
+                output.prewarm(KokoroVoice.HEART)
+                assertTrue(created.await(3, TimeUnit.SECONDS))
+                output.releaseWarmModel {
+                    assertTrue(retired.get())
+                    acknowledged.countDown()
+                }
+                assertTrue(closing.await(3, TimeUnit.SECONDS))
+                shadowOf(Looper.getMainLooper()).idle()
+                assertEquals(1L, acknowledged.count)
+            } finally {
+                allowClose.countDown()
+            }
+            awaitMain(acknowledged)
+            assertEquals(0L, acknowledged.count)
+            // The release is a handoff, not permanent destruction of this runtime.
+            val emptyRelease = CountDownLatch(1)
+            output.releaseWarmModel { emptyRelease.countDown() }
+            awaitMain(emptyRelease)
+            assertEquals(0L, emptyRelease.count)
+        }
+    }
+
+    @Test fun interveningWarmupInvalidatesAPendingReleaseAcknowledgement() {
+        val firstCreated = CountDownLatch(1)
+        val replacementCreated = CountDownLatch(1)
+        val closing = CountDownLatch(1)
+        val allowClose = CountDownLatch(1)
+        val constructions = AtomicInteger()
+        val acknowledged = AtomicBoolean()
+        val engine = object : VoicePhraseEngine {
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() {
+                closing.countDown()
+                check(allowClose.await(5, TimeUnit.SECONDS))
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, beforeCreate = {
+            if (constructions.incrementAndGet() == 1) firstCreated.countDown() else replacementCreated.countDown()
+        }) { output ->
+            try {
+                output.prewarm(KokoroVoice.HEART)
+                assertTrue(firstCreated.await(3, TimeUnit.SECONDS))
+                output.releaseWarmModel { acknowledged.set(true) }
+                assertTrue(closing.await(3, TimeUnit.SECONDS))
+                output.prewarm(KokoroVoice.HEART)
+            } finally {
+                allowClose.countDown()
+            }
+            assertTrue(replacementCreated.await(3, TimeUnit.SECONDS))
+            val finalRelease = CountDownLatch(1)
+            output.releaseWarmModel { finalRelease.countDown() }
+            awaitMain(finalRelease)
+            assertEquals(0L, finalRelease.count)
+            assertFalse(acknowledged.get())
+        }
+    }
+
     @Test fun failedNativeDestructionRetainsTheModelLeaseAndBlocksReplacement() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val directory = Files.createTempDirectory("failed-speech-retirement").toFile()
@@ -398,15 +473,18 @@ class KokoroStreamingOutputTest {
             }
         }
         val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().build() }, { 1f })
+        val acknowledged = AtomicBoolean()
         try {
             output.configureEngine(factory)
             output.prewarm(KokoroVoice.HEART)
             assertTrue(created.await(3, TimeUnit.SECONDS))
-            output.releaseWarmModel()
+            output.releaseWarmModel { acknowledged.set(true) }
             assertTrue(closed.await(3, TimeUnit.SECONDS))
             output.prewarm(KokoroVoice.HEART)
             output.close()
             assertFalse(output.awaitClosed(1_000))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(acknowledged.get())
             assertEquals(1, creations.get())
             leases.assertNativeAssetsRetained()
         } finally {
@@ -437,12 +515,16 @@ class KokoroStreamingOutputTest {
             }
         }
         val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().build() }, { 1f })
+        val acknowledged = AtomicBoolean()
         try {
             output.configureEngine(factory)
             output.prewarm(KokoroVoice.HEART)
             assertTrue(failed.await(3, TimeUnit.SECONDS))
+            output.releaseWarmModel { acknowledged.set(true) }
             output.close()
             assertFalse(output.awaitClosed(1_000))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(acknowledged.get())
             leases.assertNativeAssetsRetained()
         } finally {
             output.close()

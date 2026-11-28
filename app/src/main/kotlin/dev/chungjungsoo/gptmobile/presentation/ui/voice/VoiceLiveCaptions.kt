@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTiming
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionTranscript
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import kotlin.math.floor
 import kotlinx.coroutines.flow.StateFlow
@@ -91,18 +92,19 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
             speaking,
             compact,
             liveCursor?.timing,
+            state.recognitionTranscript?.takeIf { caption.speaker == "You" && it.text == caption.text },
             modifier.graphicsLayer { alpha = opacity.value }.testTag("voice_live_captions").padding(horizontal = 12.dp)
         )
     }
 }
 
 @Composable
-private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, speaking: Boolean, compact: Boolean, timing: VoiceCaptionTiming?, modifier: Modifier) {
+private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, speaking: Boolean, compact: Boolean, timing: VoiceCaptionTiming?, recognition: VoiceRecognitionTranscript?, modifier: Modifier) {
     val wordCache = remember(caption.speaker) { VoiceCaptionWordCache() }
     val words = remember(caption.text) { wordCache.update(caption) }
     val active = when {
         speaking -> caption.highlightRange(spokenRange, words)
-        caption.live && caption.speaker == "You" -> words.lastOrNull()
+        caption.live && caption.speaker == "You" -> recognition?.timings?.lastOrNull()?.range ?: words.lastOrNull()
         else -> null
     }
     var lastSpoken by remember { mutableIntStateOf(-1) }
@@ -120,6 +122,8 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
     val ink = MaterialTheme.colorScheme.onSurface
     val accessibleText = remember(caption.text) { AnnotatedString(caption.text) }
     val animate = voiceMotionEnabled()
+    var timingSnapshot by remember { mutableStateOf<VoiceRecognitionTranscript?>(null) }
+    timingSnapshot?.let { VoiceRecognitionTimingsDialog(it) { timingSnapshot = null } }
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val width = constraints.maxWidth.coerceAtLeast(1)
         val layoutCache = remember(caption.speaker, focusStyle, measurer, width, normalTypeface, boldTypeface) { VoiceCaptionLayoutCache() }
@@ -254,6 +258,10 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text("Return to live", color = accent, style = MaterialTheme.typography.labelLarge)
+                    }
+                } else if (!recognition?.timings.isNullOrEmpty()) {
+                    TextButton(onClick = { timingSnapshot = recognition }, modifier = Modifier.testTag("voice_recognition_show_timing")) {
+                        Text("Timing", color = accent, style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

@@ -66,6 +66,7 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -113,7 +114,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         if (!mutable.value.running) mutable.value.history.getOrNull(index)?.let { report -> mutable.update { it.copy(report = report) } }
     }
 
-    fun startFull(voice: KokoroVoice, threads: Int, rate: Float, captionOffsetMs: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, beforeStart: () -> Unit = {}, resume: Boolean = false) {
+    fun startFull(voice: KokoroVoice, threads: Int, rate: Float, captionOffsetMs: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, beforeStart: suspend () -> Unit = {}, resume: Boolean = false) {
         if (!mutable.value.loaded || mutable.value.running || mutable.value.nativeCleanupPending) return
         val previous = if (resume) mutable.value.suite else null
         if (resume && (gateway != null || previous == null || !previous.hasUnfinishedStages || previous.continuationSignature == null)) {
@@ -125,19 +126,18 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             mutable.update { it.copy(notice = "Another voice benchmark owns the audio device.").withQuarantine(benchmarkLease.quarantineReason.value) }
             return
         }
-        try {
-            beforeStart()
-        } catch (_: Exception) {
-            lease.release()
-            mutable.update { it.copy(notice = "The active voice session could not release audio.") }
-            return
-        }
         stopOrigin.set(null)
         cancelled.set(false)
-        mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null, suite = previous) }
-        job = viewModelScope.launch(ConversationPrivacyContext.capture() ?: EmptyCoroutineContext) {
+        mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = "Releasing the active voice models before the benchmark…", report = null, suite = previous) }
+        job = viewModelScope.launch(ConversationPrivacyContext.capture() ?: EmptyCoroutineContext, start = CoroutineStart.UNDISPATCHED) {
             try {
-                withContext(Dispatchers.IO) { runFull(voice, threads, rate, captionOffsetMs, streamingVoice, performance, feedback, gateway, lease, previous) }
+                val started = runAfterVoiceBenchmarkRetirement(lease, beforeStart, cancelled::get, { quarantine(lease, beforeStart) }) {
+                    mutable.update { it.copy(notice = null) }
+                    withContext(Dispatchers.IO) { runFull(voice, threads, rate, captionOffsetMs, streamingVoice, performance, feedback, gateway, lease, previous) }
+                }
+                if (!started) mutable.update { it.copy(notice = "Benchmark stopped before starting measurements.") }
+            } catch (_: VoiceBenchmarkHandoffException) {
+                mutable.update { it.withQuarantine(benchmarkLease.quarantineReason.value) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -153,6 +153,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     }
 
     private suspend fun runFull(voice: KokoroVoice, threads: Int, rate: Float, offset: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, lease: VoiceSpeechBenchmarkOwnership.Lease, previous: VoiceBenchManifest?) {
+        if (cancelled.get()) return
         val plan = fullVoiceBenchPlan(threads, rate, VoiceCpuSchedulingPolicy.deviceLimit())
         val started = System.currentTimeMillis()
         val id = "$started-${UUID.randomUUID()}"

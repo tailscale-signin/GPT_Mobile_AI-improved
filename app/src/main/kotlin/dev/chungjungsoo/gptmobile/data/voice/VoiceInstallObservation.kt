@@ -121,8 +121,8 @@ internal data class VoiceInstallState(
             observed.stage?.let { put("voice_install_transfer_stage", it.name) }
             observed.failureKind?.let { put("voice_install_failure_kind", it.name) }
             observed.httpStatus?.takeIf { it in 100..599 }?.let { put("voice_install_http_status", it) }
-            observed.downloadedBytes.takeIf { it in 0..1_000_000_000 }?.let { put("voice_install_downloaded_bytes", it) }
-            observed.totalBytes.takeIf { it in 1..1_000_000_000 }?.let { put("voice_install_total_bytes", it) }
+            observed.downloadedBytes.takeIf { it in 0..17_179_869_184L }?.let { put("voice_install_downloaded_bytes", it) }
+            observed.totalBytes.takeIf { it in 1..17_179_869_184L }?.let { put("voice_install_total_bytes", it) }
         }
     }
 

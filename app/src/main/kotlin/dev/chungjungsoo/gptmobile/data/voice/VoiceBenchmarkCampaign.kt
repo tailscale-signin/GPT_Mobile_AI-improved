@@ -36,6 +36,10 @@ internal class VoiceBenchmarkCampaign(
                 checkpoint(current.update(index, VoiceBenchResult(stage.label, VoiceBenchStatus.RUNNING)))
                 val result = measure(index, stage)
                 checkpoint(current.update(index, result))
+                if (result.status == VoiceBenchStatus.INTERRUPTED) {
+                    finish = if (result.reason == "THERMAL_LIMIT") "THERMAL_LIMIT" else "INTERRUPTED"
+                    break
+                }
             }
             finish = stopReason() ?: finish
         } catch (cancelled: CancellationException) {

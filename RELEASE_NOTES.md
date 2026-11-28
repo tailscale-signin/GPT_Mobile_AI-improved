@@ -1,5 +1,21 @@
 # Android 0.9.66.19 — GitHub intelligence, voice and Windows Gateway
 
+## Streaming recognition integration
+
+- Add selectable Moonshine Streaming Small/Medium, streaming Zipformer English/French and Nemotron 3.5 recognition, with verified processor-specific packs, persistent model/language/thread selection, cancellation, prewarming and safe native retirement.
+- Implement real Nemotron CPU, supported Qualcomm Adreno GPU and SM8750 HTP routes, observed provider receipts and direct mapping of published NPU contexts; retain failure or mixed execution instead of claiming unobserved acceleration.
+- Carry native word intervals or token starts through Voice Mode and translation-source captions, with immutable timing inspection, exact stream/revision admission and no invented token endings or playback-clock substitution.
+- Extend the resumable voice suite after quick Pocket/LiteRT screening with paced recognition fixtures, matched automatic CPU calibration and explicit whole-device thermal/battery evidence boundaries.
+- Repair the current-head investigation-tracker compilation failure by passing the existing run-owned tracker, and restore complete secret-history fixture inputs while retaining every real scanner control.
+
+### Recognition qualification boundaries
+
+- Expanded streaming recognition has no physical Adreno/SM8750 HTP, acoustic boundary, sustained thermal or battery qualification from host tests. Nemotron NPU requires its exact SM8750 context pack; GPU uses a distinct large FP32 pack and may include CPU operations.
+- Recognizers supplying token starts do not establish acoustic word endings. Unsupported timing stays unknown, and the pinned Sherpa packs do not provide dictionary recognition bias; output pronunciations retain their existing behavior.
+- Large model-install diagnostic counts require the updated VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1 report receiver. Clients preserve approved reports and reject unsupported destinations before sending those extended counts.
+
+The expanded recognition request remains subject to its exact-head CI and target-device qualification before merge or publication. See `docs/repairs/streaming-recognition-integration-2026-11-28-task.json` for observed checks and outstanding evidence.
+
 ## Conversation intelligence diagnostic follow-up
 
 - Count fresh CI results before shortening them for the next prompt, and give hidden GitHub tools a bounded discovery turn during all-tools verification.

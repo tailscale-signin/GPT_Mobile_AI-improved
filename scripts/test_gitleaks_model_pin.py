@@ -82,6 +82,19 @@ POCKET_HISTORICAL_PATHS = (
     POCKET_LICENSE_PATH, POCKET_FIXTURE_PATH, VERIFICATION_PATH,
 )
 POCKET_CLASSPATH_LABEL = "/workspace/scratch/d6788699ebc6/pocket-research/litert-api-2.4.1.jar"
+RECOGNITION_CATALOG_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt"
+RECOGNITION_EVIDENCE_PATH = "docs/audits/voice-recognition-models.json"
+RECOGNITION_PROVENANCE_PATH = "docs/audits/recognition-history-declaration-provenance.json"
+RECOGNITION_HISTORICAL_BLOBS = (
+    (RECOGNITION_CATALOG_PATH, "ebd65ad963db5ad202fd66b66e94e67dafd70e8e"),
+    (RECOGNITION_EVIDENCE_PATH, "0cda07dbf4b934d112a91010193b1cce62a9beac"),
+)
+RECOGNITION_PUBLIC_DECLARATIONS = (
+    ("zipformer_en_public_digest", "zipformerEn", "ZIPFORMER_EN", "zipformer-en",
+     "csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17"),
+    ("zipformer_fr_public_digest", "zipformerFr", "ZIPFORMER_FR", "zipformer-fr",
+     "shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14"),
+)
 
 
 def model_digest():
@@ -317,6 +330,92 @@ def pocket_declaration_cases(alternate_digest, litert_api_aar=None):
     return cases
 
 
+def recognition_historical_inputs():
+    """Keep these published artifact declarations bound to immutable source bytes."""
+    proof = json.loads((ROOT / RECOGNITION_PROVENANCE_PATH).read_text(encoding="utf-8"))
+    if proof["schemaVersion"] != 1 or proof["sourceBasis"] != "immutable_git_blobs":
+        raise ValueError("recognition_provenance_contract")
+    rows = proof["historicalInputs"]
+    if (len(rows) != len(RECOGNITION_HISTORICAL_BLOBS)
+            or {row["path"]: row["gitBlob"] for row in rows} != dict(RECOGNITION_HISTORICAL_BLOBS)):
+        raise ValueError("recognition_provenance_paths")
+    environment = isolated_environment()
+    inputs = {}
+    for row in rows:
+        blob = row["gitBlob"]
+        if not isinstance(blob, str) or not re.fullmatch(r"[0-9a-f]{40}", blob):
+            raise ValueError("recognition_provenance_object")
+        if quiet(["git", "cat-file", "-t", blob], ROOT, environment) != "blob":
+            raise ValueError("recognition_provenance_object_type")
+        result = subprocess.run(["git", "cat-file", "blob", blob], cwd=ROOT,
+                                env=environment, capture_output=True, timeout=10)
+        if result.returncode:
+            raise ValueError("recognition_provenance_object_unavailable")
+        raw = result.stdout
+        identity = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+        if (identity != blob or len(raw) != row["bytes"]
+                or hashlib.sha256(raw).hexdigest() != row["sha256"]):
+            raise ValueError("recognition_provenance_object_identity")
+        inputs[row["path"]] = raw
+    return inputs
+
+
+def recognition_declaration_cases(alternate_digest, model_root=None):
+    proof = json.loads((ROOT / RECOGNITION_PROVENANCE_PATH).read_text(encoding="utf-8"))
+    inputs = recognition_historical_inputs()
+    catalog = inputs[RECOGNITION_CATALOG_PATH].decode("utf-8")
+    evidence_text = inputs[RECOGNITION_EVIDENCE_PATH].decode("utf-8")
+    evidence = json.loads(evidence_text)
+    artifacts = proof["artifacts"]
+    if len(artifacts) != len(RECOGNITION_PUBLIC_DECLARATIONS):
+        raise ValueError("recognition_public_artifact_count")
+    cases = []
+    for name, declaration, model, fixture, publisher in RECOGNITION_PUBLIC_DECLARATIONS:
+        recorded = [row for row in artifacts if row["model"] == fixture]
+        published = [row for row in evidence["zipformer"] if row["repository"] == publisher]
+        if len(recorded) != 1 or len(published) != 1:
+            raise ValueError("recognition_public_artifact_contract")
+        artifact, published = recorded[0], published[0]
+        token_files = [row for row in published["files"] if row["rfilename"] == "tokens.txt"]
+        digest, revision = artifact["sha256"], artifact["revision"]
+        if (not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or not re.fullmatch(r"[0-9a-f]{40}", revision)
+                or len(token_files) != 1
+                or published["revision"] != revision
+                or published["tokens_sha256"] != digest
+                or token_files[0]["size"] != artifact["bytes"]
+                or token_files[0]["blobId"] != artifact["gitBlob"]):
+            raise ValueError("recognition_publisher_identity_contract")
+        publisher_root = "https://huggingface.co/" + publisher + "/resolve/" + revision + "/"
+        if artifact["publisherFile"] != publisher_root + "tokens.txt":
+            raise ValueError("recognition_publisher_url_contract")
+        blocks = re.findall(r"(?ms)^    private val " + re.escape(declaration)
+                            + r" = VoiceRecognitionModelPack\(\n(.*?)^    \)\n", catalog)
+        if len(blocks) != 1:
+            raise ValueError("recognition_catalog_declaration_contract")
+        block = blocks[0]
+        pins = [match.groups() for line in block.splitlines()
+                if (match := re.fullmatch(
+                    r'\s*asset\("tokens\.txt", ([0-9_]+)L, "([0-9a-f]{64})", "([^"]+)"\),?\s*', line))]
+        if (len(pins) != 1 or int(pins[0][0].replace("_", "")) != artifact["bytes"]
+                or pins[0][1:] != (digest, publisher_root)
+                or '        model = VoiceRecognitionModel.' + model + ',' not in block.splitlines()
+                or '        revision = "' + revision + '",' not in block.splitlines()):
+            raise ValueError("recognition_catalog_pin_contract")
+        pattern = r'\s*"tokens_sha256": "' + digest + r'",\s*'
+        if sum(re.fullmatch(pattern, line) is not None for line in evidence_text.splitlines()) != 1:
+            raise ValueError("recognition_public_declaration_contract")
+        if model_root is not None:
+            raw = (model_root / fixture / "tokens.txt").read_bytes()
+            identity = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+            if (len(raw) != artifact["bytes"] or identity != artifact["gitBlob"]
+                    or hashlib.sha256(raw).hexdigest() != digest):
+                raise ValueError("recognition_public_artifact_bytes")
+        cases.extend(exact_declaration_cases(
+            name, RECOGNITION_EVIDENCE_PATH, "tokens_sha256", digest, alternate_digest))
+    return cases
+
+
 def immutable_outer_evidence_line():
     raw = (ROOT / HISTORY_OUTER_EVIDENCE_PATH).read_bytes()
     if hashlib.sha256(raw).hexdigest() != HISTORY_OUTER_FILE_SHA256:
@@ -401,6 +500,8 @@ def main():
     parser.add_argument("--report", type=Path)
     parser.add_argument("--litert-api-aar", type=Path,
                         help="Optionally reproduce the approved AAR-to-classes.jar byte proof")
+    parser.add_argument("--recognition-model-root", type=Path,
+                        help="Optionally verify publisher token bytes in zipformer-en/ and zipformer-fr/")
     args = parser.parse_args()
     scanner, config = args.scanner.resolve(), args.config.resolve()
     summary = {"scannerVersion": VERSION, "cases": [], "passed": False}
@@ -478,6 +579,8 @@ def main():
         cases.extend(outer_evidence_cases(alternate_digest))
         cases.extend(pocket_declaration_cases(alternate_digest, args.litert_api_aar))
         summary["pocketDependencyArchiveBytesVerified"] = args.litert_api_aar is not None
+        cases.extend(recognition_declaration_cases(alternate_digest, args.recognition_model_root))
+        summary["recognitionArtifactBytesVerified"] = args.recognition_model_root is not None
         if len({case[0] for case in cases}) != len(cases):
             raise ValueError("duplicate_scanner_case")
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:

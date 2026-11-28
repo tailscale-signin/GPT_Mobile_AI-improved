@@ -95,11 +95,15 @@ class VoicePluginAudioTest {
         }
     }
 
-    private class LocalInput : VoiceRecognitionInput {
+    private class LocalInput : LocalVoiceRecognitionInput {
         override var languageTag = "en-CA"
+        override var listeningStyle = VoiceListeningStyle.NATURAL
+        override var captureBatchMs = 40
         var starts = 0
         var stops = 0
         var closes = 0
+        val warmReleaseCallbacks = mutableListOf<(() -> Unit)?>()
+        val stopsAtWarmRelease = mutableListOf<Int>()
         var failure: String? = null
         override fun listen(listener: VoiceAudio.Listener) {
             starts++
@@ -107,6 +111,10 @@ class VoicePluginAudioTest {
         }
         override fun stop() {
             stops++
+        }
+        override fun releaseWarmModel(completed: (() -> Unit)?) {
+            warmReleaseCallbacks += completed
+            stopsAtWarmRelease += stops
         }
         override fun close() {
             closes++
@@ -173,6 +181,36 @@ class VoicePluginAudioTest {
         assertEquals(1, system.starts)
         assertEquals(0, local.starts)
         assertTrue(local.stops > 0)
+    }
+
+    @Test fun leavingLocalRequestsWarmReleaseAfterCaptureStopsWithoutClaimingRetirement() {
+        audio.listen(listener)
+        val stopped = local.stops
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        assertEquals(listOf(stopped + 1), local.stopsAtWarmRelease)
+        assertEquals(1, local.warmReleaseCallbacks.size)
+        // Route selection requests cleanup; only the native owner can confirm retirement.
+        assertEquals(null, local.warmReleaseCallbacks.single())
+        assertEquals(0, local.closes)
+        assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, audio.recognitionBackend)
+    }
+
+    @Test fun warmReleaseOccursOncePerOpenLocalToSystemTransition() {
+        audio.recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
+        assertTrue(local.warmReleaseCallbacks.isEmpty())
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        audio.listen(listener)
+        audio.recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
+        audio.recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
+        assertEquals(1, local.warmReleaseCallbacks.size)
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        assertEquals(2, local.warmReleaseCallbacks.size)
+        assertTrue(local.warmReleaseCallbacks.all { it == null })
+        audio.close()
+        audio.recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        assertEquals(2, local.warmReleaseCallbacks.size)
     }
 
     @Test fun spokenReplyStopsLocalInputAndUsesExistingOutput() {

@@ -32,7 +32,8 @@ kokoro_dependency_url(sherpa_url
 FetchContent_Declare(sherpa
     URL ${sherpa_url}
     URL_HASH SHA256=39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086
-    PATCH_COMMAND ${GIT_EXECUTABLE} --git-dir=. --work-tree=. apply ${CMAKE_CURRENT_SOURCE_DIR}/sherpa-timing.patch)
+    PATCH_COMMAND ${GIT_EXECUTABLE} --git-dir=. --work-tree=. apply ${CMAKE_CURRENT_SOURCE_DIR}/sherpa-timing.patch
+    COMMAND ${GIT_EXECUTABLE} --git-dir=. --work-tree=. apply ${CMAKE_CURRENT_SOURCE_DIR}/sherpa-streaming-asr.patch)
 FetchContent_Populate(sherpa)
 
 # Only the trained English letter-to-sound tables are linked into the frontend.
@@ -96,6 +97,7 @@ if(ANDROID)
     target_link_options(timed_kokoro PRIVATE -Wl,--strip-debug)
     target_link_libraries(timed_kokoro PRIVATE android log)
 endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/streaming_asr.cmake")
 if(NOT ANDROID)
     include(CTest)
     if(BUILD_TESTING)

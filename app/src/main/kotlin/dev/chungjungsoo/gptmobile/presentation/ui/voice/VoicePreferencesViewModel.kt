@@ -11,12 +11,17 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
+import dev.chungjungsoo.gptmobile.data.voice.RecognitionModelRegistry
+import dev.chungjungsoo.gptmobile.data.voice.RecognitionModelStore
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionCompute
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import dev.chungjungsoo.gptmobile.data.voice.localStore
@@ -44,6 +49,9 @@ internal data class VoicePreferences(
     val rate: Float = STANDARD_SPEECH_RATE,
     val voice: String = "",
     val recognitionBackend: VoiceRecognitionBackend = SpeechLanguages.recognitionBackend(language),
+    val recognitionModel: VoiceRecognitionModel = VoiceRecognitionModel.MOONSHINE_TINY,
+    val recognitionCompute: VoiceRecognitionCompute = VoiceRecognitionCompute.CPU,
+    val recognitionThreads: Int = 0,
     val kokoroVoice: KokoroVoice? = null,
     val spokenReplies: Boolean = true,
     val kokoroThreads: Int = VoiceCpuSchedulingPolicy.AUTO,
@@ -59,13 +67,17 @@ internal data class VoicePreferences(
     val translationMode: Boolean = false,
     val translationPair: VoiceTranslationPair = VoiceTranslationPair(),
     val translationSetupNotice: String? = null
-)
+) {
+    val recognitionConfiguration: VoiceRecognitionConfiguration
+        get() = VoiceRecognitionConfiguration(recognitionModel, recognitionCompute, recognitionThreads.coerceIn(0, 8)).supported()
+}
 
 internal data class VoiceModelStores(
     val moonshine: LocalVoiceModelStore,
     val kokoro: LocalVoiceModelStore,
     val defaultStreaming: LocalVoiceModelStore,
-    val kokoroVariant: KokoroModelVariant
+    val kokoroVariant: KokoroModelVariant,
+    val recognition: RecognitionModelRegistry
 )
 
 /** No preference open/read/write may block composition or microphone startup. */
@@ -74,7 +86,7 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     private val _modelStores = MutableStateFlow<VoiceModelStores?>(null)
     val modelStores = _modelStores.asStateFlow()
     private val refreshedNativeModels = CompletableDeferred<Unit>()
-    private var modelInstall: Job? = null
+    private val recognitionInstalls = mutableMapOf<String, Job>()
     private val kokoroInstalls = mutableMapOf<KokoroModelVariant, Job>()
     private var kokoroStores: Map<KokoroModelVariant, LocalVoiceModelStore> = emptyMap()
     val preferences = store.preferences
@@ -84,16 +96,21 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
         viewModelScope.launch {
             // Resolve the saved variant before exposing a runtime. No temporary INT8
             // owner is created merely because preference hydration is asynchronous.
-            val selected = preferences.filterNotNull().first().nativeModelVariant
+            val saved = preferences.filterNotNull().first()
+            val selected = saved.nativeModelVariant
             val stores = withContext(Dispatchers.IO) {
                 val directory = File(context.noBackupFilesDir, "voice-models")
                 val variants = KokoroModelVariant.entries.associateWith { KokoroModelPack.store(directory, variant = it) }
                 kokoroStores = variants
-                VoiceModelStores(LocalVoiceModelStore(directory), variants.getValue(selected), MediaPipeSpeechCatalog.model(MediaPipeSpeechCatalog.DEFAULT_ENGINE).localStore(directory), selected)
+                val tiny = LocalVoiceModelStore(directory)
+                VoiceModelStores(tiny, variants.getValue(selected), MediaPipeSpeechCatalog.model(MediaPipeSpeechCatalog.DEFAULT_ENGINE).localStore(directory), selected, RecognitionModelRegistry(directory, tiny))
             }
             _modelStores.value = stores
             coroutineScope {
                 launch { stores.moonshine.refresh(forceVerification = false) }
+                if (saved.recognitionModel != VoiceRecognitionModel.MOONSHINE_TINY) {
+                    launch { stores.recognition.store(saved.recognitionConfiguration).refresh(forceVerification = false) }
+                }
                 launch { stores.kokoro.refresh(forceVerification = false) }
             }
             refreshedNativeModels.complete(Unit)
@@ -101,6 +118,11 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     }
 
     suspend fun onVoiceLaunch() {
+        val saved = preferences.filterNotNull().first()
+        if (saved.recognitionModel != VoiceRecognitionModel.MOONSHINE_TINY) {
+            modelStores.filterNotNull().first().recognition.store(saved.recognitionConfiguration).refresh(forceVerification = false)
+            return
+        }
         val streaming = modelStores.filterNotNull().first().defaultStreaming
         streaming.refresh(forceVerification = false)
         // A missing default pack already requires setup. Its download can start while
@@ -111,23 +133,42 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
         VoicePluginInstall.onFirstVoiceLaunch(context, stores.kokoroVariant, installed)
     }
 
-    fun save(value: VoicePreferences) = store.save(value)
-
-    fun installLocalModel() {
-        if (modelInstall?.isActive == true) return
-        val localModels = _modelStores.value?.moonshine ?: return
-        modelInstall = viewModelScope.launch { localModels.install() }
+    fun save(value: VoicePreferences) {
+        val before = preferences.value?.recognitionConfiguration
+        store.save(value)
+        if (before != value.recognitionConfiguration) {
+            _modelStores.value?.recognition?.store(value.recognitionConfiguration)?.let { selected ->
+                viewModelScope.launch { selected.refresh(forceVerification = false) }
+            }
+        }
     }
 
-    fun cancelLocalModelInstall() {
-        VoicePluginInstall.cancel(context)
-        _modelStores.value?.moonshine?.cancelInstall()
-        modelInstall?.cancel()
+    private fun selectedRecognition(configuration: VoiceRecognitionConfiguration): RecognitionModelStore? =
+        _modelStores.value?.recognition?.store(configuration)
+
+    fun installLocalModel() = installRecognitionModel(preferences.value?.recognitionConfiguration ?: VoiceRecognitionConfiguration())
+
+    fun installRecognitionModel(configuration: VoiceRecognitionConfiguration) {
+        val selected = selectedRecognition(configuration) ?: return
+        if (recognitionInstalls[selected.pack.id]?.isActive == true) return
+        recognitionInstalls[selected.pack.id] = viewModelScope.launch { selected.install() }
     }
 
-    fun removeLocalModel() {
-        VoicePluginInstall.cancel(context)
-        viewModelScope.launch { _modelStores.value?.moonshine?.remove() }
+    fun cancelLocalModelInstall() = cancelRecognitionModelInstall(preferences.value?.recognitionConfiguration ?: VoiceRecognitionConfiguration())
+
+    fun cancelRecognitionModelInstall(configuration: VoiceRecognitionConfiguration) {
+        val selected = selectedRecognition(configuration) ?: return
+        if (selected.model == VoiceRecognitionModel.MOONSHINE_TINY) VoicePluginInstall.cancel(context)
+        selected.cancelInstall()
+        recognitionInstalls[selected.pack.id]?.cancel()
+    }
+
+    fun removeLocalModel() = removeRecognitionModel(preferences.value?.recognitionConfiguration ?: VoiceRecognitionConfiguration())
+
+    fun removeRecognitionModel(configuration: VoiceRecognitionConfiguration) {
+        val selected = selectedRecognition(configuration) ?: return
+        if (selected.model == VoiceRecognitionModel.MOONSHINE_TINY) VoicePluginInstall.cancel(context)
+        viewModelScope.launch { selected.remove() }
     }
 
     fun installKokoroModel() {

@@ -438,7 +438,7 @@ class IssueReportDiagnosticsTest {
         for ((key, value) in listOf(
             "voice_install_elapsed_ms" to JsonPrimitive(16_000_001),
             "voice_install_downloaded_bytes" to JsonPrimitive(-1),
-            "voice_install_total_bytes" to JsonPrimitive(1_000_000_001),
+            "voice_install_total_bytes" to JsonPrimitive(17_179_869_185L),
             "voice_install_http_status" to JsonPrimitive(600),
             "voice_install_downloaded_bytes" to JsonPrimitive("123"),
             "voice_install_pending_reason" to JsonPrimitive("private network"),
@@ -448,10 +448,31 @@ class IssueReportDiagnosticsTest {
         )) {
             assertNull(snapshot.copy(values = snapshot.values + (key to value)).validated())
         }
-        val boundary = capture("VOICE", mapOf("voice_install_total_bytes" to 1_000_000_000, "voice_install_http_status" to 599, "voice_install_failure_kind" to "HTTP"))
+        val boundary = capture("VOICE", mapOf("voice_install_total_bytes" to 17_179_869_184L, "voice_install_http_status" to 599, "voice_install_failure_kind" to "HTTP"))
         assertTrue(boundary.isValid())
         val otherArea = capture("PROVIDER", emptyMap()).copy(values = mapOf("voice_install_pending_reason" to JsonPrimitive("CONNECTIVITY")))
         assertNull(otherArea.validated())
+    }
+
+    @Test fun largeRecognitionGraphTransferKeepsExactLongByteCounts() {
+        val snapshot = capture("VOICE", mapOf("voice_install_downloaded_bytes" to 2_454_405_120L, "voice_install_total_bytes" to 2_594_373_279L))
+        assertTrue(snapshot.isValid())
+        assertEquals(JsonPrimitive(2_454_405_120L), snapshot.values["voice_install_downloaded_bytes"])
+        assertEquals(JsonPrimitive(2_594_373_279L), snapshot.values["voice_install_total_bytes"])
+        assertEquals(setOf("VOICE_INSTALL_EVIDENCE_V1", IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE), snapshot.requiredServiceFeatures())
+        assertNull(snapshot.copy(values = snapshot.values + ("voice_install_downloaded_bytes" to JsonPrimitive(17_179_869_185L))).validated())
+        for (field in listOf("voice_install_downloaded_bytes", "voice_install_total_bytes")) {
+            for (count in listOf(0L, 1_000_000_000L)) {
+                val legacy = capture("VOICE", mapOf(field to count))
+                assertTrue(legacy.isValid())
+                assertEquals(setOf("VOICE_INSTALL_EVIDENCE_V1"), legacy.requiredServiceFeatures())
+            }
+            val expanded = capture("VOICE", mapOf(field to 1_000_000_001L))
+            assertTrue(IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE in expanded.requiredServiceFeatures())
+            val omitted = capture("VOICE", emptyMap()).copy(omittedFields = listOf(field))
+            assertTrue(omitted.isValid())
+            assertEquals(setOf("VOICE_INSTALL_EVIDENCE_V1"), omitted.requiredServiceFeatures())
+        }
     }
 
     @Test fun omittedVoiceInstallEvidenceAndMissingWorkRequireMatchingReporterSupport() {

@@ -13,7 +13,7 @@ import dev.chungjungsoo.gptmobile.data.readiness.ChatReadinessCoordinator
 import dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings
 import dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudio
 import dev.chungjungsoo.gptmobile.data.voice.KokoroOutput
-import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
+import dev.chungjungsoo.gptmobile.data.voice.StreamingVoiceRecognizer
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlayback
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
@@ -38,7 +38,7 @@ internal data class VoiceTranslationPlayback(val target: VoiceTranslationTarget,
 
 internal class VoiceRuntime(
     val system: AndroidVoiceAudio,
-    val recognition: MoonshineVoiceRecognizer,
+    val recognition: StreamingVoiceRecognizer,
     val kokoro: KokoroOutput?,
     val audio: VoicePluginAudio,
     val session: VoiceSession,
@@ -103,7 +103,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(
             ConversationPrivacyContext(room.id.takeIf { it > 0 }, room.id <= 0 || room.privacyModeLocked)
         }
         system.bindConversationPrivacy(privacy)
-        val recognition = MoonshineVoiceRecognizer(context, stores.moonshine)
+        val recognition = StreamingVoiceRecognizer(context, stores.recognition)
         val kokoro = createKokoroVoiceOutput(context, stores.kokoro, system::playbackAttributes, { system.speechRate }, privacy)
         val audio = VoicePluginAudio(system, recognition, kokoro, system::captureOfflineSpeech, { system.releaseRecognition() })
         var observed: VoiceRuntime? = null
@@ -142,7 +142,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(
         if (runCatching { previous.session.close() }.isFailure) return false
         val retired = withContext(Dispatchers.IO) {
             withTimeoutOrNull(30_000) {
-                while (previous.kokoro?.awaitClosed(500) == false) delay(25)
+                while (previous.kokoro?.awaitClosed(500) == false || !previous.recognition.awaitClosed(500)) delay(25)
                 true
             } ?: false
         }

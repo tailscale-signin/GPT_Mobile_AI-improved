@@ -590,6 +590,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.insert(4, "VOICE_STREAMING_PACK_EVIDENCE_V1")
         additions.insert(5, "VOICE_STREAMING_INSTALL_EVIDENCE_V1")
         additions.insert(6, "VOICE_POCKET_COMPILED_EVIDENCE_V1")
+        additions.insert(additions.index("VOICE_STREAMING_INSTALL_EVIDENCE_V1") + 1, "VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1")
         additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "SAVED_PAGE_CAPACITY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
@@ -624,6 +625,21 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_large_voice_install_readiness_requires_the_extended_capability(self):
+        from scripts.check_issue_reporting_configuration import check_readiness
+        feature = "VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1"
+        legacy = self.client.get("/health/ready")
+        extended = self.client.get("/health/ready?capabilities=extended")
+        self.assertNotIn(feature, legacy.json()["reportDiagnosticFeatures"])
+        self.assertIn(feature, extended.json()["reportDiagnosticFeatures"])
+        self.assertEqual(1022, len(legacy.content))
+        self.assertLessEqual(len(extended.content), 4096)
+        check_readiness(self.origin, lambda _: extended.content)
+        older = extended.json()
+        older["reportDiagnosticFeatures"].remove(feature)
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness(self.origin, lambda _: json.dumps(older, separators=(",", ":")).encode())
 
     def test_policy_selection_capability_matches_new_names_and_clipped_cardinality(self):
         from authentication import incident_report_contract as capsule

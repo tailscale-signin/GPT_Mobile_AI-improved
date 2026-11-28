@@ -47,7 +47,15 @@ fun LicenseScreen(
     var showSourceNotices by remember { mutableStateOf(false) }
     val sourceNotices by produceState("") {
         value = withContext(Dispatchers.IO) {
-            listOf("amazon-mcp", "jsoup", "sonic-NOTICES").joinToString("\n\n") { name ->
+            listOf(
+                "amazon-mcp",
+                "jsoup",
+                "sonic-NOTICES",
+                "kokoro-sherpa-onnx-NOTICES",
+                "mediapipe-speech-models-NOTICES",
+                "streaming-asr-NOTICES",
+                "recognition-models-NOTICES"
+            ).joinToString("\n\n") { name ->
                 "$name\n\n" + context.assets.open("licenses/$name.txt").bufferedReader().use { it.readText() }
             }
         }

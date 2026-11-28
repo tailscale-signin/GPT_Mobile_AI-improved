@@ -33,6 +33,8 @@ interface VoiceAudio {
         fun level(value: Float)
         fun partial(text: String)
         fun final(text: String)
+        fun partialTranscript(transcript: VoiceRecognitionTranscript) = partial(transcript.text)
+        fun finalTranscript(transcript: VoiceRecognitionTranscript) = final(transcript.text)
         fun error(message: String)
     }
     fun retryAfterMillis(): Long = 0
@@ -99,7 +101,9 @@ data class VoiceState(
     val replyComplete: Boolean = false,
     /** Stable through preview, playback and pause; a new reply or explicit replay gets a new owner. */
     val captionPresentationId: Long = 0,
-    val translationPrompt: VoiceTranslationPrompt? = null
+    val translationPrompt: VoiceTranslationPrompt? = null,
+    /** Input-audio timestamps belong to this transcript; playback captions keep their own clock. */
+    val recognitionTranscript: VoiceRecognitionTranscript? = null
 )
 
 internal enum class VoiceMicrophoneAction { LISTEN, FINISH_CAPTURE, STOP }
@@ -263,7 +267,7 @@ class VoiceSession(
         replaceDraft()
         draftPending = true
         val edited = text.take(8000)
-        update(state.copy(phase = VoicePhase.REVIEWING, transcript = edited, translationPrompt = translationPrompt(edited), notice = null))
+        update(state.copy(phase = VoicePhase.REVIEWING, transcript = edited, translationPrompt = translationPrompt(edited), recognitionTranscript = state.recognitionTranscript?.withText(edited), notice = null))
     }
     private fun continueTurn(completedSpokenReply: Boolean = false) {
         diagnosticTrace.retain()
@@ -296,7 +300,7 @@ class VoiceSession(
         val pending = PreparingDraft(generation, draftGeneration, prompt)
         preparingDraft = pending
         draftPending = true
-        update(state.copy(phase = VoicePhase.FINALIZING, transcript = prompt, translationPrompt = translationPrompt(prompt), level = 0f, notice = null))
+        update(state.copy(phase = VoicePhase.FINALIZING, transcript = prompt, translationPrompt = translationPrompt(prompt), recognitionTranscript = state.recognitionTranscript?.withText(prompt), level = 0f, notice = null))
         if (!ownsPreparation(pending)) return
         try {
             prepare(prompt) { result ->
@@ -355,7 +359,7 @@ class VoiceSession(
         audio.bindDiagnostics(diagnosticProbe)
         waiting = true
         draftPending = awaitsAdmission
-        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, translationPrompt = translationPrompt(prompt), reply = "", level = 0f, readingDetails = false, replyComplete = false, captionPresentationId = captionPresentationSequence.incrementAndGet()))
+        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, translationPrompt = translationPrompt(prompt), recognitionTranscript = state.recognitionTranscript?.withText(prompt), reply = "", level = 0f, readingDetails = false, replyComplete = false, captionPresentationId = captionPresentationSequence.incrementAndGet()))
         if (pending != null) {
             if (!ownsPreparation(pending, submitting = true)) return
             preparingDraft = null
@@ -434,7 +438,7 @@ class VoiceSession(
             review -> VoicePhase.REVIEWING
             else -> VoicePhase.PAUSED
         }
-        update(state.copy(transcript = transcript, reply = reply, phase = phase, captionPresentationId = captionPresentationSequence.incrementAndGet(), translationPrompt = translationSource?.takeIf(String::isNotBlank)?.let { VoiceTranslationPrompt(generation, it) }))
+        update(state.copy(transcript = transcript, reply = reply, phase = phase, recognitionTranscript = null, captionPresentationId = captionPresentationSequence.incrementAndGet(), translationPrompt = translationSource?.takeIf(String::isNotBlank)?.let { VoiceTranslationPrompt(generation, it) }))
     }
     fun replay() {
         val text = state.reply
@@ -642,7 +646,7 @@ class VoiceSession(
         diagnosticProbe.access(permission, foreground, state.muted)
         audio.bindDiagnostics(diagnosticProbe)
         replaceDraft()
-        update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null, captionPresentationId = captionPresentationSequence.incrementAndGet()))
+        update(state.copy(phase = VoicePhase.STARTING, transcript = "", recognitionTranscript = null, level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null, captionPresentationId = captionPresentationSequence.incrementAndGet()))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
         fun recognitionFailed(
             message: String,
@@ -685,6 +689,14 @@ class VoiceSession(
         activeCaptureFeedback = feedback
         audio.listenWithFeedback(
             object : VoiceAudio.Listener {
+                private var revisions: VoiceRecognitionRevisions? = null
+                private var terminalTiming: VoiceRecognitionTranscript? = null
+
+                private fun accept(transcript: VoiceRecognitionTranscript): VoiceRecognitionTranscript? {
+                    if (!valid()) return null
+                    val ledger = revisions ?: VoiceRecognitionRevisions(transcript.streamId).also { revisions = it }
+                    return ledger.accept(transcript.trimmed())
+                }
                 override fun ready() {
                     if (valid()) {
                         // Starting the recognizer can fail. Retire the previous prompt only once capture is live.
@@ -717,8 +729,21 @@ class VoiceSession(
                         diagnosticProbe.recognized(text.length)
                         val partial = text.take(8000)
                         val source = translationPrompt(partial, ticket) ?: state.translationPrompt?.takeIf { it.captureId == ticket }
-                        update(state.copy(transcript = partial, translationPrompt = source))
+                        update(state.copy(transcript = partial, translationPrompt = source, recognitionTranscript = null))
                     }
+                }
+                override fun partialTranscript(transcript: VoiceRecognitionTranscript) {
+                    if (transcript.isFinal) return
+                    val observed = accept(transcript) ?: return
+                    diagnosticProbe.recognized(observed.text.length)
+                    val source = translationPrompt(observed.text, ticket) ?: state.translationPrompt?.takeIf { it.captureId == ticket }
+                    update(state.copy(transcript = observed.text, translationPrompt = source, recognitionTranscript = observed))
+                }
+                override fun finalTranscript(transcript: VoiceRecognitionTranscript) {
+                    if (!transcript.isFinal) return
+                    val observed = accept(transcript) ?: return
+                    terminalTiming = observed
+                    final(observed.text)
                 }
                 override fun final(text: String) {
                     if (!valid()) return
@@ -741,7 +766,8 @@ class VoiceSession(
                     }
                     recognitionFailures = 0
                     draftPending = true
-                    update(state.copy(phase = VoicePhase.REVIEWING, transcript = prompt, translationPrompt = translationPrompt(prompt, ticket), level = 0f))
+                    update(state.copy(phase = VoicePhase.REVIEWING, transcript = prompt, translationPrompt = translationPrompt(prompt, ticket), recognitionTranscript = terminalTiming?.withText(prompt), level = 0f))
+                    terminalTiming = null
                     if (!editBeforeSend) sendDraft()
                 }
                 override fun error(message: String) {

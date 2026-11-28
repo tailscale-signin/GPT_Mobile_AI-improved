@@ -76,6 +76,8 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMicrophoneAction
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionTranscript
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
@@ -106,6 +108,7 @@ internal data class VoiceConversationUiState(
     val handsFreeInterruption: Boolean = false,
     val interruptionState: kotlinx.coroutines.flow.StateFlow<VoiceInterruptionStatus>? = null,
     val recognitionBackend: VoiceRecognitionBackend = SpeechLanguages.recognitionBackend(language),
+    val recognitionConfiguration: VoiceRecognitionConfiguration = VoiceRecognitionConfiguration(),
     val replyLanguage: String = SpeechLanguages.default.tag,
     val translationMode: Boolean = false,
     val replyLanguageProfiles: List<SpeechLanguage> = SpeechLanguages.synthesis,
@@ -159,7 +162,7 @@ internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: V
             val sourceHeight = maxOf(maxHeight * .30f, firstSourceLine.coerceAtMost(maxHeight))
             val replyHeight = maxHeight * .48f
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                VoiceTranslationSource(state.session.translationPrompt.takeIf { state.translationMode }, Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = sourceHeight))
+                VoiceTranslationSource(state.session.translationPrompt.takeIf { state.translationMode }, state.session.recognitionTranscript, Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = sourceHeight))
                 VoiceConversationStatus(state, actions, compact, Modifier.weight(1f).fillMaxWidth())
                 if (state.translationMode) {
                     VoiceTranslationReply(state, compact, Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = replyHeight))
@@ -171,8 +174,11 @@ internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: V
 }
 
 @Composable
-private fun VoiceTranslationSource(prompt: VoiceTranslationPrompt?, modifier: Modifier) {
+private fun VoiceTranslationSource(prompt: VoiceTranslationPrompt?, timing: VoiceRecognitionTranscript?, modifier: Modifier) {
     val latest by rememberUpdatedState(prompt)
+    val latestTiming by rememberUpdatedState(timing)
+    var timingSnapshot by remember { mutableStateOf<VoiceRecognitionTranscript?>(null) }
+    timingSnapshot?.let { VoiceRecognitionTimingsDialog(it) { timingSnapshot = null } }
     val target = remember { MutableTransitionState<Long?>(null) }
     target.targetState = prompt?.captureId
     val transition = rememberTransition(target, label = "Translation source")
@@ -191,6 +197,8 @@ private fun VoiceTranslationSource(prompt: VoiceTranslationPrompt?, modifier: Mo
             ) {
                 Text("You", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(words, Modifier.testTag("voice_translation_source"), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface)
+                val observed = latestTiming?.takeIf { latest?.captureId == captureId && it.text == words && it.timings.isNotEmpty() }
+                if (observed != null) TextButton(onClick = { timingSnapshot = observed }) { Text("Timing") }
             }
         }
     }
@@ -327,9 +335,12 @@ private fun VoiceConversationSetup(state: VoiceConversationUiState, actions: Voi
     if (!state.recognitionReady) {
         Spacer(Modifier.height(16.dp))
         if (state.recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
-            LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, {})
+            LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, {}, model = state.recognitionConfiguration.model, compute = state.recognitionConfiguration.compute)
+            if (!state.recognitionConfiguration.model.supportsLanguage(state.language)) {
+                TextButton(onClick = actions.showSettings) { Text("Choose a supported recognition language") }
+            }
         } else {
-            Text("Android offline recognition is unavailable on this phone. Choose English and the Moonshine engine to use the bundled recognizer.", Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Android offline recognition is unavailable on this phone. Choose a local model that supports your recognition language.", Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = actions.showSettings) { Text("Choose speech language") }
         }
     }

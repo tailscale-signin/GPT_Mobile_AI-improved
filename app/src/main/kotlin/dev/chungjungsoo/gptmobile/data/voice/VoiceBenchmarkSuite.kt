@@ -24,7 +24,8 @@ internal data class VoiceBenchStage(
     val language: String? = null,
     val listeningStyle: VoiceListeningStyle? = null,
     val selectedVoiceId: String? = null,
-    val useCalibratedThreads: Boolean = false
+    val useCalibratedThreads: Boolean = false,
+    val recognition: VoiceRecognitionBenchmarkCase? = null
 ) {
     fun configuration(voice: KokoroVoice, streamingVoice: String?, offset: Int, order: Long, build: Int, sdk: Int, device: String, commit: String): VoiceSpeechBenchmarkConfiguration {
         val selected = requireNotNull(engine)
@@ -69,7 +70,10 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
     add(probe("Android speech recognition · installed languages", VoiceBenchProbe.SYSTEM_RECOGNITION))
     add(probe("Android speech synthesis · installed offline voices", VoiceBenchProbe.SYSTEM_SPEECH))
     add(probe("Selected Windows Gateway · CUDA speech", VoiceBenchProbe.GATEWAY))
-    VoiceListeningStyle.entries.forEach { add(probe("Moonshine recognition · ${it.label}", VoiceBenchProbe.RECOGNITION, style = it)) }
+    val tinyRecognition = VoiceRecognitionBenchmarkCase.forPack(requireNotNull(VoiceRecognitionModelCatalog.pack(VoiceRecognitionModel.MOONSHINE_TINY)), selectedThreads)
+    VoiceListeningStyle.entries.forEach {
+        add(probe("Moonshine recognition · ${it.label}", VoiceBenchProbe.RECOGNITION, style = it).copy(recognition = tinyRecognition))
+    }
     val configs = VoiceSpeechBenchmarkEngine.entries.flatMap { engine ->
         val native = engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
         (if (native) KokoroModelVariant.entries else listOf(KokoroModelVariant.INT8)).map { variant ->
@@ -128,6 +132,15 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
     }
     screeningOrder.filter { it.engine in deferredPacks }.forEach { base ->
         addCase(base, "quick synthesis screening", base.copy(mode = VoiceSpeechBenchmarkMode.QUICK))
+    }
+    // Larger ASR and accelerator packs are evaluated only after early output screening. A case
+    // never installs its model, and a missing language fixture remains explicitly unmeasured.
+    VoiceRecognitionModelCatalog.packs.filter { it.model != VoiceRecognitionModel.MOONSHINE_TINY }.forEach { pack ->
+        val calibration = if (VoiceRecognitionCpuCalibration.supported(pack)) VoiceRecognitionCpuCalibration.candidates(limit) else emptyList()
+        add(
+            probe("${pack.model.title} · ${pack.compute.title} · ${if (calibration.isEmpty()) "paced recognition" else "paced recognition and CPU calibration"}", VoiceBenchProbe.RECOGNITION, style = VoiceListeningStyle.NATURAL)
+                .copy(recognition = VoiceRecognitionBenchmarkCase.forPack(pack, selectedThreads).copy(calibrationCandidates = calibration))
+        )
     }
     playbackOrder.forEach { addCase(it, "first audio and warm synthesis", it) }
     val scenarios = VoiceSpeechPlaybackScenario.entries - VoiceSpeechPlaybackScenario.SUSTAINED

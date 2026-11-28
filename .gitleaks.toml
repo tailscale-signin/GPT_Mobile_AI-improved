@@ -167,3 +167,20 @@ condition = "AND"
 paths = ['''^docs/repairs/pocket-caption-validation-2026-11-28\.json$''']
 regexTarget = "line"
 regexes = ['''^\s*"scripts/run_mediapipe_android_smoke\.sh": "83359303d3a9118d2c7490c750081748fd6136742cb3f3cb120fc93d88e8d8c5",\s*$''']
+
+# Exact public Zipformer English token-file digest, reproduced from the pinned
+# publisher bytes and bound to the historical catalog by the scanner controls.
+# Other values, fields, paths, surrounding content and adjacent credentials scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/audits/voice-recognition-models\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"tokens_sha256": "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb",\s*$''']
+
+# Exact public Zipformer French token-file digest; the same independent byte and
+# source proof applies. Only this complete field/value line at this path is exempt.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/audits/voice-recognition-models\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"tokens_sha256": "37fb3f2a7bcb85e5fff3f1f66be04e6fbb05077a22f56d177fe85704e945fb31",\s*$''']

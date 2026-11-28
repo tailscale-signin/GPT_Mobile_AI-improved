@@ -4,3 +4,7 @@
 -keep class dev.melo.kokoro.TimedKokoro$Evidence { *; }
 -keep class dev.melo.kokoro.KokoroFrontend { *; }
 -keep class dev.melo.kokoro.KokoroFrontend$EncodedPhrase { *; }
+-keep class dev.melo.kokoro.StreamingAsr { *; }
+-keep class dev.melo.kokoro.StreamingAsr$Result { *; }
+-keep class dev.melo.kokoro.StreamingAsr$Evidence { *; }
+-keep class dev.melo.kokoro.StreamingAsr$Failure { *; }

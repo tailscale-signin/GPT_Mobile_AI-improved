@@ -15,6 +15,7 @@ import zipfile
 
 from build_qualcomm_dispatch_candidate import checked_download, digest
 from prepare_qnn_host_probe import DEFAULT_MANIFEST, prepare as prepare_qnn
+from prepare_streaming_asr_host import native_preparer, prepare as prepare_asr
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPENDENCIES = (
@@ -122,6 +123,8 @@ def prepare(output):
         dependencies.mkdir()
         for record in DEPENDENCIES:
             checked_download(record, dependencies / record["file"])
+        native_preparer().prepare(dependencies, DEFAULT_MANIFEST)
+        prepare_asr(stage / "asr-packs")
         ort, pack = stage / "ort", stage / "pack"
         ort.mkdir()
         pack.mkdir()
@@ -143,7 +146,7 @@ def prepare(output):
         }
         (stage / "inputs.json").write_text(json.dumps(receipt, indent=2) + "\n")
         stage.rename(output)
-    print("Prepared pinned full Kokoro/JNI inputs; the required model execution gate has not run.")
+    print("Prepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.")
 
 
 if __name__ == "__main__":

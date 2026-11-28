@@ -21,6 +21,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionCompute
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModelCatalog
 
 @Composable
 internal fun LocalVoiceSetupCard(
@@ -29,7 +32,9 @@ internal fun LocalVoiceSetupCard(
     cancel: () -> Unit,
     remove: () -> Unit,
     showRemove: Boolean = false,
-    compact: Boolean = false
+    compact: Boolean = false,
+    model: VoiceRecognitionModel = VoiceRecognitionModel.MOONSHINE_TINY,
+    compute: VoiceRecognitionCompute = VoiceRecognitionCompute.CPU
 ) {
     val context = LocalContext.current
     Surface(
@@ -39,8 +44,8 @@ internal fun LocalVoiceSetupCard(
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Speech on this phone", style = MaterialTheme.typography.titleMedium)
-            Text("Moonshine Tiny Streaming · English", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            if (!compact) Text("Recognize English speech on this phone. Choose a different recognition language in Voice settings to use Android’s offline recognizer.", style = MaterialTheme.typography.bodySmall)
+            Text("${model.title} · ${compute.title}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            if (!compact) Text("Download and verify this speech model once, then recognize speech without an internet connection.", style = MaterialTheme.typography.bodySmall)
             when (state.status) {
                 LocalVoiceModelStatus.CHECKING -> {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -52,7 +57,7 @@ internal fun LocalVoiceSetupCard(
                     TextButton(onClick = cancel) { Text("Cancel download") }
                 }
                 LocalVoiceModelStatus.READY -> {
-                    Text("Installed · Recognition works offline", color = MaterialTheme.colorScheme.primary)
+                    Text("Installed · Model files verified", color = MaterialTheme.colorScheme.primary)
                     state.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (showRemove) TextButton(onClick = remove) { Text("Remove speech model") }
                 }
@@ -64,8 +69,15 @@ internal fun LocalVoiceSetupCard(
             if (!compact) {
                 Row {
                     TextButton(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/moonshine-ai/moonshine"))) }
-                    }) { Text("GitHub project") }
+                        VoiceRecognitionModelCatalog.pack(model, compute)?.sourceUrl?.let { url ->
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                        }
+                    }) { Text("Model source") }
+                    VoiceRecognitionModelCatalog.pack(model, compute)?.let { pack ->
+                        TextButton(onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(pack.licenseUrl))) }
+                        }) { Text(pack.licenseName) }
+                    }
                 }
             }
         }

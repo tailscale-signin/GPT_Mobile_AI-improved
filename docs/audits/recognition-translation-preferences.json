@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "purpose": "Qualify recognition model/processor/thread selection together with the concurrently merged bidirectional translation preferences and explicit-source routing.",
+  "snapshot": {
+    "compiled_repository_head": "bed3ef6c63400182cd2c5accd465c97d600a0bd7",
+    "readback_repository_head": "01d389d5648b8fcbe40f89f3f075d29db9056695",
+    "identity": "The exact current-source hashes below identify the tested working tree; the compile ran during merge reconciliation.",
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt": "20c24a056407535e258cc85b9787bf1c7ef2b451cd8864d26a7c5cfef40b5467",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt": "1df95ede2892959a12918ab19dfd07a4fb319133e592093f20ca31b46343fb03",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt": "596193b7a71486abd0d8636b54949e1720a1ee14c8915d225578389de7f7c3e6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSource.kt": "cc91ba1f89b5da1fd9a915e38ce9d46d2ae0e4076651979994cb6796da526563",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt": "4b8c5cbe56149512d507d63baf5b6becbde4f5679120933e773222b9e7dd79ad",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.kt": "82bc8e2156946848af9a4d6aaa6f3dbec253760f4ccc6a048a7e9088bf5565ce",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionPreferenceTest.kt": "eaae654d05a9bcd0c1c263b00a3963146e3e2b61ac6ac6335d2934ba3e9aa354",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionTranslationPreferenceTest.kt": "8960f52641840394376987355843394b8e1f33860bbc76cd3f3cf2c299a282e9",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationRecognitionSelectionTest.kt": "333dae0d17362bd2277d40d985aeec9dbcfa538360544998dfb6a151b3f6c032"
+    },
+    "extraction_source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt": "d8d67252fda858b949c493cece8df5914f585a9f1d01ffecb5f20a5a1600b2c0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModel.kt": "b7ee1cf862c6c8fe294da4c9fb5ccbac565e6494c6bd4d7b51db8910b5fdbb2e",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt": "4fa17bae5d7fd3c514f2a81020bdc9be36a8d2e784c2da61bd10da695d790146"
+    },
+    "exact_extraction_sha256": {
+      "ExactVoicePreferences.kt": "2e734b48d3bde321d21e209d7b7f0c91e220f7265d1c67fba7c1f815c6420477",
+      "ExactStreamingEngine.kt": "d667b4f4f77d755953a8a67449e5e7704368e193fd37e4b54011d20cdb8ed6b2",
+      "ExactLegacyTranslationRestoreTests.kt": "3e043243feaa385c90dc1088b14f7d657dd18ca48ad43253ad386a02c1ddf570"
+    },
+    "host_wrapper_sha256": {
+      "PreferenceRestoreHostTest.kt": "9d48e2a3d6e12d518e1f49d848e65befdc67fdbe7751850ec378f0da04f6ee22"
+    },
+    "friend_artifacts": {
+      "/workspace/scratch/9c056940f631/recognition-translation-preference-tests/selection-dependencies.jar": "056b320590b822c0ea5e47b101394edb213331d57b27487150c5e203cbf5de12",
+      "/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar": "278d3e0609847ee04ce5b1c003da03b20ae2df2d5f79cbfa874fd0425630053b",
+      "/workspace/scratch/9c056940f631/recognition-session-host-tests/current/classes": "directory: prior actual-source receipt",
+      "/workspace/scratch/9c056940f631/recognition-policy-host-tests/tests.jar": "0404cef6f1bb397d840b8463b15239f737a25ff5f48962b59cf0d9147cd29d69"
+    }
+  },
+  "merge_behavior": [
+    "Recognition model, processor and thread settings remain independent of the translation language pair, direction and per-language voices.",
+    "Active translation preserves the saved requested recognition backend even when the ordinary microphone language is unsupported by that model. Runtime routing separately checks the explicit source.",
+    "Automatic translation source remains Android recognition for every model. Explicit sources can use the selected local model only when its language catalog supports the source; an explicit Android choice remains Android.",
+    "Ordinary nontranslation preference restoration still routes unsupported model/language combinations to Android.",
+    "Unsupported legacy translation targets retain ordinary synthesis settings and require supported-pair setup. Malformed fields recover independently."
+  ],
+  "scope": "Current exact preference writer/restore, language-routing helper, translation pair/response policy and new merge regressions. Exact VoicePreferences and backend-to-streaming-engine declarations are extracted from their current ViewModels. The complete existing recognition preference test class is compiled against SDK37/Robolectric APIs, but only its four platform-independent methods are executed. Four existing translation preference test bodies are exact extracts from the larger Robolectric test class. The two Android SharedPreferences round-trip methods are compiled only; no Android storage, Compose, native ASR or device qualification is claimed.",
+  "result": {
+    "status": "PASSED",
+    "compile_exit": 0,
+    "junit_exit": 0,
+    "tests": 17,
+    "classes": [
+      "dev.chungjungsoo.gptmobile.presentation.ui.voice.PreferenceRestoreHostTest",
+      "dev.chungjungsoo.gptmobile.presentation.ui.voice.ExactLegacyTranslationRestoreTests",
+      "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceRecognitionTranslationPreferenceTest",
+      "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationRecognitionSelectionTest"
+    ],
+    "junit_output": "JUnit version 4.13.2\n.................\nTime: 0.103\n\nOK (17 tests)",
+    "assertions_enabled": true,
+    "compiler_memory_limit": "-Xmx256m -XX:MaxMetaspaceSize=160m",
+    "compile_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "junit_log_sha256": "3aa6feae0e47ed48a305596b4d5d00d4d2991c36c680a8a8ae2b32670d2ec7a1",
+    "harness_sha256": "21923b0b7facea8ce7f95982ac5546516ea454a720f91e38656eccfc82de05c8",
+    "harness_path": "/workspace/scratch/9c056940f631/recognition-translation-preference-tests/build.py"
+  },
+  "compiled_but_not_executed": {
+    "android_shared_preferences_round_trip_methods": [
+      "savedAcceleratorSelectionRoundTripsThroughTheActualPreferenceWriter",
+      "explicitFrenchTranslationKeepsLocalZipformerAfterPreferenceReload"
+    ],
+    "reason": "The host harness uses the real Android SDK and Robolectric API jars for compilation but does not start a Robolectric Android runtime. Their actual Android storage execution remains required CI scope."
+  },
+  "readback": {
+    "source_hash_matches": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt": true,
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt": true,
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": true,
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt": true,
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSource.kt": true,
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt": true,
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.kt": true,
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionPreferenceTest.kt": true,
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionTranslationPreferenceTest.kt": true,
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationRecognitionSelectionTest.kt": true
+    },
+    "extraction_source_file_hash_matches": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt": true,
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModel.kt": true,
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt": true
+    },
+    "all_current_source_files_match": true,
+    "all_extraction_source_files_match": true
+  },
+  "first_attempt": {
+    "status": "UNQUALIFIED_HOST_DEPENDENCY_ABI_COLLISION",
+    "compile_exit": 0,
+    "tests_attempted": 17,
+    "failures": 12,
+    "cause": "The prior selection dependency jar still exposed the obsolete one-argument readVoicePreferences(Map) overload. New one-argument test calls selected that exact old overload instead of the current two-argument function with a default legacy argument, then failed against the changed VoicePreferences constructor ABI.",
+    "repair": "Excluded only the obsolete presentation preference classes and facades from a scratch copy of that dependency jar; the complete current writer/restore/tuning sources and exact current VoicePreferences declaration were recompiled. No repository implementation was changed for this harness failure.",
+    "dependency_filter": {
+      "original": "/workspace/scratch/9c056940f631/recognition-presentation-host-tests/selection.jar",
+      "original_sha256": "6c3925634c3d117235291011b0ff4510133347636bfd8d7f9f9b6ae298cceb47",
+      "excluded_recompiled_classes": [
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore$writer$1.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore$2.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/_14_VoicePreferenceStoreKt.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/_15_VoiceTuningPreferencesKt.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionPreferenceTest.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionPreferenceTest$savedAcceleratorSelectionRoundTripsThroughTheActualPreferenceWriter$1.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferences.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/ExactVoicePreferencesKt.class",
+        "dev/chungjungsoo/gptmobile/presentation/ui/voice/PreferenceRestoreHostTest.class"
+      ]
+    },
+    "junit_log_sha256": "c051b91703911145361153cdb9d0c2e5ed1a54e2673c415db76f5a4e54781ec4",
+    "compile_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source_manifest_sha256": "5406cd66be409039b39c6ba0dcd9f515827e732434f4518986f571b393faa23d"
+  },
+  "limits": [
+    "This is a scoped JVM compile and policy regression run, not a complete Android application build.",
+    "The full VoicePreferencesViewModel and VoiceBackendViewModel bodies are not compiled here; only their exact preference data and streaming-engine mapping declarations are included.",
+    "No Android SharedPreferences runtime, Compose composition, speech service, microphone, native recognition model, GPU, NPU, acoustic, thermal or battery qualification is claimed.",
+    "The first failed harness run is retained and is not counted as passing evidence."
+  ]
+}

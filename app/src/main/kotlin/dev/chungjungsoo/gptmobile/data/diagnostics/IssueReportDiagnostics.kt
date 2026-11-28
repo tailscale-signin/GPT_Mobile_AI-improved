@@ -188,6 +188,7 @@ internal data class IssueReportDiagnostics(
         }
         if ("voice_install_streaming_status" in values || "voice_install_streaming_status" in omittedFields || values["voice_install_pack"] in setOf(JsonPrimitive("LITERT_KOKORO"), JsonPrimitive("POCKET"))) add(VOICE_STREAMING_INSTALL_FEATURE)
         if ((values.keys + omittedFields).any { it in voiceInstallEvidenceFields } || values["voice_install_failure"] == JsonPrimitive("WORK_NOT_FOUND")) add("VOICE_INSTALL_EVIDENCE_V1")
+        if (listOf("voice_install_downloaded_bytes", "voice_install_total_bytes").any { ((values[it] as? JsonPrimitive)?.longOrNull ?: 0L) > 1_000_000_000L }) add(VOICE_LARGE_MODEL_INSTALL_FEATURE)
         if ((values.keys + omittedFields).any { it in VoiceExecutionDiagnostics.fields }) add(VoiceExecutionDiagnostics.FEATURE)
         if ((values.keys + omittedFields).any { it in DispatchStageDiagnostics.fields }) add(DispatchStageDiagnostics.FEATURE)
         if (VoiceExecutionDiagnostics.requiresFallbackCauseSupport(values, omittedFields)) add(VoiceExecutionDiagnostics.FALLBACK_CAUSES_FEATURE)
@@ -284,6 +285,7 @@ internal data class IssueReportDiagnostics(
         const val DEVICE_PRIVACY_POLICY_FEATURE = "DEVICE_PRIVACY_POLICY_CHANGE_V1"
         const val POLICY_SELECTION_FEATURE = "GITHUB_POLICY_SELECTION_FIELDS_V1"
         const val VOICE_STREAMING_INSTALL_FEATURE = "VOICE_STREAMING_INSTALL_EVIDENCE_V1"
+        const val VOICE_LARGE_MODEL_INSTALL_FEATURE = "VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1"
         const val VOICE_FOCUS_RETRIES_FEATURE = "VOICE_FOCUS_RETRY_COUNT_V1"
         private const val LEGACY_POLICY_FIELD_LIMIT = 81
         private const val PRE_DEVICE_PRIVACY_POLICY_FIELD_LIMIT = 84
@@ -864,7 +866,7 @@ internal data class IssueReportDiagnostics(
                 "voice_playback_focus_attempts" -> 1L..3L
                 "voice_generation" -> 0..Long.MAX_VALUE
                 "voice_install_progress_percent" -> 0L..100L
-                "voice_install_downloaded_bytes", "voice_install_total_bytes" -> 0L..1_000_000_000L
+                "voice_install_downloaded_bytes", "voice_install_total_bytes" -> 0L..17_179_869_184L
                 "voice_install_http_status", "status_policy_protection_http_status", "status_policy_rules_http_status" -> 100L..599L
                 "task_deadline_window_seconds", "task_deadline_overdue_seconds", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
                 "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_additional_blocked_family_count" -> 0L..16_000_000L

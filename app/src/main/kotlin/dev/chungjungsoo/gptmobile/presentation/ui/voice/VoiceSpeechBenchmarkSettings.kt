@@ -63,7 +63,7 @@ internal fun VoiceSpeechBenchmarkSettings(
     threads: Int,
     speechRate: Float,
     enabled: Boolean,
-    beforeStart: () -> Unit = {},
+    beforeStart: suspend () -> Unit = {},
     captionOffsetMs: Int = 0,
     viewModel: VoiceSpeechBenchmarkViewModel = hiltViewModel(),
     streamingKokoroVoice: String? = null,

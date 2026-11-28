@@ -7,12 +7,21 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 @Serializable
-internal data class VoiceBenchObservation(val fixture: String, val status: VoiceBenchStatus, val reason: String? = null, val metrics: Map<String, Double> = emptyMap(), val measurementScope: String? = null) {
+internal data class VoiceBenchObservation(
+    val fixture: String,
+    val status: VoiceBenchStatus,
+    val reason: String? = null,
+    val metrics: Map<String, Double> = emptyMap(),
+    val measurementScope: String? = null,
+    val recognition: VoiceRecognitionBenchmarkIdentity? = null,
+    val metadata: Map<String, String> = emptyMap()
+) {
     companion object {
         fun unavailable(fixture: String, reason: String) = VoiceBenchObservation(fixture, VoiceBenchStatus.UNAVAILABLE, reason)
     }
@@ -20,7 +29,10 @@ internal data class VoiceBenchObservation(val fixture: String, val status: Voice
 
 internal fun List<VoiceBenchObservation>.summarize(label: String): VoiceBenchResult {
     val kinds = map { it.status }.distinct()
-    val status = kinds.singleOrNull() ?: if (isEmpty()) VoiceBenchStatus.UNAVAILABLE else VoiceBenchStatus.PARTIAL
+    val status = when {
+        VoiceBenchStatus.INTERRUPTED in kinds -> VoiceBenchStatus.INTERRUPTED
+        else -> kinds.singleOrNull() ?: if (isEmpty()) VoiceBenchStatus.UNAVAILABLE else VoiceBenchStatus.PARTIAL
+    }
     val metrics = buildList {
         for (row in this@summarize) {
             for ((key, caption) in listOf("wordErrorRate" to "word error rate", "characterErrorRate" to "character error rate")) {
@@ -28,7 +40,13 @@ internal fun List<VoiceBenchObservation>.summarize(label: String): VoiceBenchRes
             }
             if (row.metrics["selectedForAuto"] == 1.0) row.metrics["threads"]?.let { add(VoiceBenchMetric("Auto calibration", it, "threads", 1)) }
         }
-        for ((key, caption) in listOf("firstPcmMs" to "First PCM", "firstReadMs" to "First microphone read", "firstAudioCallbackMs" to "First system audio callback")) {
+        for ((key, caption) in listOf(
+            "firstPcmMs" to "First PCM",
+            "firstReadMs" to "First microphone read",
+            "firstAudioCallbackMs" to "First system audio callback",
+            "firstPartialMs" to "First recognition partial after input start",
+            "finalAfterInputMs" to "Recognition final after fixture end"
+        )) {
             val times = this@summarize.filter { it.status == VoiceBenchStatus.MEASURED }.mapNotNull { it.metrics[key] }
             VoiceSpeechBenchmarkBackendResult.median(times)?.let { add(VoiceBenchMetric(caption, it, "ms", times.size)) }
         }
@@ -36,6 +54,7 @@ internal fun List<VoiceBenchObservation>.summarize(label: String): VoiceBenchRes
     val reasons = mapNotNull { it.reason }.distinct()
     val reason = when {
         isEmpty() -> "NO_OBSERVATIONS"
+        status == VoiceBenchStatus.INTERRUPTED && "THERMAL_LIMIT" in reasons -> "THERMAL_LIMIT"
         reasons.size > 1 -> "MULTIPLE_OBSERVATION_REASONS"
         else -> reasons.singleOrNull()
     }
@@ -75,6 +94,10 @@ internal class VoiceBenchProbes(
     private val cleanupFailed: (Any) -> Unit
 ) {
     private val interrupt = AtomicReference<(() -> Unit)?>(null)
+    private val recognitionModels by lazy {
+        val directory = File(context.applicationContext.noBackupFilesDir, "voice-models")
+        RecognitionModelRegistry(directory, LocalVoiceModelStore(directory))
+    }
     fun cancel() {
         interrupt.get()?.invoke()
     }
@@ -88,7 +111,16 @@ internal class VoiceBenchProbes(
             VoiceBenchProbe.SYSTEM_SPEECH -> voiceBenchSystemSpeech(context, active, interrupt, scopedCheckpoint)
             VoiceBenchProbe.GATEWAY -> voiceBenchGateway(context, gateway, active, interrupt, scopedCheckpoint)
             VoiceBenchProbe.SYSTEM_RECOGNITION -> voiceBenchSystemRecognition(context, active, interrupt)
-            VoiceBenchProbe.RECOGNITION -> voiceBenchMoonshine(context, requireNotNull(stage.listeningStyle), active, cleanupFailed, scopedCheckpoint)
+            VoiceBenchProbe.RECOGNITION -> voiceBenchRecognition(
+                context,
+                recognitionModels,
+                stage.recognition ?: VoiceRecognitionBenchmarkCase.forPack(requireNotNull(VoiceRecognitionModelCatalog.pack(VoiceRecognitionModel.MOONSHINE_TINY)), stage.threads),
+                requireNotNull(stage.listeningStyle),
+                active,
+                interrupt,
+                cleanupFailed,
+                scopedCheckpoint
+            )
             VoiceBenchProbe.LANGUAGE -> language(requireNotNull(SpeechLanguages.forLocale(requireNotNull(stage.language))), scopedCheckpoint)
             VoiceBenchProbe.DIALOGUE -> voiceBenchDialogue()
             null -> error("Missing voice benchmark probe")

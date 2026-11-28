@@ -640,14 +640,17 @@
     },
     {
       "id": "voice-microphone-turn-cycle",
-      "title": "Voice microphone state and automatic listening",
+      "title": "Voice recognition, microphone state and automatic listening",
       "terms": [
         "idle microphone",
         "pulsating microphone",
         "microphone highlight",
         "listen after speaking",
         "new voice chat",
-        "microphone button sound"
+        "microphone button sound",
+        "Nemotron",
+        "Zipformer",
+        "Moonshine Streaming"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt",

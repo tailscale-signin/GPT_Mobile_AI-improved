@@ -1846,6 +1846,8 @@ class IssueReportSubmissionTest {
             "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INPUT_REQUIRED")),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND"),
+            IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE to mapOf("voice_install_downloaded_bytes" to 2_454_405_120L),
+            IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE to mapOf("voice_install_total_bytes" to 2_594_373_279L),
             "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "PROVIDER_ADAPTER_STREAM_CATCH", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
             "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
             "CHAT_DELIVERY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_FLOW_EMPTY_ANSWER"),
@@ -1854,7 +1856,7 @@ class IssueReportSubmissionTest {
             val area = when (feature) {
                 "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1" -> "ACCEPTANCE"
                 "CLAIM_FRESHNESS_EVIDENCE_V1" -> "ACCEPTANCE"
-                "VOICE_INSTALL_EVIDENCE_V1" -> "VOICE"
+                "VOICE_INSTALL_EVIDENCE_V1", IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE -> "VOICE"
                 "CHAT_DELIVERY_EVIDENCE_V1" -> "INCIDENT"
                 else -> "PROVIDER"
             }
@@ -1869,6 +1871,7 @@ class IssueReportSubmissionTest {
             val client = OkHttpClient.Builder().addInterceptor { chain ->
                 val request = chain.request()
                 if (request.method == "GET") {
+                    if (feature == IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE) assertEquals("extended", request.url.queryParameter("capabilities"))
                     val features = JsonArray(requiredFeatures.filter { supported || it != feature }.map(::JsonPrimitive)).toString()
                     response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
                 } else {
@@ -1888,6 +1891,28 @@ class IssueReportSubmissionTest {
             assertEquals(1, dispatched)
             assertEquals(listOf(payload), posted)
         }
+    }
+
+    @Test fun legacyVoiceInstallationCountsKeepTheExistingReadinessContract() {
+        val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_install_downloaded_bytes" to 1_000_000_000L, "voice_install_total_bytes" to 1_000_000_000L), 1_000L)
+        val approved = report.copy(context = context)
+        val payload = approved.approvedPayload()
+        val methods = mutableListOf<String>()
+        val posted = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            if (request.method == "GET") {
+                assertEquals("$origin/health/ready", request.url.toString())
+                response(request, 200, ready(false))
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${approved.reportId}","number":941}""")
+            }
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(approved.reportId, payload))
+        assertEquals(listOf("GET", "POST"), methods)
+        assertEquals(listOf(payload), posted)
     }
 
     @Test fun githubCooldownValuesAndOmittedFieldsWaitWithoutChangingApprovedBytes() {

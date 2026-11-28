@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceSnapshot
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -39,6 +40,62 @@ class VoiceFullBenchmarkViewModelTest {
         return object : ContextWrapper(base) {
             override fun getApplicationContext() = this
             override fun getNoBackupFilesDir() = root
+        }
+    }
+
+    @Test fun stoppedHandoffKeepsOwnershipUntilRetirementAndNeverCreatesACampaign() = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        val owners = ViewModelStore()
+        val retired = CompletableDeferred<Unit>()
+        try {
+            withTimeout(30_000) {
+                val model = VoiceSpeechBenchmarkViewModel(context())
+                owners.put("handoff", model)
+                model.state.first { it.loaded }
+                model.startFull(KokoroVoice.HEART, 0, 1f, 0, null, VoicePerformanceSnapshot(), null, null, beforeStart = { retired.await() })
+                assertTrue(model.state.value.running)
+                assertNull(model.state.value.suite)
+                assertTrue(VoiceSpeechBenchmarkViewModel.audioOwnership.value != null)
+                model.cancel()
+                assertTrue(model.state.value.cancelling)
+                assertTrue(VoiceSpeechBenchmarkViewModel.audioOwnership.value != null)
+                retired.complete(Unit)
+                val state = model.state.first { !it.running }
+                assertNull(state.suite)
+                assertFalse(state.nativeCleanupPending)
+                assertNull(VoiceSpeechBenchmarkViewModel.audioOwnership.value)
+            }
+        } finally {
+            owners.clear()
+            retired.complete(Unit)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun clearingTheViewModelDuringHandoffCannotReleaseAudioBeforeRetirement() = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        val owners = ViewModelStore()
+        val retired = CompletableDeferred<Unit>()
+        try {
+            withTimeout(30_000) {
+                val model = VoiceSpeechBenchmarkViewModel(context())
+                owners.put("handoff", model)
+                model.state.first { it.loaded }
+                model.startFull(KokoroVoice.HEART, 0, 1f, 0, null, VoicePerformanceSnapshot(), null, null, beforeStart = { retired.await() })
+                assertTrue(model.state.value.running)
+                val lease = requireNotNull(VoiceSpeechBenchmarkViewModel.audioOwnership.value)
+                owners.clear()
+                assertEquals(lease, VoiceSpeechBenchmarkViewModel.audioOwnership.value)
+                assertNull(model.state.value.suite)
+                retired.complete(Unit)
+                VoiceSpeechBenchmarkViewModel.audioOwnership.first { it == null }
+                assertNull(model.state.value.suite)
+                assertFalse(model.state.value.nativeCleanupPending)
+            }
+        } finally {
+            owners.clear()
+            retired.complete(Unit)
+            Dispatchers.resetMain()
         }
     }
 

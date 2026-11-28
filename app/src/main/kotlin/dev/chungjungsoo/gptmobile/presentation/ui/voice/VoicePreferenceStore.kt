@@ -13,6 +13,9 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionCompute
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
@@ -55,6 +58,8 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
                     .putBoolean("captions", value.captions).putBoolean("review", value.review)
                     .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
                     .putString("voice", value.voice).putString("recognition_backend", value.recognitionBackend.name)
+                    .putString("recognition_model", value.recognitionModel.id).putString("recognition_compute", value.recognitionCompute.name)
+                    .putInt("recognition_threads", value.recognitionThreads)
                     .putString("kokoro_voice", value.kokoroVoice?.name).putBoolean("spoken_replies", value.spokenReplies)
                     .putInt("native_cpu_thread_choice", value.kokoroThreads).putInt("kokoro_threads", VoiceCpuSchedulingPolicy.initial(value.kokoroThreads)).putBoolean("button_sounds", value.buttonSounds)
                     .putString("pause_duration", value.pause.name).putString("performance_mode", value.performance.name)
@@ -108,6 +113,11 @@ internal fun readVoicePreferences(saved: Map<String, *>, legacyReplyLanguage: St
     val legacyVoice = KokoroVoice.fromSaved(saved["kokoro_voice"] as? String)
     val language = (saved["language"] as? String)?.takeIf { it.length <= 64 && java.util.Locale.forLanguageTag(it).language.isNotBlank() } ?: defaults.language
     val synthesis = VoiceSynthesisPreferences.restore(saved["synthesis_language"] as? String, saved["synthesis_voices"] as? Set<*>, legacyVoice?.streamingVoiceId, defaultTag = language)
+    val recognition = VoiceRecognitionConfiguration(
+        VoiceRecognitionModel.fromSaved(saved["recognition_model"] as? String),
+        VoiceRecognitionCompute.fromSaved(saved["recognition_compute"] as? String),
+        (saved["recognition_threads"] as? Int)?.takeIf { it in 0..8 } ?: defaults.recognitionThreads
+    ).supported()
     val hasTranslationPair = saved.keys.any { it in TRANSLATION_PAIR_KEYS }
     val legacyTarget = legacyReplyLanguage ?: saved["synthesis_language"] as? String
     val supportedLegacyTarget = VoiceTranslationPair.canonicalLanguage(legacyTarget)
@@ -123,10 +133,12 @@ internal fun readVoicePreferences(saved: Map<String, *>, legacyReplyLanguage: St
     // Preserve an unsupported legacy reply language in synthesis. Do not silently
     // turn an existing translation into a different language when upgrading it.
     val unsupportedLegacyTranslation = !hasTranslationPair && legacyTarget != null && supportedLegacyTarget == null
+    val translationMode = saved["translation_mode"] == true && !unsupportedLegacyTranslation
+    val requestedRecognition = VoiceRecognitionBackend.fromSaved(saved["recognition_backend"] as? String)
     return VoicePreferences(
         language = language,
         synthesis = synthesis,
-        translationMode = saved["translation_mode"] == true && !unsupportedLegacyTranslation,
+        translationMode = translationMode,
         translationPair = pair,
         translationSetupNotice = if (saved["translation_mode"] == true && unsupportedLegacyTranslation) {
             "Your previous translation language is not available in Pocket Multilingual. Choose two supported languages to turn translation on. Your ordinary reply language is unchanged."
@@ -139,7 +151,12 @@ internal fun readVoicePreferences(saved: Map<String, *>, legacyReplyLanguage: St
         automatic = saved["automatic"] as? Boolean ?: defaults.automatic,
         rate = (saved["rate"] as? Float)?.takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: defaults.rate,
         voice = (saved["voice"] as? String).orEmpty(),
-        recognitionBackend = SpeechLanguages.recognitionBackend(language, VoiceRecognitionBackend.fromSaved(saved["recognition_backend"] as? String)),
+        // Translation owns a separate source language. Preserve this preference
+        // while its effective capture route checks the pair's explicit source.
+        recognitionBackend = if (translationMode) requestedRecognition else SpeechLanguages.recognitionBackend(language, requestedRecognition, recognition.model),
+        recognitionModel = recognition.model,
+        recognitionCompute = recognition.compute,
+        recognitionThreads = recognition.threads,
         kokoroVoice = synthesis.voices[synthesis.language]?.let(KokoroVoice::fromStreamingId) ?: legacyVoice,
         spokenReplies = saved["spoken_replies"] as? Boolean ?: defaults.spokenReplies,
         kokoroThreads = (saved["native_cpu_thread_choice"] as? Int)?.let(VoiceCpuSchedulingPolicy::choice)

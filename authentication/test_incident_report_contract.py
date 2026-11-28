@@ -2609,10 +2609,18 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertNotIn("voice_install_total_bytes", unknown["values"])
         self.assertNotIn("voice_install_http_status", unknown["values"])
 
+    def test_voice_install_large_recognition_graph_transfer_preserves_exact_bytes(self):
+        values = {"voice_install_downloaded_bytes": 2_454_405_120, "voice_install_total_bytes": 2_594_373_279}
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        self.assertEqual(values, {key: capture["values"][key] for key in values})
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("VOICE", {"voice_install_downloaded_bytes": 17_179_869_185}))
+
     def test_voice_install_evidence_rejects_private_values_bad_types_and_excessive_bounds(self):
         for key, value in (
             ("voice_install_elapsed_ms", 16_000_001), ("voice_install_downloaded_bytes", -1),
-            ("voice_install_total_bytes", 1_000_000_001), ("voice_install_total_bytes", "177000000"),
+            ("voice_install_total_bytes", 17_179_869_185), ("voice_install_total_bytes", "177000000"),
             ("voice_install_http_status", 600), ("voice_install_http_status", True),
             ("voice_install_pack", "private model URL"), ("voice_install_transfer_stage", "private path"),
             ("voice_install_failure_kind", "raw exception"), ("voice_install_pending_reason", "private network"),
@@ -2620,7 +2628,7 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.subTest(key=key, value=value):
                 with self.assertRaises(ValueError):
                     validate_diagnostics(self.capture("VOICE", {key: value}))
-        validate_diagnostics(self.capture("VOICE", {"voice_install_total_bytes": 1_000_000_000, "voice_install_http_status": 599}))
+        validate_diagnostics(self.capture("VOICE", {"voice_install_total_bytes": 17_179_869_184, "voice_install_http_status": 599}))
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("PROVIDER", {"voice_install_pack": "KOKORO"}))
 

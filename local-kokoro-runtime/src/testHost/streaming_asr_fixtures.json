@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "scope": "CPU_HOST_JNI_REGRESSION_ONLY",
+  "fixtures": [
+    {
+      "id": "zipformer-en",
+      "modelType": "zipformer",
+      "language": "en-US",
+      "chunkMillis": 0,
+      "expectedPrefix": "THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE",
+      "files": [
+        {
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/decoder-epoch-99-avg-1.int8.onnx",
+          "bytes": 539499,
+          "sha256": "21e2a2acd961b3ac72f55be2f10f1a285e1b0b0ba010d7c0b6eab141411b163c",
+          "file": "decoder-epoch-99-avg-1.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/encoder-epoch-99-avg-1.int8.onnx",
+          "bytes": 42845182,
+          "sha256": "3810755ce7c3ab26b42a8bcf39d191308fa27fb0f53358823ba46141d03b7eb3",
+          "file": "encoder-epoch-99-avg-1.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/joiner-epoch-99-avg-1.int8.onnx",
+          "bytes": 259572,
+          "sha256": "e085d73b593cf9b0707f370dbd656d58327d3fe36d80d849202ef81df02cb01e",
+          "file": "joiner-epoch-99-avg-1.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/test_wavs/0.wav",
+          "bytes": 212044,
+          "sha256": "6bc58a4efdf20daac252b6b1502632601a71efe0308f6757dc1eda34891a7e4f",
+          "file": "test_wavs/0.wav"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/tokens.txt",
+          "bytes": 5048,
+          "sha256": "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb",
+          "file": "tokens.txt"
+        }
+      ],
+      "encoder": "encoder-epoch-99-avg-1.int8.onnx",
+      "decoder": "decoder-epoch-99-avg-1.int8.onnx",
+      "joiner": "joiner-epoch-99-avg-1.int8.onnx",
+      "tokens": "tokens.txt",
+      "wav": "test_wavs/0.wav"
+    },
+    {
+      "id": "zipformer-fr",
+      "modelType": "zipformer",
+      "language": "fr-FR",
+      "chunkMillis": 0,
+      "expectedPrefix": "CE SITE CONTIENT QUATRE TOMBEAUX",
+      "files": [
+        {
+          "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/decoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+          "bytes": 1307157,
+          "sha256": "e72b2b9ed36355bd0dd43433f7dd258e7226ab54c9ef42b28c73ebb785805623",
+          "file": "decoder-epoch-29-avg-9-with-averaged-model.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/encoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+          "bytes": 126655903,
+          "sha256": "47a94a7fdc8dff63d708be4ea0535747640224467f91e238311f1ddbdd09327e",
+          "file": "encoder-epoch-29-avg-9-with-averaged-model.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/joiner-epoch-29-avg-9-with-averaged-model.int8.onnx",
+          "bytes": 259572,
+          "sha256": "fc2f3bb851a15a532c6f2422d53eecd1ca949f12b0897e07a852021c30481711",
+          "file": "joiner-epoch-29-avg-9-with-averaged-model.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/test_wavs/common_voice_fr_19364697.wav",
+          "bytes": 228174,
+          "sha256": "b057a0b3badb2b5e1352b6b058726dc03a063e74794232ed266d5b3ad573f9ca",
+          "file": "test_wavs/common_voice_fr_19364697.wav"
+        },
+        {
+          "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/tokens.txt",
+          "bytes": 4819,
+          "sha256": "37fb3f2a7bcb85e5fff3f1f66be04e6fbb05077a22f56d177fe85704e945fb31",
+          "file": "tokens.txt"
+        }
+      ],
+      "encoder": "encoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+      "decoder": "decoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+      "joiner": "joiner-epoch-29-avg-9-with-averaged-model.int8.onnx",
+      "tokens": "tokens.txt",
+      "wav": "test_wavs/common_voice_fr_19364697.wav"
+    },
+    {
+      "id": "nemotron-cpu",
+      "modelType": "nemo_transducer",
+      "language": "en-US",
+      "chunkMillis": 560,
+      "expectedPrefix": "The tribal chief then called for the boy",
+      "files": [
+        {
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/decoder.int8.onnx",
+          "bytes": 14978075,
+          "sha256": "19f9c98fc6d0a2c33a65a43b36fdb2e914c26c0aa9764be3aebc502a1e982fb0",
+          "file": "decoder.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/encoder.int8.onnx",
+          "bytes": 657601403,
+          "sha256": "012e9321373af99021415e0b0eb3ec827b4be3153be6f30d9b448fe65e896e68",
+          "file": "encoder.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/joiner.int8.onnx",
+          "bytes": 9504438,
+          "sha256": "4101c7c679a0bc30483794b27a059e34e79232aa2068d78d51231a22c8b0d7ce",
+          "file": "joiner.int8.onnx"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/test_wavs/en.wav",
+          "bytes": 228908,
+          "sha256": "eb1eb008904465b74c304aad8342e8c7d3c6e61ffe9f66adcaca9cf0f76a93f4",
+          "file": "test_wavs/en.wav"
+        },
+        {
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/tokens.txt",
+          "bytes": 131440,
+          "sha256": "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a",
+          "file": "tokens.txt"
+        }
+      ],
+      "encoder": "encoder.int8.onnx",
+      "decoder": "decoder.int8.onnx",
+      "joiner": "joiner.int8.onnx",
+      "tokens": "tokens.txt",
+      "wav": "test_wavs/en.wav"
+    }
+  ]
+}

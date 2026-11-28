@@ -1,0 +1,1608 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-28",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_head": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+  "catalog_source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt",
+  "scope": "Pinned downloadable model identities and CPU host compatibility; no Android hardware, acoustic, thermal, battery or accelerator execution qualification.",
+  "moonshine": {
+    "sdk_version": "0.1.6",
+    "sdk_source_commit": "d8d8fa29d05ca67441a7719e70099f9f48917a93",
+    "sdk_linux_x86_64_wheel_sha256": "04e438f393af3f963ac7988204f379d04a9c8949801595cab4bd68a7ceedf6c7",
+    "mirror_revision": "e318117203f245fda2ca0142db6b8c057d86671c",
+    "asset_revision": "quantized_26_08_21",
+    "selection_reason": "Preserve established Tiny/Pocket generation. The v0.1.6 catalog quantized_26_11_02 CDN paths returned HTTP403 and are absent from the pinned archival mirror. These downloadable Small/Medium assets were independently hashed and loaded successfully with SDK0.1.6.",
+    "verification": "All18 Small/Medium files downloaded and independently SHA256 verified; large-file hashes matched publisher GitLFS OIDs. Small ordinary files were hashed from downloaded bytes.",
+    "assets": [
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/adapter.ort",
+        "bytes": 3651296,
+        "sha256": "3f2a287def57cc094367a0eec3c4f5fc36a32ec420e86764b696920991b20281"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/cross_kv.ort",
+        "bytes": 11643776,
+        "sha256": "642f6e21cd305be79342207c6f9e6b681d469d55bc48c72b27b84846fb71fd1e"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/decoder_kv.ort",
+        "bytes": 146972408,
+        "sha256": "193bb366492b74fc4ad338c6778e8d8eb916aaa11b5aa264f9057f4db7759486"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/decoder_kv_with_attention.ort",
+        "bytes": 146813344,
+        "sha256": "b5de4b5639b4155fb7956161e43196eb27a26db293f11c1d245effaf6b738118"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/encoder.ort",
+        "bytes": 94705376,
+        "sha256": "12915e76ebac7dd287c5ea63965d06103a53ba1ce242a4a34f318f3958c60c37"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/frontend.model.ort",
+        "bytes": 28720,
+        "sha256": "95768855c70c8251eeecc05fedf69999da1b8ab16f605c9f457fd3354b0ad6b5"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/frontend.weights.ort",
+        "bytes": 11889560,
+        "sha256": "5ac941f490cbe035b335b99a414cc393d62d4c6f9f2423495b286870d271d709"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/streaming_config.json",
+        "bytes": 513,
+        "sha256": "28e83b7a28e91472692a035e0dae3116422ae43aeb2bef5ed822c44ce89b88af"
+      },
+      {
+        "path": "model/medium-streaming-en/quantized_26_08_21/tokenizer.bin",
+        "bytes": 249974,
+        "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/adapter.ort",
+        "bytes": 2870368,
+        "sha256": "c665f742364febad597cc9ac1e0b341ffbee0e24a1466e2f3bde95e6e4771762"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/cross_kv.ort",
+        "bytes": 5356536,
+        "sha256": "e2d3417144e9514055ebfefe8dcc4c0a55a55adcb8530435844c75c53e352bf6"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/decoder_kv.ort",
+        "bytes": 81878600,
+        "sha256": "1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/decoder_kv_with_attention.ort",
+        "bytes": 81766608,
+        "sha256": "19653ca93362cd0445837cbaabc9f36f462410b357dd4a102d9c8ca1c3d13c8c"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/encoder.ort",
+        "bytes": 44148576,
+        "sha256": "2d4d973e91e8aca08c51e7e7efa28a46ab265b63d809d5294d18b86bcd85b993"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/frontend.model.ort",
+        "bytes": 26944,
+        "sha256": "09b1210ae30dc5f0f3e45f0ebab914c254741323114f53fbbe5ae62cca35058f"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/frontend.weights.ort",
+        "bytes": 7769464,
+        "sha256": "7ef97521bd4bad3928f5bb6808586f4fcc6e92bd5990394112eed7d4052ec338"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/streaming_config.json",
+        "bytes": 512,
+        "sha256": "26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a"
+      },
+      {
+        "path": "model/small-streaming-en/quantized_26_08_21/tokenizer.bin",
+        "bytes": 249974,
+        "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"
+      }
+    ],
+    "cpu_host_smokes": [
+      {
+        "model": "small",
+        "sdk": "0.1.6",
+        "architecture": 4,
+        "load_seconds": 0.6094855219998863,
+        "total_seconds": 2.1734862199991767,
+        "lines": [
+          {
+            "text": "The tribal thief then called for the boy.",
+            "start": 0.8640000224113464,
+            "duration": 2.8479998111724854,
+            "words": [
+              {
+                "word": "The",
+                "start": 0.8640000224113464,
+                "end": 1.5048000812530518,
+                "confidence": 1.0
+              },
+              {
+                "word": "tribal",
+                "start": 1.5048000812530518,
+                "end": 2.0337142944335938,
+                "confidence": 1.0
+              },
+              {
+                "word": "thief",
+                "start": 2.0337142944335938,
+                "end": 2.4405715465545654,
+                "confidence": 1.0
+              },
+              {
+                "word": "then",
+                "start": 2.4405715465545654,
+                "end": 2.7457141876220703,
+                "confidence": 1.0
+              },
+              {
+                "word": "called",
+                "start": 2.7457141876220703,
+                "end": 3.010171413421631,
+                "confidence": 1.0
+              },
+              {
+                "word": "for",
+                "start": 3.010171413421631,
+                "end": 3.294971466064453,
+                "confidence": 1.0
+              },
+              {
+                "word": "the",
+                "start": 3.294971466064453,
+                "end": 3.518742799758911,
+                "confidence": 1.0
+              },
+              {
+                "word": "boy.",
+                "start": 3.518742799758911,
+                "end": 3.7120001316070557,
+                "confidence": 1.0
+              }
+            ]
+          },
+          {
+            "text": "And presented him with fifty pieces of gold,",
+            "start": 3.5840001106262207,
+            "duration": 3.2319998741149902,
+            "words": [
+              {
+                "word": "And",
+                "start": 3.5840001106262207,
+                "end": 4.240499973297119,
+                "confidence": 1.0
+              },
+              {
+                "word": "presented",
+                "start": 4.240499973297119,
+                "end": 4.765700340270996,
+                "confidence": 1.0
+              },
+              {
+                "word": "him",
+                "start": 4.765700340270996,
+                "end": 5.0081000328063965,
+                "confidence": 1.0
+              },
+              {
+                "word": "with",
+                "start": 5.0081000328063965,
+                "end": 5.270700454711914,
+                "confidence": 1.0
+              },
+              {
+                "word": "fifty",
+                "start": 5.270700454711914,
+                "end": 5.6747002601623535,
+                "confidence": 1.0
+              },
+              {
+                "word": "pieces",
+                "start": 5.6747002601623535,
+                "end": 6.078700065612793,
+                "confidence": 1.0
+              },
+              {
+                "word": "of",
+                "start": 6.078700065612793,
+                "end": 6.502900123596191,
+                "confidence": 1.0
+              },
+              {
+                "word": "gold,",
+                "start": 6.502900123596191,
+                "end": 6.815999984741211,
+                "confidence": 1.0
+              }
+            ]
+          }
+        ],
+        "host": "x86_64 Linux",
+        "fixture_url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/test_wavs/en.wav",
+        "fixture_sha256": "eb1eb008904465b74c304aad8342e8c7d3c6e61ffe9f66adcaca9cf0f76a93f4",
+        "fixture_duration_seconds": 7.152,
+        "options": {
+          "word_timestamps": true,
+          "use_speculative_decoding": false,
+          "log_output_text": false
+        }
+      },
+      {
+        "model": "medium",
+        "sdk": "0.1.6",
+        "architecture": 5,
+        "load_seconds": 1.0414137199986726,
+        "total_seconds": 3.6262074600017513,
+        "lines": [
+          {
+            "text": "The tribal chieftain called for the boy.",
+            "start": 0.8640000224113464,
+            "duration": 2.8479998111724854,
+            "words": [
+              {
+                "word": "The",
+                "start": 0.8640000224113464,
+                "end": 1.5251429080963135,
+                "confidence": 1.0
+              },
+              {
+                "word": "tribal",
+                "start": 1.5251429080963135,
+                "end": 2.094742774963379,
+                "confidence": 1.0
+              },
+              {
+                "word": "chieftain",
+                "start": 2.094742774963379,
+                "end": 2.6745142936706543,
+                "confidence": 1.0
+              },
+              {
+                "word": "called",
+                "start": 2.6745142936706543,
+                "end": 3.010171413421631,
+                "confidence": 1.0
+              },
+              {
+                "word": "for",
+                "start": 3.010171413421631,
+                "end": 3.294971466064453,
+                "confidence": 1.0
+              },
+              {
+                "word": "the",
+                "start": 3.294971466064453,
+                "end": 3.5797715187072754,
+                "confidence": 1.0
+              },
+              {
+                "word": "boy.",
+                "start": 3.5797715187072754,
+                "end": 3.7120001316070557,
+                "confidence": 1.0
+              }
+            ]
+          },
+          {
+            "text": "And presented him with fifty pieces of gold.",
+            "start": 3.5840001106262207,
+            "duration": 3.2319998741149902,
+            "words": [
+              {
+                "word": "And",
+                "start": 3.5840001106262207,
+                "end": 4.260700225830078,
+                "confidence": 1.0
+              },
+              {
+                "word": "presented",
+                "start": 4.260700225830078,
+                "end": 4.806099891662598,
+                "confidence": 1.0
+              },
+              {
+                "word": "him",
+                "start": 4.806099891662598,
+                "end": 5.048500061035156,
+                "confidence": 1.0
+              },
+              {
+                "word": "with",
+                "start": 5.048500061035156,
+                "end": 5.351500034332275,
+                "confidence": 1.0
+              },
+              {
+                "word": "fifty",
+                "start": 5.351500034332275,
+                "end": 5.704999923706055,
+                "confidence": 1.0
+              },
+              {
+                "word": "pieces",
+                "start": 5.704999923706055,
+                "end": 6.240300178527832,
+                "confidence": 1.0
+              },
+              {
+                "word": "of",
+                "start": 6.240300178527832,
+                "end": 6.482700347900391,
+                "confidence": 1.0
+              },
+              {
+                "word": "gold.",
+                "start": 6.482700347900391,
+                "end": 6.815999984741211,
+                "confidence": 1.0
+              }
+            ]
+          }
+        ],
+        "host": "x86_64 Linux",
+        "fixture_url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/test_wavs/en.wav",
+        "fixture_sha256": "eb1eb008904465b74c304aad8342e8c7d3c6e61ffe9f66adcaca9cf0f76a93f4",
+        "fixture_duration_seconds": 7.152,
+        "options": {
+          "word_timestamps": true,
+          "use_speculative_decoding": false,
+          "log_output_text": false
+        }
+      }
+    ]
+  },
+  "zipformer": [
+    {
+      "repository": "csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17",
+      "revision": "d42f2d9f7ca24806fb667456a18a9f1b60f70d16",
+      "license": "apache-2.0",
+      "files": [
+        {
+          "rfilename": "decoder-epoch-99-avg-1.int8.onnx",
+          "blobId": "c11d3575c2114da10dc8ec5a18b4e224f38b7092",
+          "size": 539499,
+          "lfs": {
+            "sha256": "21e2a2acd961b3ac72f55be2f10f1a285e1b0b0ba010d7c0b6eab141411b163c",
+            "size": 539499,
+            "pointerSize": 131
+          }
+        },
+        {
+          "rfilename": "encoder-epoch-99-avg-1.int8.onnx",
+          "blobId": "fedf32e6a75e66124bd7fb49829f80a9f800f097",
+          "size": 42845182,
+          "lfs": {
+            "sha256": "3810755ce7c3ab26b42a8bcf39d191308fa27fb0f53358823ba46141d03b7eb3",
+            "size": 42845182,
+            "pointerSize": 133
+          }
+        },
+        {
+          "rfilename": "joiner-epoch-99-avg-1.int8.onnx",
+          "blobId": "2f30ad9d510851d5c0f40e93caa5686b7c22b90f",
+          "size": 259572,
+          "lfs": {
+            "sha256": "e085d73b593cf9b0707f370dbd656d58327d3fe36d80d849202ef81df02cb01e",
+            "size": 259572,
+            "pointerSize": 131
+          }
+        },
+        {
+          "rfilename": "tokens.txt",
+          "blobId": "b4d1bf82e68de1354f2a3f5fd51094d61d65c77c",
+          "size": 5048
+        }
+      ],
+      "tokens_sha256": "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb",
+      "verification": "All selected graph/token files downloaded and SHA256 checked; official sherpa-onnx2.0.3 CPU host transcription succeeded.",
+      "cpu_host_smoke": {
+        "model": "zipformer-en",
+        "sherpa_version": "2.0.3",
+        "fixture_sha256": "6bc58a4efdf20daac252b6b1502632601a71efe0308f6757dc1eda34891a7e4f",
+        "fixture_duration_seconds": 6.625,
+        "load_seconds": 0.4504189409999526,
+        "runs": [
+          {
+            "input_chunk_samples": 640,
+            "elapsed_seconds": 0.20696582500022487,
+            "partial_updates": 13,
+            "text": "THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLELS",
+            "tokens": [
+              " THE",
+              " YE",
+              "LL",
+              "OW",
+              " LA",
+              "M",
+              "P",
+              "S",
+              " WOULD",
+              " LIGHT",
+              " UP",
+              " HE",
+              "RE",
+              " AND",
+              " THERE",
+              " THE",
+              " S",
+              "QUA",
+              "LI",
+              "D",
+              " ",
+              "QUA",
+              "R",
+              "TER",
+              " OF",
+              " THE",
+              " B",
+              "RA",
+              "FF",
+              "L",
+              "EL",
+              "S"
+            ],
+            "timestamps": [
+              2.0399999618530273,
+              2.200000047683716,
+              2.2799999713897705,
+              2.359999895095825,
+              2.5199999809265137,
+              2.6399998664855957,
+              2.679999828338623,
+              2.759999990463257,
+              2.919999837875366,
+              3.0799999237060547,
+              3.3999998569488525,
+              3.5999999046325684,
+              3.7200000286102295,
+              3.879999876022339,
+              4.119999885559082,
+              4.480000019073486,
+              4.599999904632568,
+              4.639999866485596,
+              4.839999675750732,
+              4.960000038146973,
+              5.159999847412109,
+              5.199999809265137,
+              5.319999694824219,
+              5.359999656677246,
+              5.599999904632568,
+              5.71999979019165,
+              5.920000076293945,
+              5.960000038146973,
+              6.079999923706055,
+              6.239999771118164,
+              6.359999656677246,
+              6.519999980926514
+            ],
+            "start_time": 0.0
+          },
+          {
+            "input_chunk_samples": 106000,
+            "elapsed_seconds": 0.19118001599781564,
+            "partial_updates": 1,
+            "text": "THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLELS",
+            "tokens": [
+              " THE",
+              " YE",
+              "LL",
+              "OW",
+              " LA",
+              "M",
+              "P",
+              "S",
+              " WOULD",
+              " LIGHT",
+              " UP",
+              " HE",
+              "RE",
+              " AND",
+              " THERE",
+              " THE",
+              " S",
+              "QUA",
+              "LI",
+              "D",
+              " ",
+              "QUA",
+              "R",
+              "TER",
+              " OF",
+              " THE",
+              " B",
+              "RA",
+              "FF",
+              "L",
+              "EL",
+              "S"
+            ],
+            "timestamps": [
+              2.0399999618530273,
+              2.200000047683716,
+              2.2799999713897705,
+              2.359999895095825,
+              2.5199999809265137,
+              2.6399998664855957,
+              2.679999828338623,
+              2.759999990463257,
+              2.919999837875366,
+              3.0799999237060547,
+              3.3999998569488525,
+              3.5999999046325684,
+              3.7200000286102295,
+              3.879999876022339,
+              4.119999885559082,
+              4.480000019073486,
+              4.599999904632568,
+              4.639999866485596,
+              4.839999675750732,
+              4.960000038146973,
+              5.159999847412109,
+              5.199999809265137,
+              5.319999694824219,
+              5.359999656677246,
+              5.599999904632568,
+              5.71999979019165,
+              5.920000076293945,
+              5.960000038146973,
+              6.079999923706055,
+              6.239999771118164,
+              6.359999656677246,
+              6.519999980926514
+            ],
+            "start_time": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "repository": "shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14",
+      "revision": "3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73",
+      "license": "apache-2.0",
+      "files": [
+        {
+          "rfilename": "decoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+          "blobId": "699863365dabebe483494f139e3ef71d23ba49f7",
+          "size": 1307157,
+          "lfs": {
+            "sha256": "e72b2b9ed36355bd0dd43433f7dd258e7226ab54c9ef42b28c73ebb785805623",
+            "size": 1307157,
+            "pointerSize": 132
+          }
+        },
+        {
+          "rfilename": "encoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+          "blobId": "bbfe687b2bbfa6488226d901d08184bfed8bdb67",
+          "size": 126655903,
+          "lfs": {
+            "sha256": "47a94a7fdc8dff63d708be4ea0535747640224467f91e238311f1ddbdd09327e",
+            "size": 126655903,
+            "pointerSize": 134
+          }
+        },
+        {
+          "rfilename": "joiner-epoch-29-avg-9-with-averaged-model.int8.onnx",
+          "blobId": "203c0c64b89a68159bf847ef613c6dc87201e06a",
+          "size": 259572,
+          "lfs": {
+            "sha256": "fc2f3bb851a15a532c6f2422d53eecd1ca949f12b0897e07a852021c30481711",
+            "size": 259572,
+            "pointerSize": 131
+          }
+        },
+        {
+          "rfilename": "tokens.txt",
+          "blobId": "903e1478ca8de7a5d28a0fb86a984e9ea1626934",
+          "size": 4819
+        }
+      ],
+      "tokens_sha256": "37fb3f2a7bcb85e5fff3f1f66be04e6fbb05077a22f56d177fe85704e945fb31",
+      "verification": "All selected graph/token files downloaded and SHA256 checked; official sherpa-onnx2.0.3 CPU host transcription succeeded.",
+      "cpu_host_smoke": {
+        "model": "zipformer-fr",
+        "sherpa_version": "2.0.3",
+        "fixture_sha256": "b057a0b3badb2b5e1352b6b058726dc03a063e74794232ed266d5b3ad573f9ca",
+        "fixture_duration_seconds": 7.128,
+        "load_seconds": 0.943867018999299,
+        "runs": [
+          {
+            "input_chunk_samples": 640,
+            "elapsed_seconds": 0.43012629299846594,
+            "partial_updates": 18,
+            "text": "CE SITE CONTIENT QUATRE TOMBEAUX DE LA DYNASTIE ASH\u00c9M\u00c9NIDE ET SEPT DES SASSANDIDES",
+            "tokens": [
+              " CE",
+              " S",
+              "ITE",
+              " CON",
+              "TI",
+              "ENT",
+              " QUATRE",
+              " TO",
+              "MB",
+              "E",
+              "AUX",
+              " DE",
+              " LA",
+              " D",
+              "Y",
+              "NA",
+              "S",
+              "T",
+              "IE",
+              " A",
+              "S",
+              "H",
+              "\u00c9",
+              "M\u00c9",
+              "N",
+              "IDE",
+              " ET",
+              " SEPT",
+              " DES",
+              " SA",
+              "S",
+              "S",
+              "AND",
+              "IDE",
+              "S"
+            ],
+            "timestamps": [
+              0.9599999785423279,
+              1.4399999380111694,
+              1.559999942779541,
+              1.7599999904632568,
+              1.959999918937683,
+              2.0799999237060547,
+              2.2799999713897705,
+              2.559999942779541,
+              2.6399998664855957,
+              2.759999990463257,
+              2.799999952316284,
+              2.9600000381469727,
+              3.0399999618530273,
+              3.1999998092651367,
+              3.2799999713897705,
+              3.3999998569488525,
+              3.559999942779541,
+              3.7200000286102295,
+              3.799999952316284,
+              4.0,
+              4.159999847412109,
+              4.239999771118164,
+              4.319999694824219,
+              4.440000057220459,
+              4.599999904632568,
+              4.679999828338623,
+              4.920000076293945,
+              5.199999809265137,
+              5.519999980926514,
+              5.839999675750732,
+              6.079999923706055,
+              6.119999885559082,
+              6.239999771118164,
+              6.599999904632568,
+              6.679999828338623
+            ],
+            "start_time": 0.0
+          },
+          {
+            "input_chunk_samples": 114048,
+            "elapsed_seconds": 0.3517975270005991,
+            "partial_updates": 1,
+            "text": "CE SITE CONTIENT QUATRE TOMBEAUX DE LA DYNASTIE ASH\u00c9M\u00c9NIDE ET SEPT DES SASSANDIDES",
+            "tokens": [
+              " CE",
+              " S",
+              "ITE",
+              " CON",
+              "TI",
+              "ENT",
+              " QUATRE",
+              " TO",
+              "MB",
+              "E",
+              "AUX",
+              " DE",
+              " LA",
+              " D",
+              "Y",
+              "NA",
+              "S",
+              "T",
+              "IE",
+              " A",
+              "S",
+              "H",
+              "\u00c9",
+              "M\u00c9",
+              "N",
+              "IDE",
+              " ET",
+              " SEPT",
+              " DES",
+              " SA",
+              "S",
+              "S",
+              "AND",
+              "IDE",
+              "S"
+            ],
+            "timestamps": [
+              0.9599999785423279,
+              1.4399999380111694,
+              1.559999942779541,
+              1.7599999904632568,
+              1.959999918937683,
+              2.0799999237060547,
+              2.2799999713897705,
+              2.559999942779541,
+              2.6399998664855957,
+              2.759999990463257,
+              2.799999952316284,
+              2.9600000381469727,
+              3.0399999618530273,
+              3.1999998092651367,
+              3.2799999713897705,
+              3.3999998569488525,
+              3.559999942779541,
+              3.7200000286102295,
+              3.799999952316284,
+              4.0,
+              4.159999847412109,
+              4.239999771118164,
+              4.319999694824219,
+              4.440000057220459,
+              4.599999904632568,
+              4.679999828338623,
+              4.920000076293945,
+              5.199999809265137,
+              5.519999980926514,
+              5.839999675750732,
+              6.079999923706055,
+              6.119999885559082,
+              6.239999771118164,
+              6.599999904632568,
+              6.679999828338623
+            ],
+            "start_time": 0.0
+          }
+        ]
+      }
+    }
+  ],
+  "nemotron": {
+    "upstream_model_revision": "ea30d66debe3740a08b573244286791d423d6b3e",
+    "license": "OpenMDW-1.1",
+    "cpu_export_revision": "ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
+    "gpu_export_revision": "2072aba9fb2d6ee6202b69e441761599ab7520b8",
+    "gpu_note": "FP32 encoder graph, external encoder.data, decoder and joiner are separate mandatory assets. QNN GPU compatibility and actual hardware placement require runtime evidence; CPU INT8 graphs are never reused as GPU weights.",
+    "gpu_graph_verification": "encoder.onnx, decoder.onnx and joiner.onnx downloaded and matched published GitLFS SHA256. encoder.data digest and length are publisher GitLFS metadata; data file not fetched in this manifest research.",
+    "gpu_graph_metadata": {
+      "encoder.onnx": {
+        "metadata": {
+          "vocab_size": "13087",
+          "window_size": "65",
+          "chunk_size_ms": "560",
+          "chunk_shift": "56",
+          "normalize_type": "",
+          "cache_last_channel_dim1": "24",
+          "cache_last_channel_dim2": "56",
+          "cache_last_channel_dim3": "1024",
+          "cache_last_time_dim1": "24",
+          "cache_last_time_dim2": "1024",
+          "cache_last_time_dim3": "8",
+          "pred_rnn_layers": "2",
+          "pred_hidden": "640",
+          "subsampling_factor": "8",
+          "feat_dim": "128",
+          "model_type": "EncDecRNNTBPEModelWithPrompt",
+          "version": "1",
+          "model_author": "NeMo",
+          "url": "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b",
+          "comment": "Only the transducer branch is exported",
+          "prompt_dictionary": "{\"af-ZA\": 54, \"am-ET\": 49, \"ar\": 7, \"ar-AR\": 7, \"auto\": 101, \"ay-BO\": 81, \"az-AZ\": 66, \"bg\": 30, \"bg-BG\": 30, \"bn-IN\": 36, \"cs\": 22, \"cs-CZ\": 22, \"da\": 25, \"da-DK\": 25, \"de\": 9, \"de-DE\": 9, \"el\": 21, \"el-GR\": 21, \"en\": 0, \"en-GB\": 1, \"en-US\": 0, \"enGB\": 1, \"es\": 3, \"es-ES\": 2, \"es-US\": 3, \"esES\": 2, \"et\": 60, \"et-EE\": 60, \"fa-IR\": 38, \"fi\": 26, \"fi-FI\": 26, \"fr\": 8, \"fr-CA\": 100, \"fr-FR\": 8, \"gn-PY\": 82, \"gu-IN\": 42, \"ha-NG\": 50, \"haw-US\": 97, \"he-IL\": 64, \"hi\": 6, \"hi-HI\": 6, \"hi-IN\": 6, \"hr\": 29, \"hr-HR\": 29, \"hu\": 23, \"hu-HU\": 23, \"hy-AM\": 68, \"id-ID\": 34, \"ig-NG\": 53, \"it\": 15, \"it-IT\": 15, \"ja-JA\": 10, \"ja-JP\": 10, \"ka-GE\": 67, \"km-KH\": 47, \"kn-IN\": 43, \"ko\": 14, \"ko-KO\": 14, \"ko-KR\": 14, \"ku-TR\": 65, \"ky-KG\": 71, \"ln-CD\": 58, \"lt\": 31, \"lt-LT\": 31, \"lv\": 61, \"lv-LV\": 61, \"mi-NZ\": 96, \"ml-IN\": 44, \"mr-IN\": 41, \"ms-MY\": 35, \"mt-MT\": 102, \"nah-MX\": 83, \"nb\": 103, \"nb-NO\": 103, \"ne-NP\": 46, \"nl\": 16, \"nl-NL\": 16, \"nn\": 104, \"nn-NO\": 104, \"no\": 27, \"no-NO\": 27, \"ny-MW\": 57, \"or-KE\": 59, \"pl\": 17, \"pl-PL\": 17, \"pt\": 13, \"pt-BR\": 12, \"pt-PT\": 13, \"qu-PE\": 80, \"ro\": 20, \"ro-RO\": 20, \"ru\": 11, \"ru-RU\": 11, \"rw-RW\": 55, \"si-LK\": 45, \"sk\": 28, \"sk-SK\": 28, \"sl\": 62, \"sl-SI\": 62, \"sm-WS\": 98, \"so-SO\": 56, \"sv\": 24, \"sv-SE\": 24, \"sw-KE\": 48, \"ta-IN\": 39, \"te-IN\": 40, \"tg-TJ\": 70, \"th-TH\": 32, \"to-TO\": 99, \"tr\": 18, \"tr-TR\": 18, \"uk\": 19, \"uk-UA\": 19, \"ur-PK\": 37, \"uz-UZ\": 69, \"vi-VN\": 33, \"yo-NG\": 52, \"zh-CN\": 4, \"zh-TW\": 5, \"zh-ZH\": 4, \"zu-ZA\": 51}",
+          "auto_prompt_id": "101"
+        },
+        "inputs": [
+          {
+            "name": "audio_signal",
+            "type": "FLOAT",
+            "shape": [
+              "batch",
+              128,
+              "time"
+            ]
+          },
+          {
+            "name": "length",
+            "type": "INT64",
+            "shape": [
+              "batch"
+            ]
+          },
+          {
+            "name": "cache_last_channel",
+            "type": "FLOAT",
+            "shape": [
+              "batch",
+              24,
+              "cache_channel_time",
+              1024
+            ]
+          },
+          {
+            "name": "cache_last_time",
+            "type": "FLOAT",
+            "shape": [
+              "batch",
+              24,
+              1024,
+              "cache_time_width"
+            ]
+          },
+          {
+            "name": "cache_last_channel_len",
+            "type": "INT64",
+            "shape": [
+              "batch"
+            ]
+          },
+          {
+            "name": "prompt_index",
+            "type": "INT64",
+            "shape": [
+              "batch"
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "outputs",
+            "type": "FLOAT",
+            "shape": [
+              "batch",
+              1024,
+              "time"
+            ]
+          },
+          {
+            "name": "encoded_lengths",
+            "type": "INT64",
+            "shape": [
+              "batch"
+            ]
+          },
+          {
+            "name": "cache_last_channel_next",
+            "type": "FLOAT",
+            "shape": [
+              "batch",
+              24,
+              "cache_channel_time",
+              1024
+            ]
+          },
+          {
+            "name": "cache_last_time_next",
+            "type": "FLOAT",
+            "shape": [
+              "batch",
+              24,
+              1024,
+              "cache_time_width"
+            ]
+          },
+          {
+            "name": "cache_last_channel_next_len",
+            "type": "INT64",
+            "shape": [
+              "batch"
+            ]
+          }
+        ],
+        "opsets": {
+          "": 13
+        }
+      },
+      "decoder.onnx": {
+        "metadata": {},
+        "inputs": [
+          {
+            "name": "targets",
+            "type": "INT32",
+            "shape": [
+              "targets_dynamic_axes_1",
+              "targets_dynamic_axes_2"
+            ]
+          },
+          {
+            "name": "target_length",
+            "type": "INT32",
+            "shape": [
+              "target_length_dynamic_axes_1"
+            ]
+          },
+          {
+            "name": "states.1",
+            "type": "FLOAT",
+            "shape": [
+              2,
+              "states.1_dim_1",
+              640
+            ]
+          },
+          {
+            "name": "onnx::Slice_3",
+            "type": "FLOAT",
+            "shape": [
+              2,
+              1,
+              640
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "outputs",
+            "type": "FLOAT",
+            "shape": [
+              "targets_dynamic_axes_1",
+              640,
+              "targets_dynamic_axes_2"
+            ]
+          },
+          {
+            "name": "prednet_lengths",
+            "type": "INT32",
+            "shape": [
+              "target_length_dynamic_axes_1"
+            ]
+          },
+          {
+            "name": "states",
+            "type": "FLOAT",
+            "shape": [
+              2,
+              "states_dynamic_axes_1",
+              640
+            ]
+          },
+          {
+            "name": "162",
+            "type": "FLOAT",
+            "shape": [
+              2,
+              "Concat162_dim_1",
+              640
+            ]
+          }
+        ],
+        "opsets": {
+          "": 17
+        }
+      },
+      "joiner.onnx": {
+        "metadata": {},
+        "inputs": [
+          {
+            "name": "encoder_outputs",
+            "type": "FLOAT",
+            "shape": [
+              "encoder_outputs_dynamic_axes_1",
+              1024,
+              "encoder_outputs_dynamic_axes_2"
+            ]
+          },
+          {
+            "name": "decoder_outputs",
+            "type": "FLOAT",
+            "shape": [
+              "decoder_outputs_dynamic_axes_1",
+              640,
+              "decoder_outputs_dynamic_axes_2"
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "outputs",
+            "type": "FLOAT",
+            "shape": [
+              "Addoutputs_dim_0",
+              "Addoutputs_dim_1",
+              "Addoutputs_dim_2",
+              13088
+            ]
+          }
+        ],
+        "opsets": {
+          "": 17
+        }
+      }
+    },
+    "npu": {
+      "soc": "SM8750",
+      "htp_architecture": "v79",
+      "chunk_ms": 320,
+      "archive_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models-qnn-binary-3/sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-320ms.tar.bz2",
+      "archive_bytes": 442444790,
+      "archive_sha256": "130c0e6fede54e958b2bfe7e8eb06c024dc189f94b6b3187db1279df66f48aae",
+      "verification": "Complete archive downloaded and hashed against publisher release digest; each expanded member independently SHA256 hashed. No physical NPU inference performed.",
+      "installed_assets": [
+        {
+          "name": "sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-320ms/joiner.bin",
+          "bytes": 9732096,
+          "sha256": "c3d9da3f500cc61706061d60f3ac6c6958c7bfbdc61c063a01d741312d766d36"
+        },
+        {
+          "name": "sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-320ms/info.txt",
+          "bytes": 20,
+          "sha256": "6a66ac1da2e474a0af5b493f79c0f7d372dcf94f9e922198c498817ab1b8e728"
+        },
+        {
+          "name": "sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-320ms/decoder.bin",
+          "bytes": 29978624,
+          "sha256": "4c97678937969d5347b1a1b861c27bc6cde3a0e9b76221c011b6ec19a5fbb72b"
+        },
+        {
+          "name": "sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-320ms/encoder.bin",
+          "bytes": 609259520,
+          "sha256": "bc1a3fa4a127871b22435698a7e26dc39013f5227a0f90ca4ba24ac5935b17e9"
+        },
+        {
+          "name": "sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-320ms/tokens.txt",
+          "bytes": 131440,
+          "sha256": "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a"
+        }
+      ]
+    },
+    "cpu_host_smoke": {
+      "model": "nemotron-cpu",
+      "sherpa_version": "2.0.3",
+      "fixture_sha256": "eb1eb008904465b74c304aad8342e8c7d3c6e61ffe9f66adcaca9cf0f76a93f4",
+      "fixture_duration_seconds": 7.152,
+      "load_seconds": 2.030026567997993,
+      "runs": [
+        {
+          "input_chunk_samples": 640,
+          "elapsed_seconds": 2.247365544000786,
+          "partial_updates": 10,
+          "text": "The tribal chief then called for the boy and presented him with fifty pieces of gold",
+          "tokens": [
+            " The",
+            " t",
+            "ri",
+            "ba",
+            "l",
+            " ",
+            "chi",
+            "e",
+            "f",
+            " the",
+            "n",
+            " call",
+            "ed",
+            " for",
+            " the",
+            " bo",
+            "y",
+            " and",
+            " pre",
+            "s",
+            "ent",
+            "ed",
+            " ",
+            "h",
+            "im",
+            " with",
+            " ",
+            "fi",
+            "f",
+            "ty",
+            " pie",
+            "ce",
+            "s",
+            " of",
+            " ",
+            "g",
+            "ol",
+            "d"
+          ],
+          "timestamps": [
+            1.1200000047683716,
+            1.6799999475479126,
+            1.6799999475479126,
+            1.8399999141693115,
+            2.0,
+            2.240000009536743,
+            2.240000009536743,
+            2.240000009536743,
+            2.4800000190734863,
+            2.6399998664855957,
+            2.6399998664855957,
+            2.799999952316284,
+            2.9600000381469727,
+            3.0399999618530273,
+            3.119999885559082,
+            3.359999895095825,
+            3.43999981880188,
+            3.919999837875366,
+            4.159999847412109,
+            4.319999694824219,
+            4.319999694824219,
+            4.559999942779541,
+            4.71999979019165,
+            4.71999979019165,
+            4.71999979019165,
+            4.880000114440918,
+            5.199999809265137,
+            5.199999809265137,
+            5.279999732971191,
+            5.279999732971191,
+            5.599999904632568,
+            5.759999752044678,
+            5.759999752044678,
+            6.0,
+            6.399999618530273,
+            6.399999618530273,
+            6.399999618530273,
+            6.559999942779541
+          ],
+          "start_time": 0.0
+        },
+        {
+          "input_chunk_samples": 114432,
+          "elapsed_seconds": 2.094962269999087,
+          "partial_updates": 1,
+          "text": "The tribal chief then called for the boy and presented him with fifty pieces of gold",
+          "tokens": [
+            " The",
+            " t",
+            "ri",
+            "ba",
+            "l",
+            " ",
+            "chi",
+            "e",
+            "f",
+            " the",
+            "n",
+            " call",
+            "ed",
+            " for",
+            " the",
+            " bo",
+            "y",
+            " and",
+            " pre",
+            "s",
+            "ent",
+            "ed",
+            " ",
+            "h",
+            "im",
+            " with",
+            " ",
+            "fi",
+            "f",
+            "ty",
+            " pie",
+            "ce",
+            "s",
+            " of",
+            " ",
+            "g",
+            "ol",
+            "d"
+          ],
+          "timestamps": [
+            1.1200000047683716,
+            1.6799999475479126,
+            1.6799999475479126,
+            1.8399999141693115,
+            2.0,
+            2.240000009536743,
+            2.240000009536743,
+            2.240000009536743,
+            2.4800000190734863,
+            2.6399998664855957,
+            2.6399998664855957,
+            2.799999952316284,
+            2.9600000381469727,
+            3.0399999618530273,
+            3.119999885559082,
+            3.359999895095825,
+            3.43999981880188,
+            3.919999837875366,
+            4.159999847412109,
+            4.319999694824219,
+            4.319999694824219,
+            4.559999942779541,
+            4.71999979019165,
+            4.71999979019165,
+            4.71999979019165,
+            4.880000114440918,
+            5.199999809265137,
+            5.199999809265137,
+            5.279999732971191,
+            5.279999732971191,
+            5.599999904632568,
+            5.759999752044678,
+            5.759999752044678,
+            6.0,
+            6.399999618530273,
+            6.399999618530273,
+            6.399999618530273,
+            6.559999942779541
+          ],
+          "start_time": 0.0
+        }
+      ]
+    },
+    "cpu_verification": "All three INT8 graphs and tokens downloaded and SHA256 verified. INT8 decoder loaded successfully with official sherpa-onnx2.0.3 CPU wheel; no float-decoder substitution was needed.",
+    "ort_input_dimension_override_host_check": {
+      "ort_version": "1.31.0",
+      "onnx_version": "1.19.1",
+      "scope": "Linux CPU only; verifies ORT free-dimension input specialization and shape propagation, not QNN GPU placement or device execution.",
+      "sessions": [
+        {
+          "specialized": false,
+          "inputs": [
+            {
+              "name": "audio",
+              "shape": [
+                "batch",
+                128,
+                "time"
+              ]
+            }
+          ],
+          "outputs": [
+            {
+              "name": "encoded",
+              "shape": [
+                "batch",
+                128,
+                "time"
+              ]
+            }
+          ],
+          "actual_output_shape": [
+            1,
+            128,
+            7
+          ]
+        },
+        {
+          "specialized": true,
+          "inputs": [
+            {
+              "name": "audio",
+              "shape": [
+                1,
+                128,
+                65
+              ]
+            }
+          ],
+          "outputs": [
+            {
+              "name": "encoded",
+              "shape": [
+                1,
+                128,
+                7
+              ]
+            }
+          ],
+          "actual_output_shape": [
+            1,
+            128,
+            7
+          ]
+        }
+      ]
+    }
+  },
+  "qualification_limits": [
+    "No acoustic word boundary validation.",
+    "Native model word confidence values of1.0 are placeholders, not calibrated certainty.",
+    "Host timings are not phone latency or battery measurements.",
+    "No SnapdragonGPU/NPU model execution, thermal or battery evidence is claimed.",
+    "No current-head CI or Android app build result is established by this research."
+  ],
+  "sherpa_cpu_smoke_method": {
+    "runtime": "Official sherpa-onnx2.0.3 Linux x86_64 wheel",
+    "threads": 2,
+    "provider": "cpu",
+    "decoding_method": "greedy_search",
+    "feature_dim": {
+      "zipformer": 80,
+      "nemotron": 128
+    },
+    "frontend": "OnlineRecognizer.from_transducer defaults with upstream NeMo frontend correction;16kHz mono PCM16 normalized to[-1,1]",
+    "streaming_input_chunk_samples": 640,
+    "comparison": "Second new stream accepts entire fixture in one call. Both streams append0.8s zero flush padding and input_finished, then decode while ready. Final text and token timestamps were required to be identical, and all timestamps monotonic and bounded by audio plus flush padding. Flush padding is not user capture duration.",
+    "language_prompt": "en-US for Nemotron; language-specific Zipformer weights",
+    "scope": "Compatibility and chunk-delivery invariance on these public fixtures only; not WER ranking, acoustic boundary qualification, Android or accelerator performance."
+  },
+  "downloaded_sherpa_cpu_files": [
+    {
+      "model": "zipformer-en",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/decoder-epoch-99-avg-1.int8.onnx",
+      "bytes": 539499,
+      "sha256": "21e2a2acd961b3ac72f55be2f10f1a285e1b0b0ba010d7c0b6eab141411b163c"
+    },
+    {
+      "model": "zipformer-en",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/encoder-epoch-99-avg-1.int8.onnx",
+      "bytes": 42845182,
+      "sha256": "3810755ce7c3ab26b42a8bcf39d191308fa27fb0f53358823ba46141d03b7eb3"
+    },
+    {
+      "model": "zipformer-en",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/joiner-epoch-99-avg-1.int8.onnx",
+      "bytes": 259572,
+      "sha256": "e085d73b593cf9b0707f370dbd656d58327d3fe36d80d849202ef81df02cb01e"
+    },
+    {
+      "model": "zipformer-en",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/test_wavs/0.wav",
+      "bytes": 212044,
+      "sha256": "6bc58a4efdf20daac252b6b1502632601a71efe0308f6757dc1eda34891a7e4f"
+    },
+    {
+      "model": "zipformer-en",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/test_wavs/trans.txt",
+      "bytes": 449,
+      "sha256": "b9ac44e7b794abb1a2d5faf0005e98a665971e7ac2ed15435832cc34edaa9100"
+    },
+    {
+      "model": "zipformer-en",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/tokens.txt",
+      "bytes": 5048,
+      "sha256": "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb"
+    },
+    {
+      "model": "zipformer-fr",
+      "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/decoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+      "bytes": 1307157,
+      "sha256": "e72b2b9ed36355bd0dd43433f7dd258e7226ab54c9ef42b28c73ebb785805623"
+    },
+    {
+      "model": "zipformer-fr",
+      "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/encoder-epoch-29-avg-9-with-averaged-model.int8.onnx",
+      "bytes": 126655903,
+      "sha256": "47a94a7fdc8dff63d708be4ea0535747640224467f91e238311f1ddbdd09327e"
+    },
+    {
+      "model": "zipformer-fr",
+      "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/joiner-epoch-29-avg-9-with-averaged-model.int8.onnx",
+      "bytes": 259572,
+      "sha256": "fc2f3bb851a15a532c6f2422d53eecd1ca949f12b0897e07a852021c30481711"
+    },
+    {
+      "model": "zipformer-fr",
+      "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/test_wavs/common_voice_fr_19364697.wav",
+      "bytes": 228174,
+      "sha256": "b057a0b3badb2b5e1352b6b058726dc03a063e74794232ed266d5b3ad573f9ca"
+    },
+    {
+      "model": "zipformer-fr",
+      "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/test_wavs/trans.txt",
+      "bytes": 299,
+      "sha256": "f8df7939387573e9ff1164c174b514f3e6d8f7bfc7e074dbefc867ec2eddb4e5"
+    },
+    {
+      "model": "zipformer-fr",
+      "url": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/tokens.txt",
+      "bytes": 4819,
+      "sha256": "37fb3f2a7bcb85e5fff3f1f66be04e6fbb05077a22f56d177fe85704e945fb31"
+    },
+    {
+      "model": "nemotron-cpu",
+      "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/decoder.int8.onnx",
+      "bytes": 14978075,
+      "sha256": "19f9c98fc6d0a2c33a65a43b36fdb2e914c26c0aa9764be3aebc502a1e982fb0"
+    },
+    {
+      "model": "nemotron-cpu",
+      "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/encoder.int8.onnx",
+      "bytes": 657601403,
+      "sha256": "012e9321373af99021415e0b0eb3ec827b4be3153be6f30d9b448fe65e896e68"
+    },
+    {
+      "model": "nemotron-cpu",
+      "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/joiner.int8.onnx",
+      "bytes": 9504438,
+      "sha256": "4101c7c679a0bc30483794b27a059e34e79232aa2068d78d51231a22c8b0d7ce"
+    },
+    {
+      "model": "nemotron-cpu",
+      "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/test_wavs/en.wav",
+      "bytes": 228908,
+      "sha256": "eb1eb008904465b74c304aad8342e8c7d3c6e61ffe9f66adcaca9cf0f76a93f4"
+    },
+    {
+      "model": "nemotron-cpu",
+      "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3/tokens.txt",
+      "bytes": 131440,
+      "sha256": "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a"
+    }
+  ],
+  "host_model_store_regression": {
+    "classes": [
+      "VoiceRecognitionModelCatalogTest",
+      "RecognitionModelStoreTest",
+      "RecognitionModelArchiveTest",
+      "PocketCaptionModelStoreTest"
+    ],
+    "result": "15tests passed",
+    "scope": "Actual production Kotlin classes against SDK37android.jar and realMoonshine0.1.6AAR; no native Android execution or full app build."
+  },
+  "host_capture_regression": {
+    "classes": [
+      "MoonshineStreamDecoderTest",
+      "MoonshineVoiceRecognizerTest",
+      "MoonshineResidentModelTest",
+      "VoiceInstallObservationTest"
+    ],
+    "last_completed_result": "61 tests passed",
+    "last_completed_log_modified_utc": "2026-11-28T06:07:35.498925+00:00",
+    "scope": "Actual complete Kotlin capture, decoder, residency, timing and installer-observation classes compiled against Android SDK 37 and the real Moonshine 0.1.6 AAR. Native decoder and PCM recorder are injected test implementations. Unrelated issue-report projection/log sink and caption marker are explicit host ports. This does not qualify Android hardware or the report sanitizer.",
+    "regressions": [
+      "Moonshine native architecture and word-timing options for each selected model",
+      "Absolute native word timestamps are not offset twice",
+      "Blank final updates retain previous text and word spans",
+      "Comma-separated keyterms, explicit clearing and rejection handling",
+      "Warm reuse, changed vocabulary/language retirement and coalesced prewarming",
+      "Prewarming does not request microphone permission",
+      "Uncertain native close retains the model lease and prevents repeated destruction or replacement",
+      "Trimmed partial text preserves final timing when the decoder final event is blank",
+      "Exact Long transfer counts above 2 GiB and the 16 GiB upper boundary",
+      "Process-wide uncertain retirement fences replacement owners and requests queued at the native gate",
+      "Terminated worker cannot acknowledge model release after native destruction failed",
+      "Throwing callbacks and terminal timing do not strand capture ownership"
+    ],
+    "compiler_memory_limit": "-Xmx384m -XX:MaxMetaspaceSize=192m",
+    "tested_source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "7a32843b54b7bc6cc8de13112ebab28d264f6f52acb09ab62bded5ecf9329911",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineStreamDecoder.kt": "15060874aa260a25bda43554647e2b0a37d04c807c358c39e9ca26c0d8032b47",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionRetirement.kt": "91388e6a591cf2aaea0639a6cb74cdf39a8962314a35369c68d802029a1f1966",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionInput.kt": "fbb2de8fc7a00c54f2333a7b0f84ac98065e30b531b58f79388dd9d4b2e2612f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionTranscript.kt": "a6c572feca8d549ecdc90c9cc2d07c92260cccd5f0e7bb32b7f6020babd543e7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModel.kt": "b5010aa0eeea4b380e5a1944b410a6bfeb63c07ab50b3f82b1f8bf5bd1fcf483",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt": "f9528fb751f21f88b1d3550fcdc9c36ad422f40e6a02f41d8d2a8144d629fbce",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionModelStore.kt": "14fe1ae030a4e5fbf41f80693e55cc755d781185cbd4f786b7c8b32b2b6382cf",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": "6d70a6793e30936e51c9dbf0a422ec91ef10db2acbfab3a36ff7df6f123e5a6c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservation.kt": "44a13fbeb7fa029b45d909d5e04b6cc6e0ca7251497f8ebb2268a45fe603bdc9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceListeningPolicy.kt": "4021997d470f894b14ad6efdf257e519aee8bb3b27393cc3eed73f1c3c683b8d",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMicrophoneLease.kt": "f155f67ec279b551d8bdf003aee023d583b230a399f686e1d8ec1cc72bfe6740",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeEngineGate.kt": "272d6d0712a48410f818446146abd5c050839ad1ea6d75852dcdced8a87e47a7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt": "e00126a2928592a024d9626f08a386388d531cdb9af0f86e81b49783a59733b0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFeedback.kt": "444d13dc8b5fbb190a27b8c0eb70af178fe81c46b4fcc1f52a7acd3ac15acb42",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt": "c44c6f5ab354d7326d0a57b25c39939dc2b47f655faee298b6b9a137d572c2a4",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceHistory.kt": "53a1e4c4dfdea0feb099426bb73f133063983a615765dd140c3ccad3aa900de6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailure.kt": "5ee58566080cf7b5e6eb396559bc092c86c84932750acb2ed83c001e1ccea20d",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInterruptionMonitor.kt": "0898adb88bb98978da9fc84f44446724456a0978540eeb4367882add96e7bfd7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt": "2b62287f16a0ceb8441932f10b410206dab2aedf5dccce2126a17af47ce7aa3a",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineStreamDecoderTest.kt": "124ebd92dc945d044893f0efa27943b56d3db53df952118bbf5a98a8f9de65ec",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt": "28a89a01242480e9fa9ad22d6680d6ff1d92098931828ae301615c7a044787d2",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineResidentModelTest.kt": "c61d24305f42f2db8afd34e86deb6634475ca811207da9cda66c19b43693cdb5",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservationTest.kt": "638af88e25b9d567212ab1e9a26b4522f5a088bd0ad5f974e5b8c4e864132266"
+    },
+    "host_log_sha256": "0d7b1ebac1000e9480dd6e9de0b936662416ae1fbbd056e892e5bd1109fa32db",
+    "previous_attempt": "A post-format recompilation was killed with exit -9 under concurrent host memory pressure before tests ran. No new pass is claimed for that attempt. The parent will coordinate a sequential final compilation.",
+    "latest_attempt": "Sequential bounded compilation completed; all 61 tests passed. No Android device, acoustic, thermal or battery qualification is inferred."
+  },
+  "large_model_install_evidence": {
+    "maximum_bytes": 17179869184,
+    "legacy_maximum_bytes": 1000000000,
+    "required_capability_above_legacy_maximum": "VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1",
+    "negotiation": "Required only when an actual downloaded or total byte count exceeds the legacy maximum. Advertised in the existing bounded extended readiness view; legacy response remains 1022 bytes. Approved evidence is retained while unsupported brokers are rejected before POST.",
+    "python_tests": {
+      "readiness": "3 targeted tests passed, including legacy response size, extended capability support, and rejection when that capability is missing",
+      "voice_install_contract": "3 targeted tests passed, including exact GPU asset counts and bounds/privacy validation",
+      "diagnostic_schema_check": "passed; no generated schema change required"
+    },
+    "android_test_status": "Regressions added for capability negotiation, exact Long preservation, legacy counts and unchanged approved payloads; full Android compilation and tests remain for the parent validation run."
+  },
+  "host_recognition_integration_regression": {
+    "result": "20 tests passed",
+    "log_modified_utc": "2026-11-28T06:20:49.988777+00:00",
+    "classes": {
+      "VoiceRecognitionSelectionTest": 3,
+      "VoiceRecognitionMemoryPolicyTest": 4,
+      "VoiceRecognitionControllerTest": 3,
+      "SherpaNativeSpeechDecoderTest": 6,
+      "VoiceRecognitionPreferenceTest_platform_independent_methods": 4
+    },
+    "compiler_memory_limit": "-Xmx256m -XX:MaxMetaspaceSize=160m",
+    "scope": "Actual complete preferences writer/restore, recognition controller and memory policy, Sherpa adapter with injected-native tests. Exact VoicePreferences and PCM-rate declarations are extracted. Android QNN environment is a throwing boundary with the real result declaration. Prior actual capture/session/catalog/calibration classes are friend dependencies. This is not an Android app build, microphone run, accelerator or acoustic qualification.",
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionConfiguration.kt": "39e5ef48414cdaa7bd5bd50b282b0b5fca4dd6fe20365d487b89831ffa940114",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionMemoryPolicy.kt": "fe13e1d1a9040c232ebee6654e9990a5871adc58acc100c360d8ed425b9a7fda",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt": "36e51dc4fda452c92d4dc75979063a61e49b3aec8de35bf3074f737f57772443",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt": "378eb01b89f22cf9162db102e5518fe7318a51fb4f4f3bfe562d429ec12082bb",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt": "767be5bf9a4ec057012b5870adbb340c1a154fe3522988684aadbacd9b5b92e4",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechVoices.kt": "36cd35cbb3bcff60d50014910685717cdf48446d9dd23b29267a33e0e4d8e113",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeKokoroBucket.kt": "ee5d75d6b0c31211b2b60171b7bf595901f64d221a327763c760afe1df633866",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelVariant.kt": "38f375f0ebcd31a3069ca611704e188a25b138b4b363dc7ee991d217f6321fb4",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt": "58dbf4b8895485e57b1b198ea634a0c0d572374d43fa76a15b59de658dc3f358",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePreferenceWriter.kt": "78739a91145d21e5798d621ce100cd9a95cc1e15af84e309ac7ff9de4783c132",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationLocales.kt": "2657e76f180bfef5b8a91b81806b4b43a6fe9baca04ac01029919ddae0abab1a",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationTransfer.kt": "df88d6e596e372bedc448140b61602335b472183eb1c51b4c624dd100807394d",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicy.kt": "3d772e084f5200f1de730a57a82798095a0b606c14e1d1c145f9429b57d34927",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/QualcommSocSupport.kt": "8d04f5d5618d2012a3d69398be7442d6fd4255976eda11374eab58ff0d3caf7e",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt": "c9093b3c2e7727c399e30ee446f997552f5692656228ede61f7270a42dad5692",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.kt": "82bc8e2156946848af9a4d6aaa6f3dbec253760f4ccc6a048a7e9088bf5565ce",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionSelectionTest.kt": "5b3b32f6480f75fd44b0aed284e7ad8fc2f68ebc767211ce45fa8e4204e9e3fb",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionMemoryPolicyTest.kt": "ad4f0a213cb29219f1b6049b9439a0da676d6b75101f8af01d9000ab0822c17c",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionControllerTest.kt": "6666011e1576ecaac38922696d2ad0db828c27fea5f1bec776ab64b8879da56e",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt": "9e53700480fae128fed197995942ba8cf62f86631a745b2d9f449a7821b9f225",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionPreferenceTest.kt": "b575a8a885e11c9399c1fb58998adf68e64ad7fb68e6fce4f7c9b5226dec9b4d"
+    },
+    "extract_sha256": {
+      "ExactVoicePreferences.kt": "4490e54eef800db44fc728f118c2ee165cf3ec8b0cbefa7e7c5e14d7be6e7d40",
+      "ExactSampleRate.kt": "5eb75d938be5477e95caaa75a847cc9d1f14ea9512325db84bc5b3d4f0a67caf"
+    },
+    "port_sha256": {
+      "QnnEnvironmentPort.kt": "79ab56967239a6cae4761656996191f1d5d3ffd39703120fa01744e25cb80403",
+      "PreferenceRestoreHostTest.kt": "c441505d4773e7d51b35c050400a6e77ae28fe495eefcc58fc1aaea6e4134613"
+    },
+    "host_log_sha256": "1a49b965b87de55b14665a52c720baf0d18afa75a583961bfe1565da3321204c",
+    "limitations": [
+      "Four platform-independent preference restore methods execute unchanged through a host JUnit wrapper; the full Robolectric preference test class and actual SharedPreferences writer compile, but the Android SharedPreferences round-trip is not run here.",
+      "Native decoder and serial worker are injected in adapter/controller tests; no physical accelerator, microphone, acoustic, thermal or battery qualification is claimed."
+    ],
+    "regressions": [
+      "Cleanup completion is fenced to the current selection generation and owner.",
+      "Capture and speculative prewarm cannot enter while an explicit model release is pending.",
+      "A deliberate release remains unwarmed until explicit listen or a selection change.",
+      "Cancellation immediately invalidates cached native execution evidence, including cancellation during native construction.",
+      "Nemotron CPU admission reserves initialization copies; GPU admission includes session overhead beyond download bytes."
+    ]
+  },
+  "recognition_compose_compilation": {
+    "result": "Compilation passed; UI tests were not executed",
+    "log_modified_utc": "2026-11-28T06:21:12.243428+00:00",
+    "ui_test_class": "VoiceRecognitionUiTest",
+    "ui_test_methods_compiled": 4,
+    "kotlin_compose_compiler": "2.4.20",
+    "compose_runtime_ui": "1.12.1",
+    "material3": "1.4.0",
+    "android_compile_api": 37,
+    "compiler_memory_limit": "-Xmx256m -XX:MaxMetaspaceSize=160m",
+    "scope": "Compile-only check of actual model/language settings, timing dialog and complete live-caption component/helper sources and repository Compose tests against SDK37, real Compose1.12.1/Material3 1.4.0, Kotlin/Compose compiler2.4.20. The VoiceChoice and VoiceSettingSwitch declarations are extracted exactly; device motion policy is a compile boundary. No Robolectric composition or physical device execution is claimed.",
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionSettings.kt": "4ef595ad7640f32117ba9c3e15a83c309080af66e5f0367e44e8db28d210f4b1",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionTimingsDialog.kt": "0e924250c4a865806dee36ce97d852f66710be5be6fce2423e991296e75b6117",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt": "3034209b376f6e2bea1dea115e191a12f7f746ef97c3cbcdf51a76f73f688281",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLiveCaptions.kt": "28d33438a7d27bd47ef4d40f352fbb91515a035964c4dee44a5a04d72aaa80fe",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt": "297ea564977a0c82ad17695afc28d75d784bbd01f84daaef98dd732746dc6936",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionLine.kt": "540b07dbbb7210049638aee829dfd8c98166b64d7703a1e86d1a5e62f71308cd",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionLayoutCache.kt": "f6bbd2116099c04edf09cc2753120848ec571d9065f01268507a37b58de77c9e",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotion.kt": "cc96f042a5bbfc177497acd57861c1be95ba60faaf9bd5028dde7a50028c65c4",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionDrawnLine.kt": "deb398f2e5fa9d41104eadee1a33c244453d3d9968e373485ddd18a44041dc66",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionUiTest.kt": "e1935b48a5071dc0f0699b310d90cf82860dc5f9c03f37e63eac8dd972ef8fe5"
+    },
+    "extract_sha256": {
+      "ExactVoiceChoice.kt": "1c7f85cd3cbec837e938a9105bda43c06c9c27b19f825be98740a05b188970d3"
+    },
+    "port_sha256": {
+      "MotionGatePort.kt": "d2c75929735b1f75939c74d5d0e233dfb50a8d4397b7389edc1dbc9bf21d9619"
+    },
+    "compile_log_sha256": "7c3fd04be3881d8b876cd6a5206b7a3c85df226cf35a5f9a93805fb3e4b74e33",
+    "limitations": [
+      "Full application compilation, Robolectric composition, Android instrumentation and physical-device behavior are not established by this scoped compile."
+    ]
+  }
+}

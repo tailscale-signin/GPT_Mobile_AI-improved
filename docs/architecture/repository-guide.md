@@ -271,6 +271,8 @@ require actual content-bound receipts.
 
 ## Voice and captions
 
+The [streaming recognition and input timing guide](streaming-recognition-and-timing-2026-11-28.md) maps Moonshine Streaming, Zipformer and Nemotron model packs, CPU/GPU/NPU execution, installation, retirement, caption timing, translation routing and their behavior regressions. Its source-bound receipts distinguish implementation and host checks from physical-device qualification.
+
 Speech generation, accepted PCM, presented audio and visible captions are separate
 stages. Caption position follows presented audio and the active reply's identity.
 Preserve cancellation, replay ownership, route changes and buffering when changing

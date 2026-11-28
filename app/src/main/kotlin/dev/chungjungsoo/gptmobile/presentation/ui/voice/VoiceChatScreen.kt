@@ -99,6 +99,9 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreparation
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreparationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionCompute
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
@@ -305,6 +308,7 @@ private fun VoiceChatSessionScreen(
     }
     val systemAudio = runtime.system
     val localRecognition = runtime.recognition
+    val recognitionEvidence by localRecognition.executionEvidence.collectAsStateWithLifecycle()
     val kokoroOutput = runtime.kokoro
     val audio = runtime.audio
     val session = runtime.session
@@ -319,7 +323,6 @@ private fun VoiceChatSessionScreen(
     var manualMessage by runtime.manualMessage
     var refreshMutedBaseline by runtime.refreshMutedBaseline
     val voiceReady = loaded && roomReady && backend.loaded && playbackPrimed && selectedProfile != null && profilePreflightReady
-    val localModel by stores.moonshine.state.collectAsStateWithLifecycle()
     val kokoroModel by stores.kokoro.state.collectAsStateWithLifecycle()
     val state by session.presentationStates.collectAsStateWithLifecycle()
     SideEffect {
@@ -350,6 +353,13 @@ private fun VoiceChatSessionScreen(
     var draft by rememberSaveable { mutableStateOf("") }
     var language by rememberSaveable { mutableStateOf(SpeechLanguages.recognitionDefault()) }
     var recognitionBackend by rememberSaveable { mutableStateOf(VoiceRecognitionBackend.LOCAL_MOONSHINE) }
+    var recognitionModel by rememberSaveable { mutableStateOf(VoiceRecognitionModel.MOONSHINE_TINY) }
+    var recognitionCompute by rememberSaveable { mutableStateOf(VoiceRecognitionCompute.CPU) }
+    var recognitionThreads by rememberSaveable { mutableIntStateOf(0) }
+    val recognitionConfiguration = VoiceRecognitionConfiguration(recognitionModel, recognitionCompute, recognitionThreads).supported()
+    val recognitionStore = remember(stores, recognitionConfiguration) { stores.recognition.store(recognitionConfiguration) }
+    val localModel by recognitionStore.state.collectAsStateWithLifecycle()
+    LaunchedEffect(recognitionStore) { recognitionStore.refresh(forceVerification = false) }
     var synthesis by remember { mutableStateOf(VoiceSynthesisPreferences()) }
     fun activeSpeechProfile() = backend.synthesisProfile(synthesis)
     var translationMode by remember { mutableStateOf(false) }
@@ -366,13 +376,9 @@ private fun VoiceChatSessionScreen(
     fun captureLanguage() = if (translationMode) translationPair.sourceLanguage ?: translationPair.baseLanguage else language
     fun captureLanguages() = if (translationMode && translationPair.sourceLanguage == null) listOf(translationPair.baseLanguage, translationPair.translationLanguage) else emptyList()
     fun captureBackend() = if (translationMode) {
-        if (translationPair.sourceLanguage?.startsWith("en") == true && recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
-            VoiceRecognitionBackend.LOCAL_MOONSHINE
-        } else {
-            VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
-        }
+        SpeechLanguages.translationRecognitionBackend(translationPair.sourceLanguage, recognitionBackend, recognitionModel)
     } else {
-        recognitionBackend
+        SpeechLanguages.recognitionBackend(language, recognitionBackend, recognitionModel)
     }
     val selectedOutputFactory = if (translationMode) translationOutput?.factory ?: backend.factory else backend.factory
     VoiceOutputConfigurationEffect(preferencesApplied, kokoroOutput, selectedOutputFactory)
@@ -441,6 +447,9 @@ private fun VoiceChatSessionScreen(
             if (!preferencesInitialized) {
                 language = saved.language
                 recognitionBackend = saved.recognitionBackend
+                recognitionModel = saved.recognitionModel
+                recognitionCompute = saved.recognitionCompute
+                recognitionThreads = saved.recognitionThreads
                 captions = saved.captions
                 editBeforeSend = saved.review
                 spokenReplies = saved.spokenReplies
@@ -458,9 +467,10 @@ private fun VoiceChatSessionScreen(
             }
             audio.recognitionBackend = captureBackend()
             audio.requireLocalOutput = translationMode && translationOutput != null
+            localRecognition.configure(VoiceRecognitionConfiguration(recognitionModel, recognitionCompute, recognitionThreads).supported())
             localRecognition.languageTag = captureLanguage()
             systemAudio.translationLanguages = captureLanguages()
-            tuningConfiguration.apply(tuning, outputSpeechProfile().dictionaryLanguage)
+            tuningConfiguration.apply(tuning, outputSpeechProfile().dictionaryLanguage, java.util.Locale.forLanguageTag(captureLanguage()).language)
             audio.kokoroVoice = kokoroVoice
             kokoroOutput?.configureThreads(kokoroThreads)
             kokoroOutput?.configurePacing(pause, performance)
@@ -480,7 +490,7 @@ private fun VoiceChatSessionScreen(
         }
     }
     val recognitionReady = if (captureBackend() == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
-        localModel.status == LocalVoiceModelStatus.READY
+        localModel.status == LocalVoiceModelStatus.READY && recognitionModel.supportsLanguage(captureLanguage())
     } else {
         remember(context, lifecycleState) { android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }
     }
@@ -488,6 +498,7 @@ private fun VoiceChatSessionScreen(
         val onlineAllowed = false
         if (
             audio.recognitionBackend != captureBackend() ||
+            localRecognition.configuration != recognitionConfiguration ||
             localRecognition.languageTag != captureLanguage() ||
             systemAudio.languageTag != captureLanguage() ||
             systemAudio.translationLanguages != captureLanguages() ||
@@ -498,9 +509,10 @@ private fun VoiceChatSessionScreen(
         audio.synthesisSupported = translationMode || backend.backend.forSynthesis(synthesis) == backend.backend
         audio.requireLocalOutput = translationMode && translationOutput != null
         audio.recognitionBackend = captureBackend()
+        localRecognition.configure(recognitionConfiguration)
         localRecognition.languageTag = captureLanguage()
         systemAudio.translationLanguages = captureLanguages()
-        tuningConfiguration.apply(tuning, outputSpeechProfile().dictionaryLanguage)
+        tuningConfiguration.apply(tuning, outputSpeechProfile().dictionaryLanguage, java.util.Locale.forLanguageTag(captureLanguage()).language)
         systemAudio.synthesisLanguageTag = outputSpeechProfile().tag
         model.voiceReplyPolicy = VoiceResponsePolicy.forLanguage(outputSpeechProfile().tag, translationMode)
         systemAudio.languageTag = captureLanguage()
@@ -524,7 +536,7 @@ private fun VoiceChatSessionScreen(
         // A different system voice cannot fulfill this turn's selected language/voice pair.
         audio.requireLocalOutput = true
         systemAudio.synthesisLanguageTag = target.targetLanguage
-        MediaPipeSpeechVoices.forVoice(target.voiceId)?.let { tuningConfiguration.apply(tuning, it.dictionaryLanguage) }
+        MediaPipeSpeechVoices.forVoice(target.voiceId)?.let { tuningConfiguration.apply(tuning, it.dictionaryLanguage, java.util.Locale.forLanguageTag(target.sourceLanguage).language) }
         model.voiceReplyPolicy = target.responsePolicy
     }
     fun acceptedVoicePolicy(identity: VoiceMessageIdentity): VoiceResponsePolicy? {
@@ -679,6 +691,17 @@ private fun VoiceChatSessionScreen(
             if (!enabled || !roomReady || !translationMode && backend.backend.forSynthesis(synthesis) != backend.backend) kokoroOutput?.releaseWarmModel()
         }
     }
+    LaunchedEffect(localRecognition, recognitionConfiguration, captureLanguage(), recognitionReady, preferencesApplied, voiceScreenActive, state.phase, captureBackend()) {
+        if (voiceScreenActive &&
+            preferencesApplied &&
+            recognitionReady &&
+            captureBackend() == VoiceRecognitionBackend.LOCAL_MOONSHINE &&
+            benchmarkOwnership.value == null &&
+            state.phase in setOf(VoicePhase.PAUSED, VoicePhase.REVIEWING, VoicePhase.THINKING)
+        ) {
+            localRecognition.prewarm()
+        }
+    }
     val permissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionRequestInFlight = false
         permission = granted
@@ -707,7 +730,7 @@ private fun VoiceChatSessionScreen(
         }
     }
     fun savePreferences() {
-        voiceSettings.save(VoicePreferences(language = language, recognitionBackend = recognitionBackend, synthesis = synthesis, translationMode = translationMode, translationPair = translationPair, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds, pause = pause, performance = performance, speakWhileGenerating = speakWhileGenerating, kokoroBucket = kokoroBucket, incrementalSpeech = incrementalSpeech, nativeModelVariant = nativeModelVariant, tuning = tuning))
+        voiceSettings.save(VoicePreferences(language = language, recognitionBackend = recognitionBackend, recognitionModel = recognitionModel, recognitionCompute = recognitionCompute, recognitionThreads = recognitionThreads, synthesis = synthesis, translationMode = translationMode, translationPair = translationPair, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds, pause = pause, performance = performance, speakWhileGenerating = speakWhileGenerating, kokoroBucket = kokoroBucket, incrementalSpeech = incrementalSpeech, nativeModelVariant = nativeModelVariant, tuning = tuning))
     }
     fun changeSynthesis(selected: VoiceSynthesisPreferences) {
         if (synthesis == selected) return
@@ -1124,6 +1147,8 @@ private fun VoiceChatSessionScreen(
                     localModel = localModel,
                     language = language,
                     recognitionBackend = recognitionBackend,
+                    recognitionConfiguration = recognitionConfiguration,
+                    recognitionEvidence = recognitionEvidence,
                     synthesis = synthesis,
                     kokoroVoice = kokoroVoice,
                     editBeforeSend = editBeforeSend,
@@ -1151,16 +1176,34 @@ private fun VoiceChatSessionScreen(
                         session.pause("profile_changed")
                         model.selectVoiceProfile(uid) { changed -> if (changed) closeSettings() }
                     },
-                    installLocalModel = voiceSettings::installLocalModel,
-                    cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
+                    installLocalModel = { voiceSettings.installRecognitionModel(recognitionConfiguration) },
+                    cancelLocalModelInstall = { voiceSettings.cancelRecognitionModelInstall(recognitionConfiguration) },
                     removeLocalModel = {
                         session.pause("model_removed")
-                        localRecognition.releaseWarmModel(voiceSettings::removeLocalModel)
+                        val retiring = recognitionConfiguration
+                        localRecognition.releaseWarmModel { voiceSettings.removeRecognitionModel(retiring) }
                     },
                     changeLanguage = { tag, selected ->
                         session.recognitionConfigurationChanged()
                         language = tag
                         recognitionBackend = selected
+                        savePreferences()
+                    },
+                    selectRecognitionModel = { selected ->
+                        session.recognitionConfigurationChanged()
+                        recognitionModel = selected
+                        recognitionCompute = VoiceRecognitionCompute.CPU
+                        recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
+                        savePreferences()
+                    },
+                    selectRecognitionCompute = { selected ->
+                        session.recognitionConfigurationChanged()
+                        recognitionCompute = selected
+                        savePreferences()
+                    },
+                    selectRecognitionThreads = { selected ->
+                        session.recognitionConfigurationChanged()
+                        recognitionThreads = selected
                         savePreferences()
                     },
                     changeReview = {
@@ -1332,9 +1375,12 @@ private fun VoiceChatSessionScreen(
                         speechRate = rate,
                         enabled = !benchmarkRunning && !state.awaitingReply && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
                         beforeStart = {
+                            session.holdAudio(true)
                             session.pause("speech_benchmark_started")
-                            localRecognition.releaseWarmModel()
-                            kokoroOutput?.releaseWarmModel()
+                            awaitVoiceBenchmarkRetirement(
+                                { completed -> localRecognition.releaseWarmModel(completed) },
+                                { completed -> if (kokoroOutput == null) completed() else kokoroOutput.releaseWarmModel(completed) }
+                            )
                         },
                         captionOffsetMs = tuning.captionOffsetMs,
                         viewModel = benchmarkOwner,
@@ -1408,6 +1454,7 @@ private fun VoiceChatSessionScreen(
                     recognitionReady = recognitionReady,
                     recognitionBackend = captureBackend(),
                     replyLanguage = activeSpeechProfile().tag,
+                    recognitionConfiguration = recognitionConfiguration,
                     replyLanguageProfiles = backend.replyLanguageProfiles(synthesis),
                     translationMode = translationMode,
                     translationPair = translationPair,
@@ -1443,8 +1490,8 @@ private fun VoiceChatSessionScreen(
                         cancelListeningIntent()
                         settingsOpen = true
                     },
-                    installLocalModel = voiceSettings::installLocalModel,
-                    cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
+                    installLocalModel = { voiceSettings.installRecognitionModel(recognitionConfiguration) },
+                    cancelLocalModelInstall = { voiceSettings.cancelRecognitionModelInstall(recognitionConfiguration) },
                     changeDraft = {
                         draft = it.take(8000)
                         session.editDraft(draft)
@@ -1554,6 +1601,8 @@ private data class VoiceSettingsUiState(
     val localModel: LocalVoiceModelState,
     val language: String,
     val recognitionBackend: VoiceRecognitionBackend,
+    val recognitionConfiguration: VoiceRecognitionConfiguration,
+    val recognitionEvidence: Map<String, String>,
     val synthesis: VoiceSynthesisPreferences,
     val kokoroVoice: KokoroVoice?,
     val editBeforeSend: Boolean,
@@ -1582,6 +1631,9 @@ private class VoiceSettingsActions(
     val cancelLocalModelInstall: () -> Unit,
     val removeLocalModel: () -> Unit,
     val changeLanguage: (String, VoiceRecognitionBackend) -> Unit,
+    val selectRecognitionModel: (VoiceRecognitionModel) -> Unit,
+    val selectRecognitionCompute: (VoiceRecognitionCompute) -> Unit,
+    val selectRecognitionThreads: (Int) -> Unit,
     val changeReview: (Boolean) -> Unit,
     val changeCaptions: (Boolean) -> Unit,
     val changeSpokenReplies: (Boolean) -> Unit,
@@ -1629,10 +1681,36 @@ private fun VoiceSettingsScreen(
             state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             state.modelChangeError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             VoiceSettingsSection("Speech recognition")
+            VoiceRecognitionModelChoices(
+                state.recognitionConfiguration.model,
+                state.recognitionConfiguration.compute,
+                state.recognitionConfiguration.threads,
+                state.language,
+                actions.selectRecognitionModel,
+                actions.selectRecognitionCompute,
+                actions.selectRecognitionThreads
+            )
             if (state.recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
-                LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, actions.removeLocalModel, showRemove = true)
+                LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, actions.removeLocalModel, showRemove = true, model = state.recognitionConfiguration.model, compute = state.recognitionConfiguration.compute)
             }
-            RecognitionLanguageChoice(state.language, state.recognitionBackend, actions.changeLanguage)
+            RecognitionLanguageChoice(state.language, state.recognitionBackend, state.recognitionConfiguration.model, actions.changeLanguage)
+            val actualRecognition = state.recognitionEvidence["recognitionActualProvider"]
+            if (state.recognitionEvidence["recognitionFailure"] in setOf("ASR_RETIREMENT_UNCONFIRMED", "ASR_RETIREMENT_TIMEOUT")) {
+                Text("The previous recognizer has not finished releasing its model. Restart the app if it cannot finish; the model remains protected from removal.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (state.recognitionEvidence["recognitionFailure"] == "ASR_RETIREMENT_SUPERSEDED") {
+                Text("Recognition selection changed before model cleanup completed. Select the model again to retry removal.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (state.recognitionEvidence["recognitionExecutionVerified"] == "true" && actualRecognition != null) {
+                val processor = when (actualRecognition.lowercase()) {
+                    "cpu" -> "CPU"
+                    "qnn-gpu" -> "Qualcomm GPU"
+                    "qnn-gpu+cpu" -> "Qualcomm GPU with CPU operations"
+                    "qnn-htp-context" -> "Qualcomm NPU"
+                    else -> actualRecognition
+                }
+                Text("Last recognition executed on $processor.", style = MaterialTheme.typography.bodySmall)
+            }
             VoiceSettingsSection("Conversation")
             Text("Replies begin with a short spoken answer. Longer details stay available in chat.", style = MaterialTheme.typography.bodySmall)
             VoiceSettingSwitch("Review before sending", state.editBeforeSend, actions.changeReview)

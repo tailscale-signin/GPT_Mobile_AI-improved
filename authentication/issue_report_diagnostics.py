@@ -489,7 +489,7 @@ def _valid_value(key, value):
     if key == "voice_install_progress_percent":
         return 0 <= value <= 100
     if key in {"voice_install_downloaded_bytes", "voice_install_total_bytes"}:
-        return 0 <= value <= 1_000_000_000
+        return 0 <= value <= 17_179_869_184
     if key == "voice_install_http_status":
         return 100 <= value <= 599
     return key in COUNTS and 0 <= value <= 16_000_000

@@ -22,11 +22,13 @@ from test_gitleaks_model_pin import (
     MODEL_PACK_PATH,
     NATIVE_PATH,
     POCKET_PROVENANCE_PATH,
+    RECOGNITION_PROVENANCE_PATH,
     ROUTING_FIXTURE_PATH,
     VERSION,
     WAVEFORM_EVIDENCE_PATH,
     isolated_environment,
     pocket_history_fixture_inputs,
+    recognition_historical_inputs,
     quiet,
 )
 
@@ -49,13 +51,16 @@ INPUTS = (
     MODEL_PACK_PATH,
     "gradle/verification-metadata.xml",
     POCKET_PROVENANCE_PATH,
+    RECOGNITION_PROVENANCE_PATH,
 )
 
 
 def wrapper_case(directory, environment, name, missing_object=None):
     result = subprocess.run(
         ["bash", "scripts/scan_secret_history.sh"], cwd=directory,
-        env=environment, capture_output=True, text=True, timeout=60)
+        # Allow all expanded real-scanner controls to finish on a shared runner.
+        # Every control and the complete history scan must still pass.
+        env=environment, capture_output=True, text=True, timeout=180)
     controls = None
     for line in result.stdout.splitlines():
         if line.startswith("{"):
@@ -93,6 +98,7 @@ def main():
         summary["scannerSha256"] = hashlib.sha256(scanner.read_bytes()).hexdigest()
         inputs = {path: (ROOT / path).read_bytes() for path in INPUTS}
         inputs.update(pocket_history_fixture_inputs())
+        inputs.update(recognition_historical_inputs())
         summary["sourceInputsSha256"] = {
             path: hashlib.sha256(raw).hexdigest() for path, raw in inputs.items()}
         with tempfile.TemporaryDirectory(prefix="secret-history-integrity-") as temporary:
@@ -134,8 +140,9 @@ def main():
                 object_path.write_bytes(saved_object)
             summary["cases"].append(wrapper_case(directory, environment, "restored_historical_blob"))
         summary["passed"] = all(case["passed"] for case in summary["cases"])
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.TimeoutExpired) as failure:
         summary["error"] = "history_integrity_fixture_failed"
+        summary["errorType"] = type(failure).__name__
     if args.report:
         args.report.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, sort_keys=True))

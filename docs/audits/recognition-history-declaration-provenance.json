@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "scope": "Provenance of two immutable public Zipformer artifact declarations. No recognition accuracy, device, accelerator, acoustic or release qualification is asserted.",
+  "sourceBasis": "immutable_git_blobs",
+  "historicalInputs": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt",
+      "gitBlob": "ebd65ad963db5ad202fd66b66e94e67dafd70e8e",
+      "bytes": 17900,
+      "sha256": "f9528fb751f21f88b1d3550fcdc9c36ad422f40e6a02f41d8d2a8144d629fbce"
+    },
+    {
+      "path": "docs/audits/voice-recognition-models.json",
+      "gitBlob": "0cda07dbf4b934d112a91010193b1cce62a9beac",
+      "bytes": 66035,
+      "sha256": "1222dcd6bd8704b9e821cedc3d242a09bf0a7ebeffd77c6ddf3f3e7df7e6f172"
+    }
+  ],
+  "sourceProof": "The scanner controls pin these exact file blobs from the integration publication tree and recompute their SHA-1 object identities, lengths and SHA-256s. No unpublished local commit identity is required. The two model declarations bind the artifact length and SHA-256 to the complete immutable publisher URL and language-specific model enum. The independent publisher metadata in the model audit must agree on revision, blob identity and length. Missing, altered or non-blob source objects fail closed.",
+  "artifacts": [
+    {
+      "model": "zipformer-en",
+      "revision": "d42f2d9f7ca24806fb667456a18a9f1b60f70d16",
+      "publisherFile": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/tokens.txt",
+      "gitBlob": "b4d1bf82e68de1354f2a3f5fd51094d61d65c77c",
+      "bytes": 5048,
+      "sha256": "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb"
+    },
+    {
+      "model": "zipformer-fr",
+      "revision": "3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73",
+      "publisherFile": "https://huggingface.co/shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73/tokens.txt",
+      "gitBlob": "903e1478ca8de7a5d28a0fb86a984e9ea1626934",
+      "bytes": 4819,
+      "sha256": "37fb3f2a7bcb85e5fff3f1f66be04e6fbb05077a22f56d177fe85704e945fb31"
+    }
+  ],
+  "independentByteVerification": {
+    "performedAt": "2026-11-28",
+    "method": "Read each retained publisher tokens.txt file as bytes; recompute SHA-256, the Git SHA-1 blob object identity and byte length. Both independent files match the immutable catalog and publisher metadata; each has 502 vocabulary rows. The model audit was preserved without renaming or hiding either declaration.",
+    "reproduction": "Run scripts/test_gitleaks_model_pin.py --scanner PATH --recognition-model-root DIRECTORY with the English and French publisher files at zipformer-en/tokens.txt and zipformer-fr/tokens.txt. The default CI check binds committed provenance to immutable source objects without requiring network access or an old scratch pathname."
+  },
+  "scannerPolicy": {
+    "rule": "generic-api-key",
+    "path": "docs/audits/voice-recognition-models.json",
+    "field": "tokens_sha256",
+    "scope": "Only the two fixed complete field/value lines with their trailing commas are exempt. Every other rule remains active. Changed values, another path or field, prefixed or trailing content, and adjacent synthetic credentials remain findings.",
+    "boundaryControlsAdded": 16,
+    "existingBoundaryControlsRetained": 160
+  }
+}

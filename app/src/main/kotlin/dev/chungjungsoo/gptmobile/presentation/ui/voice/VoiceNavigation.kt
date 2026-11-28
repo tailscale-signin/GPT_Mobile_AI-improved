@@ -24,6 +24,9 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionCompute
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.presentation.common.Route
 import kotlinx.coroutines.delay
@@ -46,6 +49,10 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         }
         val stores by voiceSettings.modelStores.collectAsStateWithLifecycle()
         val moonshine = stores?.moonshine?.state?.collectAsStateWithLifecycle()?.value
+        val recognitionConfiguration = preferences?.recognitionConfiguration ?: VoiceRecognitionConfiguration()
+        val recognitionStore = stores?.recognition?.store(recognitionConfiguration)
+        val recognition = recognitionStore?.state?.collectAsStateWithLifecycle()?.value
+        LaunchedEffect(recognitionStore) { recognitionStore?.refresh(forceVerification = false) }
         val kokoro = stores?.kokoro?.state?.collectAsStateWithLifecycle()?.value
         val defaultStreaming = stores?.defaultStreaming?.state?.collectAsStateWithLifecycle()?.value
         val context = LocalContext.current
@@ -56,7 +63,9 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             androidx.compose.runtime.remember(context, lifecycleState) {
                 android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
             }
-        val modelsReady = preferences != null && voiceEntryModelsReady(moonshine, kokoro, backend, preferences?.spokenReplies != false, if (androidRecognition) offlineService else null)
+        val modelsReady = preferences != null &&
+            (androidRecognition || recognitionConfiguration.model.supportsLanguage(preferences?.language.orEmpty())) &&
+            voiceEntryModelsReady(recognition, kokoro, backend, preferences?.spokenReplies != false, if (androidRecognition) offlineService else null)
         val installation by VoicePluginInstall.state.collectAsStateWithLifecycle()
         LaunchedEffect(voiceSettings, lifecycle, state.loaded, state.route) {
             if (state.loaded && state.route == null) {
@@ -84,10 +93,30 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             showInstallation = installation.pending || installation.phase in setOf("FAILED", "CANCELLED"),
             setup = {
                 preferences?.let { saved ->
-                    RecognitionLanguageChoice(saved.language, saved.recognitionBackend) { tag, engine ->
+                    VoiceRecognitionModelChoices(
+                        saved.recognitionModel,
+                        saved.recognitionCompute,
+                        saved.recognitionThreads,
+                        saved.language,
+                        { selected -> voiceSettings.save(saved.copy(recognitionModel = selected, recognitionCompute = VoiceRecognitionCompute.CPU, recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE)) },
+                        { selected -> voiceSettings.save(saved.copy(recognitionCompute = selected)) },
+                        { selected -> voiceSettings.save(saved.copy(recognitionThreads = selected)) }
+                    )
+                    RecognitionLanguageChoice(saved.language, saved.recognitionBackend, saved.recognitionModel) { tag, engine ->
                         voiceSettings.save(saved.copy(language = tag, recognitionBackend = engine))
                     }
-                    if (androidRecognition && !offlineService) androidx.compose.material3.Text("Android offline recognition is unavailable on this phone. Choose English and the Moonshine engine to use the bundled recognizer.")
+                    if (androidRecognition && !offlineService) androidx.compose.material3.Text("Android offline recognition is unavailable on this phone. Choose a local model that supports your recognition language.")
+                    if (!androidRecognition && saved.recognitionModel != VoiceRecognitionModel.MOONSHINE_TINY && recognition != null) {
+                        LocalVoiceSetupCard(
+                            recognition,
+                            { voiceSettings.installRecognitionModel(recognitionConfiguration) },
+                            { voiceSettings.cancelRecognitionModelInstall(recognitionConfiguration) },
+                            { voiceSettings.removeRecognitionModel(recognitionConfiguration) },
+                            showRemove = true,
+                            model = saved.recognitionModel,
+                            compute = saved.recognitionCompute
+                        )
+                    }
                     if (backend.backend.usesKokoroVoices) {
                         SynthesisLanguageChoices(saved.synthesis, backend.backend.usesKokoroVoices) {
                             val native = it.nativeVoice(saved.kokoroVoice)
@@ -98,7 +127,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                 VoiceEntrySpeechSettings(backend, backendOwner::selectBackend, backendOwner::selectGateway)
                 if (moonshine != null && kokoro != null && defaultStreaming != null) {
                     val engine = backend.backend.streamingEngine()
-                    val bundleSelected = preferences?.spokenReplies != false && !backend.backend.isCompiledPocket && (engine == null || engine == MediaPipeSpeechCatalog.DEFAULT_ENGINE)
+                    val bundleSelected = recognitionConfiguration.model == VoiceRecognitionModel.MOONSHINE_TINY && preferences?.spokenReplies != false && !backend.backend.isCompiledPocket && (engine == null || engine == MediaPipeSpeechCatalog.DEFAULT_ENGINE)
                     if (installation.pending || bundleSelected) {
                         VoicePluginSetup(
                             moonshine,
@@ -112,13 +141,29 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                             VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status, defaultStreaming.status)
                             onReportDownload()
                         }
-                    } else {
+                    } else if (recognitionConfiguration.model == VoiceRecognitionModel.MOONSHINE_TINY) {
                         LocalVoiceSetupCard(
                             moonshine,
                             voiceSettings::installLocalModel,
                             voiceSettings::cancelLocalModelInstall,
                             voiceSettings::removeLocalModel,
                             compact = true
+                        )
+                    }
+                    if (!bundleSelected && !installation.pending && backend.factory.requiresKokoroAssets && preferences?.spokenReplies != false) {
+                        val saved = preferences
+                        KokoroPlaybackCard(
+                            state = kokoro,
+                            voice = saved?.kokoroVoice,
+                            threads = saved?.kokoroThreads ?: dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy.AUTO,
+                            english = saved?.synthesis?.language?.startsWith("en") != false,
+                            previewError = null,
+                            selectThreads = { count -> saved?.let { voiceSettings.save(it.copy(kokoroThreads = count)) } },
+                            install = voiceSettings::installKokoroModel,
+                            cancel = voiceSettings::cancelKokoroInstall,
+                            remove = voiceSettings::removeKokoroModel,
+                            preview = {},
+                            setup = true
                         )
                     }
                     if (engine != null && !bundleSelected && preferences?.spokenReplies != false) {

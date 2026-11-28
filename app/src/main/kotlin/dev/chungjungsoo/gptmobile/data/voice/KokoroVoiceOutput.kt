@@ -222,6 +222,23 @@ internal class DeferredKokoroOutput(
         existing()?.releaseWarmModel()
     }
 
+    override fun releaseWarmModel(completed: () -> Unit) {
+        val current = synchronized(lock) {
+            if (closed || closeFailed) return
+            delegate ?: run {
+                // A never-created owner has nothing to retire. A failed factory
+                // attempt is not proof that partially initialized work retired.
+                if (!attempted && retiring == null) completed()
+                return
+            }
+        }
+        current.releaseWarmModel {
+            synchronized(lock) {
+                if (!closed && !closeFailed && delegate === current && retiring == null) completed()
+            }
+        }
+    }
+
     override fun stop() = stop("audio_stop")
 
     override fun stop(reason: String) {
@@ -1861,10 +1878,14 @@ internal class KokoroVoiceOutput(
         }
     }
 
-    override fun releaseWarmModel() {
+    override fun releaseWarmModel() = releaseWarmModelWhenRetired(null)
+
+    override fun releaseWarmModel(completed: () -> Unit) = releaseWarmModelWhenRetired(completed)
+
+    private fun releaseWarmModelWhenRetired(completed: (() -> Unit)?) {
         if (closed) return
         preparingForAnswer = null
-        warmupGeneration++
+        val generation = ++warmupGeneration
         warmupRequest = null
         silentWarmup.cancel()
         speechFactory.cancelPending()
@@ -1872,9 +1893,36 @@ internal class KokoroVoiceOutput(
             calibrationTicket++
             runCatching { loaded?.engine?.cancel() }
         }
-        synthesis.execute {
-            preparedLexicon = null
-            releaseModel()
+        try {
+            synthesis.execute {
+                preparedLexicon = null
+                releaseModel()
+                if (completed != null) {
+                    try {
+                        // The microphone/benchmark owner also needs the previous
+                        // AudioTrack worker to leave its finally block first.
+                        output.execute {
+                            main.post {
+                                if (!closed &&
+                                    warmupGeneration == generation &&
+                                    active == null &&
+                                    !calibrating &&
+                                    loaded == null &&
+                                    quarantinedModel == null &&
+                                    quarantinedPreparation == null &&
+                                    !speechFactory.nativeCleanupPending
+                                ) {
+                                    completed()
+                                }
+                            }
+                        }
+                    } catch (_: java.util.concurrent.RejectedExecutionException) {
+                        // A concurrent close owns retirement; it cannot acknowledge this handoff.
+                    }
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // A concurrent close owns retirement; the caller retains its handoff lease.
         }
     }
 

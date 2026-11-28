@@ -30,6 +30,9 @@ internal interface KokoroOutput {
     fun prewarm(voice: KokoroVoice, assetsOnly: Boolean = false) = Unit
     fun cancelPrewarm() = Unit
     fun releaseWarmModel() = Unit
+
+    /** Acknowledgement requires confirmed model and playback retirement from an open owner. */
+    fun releaseWarmModel(completed: () -> Unit) = releaseWarmModel()
     fun stop()
     fun stop(reason: String) = stop()
     fun bindReply(id: String) = Unit
@@ -76,14 +79,14 @@ internal class VoicePluginAudio(
     private var playingTicket: Long? = null
     private var playbackLevel: () -> Float? = { null }
     var listeningStyle: VoiceListeningStyle
-        get() = (local as? MoonshineVoiceRecognizer)?.listeningStyle ?: VoiceListeningStyle.NATURAL
+        get() = (local as? LocalVoiceRecognitionInput)?.listeningStyle ?: VoiceListeningStyle.NATURAL
         set(value) {
-            (local as? MoonshineVoiceRecognizer)?.listeningStyle = value
+            (local as? LocalVoiceRecognitionInput)?.listeningStyle = value
         }
     var captureBatchMs: Int
-        get() = (local as? MoonshineVoiceRecognizer)?.captureBatchMs ?: 40
+        get() = (local as? LocalVoiceRecognitionInput)?.captureBatchMs ?: 40
         set(value) {
-            (local as? MoonshineVoiceRecognizer)?.captureBatchMs = value
+            (local as? LocalVoiceRecognitionInput)?.captureBatchMs = value
         }
 
     override fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) {
@@ -141,6 +144,9 @@ internal class VoicePluginAudio(
         kokoro?.configurePronunciation(cleaned, language)
     }
 
+    /** Recognition receives the written forms, not output phonetic substitutions. */
+    fun configureRecognitionVocabulary(words: List<String>) = local.configureVocabulary(words)
+
     override fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) {
         kokoro?.bindTimedSpokenRange(spoken)
     }
@@ -160,6 +166,11 @@ internal class VoicePluginAudio(
         set(value) {
             if (closed || field == value) return
             stop()
+            if (field == VoiceRecognitionBackend.LOCAL_MOONSHINE && value == VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE) {
+                // The Android route no longer needs the resident local model. Its owner
+                // queues native retirement; changing routes does not confirm completion.
+                (local as? LocalVoiceRecognitionInput)?.releaseWarmModel()
+            }
             releaseSystemRecognition()
             field = value
         }
@@ -260,7 +271,7 @@ internal class VoicePluginAudio(
     override fun finishListening() {
         if (closed) return
         when (recognitionBackend) {
-            VoiceRecognitionBackend.LOCAL_MOONSHINE -> (local as? MoonshineVoiceRecognizer)?.finishListening()
+            VoiceRecognitionBackend.LOCAL_MOONSHINE -> local.finishListening()
             VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> system.finishListening()
         }
     }

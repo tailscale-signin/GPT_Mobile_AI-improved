@@ -37,12 +37,13 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import java.util.Locale
 
 @Composable
-internal fun RecognitionLanguageChoice(language: String, backend: VoiceRecognitionBackend, select: (String, VoiceRecognitionBackend) -> Unit) {
+internal fun RecognitionLanguageChoice(language: String, backend: VoiceRecognitionBackend, model: VoiceRecognitionModel = VoiceRecognitionModel.MOONSHINE_TINY, select: (String, VoiceRecognitionBackend) -> Unit) {
     var choosing by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { choosing = true }, modifier = Modifier.fillMaxWidth()) {
         Text("Recognition language · ${Locale.forLanguageTag(language).displayName}")
@@ -66,8 +67,8 @@ internal fun RecognitionLanguageChoice(language: String, backend: VoiceRecogniti
                     LazyColumn(Modifier.heightIn(max = 360.dp)) {
                         items(matches, key = { it.first }) { (tag, name) ->
                             TextButton(onClick = {
-                                val englishBackend = if (SpeechLanguages.recognitionBackend(language) == VoiceRecognitionBackend.LOCAL_MOONSHINE) backend else VoiceRecognitionBackend.LOCAL_MOONSHINE
-                                select(tag, SpeechLanguages.recognitionBackend(tag, englishBackend))
+                                val selectedBackend = if (model.supportsLanguage(language)) backend else VoiceRecognitionBackend.LOCAL_MOONSHINE
+                                select(tag, SpeechLanguages.recognitionBackend(tag, selectedBackend, model))
                                 choosing = false
                             }) { Text("$name · $tag") }
                         }
@@ -77,12 +78,12 @@ internal fun RecognitionLanguageChoice(language: String, backend: VoiceRecogniti
             confirmButton = { TextButton(onClick = { choosing = false }) { Text("Close") } }
         )
     }
-    if (SpeechLanguages.recognitionBackend(language) == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
+    if (model.supportsLanguage(language)) {
         VoiceChoice(
             "Recognition engine",
             backend.name,
             listOf(
-                VoiceRecognitionBackend.LOCAL_MOONSHINE.name to "Moonshine",
+                VoiceRecognitionBackend.LOCAL_MOONSHINE.name to model.title,
                 VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE.name to "Android offline recognizer"
             ),
             { select(language, VoiceRecognitionBackend.valueOf(it)) }
@@ -184,6 +185,7 @@ internal fun VoiceReplyLanguageDialog(
                             VoiceChoice("Spoken language", pair.sourceLanguage.orEmpty(), listOf("" to "Auto · either language", base.tag to base.label, target.tag to target.label), {
                                 changeTranslationPair(pair.copy(sourceLanguage = it.takeIf(String::isNotEmpty)).normalized())
                             })
+                            Text("Auto needs compatible Android offline recognition for both languages. Choosing a source language lets you use your selected local model when it supports that language.", style = MaterialTheme.typography.bodySmall)
                             Text("If detection is unavailable or the words could belong to either language, choose the language you are speaking, then retry the saved text.", style = MaterialTheme.typography.bodySmall)
                         }
                     }

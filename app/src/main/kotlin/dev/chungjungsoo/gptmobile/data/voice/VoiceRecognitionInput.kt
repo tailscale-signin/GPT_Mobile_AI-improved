@@ -6,6 +6,16 @@ internal interface VoiceRecognitionInput {
     fun listen(listener: VoiceAudio.Listener)
     fun listenWithFeedback(listener: VoiceAudio.Listener, feedback: (() -> Boolean)?) = listen(listener.withCaptureFeedback(feedback))
     fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) = Unit
+    fun finishListening() = Unit
+    fun configureVocabulary(words: List<String>) = Unit
     fun stop()
     fun close()
+}
+
+/** Shared capture controls for every local decoder; Android keeps its service-owned policy. */
+internal interface LocalVoiceRecognitionInput : VoiceRecognitionInput {
+    var listeningStyle: VoiceListeningStyle
+    var captureBatchMs: Int
+    fun releaseWarmModel(completed: (() -> Unit)? = null)
+    fun prewarm() = Unit
 }

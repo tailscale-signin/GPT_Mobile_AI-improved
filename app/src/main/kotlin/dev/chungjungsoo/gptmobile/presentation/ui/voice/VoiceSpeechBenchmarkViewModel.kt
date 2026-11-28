@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.TimedKokoroPhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBenchManifest
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBenchObservation
@@ -25,6 +26,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceBenchStage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBenchStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBenchmarkCampaign
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBenchmarkSuiteStore
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuCalibrationProtocol
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceSnapshot
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
@@ -110,7 +112,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     fun startFull(voice: KokoroVoice, threads: Int, rate: Float, captionOffsetMs: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, beforeStart: () -> Unit = {}, resume: Boolean = false) {
         if (!mutable.value.loaded || mutable.value.running || mutable.value.nativeCleanupPending) return
         val previous = if (resume) mutable.value.suite else null
-        if (resume && (gateway != null || previous?.hasUnfinishedStages != true || previous.continuationSignature == null)) {
+        if (resume && (gateway != null || previous == null || !previous.hasUnfinishedStages || previous.continuationSignature == null)) {
             mutable.update { it.copy(notice = "This benchmark cannot be continued with the current settings. Start a new run.") }
             return
         }
@@ -211,7 +213,16 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                     measureProbe(id, index, stage, deviceProbes)
                 } else {
                     fun save(report: VoiceSpeechBenchmarkReport) = fullStore.evidence(id, index) { writeVoiceSpeechBenchmarkExport(report, it) }
-                    val config = stage.configuration(voice, streamingVoice, offset, rotation + index, BuildConfig.VERSION_CODE, Build.VERSION.SDK_INT, VoiceBackendCapabilityStore(context).deviceKey, BuildConfig.APP_COMMIT)
+                    val effectiveStage = if (stage.useCalibratedThreads) {
+                        val factory = TimedKokoroPhraseEngineFactory.forVariant(stage.variant)
+                        val preferences = context.getSharedPreferences(VoiceCpuCalibrationProtocol.PREFERENCES, Context.MODE_PRIVATE)
+                        val calibrated = preferences.getInt(VoiceCpuCalibrationProtocol.key(factory.identity, voice, stage.rate), 0)
+                        val limit = VoiceCpuSchedulingPolicy.deviceLimit()
+                        stage.copy(threads = calibrated.takeIf { it in 1..limit && it in VoiceCpuSchedulingPolicy.supported } ?: stage.threads)
+                    } else {
+                        stage
+                    }
+                    val config = effectiveStage.configuration(voice, streamingVoice, offset, rotation + index, BuildConfig.VERSION_CODE, Build.VERSION.SDK_INT, VoiceBackendCapabilityStore(context).deviceKey, BuildConfig.APP_COMMIT)
                     val report = execute(config, lease, ::save)
                     save(report)
                     report.suiteResult(stage.label)

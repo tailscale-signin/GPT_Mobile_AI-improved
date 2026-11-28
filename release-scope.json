@@ -83,7 +83,9 @@
     "Bind caption calibration and streaming comparisons to observed output devices and PCM processor identity; preserve unknown acoustic quality and existing native Auto qualification.",
     "Keep an explicitly discovered GitHub tool available through bounded replanning until its matching dispatched receipt consumes the discovery handoff, retaining current grants and output ceilings.",
     "Keep blocked integration reports compact with their durable checklist, record failed repository index synchronization, and export authenticated bounded summaries of oversized protected diagnostics without treating omitted content as delivered evidence.",
-    "Retain native immutable commit-history pagination recovery under the original authorization, incomplete-history, one-shot attempt and smoke-sampling guards."
+    "Retain native immutable commit-history pagination recovery under the original authorization, incomplete-history, one-shot attempt and smoke-sampling guards.",
+    "Voice benchmark campaigns prioritize quick engine comparisons, retain and resume compatible checkpoints, correctly record microphone and Moonshine probes, isolate recognition discovery per locale, and honor Auto CPU calibration without changing manual thread sweeps.",
+    "Native Kokoro rejects the benchmark-observed long all-minimum GPU duration pattern; compact HTP can retain four exact shapes under an OS-memory gate and a 2 GiB estimated retention ceiling, with pressure-driven eviction and versioned native receipts."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -105,7 +107,8 @@
     "Theme variants, process-death recovery, predictive-back dismissal, 24-hour choices, physical handset performance targets and final installed Windows-to-phone synchronization still need device qualification. No improvement percentage is claimed from source changes.",
     "Gateway synchronization transfers bounded structural source identities and lexical candidates. A completed transfer can still have partial source coverage; cached schemas and historical research never grant current execution authority.",
     "Packaged Pocket and Phonon remain CPU-only; no compatible incremental GPU/NPU or smaller replacement runtime is implemented by this change.",
-    "SDK caption timestamps remain estimates. Forced acoustic alignment, physical-device pitch/naturalness, translation faithfulness across providers, and output-route latency require independent device measurements."
+    "SDK caption timestamps remain estimates. Forced acoustic alignment, physical-device pitch/naturalness, translation faithfulness across providers, and output-route latency require independent device measurements.",
+    "GPU duration rejection is a conservative fallback guard, not proof that the underlying driver/model precision defect is repaired. Four-shape HTP admission requires fresh physical-device performance and memory qualification; estimated residency is not a hard allocator limit."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -994,7 +997,12 @@
     "docs/repairs/evidence/diagnostic-4651922c/runtime-junit.log",
     "docs/repairs/evidence/diagnostic-4651922c/tools-junit.log",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitPaginationRecoveryTest.kt",
-    "docs/repairs/evidence/diagnostic-4651922c/pagination-junit.log"
+    "docs/repairs/evidence/diagnostic-4651922c/pagination-junit.log",
+    "local-kokoro-runtime/src/main/cpp/kokoro_output_validation.h",
+    "local-kokoro-runtime/src/main/cpp/kokoro_shape_cache.h",
+    "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

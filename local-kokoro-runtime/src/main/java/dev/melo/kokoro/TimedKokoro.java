@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /** One synthesis worker owns this model and closes it after its final phrase. */
 public final class TimedKokoro implements AutoCloseable {
     public static final int SAMPLE_RATE = 24000;
-    public static final String RUNTIME_ID = "ort1.31.0-qnn2.8-qairt2.52-sherpa2.0.3-convex2-profile6-cache4-progress1-parser3-validation2-context4-gpufp32v1";
+    public static final String RUNTIME_ID = "ort1.31.0-qnn2.8-qairt2.52-sherpa2.0.3-convex2-profile6-cache5-progress1-parser3-validation3-context4-gpufp32v1";
     public static final int MAX_INPUT_BYTES = 128;
     static { System.loadLibrary("timed_kokoro"); }
 
@@ -119,8 +119,8 @@ public final class TimedKokoro implements AutoCloseable {
             cacheBudgetBytes = data.length >= 33 ? data[29] : null;
             activeShapeEstimatedBytes = data.length >= 33 && data[30] >= 0 ? data[30] : null;
             availableMemoryBytes = data.length >= 33 && data[31] > 0 ? data[31] : null;
-            cacheAdmission = data.length >= 33 && data[32] >= 0 && data[32] <= 4 ?
-                    new String[] {"CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES"}[(int) data[32]] : null;
+            cacheAdmission = data.length >= 33 && data[32] >= 0 && data[32] <= 5 ?
+                    new String[] {"CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES", "BOUNDED_FOUR_SHAPES"}[(int) data[32]] : null;
             final boolean current = data[0] >= 5;
             audioMeasurementAvailable = current ? Boolean.valueOf(data[34] == 1) : validatedAudio ? Boolean.TRUE : null;
             audioFinite = current && data[34] == 1 ? Boolean.valueOf(data[47] == 1) : validatedAudio ? Boolean.TRUE : null;
@@ -157,11 +157,12 @@ public final class TimedKokoro implements AutoCloseable {
         }
 
         private static void validateCurrentEvidence(long[] data) {
-            boolean valid = data[33] >= 0 && data[33] <= 12 && data[32] >= 0 && data[32] <= 4;
+            boolean valid = data[33] >= 0 && data[33] <= 12 && data[32] >= 0 && data[32] <= 5;
             for (int index : new int[] {11, 12, 14, 23, 24, 34, 42, 46, 47}) valid &= data[index] == 0 || data[index] == 1;
             for (int index = 35; index <= 41; index++) valid &= data[index] >= -1;
-            valid &= data[16] >= 0 && data[16] <= 3 && data[17] >= 1 && data[17] <= 3;
+            valid &= data[16] >= 0 && data[16] <= 4 && data[17] >= 1 && data[17] <= 4;
             valid &= data[16] <= data[17];
+            valid &= (data[17] == 4) == (data[32] == 5);
             if (data[42] == 1) valid &= data[39] > 0 && data[39] <= 511 && data[40] == 7 && data[44] <= data[45];
             if (data[46] == 1) valid &= data[42] == 1;
             if (data[34] == 1) {

@@ -140,6 +140,9 @@ def prepare(manifest, output, offline=False):
         if output.exists():
             shutil.rmtree(output)
         shutil.copytree(staged, output)
+        # copytree preserves the private temporary root mode (0700). Only the
+        # verified, published headers need to be readable by offline build users.
+        output.chmod(0o755)
 
 
 if __name__ == "__main__":

@@ -6,10 +6,12 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import stat
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +76,39 @@ class StreamingAsrInputsTest(unittest.TestCase):
             with patch.object(headers.urllib.request, "urlopen", side_effect=AssertionError("network forbidden")):
                 with self.assertRaisesRegex(ValueError, "missing or differ"):
                     headers.prepare(SDK_MANIFEST, root / "headers", offline=True)
+
+    def test_verified_header_cache_is_readable_without_opening_private_staging(self):
+        version = "2.52.0.261104"
+        relative = "include/QNN/QnnInterface.h"
+        payload = b"verified fixture header"
+        pin = hashlib.sha256(relative.encode() + b"\0" + payload).hexdigest()
+        record = {"dispatchBuild": {"qairtSdkVersion": version},
+                  "qairtSdk": {"resolvedUrl": "https://example.invalid/sdk.zip",
+                               "bytes": 1, "qnnHeadersSha256": pin}}
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as package:
+            package.writestr(f"qairt/{version}/{relative}", payload)
+        archive.seek(0)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "published"
+            real_copy = headers.shutil.copytree
+
+            def observe_copy(staged, target, *args, **kwargs):
+                if Path(target) == output:
+                    self.assertEqual(0o700, stat.S_IMODE(Path(staged).stat().st_mode))
+                return real_copy(staged, target, *args, **kwargs)
+
+            with patch.object(headers, "sdk_manifest", return_value=record), \
+                    patch.object(headers, "RemoteZip", return_value=archive), \
+                    patch.object(headers.shutil, "copytree", side_effect=observe_copy):
+                headers.prepare(SDK_MANIFEST, output)
+            self.assertEqual(0o755, stat.S_IMODE(output.stat().st_mode))
+            self.assertEqual(payload, (output / relative).read_bytes())
+            self.assertEqual(pin, headers.headers_digest(output))
+            with patch.object(headers, "sdk_manifest", return_value=record), \
+                    patch.object(headers, "RemoteZip", side_effect=AssertionError("network forbidden")):
+                headers.prepare(SDK_MANIFEST, output, offline=True)
+            self.assertEqual([output], list(Path(temporary).iterdir()))
 
     def test_actual_sdk_manifest_matches_production_version_and_header_provenance(self):
         record = headers.sdk_manifest(SDK_MANIFEST)

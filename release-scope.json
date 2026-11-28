@@ -148,7 +148,8 @@
     "Restore normal release R8 optimization with all native and reflection keep rules retained; require the unchanged APK-size limits and full optimized device gates before publication.",
     "Repair repeated translation capture by retaining qualified Android recognizers after quiet results, preserving cooldown reasons and waiting for confirmed local microphone release before a new capture.",
     "Prewarm the shared multilingual voice model during capture, preserve its opening owner across target-voice selection, and stage Pocket PCM behind supplied word timings before caption-enabled playback; require enabled-caption packet-order receipts in native smoke.",
-    "Colocate the audited Qualcomm runtime with compiled Pocket’s private NPU compiler/dispatch, restore LiteRT compiler caching and retain graph-specific GPU/NPU preparation failures without successful fallback claims."
+    "Colocate the audited Qualcomm runtime with compiled Pocket’s private NPU compiler/dispatch, restore LiteRT compiler caching and retain graph-specific GPU/NPU preparation failures without successful fallback claims.",
+    "Keep verified QAIRT header staging private while publishing a read-only-to-non-owners SDK directory accessible to the offline Android build user."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",

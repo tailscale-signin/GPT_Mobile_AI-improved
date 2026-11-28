@@ -280,7 +280,7 @@ class GitHubFullToolVisibilityTest {
         val session = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
                 when (++round) {
-                    1 -> emit(ProviderEvent.ToolCall("discover", ProgressiveToolCatalog.NAME, buildJsonObject {}))
+                    1 -> emit(ProviderEvent.ToolCall("discover", ProgressiveToolCatalog.NAME, buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(github.definition.name)))) }))
                     2 -> {
                         assertTrue(tools.contains(github.definition))
                         emit(ProviderEvent.ToolCall("read", github.definition.name, buildJsonObject {}))

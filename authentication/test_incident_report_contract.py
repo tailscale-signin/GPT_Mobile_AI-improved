@@ -176,7 +176,7 @@ class IncidentReportContractTest(unittest.TestCase):
             for invalid in (0, 1, "true", None):
                 with self.subTest(field=field, value=invalid), self.assertRaises(ValueError):
                     validate_diagnostics(self.capture("PROVIDER", {**values, field: invalid}))
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         for field in ("tls_last_observed_phase", "tls_version", "tls_http_protocol"):
             match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
             self.assertIsNotNone(match, field)
@@ -322,7 +322,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 validate_diagnostics(self.capture("VOICE", {"voice_engine": invalid}))
             with self.subTest(invalid=invalid), self.assertRaises(ReportError):
                 issue_from_report(self.report(self.capture("VOICE", {"voice_engine": invalid})))
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt").read_text(encoding="utf-8")
         match = re.search(r'"voice_engine" to setOf\(([^)]+)\)', source)
         self.assertIsNotNone(match)
         self.assertEqual(diagnostics.ENUMS["voice_engine"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -389,7 +389,7 @@ class IncidentReportContractTest(unittest.TestCase):
             self.assertFalse(capsule.valid_value("voice_fallback_count", invalid))
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {"voice_fallback_count": invalid}))
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt").read_text(encoding="utf-8")
         def constant_choices(name):
             match = re.search(r"val " + name + r" = setOf\((.*?)\)", source, re.S)
             self.assertIsNotNone(match, name)
@@ -541,7 +541,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 issue_from_report(self.report(capture))
 
     def test_checkpoint_mismatch_reasons_match_the_closed_native_contract(self):
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt").read_text(encoding="utf-8")
         match = re.search(r"val CHECKPOINT_MISMATCH_REASONS = setOf\(([^)]+)\)", source)
         self.assertIsNotNone(match)
         self.assertEqual(capsule.ENUMS["checkpoint_mismatch_reason"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -861,7 +861,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_privacy_reason_contract_matches_the_app_closed_eligibility_enum(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt").read_text(encoding="utf-8")
         enum = source.split("enum class Reason(", 1)[1].split("fun decision(", 1)[0]
         reasons = set(re.findall(r'^\s*([A-Z][A-Z_]+)\(', enum, re.MULTILINE))
         self.assertEqual(reasons, PRIVACY_ELIGIBILITY_REASONS)
@@ -1582,7 +1582,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
 
     def test_acceptance_publication_source_and_entry_match_android(self):
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt").read_text(encoding="utf-8")
         for enum, field in (("Source", "acceptance_publication_source"), ("Entry", "acceptance_publication_entry")):
             with self.subTest(field=field):
                 declaration = re.search(r"enum class " + enum + r"\s*\{([^}]+)\}", source)
@@ -1812,7 +1812,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_handoff_reconciliation_vocabulary_matches_android_contract(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         for name, expected in (("handoffReconciliationCounts", capsule.HANDOFF_RECONCILIATION_COUNTS),
                                ("handoffReconciliationHashes", capsule.HANDOFF_RECONCILIATION_HASHES)):
             match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
@@ -1883,7 +1883,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_chat_delivery_vocabulary_matches_android_contract(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         match = re.search(r"val chatDeliveryCounts = setOf\(([^\n]*)\)", source)
         self.assertIsNotNone(match)
         self.assertEqual(capsule.CHAT_DELIVERY_COUNTS, set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -1941,7 +1941,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_claim_freshness_vocabulary_matches_android_contract(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         match = re.search(r"val claimFreshnessFields = setOf\(([^\n]*)\)", source)
         self.assertIsNotNone(match)
         self.assertEqual(capsule.CLAIM_FRESHNESS_FIELDS, set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -2062,7 +2062,7 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("VOICE", values))
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text(encoding="utf-8")
         from authentication import issue_report_diagnostics as contract
         for name, expected in (("preparationStates", contract.ENUMS["acceptance_preparation_state"]),
                                ("deadlineSources", contract.ENUMS["task_deadline_source"]),
@@ -2807,26 +2807,26 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_policy_field_vocabulary_matches_native_and_actual_production_producers(self):
         root = Path(__file__).resolve().parents[1]
         base = root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile"
-        source = (base / "data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (base / "data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         names = re.search(r"val policyFieldNames = setOf\((.*?)\n    \)", source, re.DOTALL)
         self.assertIsNotNone(names)
         self.assertEqual(set(re.findall(r'"([^"\n]+)"', names.group(1))), capsule.POLICY_FIELD_NAMES)
-        authority = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text().split("internal fun policyFields", 1)[1].split("\n}", 1)[0]
+        authority = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text(encoding="utf-8").split("internal fun policyFields", 1)[1].split("\n}", 1)[0]
         policy_keys = set(re.findall(r'put\("([^"\n]+)"', authority))
-        profile = (base / "data/database/entity/PlatformV2.kt").read_text().split("data class PlatformV2(", 1)[1].split(") : Parcelable", 1)[0]
+        profile = (base / "data/database/entity/PlatformV2.kt").read_text(encoding="utf-8").split("data class PlatformV2(", 1)[1].split(") : Parcelable", 1)[0]
         profile_keys = {"profile." + name for name in re.findall(r"\bval (\w+):", profile)}
-        resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text()
+        resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text(encoding="utf-8")
         self.assertIn('"tool_inventory"', resolver)
-        authority_source = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text()
+        authority_source = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text(encoding="utf-8")
         override_helper = authority_source.split("internal fun githubOverrideChanges", 1)[1].split("\n    }", 1)[0]
         reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
         self.assertEqual(19, len(override_keys))
-        behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
+        behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text(encoding="utf-8").split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
-        private_turn = (base / "data/privacy/PrivateTurn.kt").read_text()
+        private_turn = (base / "data/privacy/PrivateTurn.kt").read_text(encoding="utf-8")
         privacy_keys = set(re.findall(r'DispatchPolicyChangedException\(listOf\("([A-Za-z]+)"\)\)', private_turn))
         self.assertEqual({"devicePrivacy"}, privacy_keys)
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | privacy_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
@@ -2988,7 +2988,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 issue_from_report(invalid)
 
     def test_exception_capture_vocabulary_matches_native_contract(self):
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         sites = re.search(r"enum class ExceptionCaptureSite\s*\{([^}]+)\}", source)
         self.assertIsNotNone(sites)
         self.assertEqual(set(re.findall(r"[A-Z][A-Z_]+", sites.group(1))), capsule.ENUMS["incident_capture_site"])

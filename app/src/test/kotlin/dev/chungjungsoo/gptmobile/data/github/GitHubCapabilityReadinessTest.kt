@@ -59,6 +59,7 @@ class GitHubCapabilityReadinessTest {
                 1000L
             )
         )
+        assertTrue(invalid.isValid())
         assertFalse(invalid.values.keys.any { it in GitHubCapabilityReadiness.countFields || it == "github_prerequisite_observation" })
     }
 }

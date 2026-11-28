@@ -38,6 +38,8 @@ class InterruptedRunDiscardTest {
             assertEquals(1, runs.advanceGatewayJobSequence("run", "next-job", 2))
             assertEquals(0, runs.advanceGatewayJobSequence("run", "next-job", 1))
             db.messageDao().editMessages(reply.copy(currentRunId = "new-owner", ownershipFence = 5))
+            assertEquals("new-owner", db.agentPersistenceDao().recoveryMessage(reply.id)?.currentRunId)
+            assertEquals(5L, db.agentPersistenceDao().recoveryMessage(reply.id)?.ownershipFence)
             assertEquals(0, runs.bindGatewayJob("run", "stale-job", "https://gateway.example"))
             assertEquals(0, runs.advanceGatewayJobSequence("run", "next-job", 3))
             assertEquals("next-job", runs.getById("run")?.gatewayJobId)

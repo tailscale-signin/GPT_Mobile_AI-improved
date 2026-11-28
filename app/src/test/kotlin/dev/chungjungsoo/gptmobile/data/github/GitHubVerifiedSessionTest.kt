@@ -476,7 +476,8 @@ class GitHubVerifiedSessionTest {
                     }.toString()
                 )
             },
-            {}, {}, now = { 1000L }, computationDispatcher = StandardTestDispatcher(testScheduler), authorizedTools = tools, remainingToolCalls = budget::remainingCalls,
+            {}, {}, now = { 1000L }, computationDispatcher = StandardTestDispatcher(testScheduler),
+            authorizedTools = tools, remainingToolCalls = budget::remainingCalls,
             executionCallLimit = 4, onPublication = { published = it }
         )
         var exchanges = emptyList<AgentToolExchange>()

@@ -353,19 +353,16 @@ class GitHubAcceptancePublicationEvidenceTest {
         val events = session(fixture, published, task, {
             limits++
             8192
-        }) { prompt ->
-            val request = json(prompt)
-            requests += request
+        }) { payload ->
+            val request = json(payload).also(requests::add)
             answer(
                 buildJsonObject {
+                    put("claims", JsonArray(listOf(json("""{"kind":"not_measured","subject":"Requirement evidence has not been collected"}"""))))
                     put(
-                        "claims",
-                        JsonArray(
-                            request.getValue("requirements").jsonArray.map { requirement ->
-                                buildJsonObject {
-                                    put("kind", "not_measured")
-                                    put("subject", requirement.jsonObject.getValue("id"))
-                                }
+                        "requirement_claims",
+                        JsonObject(
+                            request.getValue("requirements").jsonArray.associate { requirement ->
+                                (requirement.jsonObject.getValue("id") as JsonPrimitive).content to JsonArray(listOf(JsonPrimitive(0)))
                             }
                         )
                     )
@@ -393,6 +390,7 @@ class GitHubAcceptancePublicationEvidenceTest {
         assertEquals(JsonPrimitive(9), verdict["extraction_batches_completed"])
         assertEquals(JsonPrimitive(9), verdict["extraction_batches_total"])
         assertEquals(JsonPrimitive(2), verdict["extraction_windows_total"])
+        assertEquals(33, verdict.getValue("requirements").jsonArray.size)
         assertEquals(JsonPrimitive(false), verdict["completion_verified"])
         val retained = requireNotNull(fixture.book.retainedClaimExtraction())
         assertEquals(9, retained.getValue("batches").jsonArray.size)

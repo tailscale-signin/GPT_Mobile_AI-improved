@@ -8,6 +8,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -30,6 +32,45 @@ class GitHubInvestigationProgressTest {
         repeat(20) { assertNull(progress.observe(exchange(it))) }
         repeat(3) { assertNull(progress.observe(exchange(19))) }
         assertNotNull(progress.observe(exchange(19)))
+    }
+
+    @Test fun distinctNativeSavedPagesAdvanceWhileIdenticalPageReplayStillStalls() {
+        val pages = (0 until 6).map { index ->
+            val fixture = GitHubSavedPageCapacityTest.Fixture("source-$index")
+            val call = requireNotNull(fixture.next(tokens = 3000))
+            val result = fixture.read(call)
+            assertFalse(result.isError)
+            assertFalse(result.dispatched)
+            AgentToolExchange(listOf(call), listOf(result))
+        }
+        assertEquals(6, pages.map { requireNotNull(it.results.single().executionReceipt)["saved_view_source_sha256"] }.toSet().size)
+        val progress = GitHubInvestigationProgress()
+        pages.forEach { assertNull("Different immutable pages are useful source progress", progress.observe(it)) }
+        repeat(3) { assertNull(progress.observe(pages.last())) }
+        assertNotNull("The same source and offset still exhaust the stale-read allowance", progress.observe(pages.last()))
+    }
+
+    @Test fun unchangedLiveStatusStillStallsDespiteNewReceiptHashes() {
+        fun status(index: Int): AgentToolExchange {
+            val call = ProviderEvent.ToolCall(
+                "status-$index",
+                "github_context",
+                buildJsonObject {
+                    put("action", "status")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                }
+            )
+            val data = buildJsonObject {
+                put("open_issue_count", 3)
+                put("observed_at_ms", index)
+            }
+            val receipt = buildJsonObject { put("source_result_sha256", index.toString(16).padStart(64, '0')) }
+            return AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Json(data), false, executionReceipt = receipt)))
+        }
+        val progress = GitHubInvestigationProgress()
+        repeat(4) { assertNull(progress.observe(status(it))) }
+        assertNotNull(progress.observe(status(4)))
     }
 
     @Test fun independentNativeSavedPagesRemainProgressWithoutRenewingAnUnchangedPage() {

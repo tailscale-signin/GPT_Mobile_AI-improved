@@ -965,7 +965,9 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkExport.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePcmMeasurement.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LicenseScreen.kt",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechEngineBenchmarkCard.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechEngineBenchmarkCard.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidenceTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

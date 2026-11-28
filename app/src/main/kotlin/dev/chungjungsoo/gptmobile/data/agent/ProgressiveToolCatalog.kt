@@ -260,7 +260,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "Discover tools with {} or query/names. For GitHub use names:[tool]+action. Copy continuation_call." + if (githubMode) " repository_hint selects repository reads." else "",
+        "Discover via query/names or {}. Actions: names:[tool]+action. Copy continuation_call." + if (githubMode) " repository_hint selects repository reads." else "",
         buildJsonObject {
             put("type", "object")
             put(
@@ -286,7 +286,6 @@ class ProgressiveToolCatalog(
                         "action",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "Select an action only with exactly one tool in names. Omit for inventory or query discovery.")
                         }
                     )
                     put(
@@ -308,7 +307,6 @@ class ProgressiveToolCatalog(
                         "inventory_version",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "From continuation_call.")
                         }
                     )
                 }

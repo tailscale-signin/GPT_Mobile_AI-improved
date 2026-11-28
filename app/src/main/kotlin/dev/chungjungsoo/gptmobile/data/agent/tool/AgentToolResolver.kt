@@ -1875,14 +1875,15 @@ class AgentToolResolver @Inject constructor(
     private suspend fun githubCatalogTask(profileUid: String, userMessage: MessageV2?, selectedRepository: Boolean): String {
         val task = userMessage?.content.orEmpty()
         if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(task).intent != "SUBSTANTIVE") return task
+        if (GitHubCapabilityRequest.from(task) != null || selectedRepository && IndexedFeatureToolSelection(task).hasNamedProduct) return task.trim().take(4096)
         val store = gitHubRepositoryState
         val scope = "intent:$profileUid:${userMessage?.chatId ?: 0}"
         val temporary = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == true } == true
         val previous = if (temporary) null else store?.read(scope, "github")?.get("task")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-        // A current follow-up may reuse this conversation's accepted repository
-        // intent; a saved workspace does not promote an unrelated current request.
-        if (!dev.chungjungsoo.gptmobile.data.agent.IntelligenceIntent.from(task, selectedRepository || previous != null).repository) return task
-        if (GitHubCapabilityRequest.from(task) != null || selectedRepository && IndexedFeatureToolSelection(task).hasNamedProduct) return task.trim().take(4096)
+        // Only a matching conversation/profile's accepted repository intent can
+        // scope a short continuation. Unrelated requests still route independently.
+        val retainedRepository = previous?.let { dev.chungjungsoo.gptmobile.data.agent.IntelligenceIntent.from(it, false).repository } == true
+        if (!dev.chungjungsoo.gptmobile.data.agent.IntelligenceIntent.from(task, selectedRepository || retainedRepository).repository) return task
         val explicit = GitHubOperationTool.taskTools(task).isNotEmpty()
         val followup = Regex("(?i)\\b(continue|resume|implement|apply|integrate|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|changes?|patch|push|pushing|commit|committing|branch|release|review|test|build|write|writing)\\b").containsMatchIn(task)
         val selectedTask = when {

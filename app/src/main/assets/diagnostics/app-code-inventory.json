@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "0f022b21c2318ae86e9a34caa03814c84356af0f119bbefdbd761c2c5cfe857a",
+  "source_digest": "62479d9b4f143d81f70cd08d8ca607c316ca3ea4c7cf0fc0fa809fed6483bd3d",
   "file_count": 3257,
-  "indexed_line_count": 560791,
+  "indexed_line_count": 560797,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,13 +53,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 273,
-      "indexed_line_count": 49688
+      "indexed_line_count": 49693
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24900
+      "indexed_line_count": 24901
     },
     {
       "id": "mcp_plugins",
@@ -1810,8 +1810,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "a57fcac7aefc917bd4f4ab3e76a7aebd0d211f3670f3ec6ef5d7832157b698f5",
-      "indexed_lines": 67
+      "sha256": "ed3249b85155913163c1c164379796bb124bf0c61477bcd85354b427d06fbfe5",
+      "indexed_lines": 74
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt",
@@ -1922,8 +1922,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "ce1e8804cfa59a0c87061743b98d26ebbd0df28d18cfbfd7ecf23780512fd5d9",
-      "indexed_lines": 1191
+      "sha256": "08bd40f7abec0780ce8857eaf829e10dd8148d674e9d3e62eb80dda06d01281a",
+      "indexed_lines": 1189
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderLimitResumeWorker.kt",
@@ -2650,8 +2650,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "41b526e4c6d91e8c7fcdcdf8c303bde90212c57606155a496d4a060c50c3d37a",
-      "indexed_lines": 2452
+      "sha256": "ed8cf697d46e67f8672e466cd32df66ac8c60fe12bb424155a48b9496b7a2636",
+      "indexed_lines": 2453
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbMcpResultTool.kt",

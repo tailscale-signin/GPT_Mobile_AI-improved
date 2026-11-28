@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubCiObservationReport
 import dev.chungjungsoo.gptmobile.data.github.GitHubCodeResearch
 import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
 import dev.chungjungsoo.gptmobile.data.github.GitHubRequestCompletion
+import dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest
 import dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity
 
 /** Request relevance only. A route neither grants tool access nor authorizes a mutation. */
@@ -24,6 +25,9 @@ internal data class IntelligenceIntent(val repository: Boolean, val research: Bo
         private val explicitRepository = Regex("(?i)\\b(?:repos?(?:itory|itories)?|repositories|codebase|branches?|pull requests?|(?:prs?|issues?)\\s*#?\\d+|(?:on|in|from|for)\\s+github|github\\s+(?:issues?|prs?|commits?|releases?|workflows?))\\b")
         private val records = Regex("(?i)\\b(?:issues?|prs?|pull requests?|commits?|branches|workflows?|checks|ci|releases?|tags?)\\b")
         private val conceptual = Regex("(?i)^(?:please\\s+)?(?:show(?: me)?|review|compare)\\s+(?:how|why|what)\\b")
+        private val repositorySubject = Regex("(?i)\\b(?:repos?(?:itory|itories)?|repositories|codebase|git)\\b")
+        private val repositoryTopic = Regex("(?i)^(?:github\\s+)?(?:repo(?:sitory)?|git|codebase)(?:\\s+status)?[.!?\\s]*$")
+        private val sourceRead = Regex("(?i)^(?:please\\s+)?(?:read|inspect|review|show)\\s+(?:the\\s+)?(?:source(?: code)?|code)[.!?\\s]*$")
 
         internal fun externalServiceOnly(request: String): Boolean {
             val text = GitHubTaskContinuity.request(request)
@@ -43,15 +47,18 @@ internal data class IntelligenceIntent(val repository: Boolean, val research: Bo
                 requiresNativeGitHubAcceptance(text, true) ||
                 repositoryRead.containsMatchIn(text) &&
                 !conceptual.containsMatchIn(text) ||
-                dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(text) &&
+                GitHubStatusRequest.matches(text) &&
                 (selectedRepository || repositoryName.containsMatchIn(text)) ||
+                repositoryTopic.matches(text) ||
+                sourceRead.matches(text) ||
                 recordRead.containsMatchIn(text) &&
-                records.containsMatchIn(text) &&
+                (records.containsMatchIn(text) || repositorySubject.containsMatchIn(text)) &&
                 !conceptual.containsMatchIn(text) ||
                 selectedRepository &&
                 (
                     GitHubCodeResearch.matches(text) ||
-                        GitHubRequestCompletion.requiresRepositoryEvidence(text) ||
+                        GitHubRequestCompletion.requiresRepositoryEvidence(text) &&
+                        (repositorySubject.containsMatchIn(text) || !IndexedFeatureToolSelection(text).hasNamedProduct) ||
                         followup.matches(text) ||
                         implementationFollowup.containsMatchIn(text) ||
                         research &&

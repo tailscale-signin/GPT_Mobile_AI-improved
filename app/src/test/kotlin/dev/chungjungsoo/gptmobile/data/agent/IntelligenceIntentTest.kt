@@ -6,7 +6,7 @@ import org.junit.Test
 
 class IntelligenceIntentTest {
     @Test fun selectedWorkspaceDoesNotTurnGeneralQuestionsIntoRepositoryTasks() {
-        for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "Review GitHub pricing", "Show GitHub pricing", "Read source materials about climate", "Create a file in Google Drive", "Create hello.py in Google Drive", "Apply those changes in Google Drive", "Update the file in Dropbox", "What tools can you use in this chat?")) {
+        for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "Review GitHub pricing", "Show GitHub pricing", "Read source materials about climate", "Create a file in Google Drive", "Review Google Drive files", "Create hello.py in Google Drive", "Apply those changes in Google Drive", "Update the file in Dropbox", "What tools can you use in this chat?")) {
             assertFalse(request, IntelligenceIntent.from(request, selectedRepository = true).repository)
             assertFalse(request, IntelligenceIntent.from(request, selectedRepository = false).repository)
         }
@@ -30,5 +30,14 @@ class IntelligenceIntentTest {
         val intent = IntelligenceIntent.from("Research incremental indexing and implement the improvement in our repository", true)
         assertTrue(intent.repository)
         assertTrue(intent.research)
+    }
+
+    @Test fun conciseRepositoryReadsAndDiscoveryQueriesDoNotNeedASelectedWorkspace() {
+        for (request in listOf("Check repo status", "repo status", "GitHub repository status", "Inspect git", "Show branches", "Inspect commits", "Review repositories", "Read source")) {
+            assertTrue(request, IntelligenceIntent.from(request, selectedRepository = false).repository)
+        }
+        assertTrue(IntelligenceIntent.from("status", selectedRepository = true).repository)
+        assertFalse(IntelligenceIntent.from("status", selectedRepository = false).repository)
+        assertTrue(IntelligenceIntent.from("Create a file in Google Drive and commit its reference in our repository", selectedRepository = true).repository)
     }
 }

@@ -1,0 +1,26 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+  "parent_pr": 2651,
+  "intent": "Preserve retained translated speech while the voice screen restores saved preferences.",
+  "authorization": "User requested completion, green checks, merge and publication of the integrated voice changes.",
+  "status": "IMPLEMENTED_LOCAL_REGRESSION_PASSED_PENDING_CURRENT_HEAD_CI",
+  "change": "Gate output engine configuration on applied preferences and include readiness in the Compose effect keys; retain intentional post-restore voice changes.",
+  "regression": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffectTest.kt#restoringTheScreenWaitsForPreferencesBeforeTouchingTheRetainedVoice",
+  "local_validation": {
+    "actual_compose_runtime": "1.12.1",
+    "kotlin_compose_compiler": "2.4.20",
+    "behavior_test": "PASS",
+    "old_unguarded_behavior": "EXPECTED_ASSERTION_FAILURE",
+    "missing_readiness_effect_key": "EXPECTED_ASSERTION_FAILURE",
+    "ktlint": "PASS",
+    "canonical_fast": "PASS: 863 tests, one intentional skip, generated references, resource and dependency checks"
+  },
+  "limitations": [
+    "The focused host run uses no-op Android trace markers and a recording implementation of the production output interface.",
+    "Full Android/Robolectric and exact-head hosted gates remain required. No physical playback qualification is claimed."
+  ]
+}

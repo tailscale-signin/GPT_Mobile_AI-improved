@@ -375,7 +375,7 @@ private fun VoiceChatSessionScreen(
         recognitionBackend
     }
     val selectedOutputFactory = if (translationMode) translationOutput?.factory ?: backend.factory else backend.factory
-    LaunchedEffect(kokoroOutput, selectedOutputFactory) { kokoroOutput?.configureEngine(selectedOutputFactory) }
+    VoiceOutputConfigurationEffect(preferencesApplied, kokoroOutput, selectedOutputFactory)
     var kokoroVoice by rememberSaveable { mutableStateOf<KokoroVoice?>(null) }
     var kokoroThreads by rememberSaveable { mutableIntStateOf(VoiceCpuSchedulingPolicy.AUTO) }
     var editBeforeSend by rememberSaveable { mutableStateOf(false) }

@@ -122,6 +122,7 @@ class WorkflowPolicyTest(unittest.TestCase):
             'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneCueReadinessTest',
             'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePreferenceStoreTest',
             'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceBackendViewModelTest',
+            'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceOutputConfigurationEffectTest',
             'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest',
         }
         for name in expected:

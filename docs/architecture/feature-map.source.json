@@ -3815,7 +3815,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffect.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPairTest.kt",
@@ -3828,7 +3829,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt",
         "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffectTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3836,7 +3838,8 @@
       "documents": [
         "docs/repairs/bidirectional-voice-translation-2026-11-28.md",
         "docs/repairs/bidirectional-voice-translation-2026-11-28-task.json",
-        "docs/audits/voice-translation-language-model-2026-11-28.json"
+        "docs/audits/voice-translation-language-model-2026-11-28.json",
+        "docs/repairs/voice-output-preference-restoration-2026-11-28-task.json"
       ],
       "invariants": [
         "Each accepted utterance resolves from a confident in-pair transcript prediction or an explicit spoken-language choice to the opposite language and that language's separately saved voice. Unknown or outside-pair input retains a reviewable draft.",
@@ -3846,7 +3849,8 @@
         "Accepted fixed translation policies preserve the reply destination for replay. Missing metadata defers admission; a previous language or unrelated voice cannot substitute for the accepted destination.",
         "Azelma and Estelle use an explicitly installed and verified Pocket Multilingual CPU pack. Per-turn factories snapshot settings without overwriting ordinary engine preferences or the other language's voice.",
         "Questions and commands remain isolated translation source text. Existing no-tools, no-persona and no-history request boundaries remain authoritative.",
-        "Translated streaming and replay require the selected local voice. A synthesis failure cannot silently substitute Android TTS; ordinary playback retains its existing recovery behavior."
+        "Translated streaming and replay require the selected local voice. A synthesis failure cannot silently substitute Android TTS; ordinary playback retains its existing recovery behavior.",
+        "Restoring the screen waits for saved voice preferences before configuring output, preserving the retained accepted translation engine until its settings are ready."
       ],
       "routing": {
         "role": "user_control",

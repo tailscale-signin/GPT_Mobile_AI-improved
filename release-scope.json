@@ -124,7 +124,8 @@
     "Bind public-declaration controls to immutable historical source and approved artifact evidence; recreate their inputs in isolated integrity fixtures and run independent controls with bounded concurrency while retaining every existing timeout and rejection assertion.",
     "Keep the same restored investigation tracker across completed tool batches, and run observed-delivery, retained-report and restored-progress regressions before the complete Android suite.",
     "Use public pinned LiteRT constructors for strict Pocket accelerator requests, retain Qualcomm policy, and validate the compatibility composition against actual SDK options and native flag evidence without using test-restricted production APIs.",
-    "Translate each voice utterance to the opposite side of a saved language pair, with independent streaming voices, local direction detection and cancellation-safe preparation before submission."
+    "Translate each voice utterance to the opposite side of a saved language pair, with independent streaming voices, local direction detection and cancellation-safe preparation before submission.",
+    "Preserve a retained translated reply when reopening the voice screen by waiting for saved preferences before configuring its output engine; run the composition restoration regression in the early Android gate."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -543,6 +544,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadiness.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOpeningEffect.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffect.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePerformancePanel.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt",
@@ -813,6 +815,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneAppearanceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadinessTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOpeningEffectTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffectTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceReplyLanguageSelectionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt",
@@ -995,6 +998,7 @@
     "docs/repairs/unified-intelligence-interface-2026-11-27.md",
     "docs/repairs/voice-microphone-turn-cycle-2026-11-27-task.json",
     "docs/repairs/voice-microphone-turn-cycle-2026-11-27.md",
+    "docs/repairs/voice-output-preference-restoration-2026-11-28-task.json",
     "docs/repairs/voice-response-fluidity-2026-11-26-task.json",
     "docs/repairs/voice-streaming-quality-2026-11-27-task.json",
     "docs/repairs/windows-native-campaign-integration-2026-11-26-task.json",

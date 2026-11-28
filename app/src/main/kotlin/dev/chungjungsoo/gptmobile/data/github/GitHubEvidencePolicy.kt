@@ -359,6 +359,15 @@ internal object GitHubEvidencePolicy {
             reviewState?.let { put("review_state", it) }
             checklist?.let { put("test_checklist", it) }
             completion.forEach { (key, value) -> put(key, value) }
+            if (checklist != null && GitHubTestChecklist.integration(task)) {
+                val stop = GitHubIntegrationReport.stopReason(task, receipts, tools, remainingToolCalls, checklist)
+                put("stop_reason", stop)
+                if (stop["code"] != JsonPrimitive("ACCEPTANCE_COMPLETE")) {
+                    put("completion_verified", false)
+                    put("partial", true)
+                    put("task_outcome", GitHubIntegrationReport.taskOutcome(stop))
+                }
+            }
         }
         // Baseline selection belongs to the durable review state. An extractor
         // cannot reopen a completed decision because its optional context omitted it.
@@ -374,7 +383,7 @@ internal object GitHubEvidencePolicy {
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {
             "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls, stageBudget, acceptedContract, checklist) +
-                if (facts.isNotEmpty()) "\n## Verified observations\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n" + facts.joinToString("\n") else ""
+                if (facts.isNotEmpty() && !(GitHubTestChecklist.integration(task) && GitHubIntegrationReport.preferCompact(task))) "\n## Verified observations\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n" + facts.joinToString("\n") else ""
         } else {
             GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) }) + reviewState?.let { review ->
                 val coverage = review["comparison_coverage"] as? JsonObject
@@ -687,7 +696,7 @@ internal object GitHubEvidencePolicy {
             report + buildJsonObject {
                 put("completion_verified", complete)
                 put("partial", !complete)
-                put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
+                put("task_outcome", if (complete) "COMPLETED" else report.string("task_outcome").ifBlank { "PARTIAL" })
                 put("completion_scope", "Authorized API action coverage; device and overall application health are not inferred")
                 put("requirements", requirements)
                 put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))

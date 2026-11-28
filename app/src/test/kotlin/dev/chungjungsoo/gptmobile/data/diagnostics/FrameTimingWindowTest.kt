@@ -8,6 +8,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameTimingWindowTest {
+    @Test fun periodicReportsAndCaptureEpochChangesNeverReuseAWindowSequence() {
+        val window = FrameTimingWindow(0)
+        window.align(1, 0)
+        val first = window.sequence
+        window.observe(8_000_000, 10_000_000, 0, false, 10)
+        assertEquals(JsonPrimitive(first), window.callbackCoverage(5000)["windowSequence"])
+        assertEquals(first, window.sequence)
+        window.clear(5000)
+        assertEquals(first + 1, window.sequence)
+        val second = window.sequence
+        assertFalse(window.align(1, 5001))
+        assertEquals(second, window.sequence)
+        window.align(null, 5100)
+        window.align(2, 5200)
+        assertEquals(second + 2, window.sequence)
+        assertEquals(JsonPrimitive(window.sequence), window.callbackCoverage(10200)["windowSequence"])
+    }
+
     @Test fun callbackCoverageIncludesSilentWindowsWithoutInventingSessionJank() {
         val window = FrameTimingWindow(0)
         window.align(1, 100)

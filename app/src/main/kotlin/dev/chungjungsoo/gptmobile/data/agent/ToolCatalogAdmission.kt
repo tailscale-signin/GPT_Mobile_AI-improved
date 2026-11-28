@@ -156,8 +156,9 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
     val budget = GitHubSchemaBudget(limits.contextTokens, base + replayTokens, limits.finalResponseReserveTokens, minOf(256, limits.contextTokens / 16), wireSafety = true)
     var remaining = minOf(budget.available, maxSchemaTokens?.toLong() ?: Long.MAX_VALUE)
-    // The native status plan needs every admitted status/health read even when
-    // replay grows. Other engineering operations remain staged on demand.
+    // Status/health reads and the exact action selected by discovery or the
+    // accepted requirement stay ahead of optional schemas as replay grows.
+    // Failing this measured requirement is distinct from lacking authorization.
     val lookup = limits.githubTaskRequest?.let(GitHubLookupRoute::from)
     val scopedOperations = lookup?.let { setOf(it.operation) } ?: limits.githubTaskRequest?.takeIf {
         dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(it) &&
@@ -171,7 +172,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val required = visible.filter { tool ->
         val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
         val requiredForGitHub = (limits.githubMode || limits.githubTask) &&
-            (tool.name == "read_recovery_context" || tool.name == owedOperation || operation in scopedOperations || lookup?.matchesTool(tool) == true)
+            (tool.name == "read_recovery_context" || tool.name == owedOperation || tool.name == focusedOperation || operation in scopedOperations || lookup?.matchesTool(tool) == true)
         val requested = tool.name in explicitlyRequired || operation in explicitlyRequired
         val requiredForRetry = maxSchemaTokens != null && (requested || AgentToolCapability.USER_DECISION in tool.capabilities)
         requiredForGitHub || requiredForRetry
@@ -193,8 +194,8 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
         if (nativeOnly && optional.size > 1 && optional.sumOf { providerSchemaTokens(it, limits.githubMode) } > remaining) {
             // Keep the planner's order for unvisited contracts. After all have run,
             // prioritize the least recently completed one for follow-up evidence.
-            val next = optional.firstOrNull { it.name == focusedOperation } ?: optional.minBy { completedOperations.indexOf(it.name) }
-            val nextCost = providerSchemaTokens(next, limits.githubMode)
+            val next = required.firstOrNull { it.name == focusedOperation } ?: optional.minBy { completedOperations.indexOf(it.name) }
+            val nextCost = if (next.name in requiredNames) 0L else providerSchemaTokens(next, limits.githubMode)
             if (nextCost > remaining) {
                 throw GitHubToolContextBudgetException(nextCost + requiredSchemaTokens, budget.available, budget).withRequiredSchemas(required + next, limits.githubMode)
             }
@@ -238,7 +239,8 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     }
     ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
     val lookupAdmitted = lookup != null && required.any(lookup::matchesTool)
-    if ((limits.githubMode || limits.githubTask) && !discoveryFits && nextOperation == null && !lookupAdmitted && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
+    val focusedAdmitted = focusedOperation != null && focusedOperation in requiredNames
+    if ((limits.githubMode || limits.githubTask) && !discoveryFits && nextOperation == null && !lookupAdmitted && !focusedAdmitted && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
         val needed = visible.filter { ProgressiveToolCatalog.isGitHubTool(it) || it.name in requiredNames }
         throw GitHubToolContextBudgetException(needed.sumOf { providerSchemaTokens(it, limits.githubMode) }, budget.available, budget).withRequiredSchemas(needed, limits.githubMode)
     }

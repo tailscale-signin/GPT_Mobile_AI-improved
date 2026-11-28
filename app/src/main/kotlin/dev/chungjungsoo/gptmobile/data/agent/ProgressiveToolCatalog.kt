@@ -49,6 +49,8 @@ class ProgressiveToolCatalog(
     private val actionSelections = mutableMapOf<String, Pair<String, String>>()
     private val requirementActions = mutableMapOf<String, Pair<String, String>>()
     private val explicitSelections = linkedSetOf<String>()
+    private data class PendingDiscovery(val name: String, val contract: String, val action: String?)
+    private var pendingDiscovery: PendingDiscovery? = null
     private var stagedRequiredOperations = emptyList<String>()
     private val completedStagedContracts = mutableMapOf<String, String>()
     private var candidateRevision = 0L
@@ -209,6 +211,15 @@ class ProgressiveToolCatalog(
     internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis(), arguments: JsonObject? = null) {
         val candidate = candidates[resolveName(name)] ?: return
         val contract = contractFingerprint(candidate)
+        // Advertising a schema is not execution. Keep the exact discovery handoff
+        // until its action returns a dispatched receipt, including an uncertain
+        // outcome which must be reconciled by the existing execution policy.
+        pendingDiscovery?.takeIf {
+            it.name == candidate.name &&
+                it.contract == contract &&
+                result.dispatched &&
+                (it.action == null || arguments?.get("action") == JsonPrimitive(it.action))
+        }?.let { pendingDiscovery = null }
         if (name in stagedRequiredOperations && githubSchemaPhaseComplete(name, result, arguments)) completedStagedContracts[name] = contract
         if (!result.dispatched || result.sharedResult) return
         if (!observedCalls.add("${candidate.name}:$contract:${result.callId}")) return
@@ -362,9 +373,17 @@ class ProgressiveToolCatalog(
 
     /** Preserve a requirement's selected action across pagination and corrective reads. */
     @Synchronized
-    internal fun focusedOperation(allowed: List<AgentToolDefinition>): String? = allowed.firstOrNull { tool ->
-        tool.name in explicitSelections || tool.name in requirementActions
-    }?.name
+    internal fun focusedOperation(allowed: List<AgentToolDefinition>): String? {
+        val pending = pendingDiscovery?.takeIf { selection ->
+            val candidate = candidates[selection.name]
+            candidate?.let(::contractFingerprint) == selection.contract &&
+                allowed.any { definition ->
+                    definition.name == selection.name &&
+                        (contractFingerprint(definition) == selection.contract || selection.action?.let { action -> GitHubActionSchema.project(requireNotNull(candidate), action) == definition } == true)
+                }
+        }
+        return pending?.name ?: allowed.firstOrNull { it.name in requirementActions }?.name
+    }
 
     @Synchronized
     fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> {
@@ -422,7 +441,8 @@ class ProgressiveToolCatalog(
             val action = focus.actions[operation] ?: continue
             if (GitHubActionSchema.project(tool, action) != null) requirementActions[tool.name] = contractFingerprint(tool) to action
         }
-        val explicit = (explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
+        val pending = pendingDiscovery?.takeIf { candidates[it.name]?.let(::contractFingerprint) == it.contract }?.name
+        val explicit = (listOfNotNull(pending) + explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
         val recovery = taskRequired.filter { it.name == "read_recovery_context" || AgentToolCapability.USER_DECISION in it.capabilities }
         // The focused action's declared evidence sources can fit in the same schema window.
         // Resolve exact, already-authorized aliases; prefetch never calls or acquires a tool.
@@ -959,6 +979,9 @@ class ProgressiveToolCatalog(
         active.clear()
         active.addAll(selected.map { it.name })
         explicitSelections.retainAll(active)
+        explicit.firstOrNull { it.name in active }?.let { tool ->
+            pendingDiscovery = PendingDiscovery(tool.name, contractFingerprint(tool), actionSelections[tool.name]?.second)
+        }
         val admitted = found.filter { it.name in active }
         discovered.addAll(admitted.map { it.name })
         val unchanged = previousActive == active && previousSchemas == presentedSchemas()

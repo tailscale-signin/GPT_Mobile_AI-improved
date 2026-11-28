@@ -1601,7 +1601,11 @@ internal class GitHubVerifiedSession(
                     put("resume_required", partial && !watchOwnsPolling)
                     if (partial) {
                         put("completion_verified", false)
-                        put("task_outcome", if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL")
+                        val blockedOutcomes = setOf("BLOCKED", "WAITING_FOR_APPROVAL")
+                        val outcome = originalFailure?.taskOutcome?.takeIf { it in blockedOutcomes }
+                            ?: (report["task_outcome"] as? JsonPrimitive)?.content?.takeIf { it in blockedOutcomes }
+                            ?: "PARTIAL"
+                        put("task_outcome", outcome)
                     }
                     put("model_round_finished", draft != null || originalFailure?.failureDetails?.get("draft_retained") == JsonPrimitive(true))
                     if (originalFailure?.let(::reviewOriginFailure) == true) {
@@ -2152,7 +2156,7 @@ internal class GitHubVerifiedSession(
                                     "RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT"
                                 } else {
                                     when (code) {
-                                        "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+                                        "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> GitHubClaimExtraction.outputLimitRecovery(observations)
                                         "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
                                         "GITHUB_EXTRACTION_TIMEOUT" -> if (inspectTimeout) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else "RESUME_UNFINISHED_EXTRACTION_BATCHES"
                                         else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
@@ -2195,7 +2199,11 @@ internal class GitHubVerifiedSession(
                 "The provider rate limited claim verification. The repository observations and ${completedCount()} of ${requests.size} verified batches are saved. Resume only the unfinished extraction batches after the recorded retry time."
             } else {
                 when (code) {
-                    "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "Claim verification reached its output limit. The repository observations and completed claim batches are saved."
+                    "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> if (GitHubClaimExtraction.outputLimitRecovery(observations) == "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST") {
+                        "Claim verification reached its output limit even with one claim. Review the selected profile's reasoning setting and output allowance, then resume the unfinished batch. The repository observations and completed claim batches are saved."
+                    } else {
+                        "Claim verification reached its output limit. The repository observations and completed claim batches are saved."
+                    }
                     "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "Claim verification received invalid structured output. The repository observations and completed claim batches are saved."
                     "CONNECTION_ABORTED", "TRANSPORT_EOF", "INCOMPLETE_PROVIDER_STREAM" -> "The provider stream ended during claim verification. Saved ${completedCount()} of ${requests.size} verified batches and the original repository observations. Inspect the interrupted request before resuming the unfinished batch."
                     else -> null

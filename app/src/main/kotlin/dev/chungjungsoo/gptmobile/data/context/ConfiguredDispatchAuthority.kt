@@ -260,8 +260,8 @@ internal class DispatchPolicyChangedException(val fields: List<String>, val gate
     fun recoveryMessage(): String {
         val change = when {
             fields.isNotEmpty() && fields.all { it in setOf("githubProfileOverride", "githubProfileOverride.nextActionPolicy") } && "githubProfileOverride.nextActionPolicy" in fields -> "The next action policy changed."
-            "providerPermissions" in fields || "tools" in fields -> "The permissions or available tools changed."
-            fields.any { it.startsWith("profile.") || it == "githubProfileSelection" } -> "The selected profile or model changed."
+            "providerPermissions" in fields || "tools" in fields || "profileBehavior.toolPluginStates" in fields -> "The permissions or available tools changed."
+            fields.any { it == "profile" || it.startsWith("profile.") || it == "githubProfileSelection" } -> "The selected profile or model changed."
             "budget" in fields || "spend" in fields -> "The accepted execution limits changed."
             else -> "The task configuration changed."
         }

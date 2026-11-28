@@ -284,6 +284,9 @@ internal object GitHubTestChecklist {
     }
 
     private fun issuedPages(receipt: JsonObject): List<JsonObject> {
+        // Version-bound schema-directory traversal belongs to GitHubAuthorizedCatalog.
+        // It must not consume repository pagination samples or appear as remote reads.
+        if (receipt.text("tool") == GitHubAuthorizedCatalog.TOOL) return emptyList()
         if (receipt["success"] != JsonPrimitive(true)) return listOfNotNull(pullPageCorrection(receipt))
         val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return emptyList()
         return buildList {
@@ -337,7 +340,8 @@ internal object GitHubTestChecklist {
         val issued = observations.flatMap { issuer -> issuedPages(issuer).map { issuer to it } }
         return observations.count { receipt ->
             val args = receipt["arguments"] as? JsonObject ?: return@count false
-            "view_cursor" !in args &&
+            receipt.text("tool") != GitHubAuthorizedCatalog.TOOL &&
+                "view_cursor" !in args &&
                 !(receipt.text("tool").githubOperationFamily() == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args) &&
                 ((args["page"] as? JsonPrimitive)?.longOrNull?.let { it > 1 } == true || issued.any { (issuer, recipe) -> sameCall(receipt, recipe, issuer) })
         }
@@ -1243,9 +1247,20 @@ internal object GitHubTestChecklist {
         }
         data class InventoryKey(val first: String, val second: String?, val third: JsonObject, val repository: String, val binding: String)
         val groups = trusted.filter { receipt ->
+            val family = receipt.text("tool").githubOperationFamily()
+            val action = (receipt["arguments"] as? JsonObject)?.text("action")
+            // Discovery's action selects a future schema; it does not return a
+            // repository collection or establish an outstanding remote page.
+            val repositoryInventory = when (family) {
+                "github_ci" -> action in setOf("workflows", "runs")
+                "github_context" -> action in setOf("branches", "commits")
+                "github_issue", "github_pr" -> action == "list"
+                "github_release" -> action in setOf("list", "tags")
+                else -> false
+            }
             receipt["success"] == JsonPrimitive(true) &&
-                data(receipt)?.text("schema") != "github.repeat.v1" &&
-                (receipt["arguments"] as? JsonObject)?.text("action") in setOf("workflows", "branches", "list", "commits", "runs", "tags")
+                repositoryInventory &&
+                data(receipt)?.text("schema") != "github.repeat.v1"
         }.groupBy {
             val args = it["arguments"] as? JsonObject
             InventoryKey(it.text("tool"), args?.text("action"), filters(it), it.text("repository").lowercase(java.util.Locale.ROOT), it.text("binding"))

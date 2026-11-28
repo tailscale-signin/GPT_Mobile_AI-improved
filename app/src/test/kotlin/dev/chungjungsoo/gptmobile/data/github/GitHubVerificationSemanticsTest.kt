@@ -50,7 +50,7 @@ class GitHubVerificationSemanticsTest {
         assertEquals(19, report.getValue("claims").jsonArray.size)
         assertEquals(JsonPrimitive(false), report["completion_verified"])
         assertEquals(JsonPrimitive(true), report["partial"])
-        assertEquals(JsonPrimitive("PARTIAL"), report["task_outcome"])
+        assertEquals(JsonPrimitive("BLOCKED"), report["task_outcome"])
         assertFalse(report.getValue("remaining_requirements").jsonArray.isEmpty())
     }
 

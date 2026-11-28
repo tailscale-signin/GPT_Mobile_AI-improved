@@ -481,7 +481,7 @@ class AgentRunner(
         round: RoundResult,
         state: LoopState
     ): Boolean = with(state) {
-        if (limits.githubMode) {
+        if (limits.githubMode || limits.githubTask) {
             emit(AgentRunEvent.Provider(ProviderEvent.Failed(round.failure ?: "This model rejected the required GitHub tool catalog.", errorCode = "GITHUB_TOOL_CONTRACT_UNSUPPORTED", failureDetails = round.failureDetails, invocationId = round.invocationId)))
             return@with false
         }
@@ -758,7 +758,7 @@ class AgentRunner(
             }
         }
         state.retrySchemaNames = narrowerSchemaWindow(definitions, admission, initialSchemaTokens, state.replayTokens) ?: return null
-        emit(AgentRunEvent.Notice("The provider rejected this request's size. Tool discovery stays available while I send fewer optional tool descriptions.", persistent = false))
+        emit(AgentRunEvent.Notice("The provider rejected this request's size. Retained findings and the selected action are preserved while I send fewer optional tool descriptions.", persistent = false))
         return admittedReplayLimit
     }
 
@@ -767,12 +767,13 @@ class AgentRunner(
         if (definitions.none { it.name == ProgressiveToolCatalog.NAME }) return null
         val current = definitions.sumOf { providerSchemaTokens(it, limits.githubMode) }
         val target = targetOverride ?: RequestByteBudget.schemaTarget(admission, current) ?: return null
+        val focused = healthCatalog?.focusedOperation(definitions)
         val selected = try {
-            fitProviderToolSchemas(definitions, limits, initialSchemaTokens, replayTokens, target)
+            fitProviderToolSchemas(definitions, limits, initialSchemaTokens, replayTokens, target, focusedOperation = focused)
         } catch (_: GitHubToolContextBudgetException) {
             return null
         }
-        return selected.mapTo(linkedSetOf()) { it.name }.takeIf { ProgressiveToolCatalog.NAME in it && it.size < definitions.size }
+        return selected.mapTo(linkedSetOf()) { it.name }.takeIf { (ProgressiveToolCatalog.NAME in it || focused in it) && it.size < definitions.size }
     }
 
     /** Verification can read settled receipts, but cannot advance the saved execution journal. */
@@ -1969,7 +1970,7 @@ class AgentRunner(
 
     private fun selectedForRound(definitions: List<AgentToolDefinition>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): List<AgentToolDefinition> {
         val selected = selectDefinitions(definitions)
-        if (!limits.githubMode) return selected
+        if (!limits.githubMode && !limits.githubTask) return selected
         val authorized = definitions.filter { it.modelVisible }.associateBy { it.name }
         return selected.mapNotNull { choice -> authorized[choice.name]?.let { GitHubActionSchema.authorized(it, choice) } }.distinctBy { it.name }
     }
@@ -1992,9 +1993,9 @@ class AgentRunner(
             return null
         }
         val selectedSchemas = selectedForRound((exposedDefinitions + additions.map { it.definition }).distinctBy { it.name }, selectDefinitions)
-        if (limits.githubMode) {
+        if (limits.githubMode || limits.githubTask) {
             val admittedSchemas = try {
-                fitProviderToolSchemas(selectedSchemas, limits, initialSchemaTokens, replayTokens)
+                fitProviderToolSchemas(selectedSchemas, limits, initialSchemaTokens, replayTokens, focusedOperation = healthCatalog?.focusedOperation(selectedSchemas))
             } catch (capacity: GitHubToolContextBudgetException) {
                 emit(AgentRunEvent.Provider(capacity.providerFailure()))
                 return null

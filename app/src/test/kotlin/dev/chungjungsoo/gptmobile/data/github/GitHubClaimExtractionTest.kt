@@ -48,6 +48,29 @@ class GitHubClaimExtractionTest {
         failure
     }
 
+    @Test fun oneClaimReasoningOnlyLimitPreservesProviderFailureAndOffersAFeasibleRecovery() = runBlocking {
+        val original = ProviderEvent.Failed("Output ceiling reached", errorCode = "OUTPUT_LIMIT", transportComplete = true, invocationId = "claim-attempt")
+        val events = flowOf(
+            ProviderEvent.ThinkingDelta("private reasoning"),
+            ProviderEvent.Usage(outputTokens = 2048, reasoningTokens = 2048, finishReason = "length"),
+            original,
+            ProviderEvent.Completed
+        )
+        val failure = try {
+            GitHubClaimExtraction.collect(request.copy(maxClaims = 1), { session(events) }, Dispatchers.Unconfined)
+            throw AssertionError("Expected output-limit failure")
+        } catch (failure: GitHubClaimExtraction.Failure) {
+            failure
+        }
+        assertSame(original, failure.providerFailure)
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", failure.code)
+        assertEquals(JsonPrimitive(0), failure.observations?.get("claim_extraction_response_characters"))
+        assertEquals(JsonPrimitive(1), failure.observations?.get("claim_extraction_max_claims"))
+        assertEquals("UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", GitHubClaimExtraction.outputLimitRecovery(failure.observations))
+        assertFalse(failure.observations.toString().contains("private reasoning"))
+        assertEquals("RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT", GitHubClaimExtraction.outputLimitRecovery(null))
+    }
+
     @Test fun completeSchemaValidOutputSurvivesEverySupportedLengthFinish() = runBlocking {
         for (finish in listOf("length", "max_tokens", "max_output_tokens", "token_limit")) {
             val result = collect(flowOf(ProviderEvent.TextDelta(response), ProviderEvent.Usage(finishReason = finish), ProviderEvent.Completed))

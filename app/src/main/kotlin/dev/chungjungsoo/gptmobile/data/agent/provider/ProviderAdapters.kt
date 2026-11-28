@@ -551,12 +551,6 @@ class OpenAICompatibleAdapter @Inject constructor(
         val effectiveRepetitionPenalty = if (isOpenRouter) parsedOpenRouterOptions?.repetitionPenalty else null
         val effectiveSeed = if (isOpenRouter) parsedOpenRouterOptions?.seed else null
         val effectiveStop = if (isOllama && parsedOllamaOptions != null) parsedOllamaOptions.stop else null
-        val lowExtractionReasoning = isOpenRouter &&
-            constraints.requestRole == "github-claim-extraction" &&
-            (constraints.reasoningModeOverride == null || constraints.reasoningModeOverride == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) &&
-            dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
-                .forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true
-
         val automaticVisibleDelivery = isOpenRouter && GitHubReasoningPolicy.automaticVisibleDelivery(constraints)
         val visibleOutputEffort = if (automaticVisibleDelivery) {
             GitHubReasoningPolicy.visibleOutputEffort(
@@ -647,7 +641,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     } else {
                         OpenRouterReasoning(
                             effort = when {
-                                lowExtractionReasoning || mechanicalReasoning -> "low"
+                                mechanicalReasoning -> "low"
                                 constraints.gitHubEffort != null &&
                                     isOpenRouter &&
                                     dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true -> constraints.gitHubEffort.wire

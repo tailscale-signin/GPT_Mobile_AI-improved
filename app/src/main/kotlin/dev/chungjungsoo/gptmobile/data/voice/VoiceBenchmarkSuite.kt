@@ -23,7 +23,8 @@ internal data class VoiceBenchStage(
     val probe: VoiceBenchProbe? = null,
     val language: String? = null,
     val listeningStyle: VoiceListeningStyle? = null,
-    val selectedVoiceId: String? = null
+    val selectedVoiceId: String? = null,
+    val useCalibratedThreads: Boolean = false
 ) {
     fun configuration(voice: KokoroVoice, streamingVoice: String?, offset: Int, order: Long, build: Int, sdk: Int, device: String, commit: String): VoiceSpeechBenchmarkConfiguration {
         val selected = requireNotNull(engine)
@@ -64,7 +65,7 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
     val configs = VoiceSpeechBenchmarkEngine.entries.flatMap { engine ->
         val native = engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
         (if (native) KokoroModelVariant.entries else listOf(KokoroModelVariant.INT8)).map { variant ->
-            VoiceBenchStage(if (native) "${engine.label} · ${variant.displayName}" else engine.label, engine, variant, threads = selectedThreads, rate = 1f)
+            VoiceBenchStage(if (native) "${engine.label} · ${variant.displayName}" else engine.label, engine, variant, threads = selectedThreads, rate = 1f, useCalibratedThreads = native && threads == VoiceCpuSchedulingPolicy.AUTO)
         }
     }
     fun addCase(base: VoiceBenchStage, name: String, spec: VoiceBenchStage) {
@@ -111,7 +112,7 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
         }
         if (base.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO) {
             for (count in 1..limit) {
-                addCase(base, "$count CPU threads", base.copy(threads = count, backends = listOf(VoiceSpeechBackend.CPU), mode = VoiceSpeechBenchmarkMode.QUICK))
+                addCase(base, "$count CPU threads", base.copy(threads = count, backends = listOf(VoiceSpeechBackend.CPU), mode = VoiceSpeechBenchmarkMode.QUICK, useCalibratedThreads = false))
             }
             listOf("burst", "high_performance").forEach { policy ->
                 addCase(base, "Hexagon $policy", base.copy(backends = listOf(VoiceSpeechBackend.QNN_HTP), htp = policy))
@@ -172,6 +173,7 @@ internal data class VoiceBenchManifest(
         rows[index].status == VoiceBenchStatus.PENDING && results[index].status in
             setOf(VoiceBenchStatus.MEASURED, VoiceBenchStatus.PARTIAL, VoiceBenchStatus.FAILED)
     }
+
     fun update(index: Int, result: VoiceBenchResult) = copy(results = results.toMutableList().also { it[index] = result })
     fun stopped(reason: String, now: Long? = null) = copy(
         state = reason,

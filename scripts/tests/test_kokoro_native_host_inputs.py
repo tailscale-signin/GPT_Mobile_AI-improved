@@ -1,6 +1,7 @@
 """Full-model CI preparation rejects ambiguous, incomplete and unpinned inputs."""
 import hashlib
 import io
+import json
 from pathlib import Path
 import stat
 import sys
@@ -97,6 +98,31 @@ class NativeHostInputsTest(unittest.TestCase):
             raise ValueError("download mismatch")
         with patch.object(host, "checked_download", side_effect=fail):
             with self.assertRaisesRegex(ValueError, "download mismatch"):
+                host.prepare(destination)
+        self.assertFalse(destination.exists())
+        self.assertFalse(list(self.root.glob(".kokoro-native-*")))
+
+    def test_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest(self):
+        class SdkReached(Exception):
+            pass
+
+        approved = json.loads((host.ROOT / "docs/audits/qualcomm-dispatch-inputs.json").read_text())
+        publisher = json.loads(host.QNN_HOST_MANIFEST.read_text())
+        self.assertNotIn("dispatchBuild", publisher)
+        self.assertEqual(publisher["publisherSha256"], publisher["downloadedSha256"])
+
+        def inspect_manifest(output, manifest):
+            self.assertEqual(host.QNN_SDK_MANIFEST, manifest)
+            self.assertNotEqual(host.QNN_HOST_MANIFEST, manifest)
+            sdk = json.loads(manifest.read_text())
+            self.assertEqual(approved["qairtSdkVersion"], sdk["dispatchBuild"]["qairtSdkVersion"])
+            self.assertEqual(approved["qnnHeadersSha256"], sdk["qairtSdk"]["qnnHeadersSha256"])
+            raise SdkReached()
+
+        destination = self.root / "prepared"
+        with patch.object(host, "checked_download"), patch.object(host, "native_preparer") as native:
+            native.return_value.prepare.side_effect = inspect_manifest
+            with self.assertRaises(SdkReached):
                 host.prepare(destination)
         self.assertFalse(destination.exists())
         self.assertFalse(list(self.root.glob(".kokoro-native-*")))

@@ -41,15 +41,17 @@ def checked_download(record, target):
 
 
 def prepare(output, qnn_manifest):
+    spec = importlib.util.spec_from_file_location("asr_qnn_headers", HERE / "prepare_asr_qnn_headers.py")
+    headers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(headers)
+    # Reject a host-library or mismatched SDK manifest before downloading any
+    # archives or trusting an existing header cache.
+    version = headers.sdk_manifest(qnn_manifest)["dispatchBuild"]["qairtSdkVersion"]
     records = json.loads(MANIFEST.read_text())["dependencies"]
     for record in records:
         if Path(record["file"]).name != record["file"]:
             raise ValueError("Invalid ASR dependency filename")
         checked_download(record, output / record["file"])
-    spec = importlib.util.spec_from_file_location("asr_qnn_headers", HERE / "prepare_asr_qnn_headers.py")
-    headers = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(headers)
-    version = json.loads(qnn_manifest.read_text())["dispatchBuild"]["qairtSdkVersion"]
     headers.prepare(qnn_manifest, output / ("asr-qairt-" + version))
 
 

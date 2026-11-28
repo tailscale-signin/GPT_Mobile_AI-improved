@@ -8,7 +8,7 @@
   "parent_pr": 2651,
   "intent": "Integrate verified Moonshine Small/Medium, streaming Zipformer and Nemotron 3.5 recognition with real CPU/GPU/NPU runtime routes, model lifecycle, settings, timed transcripts, captions, vocabulary and reproducible recognition benchmarks while preserving concurrent voice and release work.",
   "authorization": "User requested all recommendations on the latest PR branch, preserving concurrent commits; publication remains conditional on current-head required checks and qualified work.",
-  "status": "IMPLEMENTED_HOST_VERIFIED_PENDING_CURRENT_HEAD_CI_AND_DEVICE_QUALIFICATION",
+  "status": "IMPLEMENTED_CI_REPAIRS_HOST_VERIFIED_PENDING_CURRENT_HEAD_CI",
   "requirements": [
     "Preserve existing Moonshine Tiny, Pocket/Kokoro playback and independent output-caption alignment",
     "Pin and verify all downloadable model artifacts and provide cancellable/resumable install, leases and safe removal",
@@ -177,6 +177,13 @@
       "findings": 0,
       "scanner": "Gitleaks 8.30.1",
       "source_tree": "0eb6d6843addd2f004196cc5a03bdfc7c03ed334"
+    },
+    {
+      "scope": "Canonical host gate after native CI manifest/whitespace repair",
+      "status": "PASSED",
+      "tests": 874,
+      "skipped": 1,
+      "evidence": "docs/audits/recognition-native-ci-repair.json"
     }
   ],
   "limitations": [
@@ -201,7 +208,7 @@
     },
     "automation_enabled": true
   },
-  "last_observed_remote_head": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+  "last_observed_remote_head": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
   "preserved_concurrent_heads": [
     "d652558c122a00c248cc7ddc388ee2f93ea528ab",
     "c31abe1ccf77c8dd254da775cfee6508719ae79e",
@@ -219,5 +226,13 @@
     "expected_head_required": true,
     "force": false,
     "verify_live_head_after_update": true
-  }
+  },
+  "ci_repairs": [
+    {
+      "failed_head": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "evidence": "docs/audits/recognition-native-ci-repair.json",
+      "preserve_release_gates": true,
+      "status": "SCOPED_CHECKS_PASSED_PENDING_CORRECTIVE_HEAD_CI"
+    }
+  ]
 }

@@ -11,10 +11,12 @@ import hashlib
 import io
 import json
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import stat
 import tempfile
 import urllib.request
+import urllib.parse
 import zipfile
 
 
@@ -24,6 +26,41 @@ def headers_digest(root):
         digest.update(path.relative_to(root).as_posix().encode() + b"\0")
         digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def sdk_manifest(manifest):
+    """Require the audited SDK shape; a host-library wheel is not an SDK pin."""
+    record = json.loads(manifest.read_text())
+    if (not isinstance(record, dict) or type(record.get("schemaVersion")) is not int
+            or record["schemaVersion"] != 1
+            or not isinstance(record.get("dispatchBuild"), dict)
+            or not isinstance(record.get("qairtSdk"), dict)):
+        raise ValueError("Expected an audited QAIRT SDK header manifest, not a host-library manifest")
+    build, pin = record["dispatchBuild"], record["qairtSdk"]
+    version, runtime = build.get("qairtSdkVersion"), build.get("qairtVersion")
+    if (not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+", version)
+            or not isinstance(runtime, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", runtime)
+            or not version.startswith(runtime + ".")):
+        raise ValueError("QAIRT SDK and runtime versions are missing or mismatched")
+    for value in (build.get("qnnHeadersSha256"), pin.get("qnnHeadersSha256"), pin.get("sha256")):
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError("QAIRT SDK and header identities require exact SHA-256 pins")
+    if build["qnnHeadersSha256"] != pin["qnnHeadersSha256"]:
+        raise ValueError("QAIRT SDK header identities differ")
+    if type(pin.get("bytes")) is not int or pin["bytes"] <= 0:
+        raise ValueError("QAIRT SDK archive requires an exact positive byte count")
+    suffix = f"/{version}/v{version}.zip"
+    for field in ("url", "resolvedUrl"):
+        value = pin.get(field)
+        if not isinstance(value, str):
+            raise ValueError("QAIRT SDK publisher URLs do not match the pinned version")
+        url = urllib.parse.urlsplit(value)
+        if url.scheme != "https" or not url.netloc or not url.path.endswith(suffix) or url.query or url.fragment:
+            raise ValueError("QAIRT SDK publisher URLs do not match the pinned version")
+    source = pin.get("publisherChecksumSource")
+    if not isinstance(source, str) or not re.fullmatch(r"onnxruntime/onnxruntime-qnn@[0-9a-f]{40}:qcom/packages\.yml", source):
+        raise ValueError("QAIRT SDK checksum requires immutable publisher provenance")
+    return record
 
 
 class RemoteZip(io.RawIOBase):
@@ -77,7 +114,7 @@ class RemoteZip(io.RawIOBase):
 
 
 def prepare(manifest, output, offline=False):
-    record = json.loads(manifest.read_text())
+    record = sdk_manifest(manifest)
     pin = record["qairtSdk"]
     if headers_digest(output) == pin["qnnHeadersSha256"]:
         return

@@ -2,14 +2,14 @@
 +++ b/sherpa-onnx/csrc/macros.h
 @@ -53,7 +53,11 @@
  #endif
- 
+
  // The app catches native failures at the JNI boundary.
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +#define SHERPA_ONNX_EXIT(code) throw std::runtime_error("ASR_NATIVE_FAILURE")
 +#else
  #define SHERPA_ONNX_EXIT(code) throw std::runtime_error("Invalid Kokoro runtime configuration")
 +#endif
- 
+
  // Read an integer
  #define SHERPA_ONNX_READ_META_DATA(dst, src_key)                           \
 --- a/sherpa-onnx/csrc/online-transducer-nemo-model.cc
@@ -17,7 +17,7 @@
 @@ -37,6 +37,13 @@
  #include "sherpa-onnx/csrc/transpose.h"
  #include "sherpa-onnx/csrc/unbind.h"
- 
+
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +#include "streaming_asr_provider.h"
 +#define GPTMOBILE_ASR_RUN_OPTIONS asr_runtime::RunOptions()
@@ -26,7 +26,7 @@
 +#endif
 +
  namespace sherpa_onnx {
- 
+
  namespace {
 @@ -144,16 +151,31 @@
          env_(ORT_LOGGING_LEVEL_ERROR),
@@ -40,7 +40,7 @@
          env_, SHERPA_ONNX_TO_ORT_PATH(config.transducer.encoder), sess_opts_);
 +#endif
      InitEncoder(nullptr, 0);
- 
+
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    decoder_sess_ = asr_runtime::MakeSession(
 +        env_, config.transducer.decoder, sess_opts_, 1);
@@ -49,7 +49,7 @@
          env_, SHERPA_ONNX_TO_ORT_PATH(config.transducer.decoder), sess_opts_);
 +#endif
      InitDecoder(nullptr, 0);
- 
+
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    joiner_sess_ = asr_runtime::MakeSession(
 +        env_, config.transducer.joiner, sess_opts_, 2);
@@ -59,10 +59,10 @@
 +#endif
      InitJoiner(nullptr, 0);
    }
- 
+
 @@ -222,8 +244,11 @@
      }
- 
+
      auto out = encoder_sess_->Run(
 -        {}, encoder_input_names_ptr_.data(), inputs.data(), inputs.size(),
 +        GPTMOBILE_ASR_RUN_OPTIONS, encoder_input_names_ptr_.data(), inputs.data(), inputs.size(),
@@ -75,7 +75,7 @@
      // out[2:] states_next
 @@ -270,9 +295,12 @@
      }
- 
+
      auto decoder_out = decoder_sess_->Run(
 -        {}, decoder_input_names_ptr_.data(), decoder_inputs.data(),
 +        GPTMOBILE_ASR_RUN_OPTIONS, decoder_input_names_ptr_.data(), decoder_inputs.data(),
@@ -84,7 +84,7 @@
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::ObserveSessionRun(*decoder_sess_, 1);
 +#endif
- 
+
      std::vector<Ort::Value> states_next;
      states_next.reserve(states.size());
 @@ -292,10 +320,13 @@
@@ -99,14 +99,14 @@
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::ObserveSessionRun(*joiner_sess_, 2);
 +#endif
- 
+
      return std::move(logit[0]);
    }
 --- a/sherpa-onnx/csrc/online-recognizer-impl.cc
 +++ b/sherpa-onnx/csrc/online-recognizer-impl.cc
 @@ -105,6 +105,14 @@
    }
- 
+
    if (!config.model_config.transducer.encoder.empty()) {
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    // The verified catalog supplies an explicit model type. Avoid constructing
@@ -117,32 +117,32 @@
 +      return std::make_unique<OnlineRecognizerTransducerImpl>(config);
 +#endif
      Ort::Env env = ORT_LOGGING_LEVEL_ERROR;
- 
+
      Ort::SessionOptions sess_opts;
 --- a/sherpa-onnx/csrc/session.cc
 +++ b/sherpa-onnx/csrc/session.cc
 @@ -21,7 +21,7 @@
  #include "coreml_provider_factory.h"  // NOLINT
  #endif
- 
+
 -#if __ANDROID_API__ >= 27
 +#if __ANDROID_API__ >= 27 && !defined(GPTMOBILE_ASR_BOUNDARY)
  #include "nnapi_provider_factory.h"  // NOLINT
  #endif
- 
+
 @@ -243,11 +243,22 @@
    SplitProviderAndConfig(provider_str, new_provider_str, config);
- 
+
    Provider p = StringToProvider(new_provider_str);
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +  // The native boundary routes QNN explicitly. No generic provider name may
 +  // silently fall back to CPU (and this ORT image deliberately excludes NNAPI).
 +  if (p != Provider::kCPU) throw std::runtime_error("ASR_ACCELERATOR_UNAVAILABLE");
 +#endif
- 
+
    Ort::SessionOptions sess_opts;
    sess_opts.SetIntraOpNumThreads(num_threads);
- 
+
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +  sess_opts.SetInterOpNumThreads(1);
 +  sess_opts.AddConfigEntry("session.intra_op.allow_spinning", "0");
@@ -150,7 +150,7 @@
 +#else
    sess_opts.SetInterOpNumThreads(num_threads);
 +#endif
- 
+
    std::vector<std::string> available_providers = Ort::GetAvailableProviders();
    std::ostringstream os;
 @@ -505,7 +516,7 @@
@@ -160,7 +160,7 @@
 -#if __ANDROID_API__ >= 27
 +#if __ANDROID_API__ >= 27 && !defined(GPTMOBILE_ASR_BOUNDARY)
        SHERPA_ONNX_LOGE("Current API level %d ", (int32_t)__ANDROID_API__);
- 
+
        // Please see
 --- a/sherpa-onnx/csrc/qnn/qnn-backend.cc
 +++ b/sherpa-onnx/csrc/qnn/qnn-backend.cc
@@ -174,7 +174,7 @@
        return;
 +#endif
      }
- 
+
      InitLog();
 @@ -47,7 +51,11 @@
    ~Impl() {
@@ -186,10 +186,10 @@
        SHERPA_ONNX_QNN_CHECK(ret, "Failed to call contextFree");
 +#endif
      }
- 
+
      if (htp_perf_infra_ && htp_power_config_id_ != 0) {
 @@ -60,17 +68,29 @@
- 
+
      if (device_handle_) {
        auto ret = qnn_interface_.deviceFree(device_handle_);
 +#ifdef GPTMOBILE_ASR_BOUNDARY
@@ -198,7 +198,7 @@
        SHERPA_ONNX_QNN_CHECK(ret, "Failed to call deviceFree");
 +#endif
      }
- 
+
      if (backend_handle_) {
        auto ret = qnn_interface_.backendFree(backend_handle_);
 +#ifdef GPTMOBILE_ASR_BOUNDARY
@@ -207,7 +207,7 @@
        SHERPA_ONNX_QNN_CHECK(ret, "Failed to call backendFree");
 +#endif
      }
- 
+
      if (log_handle_) {
        auto ret = qnn_interface_.logFree(log_handle_);
 +#ifdef GPTMOBILE_ASR_BOUNDARY
@@ -217,20 +217,20 @@
 +#endif
      }
    }
- 
+
 --- a/sherpa-onnx/csrc/qnn/qnn-model.cc
 +++ b/sherpa-onnx/csrc/qnn/qnn-model.cc
 @@ -19,6 +19,11 @@
  #include "sherpa-onnx/csrc/qnn/qnn-backend.h"
  #include "sherpa-onnx/csrc/qnn/utils.h"
- 
+
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +#include "streaming_asr_provider.h"
 +#include "streaming_asr_context.h"
 +#endif
 +
  namespace sherpa_onnx {
- 
+
  class QnnModel::Impl {
 @@ -28,14 +33,22 @@
      bool ok = InitModel(model_so);
@@ -242,7 +242,7 @@
        return;
 +#endif
      }
- 
+
      ok = InitSymbols();
      if (!ok) {
        SHERPA_ONNX_LOGE("Failed to get model symbols from '%s'",
@@ -253,7 +253,7 @@
        return;
 +#endif
      }
- 
+
      InitGraph();
 @@ -48,7 +61,11 @@
        : debug_(debug), backend_(backend) {
@@ -265,12 +265,12 @@
        return;
 +#endif
      }
- 
+
      PostInit();
 @@ -117,9 +134,12 @@
            system_interface_providers[i]->QNN_SYSTEM_INTERFACE_VER_NAME;
      }
- 
+
 -    // read file into a buffer
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::MappedContextBinary buffer(binary_context_file);
@@ -278,13 +278,13 @@
      auto char_buffer = ReadFile(binary_context_file);
      std::vector<uint8_t> buffer(char_buffer.begin(), char_buffer.end());
 +#endif
- 
+
      QnnSystemContext_Handle_t sys_ctx_handle = nullptr;
      if (qnn_system_interface_.systemContextCreate(&sys_ctx_handle) !=
 @@ -485,10 +505,16 @@
        output_tensors_raw.push_back(*p);
      }
- 
+
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::CheckCancellation();
 +#endif
@@ -295,7 +295,7 @@
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::CheckCancellation();
 +#endif
- 
+
      return true;
    }
 --- a/sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc
@@ -308,17 +308,17 @@
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +#include "streaming_asr_provider.h"
 +#endif
- 
+
  namespace sherpa_onnx {
- 
+
 @@ -208,6 +212,9 @@
      }
- 
+
      encoder_->Run();
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::ObserveHtpRun(0);
 +#endif
- 
+
      std::vector<float> encoder_out =
          encoder_->GetOutputTensorData("encoder_out");
 @@ -270,6 +277,9 @@
@@ -328,7 +328,7 @@
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::ObserveHtpRun(1);
 +#endif
- 
+
      std::vector<float> decoder_out =
          decoder_->GetOutputTensorData("decoder_out");
 @@ -296,6 +306,9 @@
@@ -338,7 +338,7 @@
 +#ifdef GPTMOBILE_ASR_BOUNDARY
 +    asr_runtime::ObserveHtpRun(2);
 +#endif
- 
+
      return joiner_->GetOutputTensorData(joiner_output_name_);
    }
 --- a/sherpa-onnx/csrc/qnn/online-recognizer-nemo-transducer-qnn-impl.h
@@ -353,5 +353,5 @@
 +    config_.feat_config.dither = 0;
 +#endif
    }
- 
+
    void InitResultTemplate() {

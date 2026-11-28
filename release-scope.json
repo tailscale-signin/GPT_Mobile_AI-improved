@@ -1215,7 +1215,9 @@
     "docs/audits/recognition-session-integration.json",
     "docs/audits/recognition-translation-integration.json",
     "docs/audits/recognition-history-declaration-provenance.json",
-    "docs/audits/recognition-translation-preferences.json"
+    "docs/audits/recognition-translation-preferences.json",
+    "docs/audits/recognition-native-ci-repair.json",
+    "scripts/tests/test_kokoro_native_host_inputs.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

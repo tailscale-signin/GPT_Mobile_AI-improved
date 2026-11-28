@@ -1191,7 +1191,7 @@ Archive SHA-256: 4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c1018
 
 LICENSE.MIT
 
-MIT License 
+MIT License
 
 Copyright (c) 2013-2025 Niels Lohmann
 
@@ -1272,7 +1272,7 @@ Mozilla Public License Version 2.0
     means any form of the work other than Source Code Form.
 
 1.7. "Larger Work"
-    means a work that combines Covered Software with other material, in 
+    means a work that combines Covered Software with other material, in
     a separate file or files, that is not Covered Software.
 
 1.8. "License"

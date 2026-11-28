@@ -14,10 +14,11 @@ import tempfile
 import zipfile
 
 from build_qualcomm_dispatch_candidate import checked_download, digest
-from prepare_qnn_host_probe import DEFAULT_MANIFEST, prepare as prepare_qnn
+from prepare_qnn_host_probe import DEFAULT_MANIFEST as QNN_HOST_MANIFEST, prepare as prepare_qnn
 from prepare_streaming_asr_host import native_preparer, prepare as prepare_asr
 
 ROOT = Path(__file__).resolve().parents[1]
+QNN_SDK_MANIFEST = ROOT / "docs/audits/qnn-runtime-candidate.json"
 DEPENDENCIES = (
     {"file": "sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417.tar.gz",
      "url": "https://codeload.github.com/k2-fsa/sherpa-onnx/tar.gz/38016c6e0622e90bf417c35e8b47e0eb805af417",
@@ -123,7 +124,9 @@ def prepare(output):
         dependencies.mkdir()
         for record in DEPENDENCIES:
             checked_download(record, dependencies / record["file"])
-        native_preparer().prepare(dependencies, DEFAULT_MANIFEST)
+        # Host shared libraries and the SDK header tree have distinct publisher
+        # manifests. The wheel manifest contains no SDK/header identity.
+        native_preparer().prepare(dependencies, QNN_SDK_MANIFEST)
         prepare_asr(stage / "asr-packs")
         ort, pack = stage / "ort", stage / "pack"
         ort.mkdir()
@@ -134,12 +137,13 @@ def prepare(output):
         model_archive = checked_download(MODEL, stage / "model.tar.bz2")
         extract_model(model_archive, pack)
         model_archive.unlink()
-        prepare_qnn(DEFAULT_MANIFEST, stage / "qnn")
+        prepare_qnn(QNN_HOST_MANIFEST, stage / "qnn")
         receipt = {
             "schemaVersion": 1, "scope": "PINNED_FULL_MODEL_NATIVE_HOST_INPUTS_ONLY",
             "physicalDeviceQualified": False, "modelExecuted": False,
             "dependencies": DEPENDENCIES, "ort": ORT, "model": MODEL, "modelFiles": MODEL_FILES,
-            "qnnPublisherManifestSha256": digest(DEFAULT_MANIFEST),
+            "qnnPublisherManifestSha256": digest(QNN_HOST_MANIFEST),
+            "qnnSdkManifestSha256": digest(QNN_SDK_MANIFEST),
             "preparedFiles": {p.relative_to(stage).as_posix(): {"bytes": p.stat().st_size, "sha256": digest(p)}
                               for p in sorted(stage.rglob("*")) if p.is_file()},
             "preparerSha256": digest(Path(__file__)),

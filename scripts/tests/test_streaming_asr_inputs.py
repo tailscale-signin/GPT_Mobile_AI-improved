@@ -1,5 +1,6 @@
 """Native recognition preparation must remain pinned, bounded and required by CI."""
 
+import copy
 import hashlib
 import importlib.util
 import io
@@ -11,6 +12,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE = ROOT / "local-kokoro-runtime/src/main/cpp"
+SDK_MANIFEST = ROOT / "docs/audits/qnn-runtime-candidate.json"
+HOST_MANIFEST = ROOT / "docs/audits/qnn-host-probe-publisher-2.8.json"
 
 
 def load(name, path):
@@ -63,11 +66,77 @@ class StreamingAsrInputsTest(unittest.TestCase):
     def test_offline_qnn_headers_cannot_fall_back_to_network(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / "qnn.json"
-            manifest.write_text(json.dumps({"qairtSdk": {"qnnHeadersSha256": "f" * 64}}))
             with patch.object(headers.urllib.request, "urlopen", side_effect=AssertionError("network forbidden")):
                 with self.assertRaisesRegex(ValueError, "missing or differ"):
-                    headers.prepare(manifest, root / "headers", offline=True)
+                    headers.prepare(SDK_MANIFEST, root / "headers", offline=True)
+
+    def test_actual_sdk_manifest_matches_production_version_and_header_provenance(self):
+        record = headers.sdk_manifest(SDK_MANIFEST)
+        approved = json.loads((ROOT / "docs/audits/qualcomm-dispatch-inputs.json").read_text())
+        for key in ("qairtSdkVersion", "qairtVersion", "qnnHeadersSha256"):
+            self.assertEqual(approved[key], record["dispatchBuild"][key])
+        self.assertEqual(approved["qnnHeadersSha256"], record["qairtSdk"]["qnnHeadersSha256"])
+        cmake = (NATIVE / "streaming_asr.cmake").read_text()
+        self.assertIn("asr-qairt-" + approved["qairtSdkVersion"], cmake)
+        self.assertIn("docs/audits/qnn-runtime-candidate.json", cmake)
+        self.assertEqual(json.loads(SDK_MANIFEST.read_text()), record)
+
+    def test_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network(self):
+        original = json.loads(SDK_MANIFEST.read_text())
+        cases = [("host_wheel", json.loads(HOST_MANIFEST.read_text())),
+                 ("flat_dispatch_pins", json.loads((ROOT / "docs/audits/qualcomm-dispatch-inputs.json").read_text())),
+                 ("non_object", []), ("missing_sections", {})]
+        mutations = (
+            (("schemaVersion",), 2),
+            (("dispatchBuild",), None),
+            (("qairtSdk",), None),
+            (("dispatchBuild", "qairtSdkVersion"), None),
+            (("dispatchBuild", "qairtSdkVersion"), "2.52.0/../../untrusted"),
+            (("dispatchBuild", "qairtVersion"), "2.51.0"),
+            (("dispatchBuild", "qnnHeadersSha256"), "0" * 64),
+            (("qairtSdk", "qnnHeadersSha256"), "not-a-digest"),
+            (("qairtSdk", "sha256"), "not-a-digest"),
+            (("qairtSdk", "bytes"), 0),
+            (("qairtSdk", "bytes"), True),
+            (("qairtSdk", "resolvedUrl"), None),
+            (("qairtSdk", "resolvedUrl"), "https://publisher.invalid/2.51.0.1/v2.51.0.1.zip"),
+            (("qairtSdk", "url"), original["qairtSdk"]["url"].replace("https:", "http:")),
+            (("qairtSdk", "publisherChecksumSource"), "onnxruntime/onnxruntime-qnn@main:qcom/packages.yml"),
+        )
+        for keys, value in mutations:
+            candidate = copy.deepcopy(original)
+            target = candidate
+            for key in keys[:-1]:
+                target = target[key]
+            target[keys[-1]] = value
+            cases.append((".".join(keys) + "=" + str(value), candidate))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "invalid-sdk.json"
+            for name, candidate in cases:
+                manifest.write_text(json.dumps(candidate))
+                with self.subTest(case=name), \
+                        patch.object(headers, "headers_digest", return_value=original["qairtSdk"]["qnnHeadersSha256"]) as cached, \
+                        patch.object(dependencies, "checked_download", side_effect=AssertionError("invalid manifests must fail before downloads")) as download, \
+                        patch.object(headers.urllib.request, "urlopen", side_effect=AssertionError("network forbidden")):
+                    with self.assertRaises(ValueError):
+                        headers.prepare(manifest, root / "headers", offline=True)
+                    with self.assertRaises(ValueError):
+                        dependencies.prepare(root / "dependencies", manifest)
+                    cached.assert_not_called()
+                    download.assert_not_called()
+
+    def test_valid_sdk_manifest_still_requires_the_complete_audited_header_tree(self):
+        record = json.loads(SDK_MANIFEST.read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            header = root / "include/QNN/QnnInterface.h"
+            header.parent.mkdir(parents=True)
+            header.write_text("corrupted cached header")
+            self.assertNotEqual(record["qairtSdk"]["qnnHeadersSha256"], headers.headers_digest(root))
+            with patch.object(headers.urllib.request, "urlopen", side_effect=AssertionError("network forbidden")):
+                with self.assertRaisesRegex(ValueError, "missing or differ"):
+                    headers.prepare(SDK_MANIFEST, root, offline=True)
 
     def test_failed_dependency_download_preserves_existing_cache_bytes(self):
         good = b"verified archive"

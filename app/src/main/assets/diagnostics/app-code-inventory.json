@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ca23f71c24ef1e41e22e2cc556d55770368d9fb54587363abd211c14c283213a",
+  "source_digest": "a7b0f3071e1379b0da1781e4bfa260e1cc2dbb538c6b17a1110436ca6f8abc09",
   "file_count": 3311,
-  "indexed_line_count": 570123,
+  "indexed_line_count": 570162,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 202,
-      "indexed_line_count": 34691
+      "indexed_line_count": 34730
     },
     {
       "id": "portable_domain",
@@ -23153,15 +23153,15 @@
       "path": "local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "3b1b106e43d52e51f083f423e847307b79af2326632a0298f60f96538018d131",
-      "indexed_lines": 114
+      "sha256": "8967b4f5840c35e238b050007cf600ccd7b4655195d99b60b42ff21d31009fff",
+      "indexed_lines": 151
     },
     {
       "path": "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "b98a7816ddd5aee858fab9cf040b26e143ce9db34474423b702f122c671a4c47",
-      "indexed_lines": 61
+      "sha256": "b717befeafad7b0f0af535620fd4af3be62d000dcb88148bf1fe2cbe677ec0bb",
+      "indexed_lines": 63
     },
     {
       "path": "local-kokoro-runtime/src/main/cpp/streaming_asr.cmake",

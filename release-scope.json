@@ -115,7 +115,12 @@
     "Observe complete current GitHub tool results before replay projection, fairly interleave required discovery with authorized reads, and retain bounded versioned catalog progress without renewing source staleness.",
     "Recover a wholly rejected oversized complete tool frame within the existing correction and observed-call allowances; settle blocked and missing-evidence Combined outcomes and preserve approval-wait reserves.",
     "Stop optional page opening after authoritative shared Combined-work exhaustion and skip background map synchronization for currently unconfigured or disabled profiles.",
-    "Preserve exact closed local admission and application failure causes across Android and the report receiver, negotiate new diagnostic values before submission, and retain uncertain remote outcomes without replay permission."
+    "Preserve exact closed local admission and application failure causes across Android and the report receiver, negotiate new diagnostic values before submission, and retain uncertain remote outcomes without replay permission.",
+    "Complete the isolated full-history scanner fixture inputs and run independent declaration cases with four bounded workers, preserving all cases, original result order, and existing per-case and history deadlines.",
+    "Preserve authoritative required-tool outcome uncertainty in the merged public failure projection; conflicting earlier negative acceptance and replay hints cannot replace the owning receipt.",
+    "Configure strict Pocket GPU/NPU requests through the pinned public LiteRT accelerator options, retaining the explicit CPU transformer and guarding option expansion with actual dependency tests.",
+    "Carry the owning GitHub investigation tracker through both tool-batch helper scopes so current result observation compiles and retains session progress.",
+    "Correct stale regression expectations for admission-only request identities and unavailable saved reports, adding explicit dispatch, blocking, empty-evidence and no-execution assertions without changing production behavior."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1041,7 +1046,16 @@
     "docs/repairs/intelligence-discovery-2026-11-28-validation.json",
     "docs/repairs/intelligence-index-sync-2026-11-28-validation.json",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
-    "docs/repairs/intelligence-conversation-repair-2026-11-28-validation.json"
+    "docs/repairs/intelligence-conversation-repair-2026-11-28-validation.json",
+    "scripts/test_secret_history_integrity.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+    "docs/repairs/required-tool-unknown-projection-2026-11-28-validation.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptions.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptionsTest.kt",
+    "docs/repairs/pocket-accelerator-options-2026-11-28-validation.json",
+    "docs/repairs/agent-runner-progress-binding-2026-11-28-validation.json",
+    "docs/repairs/dispatch-and-report-fixture-2026-11-28-validation.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

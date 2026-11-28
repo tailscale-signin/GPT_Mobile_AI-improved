@@ -6,6 +6,7 @@ contain generated test values; only classifications and counts leave this check.
 """
 import argparse
 import ast
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -347,10 +348,14 @@ def main():
                 f"routing_requirement_{index}", ROUTING_FIXTURE_PATH, "key", digest, alternate_digest))
         cases.extend(outer_evidence_cases(alternate_digest))
         cases.extend(pocket_declaration_cases(alternate_digest))
+        if len({case[0] for case in cases}) != len(cases):
+            raise ValueError("duplicate_scanner_case")
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)
-            for case in cases:
-                summary["cases"].append(scan_case(scanner, config, parent, environment, *case))
+            # Each case owns its directory/report; map retains declaration order.
+            with ThreadPoolExecutor(max_workers=4) as workers:
+                summary["cases"].extend(workers.map(
+                    lambda case: scan_case(scanner, config, parent, environment, *case), cases))
         summary["passed"] = all(case["passed"] for case in summary["cases"])
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired):
         # Child output and exception text can contain the fixture values.

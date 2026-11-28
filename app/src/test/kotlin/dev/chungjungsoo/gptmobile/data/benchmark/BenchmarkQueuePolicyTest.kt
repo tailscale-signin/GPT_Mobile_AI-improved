@@ -105,12 +105,18 @@ class BenchmarkQueuePolicyTest {
         assertEquals(0, benchmarkCoverage(unknown).executed)
         assertEquals(0, benchmarkCoverage(unknown).admitted)
         val unknownMetrics = benchmarkMetricResults(listOf(unknown)).associateBy { it.id }
-        assertEquals(1, unknownMetrics.getValue("delivery_completion").denominator)
+        // An admission identity does not establish that request bytes were dispatched.
+        assertEquals(0, unknownMetrics.getValue("delivery_completion").denominator)
+        assertNull(unknownMetrics.getValue("delivery_completion").value)
         assertNull(unknownMetrics.getValue("profile_availability").value)
-        val rejected = run(attempted.copy(providerHttpStatus = 400, requestAdmitted = false))
+        val rejected = run(attempted.copy(providerHttpStatus = 400, requestAdmitted = false, requestDispatched = true))
         assertEquals(0, benchmarkCoverage(rejected).executed)
         assertEquals(0, benchmarkCoverage(rejected).executionUnknown)
-        assertEquals(0.0, benchmarkMetricResults(listOf(rejected)).single { it.id == "profile_availability" }.value!!, .001)
+        val rejectedMetrics = benchmarkMetricResults(listOf(rejected)).associateBy { it.id }
+        assertEquals(1, rejectedMetrics.getValue("delivery_completion").denominator)
+        assertEquals(0, rejectedMetrics.getValue("delivery_completion").numerator)
+        assertEquals(0.0, rejectedMetrics.getValue("delivery_completion").value!!, .001)
+        assertEquals(0.0, rejectedMetrics.getValue("profile_availability").value!!, .001)
         val uncertain = run(attempted.copy(providerHttpStatus = 500, requestDispatched = true))
         assertEquals(0, benchmarkCoverage(uncertain).executed)
         assertEquals(1, benchmarkCoverage(uncertain).executionUnknown)

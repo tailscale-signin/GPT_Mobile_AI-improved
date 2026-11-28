@@ -24,7 +24,7 @@
     "Concurrent branch reconciliation, exact-commit checks, main validation and release verification",
     "Pocket caption source mapping, tempo and presentation synchronization; actual audio-derived timing for routes without SDK word timestamps"
   ],
-  "status": "PUBLIC_DECLARATION_CORRECTION_REQUIRES_EXACT_HEAD_CI",
+  "status": "FOLLOWUP_CORRECTIONS_VALIDATED_PENDING_EXACT_HEAD_CI",
   "validation": [
     {
       "scope": "native cache contracts",
@@ -144,10 +144,11 @@
     "state": "READY_PR_CI",
     "transport": "GitHub Git Data API with expected-head non-forced ref update; preserve all concurrent branch commits.",
     "implementationCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
-    "dependencyCorrectionCommit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6"
+    "dependencyCorrectionCommit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "publicDeclarationCorrectionCommit": "df074e10b52cc6413db894499706e16609ff5a21"
   },
   "remaining": [
-    "Publish the verified public-declaration scan correction with expected-head protection",
+    "Publish the verified combined correction with expected-head protection",
     "Exact-head full PR CI",
     "Protected merge after green and fresh main validation",
     "Signed Android 0.9.66.19 build 153 and Gateway 18.1.6 publication verification"
@@ -196,9 +197,15 @@
       "previousHead": "5098014b93b75e391cf56cafef8fdaeb148b0df2",
       "filesIntegrated": 36,
       "scope": "Retain unknown Combined append completion as application-owned reconciliation evidence, forbid automatic replay, and add source/report regressions and action-based diagnostic dispositions; preserve all Pocket changes and full CI gates."
+    },
+    {
+      "observedHead": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+      "previousHead": "df074e10b52cc6413db894499706e16609ff5a21",
+      "filesIntegrated": 44,
+      "scope": "Preserve bounded admission/approval-wait recovery, retained search evidence, fair authorized checklist discovery, application-owned failure receipts and configured background-index eligibility. Release targets, full required workflows and all prior limitations remain unchanged."
     }
   ],
-  "currentParent": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+  "currentParent": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
   "hostValidationScope": "Focused receipts bind exact source hashes at execution. Later changes remain explicit; a host subset is not full Android, physical hardware, or acoustic qualification.",
   "ciCorrection": {
     "failedHead": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
@@ -222,6 +229,61 @@
       "added": 48
     },
     "newHistorySlice": "ZERO_FINDINGS; bounded main-base to parent history only",
-    "ownedFileSnapshot": "ZERO_FINDINGS; final three scanner-policy/fixture/receipt files"
+    "ownedFileSnapshot": "ZERO_FINDINGS; final three scanner-policy/fixture/receipt files",
+    "subsequentFixtureCorrection": {
+      "parent": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+      "cause": "The isolated full-history harness did not copy the four declaration inputs added to its nested controls; after input completion, 160 serial cases exceeded the existing local wrapper deadline.",
+      "change": "Include the unique declared inputs and execute independent isolated cases with four workers in original result order. Preserve all deadlines, all controls, the exact six exceptions, and deliberate missing-object failure.",
+      "verification": {
+        "result": "PASSED",
+        "intactAndRestoredControlsEach": 160,
+        "missingHistoricalBlobExit": 128,
+        "integritySeconds": 46.271,
+        "directControlsSeconds": 19.065,
+        "wrapperTimeoutSeconds": 60,
+        "receipt": "docs/repairs/pocket-public-declaration-scan-2026-11-28.json"
+      }
+    }
+  },
+  "projectionCorrection": {
+    "parent": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+    "cause": "Authoritative required-tool UNKNOWN was omitted from public fields and an earlier NO survived the original-details merge.",
+    "result": "Baseline reproduction failed as expected; corrected eight-test actual receipt/projection subset passed, including 48 conflicting acceptance combinations and two unrelated omission controls.",
+    "receipt": "docs/repairs/required-tool-unknown-projection-2026-11-28-validation.json",
+    "fullAndroid": "REQUIRES_NEW_EXACT_HEAD_CI"
+  },
+  "hostedCiFollowup": {
+    "runnerCompile": {
+      "receipt": "docs/repairs/agent-runner-progress-binding-2026-11-28-validation.json",
+      "correctedActualProjectCompile": "REQUIRES_NEW_EXACT_HEAD_CI"
+    },
+    "pocketRestrictedApi": {
+      "receipt": "docs/repairs/pocket-accelerator-options-2026-11-28-validation.json",
+      "actualPinnedApiTests": 4,
+      "combinedApiCompileAndTests": 32,
+      "fullAndroidLint": "REQUIRES_NEW_EXACT_HEAD_CI"
+    },
+    "oldFullUnitTests": {
+      "run": 46109771948,
+      "job": 140872122832,
+      "tests": 15631,
+      "passed": 15623,
+      "skipped": 6,
+      "failed": 2,
+      "currentCorrection": "Focused benchmark dispatch boundary passed after reproducing the stale expectation; report outcome boundary passed, full corrected GitHub session awaits CI.",
+      "receipt": "docs/repairs/dispatch-and-report-fixture-2026-11-28-validation.json"
+    }
+  },
+  "followupHostValidation": {
+    "parent": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+    "command": "bash scripts/validate-local.sh fast",
+    "result": "PASSED",
+    "tests": 863,
+    "skipped": 1,
+    "regexLiteralPatterns": 2350,
+    "regexErrors": 0,
+    "xmlFilesChecked": 38,
+    "logSha256": "8b69efa988659bf664a5ac81e218032ea7273c204c395bc3293ae926f6f97087",
+    "scope": "Current combined correction host checks; full Android and complete reachable-history qualification remain hosted requirements."
   }
 }

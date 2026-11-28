@@ -652,7 +652,7 @@ class AgentRunner(
                 calls, toolByName, executableToolByName, exposedDefinitions, roundDefinitions, restoringBatch, exchanges, dynamicTools, selectDefinitions,
                 initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
                 remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
-                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
+                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation, investigation,
                 admittedReplayLimit, consumedCallIds, deliveredResultDigests
             ) { fresh -> completeFromReceipts(session, exchanges + fresh, state) } ?: return false
             exchanges.lastOrNull()?.let { recordCompletedGitHubOperations(it, completedOperations) }
@@ -1567,6 +1567,7 @@ class AgentRunner(
         retainedUnknownOutcome: Boolean,
         savedResultRecovery: GitHubReplayRecovery.State?,
         ciInvestigation: GitHubCiInvestigationRecovery,
+        investigation: GitHubInvestigationProgress,
         replayLimit: Int,
         consumedCallIds: Set<String>,
         deliveredResultDigests: Map<String, String>,
@@ -1784,7 +1785,7 @@ class AgentRunner(
             roundLimitReached, toolCallCount, executionToolCallLimit,
             unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId },
             executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) },
-            replayLimit, consumedCallIds, deliveredResultDigests, savedResultRecovery
+            replayLimit, consumedCallIds, deliveredResultDigests, savedResultRecovery, investigation
         )
         finalResponseRequested = completedBatch.finalResponseRequested
         if (finalResponseRequested) {
@@ -2078,7 +2079,8 @@ class AgentRunner(
         replayLimit: Int,
         consumedCallIds: Set<String>,
         deliveredResultDigests: Map<String, String>,
-        savedResultRecovery: GitHubReplayRecovery.State?
+        savedResultRecovery: GitHubReplayRecovery.State?,
+        investigation: GitHubInvestigationProgress
     ): BatchCompletion {
         var finalResponseRequested = wasFinalResponseRequested
         val resultByCallId = producedResults.associateBy { it.callId }

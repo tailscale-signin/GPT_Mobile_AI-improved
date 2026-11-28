@@ -102,16 +102,7 @@ internal class PocketCompiledRuntime private constructor(
             val opened = ArrayList<Graph>()
             try {
                 checkActive()
-                // Explicitly disable LiteRT's automatic whole-model CPU fallback. This still does
-                // not measure kernel placement, and receipts remain "requested" until profiled.
-                val accelerated = CompiledModel.Options(requested).disableAutoFallbackToCpu().apply {
-                    if (requested == Accelerator.NPU) {
-                        qualcommOptions = CompiledModel.QualcommOptions(
-                            enableJustInTime = true,
-                            htpPerformanceMode = CompiledModel.QualcommOptions.HtpPerformanceMode.SUSTAINED_HIGH_PERFORMANCE
-                        )
-                    }
-                }
+                val accelerated = pocketCompiledAccelerationOptions(requested)
                 val cpu = CompiledModel.Options(Accelerator.CPU).apply { cpuOptions = CompiledModel.CpuOptions(numThreads = threads) }
                 fun graph(name: String, options: CompiledModel.Options): Graph {
                     checkActive()

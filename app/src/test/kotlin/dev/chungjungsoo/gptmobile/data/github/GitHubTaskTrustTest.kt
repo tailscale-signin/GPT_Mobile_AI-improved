@@ -258,13 +258,27 @@ class GitHubTaskTrustTest {
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("No provider or tool execution is authorized by report delivery or an expired task")
         }
+        assertNull(book.retainedAnswer(includeEarlierFindings = true))
         for (current in listOf("show the full report", "proceed")) {
             if (current == "proceed") now = 2_000L
-            val session = GitHubVerifiedSession(provider, book, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, currentRequest = current)
+            val published = mutableListOf<JsonObject>()
+            val session = GitHubVerifiedSession(provider, book, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, onPublication = { published += it }, currentRequest = current)
             val events = session.streamRound(listOf(read), emptyList()).toList()
             assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
             assertTrue(events.any { it is ProviderEvent.TextDelta && it.text.isNotBlank() })
-            assertEquals(if (current == "proceed") "BLOCKED" else "PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+            val failure = events.last() as ProviderEvent.Failed
+            assertEquals("BLOCKED", failure.taskOutcome)
+            assertTrue(book.snapshot().first.isEmpty())
+            val verdict = published.single()
+            assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+            assertEquals(JsonPrimitive("BLOCKED"), verdict["task_outcome"])
+            if (current == "show the full report") {
+                assertEquals("GITHUB_EVIDENCE_REQUIRED", failure.errorCode)
+                val observation = verdict[GitHubAcceptancePublicationEvidence.KEY] as JsonObject
+                assertEquals(JsonPrimitive("RETAINED_REPORT_UNAVAILABLE"), observation["acceptance_publication_entry"])
+            } else {
+                assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+            }
         }
     }
 

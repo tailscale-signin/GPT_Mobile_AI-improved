@@ -150,5 +150,176 @@
     "The local checkout is shallow. The diagnostic history slice and isolated snapshot cannot qualify the complete reachable Git history.",
     "The unchanged full-history CI integrity and credential scan remains required on the published head.",
     "No Android compile, native inference, device test or merge qualification is established by this scanner repair."
+  ],
+  "subsequentCorrections": [
+    {
+      "id": "nested_history_fixture_inputs_and_bounded_workers",
+      "diagnosedAtRevision": "df074e10b52cc6413db894499706e16609ff5a21",
+      "reconciledRevision": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+      "status": "verified_ready_for_review",
+      "cause": "The complete history-integrity fixture copied a fixed input set that omitted the four declaration files read by the new controls. The expanded serial control set also exceeded the unchanged local 60-second wrapper deadline.",
+      "reproduction": {
+        "missingInputs": {
+          "result": "FAIL",
+          "cases": [
+            {
+              "case": "intact_history",
+              "exitCode": 1,
+              "gitFatalObserved": false,
+              "pinControls": 0,
+              "pinControlsPassed": false,
+              "scannerCompleted": false,
+              "passed": false
+            },
+            {
+              "case": "missing_historical_blob",
+              "exitCode": 128,
+              "gitFatalObserved": true,
+              "pinControls": 0,
+              "pinControlsPassed": false,
+              "scannerCompleted": false,
+              "passed": true,
+              "filenamePreflightExitCode": 0
+            },
+            {
+              "case": "restored_historical_blob",
+              "exitCode": 1,
+              "gitFatalObserved": false,
+              "pinControls": 0,
+              "pinControlsPassed": false,
+              "scannerCompleted": false,
+              "passed": false
+            }
+          ]
+        },
+        "serialControlsAfterInputFix": {
+          "exitCode": 1,
+          "passed": false,
+          "cases": [],
+          "error": "history_integrity_fixture_failed",
+          "seconds": 60.433
+        }
+      },
+      "changes": [
+        "Append the four unique declaration paths derived from POCKET_PUBLIC_DECLARATIONS, preserving every original fixture input and its order.",
+        "Execute independent case directories/reports with four workers; preserve declaration/result order, all 160 cases, unchanged subprocess deadlines and fail-closed error handling."
+      ],
+      "inputExpansion": {
+        "originalCount": 16,
+        "appendedUniquePaths": 4,
+        "finalCount": 20,
+        "originalOrderPreserved": true
+      },
+      "unchangedGates": {
+        "wrapperDeadlineSeconds": 60,
+        "gitFixtureCommandDeadlineSeconds": 10,
+        "individualScannerDeadlineSeconds": 30,
+        "scannerVersion": "8.30.1",
+        "scannerRulesUnchanged": true,
+        "missingObjectExitCode": 128
+      },
+      "validation": {
+        "completeIntegrity": {
+          "command": "python3 scripts/test_secret_history_integrity.py --scanner ../gitleaks-ci-diagnosis/gitleaks --report ../gitleaks-ci-diagnosis/integrity-final.json",
+          "result": "PASS",
+          "seconds": 46.271,
+          "cases": [
+            {
+              "case": "intact_history",
+              "exitCode": 0,
+              "gitFatalObserved": false,
+              "pinControls": 160,
+              "pinControlsPassed": true,
+              "scannerCompleted": true,
+              "passed": true
+            },
+            {
+              "case": "missing_historical_blob",
+              "exitCode": 128,
+              "gitFatalObserved": true,
+              "pinControls": 0,
+              "pinControlsPassed": false,
+              "scannerCompleted": false,
+              "passed": true,
+              "filenamePreflightExitCode": 0
+            },
+            {
+              "case": "restored_historical_blob",
+              "exitCode": 0,
+              "gitFatalObserved": false,
+              "pinControls": 160,
+              "pinControlsPassed": true,
+              "scannerCompleted": true,
+              "passed": true
+            }
+          ]
+        },
+        "directControls": {
+          "command": "python3 scripts/test_gitleaks_model_pin.py --scanner ../gitleaks-ci-diagnosis/gitleaks --report ../gitleaks-ci-diagnosis/controls-final.json",
+          "result": "PASS",
+          "seconds": 19.065,
+          "count": 160,
+          "allCaseNamesAndOrderPreserved": true
+        },
+        "historySlice": {
+          "result": "PASS",
+          "base": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+          "head": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+          "exitCode": 0,
+          "findingCount": 0
+        },
+        "sourceBinding": {
+          "capturedInputCount": 20,
+          "allCapturedInputsMatchCurrentBytes": true,
+          "outerHarnessMatchesPreRunSnapshot": true
+        },
+        "ownedFilesSnapshot": {
+          "command": "python3 ../gitleaks-ci-diagnosis/scan-integrity-owned-snapshot.py .",
+          "runnerSha256": "5622daac1cfbb11977da7c30120505cd18f0cfe38843358ce94bce9352361c05",
+          "result": "PASS",
+          "scope": "Isolated Git fixture containing the three corrected files and unchanged scanner configuration at their repository-relative paths.",
+          "files": 4,
+          "exitCode": 0,
+          "findingCount": 0,
+          "workingBytesUnchanged": true
+        }
+      },
+      "sourceBindings": [
+        {
+          "path": ".gitleaks.toml",
+          "sha256": "c1fea1550e8879072374376af52734c302ea28202b654b8ed64c092ec2711f95"
+        },
+        {
+          "path": "scripts/test_gitleaks_model_pin.py",
+          "sha256": "824d932d60dde9b64a096ee9837bab5f7b7626a212d42f61cd77b039abca6ee0"
+        },
+        {
+          "path": "scripts/test_secret_history_integrity.py",
+          "sha256": "bc6718f39643fc9505f80e3dd95d2e4b0b678b6e6a8f6343405fd4a7d2ad65b2"
+        }
+      ],
+      "reports": [
+        {
+          "name": "integrity-final.json",
+          "sha256": "74c74d69cd2154153863dbc5677c99fb01093aa28558d541b13efc753549f59c"
+        },
+        {
+          "name": "controls-final.json",
+          "sha256": "aa1c929ea4b331062c216d59a0f9342b59a339f19e3f0d0ec72eff562c0267f0"
+        },
+        {
+          "name": "integrity-correction-validation.json",
+          "sha256": "d83ef5708101e1f2ec3f458dbbb5142b568bdc4a5b7e1040356efe7fc8521cc4"
+        },
+        {
+          "name": "history-slice-d652.json",
+          "sha256": "4da580b9272ba684e71ffbc406c768bb20b073f938c140994511ca984356afbb"
+        }
+      ],
+      "limits": [
+        "The complete three-case integrity harness uses synthetic Git history; it does not replace the final published-head full reachable-history CI scan.",
+        "The local main-base-to-head scan remains a bounded history slice because the checkout is shallow."
+      ]
+    }
   ]
 }

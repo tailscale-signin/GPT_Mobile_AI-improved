@@ -3872,7 +3872,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionAligner.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTiming.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngine.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptions.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoderTest.kt",
@@ -3886,7 +3887,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStoreTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionSynchronizationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTimingTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngineTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptionsTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -3897,7 +3899,8 @@
         "docs/licenses/pocket-compiled.md",
         "docs/audits/pocket-compiled-runtime.json",
         "docs/repairs/pocket-default-and-voice-benchmark-2026-11-28-task.json",
-        "docs/audits/pocket-caption-alignment.json"
+        "docs/audits/pocket-caption-alignment.json",
+        "docs/repairs/pocket-accelerator-options-2026-11-28-validation.json"
       ],
       "invariants": [
         "English Pocket CPU is the fresh default; valid saved engines and explicit installation cancellation remain authoritative.",

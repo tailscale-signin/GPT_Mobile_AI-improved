@@ -131,6 +131,59 @@ class ToolAdmissionFailureReceiptTest {
         }
     }
 
+    @Test fun mergedPublicProjectionPreservesAuthoritativeUnknownDespiteOriginalNegativeAcceptance() {
+        val uncertainty = listOf(
+            buildJsonObject { put("requires_reconciliation", true) },
+            buildJsonObject { put("command_outcome_unknown", true) },
+            buildJsonObject { put("dispatch_state", "UNKNOWN") },
+            buildJsonObject { put("dispatch_state", "UNKNOWN_OUTCOME") }
+        )
+        for (code in requiredCodes) {
+            for (stage in listOf("tool_readiness", "tool_admission")) {
+                for (observed in uncertainty) {
+                    val original = failure(code, stage)
+                    val conflicting = buildJsonObject {
+                        put("remote_acceptance", "NO")
+                        put("request_replay_allowed", true)
+                        put("logical_continuation_allowed", true)
+                    }
+                    val owned = original.copy(
+                        invocationId = "owning-invocation",
+                        failureDetails = JsonObject(original.failureDetails.orEmpty() + conflicting + observed)
+                    )
+                    val receipt = ProviderFailureReceipt.from(profile, "primary", owned)
+                    assertEquals(FailureDomain.PROVIDER, receipt.failureDomain)
+                    assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN, receipt.remoteAcceptance)
+                    val fields = ProviderFailureReport.fields("private-run", owned, receipt)
+                    // The stream wrapper appends the public projection to the original details.
+                    val merged = JsonObject(owned.failureDetails.orEmpty() + fields)
+                    val label = "$code/$stage: $observed"
+                    assertEquals(label, JsonPrimitive("UNKNOWN"), merged["remote_acceptance"])
+                    assertEquals(label, JsonPrimitive(false), merged["request_replay_allowed"])
+                    assertEquals(label, JsonPrimitive(false), merged["logical_continuation_allowed"])
+                    assertEquals(label, JsonPrimitive(code), fields["provider_failure_code"])
+                    assertFalse(fields.toString().contains("private-tool"))
+                    assertFalse(fields.toString().contains("private-host"))
+                }
+            }
+        }
+    }
+
+    @Test fun unrelatedUnknownAcceptanceKeepsItsExistingProjectionOmission() {
+        for ((code, stage) in listOf("TRANSPORT_ERROR" to "tool_admission", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE" to "response_stream")) {
+            val original = failure(code, stage)
+            val unknown = buildJsonObject {
+                put("remote_acceptance", "UNKNOWN")
+                put("request_replay_allowed", false)
+                put("logical_continuation_allowed", false)
+            }
+            val owned = original.copy(invocationId = "owning-invocation", failureDetails = JsonObject(original.failureDetails.orEmpty() + unknown))
+            val receipt = ProviderFailureReceipt.from(profile, "primary", owned)
+            assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN, receipt.remoteAcceptance)
+            assertFalse(ProviderFailureReport.fields("private-run", owned, receipt).containsKey("remote_acceptance"))
+        }
+    }
+
     @Test fun arbitraryToolCodesCannotEnterTheClosedDiagnosticVocabulary() {
         val receipt = ProviderFailureReceipt.from(profile, "github-delivery", failure(code = "REQUIRED_TOOL_PRIVATE_HOST_SECRET"))
         assertEquals("UNCLASSIFIED_PROVIDER_FAILURE", receipt.errorCode)

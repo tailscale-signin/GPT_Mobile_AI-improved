@@ -21,6 +21,7 @@ from test_gitleaks_model_pin import (
     MOCKK_EVIDENCE_PATH,
     MODEL_PACK_PATH,
     NATIVE_PATH,
+    POCKET_PUBLIC_DECLARATIONS,
     ROUTING_FIXTURE_PATH,
     VERSION,
     WAVEFORM_EVIDENCE_PATH,
@@ -46,6 +47,7 @@ INPUTS = (
     HISTORY_OUTER_EVIDENCE_PATH,
     MODEL_PACK_PATH,
     "gradle/verification-metadata.xml",
+    *dict.fromkeys(path for _, path, _, _ in POCKET_PUBLIC_DECLARATIONS),
 )
 
 

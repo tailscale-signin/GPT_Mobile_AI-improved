@@ -181,8 +181,8 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId, privacyModeLocked) {
         programmer.configureSession(initialProfileUid, initialChatId, newConversation, privacyModeLocked)
     }
-    LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.chatId, state.uiReady, state.setupRequired) {
-        if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
+    LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.conversationResolved, programmerState.chatId, state.uiReady, state.setupRequired) {
+        if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.conversationResolved && programmerState.chatId == null) programmer.ensureConversation()
     }
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
     val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()

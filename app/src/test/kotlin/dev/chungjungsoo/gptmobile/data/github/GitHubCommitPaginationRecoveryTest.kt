@@ -65,6 +65,36 @@ class GitHubCommitPaginationRecoveryTest {
         "terminal68" to receipt(request, data, false)
     )
 
+    private fun gapChain(pages: List<Int> = listOf(1, 5, 2, 3, 4)): Map<String, JsonObject> {
+        val boundary = GitHubPaginationBoundary()
+        return pages.associate { number ->
+            val args = JsonObject(request + mapOf("ref" to JsonPrimitive(head), "commit_sha" to JsonPrimitive(head), "page" to JsonPrimitive(number), "per_page" to JsonPrimitive(1)))
+            val native = JsonObject(args + ("action" to JsonPrimitive("list_commits")))
+            val result = buildJsonObject {
+                put("commit_sha", head)
+                put("has_more", number < 5)
+                put("items", JsonArray(listOf(buildJsonObject { put("sha", number.toString(16).padStart(40, '0')) })))
+            }
+            val assessment = boundary.assessPage("github_context", native, result)
+            val gap = (assessment.data["pagination_progress"] as? JsonObject)?.get("first_unobserved_page")
+            // The native facade retains the observed immutable selectors and
+            // issues only the missing page chosen by the pagination boundary.
+            val body = if (gap == null) {
+                assessment.data
+            } else {
+                JsonObject(
+                    assessment.data + (
+                        "correction_call" to buildJsonObject {
+                            put("tool", name)
+                            put("arguments", JsonObject(args + ("page" to gap)))
+                        }
+                        )
+                )
+            }
+            "page$number" to receipt(args, body, assessment.errorCode == null)
+        }
+    }
+
     @Test fun terminalPage68WithOnlyThreeObservedPagesStillFailsCoverage() {
         val boundary = GitHubPaginationBoundary()
         fun native(page: Int) = JsonObject(request + mapOf("action" to JsonPrimitive("list_commits"), "page" to JsonPrimitive(page), "ref" to JsonPrimitive(head)))
@@ -140,5 +170,49 @@ class GitHubCommitPaginationRecoveryTest {
         val exact = JsonObject(correction + ("arguments" to JsonObject(arguments + mapOf("ref" to uppercase, "commit_sha" to uppercase))))
         val body = JsonObject(data + mapOf("commit_sha" to uppercase, "correction_call" to exact))
         assertEquals(listOf(exact), GitHubTestChecklist.pendingPages(mapOf("failure" to receipt(request, body, false))))
+    }
+
+    @Test fun completingSeveralTerminalPageGapsRetiresTheWholeCorrectionChain() {
+        val records = gapChain()
+        assertEquals(3, records.values.count { it["error_code"] == JsonPrimitive("GITHUB_PAGINATION_INCOMPLETE") })
+        assertEquals(JsonPrimitive(true), records.getValue("page4").getValue("result").jsonObject["complete"])
+        assertTrue(GitHubTestChecklist.pendingPages(records).toString(), GitHubTestChecklist.pendingPages(records).isEmpty())
+        val restored = records.toMap()
+        val resume = GitHubTestChecklist.paginationResume("Test all GitHub tools and complete remaining pagination", restored, listOf(GitHubOperationTool.definition("github_context", name)), 100)
+        assertEquals(JsonPrimitive(true), resume["complete"])
+        assertEquals(JsonPrimitive(0), resume["pending_count"])
+        assertEquals(JsonPrimitive(0), resume["failed_page_count"])
+        assertFalse("next_call" in resume)
+    }
+
+    @Test fun interruptedGapChainResumesOnlyItsUnreadTailWithinTheExistingScopeAndBudget() {
+        val records = gapChain(listOf(1, 5, 2, 3))
+        val tools = listOf(GitHubOperationTool.definition("github_context", name))
+        val exact = records.getValue("page3").getValue("result").jsonObject.getValue("correction_call")
+        val task = "Test all GitHub tools and complete remaining pagination"
+        val resumed = GitHubTestChecklist.paginationResume(task, records.toMap(), tools, 100)
+        assertEquals(exact, resumed["next_call"])
+        assertEquals(JsonPrimitive(false), resumed["complete"])
+        assertFalse("next_call" in GitHubTestChecklist.paginationResume("Test all GitHub tools", records, tools, 100))
+        assertFalse("next_call" in GitHubTestChecklist.paginationResume(task, records, tools, 0))
+        assertFalse("next_call" in GitHubTestChecklist.paginationResume(task, records, emptyList(), 100))
+    }
+
+    @Test fun correctionChainsCannotBorrowSuccessFromAnotherTaskRepositoryConnectionOrRevision() {
+        val records = gapChain()
+        val success = records.getValue("page4")
+        val wrongRevision = JsonObject(success.getValue("arguments").jsonObject + mapOf("ref" to JsonPrimitive("b".repeat(40)), "commit_sha" to JsonPrimitive("b".repeat(40))))
+        val failures = listOf(
+            JsonObject(success + ("binding" to JsonPrimitive("another-task"))),
+            JsonObject(success + ("repository" to JsonPrimitive("another/project"))),
+            JsonObject(success + ("tool" to JsonPrimitive("github_context__another-connection"))),
+            JsonObject(success + ("arguments" to wrongRevision)),
+            JsonObject(success + ("trusted" to JsonPrimitive(false))),
+            JsonObject(success + ("verification_eligible" to JsonPrimitive(false))),
+            JsonObject(success + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("PERMISSION_DENIED")))
+        )
+        for (unrelated in failures) {
+            assertFalse(unrelated.toString(), GitHubTestChecklist.pendingPages(records + ("page4" to unrelated)).isEmpty())
+        }
     }
 }

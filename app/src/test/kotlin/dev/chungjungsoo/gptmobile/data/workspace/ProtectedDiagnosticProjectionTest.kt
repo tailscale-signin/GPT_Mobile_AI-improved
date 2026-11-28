@@ -79,10 +79,26 @@ class ProtectedDiagnosticProjectionTest {
                 capture(fixture(), issued = issued, beforeRead = { if (issued.isNotEmpty()) throw expected })
             }
         }
-        // Coroutine stack-trace recovery may copy the typed exception, retaining
-        // the original as its cause. The deferral must still escape unchanged in
-        // meaning, without becoming a missing-source result.
-        assertTrue(generateSequence(observed as Throwable?) { it.cause }.any { it === expected })
+        // Coroutine stacktrace recovery may copy the exception when JVM assertions
+        // are enabled. The typed deferral and its original cause must survive.
+        assertEquals(expected.message, observed.message)
+        assertTrue(generateSequence<Throwable>(observed) { it.cause }.take(8).any { it === expected })
+        assertEquals(1, issued.size)
+        assertTrue(issued.all { bytes -> bytes.all { it == 0.toByte() } })
+    }
+
+    @Test(timeout = 10000)
+    fun capacityDeferralFromTheVaultReadRemainsResumableInsteadOfBecomingStorageFailure() {
+        val issued = mutableListOf<ByteArray>()
+        val expected = JavaHeapWorkDeferred("Vault read capacity is temporarily unavailable.")
+        val observed = assertThrows(JavaHeapWorkDeferred::class.java) {
+            runBlocking {
+                capture(fixture(), issued = issued, beforeChunkRead = { if (issued.isNotEmpty()) throw expected })
+            }
+        }
+        assertEquals(expected.message, observed.message)
+        assertTrue(generateSequence<Throwable>(observed) { it.cause }.take(8).any { it === expected })
+        assertEquals(1, issued.size)
         assertTrue(issued.all { bytes -> bytes.all { it == 0.toByte() } })
     }
 
@@ -95,16 +111,40 @@ class ProtectedDiagnosticProjectionTest {
     }
 
     @Test(timeout = 10000)
-    fun oversizedSkippedScalarRetainsTheLimitReasonForCompactReceiptFallback() = runBlocking {
+    fun oversizedSkippedTokenRetainsByteLimitReasonWithoutPublishingAnUnverifiedSummary() = runBlocking {
         val source = buildJsonObject {
             put("failure_code", "conversation_conflict")
             put("large_checklist", "x".repeat(364_489))
         }.toString()
         val issued = mutableListOf<ByteArray>()
-        val result = capture(source, issued = issued)
+        val omissions = mutableListOf<String>()
+        var authorizations = 0
+        val result = capture(source, issued = issued, omitted = omissions::add, authorized = {
+            authorizations++
+            true
+        })
         assertEquals("PROTECTED_PAYLOAD_BYTE_LIMIT", result.omissionReason)
         assertNull(result.payload)
+        assertEquals(0, result.decodedBytes)
+        assertEquals(1, authorizations)
+        assertTrue(omissions.isEmpty())
+        assertTrue(issued.isNotEmpty())
+        assertTrue(issued.size < (source.length + 59_999) / 60_000)
         assertTrue(issued.all { bytes -> bytes.all { it == 0.toByte() } })
+    }
+
+    @Test(timeout = 10000)
+    fun skippedHistoryShapeLimitsRetainTheirResourceClassification() = runBlocking {
+        val histories = listOf(
+            "[".repeat(25) + "0" + "]".repeat(25) to "NESTED_DIAGNOSTIC_DEPTH_LIMIT",
+            List(65_536) { "0" }.joinToString(",", "[", "]") to "DIAGNOSTIC_NODE_LIMIT"
+        )
+        for ((history, reason) in histories) {
+            val source = fixture().dropLast(1) + ",\"bounded_history\":" + history + "}"
+            val result = capture(source)
+            assertEquals(reason, result.omissionReason)
+            assertNull(result.payload)
+        }
     }
 
     private fun fixture() = buildJsonObject {
@@ -129,7 +169,8 @@ class ProtectedDiagnosticProjectionTest {
         issued: MutableList<ByteArray> = mutableListOf(),
         omitted: (String) -> Unit = {},
         authorized: suspend () -> Boolean = { true },
-        beforeRead: suspend () -> Unit = {}
+        beforeRead: suspend () -> Unit = {},
+        beforeChunkRead: suspend () -> Unit = {}
     ): WorkspaceDiagnosticPayload {
         val bytes = source.encodeToByteArray()
         val chunks = bytes.indices.step(60_000).mapIndexed { index, offset ->
@@ -146,7 +187,10 @@ class ProtectedDiagnosticProjectionTest {
                 beforeRead,
                 authorized,
                 { chunks.getValue(it).size + 38L },
-                { chunks.getValue(it).copyOf().also(issued::add) },
+                {
+                    beforeChunkRead()
+                    chunks.getValue(it).copyOf().also(issued::add)
+                },
                 omitted,
                 compactOnOversize = true
             )

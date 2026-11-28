@@ -65,10 +65,10 @@ internal suspend fun readProtectedDiagnosticProjection(
                     val count = super.read(buffer, offset, length)
                     for (index in offset until offset + count.coerceAtLeast(0)) {
                         val character = buffer[index]
-                        shape.accept(character)?.let { throw IOException(it) }
+                        shape.accept(character)?.let { throw ProtectedProjectionLimit(it) }
                         if (quoted) {
                             // Bound even one scalar token before Gson can materialize it.
-                            if (++stringCharacters > 64 * 1024) throw ProtectedProjectionLimit()
+                            if (++stringCharacters > 64 * 1024) throw ProtectedProjectionLimit("PROTECTED_PAYLOAD_BYTE_LIMIT")
                             if (escaped) {
                                 escaped = false
                             } else if (character == '\\') {
@@ -84,17 +84,18 @@ internal suspend fun readProtectedDiagnosticProjection(
                     return count
                 }
             }
-            val value = JsonReader(reader).use { json ->
-                json.strictness = Strictness.STRICT
-                ProtectedProjectionReader(maximumBytes).read(json)
-            }
-            ProtectedProjectionRead(value = value)
+            ProtectedProjectionResult(
+                value = JsonReader(reader).use { json ->
+                    json.strictness = Strictness.STRICT
+                    ProtectedProjectionReader(maximumBytes).read(json)
+                }
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: ProtectedProjectionLimit) {
-            ProtectedProjectionRead(omissionReason = "PROTECTED_PAYLOAD_BYTE_LIMIT")
+        } catch (limit: ProtectedProjectionLimit) {
+            ProtectedProjectionResult(omissionReason = limit.reason)
         } catch (_: Exception) {
-            ProtectedProjectionRead(omissionReason = "PROTECTED_PAYLOAD_INVALID_JSON")
+            ProtectedProjectionResult(omissionReason = "PROTECTED_PAYLOAD_INVALID_JSON")
         } finally {
             input.close()
         }
@@ -102,6 +103,7 @@ internal suspend fun readProtectedDiagnosticProjection(
     val digest = MessageDigest.getInstance("SHA-256")
     var used = 0
     var sourceFailure: String? = null
+    var parserClosed = false
     try {
         withContext(Dispatchers.IO) {
             output.use { stream ->
@@ -131,8 +133,9 @@ internal suspend fun readProtectedDiagnosticProjection(
                         try {
                             stream.write(chunk)
                         } catch (_: IOException) {
-                            // A strict parser can close the pipe before its producer ends.
-                            sourceFailure = "PROTECTED_PAYLOAD_INVALID_JSON"
+                            // Either a syntax error or a capacity limit can close the
+                            // reader early. Preserve its specific reason after joining.
+                            parserClosed = true
                             break
                         }
                     } finally {
@@ -146,19 +149,14 @@ internal suspend fun readProtectedDiagnosticProjection(
     } finally {
         output.close()
     }
-    val projection = parsed.await()
-    if (sourceFailure != null && sourceFailure != "PROTECTED_PAYLOAD_INVALID_JSON") {
-        return@coroutineScope WorkspaceDiagnosticPayload(true, omissionReason = sourceFailure)
-    }
-    // A bounded reader can close the pipe without the source being malformed.
-    // Preserve its typed limit so compact matching receipts can still explain
-    // the omitted checkpoint; never publish a partial unauthenticated payload.
-    projection.omissionReason?.let { return@coroutineScope WorkspaceDiagnosticPayload(true, omissionReason = it) }
+    val result = parsed.await()
     if (sourceFailure != null) return@coroutineScope WorkspaceDiagnosticPayload(true, omissionReason = sourceFailure)
+    if (parserClosed) return@coroutineScope WorkspaceDiagnosticPayload(true, omissionReason = result.omissionReason ?: "PROTECTED_PAYLOAD_INVALID_JSON")
     if (DiagnosticRecordChunks.hex(digest.digest()) != expectedDigest) {
         return@coroutineScope WorkspaceDiagnosticPayload(true, omissionReason = "PROTECTED_DIGEST_MISMATCH")
     }
-    val value = requireNotNull(projection.value)
+    if (result.omissionReason != null) return@coroutineScope WorkspaceDiagnosticPayload(true, omissionReason = result.omissionReason)
+    val value = requireNotNull(result.value)
     beforeRead()
     if (!authorized()) return@coroutineScope WorkspaceDiagnosticPayload(true, omissionReason = "PROTECTED_SOURCE_CHANGED")
     val summary = JsonObject(
@@ -181,9 +179,9 @@ internal suspend fun readProtectedDiagnosticProjection(
     return@coroutineScope WorkspaceDiagnosticPayload(true, payload = safe, decodedBytes = used)
 }
 
-private class ProtectedProjectionLimit : IOException()
+private data class ProtectedProjectionResult(val value: JsonObject? = null, val omissionReason: String? = null)
 
-private data class ProtectedProjectionRead(val value: JsonObject? = null, val omissionReason: String? = null)
+private class ProtectedProjectionLimit(val reason: String) : IOException(reason)
 
 private class ClearingDiagnosticPipe : PipedInputStream(8192) {
     override fun close() {

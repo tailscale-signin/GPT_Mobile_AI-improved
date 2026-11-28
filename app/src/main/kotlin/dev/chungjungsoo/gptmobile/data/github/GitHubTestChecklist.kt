@@ -153,18 +153,23 @@ internal object GitHubTestChecklist {
     /** Follow only exact issued read recipes. Local fragments and remote pages are independent. */
     fun pendingPages(receipts: Map<String, JsonObject>): List<JsonObject> {
         val observations = trusted(receipts)
-        val completed = observations.filter { it["success"] == JsonPrimitive(true) }
         val retired = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
-        val recovered = observations.mapIndexedNotNull { index, receipt ->
-            val recovery = savedReadRecovery(receipt) ?: return@mapIndexedNotNull null
-            if (observations.drop(index + 1).none { it["success"] == JsonPrimitive(true) && sameCall(it, recovery, receipt) }) return@mapIndexedNotNull null
-            receipt.text("tool") to receipt["arguments"]
-        }.toSet()
+        // Intermediate gap reads remain incomplete until the last missing page
+        // arrives. Resolve their exact correction chain backwards from a later
+        // success, preserving task/repository identity at every link. A failed
+        // or unrelated final read cannot settle the preceding recipes.
+        val resolved = mutableListOf<JsonObject>()
+        for (receipt in observations.asReversed()) {
+            val recovery = savedReadRecovery(receipt)
+            if (receipt["success"] == JsonPrimitive(true) || recovery != null && resolved.any { sameCall(it, recovery, receipt) }) {
+                resolved += receipt
+            }
+        }
         data class Page(val issuer: JsonObject, val recipe: JsonObject)
         val pages = observations.flatMap { issuer ->
             issuedPages(issuer).filter { recipe ->
                 val local = (recipe["arguments"] as? JsonObject)?.containsKey("view_cursor") == true
-                (local || !retired(issuer)) && completed.none { sameCall(it, recipe, issuer) } && recipe.text("tool") to recipe["arguments"] !in recovered
+                (local || !retired(issuer)) && resolved.none { sameCall(it, recipe, issuer) }
             }.map { Page(issuer, it) }
         }.distinctBy { listOf(it.issuer["binding"], it.issuer["repository"], it.issuer["source_head_sha"], it.recipe) }
         return pages.filter { weak ->

@@ -6,6 +6,9 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Reopen saved GitHub conversations from the home screen after their original room finishes loading, preserving the completed transcript and run history. Missing or incompatible saved rooms show recovery guidance; an explicit new-chat request still creates a separate conversation.
+- Preserve the actual stopping reason in a GitHub integration report when execution reaches its limit or stops making progress, retaining completed evidence and unfinished checks.
+- Preserve diagnostic size and shape limit reasons, resumable protected-read deferrals, completed pagination correction chains, and blocked report outcomes. Run the focused Android regressions before the full qualification suite with separate result artifacts.
 - Bound isolated benchmark resource queues, validate profile configuration before admission, and retain preparation phases, queue deadlines and privacy-safe blocker identities.
 - Separate run-level preparation and explicit stop causes from fixture attempts; preserve unstarted fixture identities and link dependent dispositions to one causal incident.
 - Keep manifest-based warmup denominators stable, separate cancellation and not-started coverage, exclude setup from task effort, and distinguish progress, score eligibility and observed quality.

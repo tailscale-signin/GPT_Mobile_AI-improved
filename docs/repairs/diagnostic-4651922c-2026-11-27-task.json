@@ -207,5 +207,749 @@
       "durable one-shot correction",
       "two-page ordinary smoke-sample cap"
     ]
+  },
+  "initialValidationSourceCommit": "e5d6ffdae20ea5a34b27b58f13f921a8e08d05f6",
+  "initialEvidenceHashesResolveAtCommit": "e5d6ffdae20ea5a34b27b58f13f921a8e08d05f6",
+  "ciFollowUp": {
+    "request": "Fix all remaining issues here; additionally prevent completed GitHub conversation reopening from creating a blank copy.",
+    "intakeHead": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+    "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+    "openIssuesAtIntake": 0,
+    "baselineAndroidRuns": [
+      {
+        "workflow": "GenieX preview validation",
+        "run": 46100072167,
+        "job": 140840347580,
+        "artifactSha256": "1cbbede46f981b198cd4623762e8e6cb9096f068fbbb37b33e05c8f4a30b9676"
+      },
+      {
+        "workflow": "Diagnostic audit validation",
+        "run": 46100072073,
+        "job": 140840352708,
+        "artifactId": 15246358145,
+        "artifactSha256": "74bb63095e3ed1cc776d6581ede0e30787c3cfc674788ef524c5649fd7c82bd5"
+      }
+    ],
+    "baselineTests": {
+      "suites": 2021,
+      "run": 15498,
+      "passed": 15489,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 6,
+      "sameCaseInventoryAndOutcomesBothVariants": true
+    },
+    "baselineFailures": [
+      "DiagnosticDatabaseSourceTest.oversizedVerificationUsesMatchingCompactEventAndOutputWithoutDroppingTheFailure",
+      "ProtectedDiagnosticProjectionTest.capacityDeferralInsideStreamingReadRemainsResumableInsteadOfBecomingMissingSource",
+      "GitHubVerifiedSessionTest.testingReportsKeepSavedReceiptsWhileBlockingMissingExecutableTools"
+    ],
+    "additionalReproducedDefects": [
+      "Completed multi-gap pagination can retain an already-read correction as pending.",
+      "A blocked integration checkpoint with no current failure can emit a PARTIAL terminal event.",
+      "Saved GitHub chat restoration can advertise readiness before room lookup and fall through to blank-room creation.",
+      "Deliberately withheld finalization schemas could be misclassified as missing authorization and replace the original runner stop."
+    ],
+    "focusedHostValidation": {
+      "freshCasesPassed": 89,
+      "projectionWithAssertionsEnabled": 24,
+      "paginationAndCompatibility": 13,
+      "reportingAndPublication": 17,
+      "unchangedSourceQualifiedCases": 49,
+      "unchangedSuites": {
+        "claims": 39,
+        "recovery": 10
+      },
+      "sourceManifests": {
+        "claims": {
+          "files": 32,
+          "mismatches": []
+        },
+        "tools": {
+          "files": 46,
+          "mismatches": []
+        },
+        "recovery": {
+          "files": 14,
+          "mismatches": []
+        },
+        "pagination": {
+          "files": 18,
+          "mismatches": []
+        },
+        "publication": {
+          "files": 24,
+          "mismatches": []
+        },
+        "chat": {
+          "files": 6,
+          "mismatches": []
+        },
+        "finalization": {
+          "files": 7,
+          "mismatches": []
+        }
+      },
+      "scope": "Actual production classes and exact source flow slices with explicit unexercised platform boundaries; full Android execution of the repaired head requires hosted evidence.",
+      "savedConversationReopen": 9,
+      "refreshedToolAdmission": 21,
+      "integrationFinalization": 5
+    },
+    "canonicalAndroidLocalPreflight": {
+      "status": "NOT_ADMITTED",
+      "requiredHeadroomMiB": 8960,
+      "compilationStarted": false,
+      "guardBypassed": false,
+      "reportedMemAvailableBytes": 5497516032,
+      "guardResult": "UNKNOWN"
+    },
+    "hostLogSha256": {
+      "ci-projection-junit.log": "df9d1da7a63424874c124e44f3773d1f70f66ab77dd9047095e838ea02371dd4",
+      "ci-pagination-junit.log": "288f26ec53d5a829bb74e30c76e249da1e226f65f5f572003b2867410c21d52f",
+      "ci-publication-junit.log": "356a1a9506913c92eb250c1f2fc70e89d7f8b712235634485ab7be5648397fb9",
+      "ci-chat-reopen-junit.log": "7f8356e7935030d574b6e4c693c798e07c4905ea34549007a66d791222847a77",
+      "ci-admission-junit.log": "e12258986dfc429e6bded10a61f507361428aa51d8cd8b7b87948a7ecd1d9762",
+      "ci-finalization-junit.log": "889ed199512ef94df6432eebbc4bd431486994795059d0d4c19fd4420cbb8cf1"
+    },
+    "navigationFix": {
+      "status": "IMPLEMENTED_AND_HOST_VALIDATED",
+      "positiveSavedIdAuthoritative": true,
+      "readinessWaitsForRoomResolution": true,
+      "noReplacementForMissingOrIncompatibleRoom": true,
+      "explicitNewChatCreatesOnce": true,
+      "baselineHostCases": 9,
+      "baselineFailures": 6,
+      "currentHostCasesPassed": 9,
+      "currentAndroidViewModelTestMethods": 28,
+      "qualification": "Exact production restoration/allocation flow with explicit platform/persistence ports. Full Android/Compose execution requires hosted CI.",
+      "testSynchronization": "A deterministic DAO gate replaces the stale ready-snapshot assumption in the deleted-room regression; the production no-allocation guard remains unchanged.",
+      "formerlyFlakyCaseRepetitionsPassed": 40,
+      "additionalRepetitionsCountedAsUniqueCases": false
+    },
+    "finalHostGate": {
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "PASS",
+      "exitCode": 0,
+      "testsRun": 851,
+      "skipped": 1,
+      "failures": 0,
+      "literalAndroidRegexPatterns": 2344,
+      "dynamicPatternsUnmeasured": 153,
+      "resources": "PASS",
+      "generatedReferences": "PASS",
+      "dependencyCatalog": "PASS",
+      "packageIntegrity": "PASS",
+      "secretScan": "PASS",
+      "whitespace": "PASS"
+    },
+    "hostedFixedHeadValidation": "Requires a separate published-head CI run; earlier run results are not promoted to final-head qualification.",
+    "reconciledRemoteHead": "90865091851416a53e1c1c700300dad011bf92a5",
+    "preservedConcurrentWork": "Voice integration and benchmark admission/reporting changes; combined overlapping diagnostic fixes retain the typed vault-read capacity deferral. Preserved the later hosted-compile repair adding required benchmark fixture profile names in 90865091; it changes no focused repair source.",
+    "earlyAndroidRegressionStep": {
+      "status": "IMPLEMENTED",
+      "classes": [
+        "DiagnosticDatabaseSourceTest",
+        "ProtectedDiagnosticProjectionTest",
+        "GitHubVerifiedSessionTest",
+        "GitHubCommitPaginationRecoveryTest",
+        "GitHubProgrammerViewModelTest"
+      ],
+      "fullAndroidTestTask": ":app:testDebugUnitTest --rerun",
+      "subsetXmlMovedBeforeFullSuite": true,
+      "fullUnitCoverageAndHeapGatesPreserved": true,
+      "workflowContractTestsPassed": 76,
+      "qualification": "Early subset results have a separate artifact and cannot satisfy full-suite qualification."
+    },
+    "newReports": {
+      "capturedCommit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "capturedTree": "41702557ff02f70781efed4eab8a7abc593ab508",
+      "sameTreeAsIntakeHead": true,
+      "issueNumbers": [
+        2776,
+        2777,
+        2778,
+        2779,
+        2780,
+        2781,
+        2782,
+        2783,
+        2784,
+        2785,
+        2786,
+        2787,
+        2788,
+        2789,
+        2790
+      ],
+      "actions": [
+        {
+          "number": 2776,
+          "classification": "EXTERNAL_CONSTRAINT_OR_PROTECTIVE_ADMISSION",
+          "evidence": "DNS transport failure on a replayable github_ci/runs read. Three attempts were exhausted without any HTTP response. This is not evidence of an authorization or GitHub API HTTP rejection.",
+          "action": "Inspected bounded retry, truthful attempt accounting, one logical circuit failure per read, and exact-call read-only recovery. No app code change is justified by this report; document the external DNS constraint and close the report under the requested analysis-counts-as-action policy.",
+          "limitations": [
+            "No network, DNS, VPN or GitHub availability remediation was performed or verified.",
+            "wait_ms=0 records the remaining transport cooldown, not the elapsed 1s then 2s retry delays.",
+            "2776 and 2777 share a run but have distinct invocation/call identities; they are two logical calls, 7.571 seconds apart, not duplicate copies of one report."
+          ],
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetry.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCircuit.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTransportRecovery.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt"
+          ],
+          "baselineGuardTests": [
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryTest.kt",
+              "tests": 10,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryPolicyTest.kt",
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryObservationTest.kt",
+              "tests": 9,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCircuitTest.kt",
+              "tests": 8,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            }
+          ],
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2776",
+          "reportId": "235e30fa-9b79-469e-998f-2e23176b8d76",
+          "approvedPayloadSha256": "43a3b69aeea04598976b5d75f466cfcc6ac2c38ba63c75d0acd6ce4660343c48"
+        },
+        {
+          "number": 2777,
+          "classification": "EXTERNAL_CONSTRAINT_OR_PROTECTIVE_ADMISSION",
+          "evidence": "DNS transport failure on a replayable github_ci/runs read. Three attempts were exhausted without any HTTP response. This is not evidence of an authorization or GitHub API HTTP rejection.",
+          "action": "Inspected bounded retry, truthful attempt accounting, one logical circuit failure per read, and exact-call read-only recovery. No app code change is justified by this report; document the external DNS constraint and close the report under the requested analysis-counts-as-action policy.",
+          "limitations": [
+            "No network, DNS, VPN or GitHub availability remediation was performed or verified.",
+            "wait_ms=0 records the remaining transport cooldown, not the elapsed 1s then 2s retry delays.",
+            "2776 and 2777 share a run but have distinct invocation/call identities; they are two logical calls, 7.571 seconds apart, not duplicate copies of one report."
+          ],
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetry.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCircuit.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTransportRecovery.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt"
+          ],
+          "baselineGuardTests": [
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryTest.kt",
+              "tests": 10,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryPolicyTest.kt",
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryObservationTest.kt",
+              "tests": 9,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCircuitTest.kt",
+              "tests": 8,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            }
+          ],
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2777",
+          "reportId": "815a9798-fed8-4d0b-9c73-8a222b0f631b",
+          "approvedPayloadSha256": "0900412e036fe9430c9638897845499ae7b723d5b85caa553b93a1a15548823e"
+        },
+        {
+          "number": 2778,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2778",
+          "reportId": "8983578e-f247-4fc2-b3bb-d9f19dc83e25",
+          "approvedPayloadSha256": "d0da4d2abb043e0cee249aff4f2671384be5a7e1ea8ce2b8831a1bebc5ab0aaa",
+          "classification": "FINALIZATION_REASON_MASKING_PATH_REPAIRED",
+          "evidence": {
+            "github_authorized_tool_count": 16,
+            "github_advertised_tool_count": 0,
+            "github_prerequisite_observation": "CATALOG_CAPABILITIES_NOT_ADVERTISED"
+          },
+          "action": "Publish retained integration evidence with the typed runner stop before re-entering execution preflight. Preserve original cause across subsequent limits and normal completion checks.",
+          "disposition": "Independent finalization-reason masking defect repaired; matching incident shape, causality not established from this snapshot.",
+          "limitations": "Approved incident contains no task text, exact selected schemas, tool receipts or runner finalization state; adjacent events are temporal context, not causal proof.",
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+          ],
+          "codeChangeRequired": true
+        },
+        {
+          "number": 2779,
+          "classification": "LOCAL_VALIDATION_OF_COMPLETED_PROVIDER_RESPONSE",
+          "evidence": "The completed 170-character extraction response failed CLAIM_COUNT with maximumClaims=1. The report does not retain the actual array size, so zero versus excess claims cannot be distinguished. This is local validation of the returned response, not a provider HTTP or request-schema rejection.",
+          "action": "Checked the exact count validator, minimum-batch stopping condition, saved-batch recovery, and passing baseline malformed-response tests. Retain strict schema validation and resume only the saved formatting batch; no repository operation replay or invented claim.",
+          "recovery": "Continue the saved task to retry its remaining structured formatting under the selected model/configuration; use a schema-capable configuration if it repeats.",
+          "codeChangeRequired": false,
+          "qualification": "Reviewed current source; relevant guard tests passed at the captured baseline. No new full Android qualification is claimed.",
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2779",
+          "reportId": "b1e17e5e-a4af-45d8-98dc-039cc40cdf0a",
+          "approvedPayloadSha256": "0570ccc64bc8329f48faa827623a2d8fdfdb772ada491baa912dbb3922b06449"
+        },
+        {
+          "number": 2780,
+          "classification": "MISSING_VERIFICATION_EVIDENCE",
+          "evidence": "Four required criteria, zero verified criteria, three extracted claims and zero receipt snapshots/eligible receipts. The run retained its contract and had 48 calls remaining. No original failure was recorded. Zero used calls is the task counter; it does not establish that no app, Gateway or discovery activity occurred.",
+          "action": "Traced acceptance publication and NO_RECEIPTS classification. Preserve the incomplete result and retained task so missing source/CI observations can be acquired; no success promotion from unsupported claims.",
+          "recovery": "Continue the saved task with the required authorized evidence sources available. Raw task and receipt contents are absent from this issue, so the reason that no calls ran is not established.",
+          "codeChangeRequired": false,
+          "qualification": "Reviewed current source; relevant guard tests passed at the captured baseline. No new full Android qualification is claimed.",
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2780",
+          "reportId": "28f89bea-828b-4bfa-bac1-912aaff41d64",
+          "approvedPayloadSha256": "fba149e67a59559adfaf36c61f3dab5441be8b53a16c7615e93e28750c619a6a"
+        },
+        {
+          "number": 2781,
+          "classification": "REVIEW_HEAD_EVIDENCE_UNAVAILABLE",
+          "evidence": {
+            "github_prerequisite_observation": "STATUS_TOOL_NOT_EXPOSED",
+            "review_comparison_state": "HEAD_REQUIRED",
+            "review_comparison_policy": "UNRESOLVED"
+          },
+          "action": "Retain exact head/base evidence requirement and RESTORE_REVIEW_COMPARISON_EVIDENCE. Do not invent the selected head, baseline, status schema or connection.",
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2781",
+          "reportId": "5ab51d1d-f04d-4de0-8e26-f614f4ba396a",
+          "approvedPayloadSha256": "e85e7ae79dbd7ab193302bc0b68aaad92296898acb17e8465e7fec03d803c69d",
+          "disposition": "Documented guarded prerequisite; no reproducible comparison defect established.",
+          "limitations": "Approved incident contains no task text, exact selected schemas, tool receipts or runner finalization state; adjacent events are temporal context, not causal proof.",
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+          ]
+        },
+        {
+          "number": 2782,
+          "classification": "CAPABILITY_NOT_AVAILABLE",
+          "evidence": {
+            "github_authorized_tool_count": 0,
+            "github_advertised_tool_count": 0,
+            "github_prerequisite_observation": "CATALOG_TOOL_NOT_EXPOSED"
+          },
+          "action": "Retain initial no-capability admission guard and RESTORE_AUTHORIZED_CONFIGURATION. Zero runtime catalog counts do not identify a disabled setting or prove the account has no tools.",
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2782",
+          "reportId": "c25b701b-4bc5-475f-b1c5-a963d8c70e0a",
+          "approvedPayloadSha256": "8cfa525104767d433e24464d8adde451b8af47725b94264c9db07303b680092d",
+          "disposition": "Documented missing admission contract; no additional reproducible defect established.",
+          "limitations": "Approved incident contains no task text, exact selected schemas, tool receipts or runner finalization state; adjacent events are temporal context, not causal proof.",
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+          ]
+        },
+        {
+          "number": 2783,
+          "classification": "CAPABILITY_NOT_AVAILABLE",
+          "evidence": {
+            "github_authorized_tool_count": 0,
+            "github_advertised_tool_count": 0,
+            "github_prerequisite_observation": "CATALOG_TOOL_NOT_EXPOSED"
+          },
+          "action": "Retain initial no-capability admission guard and RESTORE_AUTHORIZED_CONFIGURATION. Zero runtime catalog counts do not identify a disabled setting or prove the account has no tools.",
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2783",
+          "reportId": "7c0852d2-e270-42ef-995f-b81b531c7a02",
+          "approvedPayloadSha256": "d21a429bdb9b1f95d56ec5ddd0d58aca27882975b335d308576dde992ebbd186",
+          "disposition": "Documented missing admission contract; no additional reproducible defect established.",
+          "limitations": "Approved incident contains no task text, exact selected schemas, tool receipts or runner finalization state; adjacent events are temporal context, not causal proof.",
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+          ]
+        },
+        {
+          "number": 2784,
+          "classification": "CAPABILITY_NOT_AVAILABLE",
+          "evidence": {
+            "github_authorized_tool_count": 0,
+            "github_advertised_tool_count": 0,
+            "github_prerequisite_observation": "CATALOG_TOOL_NOT_EXPOSED"
+          },
+          "action": "Retain initial no-capability admission guard and RESTORE_AUTHORIZED_CONFIGURATION. Zero runtime catalog counts do not identify a disabled setting or prove the account has no tools.",
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2784",
+          "reportId": "07deb42e-a441-4a43-99b5-b0da5eced5a2",
+          "approvedPayloadSha256": "9d9e4d51afd0f7077d7a2ffa6fafe03ca1f1ae71d1910480b1f5b9c1a61d86da",
+          "disposition": "Documented missing admission contract; no additional reproducible defect established.",
+          "limitations": "Approved incident contains no task text, exact selected schemas, tool receipts or runner finalization state; adjacent events are temporal context, not causal proof.",
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+          ]
+        },
+        {
+          "number": 2785,
+          "classification": "CAPABILITY_NOT_AVAILABLE",
+          "evidence": {
+            "github_authorized_tool_count": 0,
+            "github_advertised_tool_count": 0,
+            "github_prerequisite_observation": "CATALOG_TOOL_NOT_EXPOSED"
+          },
+          "action": "Retain initial no-capability admission guard and RESTORE_AUTHORIZED_CONFIGURATION. Zero runtime catalog counts do not identify a disabled setting or prove the account has no tools.",
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2785",
+          "reportId": "400b2b22-1165-4f58-8069-c0fb84c8de25",
+          "approvedPayloadSha256": "ee8df46b5ae38f4dd5737e23d5ee07eb7a73b2a4d591a0061e87fa065a04fca4",
+          "disposition": "Documented missing admission contract; no additional reproducible defect established.",
+          "limitations": "Approved incident contains no task text, exact selected schemas, tool receipts or runner finalization state; adjacent events are temporal context, not causal proof.",
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+          ]
+        },
+        {
+          "number": 2786,
+          "classification": "OBSERVED_CONFIGURATION_CHANGE",
+          "evidence": "The live guard observed githubProfileOverride.contextVariant and githubProfileOverride.intelligenceLevel changes at delivery, with three known field names and no unknown/malformed fields. The three names are one parent plus two changed subfields; the values, direction and actor are unavailable.",
+          "action": "Verified that only an isolated compatible intelligence increase bypasses revalidation. A simultaneous contextVariant edit correctly pauses the task and retains completed operations. Baseline guard tests pass.",
+          "recovery": "Continue the saved task after settings settle to revalidate retained results under the selected current configuration.",
+          "codeChangeRequired": false,
+          "qualification": "Reviewed current source; relevant guard tests passed at the captured baseline. No new full Android qualification is claimed.",
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2786",
+          "reportId": "7a5d96e2-a2bd-4fdb-8877-83380ae872da",
+          "approvedPayloadSha256": "c9a1103e8858311ae0e44031d7148146258b0cf877d76df67a4f789845eb4815"
+        },
+        {
+          "number": 2787,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2787",
+          "reportId": "32e8fa7a-335d-46c3-9bd1-a59d1a38c080",
+          "approvedPayloadSha256": "96f7e16cb3f306fea6cc428f13fb3a729f86d9bdc7ed5658484ef24cb634281c",
+          "classification": "FINALIZATION_REASON_MASKING_PATH_REPAIRED",
+          "evidence": {
+            "github_authorized_tool_count": 16,
+            "github_advertised_tool_count": 0,
+            "github_prerequisite_observation": "CATALOG_CAPABILITIES_NOT_ADVERTISED"
+          },
+          "action": "Publish retained integration evidence with the typed runner stop before re-entering execution preflight. Preserve original cause across subsequent limits and normal completion checks.",
+          "disposition": "Independent finalization-reason masking defect repaired; matching incident shape, causality not established from this snapshot.",
+          "limitations": "Approved incident contains no task text, exact selected schemas, tool receipts or runner finalization state; adjacent events are temporal context, not causal proof.",
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadiness.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+          ],
+          "codeChangeRequired": true
+        },
+        {
+          "number": 2788,
+          "classification": "EXTERNAL_CONSTRAINT_OR_PROTECTIVE_ADMISSION",
+          "evidence": "Explicit provider API quota rejection inside response.failed on an HTTP 200 stream. HTTP acceptance did not establish generation success. It is specifically PROVIDER_QUOTA, not proof that account credits were exhausted.",
+          "action": "Verified semantic stream classification, zero-output preservation, disabled automatic replay, and the existing configuration-scoped quota pause. Document the external quota constraint and close after analysis; no app change or account intervention is supported.",
+          "limitations": [
+            "Provider account quota, billing state and subsequent recovery were not queried or modified.",
+            "No provider reset deadline is retained; no reset time can be inferred.",
+            "This cannot be conclusively linked to 2789 because that admission report lacks causal invocation/profile evidence."
+          ],
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderBudgetEvidence.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/delegation/KnownWriterFailures.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderQuotaIncidentGrouping.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt"
+          ],
+          "baselineGuardTests": [
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailureTest.kt",
+              "tests": 16,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/delegation/WriterLoadReadinessTest.kt",
+              "tests": 5,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderQuotaIncidentGroupingTest.kt",
+              "tests": 5,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            }
+          ],
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2788",
+          "reportId": "2ccfcb6a-05c1-4842-bff5-17f6dce16f2d",
+          "approvedPayloadSha256": "ebeccf6ca81257cde8c878884b799dd2ef6b7a49429dca141d80bd7407185500"
+        },
+        {
+          "number": 2789,
+          "classification": "EXTERNAL_CONSTRAINT_OR_PROTECTIVE_ADMISSION",
+          "evidence": "Application-side provider admission rejection with dispatched=false, not a second observed provider HTTP failure. Consistent with the existing quota pause, but the capture does not prove which earlier invocation/profile caused it.",
+          "action": "Verified the cached quota admission branch and explicit retry/configuration reset behavior. Document it separately as an undispatched protective rejection; close on completed analysis without claiming a fresh provider request or exact causal linkage to 2788.",
+          "limitations": [
+            "HTTP status, retry delay, invocation identity and causal/profile fields are unavailable.",
+            "Do not merge this report into 2788 as an established duplicate or invent a provider reset time.",
+            "The report is 29.151 seconds later than 2788; temporal proximity alone is not causal proof."
+          ],
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderBudgetEvidence.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/delegation/KnownWriterFailures.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderQuotaIncidentGrouping.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt"
+          ],
+          "baselineGuardTests": [
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailureTest.kt",
+              "tests": 16,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/delegation/WriterLoadReadinessTest.kt",
+              "tests": 5,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderQuotaIncidentGroupingTest.kt",
+              "tests": 5,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            }
+          ],
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2789",
+          "reportId": "c5dd81f1-b75e-4b0a-a5c0-904c4fb455b3",
+          "approvedPayloadSha256": "738d2a395c4cd0e8b3e731dc6ad6b8e22dbd93617f12c01b707acb2686a15eb2"
+        },
+        {
+          "number": 2790,
+          "classification": "EXTERNAL_CONSTRAINT_OR_PROTECTIVE_ADMISSION",
+          "evidence": "System speech rate/connection-limit callback before capture dispatch. Permission and foreground were available. The 14999ms delay is the remaining application backoff, not an Android-supplied reset deadline; automatic retry is disabled.",
+          "action": "Verified shared monotonic recognition pacing, error-10 service recovery, explicit retry, engine retirement and prevention of navigation/session recreation bypass. Existing Android tests exercise the precise scenario. Document external system speech rejection and close after analysis; no app defect reproduced.",
+          "limitations": [
+            "The specific Android speech service quota/connection-capacity cause and subsequent recovery are unmeasured.",
+            "No speech settings, service, permission or device state was changed.",
+            "The report does not evidence microphone-permission denial or audio-focus denial."
+          ],
+          "sourcePaths": [
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGate.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
+            "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionFailure.kt"
+          ],
+          "baselineGuardTests": [
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGateTest.kt",
+              "tests": 6,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionRecoveryTest.kt",
+              "tests": 24,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            },
+            {
+              "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionFailureTest.kt",
+              "tests": 3,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0,
+              "unchanged_test_source": true
+            }
+          ],
+          "codeChangeRequired": false,
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2790",
+          "reportId": "62c2e6da-d7f1-4b6c-bd1d-18e708c4b403",
+          "approvedPayloadSha256": "61d8adb745993a01348d6ced20a2ba4daa8c01a470ea977d82e91789e2f636f4"
+        }
+      ],
+      "baselineGuardEvidence": {
+        "rootCases": [
+          {
+            "class": "GitHubClaimExtractionTest",
+            "artifactPath": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubClaimExtractionTest.xml",
+            "xmlSha256": "9c67c556bbf66f6e5f57a5424a2f19425c0daa638f71228df782a5cd6a508b41",
+            "passedCases": [
+              "completeMalformedJsonAndTruncatedLengthRemainDifferentFailures"
+            ]
+          },
+          {
+            "class": "GitHubClaimBatchesTest",
+            "artifactPath": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubClaimBatchesTest.xml",
+            "xmlSha256": "fa106aaacbfc5f6390d44b8b7bc7b76babd37253bb6df828dc501da0938c23ed",
+            "passedCases": [
+              "strictWireSchemaClosesEveryObjectAndTypesEveryNode",
+              "oneMalformedClaimCannotEraseItsNeighboursOrRetargetTheirIndexes"
+            ]
+          },
+          {
+            "class": "ConfiguredDispatchAuthorityTest",
+            "artifactPath": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthorityTest.xml",
+            "xmlSha256": "f9c1aa0ccd220ec54b893f56b9b140255412d1fcc089578e5a6caf4536be52dc",
+            "passedCases": [
+              "raisingOnlyIntelligenceKeepsAnAlreadyAcceptedLowerEffortTurnAdmitted",
+              "githubPolicyDiagnosticsNameOnlyChangedKnownSubfields",
+              "restoredWaitKeepsAcceptedIntelligenceButStillRejectsRevokedToolsAndLoweredEffort"
+            ]
+          },
+          {
+            "class": "GitHubAcceptanceExplanationTest",
+            "artifactPath": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanationTest.xml",
+            "xmlSha256": "e82cecf0fefdf2291674ca916dee3b3878d26141cd8d00f18177259ae01906f6",
+            "passedCases": [
+              "publicExplanationRejectsFreeTextWrongTypesAndWrongScope",
+              "originalFailureTakesPrecedenceWhileFailedExtractionRemainsVisible",
+              "absentContractEmptyPlanAndEmptyEvaluationRemainDifferentObservations"
+            ]
+          }
+        ],
+        "directSourceSha256": {
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt": "4ed9dc0014a56f21fc1734208e9fd1f4f760f6cb331c5e420d66e01b94ee9942",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimBatches.kt": "74f6b3f5c7e3ad96e7a2f2afb9edcaafd42585cf1e18e4aaccc3398fc6a14b18",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceExplanation.kt": "6a7231bdbbcfbf8b1e32fd838e8d3e152188e8f5ba2c594ce9cd9851682c1a8f",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt": "56bd80e43e45d720c902dab861888a6c5e4cecad23394ef2051b7cab0be80c8e"
+        },
+        "externalCases": {
+          "workflow_run": 46100072073,
+          "artifact_id": 15246358145,
+          "sha256": "74bb63095e3ed1cc776d6581ede0e30787c3cfc674788ef524c5649fd7c82bd5",
+          "selected_test_cases": 87,
+          "selected_failures": 0,
+          "selected_errors": 0,
+          "scope": "Existing regular Android baseline execution at d45, whose tree equals captured11a1; not a new merged-head full-suite qualification."
+        },
+        "qualification": "Captured-baseline guard execution only; no whole-suite final-head qualification and no claim that external systems were repaired."
+      },
+      "closureStandard": "Action taken, per explicit user instruction. Closure does not assert live device, provider account, full all-tools coverage or hosted build success."
+    },
+    "localImplementationCommits": {
+      "protectedProjection": "60e0c273",
+      "paginationChain": "28dbe445c0b35bbd95a22bdbdedc439e0f0fbe23",
+      "blockedDelivery": "7795032e",
+      "savedConversationReopen": "b4909802a8d6ef8c40e383266eb8fd509382d5b2",
+      "readDeferralRegression": "935432ec",
+      "deterministicDeletedRoomRegression": "4da1a9a0983ef636474737b26793d6ee7aa85bee",
+      "earlyAndroidRegressionStep": "86b9608f",
+      "integrationFinalization": "a841547c"
+    },
+    "publicationBinding": "The PR publication compares the complete local tree with the Git Data API tree and uses an expected-head lease; the publication comment identifies the resulting remote commit.",
+    "integrationFinalizationFix": {
+      "status": "IMPLEMENTED",
+      "baselineCases": 3,
+      "baselineFailures": 2,
+      "baselinePassingControl": "Genuine initial missing-catalog admission",
+      "currentFocusedCases": 5,
+      "fullRunnerSessionRegression": "GitHubVerifiedSessionTest.integrationRoundLimitPublishesItsStopInsteadOfReportingMissingCapabilities",
+      "qualification": "Exact runner/session source slices with explicit boundary ports; full Android regression is selected by early CI. Incident causality is not inferred from matching catalog counts.",
+      "independentReviews": [
+        "production authority, completion, pending-call and cause precedence",
+        "full regression quality and Android/CI wiring"
+      ]
+    },
+    "ktlint": {
+      "version": "1.3.1",
+      "files": 12,
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubIntegrationFinalization.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitPaginationRecoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModelTest.kt"
+      ],
+      "exitCode": 0
+    },
+    "reconciledRemoteHeads": [
+      "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+      "90865091851416a53e1c1c700300dad011bf92a5"
+    ],
+    "validatedCodeAndWorkflowSha256": {
+      ".github/workflows/pr-validation.yml": "68b577b1f00060908ce2bb280208c7a14ef5eb91edabe5fc2bd15b876d4c3c5f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "a446c3a26d0bf04adecc9dea1bf73e9a0cb90388eca65decbaf73b0d18ce95ca",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubIntegrationFinalization.kt": "d92ebe975a0dfe84f89d034537eeb3b0725e64eb1728e3202522d7bb2ee16435",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "30f6459d2e222dbed3f5fd229351bddf14e31a6f2d0a2544fcb79f2013c18327",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt": "2265e7aabc96a3751d2537da9cf6adf03c94ffdf1ac55818dafd4099b1aff4b0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "608bfc7472bbfbadd3a269b863d5e19233743465475deeea888d88074e576ca6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjection.kt": "a9d8bf6f67c11033a32aa6feb348c4add4a76f8ef3d589750efe6d14aebaa48d",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModel.kt": "b71d1632bf70434fa6d1fbbf80614b2dc52af22a02b9cf7c1ee251f1880d2eed",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt": "5c566e96a0283ded92b168f2f277d66391357ebae20d4b9f79d2999c8893189c",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitPaginationRecoveryTest.kt": "cbc759d35cfca5b319a2b842ee1985b5e1bee87cb5ccb1baf4bd61b924a1d366",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "aececf8a879e3cf1f6ebe547d76b5b3e64fa0348a6fe50ae2e712760f4160c8c",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjectionTest.kt": "c34f7ff33aa8d0ae7c93118389870608d560dc592aeba2c0187fffb9e92792a0",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModelTest.kt": "7fa76b77b0ec6bb7f9720fb088b0a0a8d6c13ac8873676abf1bc1531d91cfce8",
+      "scripts/tests/test_ci_modernization.py": "26b7013a42aec4ba5dae1f1ea5059caa9cefa274cafb7a8dd52f53719b14061d"
+    }
   }
 }

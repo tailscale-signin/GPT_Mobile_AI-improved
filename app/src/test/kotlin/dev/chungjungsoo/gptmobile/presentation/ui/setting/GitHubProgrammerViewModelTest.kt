@@ -3,9 +3,12 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.lifecycle.viewModelScope
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore
@@ -196,32 +199,179 @@ class GitHubProgrammerViewModelTest {
         rooms[42] = merged
         coEvery { chats.updateChatPlatforms(any(), listOf("coder")) } answers { firstArg() }
         features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
-        withTimeout(5000) { model.state.first { it.chatId == 42 && it.draftLoaded } }
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.draftLoaded && it.conversationResolved } }
         model.ensureConversation().join()
         coVerify(exactly = 1) { chats.updateChatPlatforms(match { it.id == 42 && it.enabledPlatform == listOf("coder") }, listOf("coder")) }
         coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
         assertEquals(42, model.state.value.chatId)
     }
 
-    @Test fun deletedPreparedRoomIsReplacedInsteadOfReopened() = runBlocking {
-        withTimeout(5000) { model.state.first { it.draftLoaded } }
+    @Test fun deletedPreparedRoomRequiresExplicitRecoveryInsteadOfCreatingABlankReplacement() = runBlocking {
+        val lookupStarted = CompletableDeferred<Unit>()
+        val releaseLookup = CompletableDeferred<Unit>()
+        coEvery { persistence.getChatRoom(42) } coAnswers {
+            lookupStarted.complete(Unit)
+            releaseLookup.await()
+            rooms[42]
+        }
+        model.configureSession("coder", newConversation = true)
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
+        try {
+            model.ensureConversation().join()
+            // Creating the room persists a new selected session. Hold its restore
+            // until deletion, rather than observing an earlier ready snapshot.
+            withTimeout(5000) { lookupStarted.await() }
+            assertFalse(model.state.value.conversationResolved)
+            rooms.remove(42)
+            model.ensureConversation().join()
+            coVerify(exactly = 1) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+
+            releaseLookup.complete(Unit)
+            withTimeout(5000) { model.state.first { it.chatId == null && it.conversationResolved } }
+            // The screen retries when the pending restore becomes resolved.
+            model.ensureConversation().join()
+            assertEquals(null, model.state.value.chatId)
+            assertTrue(model.state.value.error?.contains("saved GitHub conversation is unavailable") == true)
+            assertTrue(rooms.isEmpty())
+            coVerify(exactly = 1) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+        } finally {
+            releaseLookup.complete(Unit)
+        }
+    }
+
+    @Test fun reopeningFinishedConversationWaitsForItsSavedRoomWithoutCreatingABlankCopy() = runBlocking {
+        reopenWhileRoomLoads(42)
+    }
+
+    @Test fun implicitWorkspaceResumeWaitsForItsSavedRoomWithoutCreatingABlankCopy() = runBlocking {
+        reopenWhileRoomLoads(null)
+    }
+
+    private suspend fun reopenWhileRoomLoads(requestedChatId: Int?) {
+        close(model)
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        val lookupStarted = CompletableDeferred<Unit>()
+        val releaseLookup = CompletableDeferred<Unit>()
+        coEvery { persistence.getChatRoom(42) } coAnswers {
+            lookupStarted.complete(Unit)
+            releaseLookup.await()
+            rooms[42]
+        }
+        coEvery { chats.createDraftChat(any(), any(), any(), any(), any(), any()) } answers { room.copy(id = 99).also { rooms[it.id] = it } }
+        every { chats.observeMessageWindow(99, 10) } returns flowOf(emptyList())
+        every { chats.observeAgentRuns(99) } returns flowOf(emptyList())
+        every { chats.observeToolEvents(99) } returns flowOf(emptyList())
+        every { queue.observe(99) } returns flowOf(emptyList())
+        val answer = MessageV2(id = 7, chatId = 42, content = "Saved GitHub answer", platformType = "coder")
+        every { chats.observeMessageWindow(42, 10) } returns flowOf(listOf(answer))
+        every { chats.observeAgentRuns(42) } returns flowOf(listOf(AgentRun("finished", 42, 6, 7, "coder", "CUSTOM", "selected-model", "COMPLETED")))
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true))
+        model.configureSession("coder", requestedChatId)
+        model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
+        try {
+            withTimeout(5000) { lookupStarted.await() }
+            assertTrue(model.state.value.draftLoaded)
+            assertEquals(null, model.state.value.chatId)
+            // This is the screen's early readiness callback while Room is still
+            // loading the finished conversation selected from the home bubble.
+            model.ensureConversation().join()
+            coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+            releaseLookup.complete(Unit)
+            val reopened = withTimeout(5000) { model.state.first { it.chatId == 42 && it.conversationResolved && it.messages == listOf(answer) && it.runs.singleOrNull()?.status == "COMPLETED" } }
+            assertTrue(reopened.conversationResolved)
+            assertTrue(context.sameWorkspace(requireNotNull(reopened.context)))
+            assertEquals(context.commitSha, reopened.context?.commitSha)
+            assertEquals(setOf(42), rooms.keys)
+            assertEquals(context, features.value.conversationGitHub[42])
+            coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+        } finally {
+            releaseLookup.complete(Unit)
+        }
+    }
+
+    @Test fun roomAllocationWaitsForTheRouteSessionToBeConfigured() = runBlocking {
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
+        model.ensureConversation().join()
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun selectingTheSameProfileKeepsTheResolvedNewConversationReady() = runBlocking {
+        model.configureSession("coder", newConversation = true)
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
+        model.selectProfile("coder")
+        assertTrue(model.state.value.conversationResolved)
         model.ensureConversation().join()
         withTimeout(5000) { model.state.first { it.chatId == 42 } }
+        coVerify(exactly = 1) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun missingSavedRoomReportsRecoveryWithoutReplacingItsIdentity() = runBlocking {
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
         rooms.remove(42)
-        val replacement = room.copy(id = 43)
-        coEvery { chats.createDraftChat(any(), any(), any(), any(), any(), any()) } returns replacement
-        rooms[43] = replacement
-        every { chats.observeMessageWindow(43, 10) } returns flowOf(emptyList())
-        every { chats.observeAgentRuns(43) } returns flowOf(emptyList())
-        every { chats.observeToolEvents(43) } returns flowOf(emptyList())
-        every { queue.observe(43) } returns flowOf(emptyList())
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
         model.ensureConversation().join()
-        withTimeout(5000) { model.state.first { it.chatId == 43 } }
-        coVerify(exactly = 2) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+        assertEquals(null, model.state.value.chatId)
+        assertTrue(model.state.value.error?.contains("saved GitHub conversation is unavailable") == true)
+        assertEquals(mapOf(42 to context), features.value.conversationGitHub)
+        assertTrue(rooms.isEmpty())
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+    }
+
+    @Test fun savedRoomCannotBeReplacedUnderAnotherWorkspaceOrPrivacyPolicy() = runBlocking {
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        val incompatible = listOf(
+            Triple(context.copy(connectionUid = "another-account"), room, false),
+            Triple(context.copy(owner = "another-owner"), room, false),
+            Triple(context.copy(repo = "another-repo"), room, false),
+            Triple(context.copy(ref = "another-branch"), room, false),
+            Triple(context.copy(mainProfileUid = "another-profile"), room, false),
+            Triple(context, room.copy(isTemporary = true), false),
+            Triple(context, room, true)
+        )
+        for ((saved, savedRoom, privateRoute) in incompatible) {
+            close(model)
+            rooms[42] = savedRoom
+            features.value = features.value.copy(conversationGitHub = mapOf(42 to saved))
+            model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true))
+            model.configureSession("coder", 42, privacyModeLocked = privateRoute)
+            model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
+            withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
+            model.ensureConversation().join()
+            assertEquals(null, model.state.value.chatId)
+            assertTrue(model.state.value.error?.contains("saved GitHub conversation is unavailable") == true)
+            assertEquals(saved, features.value.conversationGitHub[42])
+            assertEquals(savedRoom, rooms[42])
+        }
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun delayedBranchBindingReattachesTheSavedRoomWithoutCreatingAnotherChat() = runBlocking {
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.conversationResolved } }
+        val changed = context.copy(ref = "selected-branch", commitSha = "b".repeat(40))
+        model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = changed.repository, headSha = changed.commitSha))
+        withTimeout(5000) { model.state.first { it.context?.ref == changed.ref && it.draftLoaded && it.conversationResolved } }
+        model.ensureConversation().join()
+        assertEquals(null, model.state.value.chatId)
+        assertTrue(model.state.value.error?.contains("saved GitHub conversation is unavailable") == true)
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to changed))
+        val reopened = withTimeout(5000) { model.state.first { it.chatId == 42 && it.conversationResolved && it.error == null } }
+        assertTrue(changed.sameWorkspace(requireNotNull(reopened.context)))
+        assertEquals(changed.commitSha, reopened.context?.commitSha)
+        assertEquals(setOf(42), rooms.keys)
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test fun legacyCommandDraftMovesToTheStandardComposerOnce() = runBlocking {
-        withTimeout(5000) { model.state.first { it.draftLoaded } }
+        model.configureSession("coder", newConversation = true)
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
         val context = model.state.value.context!!
         model.updateDraft(context, "Continue the code review")
         model.ensureConversation().join()
@@ -233,7 +383,7 @@ class GitHubProgrammerViewModelTest {
 
     @Test fun openingChatCreatesOneScopedRoomWithoutSubmittingWork() = runBlocking {
         model.configureSession("coder", newConversation = true)
-        withTimeout(5000) { model.state.first { it.draftLoaded && it.profileUid == "coder" } }
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved && it.profileUid == "coder" } }
         kotlinx.coroutines.joinAll(model.ensureConversation(), model.ensureConversation())
         withTimeout(5000) { model.state.first { it.chatId == 42 } }
         coVerify(exactly = 1) { chats.createDraftChat(listOf("coder"), "STANDARD", "repo", "coder") }
@@ -250,7 +400,7 @@ class GitHubProgrammerViewModelTest {
     @Test fun privateGitHubChoiceCreatesAPermanentlyLockedRoomWithoutSubmittingWork() = runBlocking {
         model.configureSession("coder", newConversation = true, privacyModeLocked = true)
         assertEquals(true, model.state.value.privacyModeLocked)
-        withTimeout(5000) { model.state.first { it.draftLoaded && it.profileUid == "coder" } }
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved && it.profileUid == "coder" } }
 
         model.ensureConversation().join()
         withTimeout(5000) { model.state.first { it.chatId == 42 } }
@@ -285,6 +435,7 @@ class GitHubProgrammerViewModelTest {
                 restoring.receive()
                 assertEquals(true, restored.state.value.privacyModeLocked)
                 assertEquals(null, restored.state.value.chatId)
+                assertFalse(restored.state.value.conversationResolved)
                 resumeRestore.send(Unit)
             }
         } finally {
@@ -311,7 +462,7 @@ class GitHubProgrammerViewModelTest {
         withTimeout(5000) { model.state.first { it.chatId == 42 } }
 
         model.configureSession("coder", newConversation = true, privacyModeLocked = false)
-        withTimeout(5000) { model.state.first { it.chatId == null && it.privacyModeLocked == false } }
+        withTimeout(5000) { model.state.first { it.chatId == null && it.conversationResolved && it.privacyModeLocked == false } }
         val ordinary = room.copy(id = 43, privacyModeLocked = false)
         coEvery { chats.createDraftChat(listOf("coder"), "STANDARD", "repo", "coder", null, false) } answers { ordinary.also { rooms[it.id] = it } }
         every { chats.observeMessageWindow(43, 10) } returns flowOf(emptyList())
@@ -333,7 +484,7 @@ class GitHubProgrammerViewModelTest {
         try {
             restored.configureSession("old-route-profile", newConversation = true, privacyModeLocked = false)
             restored.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = GitHubRepositoryContext("owner", "repo", "feature"), headSha = "a".repeat(40)))
-            withTimeout(5000) { restored.state.first { it.draftLoaded && it.profileUid == "coder" } }
+            withTimeout(5000) { restored.state.first { it.draftLoaded && it.conversationResolved && it.profileUid == "coder" } }
             restored.ensureConversation().join()
             withTimeout(5000) { restored.state.first { it.chatId == 42 } }
 

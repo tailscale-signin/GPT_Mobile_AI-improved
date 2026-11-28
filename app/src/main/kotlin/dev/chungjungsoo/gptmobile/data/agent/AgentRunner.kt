@@ -325,6 +325,8 @@ class AgentRunner(
             while (true) {
                 if (completeFromReceipts(session, exchanges, state)) return
                 if (!prepareNextRound(session, exchanges, state, executionToolCallLimit)) return
+                if (publishIntegrationFinalization(session, state, executionToolCallLimit)) return
+                rounds += 1
                 prepareToolSelection?.invoke()
 
                 // collectRound catches only upstream provider failures. Cancellation and
@@ -665,6 +667,7 @@ class AgentRunner(
             replayTokens = completed.batch.replayTokens
             unproductiveDiscoveryRounds = completed.batch.discoveryRounds
             finalResponseRequested = completed.batch.finalResponseRequested
+            finalResponseReason = finalResponseReason ?: completed.batch.finalResponseReason
             unsuccessfulGitHubRounds = if (limits.githubTask && !completed.batch.hasSuccessfulResult) unsuccessfulGitHubRounds + 1 else 0
             if (completed.executedAny && exchanges.lastOrNull()?.results?.any { !it.isError && !it.sharedResult } == true) {
                 // Transport recovery is consecutive-outage state. A new successful
@@ -683,6 +686,7 @@ class AgentRunner(
                     emit(AgentRunEvent.Notice(replan, persistent = false))
                 } else {
                     finalResponseRequested = true
+                    finalResponseReason = if (unsuccessfulGitHubRounds >= 3) GitHubIntegrationFinalization.Reason.CONSECUTIVE_OPERATION_FAILURES else GitHubIntegrationFinalization.Reason.NO_PROGRESS
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
                     instructFinalResponse(exchanges, consumedCallIds)
@@ -970,6 +974,7 @@ class AgentRunner(
         val recoveryState = RoundRecoveryState()
         var emptyAnswerRecoveryAttempted = false
         var finalResponseRequested = false
+        var finalResponseReason: GitHubIntegrationFinalization.Reason? = null
         var roundLimitFinalizationAttempted = false
         var wrapUpNoticeEmitted = false
         var replayTokens = 0L
@@ -1110,6 +1115,33 @@ class AgentRunner(
         return true
     }
 
+    /** Deliberately withheld finalization schemas are not an authorization failure. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.publishIntegrationFinalization(
+        session: AgentProviderSession,
+        state: LoopState,
+        executionToolCallLimit: Int
+    ): Boolean {
+        val failure = GitHubIntegrationFinalization.failure(
+            githubTask = limits.githubTask,
+            combined = limits.combined != null,
+            task = limits.githubTaskRequest,
+            finalResponseRequested = state.finalResponseRequested,
+            pendingCalls = state.restoredCalls.isNotEmpty(),
+            reason = state.finalResponseReason,
+            rounds = state.rounds,
+            toolCalls = state.toolCallCount,
+            roundLimit = limits.maxRounds,
+            toolCallLimit = executionToolCallLimit
+        ) ?: return false
+        // The session's existing terminal publication rechecks authority and
+        // uncertainty. It cannot acquire another schema or dispatch another call.
+        session.retainedFailureResponse(failure).collect { event ->
+            if (event is ProviderEvent.Completed && !verificationOnlyRequested) checkpoint?.finish()
+            emit(AgentRunEvent.Provider(event))
+        }
+        return true
+    }
+
     /** Apply the original call/round boundaries before the next provider request. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.prepareNextRound(
         session: AgentProviderSession,
@@ -1121,6 +1153,7 @@ class AgentRunner(
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit && restoredCalls.isEmpty()) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
+                finalResponseReason = finalResponseReason ?: GitHubIntegrationFinalization.Reason.TOOL_CALL_LIMIT
                 if (!finalResponseRequested) {
                     finalResponseRequested = true
                     val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)
@@ -1149,6 +1182,7 @@ class AgentRunner(
                 if (!roundLimitFinalizationAttempted) {
                     roundLimitFinalizationAttempted = true
                     finalResponseRequested = true
+                    finalResponseReason = finalResponseReason ?: GitHubIntegrationFinalization.Reason.MODEL_TOOL_ROUND_LIMIT
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
                     emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
@@ -1177,7 +1211,6 @@ class AgentRunner(
                     return false
                 }
             }
-            rounds += 1
         }
         return true
     }
@@ -2023,7 +2056,7 @@ class AgentRunner(
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
-    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean)
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean, val finalResponseReason: GitHubIntegrationFinalization.Reason?)
 
     /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
@@ -2095,6 +2128,21 @@ class AgentRunner(
             }
         val repeatedReadsRequireFinalization = repeatedReadSuppression &&
             !((limits.githubMode || limits.githubTask) && hasActionableGitHubTools && canReadOtherSources)
+        val finalResponseReason = when {
+            allResults.any { it.errorCode == "GITHUB_USER_STOP" } -> GitHubIntegrationFinalization.Reason.USER_STOP
+            unavailableCallsOnly -> GitHubIntegrationFinalization.Reason.UNAVAILABLE_CALLS
+            argumentRepairStalled -> GitHubIntegrationFinalization.Reason.ARGUMENT_REPAIR_EXHAUSTED
+            repeatedReadsRequireFinalization -> GitHubIntegrationFinalization.Reason.REPEATED_READS
+            discoveryRequiresFinalization -> GitHubIntegrationFinalization.Reason.DISCOVERY_STALLED
+            roundLimitReached -> GitHubIntegrationFinalization.Reason.MODEL_TOOL_ROUND_LIMIT
+            combinedWorkBudgetExhausted -> GitHubIntegrationFinalization.Reason.COMBINED_WORK_BUDGET_EXHAUSTED
+            toolCallBudgetExhausted && outputBudgetExhausted -> GitHubIntegrationFinalization.Reason.TOOL_AND_OUTPUT_BUDGET_EXHAUSTED
+            toolCallBudgetExhausted -> GitHubIntegrationFinalization.Reason.TOOL_CALL_LIMIT
+            outputBudgetExhausted -> GitHubIntegrationFinalization.Reason.TOOL_OUTPUT_BUDGET_EXHAUSTED
+            contextNearLimit -> GitHubIntegrationFinalization.Reason.CONTEXT_LIMIT
+            executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit -> GitHubIntegrationFinalization.Reason.TOOL_CALL_LIMIT
+            else -> null
+        }
         val mustFinalize = unavailableCallsOnly ||
             argumentRepairStalled ||
             allResults.any { it.errorCode == "GITHUB_USER_STOP" } ||
@@ -2222,7 +2270,7 @@ class AgentRunner(
         ).exchanges
         exchanges.clear()
         exchanges.addAll(retained)
-        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError })
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError }, finalResponseReason)
     }
 
     private data class RoundResult(

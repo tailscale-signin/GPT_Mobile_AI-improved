@@ -1358,6 +1358,26 @@ internal class GitHubVerifiedSession(
         } else {
             failure
         }
+        if (observed.failureDetails?.get("tools_withheld_for_finalization") == JsonPrimitive(true) && GitHubTestChecklist.integration(task)) {
+            val receipts = evidence.snapshot().first
+            val remaining = remainingToolCalls()
+            val checkpoint = withContext(computationDispatcher) {
+                val preflight = evidence.classifyBeforeAcquisition(task, authorizedTools, receipts, evidence.fixtureApprovalPreflight())
+                GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remaining, preflight)
+            }
+            val interruption = dev.chungjungsoo.gptmobile.data.agent.GitHubIntegrationFinalization.failureForCheckpoint(observed, checkpoint)
+            // The last allowed read may have finished the accepted work. Normal
+            // publication still checks authority, retention, approval and uncertainty.
+            emitAll(
+                publish(
+                    null,
+                    GitHubAcceptancePublicationEvidence.Entry.INTEGRATION_CHECKPOINT,
+                    failureCode = interruption?.errorCode,
+                    originalFailure = interruption
+                )
+            )
+            return@flow
+        }
         if (failure.errorCode == "DISPATCH_POLICY_CHANGED" || failure.message.startsWith("DISPATCH_POLICY_CHANGED:")) {
             emit(failure.copy(errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED"))
         } else if (!reviewOriginFailure(failure) && dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
@@ -2017,7 +2037,12 @@ internal class GitHubVerifiedSession(
                     transportComplete = currentFailure?.transportComplete ?: true,
                     providerLimit = originalFailure?.providerLimit?.takeIf { currentFailure === originalFailure }?.takeUnless { unresolved },
                     invocationId = currentFailure?.invocationId,
-                    taskOutcome = if (approvalIsPrimary || currentFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
+                    taskOutcome = when {
+                        approvalIsPrimary || currentFailure?.taskOutcome == "BLOCKED" -> "BLOCKED"
+                        // A deterministic prerequisite stop can block without a provider/tool failure.
+                        currentFailure == null && !unresolved && delivered["task_outcome"] == JsonPrimitive("BLOCKED") -> "BLOCKED"
+                        else -> "PARTIAL"
+                    },
                     failureDetails = if (approvalIsPrimary) {
                         buildJsonObject {
                             put("failed_stage", "approval")

@@ -74,6 +74,75 @@ class DiagnosticsTest(unittest.TestCase):
 
 
 class WorkflowPolicyTest(unittest.TestCase):
+    def test_pr_early_android_regressions_fail_closed_and_preserve_separate_reports(self):
+        import os
+        import re
+        import subprocess
+        import tempfile
+        import textwrap
+
+        workflow = (SCRIPTS.parent / '.github/workflows/pr-validation.yml').read_text()
+        names = (
+            'Verify compiled overload and test paths',
+            'Run early Android regression classes',
+            'Preserve early Android regression evidence',
+            'Run Unit Tests & JaCoCo Coverage Report',
+        )
+        positions = [workflow.index(f'      - name: {name}\n') for name in names]
+        self.assertEqual(sorted(positions), positions)
+        early = workflow[positions[1]:positions[2]]
+        artifact = workflow[positions[2]:positions[3]]
+        self.assertNotIn('continue-on-error:', early)
+        self.assertIn("if: always() && steps.early_regressions.outcome != 'skipped'", artifact)
+        self.assertIn('path: build/reports/early-android-regressions/', artifact)
+        expected = {
+            'dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSourceTest',
+            'dev.chungjungsoo.gptmobile.data.workspace.ProtectedDiagnosticProjectionTest',
+            'dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest',
+            'dev.chungjungsoo.gptmobile.data.github.GitHubCommitPaginationRecoveryTest',
+            'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest',
+        }
+        for name in expected:
+            self.assertTrue((SCRIPTS.parent / 'app/src/test/kotlin' / (name.replace('.', '/') + '.kt')).is_file(), name)
+        script = textwrap.dedent(early.split('        run: |\n', 1)[1])
+        minutes = int(re.search(r'(?m)^        timeout-minutes: (\d+)$', early)[1])
+        for exit_code in (0, 1):
+            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'scripts').mkdir()
+                # Execute the actual workflow shell without downloading or running
+                # Gradle. This checks both pipefail and EXIT-trap behavior.
+                (root / 'scripts/gradle_retry.py').write_text(textwrap.dedent('''\
+                    import json, os, sys
+                    from pathlib import Path
+                    report = Path('app/build/test-results/testDebugUnitTest')
+                    report.mkdir(parents=True)
+                    (report / 'TEST-early.xml').write_text('<testsuite name="early-only"/>')
+                    Path('arguments.json').write_text(json.dumps(sys.argv[1:]))
+                    print('early regression result')
+                    raise SystemExit(int(os.environ['EARLY_TEST_EXIT_CODE']))
+                    '''))
+                result = subprocess.run(
+                    ['bash', '-e', '-o', 'pipefail', '-c', script], cwd=root,
+                    env={**os.environ, 'EARLY_TEST_EXIT_CODE': str(exit_code)},
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(exit_code, result.returncode, result.stdout + result.stderr)
+                arguments = json.loads((root / 'arguments.json').read_text())
+                selected = [arguments[index + 1] for index, value in enumerate(arguments) if value == '--tests']
+                self.assertEqual(expected, set(selected))
+                self.assertEqual(5, len(selected))
+                self.assertIn(':app:testDebugUnitTest', arguments)
+                self.assertIn('--rerun', arguments)
+                seconds = int(arguments[arguments.index('--timeout-seconds') + 1])
+                self.assertGreater(seconds, 0)
+                self.assertLessEqual(seconds, minutes * 60 - 60)
+                self.assertFalse((root / 'app/build/test-results/testDebugUnitTest').exists())
+                self.assertFalse((root / 'app-audit-test-started.txt').exists())
+                preserved = root / 'build/reports/early-android-regressions'
+                self.assertEqual('<testsuite name="early-only"/>', (preserved / 'junit/TEST-early.xml').read_text())
+                self.assertIn('early regression result', (preserved / 'test.log').read_text())
+
     def test_device_acceptance_releases_codegen_heaps_before_each_compile_phase(self):
         import re
 

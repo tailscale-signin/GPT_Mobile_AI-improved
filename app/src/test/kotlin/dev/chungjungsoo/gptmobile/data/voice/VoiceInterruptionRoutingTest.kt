@@ -5,6 +5,43 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class VoiceInterruptionRoutingTest {
+    @Test fun admittedCaptureKeepsOneCueAcrossAsynchronousMonitorRetirementOnBothBackends() {
+        for (backend in VoiceRecognitionBackend.entries) {
+            val input = Input().apply { deferRelease = true }
+            val system = SystemAudio()
+            val audio = VoicePluginAudio(system, input) {}.apply { recognitionBackend = backend }
+            var cues = 0
+            val session = VoiceSession(audio, { true }, {}).apply {
+                microphoneFeedback = {
+                    cues++
+                    true
+                }
+                access(true, true, true)
+            }
+            session.listenForConversation()
+            val cancelled = input.released.single()
+            session.stopTurn()
+            cancelled()
+            assertEquals(0, input.listening)
+            assertEquals(0, system.listeners.size)
+            assertEquals(0, cues)
+
+            session.listenForConversation()
+            assertEquals(0, cues)
+            input.released.last()()
+            val capture = if (backend == VoiceRecognitionBackend.LOCAL_MOONSHINE) input.listeners.single() else system.listeners.single()
+            capture.ready()
+            capture.ready()
+            assertEquals(1, cues)
+            assertEquals(VoicePhase.LISTENING, session.state.phase)
+            session.stopTurn()
+            capture.ready()
+            assertEquals(1, cues)
+            assertEquals(VoicePhase.PAUSED, session.state.phase)
+            session.close()
+        }
+    }
+
     @Test fun recognitionWaitsForTheMonitorLeaseAndCancelledHandoffsCannotRestartIt() {
         val input = Input().apply { deferRelease = true }
         val audio = VoicePluginAudio(SystemAudio(), input) {}
@@ -92,6 +129,7 @@ class VoiceInterruptionRoutingTest {
         val released = mutableListOf<() -> Unit>()
         var deferRelease = false
         var listening = 0
+        val listeners = mutableListOf<VoiceAudio.Listener>()
         override fun startInterruptionMonitoring(outputLevel: () -> Float?, interrupted: () -> Unit) {
             started += interrupted
         }
@@ -101,6 +139,7 @@ class VoiceInterruptionRoutingTest {
         }
         override fun listen(listener: VoiceAudio.Listener) {
             listening++
+            listeners += listener
         }
         override fun stop() = Unit
         override fun close() = Unit
@@ -121,7 +160,10 @@ class VoiceInterruptionRoutingTest {
     }
 
     private class SystemAudio : VoiceAudio {
-        override fun listen(listener: VoiceAudio.Listener) = Unit
+        val listeners = mutableListOf<VoiceAudio.Listener>()
+        override fun listen(listener: VoiceAudio.Listener) {
+            listeners += listener
+        }
         override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
         override fun stop() = Unit
         override fun close() = Unit

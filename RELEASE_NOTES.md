@@ -17,6 +17,9 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Voice Mode shows a neutral microphone while idle, a fading theme highlight while listening, and a steady highlighted Stop while generating or speaking. The same states appear in the transcript view and respect reduced-motion settings.
+- A new voice chat begins listening once its profile, audio and microphone permission are ready. Completed spoken replies return to listening with one microphone cue; Stop, errors and leaving the foreground cancel that continuation. Button sounds default on for new settings while saved off choices remain off.
+
 - Reopen saved GitHub conversations only after their original room identity and privacy are verified, preserving the completed transcript and run history. Missing or incompatible rooms show recovery guidance; failed storage restoration can retry the same room, and an explicit new-chat request still creates a separate conversation.
 - Preserve the actual stopping reason in a GitHub integration report when execution reaches its limit or stops making progress, retaining completed evidence and unfinished checks.
 - Preserve diagnostic size and shape limit reasons, resumable protected-read deferrals, completed pagination correction chains, and blocked report outcomes. Run the focused Android regressions before the full qualification suite with separate result artifacts.
@@ -114,6 +117,8 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 - Provide a one-button Standard profile benchmark with nine weighted categories, coverage-aware scores, history and export, while retaining native campaigns and diagnostics under Advanced.
 
 ## Qualification and remaining limits
+
+- Voice turn-cycle host tests and Android API compilation do not establish physical microphone/speaker behavior or full Android qualification; exact-revision hosted gates remain required.
 
 - Compiled Pocket GPU/NPU graphs have no native word timestamps. Caption-enabled playback uses local final-audio alignment with extra phrase startup delay; unmatched words remain untimed, and inferred timings do not establish perfect acoustic alignment.
 - GPU duration rejection is a conservative fallback guard, not proof that the underlying driver/model precision defect is repaired. Five-shape compact HTP admission requires fresh physical-device performance and memory qualification; estimated residency is not a hard allocator limit.

@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -263,6 +264,9 @@ private fun VoiceChatSessionScreen(
     val activeProfiles by model.activePlatformUids.collectAsStateWithLifecycle()
     val room by model.chatRoom.collectAsStateWithLifecycle()
     val chatModels by model.chatPlatformModels.collectAsStateWithLifecycle()
+    val listeningEntry = rememberSaveable(saver = Saver<VoiceListeningEntry, Boolean>(save = { it.consumed }, restore = { VoiceListeningEntry(it) })) {
+        VoiceListeningEntry()
+    }
     var retainedMessageId by rememberSaveable { mutableIntStateOf(0) }
     var retainedRunId by rememberSaveable { mutableStateOf("") }
     var retainedRevision by rememberSaveable { mutableIntStateOf(-1) }
@@ -327,6 +331,12 @@ private fun VoiceChatSessionScreen(
     val currentEnabled by rememberUpdatedState(enabled && preferencesApplied && loaded && roomReady && backend.loaded)
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     var listenAfterPermission by rememberSaveable { mutableStateOf(false) }
+    var permissionRequestInFlight by rememberSaveable { mutableStateOf(false) }
+    fun cancelListeningIntent() {
+        listeningEntry.cancel()
+        listenAfterPermission = false
+        session.stopAutomaticListening()
+    }
     var captions by rememberSaveable { mutableStateOf(true) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
@@ -339,10 +349,23 @@ private fun VoiceChatSessionScreen(
     var kokoroThreads by rememberSaveable { mutableIntStateOf(VoiceCpuSchedulingPolicy.AUTO) }
     var editBeforeSend by rememberSaveable { mutableStateOf(false) }
     var spokenReplies by rememberSaveable { mutableStateOf(true) }
-    var buttonSounds by rememberSaveable { mutableStateOf(false) }
+    var buttonSounds by rememberSaveable { mutableStateOf(true) }
     val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
-    DisposableEffect(feedback) { onDispose { feedback.close() } }
-    SideEffect { localRecognition.onManualCaptureReady = if (buttonSounds) feedback::start else null }
+    var microphoneCuePrepared by remember(feedback) { mutableStateOf(false) }
+    LaunchedEffect(feedback, buttonSounds) {
+        microphoneCuePrepared = false
+        if (buttonSounds) feedback.prepareStart()
+        microphoneCuePrepared = true
+    }
+    DisposableEffect(session, feedback) {
+        onDispose {
+            session.microphoneFeedback = null
+            session.automaticListeningAvailable = { false }
+            session.stopAutomaticListening()
+            feedback.close()
+        }
+    }
+    SideEffect { session.microphoneFeedback = if (buttonSounds) feedback::start else null }
     var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(STANDARD_SPEECH_RATE) }
     var pause by rememberSaveable { mutableStateOf(VoicePauseDuration.NATURAL) }
     var performance by rememberSaveable { mutableStateOf(VoicePerformanceMode.AUTO) }
@@ -481,6 +504,11 @@ private fun VoiceChatSessionScreen(
     LaunchedEffect(state.transcript) { draft = state.transcript }
     val voiceScreenActive = enabled && lifecycleState == Lifecycle.State.RESUMED && !settingsOpen && !routeOpen && !benchmarkRunning
     val foregroundVoice = voiceScreenActive && roomReady
+    val automaticListeningReady = foregroundVoice && voiceReady && preferencesApplied && recognitionReady && microphoneCuePrepared && approvals.isEmpty() && inputs.isEmpty() && consent == null
+    SideEffect {
+        session.automaticListeningAvailable = { automaticListeningReady && !runtimeOwner.background.playingElsewhere(runtime) }
+        if (chatView || settingsOpen || routeOpen) listeningEntry.cancel()
+    }
     val installOnVoiceLaunch = foregroundVoice && loaded && room.id > 0 && !chatView
     LaunchedEffect(voiceSettings, installOnVoiceLaunch) {
         if (installOnVoiceLaunch) voiceSettings.onVoiceLaunch()
@@ -538,6 +566,7 @@ private fun VoiceChatSessionScreen(
         }
     }
     val permissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        permissionRequestInFlight = false
         permission = granted
         session.access(currentEnabled, granted, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         if (!granted) {
@@ -546,8 +575,9 @@ private fun VoiceChatSessionScreen(
         }
     }
     fun listen() {
+        listeningEntry.cancel()
         session.holdAudio(benchmarkOwnership.value != null)
-        if (benchmarkOwnership.value != null || !enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
+        if (benchmarkOwnership.value != null || !enabled || !voiceReady || !preferencesApplied || !microphoneCuePrepared || !recognitionReady && !state.hasDraft) return
         if (runtimeOwner.background.playingElsewhere(runtime)) {
             runtimeOwner.background.stopCurrent()
         }
@@ -555,11 +585,10 @@ private fun VoiceChatSessionScreen(
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         if (permission) {
-            if (session.state.phase in setOf(VoicePhase.PAUSED, VoicePhase.ERROR) && !session.state.hasDraft) localRecognition.armManualCaptureFeedback()
-            if (session.state.muted) session.mute() else session.resume()
-            localRecognition.clearManualCaptureFeedback()
+            session.listenForConversation()
         } else {
             listenAfterPermission = true
+            permissionRequestInFlight = true
             permissionRequest.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -606,7 +635,7 @@ private fun VoiceChatSessionScreen(
         model.leaveConversation(onEnd)
     }
     fun pauseCapture() {
-        listenAfterPermission = false
+        cancelListeningIntent()
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) session.pause("transcript_opened")
     }
     fun openChat() {
@@ -641,6 +670,8 @@ private fun VoiceChatSessionScreen(
                     session.access(currentEnabled, permission, true)
                 }
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    session.stopAutomaticListening()
+                    if (!permissionRequestInFlight) cancelListeningIntent()
                     if (event == Lifecycle.Event.ON_STOP) benchmarkOwner.cancel()
                     refreshMutedBaseline = true
                     kokoroOutput?.cancelPrewarm()
@@ -662,13 +693,20 @@ private fun VoiceChatSessionScreen(
             runtimeOwner.pause(runtime)
         }
     }
-    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, permission, listenAfterPermission, recognitionReady, settingsOpen, routeOpen, benchmarkRunning) {
+    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, permission, listenAfterPermission, recognitionReady, microphoneCuePrepared, settingsOpen, routeOpen, benchmarkRunning) {
         session.holdAudio(benchmarkOwnership.value != null)
         session.access(currentEnabled, permission, lifecycleState == Lifecycle.State.RESUMED)
-        if (listenAfterPermission && permission && lifecycleState == Lifecycle.State.RESUMED && voiceReady && preferencesApplied) {
+        if (listenAfterPermission && permission && lifecycleState == Lifecycle.State.RESUMED && voiceReady && preferencesApplied && microphoneCuePrepared) {
             listenAfterPermission = false
             if (!settingsOpen && !routeOpen && recognitionReady && session.state.microphoneAction == VoiceMicrophoneAction.LISTEN) listen()
         }
+    }
+    LaunchedEffect(session, room.id, loaded, roomReady, initialChatView, automaticListeningReady, chatView, messages, state.phase, speakingNotification?.token) {
+        if (!loaded || !roomReady || room.id <= 0) return@LaunchedEffect
+        // Read the loaded room's live history, not a possibly older Compose collector snapshot.
+        val currentMessages = model.groupedMessages.value
+        val newConversation = !initialChatView && currentMessages.userMessages.isEmpty() && currentMessages.assistantMessages.all { it.isEmpty() }
+        if (listeningEntry.take(automaticListeningReady && !chatView && !runtimeOwner.background.playingElsewhere(runtime), newConversation, session.states.value)) listen()
     }
     LaunchedEffect(admission) {
         val accepted = admission ?: return@LaunchedEffect
@@ -842,7 +880,7 @@ private fun VoiceChatSessionScreen(
             VoiceMicrophoneAction.LISTEN -> listen()
             VoiceMicrophoneAction.FINISH_CAPTURE -> session.finishListening()
             VoiceMicrophoneAction.STOP -> {
-                listenAfterPermission = false
+                cancelListeningIntent()
                 val captureOnly = session.state.phase == VoicePhase.FINALIZING
                 val playingRun = playback.active?.identity?.runId
                 if (!manualMessage && !captureOnly) model.stopVoiceTurn(playingRun)
@@ -928,6 +966,7 @@ private fun VoiceChatSessionScreen(
                 actions = VoiceSettingsActions(
                     done = ::closeSettings,
                     selectProfile = { uid ->
+                        cancelListeningIntent()
                         session.pause("profile_changed")
                         model.selectVoiceProfile(uid) { changed -> if (changed) closeSettings() }
                     },
@@ -1041,7 +1080,10 @@ private fun VoiceChatSessionScreen(
                     }
                 ),
                 engineContent = {
-                    OutlinedButton(onClick = { routeOpen = true }) { Text("Audio output · $route") }
+                    OutlinedButton(onClick = {
+                        cancelListeningIntent()
+                        routeOpen = true
+                    }) { Text("Audio output · $route") }
                     if (backend.backend.usesKokoroVoices) {
                         SynthesisLanguageChoices(synthesis, backend.backend.usesKokoroVoices, enabled = !session.state.awaitingReply, change = ::changeSynthesis)
                     }
@@ -1159,6 +1201,7 @@ private fun VoiceChatSessionScreen(
                     }
                 },
                 settings = {
+                    cancelListeningIntent()
                     session.pause("settings_opened")
                     settingsOpen = true
                 },
@@ -1187,7 +1230,7 @@ private fun VoiceChatSessionScreen(
                     replyLanguageProfiles = backend.replyLanguageProfiles(synthesis),
                     translationMode = translationMode,
                     enabled = enabled,
-                    voiceReady = voiceReady,
+                    voiceReady = voiceReady && microphoneCuePrepared,
                     profileError = profilePreflightError,
                     preferencesApplied = preferencesApplied,
                     waitingApproval = waitingApproval,
@@ -1200,17 +1243,22 @@ private fun VoiceChatSessionScreen(
                 ),
                 actions = VoiceConversationActions(
                     selectProfile = { uid ->
+                        cancelListeningIntent()
                         session.pause("profile_changed")
                         model.selectVoiceProfile(uid) {}
                     },
                     openSettings = {
+                        cancelListeningIntent()
                         val currentState = session.states.value
                         val currentAdmission = model.voiceAdmission.value
                         if (currentState.shouldCheckpointDraft(currentAdmission?.requestId, currentAdmission?.stage)) model.checkpointVoiceDraft(currentState.transcript)
                         session.pause("settings_opened")
                         settingsOpen = true
                     },
-                    showSettings = { settingsOpen = true },
+                    showSettings = {
+                        cancelListeningIntent()
+                        settingsOpen = true
+                    },
                     installLocalModel = voiceSettings::installLocalModel,
                     cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
                     changeDraft = {
@@ -1224,10 +1272,12 @@ private fun VoiceChatSessionScreen(
                         listen()
                     },
                     repair = { action ->
+                        cancelListeningIntent()
                         session.pause("repair_settings_opened")
                         if (action == VoiceRecoveryAction.LOCAL_MODEL) settingsOpen = true else openVoiceRepairSettings(context, action)
                     },
                     openVoiceConfiguration = {
+                        cancelListeningIntent()
                         session.pause("settings_opened")
                         settingsOpen = true
                     },

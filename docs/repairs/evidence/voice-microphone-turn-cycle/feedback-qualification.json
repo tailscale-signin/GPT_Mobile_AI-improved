@@ -1,0 +1,15 @@
+{
+  "root": "/workspace/scratch/49479c165f4e/work-voice-lifecycle",
+  "base_head": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+  "compile_exit": 0,
+  "compiler": "Kotlin 2.4.20",
+  "android_api": "37",
+  "source_manifest": "feedback-sources.json",
+  "resource_port": "FeedbackResourcePort.kt",
+  "device_executed": false,
+  "sound_executed": false,
+  "scope": "Compile-only check of the exact current production VoiceButtonFeedback and VoiceMicrophoneCueReadiness against Android37 and cached coroutine APIs. Only generated R.raw constants are an explicit compile port. No device, audio, or lifecycle runtime claim.",
+  "integrated_source_binding": "integrated-source-binding.json",
+  "verified_integrated_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "source_match": true
+}

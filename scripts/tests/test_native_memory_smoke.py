@@ -208,6 +208,7 @@ class LatestFeatureAcceptanceReceiptsTest(unittest.TestCase):
         'privacy-profile-selection-instrumentation.txt': 'presentation/ui/home/PrivacyProfileSelectionInstrumentedTest',
         'voice-entry-instrumentation.txt': 'presentation/ui/voice/VoiceEntryInstrumentedTest',
         'voice-conversation-instrumentation.txt': 'presentation/ui/voice/VoiceConversationInstrumentedTest',
+        'voice-microphone-instrumentation.txt': 'presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest',
         'voice-message-controls-instrumentation.txt': 'presentation/ui/voice/VoiceMessageControlsInstrumentedTest',
     }
 

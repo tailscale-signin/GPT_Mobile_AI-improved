@@ -639,6 +639,67 @@
       }
     },
     {
+      "id": "voice-microphone-turn-cycle",
+      "title": "Voice microphone state and automatic listening",
+      "terms": [
+        "idle microphone",
+        "pulsating microphone",
+        "microphone highlight",
+        "listen after speaking",
+        "new voice chat",
+        "microphone button sound"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntry.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceButtonFeedback.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadiness.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFeedback.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionInput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInterruptionRoutingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionAdmissionRecoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneAppearanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadinessTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/voice-microphone-turn-cycle-2026-11-27.md"
+      ],
+      "invariants": [
+        "Idle microphones use neutral colors; accepted capture alone animates, and pending generation or speech keeps a static highlighted Stop.",
+        "One saved navigation-entry intent can start a fresh empty room after readiness and microphone permission; transient room loading, restoration and recomposition cannot rearm it.",
+        "Only completed spoken output can continue an armed conversation. Stop, interruption, error, backgrounding and changed ownership prevent automatic capture and do not enable recognition retries or replay a rejected message.",
+        "One cancellable cue belongs to each admitted capture. Local capture retains PCM suppression; bounded sample preparation cannot queue a sound after cancellation. Saved sound opt-outs and platform silent mode remain authoritative."
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+        "proof": "Admitted current capture or completed audio from the same conversation turn",
+        "admission": "Ready foreground voice room, microphone permission and an uncancelled listening intent",
+        "decline": "Keep the idle microphone neutral and preserve a rejected or interrupted draft for explicit review",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt#completedSpeechStartsTheNextCaptureOnceAndEachReadyCaptureOwnsOneCue",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt#stoppingPausingLosingAccessOrSupersedingSpeechFencesItsLateCompletion",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
       "id": "engineering-recovery",
       "title": "GitHub editing, task continuation and validation",
       "terms": [

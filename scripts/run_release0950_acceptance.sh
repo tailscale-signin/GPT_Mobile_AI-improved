@@ -120,6 +120,8 @@ if [ "$navigation_setup_status" -eq 0 ]; then
 fi
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-conversation-instrumentation.txt"
 voice_conversation_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneButtonInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-microphone-instrumentation.txt"
+voice_microphone_status=${PIPESTATUS[0]}
 navigation_restore_status=0
 for navigation_scale in animator_duration_scale window_animation_scale transition_animation_scale; do
   timeout 30s adb shell settings put global "$navigation_scale" 0
@@ -176,6 +178,7 @@ if [ "$agent_persistence_status" -ne 0 ]; then exit "$agent_persistence_status";
 if [ "$local_voice_status" -ne 0 ]; then exit "$local_voice_status"; fi
 if [ "$voice_entry_status" -ne 0 ]; then exit "$voice_entry_status"; fi
 if [ "$voice_conversation_status" -ne 0 ]; then exit "$voice_conversation_status"; fi
+if [ "$voice_microphone_status" -ne 0 ]; then exit "$voice_microphone_status"; fi
 if [ "$voice_message_controls_status" -ne 0 ]; then exit "$voice_message_controls_status"; fi
 if [ "$voice_transcript_status" -ne 0 ]; then exit "$voice_transcript_status"; fi
 if [ "$voice_artifact_status" -ne 0 ]; then exit "$voice_artifact_status"; fi
@@ -279,6 +282,11 @@ for test in (
     'themedVoiceStagesRetainRenderedEvidence',
 ):
     check_instrumentation(folder / 'voice-conversation-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest', test)
+for test in (
+    'pressingTheIdleMicrophoneHighlightsAndPulsesWhileStopRemainsStatic',
+    'reducedMotionKeepsCaptureHighlightedAndReadinessDisablesTheIdleControl',
+):
+    check_instrumentation(folder / 'voice-microphone-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneButtonInstrumentedTest', test)
 for test in (
     'fullDetailsActionKeepsTheOriginalMessageAndUsesTheSingleStopControl',
     'voiceAnswerShowsItsSpeechAndKeepsDetailsCollapsedUntilSelected',

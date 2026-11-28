@@ -1,0 +1,27 @@
+{
+  "integrated_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "instrumentation_original_compile_head": "e7f4f08a04450f12ead89ac4535315f916f6154b",
+  "extracted_declarations_identical": true,
+  "extracted_declarations_sha256": "00c9d08c36d4d0f1dd4bb3f9e07c88709d04d0b17196e32bb8d004be77b8a2b3",
+  "whole_voice_session_sha256": "db750685d554353a1c8f3af4f9b87e85617c52e634cf8370cede38a61f15e1e6",
+  "instrumentation_components": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt": {
+      "sha256": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+      "matches_compiled_source": true
+    },
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt": {
+      "sha256": "e062cf2b8d071924fa6d1b23cfbc7e9da00658c69b8e5456b040044a2acfb7a4",
+      "matches_compiled_source": true
+    }
+  },
+  "feedback_components": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceButtonFeedback.kt": {
+      "sha256": "6f5c71843e34c88d3582af5a22618acac748a7dc4a7de9ef273cc72004c9280a",
+      "matches_compiled_source": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadiness.kt": {
+      "sha256": "757cbac357682855af6dbb50d8b0ab877a178b89ddecb22d6b22e3863115f9c0",
+      "matches_compiled_source": true
+    }
+  }
+}

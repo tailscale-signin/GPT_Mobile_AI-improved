@@ -1,0 +1,30 @@
+{
+  "version": "1.3.1",
+  "exitCode": 0,
+  "files": 22,
+  "sourceSha256": {
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt": "e062cf2b8d071924fa6d1b23cfbc7e9da00658c69b8e5456b040044a2acfb7a4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ReviewedAppFeatures.kt": "325e72d47bf9421799b823d42834a16fe120be0b63893d1fcbc222818459aca2",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "ab51355552155cefefc7442aacc060bad437dbf98f0da1e465920002e24ca094",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "8cb12468b5223a53ff6202859aa18dbe650ced5db6c6528dc906d19b73559649",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFeedback.kt": "444d13dc8b5fbb190a27b8c0eb70af178fe81c46b4fcc1f52a7acd3ac15acb42",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "91f650802abaab8b9ed99b81143a2bae5a41b42b0e8a164c232659649ca2ac53",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionInput.kt": "c8da5aeed07edd4a48e86092bb7dbcf72c2bf6d53ff50aa8e4de612732d1a1da",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "db750685d554353a1c8f3af4f9b87e85617c52e634cf8370cede38a61f15e1e6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceButtonFeedback.kt": "6f5c71843e34c88d3582af5a22618acac748a7dc4a7de9ef273cc72004c9280a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "5363d51a241b9c18d2a7594ea352ef979182f930d6964b489330561767f1d0cf",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt": "bdad870a4b5e61346aaaa3e526cd7b9e7b034daab254538ba44b54c49d30a500",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntry.kt": "1c642bb91087e582bdb43544f8bb38878a7ef989e3af0a26cf16df704d19f01e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadiness.kt": "757cbac357682855af6dbb50d8b0ab877a178b89ddecb22d6b22e3863115f9c0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt": "5f8f0a4710aecd3eea8347461014e0dd956eec2b803b661b9ce43002199e56b4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptScreen.kt": "8bceea21b65dd7bf97e4915f46b0a6403e259b33a1b22c4adccdec4a8c382407",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt": "fb4c29b3c734be5829a615c1d84a1d8db66ed634b7b1503f70b26e95559141af",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInterruptionRoutingTest.kt": "12349d06b6bb64a2a9c8006f80932c4ac55c17a4d2863a97904518749193df66",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntryTest.kt": "b1f7f2cc50dea0d18ce92d67549a37194f32ba006a4dd4372e74db9efd04dbb9",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneAppearanceTest.kt": "c42f922e1b7f4c4063e42b744d02b78a295b6bdbc037580f866f29bf88f91aff",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadinessTest.kt": "603dbb4b8d63cd7571d30263d11cefba9dd5f4a9c83043a12862a31e145840aa",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt": "2568acff1581391c23a652a07110d8d4cd0ba950e491d972c301b9cc5ba5ba2c"
+  },
+  "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

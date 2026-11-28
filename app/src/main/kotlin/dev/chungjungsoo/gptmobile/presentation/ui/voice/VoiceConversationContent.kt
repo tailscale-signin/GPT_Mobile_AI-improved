@@ -33,12 +33,9 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -371,21 +368,18 @@ private fun VoiceConversationControls(state: VoiceConversationUiState, actions: 
     var choosingLanguage by rememberSaveable { mutableStateOf(false) }
     val action = state.session.microphoneAction
     val canSelect = state.preferencesApplied && action == VoiceMicrophoneAction.LISTEN
-    val (icon, description) = when (action) {
-        VoiceMicrophoneAction.LISTEN -> Icons.Rounded.Mic to "Start listening"
-        VoiceMicrophoneAction.FINISH_CAPTURE -> Icons.Rounded.Mic to "Finish speaking"
-        VoiceMicrophoneAction.STOP -> Icons.Rounded.Stop to "Stop"
-    }
     Column(
         Modifier.fillMaxWidth().padding(top = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        FilledIconButton(
+        VoiceMicrophoneButton(
+            action = action,
             onClick = actions.toggleMicrophone,
             enabled = action != VoiceMicrophoneAction.LISTEN || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady && state.session.phase != VoicePhase.REVIEWING,
-            modifier = Modifier.size(88.dp).testTag("voice_microphone_toggle")
-        ) { Icon(icon, description, Modifier.size(44.dp)) }
+            modifier = Modifier.size(88.dp).testTag("voice_microphone_toggle"),
+            iconSize = 44.dp
+        )
         Row(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Spacer(Modifier.weight(1f))
             VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, Modifier.weight(1f))

@@ -46,7 +46,7 @@ internal data class VoicePreferences(
     val kokoroVoice: KokoroVoice? = null,
     val spokenReplies: Boolean = true,
     val kokoroThreads: Int = VoiceCpuSchedulingPolicy.AUTO,
-    val buttonSounds: Boolean = false,
+    val buttonSounds: Boolean = true,
     val pause: VoicePauseDuration = VoicePauseDuration.NATURAL,
     val performance: VoicePerformanceMode = VoicePerformanceMode.AUTO,
     val speakWhileGenerating: Boolean = true,

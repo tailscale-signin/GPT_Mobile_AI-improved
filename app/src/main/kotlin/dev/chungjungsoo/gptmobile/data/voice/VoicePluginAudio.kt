@@ -233,7 +233,9 @@ internal class VoicePluginAudio(
         }
     }
 
-    override fun listen(listener: VoiceAudio.Listener) {
+    override fun listen(listener: VoiceAudio.Listener) = listenWithFeedback(listener, null)
+
+    override fun listenWithFeedback(listener: VoiceAudio.Listener, feedback: (() -> Boolean)?) {
         if (closed) return
         stopMonitoring()
         val ticket = ++playbackGeneration
@@ -244,11 +246,11 @@ internal class VoicePluginAudio(
                 VoiceRecognitionBackend.LOCAL_MOONSHINE -> {
                     system.stop()
                     releaseSystemRecognition()
-                    local.listen(listener)
+                    local.listenWithFeedback(listener, feedback)
                 }
                 VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> {
                     local.stop()
-                    system.listen(listener)
+                    system.listenWithFeedback(listener, feedback)
                 }
             }
         }

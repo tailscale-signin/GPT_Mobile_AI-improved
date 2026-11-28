@@ -167,9 +167,11 @@ internal class MoonshineVoiceRecognizer internal constructor(
         }
     }
 
-    override fun listen(listener: VoiceAudio.Listener) {
+    override fun listen(listener: VoiceAudio.Listener) =
+        listenWithFeedback(listener, if (manualFeedback.getAndSet(false)) onManualCaptureReady else null)
+
+    override fun listenWithFeedback(listener: VoiceAudio.Listener, feedback: (() -> Boolean)?) {
         if (closed) return
-        val feedback = if (manualFeedback.getAndSet(false)) onManualCaptureReady else null
         val diagnostics = diagnosticProbe
         diagnostics?.captureRequested()
         diagnostics?.engine(VoiceDiagnosticTrace.Engine.LOCAL)

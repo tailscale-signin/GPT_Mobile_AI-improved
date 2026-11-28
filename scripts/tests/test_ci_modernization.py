@@ -100,6 +100,13 @@ class WorkflowPolicyTest(unittest.TestCase):
             'dev.chungjungsoo.gptmobile.data.workspace.ProtectedDiagnosticProjectionTest',
             'dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest',
             'dev.chungjungsoo.gptmobile.data.github.GitHubCommitPaginationRecoveryTest',
+            'dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest',
+            'dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionRoutingTest',
+            'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest',
+            'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceListeningEntryTest',
+            'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneAppearanceTest',
+            'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneCueReadinessTest',
+            'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePreferenceStoreTest',
             'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest',
         }
         for name in expected:
@@ -131,7 +138,7 @@ class WorkflowPolicyTest(unittest.TestCase):
                 arguments = json.loads((root / 'arguments.json').read_text())
                 selected = [arguments[index + 1] for index, value in enumerate(arguments) if value == '--tests']
                 self.assertEqual(expected, set(selected))
-                self.assertEqual(5, len(selected))
+                self.assertEqual(len(expected), len(selected))
                 self.assertIn(':app:testDebugUnitTest', arguments)
                 self.assertIn('--rerun', arguments)
                 seconds = int(arguments[arguments.index('--timeout-seconds') + 1])

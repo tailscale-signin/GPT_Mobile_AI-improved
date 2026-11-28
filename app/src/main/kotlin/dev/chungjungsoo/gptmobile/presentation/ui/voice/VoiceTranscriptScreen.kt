@@ -13,10 +13,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -150,13 +147,6 @@ private fun VoiceTranscriptToolbar(
 internal fun VoiceTranscriptOutputControls(status: String, action: VoiceMicrophoneAction, microphone: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        FilledTonalButton(onClick = microphone, modifier = Modifier.testTag("voice_transcript_microphone")) {
-            val (icon, label) = when (action) {
-                VoiceMicrophoneAction.STOP -> Icons.Rounded.Stop to "Stop reply"
-                VoiceMicrophoneAction.FINISH_CAPTURE -> Icons.Rounded.Mic to "Finish speaking"
-                VoiceMicrophoneAction.LISTEN -> Icons.Rounded.Mic to "Start listening"
-            }
-            Icon(icon, label)
-        }
+        VoiceMicrophoneButton(action, microphone, Modifier.testTag("voice_transcript_microphone"), compact = true, stopLabel = "Stop reply")
     }
 }

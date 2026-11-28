@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2651,
+  "targetBranch": "feature/windows-native-benchmark-kit",
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "intakeHead": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+  "reconciledRemoteHead": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+  "localWorkingBranch": "repair/voice-microphone-turn-cycle",
+  "intent": "Make idle voice microphones neutral, animate the highlighted listening microphone, retain static highlighted Stop during generation/speech, automatically listen on first fresh voice-chat entry and after successful spoken replies with the capture-ready cue. Preserve existing saved sound opt-out, cancellation, permissions, lifecycle and incoming PR changes.",
+  "status": "validated_implementation",
+  "ownedWorktrees": {
+    "presentation": "/workspace/scratch/49479c165f4e/work-voice-presentation",
+    "lifecycle": "/workspace/scratch/49479c165f4e/work-voice-lifecycle"
+  },
+  "priorRepair": {
+    "commit": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+    "confirmedClosedIssues": [
+      2776,
+      2777,
+      2778,
+      2779,
+      2780,
+      2781,
+      2782,
+      2783,
+      2784,
+      2785,
+      2786,
+      2787,
+      2788,
+      2789,
+      2790
+    ],
+    "prSummaryComment": 7234238575
+  },
+  "followupIssues": [
+    2791,
+    2792,
+    2793
+  ],
+  "closureStandard": "Action taken, per explicit user instruction. Closure does not assert provider recovery, physical device behavior or exact-head Android qualification.",
+  "validation": {
+    "focusedBehavior": {
+      "lifecycle": {
+        "passed": 71,
+        "failed": 0,
+        "newCases": 14,
+        "baselinePassed": 57,
+        "assertionsEnabled": true,
+        "scope": "Complete exact session and plugin routing implementations with explicit diagnostic, persistence and native-boundary host ports."
+      },
+      "appearance": {
+        "passed": 4,
+        "failed": 0,
+        "scope": "Actual composable with exact state/action declarations and pinned Android/Compose APIs; motion policy is an explicit compile port."
+      },
+      "gateway": {
+        "passed": 8,
+        "failed": 0,
+        "scope": "Existing in-memory Gateway backend tests; no Android HTTP-adapter or live model execution."
+      },
+      "integrationSourceHashes": {
+        "lifecycleMatched": 38,
+        "gatewayMatched": 26,
+        "mismatches": 0
+      },
+      "deviceTestApiCompile": {
+        "methods": 2,
+        "exitCode": 0,
+        "deviceExecuted": false
+      },
+      "soundHelperApiCompile": {
+        "exitCode": 0,
+        "soundExecuted": false
+      },
+      "preferenceRobolectricTest": "Added; execution requires hosted Android test runtime."
+    },
+    "canonicalFastGate": {
+      "command": "bash scripts/validate-local.sh fast",
+      "exitCode": 0,
+      "testsRun": 863,
+      "skipped": 1,
+      "failures": 0,
+      "generatedReferences": "PASS",
+      "dependencyCatalog": "PASS",
+      "secretScan": "PASS",
+      "resourcesXmlFiles": 38,
+      "regex": {
+        "literalPatterns": 2349,
+        "dynamicSkipped": 153,
+        "errors": 0
+      },
+      "logSha256": "7d08649a12af3c77ca062d382e1d35ead723fed597256621c256b7456f7e59c5"
+    },
+    "ktlint": {
+      "version": "1.3.1",
+      "exitCode": 0,
+      "files": 22,
+      "sourceSha256": {
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt": "e062cf2b8d071924fa6d1b23cfbc7e9da00658c69b8e5456b040044a2acfb7a4",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ReviewedAppFeatures.kt": "325e72d47bf9421799b823d42834a16fe120be0b63893d1fcbc222818459aca2",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "ab51355552155cefefc7442aacc060bad437dbf98f0da1e465920002e24ca094",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "8cb12468b5223a53ff6202859aa18dbe650ced5db6c6528dc906d19b73559649",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFeedback.kt": "444d13dc8b5fbb190a27b8c0eb70af178fe81c46b4fcc1f52a7acd3ac15acb42",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "91f650802abaab8b9ed99b81143a2bae5a41b42b0e8a164c232659649ca2ac53",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionInput.kt": "c8da5aeed07edd4a48e86092bb7dbcf72c2bf6d53ff50aa8e4de612732d1a1da",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "db750685d554353a1c8f3af4f9b87e85617c52e634cf8370cede38a61f15e1e6",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceButtonFeedback.kt": "6f5c71843e34c88d3582af5a22618acac748a7dc4a7de9ef273cc72004c9280a",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "5363d51a241b9c18d2a7594ea352ef979182f930d6964b489330561767f1d0cf",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt": "bdad870a4b5e61346aaaa3e526cd7b9e7b034daab254538ba44b54c49d30a500",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntry.kt": "1c642bb91087e582bdb43544f8bb38878a7ef989e3af0a26cf16df704d19f01e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadiness.kt": "757cbac357682855af6dbb50d8b0ab877a178b89ddecb22d6b22e3863115f9c0",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt": "5f8f0a4710aecd3eea8347461014e0dd956eec2b803b661b9ce43002199e56b4",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptScreen.kt": "8bceea21b65dd7bf97e4915f46b0a6403e259b33a1b22c4adccdec4a8c382407",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt": "fb4c29b3c734be5829a615c1d84a1d8db66ed634b7b1503f70b26e95559141af",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInterruptionRoutingTest.kt": "12349d06b6bb64a2a9c8006f80932c4ac55c17a4d2863a97904518749193df66",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntryTest.kt": "b1f7f2cc50dea0d18ce92d67549a37194f32ba006a4dd4372e74db9efd04dbb9",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneAppearanceTest.kt": "c42f922e1b7f4c4063e42b744d02b78a295b6bdbc037580f866f29bf88f91aff",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadinessTest.kt": "603dbb4b8d63cd7571d30263d11cefba9dd5f4a9c83043a12862a31e145840aa",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt": "2568acff1581391c23a652a07110d8d4cd0ba950e491d972c301b9cc5ba5ba2c"
+      },
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "android": "Existing memory gate retained; no full Android pass claimed.",
+    "physicalDevice": "not_run",
+    "ciWiring": {
+      "earlyAndroidClasses": 12,
+      "subsetXmlSeparate": true,
+      "fullSuiteStillRequired": true,
+      "deviceMethodsRequired": 2,
+      "policyModulePassed": 22,
+      "acceptanceModulePassed": 16
+    },
+    "androidMemoryPreflight": {
+      "status": "UNKNOWN",
+      "requiredMiB": 8960,
+      "observedMemAvailableBytes": 5408239616,
+      "compileStarted": false,
+      "guardBypassed": false
+    },
+    "correctedGateFinding": "Added the new exact scope limitation to RELEASE_NOTES.md; final canonical host gate passes. No gate was weakened."
+  },
+  "integratedSourceCommit": "b8b5e510a7d7ade5e56476d829a656681fdf9e19",
+  "behaviorDecisions": [
+    "Saved navigation-entry intent survives transient room IDs and is consumed by explicit cancellation.",
+    "Successful speech continuation is separate from recognition retry.",
+    "Capture cue preparation is bounded at 250 ms; no delayed sound is queued.",
+    "Fresh or missing Button sounds settings default on; all saved false values are retained."
+  ],
+  "dependencyReconciliation": {
+    "incomingCommit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "samePublishedChecksumIndependentlyVerified": true,
+    "incomingXmlPreserved": true
+  },
+  "confirmedClosedFollowupIssues": [
+    {
+      "number": 2791,
+      "state": "closed",
+      "stateReason": "completed",
+      "commentId": 7234458655
+    },
+    {
+      "number": 2792,
+      "state": "closed",
+      "stateReason": "completed",
+      "commentId": 7234458963
+    },
+    {
+      "number": 2793,
+      "state": "closed",
+      "stateReason": "completed",
+      "commentId": 7234459288
+    }
+  ],
+  "additionalReportsObserved": {
+    "numbers": [
+      2794,
+      2795,
+      2796,
+      2797,
+      2798,
+      2799,
+      2800,
+      2801,
+      2802,
+      2803,
+      2804,
+      2805,
+      2806,
+      2807,
+      2808,
+      2809,
+      2810,
+      2811,
+      2812,
+      2813,
+      2814,
+      2815,
+      2816,
+      2817,
+      2818,
+      2819,
+      2820,
+      2821,
+      2822,
+      2823,
+      2824,
+      2825,
+      2826,
+      2827
+    ],
+    "status": "Separate follow-up audit running after the Voice repair intake; no resolution claim in this checkpoint."
+  },
+  "changedSourceSha256": {
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt": "e062cf2b8d071924fa6d1b23cfbc7e9da00658c69b8e5456b040044a2acfb7a4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ReviewedAppFeatures.kt": "325e72d47bf9421799b823d42834a16fe120be0b63893d1fcbc222818459aca2",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "ab51355552155cefefc7442aacc060bad437dbf98f0da1e465920002e24ca094",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "8cb12468b5223a53ff6202859aa18dbe650ced5db6c6528dc906d19b73559649",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFeedback.kt": "444d13dc8b5fbb190a27b8c0eb70af178fe81c46b4fcc1f52a7acd3ac15acb42",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "91f650802abaab8b9ed99b81143a2bae5a41b42b0e8a164c232659649ca2ac53",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionInput.kt": "c8da5aeed07edd4a48e86092bb7dbcf72c2bf6d53ff50aa8e4de612732d1a1da",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "db750685d554353a1c8f3af4f9b87e85617c52e634cf8370cede38a61f15e1e6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceButtonFeedback.kt": "6f5c71843e34c88d3582af5a22618acac748a7dc4a7de9ef273cc72004c9280a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "5363d51a241b9c18d2a7594ea352ef979182f930d6964b489330561767f1d0cf",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt": "bdad870a4b5e61346aaaa3e526cd7b9e7b034daab254538ba44b54c49d30a500",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntry.kt": "1c642bb91087e582bdb43544f8bb38878a7ef989e3af0a26cf16df704d19f01e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadiness.kt": "757cbac357682855af6dbb50d8b0ab877a178b89ddecb22d6b22e3863115f9c0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt": "5f8f0a4710aecd3eea8347461014e0dd956eec2b803b661b9ce43002199e56b4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptScreen.kt": "8bceea21b65dd7bf97e4915f46b0a6403e259b33a1b22c4adccdec4a8c382407",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt": "fb4c29b3c734be5829a615c1d84a1d8db66ed634b7b1503f70b26e95559141af",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInterruptionRoutingTest.kt": "12349d06b6bb64a2a9c8006f80932c4ac55c17a4d2863a97904518749193df66",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceListeningEntryTest.kt": "b1f7f2cc50dea0d18ce92d67549a37194f32ba006a4dd4372e74db9efd04dbb9",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneAppearanceTest.kt": "c42f922e1b7f4c4063e42b744d02b78a295b6bdbc037580f866f29bf88f91aff",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneCueReadinessTest.kt": "603dbb4b8d63cd7571d30263d11cefba9dd5f4a9c83043a12862a31e145840aa",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt": "2568acff1581391c23a652a07110d8d4cd0ba950e491d972c301b9cc5ba5ba2c"
+  },
+  "rootReviewFollowup": "The fresh-entry effect observes the existing speaking-notification token so another room releasing playback rechecks the pending entry; the live ownership guard and consumed token remain unchanged.",
+  "incomingSourceReconciliation": {
+    "commit": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+    "preserved": [
+      "Saved GitHub room restoration state and recovery presentation",
+      "Caption watermark/end-revision bounds",
+      "Their new tests and source-bound task record"
+    ],
+    "lifecycleManifestMatches": 38,
+    "gatewayManifestMatches": 26,
+    "mismatches": 0
+  }
+}

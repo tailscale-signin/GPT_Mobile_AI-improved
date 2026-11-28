@@ -37,6 +37,10 @@ interface VoiceAudio {
     }
     fun retryAfterMillis(): Long = 0
     fun listen(listener: Listener)
+
+    /** Backends with PCM access suppress the cue at capture; other backends announce their ready event. */
+    fun listenWithFeedback(listener: Listener, feedback: (() -> Boolean)?) = listen(listener.withCaptureFeedback(feedback))
+
     fun finishListening() = Unit
     fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) = Unit
     fun configurePronunciation(overrides: Map<String, String>, language: String = "en") = Unit
@@ -156,6 +160,11 @@ class VoiceSession(
     private var submittedDraft: SubmittedDraft? = null
     private var engaged = false
     private var automaticRetry = false
+    private var listenAfterSpokenReply = false
+    private var replyAudioCompleted = false
+    private var activeCaptureFeedback: VoiceCaptureFeedback? = null
+    internal var microphoneFeedback: (() -> Boolean)? = null
+    internal var automaticListeningAvailable: () -> Boolean = { true }
     private var recognitionFailures = 0
     private var lastReply: String? = null
     private var streamId: String? = null
@@ -189,6 +198,7 @@ class VoiceSession(
         replyPlayback = null
         playbackFinished = false
         manualPlayback = false
+        replyAudioCompleted = false
     }
     internal var translationOnly = false
         set(value) {
@@ -201,6 +211,18 @@ class VoiceSession(
 
     var editBeforeSend = false
     var autoContinue = false
+
+    /** User or new-room listening intent does not enable retries after recognition failures. */
+    fun listenForConversation() {
+        if (!accessAllowed()) return
+        listenAfterSpokenReply = true
+        if (state.muted) mute() else resume()
+    }
+
+    fun stopAutomaticListening() {
+        listenAfterSpokenReply = false
+    }
+
     fun finishListening() {
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING) && accessAllowed()) audio.finishListening()
     }
@@ -227,10 +249,10 @@ class VoiceSession(
         val edited = text.take(8000)
         update(state.copy(transcript = edited, translationPrompt = translationPrompt(edited)))
     }
-    private fun continueTurn() {
+    private fun continueTurn(completedSpokenReply: Boolean = false) {
         diagnosticTrace.retain()
         if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) update(state.copy(phase = VoicePhase.PAUSED))
-        if (foreground && autoContinue) resume() else pause()
+        if (foreground && (autoContinue || completedSpokenReply && listenAfterSpokenReply && automaticListeningAvailable())) resume() else pause()
     }
     fun tick() {
         if (state.phase != VoicePhase.CLOSED && state.retryAtMillis > 0 && now() >= state.retryAtMillis) {
@@ -414,6 +436,9 @@ class VoiceSession(
         return diagnosticTrace.incidentFields() + mapOf("failed_stage" to operation, "operation" to operation)
     }
     private fun stopAudio(reason: String = "session_reset") {
+        activeCaptureFeedback?.cancel()
+        activeCaptureFeedback = null
+        replyAudioCompleted = false
         generation++
         if (openingSpeech == OpeningSpeech.PREPARING || openingSpeech == OpeningSpeech.AUDIBLE) {
             openingSpeech = OpeningSpeech.FINISHED
@@ -574,70 +599,76 @@ class VoiceSession(
                 )
             )
         }
-        audio.listen(object : VoiceAudio.Listener {
-            override fun ready() {
-                if (valid()) {
-                    // Starting the recognizer can fail. Retire the previous prompt only once capture is live.
-                    update(state.copy(phase = VoicePhase.LISTENING, translationPrompt = state.translationPrompt?.takeIf { it.captureId == ticket }))
+        if (!valid()) return
+        val feedback = microphoneFeedback?.let(::VoiceCaptureFeedback)
+        activeCaptureFeedback = feedback
+        audio.listenWithFeedback(
+            object : VoiceAudio.Listener {
+                override fun ready() {
+                    if (valid()) {
+                        // Starting the recognizer can fail. Retire the previous prompt only once capture is live.
+                        update(state.copy(phase = VoicePhase.LISTENING, translationPrompt = state.translationPrompt?.takeIf { it.captureId == ticket }))
+                    }
                 }
-            }
-            override fun ending() {
-                if (valid()) {
-                    diagnosticProbe.speechEnded()
-                    update(state.copy(phase = VoicePhase.FINALIZING, level = 0f))
+                override fun ending() {
+                    if (valid()) {
+                        diagnosticProbe.speechEnded()
+                        update(state.copy(phase = VoicePhase.FINALIZING, level = 0f))
+                    }
                 }
-            }
-            override fun failure(message: String, retryMillis: Long) {
-                recognitionFailed(message, retryMillis)
-            }
-            override fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) {
-                recognitionFailed(message, retryMillis, recoveryAction = action)
-            }
-            override fun retryableFailure(message: String, retryMillis: Long) {
-                recognitionFailed(message, retryMillis, retryable = true)
-            }
-            override fun failure(message: String, code: String, retryMillis: Long, retryable: Boolean, recoveryAction: VoiceRecoveryAction?, cause: Throwable?) {
-                recognitionFailed(message, retryMillis, retryable, recoveryAction, code, cause)
-            }
-            override fun level(value: Float) {
-                if (valid()) update(state.copy(level = value.coerceIn(0f, 1f), hasAudioLevel = true))
-            }
-            override fun partial(text: String) {
-                if (valid()) {
+                override fun failure(message: String, retryMillis: Long) {
+                    recognitionFailed(message, retryMillis)
+                }
+                override fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) {
+                    recognitionFailed(message, retryMillis, recoveryAction = action)
+                }
+                override fun retryableFailure(message: String, retryMillis: Long) {
+                    recognitionFailed(message, retryMillis, retryable = true)
+                }
+                override fun failure(message: String, code: String, retryMillis: Long, retryable: Boolean, recoveryAction: VoiceRecoveryAction?, cause: Throwable?) {
+                    recognitionFailed(message, retryMillis, retryable, recoveryAction, code, cause)
+                }
+                override fun level(value: Float) {
+                    if (valid()) update(state.copy(level = value.coerceIn(0f, 1f), hasAudioLevel = true))
+                }
+                override fun partial(text: String) {
+                    if (valid()) {
+                        diagnosticProbe.recognized(text.length)
+                        val partial = text.take(8000)
+                        val source = translationPrompt(partial, ticket) ?: state.translationPrompt?.takeIf { it.captureId == ticket }
+                        update(state.copy(transcript = partial, translationPrompt = source))
+                    }
+                }
+                override fun final(text: String) {
+                    if (!valid()) return
                     diagnosticProbe.recognized(text.length)
-                    val partial = text.take(8000)
-                    val source = translationPrompt(partial, ticket) ?: state.translationPrompt?.takeIf { it.captureId == ticket }
-                    update(state.copy(transcript = partial, translationPrompt = source))
-                }
-            }
-            override fun final(text: String) {
-                if (!valid()) return
-                diagnosticProbe.recognized(text.length)
-                diagnosticProbe.finalTranscript()
-                stopAudio()
-                val prompt = text.trim().take(8000)
-                if (prompt.isEmpty()) {
-                    if (state.transcript.isNotBlank()) {
-                        fail("Speech recognition ended without a final transcript. Review the captured text before sending.")
+                    diagnosticProbe.finalTranscript()
+                    stopAudio()
+                    val prompt = text.trim().take(8000)
+                    if (prompt.isEmpty()) {
+                        if (state.transcript.isNotBlank()) {
+                            fail("Speech recognition ended without a final transcript. Review the captured text before sending.")
+                            return
+                        }
+                        if (autoContinue && !state.muted && ++recognitionFailures <= 3) {
+                            automaticRetry = true
+                            update(state.copy(phase = VoicePhase.PAUSED, retryAtMillis = now() + maxOf(500, audio.retryAfterMillis())))
+                        } else {
+                            if (autoContinue && !state.muted) fail("No speech was detected after several attempts. Tap to try again.", "VOICE_NO_SPEECH") else pause()
+                        }
                         return
                     }
-                    if (autoContinue && !state.muted && ++recognitionFailures <= 3) {
-                        automaticRetry = true
-                        update(state.copy(phase = VoicePhase.PAUSED, retryAtMillis = now() + maxOf(500, audio.retryAfterMillis())))
-                    } else {
-                        if (autoContinue && !state.muted) fail("No speech was detected after several attempts. Tap to try again.", "VOICE_NO_SPEECH") else pause()
-                    }
-                    return
+                    recognitionFailures = 0
+                    draftPending = true
+                    update(state.copy(phase = VoicePhase.REVIEWING, transcript = prompt, translationPrompt = translationPrompt(prompt, ticket), level = 0f))
+                    if (!editBeforeSend) sendDraft()
                 }
-                recognitionFailures = 0
-                draftPending = true
-                update(state.copy(phase = VoicePhase.REVIEWING, transcript = prompt, translationPrompt = translationPrompt(prompt, ticket), level = 0f))
-                if (!editBeforeSend) sendDraft()
-            }
-            override fun error(message: String) {
-                if (valid()) fail(message)
-            }
-        })
+                override fun error(message: String) {
+                    if (valid()) fail(message)
+                }
+            },
+            feedback?.let { it::ready }
+        )
     }
 
     /** At most one acknowledgment may speak for this reply. The answer owns its own audio measurements. */
@@ -765,7 +796,7 @@ class VoiceSession(
                     if (ticket == generation && replyPlayback != null) {
                         replyPlayback = null
                         waiting = false
-                        continueTurn()
+                        continueTurn(completedSpokenReply = streamComplete && playbackFinished)
                     }
                 },
                 error = { message -> if (ticket == generation) playbackFailed(message, origin) }
@@ -785,7 +816,7 @@ class VoiceSession(
         if (chunk == null) {
             if (streamComplete) {
                 waiting = false
-                continueTurn()
+                continueTurn(completedSpokenReply = replyAudioCompleted)
             } else {
                 update(state.copy(phase = VoicePhase.THINKING))
             }
@@ -798,6 +829,7 @@ class VoiceSession(
         audio.speakWithFailure(chunk, complete = {
             if (generation == ticket && sequence == playbackSequence && chunkPlaying) {
                 chunkPlaying = false
+                replyAudioCompleted = true
                 pumpSpeech()
             }
         }, error = { message -> if (generation == ticket && sequence == playbackSequence) playbackFailed(message, origin) })
@@ -868,6 +900,7 @@ class VoiceSession(
         stopAudio()
         streamAudio = false
         engaged = false
+        listenAfterSpokenReply = false
         automaticRetry = false
         if (streamComplete) waiting = false
         update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = failure.message, level = 0f), reportFailure = false)
@@ -892,6 +925,7 @@ class VoiceSession(
     fun stopTurn() {
         if (state.phase == VoicePhase.CLOSED) return
         autoContinue = false
+        listenAfterSpokenReply = false
         automaticRetry = false
         engaged = false
         waiting = false
@@ -904,6 +938,7 @@ class VoiceSession(
 
     fun stopSpeaking() {
         if (state.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING) && !waiting) return
+        listenAfterSpokenReply = false
         stopAudio("user_stop_speaking")
         streamAudio = false
         if (waiting && !streamComplete) {
@@ -919,6 +954,7 @@ class VoiceSession(
     fun supersedeMessage(id: String) {
         if (state.phase == VoicePhase.CLOSED || streamId != id) return
         engaged = false
+        listenAfterSpokenReply = false
         automaticRetry = false
         waiting = false
         stopAudio("message_superseded")
@@ -1001,7 +1037,7 @@ class VoiceSession(
         audio.bindReply(streamDiagnosticId ?: id)
         val origin = diagnosticProbe
         audio.speakWithFailure(spoken, complete = {
-            if (ticket == generation && playbackAllowed()) continueTurn()
+            if (ticket == generation && playbackAllowed()) continueTurn(completedSpokenReply = true)
         }, error = { message -> if (ticket == generation) playbackFailed(message, origin) })
     }
 
@@ -1025,6 +1061,7 @@ class VoiceSession(
     }
     fun pause(reason: String = "user_pause") {
         if (state.phase == VoicePhase.CLOSED) return
+        listenAfterSpokenReply = false
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         // A completed model response may still be draining audio. Once that playback is
         // cancelled, there is no later model event left to release its waiting ownership.
@@ -1044,6 +1081,7 @@ class VoiceSession(
     }
     fun fail(message: String, code: String = "VOICE_SESSION_FAILED", cause: Throwable? = null, failureFields: Map<String, Any?> = emptyMap(), reportFailure: Boolean = true) {
         if (state.phase == VoicePhase.CLOSED) return
+        listenAfterSpokenReply = false
         val diagnosticFields = diagnosticTrace.incidentFields()
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
@@ -1054,6 +1092,7 @@ class VoiceSession(
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return
+        listenAfterSpokenReply = false
         submittedDraft = null
         stopAudio("session_closed")
         waiting = false

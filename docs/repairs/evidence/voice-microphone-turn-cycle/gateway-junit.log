@@ -1,0 +1,13 @@
+test_empty_answer_repairs_once_and_accounts_for_both_attempts (test_gateway_completion_recovery.CompletionRecoveryTests.test_empty_answer_repairs_once_and_accounts_for_both_attempts) ... ok
+test_repeated_empty_is_terminal_without_third_request (test_gateway_completion_recovery.CompletionRecoveryTests.test_repeated_empty_is_terminal_without_third_request) ... ok
+test_exhausted_or_unknown_output_usage_never_starts_unbudgeted_retry (test_gateway_completion_recovery.CompletionRecoveryTests.test_exhausted_or_unknown_output_usage_never_starts_unbudgeted_retry) ... ok
+test_reasoning_progress_is_not_visible_answer_progress (test_gateway_completion_recovery.CompletionRecoveryTests.test_reasoning_progress_is_not_visible_answer_progress) ... ok
+test_empty_delivery_is_one_error_then_done (test_gateway_completion_recovery.CompletionRecoveryTests.test_empty_delivery_is_one_error_then_done) ... ok
+test_initial_dispatch_and_empty_repair_keep_authority_and_failed_tool_pair (test_gateway_message_contract.MessageContractTests.test_initial_dispatch_and_empty_repair_keep_authority_and_failed_tool_pair) ... ok
+test_budget_exhaustion_and_failed_repair_keep_actual_attempt_usage (test_gateway_message_contract.MessageContractTests.test_budget_exhaustion_and_failed_repair_keep_actual_attempt_usage) ... ok
+test_repair_preserves_an_explicit_reasoning_on_control (test_gateway_message_contract.MessageContractTests.test_repair_preserves_an_explicit_reasoning_on_control) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.005s
+
+OK

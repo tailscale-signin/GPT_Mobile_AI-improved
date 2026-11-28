@@ -1,0 +1,119 @@
+{
+  "reviewed_source": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+  "captured_source": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+  "input": "new-issues-2791-2793.json",
+  "scope": "Read-only report and source review plus existing source-bound gateway behavior regressions; no code changes, external dispatches, or issue mutations.",
+  "source_delta": "From captured 11a1bd5a to afbd5c65, the reviewed provider and admission paths were unchanged. Incoming fc0 changes VoiceSession.sendDraft only to beginReply(generation, fromCapture=true) for diagnostic timing attribution; its submit/retained-draft behavior, VoiceSession.admission, gateway write blocker and provider replay guards remain unchanged. This is function-level qualification, not a claim that entire files are identical.",
+  "issues": [
+    {
+      "number": 2791,
+      "report_id": "3e142d54-a81e-4a01-b2ad-4d96a4e8173a",
+      "classification": "PROVIDER_REASONING_ONLY_TERMINAL_RESULT",
+      "evidence": {
+        "provider": "LLAMA",
+        "observed_attempts": 2,
+        "reasoning_only_attempts": 2,
+        "http_status": 200,
+        "dispatched": true,
+        "remote_acceptance": "YES",
+        "finish_reason": "STOP",
+        "last_backend_status": "COMPLETED",
+        "last_backend_visible_bytes": 0,
+        "last_backend_reasoning_bytes": 113,
+        "effective_output_limit": 1177,
+        "last_backend_output_limit": 936,
+        "aggregate_output_tokens": 309,
+        "request_replay_allowed": false,
+        "retryable": false
+      },
+      "action": "Document retained terminal provider outcome. Review exact selected model/template/reasoning configuration and saved job; require an explicitly selected new generation after correcting the cause. Preserve original usage and backend receipts; do not replay an accepted request or substitute private reasoning for an answer.",
+      "limits": "STOP and reported usage do not prove output-limit exhaustion. No evidence of an app parser dropping visible content, missing automatic repair, or a third attempt being authorized. Backend repair already observed twice."
+    },
+    {
+      "number": 2792,
+      "report_id": "694a203e-98cd-45ce-a391-59c0953ea48c",
+      "classification": "PROVIDER_REASONING_ONLY_TERMINAL_RESULT",
+      "evidence": {
+        "provider": "LLAMA",
+        "observed_attempts": 2,
+        "reasoning_only_attempts": 2,
+        "http_status": 200,
+        "dispatched": true,
+        "remote_acceptance": "YES",
+        "finish_reason": "STOP",
+        "last_backend_status": "COMPLETED",
+        "last_backend_visible_bytes": 0,
+        "last_backend_reasoning_bytes": 174,
+        "effective_output_limit": 1408,
+        "last_backend_output_limit": 1024,
+        "aggregate_output_tokens": 176,
+        "request_replay_allowed": false,
+        "retryable": false
+      },
+      "action": "Same retained provider-outcome disposition as #2791, independently recorded: different run/invocation/job hashes establish a second incident with the same profile/model hashes. Preserve no-replay and exact-model policy.",
+      "limits": "Earlier CONNECTION_REFUSED event is adjacent context, not established cause of this accepted reasoning-only result. Output counters have different scopes; do not infer a subtraction or exact per-attempt usage."
+    },
+    {
+      "number": 2793,
+      "report_id": "f345e716-0820-4370-8c86-890c00333374",
+      "classification": "SAVED_GATEWAY_CONVERSATION_ADMISSION_GUARD",
+      "evidence": {
+        "source": "VOICE_STATE",
+        "stage": "message_admission",
+        "observed_phase": "THINKING",
+        "engine": "LOCAL",
+        "capture_attempts": 1,
+        "permission_granted": true,
+        "foreground": true,
+        "focus_result": "GRANTED",
+        "input_silenced": false,
+        "captured_samples": 48000,
+        "nonzero_samples": 47225,
+        "recognized_characters": 38,
+        "canonical_reason": "GATEWAY_CONVERSATION_READ_ONLY",
+        "reason_hash": "e0acff4062d98a2520be7651a944569e93e7dc9936610acd465a5cb63c30fde3",
+        "hash_derivation": "SHA256 of gptmobile.issue-context.v1:voice-chat-failure:GATEWAY_CONVERSATION_READ_ONLY, using the repository IssueReportContext.identifierHash contract"
+      },
+      "action": "Preserve captured words for explicit review. Open the saved chat to inspect its current gateway write blocker and restore the exact original binding/profile/model or reconcile the retained job before explicitly sending again. Keep the no-dispatch admission gate, identity fencing and no automatic resend.",
+      "limits": "Known broad admission reason does not identify which current binding/job prerequisite failed. Prior EMPTY_COMPLETION about 10.1 seconds earlier lacks shared run/call identity in this voice payload and does not prove causality. Not a demonstrated microphone failure."
+    }
+  ],
+  "source_evidence": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderContractFailure.kt: EMPTY_COMPLETION remains terminal delivery failure",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt: readJsonChatResponse and SSE error handling force retryable=false for contract failures or retained gateway attempts",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/GatewayRecoveryEvidence.kt: bounded two-attempt metadata and execution evidence",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt: count reasoning-only attempts and label last-backend byte scope",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt: refreshGatewayWriteBlocker and GATEWAY_CONVERSATION_READ_ONLY admission outcome",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionFailureDiagnostics.kt: safe enum hashing and explicit read-only recovery notice",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt: admission FAILED preserves draft and matches request ID/draft generation"
+  ],
+  "existing_regressions_inspected_not_executed": [
+    "OpenAIRecoveryTransportTest.secondBackendRejectionRetainsPriorAttemptsWithoutReplayOrNestedCauseReclassification",
+    "OpenAIRecoveryTransportTest.acceptedTransientStreamFailuresNeverReplayWithOrWithoutToolActivity"
+  ],
+  "conclusion": "No new reproducible application defect is established by these three reports. Document the individual guard/provider dispositions; do not attribute the new Voice UI/auto-listening repair as a fix for these incidents.",
+  "validation": {
+    "gateway_existing_tests": 8,
+    "gateway_passed": 8,
+    "gateway_source_revision": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+    "gateway_pinned_source_count": 26,
+    "gateway_log": "new-issues-host-tests/gateway-current.log",
+    "gateway_manifest": "new-issues-host-tests/gateway-sources.json",
+    "scope": "Existing gateway runtime/transport tests with in-memory backend fixtures and full exact VoiceSession/VoicePluginAudio host cases using documented Android/native/diagnostic boundary ports. All 3 existing VoiceSession admission cases passed on both fc0 baseline and lifecycle patch. No live model/service, Android HTTP adapter, Compose permission dialog, SoundPool or device execution. The integrated root matches all 38 voice and 26 gateway source hashes.",
+    "voice_admission_existing_cases": 3,
+    "voice_admission_passed_baseline_fc0": 3,
+    "voice_admission_passed_lifecycle_patch": 3,
+    "voice_baseline_total_cases": 57,
+    "voice_current_total_cases": 71,
+    "voice_current_manifest": "voice-lifecycle-host/current/manifest.json",
+    "voice_current_log": "voice-lifecycle-host/current/junit.log",
+    "voice_baseline_manifest": "voice-lifecycle-host/baseline-fc0/manifest.json",
+    "voice_baseline_log": "voice-lifecycle-host/baseline-fc0/junit.log",
+    "integrated_hash_check": "integrated-source-check.json"
+  },
+  "existing_voice_admission_regressions_executed": [
+    "VoiceSessionAdmissionRecoveryTest.readOnlyGatewayKeepsTheSynchronousDraftAndExplainsTheRequiredReview",
+    "VoiceSessionAdmissionRecoveryTest.asynchronousReadOnlyReasonBelongsOnlyToItsSubmittedRequest",
+    "VoiceSessionAdmissionRecoveryTest.uncertainPriorAdmissionKeepsTheNewWordsWithoutResubmittingEitherTurn"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "observedCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+  "failure": "A newly resolved kotlinx-coroutines-guava 1.8.0 Gradle module had no verification entry. Existing artifact checksums were not replaced.",
+  "failedJobs": [
+    {
+      "run": 46108858890,
+      "job": 140867674406,
+      "name": "Marketplace contracts"
+    },
+    {
+      "run": 46108859075,
+      "job": 140867712534,
+      "name": "Minified native memory smoke"
+    }
+  ],
+  "coordinate": "org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.0",
+  "artifact": "kotlinx-coroutines-guava-1.8.0.module",
+  "bytes": 3867,
+  "sha256": "da3a1b4f5406c60b2e203ceec0813f1caef1017842d965aeb7f60a35d73a21e5",
+  "verification": [
+    {
+      "source": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module",
+      "result": "downloaded bytes match SHA-256"
+    },
+    {
+      "source": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module.sha256",
+      "result": "published SHA-256 matches downloaded bytes"
+    },
+    {
+      "source": "https://maven-central.storage-download.googleapis.com/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module",
+      "result": "mirror bytes match Maven Central"
+    },
+    {
+      "source": "https://maven-central.storage-download.googleapis.com/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module.sha256",
+      "result": "published mirror SHA-256 matches"
+    },
+    {
+      "source": "local Gradle dependency cache",
+      "result": "cached module byte-identical to published artifact"
+    }
+  ],
+  "action": "Add only the independently verified module digest. Keep strict verification, dependency versions and all prior checksum entries unchanged.",
+  "validationLimit": "Exact-head hosted dependency resolution and Android compilation remain required; the download/hash comparison is not a full build qualification.",
+  "reconciliation": {
+    "incomingCommit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "result": "The concurrent PR update added the same independently verified digest. Retain its XML entry unchanged; this record preserves the separate publisher comparison and introduces no second artifact entry."
+  }
+}

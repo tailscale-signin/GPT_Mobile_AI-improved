@@ -25,6 +25,7 @@ internal class MediaPipeSpeechModelStore internal constructor(
     internal val prepareNpu: () -> Unit = {},
     internal val requireSm8750: () -> Unit = { check(isSm8750SpeechDevice()) { "This vocoder is compiled for Snapdragon 8 Elite (SM8750)." } },
     private val openVocoderPatch: (MediaPipeSpeechEngine) -> InputStream = { throw IOException("Kokoro vocoder patch is unavailable.") },
+    internal val acceleratorEnvironment: String = "unspecified",
     sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }
 ) {
     constructor(context: Context, scope: CoroutineScope) : this(
@@ -32,6 +33,7 @@ internal class MediaPipeSpeechModelStore internal constructor(
         File(context.applicationContext.cacheDir, "mediapipe-speech"),
         scope,
         prepareNpu = { prepareMediaPipeSpeechNpu(context.applicationContext) },
+        acceleratorEnvironment = speechAcceleratorEnvironment(context.applicationContext),
         openVocoderPatch = { engine ->
             val file = when (engine) {
                 MediaPipeSpeechEngine.KOKORO_SM8750 -> "kokoro_sm8750.ksm"
@@ -145,8 +147,10 @@ internal class MediaPipeSpeechModelStore internal constructor(
         }
     }
 
-    private fun cacheDirectory(parent: File, backend: VoiceSpeechBackend, speakingRate: Float, bucket: Int) =
-        File(parent, "shared-${backend.name.lowercase()}-${speakingRate.toBits().toUInt().toString(16)}-bucket-$bucket")
+    private fun cacheDirectory(parent: File, backend: VoiceSpeechBackend, speakingRate: Float, bucket: Int): File {
+        val environment = if (backend.isMediaPipeAccelerator) "-$acceleratorEnvironment" else ""
+        return File(parent, "shared-${backend.name.lowercase()}-${speakingRate.toBits().toUInt().toString(16)}-bucket-$bucket$environment")
+    }
 
     /** Keep only the selected keys across separated passes. Active SDK leases remain independent. */
     fun retainComparisonCaches(engine: MediaPipeSpeechEngine, backends: List<VoiceSpeechBackend>, rate: Float, bucket: Int): AutoCloseable {

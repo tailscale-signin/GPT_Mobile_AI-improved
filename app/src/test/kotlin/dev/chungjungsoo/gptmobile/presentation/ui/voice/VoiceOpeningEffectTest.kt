@@ -33,6 +33,12 @@ class VoiceOpeningEffectTest {
         assertNull(plan(admission = accepted.copy(stage = VoiceAdmissionStage.QUEUED)))
     }
 
+    @Test fun translationsOfLookupRequestsNeverSpeakALocalAcknowledgment() {
+        val marked = VoiceResponsePresentation.attach(user, VoiceResponsePolicy.forLanguage("fr", translate = true))
+        assertNull(plan(prompt = marked))
+        assertNull(plan(typed = true, prompt = marked))
+    }
+
     @Test fun onlyTypedRequestsWithVoicePresentationCanGetAnOpening() {
         assertNull(plan(typed = true))
         val marked = VoiceResponsePresentation.attach(user, VoiceResponsePolicy.RESPONSIVE)

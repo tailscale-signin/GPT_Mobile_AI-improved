@@ -802,7 +802,11 @@ internal class GitHubEvidenceBook(
             put("tool_call_limit_source", "AUTHORIZED_RUN_CONTRACT")
             put("tool_call_limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
             GitHubWorkflowPreset.fromRequest(task)?.let { put("workflow_preset_call_limit", it.toolCalls) }
-            duration?.let { put("deadline_at_ms", acceptedAt + it.coerceAtMost(Long.MAX_VALUE - acceptedAt)) }
+            duration?.let {
+                put("deadline_at_ms", acceptedAt + it.coerceAtMost(Long.MAX_VALUE - acceptedAt))
+                put("deadline_source", "EXPLICIT_USER_REQUEST")
+                put("deadline_clock", "WALL_CLOCK")
+            }
             put("receipt_store", "github-evidence:$binding")
             put("remaining_work_store", "verification_current_" + digest(binding).take(24))
             put("cleanup_policy", "Owned fixtures remain obligations until their deletion is verified; unknown writes require reconciliation before retry.")
@@ -859,6 +863,8 @@ internal class GitHubEvidenceBook(
             put("previous_deadline_at_ms", end)
             put("authorized_duration_ms", duration)
             put("authorization_source", "EXPLICIT_USER_MESSAGE")
+            put("deadline_source", "EXPLICIT_USER_CONTINUATION")
+            put("deadline_clock", "WALL_CLOCK")
         }
         save("deadline_grant_$messageId", grant)
         deadlineGrant = grant
@@ -887,10 +893,61 @@ internal class GitHubEvidenceBook(
             end - start == duration
     }
 
+    /** Retain local decision timing with its original task; this cannot grant a new allowance. */
+    suspend fun retainDecisionWaits(decisions: List<GitHubChatDecision>, chatId: Int, context: GitHubConversationContext) = mutex.withLock {
+        val contract = taskContract ?: load("task_contract") ?: return@withLock
+        val source = (contract["source_message_id"] as? JsonPrimitive)?.intOrNull ?: return@withLock
+        val expectedWorkspace = GitHubChatDecisions.workspaceKey(context)
+        val retained = (contract["decision_waits"] as? JsonObject)?.toMutableMap() ?: mutableMapOf()
+        decisions.filter {
+            it.chatId == chatId &&
+                it.sourceMessageId == source &&
+                it.workspace == expectedWorkspace &&
+                it.profileUid == context.mainProfileUid &&
+                it.offeredAtMillis != null
+        }.forEach { decision ->
+            val offered = requireNotNull(decision.offeredAtMillis)
+            val previous = retained[decision.id] as? JsonObject
+            // The original start is immutable even when a new run rebinds the question.
+            if (previous != null && previous["offered_at_ms"] != JsonPrimitive(offered)) return@forEach
+            retained[decision.id] = buildJsonObject {
+                put("offered_at_ms", offered)
+                decision.answeredAtMillis?.let { put("answered_at_ms", it) }
+            }
+        }
+        if (retained.isNotEmpty()) {
+            val updated = JsonObject(contract + ("decision_waits" to JsonObject(retained)))
+            if (updated != contract) save("task_contract", updated)
+            taskContract = updated
+        }
+    }
+
     suspend fun executionAdmission(): GitHubExecutionLimits.Admission {
         val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
         val grant = deadlineGrant?.takeIf { contract != null && validDeadlineGrant(it, contract) }
-        return GitHubExecutionLimits.admission(grant ?: contract, now(), requireAcceptedContract)
+        val effective = grant ?: contract
+        val observed = now()
+        val acceptedAt = (effective?.get("accepted_at_ms") as? JsonPrimitive)?.longOrNull
+        val waits = (contract?.get("decision_waits") as? JsonObject)?.values.orEmpty().mapNotNull { value ->
+            val row = value as? JsonObject ?: return@mapNotNull null
+            val offered = (row["offered_at_ms"] as? JsonPrimitive)?.longOrNull ?: return@mapNotNull null
+            offered to (row["answered_at_ms"] as? JsonPrimitive)?.longOrNull
+        }
+        val requestedTask = (contract?.get("requested_actions") as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val paused = if (GitHubDecisionWaitClock.allowsPause(requestedTask)) acceptedAt?.let { GitHubDecisionWaitClock.pausedMillis(it, observed, waits) } ?: 0 else 0
+        val admission = GitHubExecutionLimits.admission(effective, observed - paused, requireAcceptedContract)
+        return if (paused == 0L) {
+            admission
+        } else {
+            admission.copy(
+                timing = JsonObject(
+                    admission.timing + buildJsonObject {
+                        put("task_deadline_clock", "ACTIVE_EXCLUDING_USER_CHOICES")
+                        put("task_user_choice_wait_ms", paused)
+                    }
+                )
+            )
+        }
     }
 
     suspend fun taskAdmissionFailure(): ProviderEvent.Failed? = renewalFailure ?: executionAdmission().failure()
@@ -970,7 +1027,7 @@ internal class GitHubEvidenceBook(
     }
 
     /** Report the same accepted ceiling and execution counter across process restart. */
-    suspend fun stageBudget(receipts: Map<String, JsonObject>, current: Int?, fixtureCalls: Int): JsonObject {
+    suspend fun stageBudget(receipts: Map<String, JsonObject>, current: Int?, fixtureCalls: Int, verificationReport: JsonObject? = null): JsonObject {
         val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
         val retained = if (current == null) {
             val previous = load("verification_current_" + digest(binding).take(24))
@@ -979,7 +1036,7 @@ internal class GitHubEvidenceBook(
         } else {
             null
         }
-        return GitHubChecklistBudget.checkpoint(receipts, current, fixtureCalls, contract, retained)
+        return GitHubChecklistBudget.checkpoint(receipts, current, fixtureCalls, contract, retained, verificationReport ?: diagnostic())
     }
 
     /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
@@ -1021,6 +1078,8 @@ internal class GitHubEvidenceBook(
     }
 
     private fun substantiveReport(verdict: JsonObject?): Boolean = verdict != null &&
+        // A receipt-only fallback is rebuilt from the current ledger. Nesting it repeats the same review.
+        verdict["fallback"] != JsonPrimitive("receipt_only") &&
         verdict["progress_state"] != JsonPrimitive("BLOCKED_UNCHANGED") &&
         verdict["retained_findings_delivered"] != JsonPrimitive(true) &&
         (
@@ -1055,6 +1114,7 @@ internal class GitHubEvidenceBook(
                 prior["receipt_set_digest"] == saved["receipt_set_digest"] &&
                 prior["text_sha256"] == JsonPrimitive(digest(earlier))
             ) {
+                if (verdict["retained_findings_delivered"] == JsonPrimitive(true) && verdict["retained_findings_sha256"] == prior["text_sha256"]) return text to verdict
                 return "$earlier\n\n## Latest checkpoint\n\n$text" to verdict
             }
         }
@@ -1077,13 +1137,17 @@ internal class GitHubEvidenceBook(
         }
     }
 
+    private val persistedClaimWindowIds = mutableSetOf<String>()
+
     private fun claimBatchKey() = "claim_extraction_current_" + digest(binding).take(24)
 
-    suspend fun retainedClaimExtraction(context: String? = null): JsonObject? = load(claimBatchKey())?.takeIf { saved ->
-        saved["schema"] == JsonPrimitive("github.claim-extraction.v1") &&
+    suspend fun retainedClaimExtraction(context: String? = null): JsonObject? {
+        val saved = load(claimBatchKey())?.takeIf { saved ->
             saved["binding"] == JsonPrimitive(binding) &&
-            (context == null || saved["context"] == JsonPrimitive(context)) &&
-            saved["authorization"] == (authorizationDigest?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                (context == null || saved["context"] == JsonPrimitive(context)) &&
+                saved["authorization"] == (authorizationDigest?.let(::JsonPrimitive) ?: JsonNull)
+        } ?: return null
+        return GitHubClaimWindows.restore(saved, load)
     }
 
     suspend fun retainClaimBatches(
@@ -1092,27 +1156,28 @@ internal class GitHubEvidenceBook(
         draft: String,
         batches: List<JsonObject?>,
         requirementIds: List<Set<String>>,
-        pending: Boolean
+        pending: Boolean,
+        singleClaimBatch: Int? = null
     ) {
-        require(batches.size <= GitHubClaimBatches.MAX_BATCHES)
+        require(singleClaimBatch == null || pending && singleClaimBatch in 1..batches.size && batches[singleClaimBatch - 1] == null)
         require(batches.size == requirementIds.size)
         require(draft.length <= 1_048_576) { "Claim extraction draft exceeds the accepted session bound" }
-        save(
-            claimBatchKey(),
-            buildJsonObject {
-                put("schema", "github.claim-extraction.v1")
-                put("binding", binding)
-                put("context", context)
-                put("plan", plan)
-                put("authorization", authorizationDigest)
-                put("pending", pending)
-                // Keep the bounded source draft and finished batches after extraction.
-                // A later read can then invalidate only claims that no longer verify.
-                put("draft", draft)
-                put("batch_requirement_ids", JsonArray(requirementIds.map { ids -> JsonArray(ids.sorted().map(::JsonPrimitive)) }))
-                put("batches", JsonArray(batches.map { it ?: JsonNull }))
+        val metadata = buildJsonObject {
+            put("binding", binding)
+            put("context", context)
+            put("plan", plan)
+            put("authorization", authorizationDigest)
+            put("pending", pending)
+            put("draft", draft)
+            singleClaimBatch?.let { put("single_claim_batch", it) }
+        }
+        val manifest = GitHubClaimWindows.retain(metadata, batches, requirementIds) { id, window ->
+            if (id !in persistedClaimWindowIds) {
+                save(id, window)
+                persistedClaimWindowIds += id
             }
-        )
+        }
+        save(claimBatchKey(), manifest)
     }
 
     suspend fun retainPolicy(revision: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>) {

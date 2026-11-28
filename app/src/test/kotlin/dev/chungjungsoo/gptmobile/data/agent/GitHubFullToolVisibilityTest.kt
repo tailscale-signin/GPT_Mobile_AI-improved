@@ -36,7 +36,8 @@ class GitHubFullToolVisibilityTest {
         val optional = (1..80).map { schema("optional_$it") }
         val definitions = github + hidden + optional
         repeat(2) { continuation ->
-            val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, if (continuation == 0) "hello" else "continue", setOf(github.first().name), githubMode = true))
+            val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, if (continuation == 0) "Inspect the repository" else "continue", setOf(github.first().name), githubMode = true))
+            val windowLimit = if (continuation == 0) ProgressiveToolCatalog.MAX_TOOLS else ProgressiveToolCatalog.INITIAL_TOOLS
             val allowed = definitions + catalog.definition
             val initial = catalog.selected(allowed)
             assertTrue(initial.any { GitHubOperationTool.operationName(it.name) == "github_context" })
@@ -48,8 +49,17 @@ class GitHubFullToolVisibilityTest {
             assertFalse(catalog.execute("discover-optional", buildJsonObject { put("query", "optional_80") }).isError)
             val shifted = catalog.selected(allowed)
             assertTrue(shifted.contains(optional.last()))
-            assertTrue(shifted.count { it.name != ProgressiveToolCatalog.NAME } <= ProgressiveToolCatalog.INITIAL_TOOLS)
-            assertFalse("The bounded window may evict a prior schema without revoking it", shifted.contains(deferred))
+            assertTrue(shifted.count { it.name != ProgressiveToolCatalog.NAME } <= windowLimit)
+            // Rotate enough distinct schemas to exercise eviction in both the
+            // ordinary eight-tool window and the existing advanced sixteen-tool window.
+            val replacement = optional.drop(40).take(12)
+            val rotatedResult = catalog.execute("rotate-optional", buildJsonObject { put("names", JsonArray(replacement.map { JsonPrimitive(it.name) })) })
+            assertFalse(rotatedResult.isError)
+            assertFalse(rotatedResult.dispatched)
+            val rotated = catalog.selected(allowed)
+            assertTrue(rotated.containsAll(replacement.take(windowLimit)))
+            assertTrue(rotated.count { it.name != ProgressiveToolCatalog.NAME } <= windowLimit)
+            assertFalse("The bounded window may evict a prior schema without revoking it", rotated.contains(deferred))
             val inventory = mutableSetOf<String>()
             var arguments = JsonObject(emptyMap())
             var pages = 0
@@ -272,7 +282,7 @@ class GitHubFullToolVisibilityTest {
         var executions = 0
         val github = tool(AgentToolDefinition("github_read__authorized", "Read details ".repeat(1800), buildJsonObject {})) { executions++ }
         assertTrue(ProgressiveToolCatalog.schemaTokens(github.definition) > ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
-        val catalog = ProgressiveToolCatalog(emptyList(), "hello", acquireCold = { _, _ ->
+        val catalog = ProgressiveToolCatalog(emptyList(), "Inspect the repository", acquireCold = { _, _ ->
             fetched = true
             listOf(github.definition)
         }, githubMode = true)
@@ -280,7 +290,7 @@ class GitHubFullToolVisibilityTest {
         val session = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
                 when (++round) {
-                    1 -> emit(ProviderEvent.ToolCall("discover", ProgressiveToolCatalog.NAME, buildJsonObject {}))
+                    1 -> emit(ProviderEvent.ToolCall("discover", ProgressiveToolCatalog.NAME, buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(github.definition.name)))) }))
                     2 -> {
                         assertTrue(tools.contains(github.definition))
                         emit(ProviderEvent.ToolCall("read", github.definition.name, buildJsonObject {}))

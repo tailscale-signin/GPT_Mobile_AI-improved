@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -23,6 +24,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarDuration
@@ -64,8 +66,6 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportManualCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportOutbox
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportRoute
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportSubmission
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog
-import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -125,7 +125,7 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
             }
         }
         showPrompts -> incident?.let { report ->
-            FadingAlertDialog(
+            AlertDialog(
                 onDismissRequest = { viewModel.dismissIncident(report) },
                 title = { Text(stringResource(R.string.issue_report_debug_question)) },
                 text = {
@@ -137,7 +137,7 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
                         SubmissionError(error)
                     }
                 },
-                dismissButton = { TextButton(onClick = { viewModel.dismissIncident(report) }, enabled = !saving) { Text(stringResource(R.string.issue_report_no)) } },
+                dismissButton = { TextButton(onClick = { viewModel.dismissIncident(report) }) { Text(stringResource(R.string.issue_report_no)) } },
                 confirmButton = {
                     Button(onClick = { viewModel.submitIncident(report, route) }, enabled = !saving) {
                         Text(
@@ -308,7 +308,7 @@ private fun ManualIssueDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = { if (reviewing) reviewed = null else onDismiss() }, enabled = !saving) {
+            TextButton(onClick = { if (reviewing && !saving) reviewed = null else onDismiss() }) {
                 Text(if (reviewing) "Edit" else stringResource(R.string.issue_report_cancel))
             }
             if (reviewing && route != null) {
@@ -351,9 +351,11 @@ private fun AdaptiveIssueReportSurface(
 ) {
     val configuration = LocalConfiguration.current
     if (configuration.screenWidthDp >= 600 || configuration.screenWidthDp > configuration.screenHeightDp) {
-        FadingAlertDialog(onDismissRequest = onDismissRequest, title = title, text = text, dismissButton = dismissButton, confirmButton = confirmButton)
+        AlertDialog(onDismissRequest = onDismissRequest, title = title, text = text, dismissButton = dismissButton, confirmButton = confirmButton)
     } else {
-        FadingModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        // The standard modal owns its window, scrim and predictive-back lifecycle.
+        // Never fade its contents independently before the owner accepts dismissal.
+        ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = (configuration.screenHeightDp * 0.88f).dp).imePadding().padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -416,7 +418,7 @@ private fun IssueSubmissionDialog(
     val approved = remember(report.payload) { runCatching { IssueReport.json.decodeFromString(IssueReport.serializer(), report.payload) }.getOrNull() }
     val reconcilingGitHub = report.route?.kind == IssueReportRoute.Kind.GITHUB && report.mayHaveBeenSubmitted
     val retryDestinationAvailable = issueReportRetryDestinationAvailable(report, route)
-    FadingAlertDialog(
+    AlertDialog(
         onDismissRequest = onClose,
         title = { Text(stringResource(if (reconcilingGitHub && report.state == IssueReportOutbox.State.SENDING) R.string.issue_report_check_confirmation else reportStateText(report.state))) },
         text = {
@@ -462,7 +464,7 @@ private fun IssueSubmissionDialog(
                 }
             }
         },
-        dismissButton = { TextButton(onClick = onClose, enabled = !saving) { Text(stringResource(R.string.close)) } },
+        dismissButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.close)) } },
         confirmButton = {
             when {
                 report.state == IssueReportOutbox.State.SENT -> TextButton(onClick = onView) { Text(stringResource(R.string.issue_report_view)) }

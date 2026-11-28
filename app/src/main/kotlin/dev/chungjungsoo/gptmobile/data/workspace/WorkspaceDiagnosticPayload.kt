@@ -40,7 +40,8 @@ internal suspend fun readWorkspaceDiagnosticPayload(
     read: suspend (String) -> ByteArray?,
     omitted: (String) -> Unit,
     projector: DiagnosticValueProjector? = null,
-    timings: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings? = null
+    timings: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings? = null,
+    compactOnOversize: Boolean = false
 ): WorkspaceDiagnosticPayload {
     require(maximumBytes in 1024..1_048_576)
     fun <T> measure(phase: DiagnosticCaptureTimings.Phase, work: () -> T): T = if (timings == null) work() else timings.measure(phase, work)
@@ -78,7 +79,12 @@ internal suspend fun readWorkspaceDiagnosticPayload(
         // AndroidSecretVault stores at most 64 KiB plus its authenticated envelope.
         if (size !in 1..(64 * 1024L + 64)) return missing("PROTECTED_CHUNK_SIZE_LIMIT")
         physicalBytes += size
-        if (physicalBytes > maximumBytes.toLong() + references.size * 64L) return missing("PROTECTED_PAYLOAD_BYTE_LIMIT")
+        if (physicalBytes > maximumBytes.toLong() + references.size * 64L && !compactOnOversize) return missing("PROTECTED_PAYLOAD_BYTE_LIMIT")
+        if (physicalBytes > 1_500_000L + references.size * 64L) return missing("PROTECTED_PAYLOAD_BYTE_LIMIT")
+    }
+    if (physicalBytes > maximumBytes.toLong() + references.size * 64L) {
+        if (expectedDigest == null) return missing("PROTECTED_PAYLOAD_BYTE_LIMIT")
+        return readProtectedDiagnosticProjection(references.map(::requireNotNull), expectedDigest, maximumBytes, beforeRead, authorized, read, omitted, projector)
     }
     // Authenticated vault envelopes are larger than their plaintext. Size the
     // scratch buffer from measured entries instead of allocating the full 1 MiB

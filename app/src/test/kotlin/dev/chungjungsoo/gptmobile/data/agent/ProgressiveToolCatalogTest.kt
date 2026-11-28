@@ -23,6 +23,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+    @Test fun exactNameDiscoveryDoesNotActivateSiblingsWithTheSameNameFragment() = runTest {
+        val anchor = AgentToolDefinition("anchor", "Current operation", JsonObject(emptyMap()))
+        val siblings = (1..80).map { AgentToolDefinition("optional_$it", "Optional operation", JsonObject(emptyMap())) }
+        val definitions = listOf(anchor) + siblings
+        val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, "anchor", setOf(anchor.name)))
+        assertEquals(setOf(anchor.name), catalog.selected(definitions).map { it.name }.toSet())
+        val discovered = catalog.execute("exact", buildJsonObject { put("query", "optional_80") })
+        assertFalse(discovered.isError)
+        assertFalse(discovered.dispatched)
+        assertEquals(setOf(anchor.name, "optional_80"), catalog.selected(definitions).map { it.name }.toSet())
+    }
 
     @Test fun attachmentOnlyRequestPrioritizesItsReaderAndKeepsDeclinedWebOutOfDiscovery() = runTest {
         val schema = buildJsonObject { put("type", "object") }
@@ -266,11 +277,12 @@ class ProgressiveToolCatalogTest {
     }
 
     @Test fun fullFirstGitHubDefinitionsPreferCompactInitialContracts() {
+        val statusPrompt = dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
         val requests = mapOf(
             "check repo status" to setOf("github_context_inspect", "github_pr_inspect"),
             "show git branches" to setOf("github_context_inspect", "github_search", "github_read"),
             "inspect commits" to setOf("github_context_inspect", "github_search", "github_read"),
-            dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt to setOf("github_context_inspect", "github_pr_inspect", "github_ci")
+            statusPrompt to setOf("github_context_inspect", "github_pr_inspect", "github_ci")
         )
         for (suffix in listOf("", "__native")) {
             val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it, it + suffix) }.sortedBy { it.name }
@@ -283,7 +295,12 @@ class ProgressiveToolCatalogTest {
                 assertTrue(selected.sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
                 selected.filterNot { it.name == ProgressiveToolCatalog.NAME }.forEach { definition ->
                     val source = definitions.single { it.name == definition.name }
-                    if (lookup != null) assertEquals(GitHubActionSchema.project(source, lookup.action), definition) else assertSame(source, definition)
+                    when {
+                        lookup != null -> assertEquals(GitHubActionSchema.project(source, lookup.action), definition)
+                        suffix.isNotEmpty() && task == statusPrompt && definition.name == "github_ci$suffix" ->
+                            assertEquals(GitHubActionSchema.project(source, "runs"), definition)
+                        else -> assertSame(source, definition)
+                    }
                 }
             }
         }
@@ -449,13 +466,25 @@ class ProgressiveToolCatalogTest {
                 val definitions = deferredOperations + readers
                 val catalog = ProgressiveToolCatalog(definitions, task, githubMode = true)
                 val allowed = definitions + catalog.definition
-                assertEquals(readers.map { it.name }.toSet() + ProgressiveToolCatalog.NAME, catalog.selected(allowed).map { it.name }.toSet())
+                val expectedReaders = if (task == "hello") emptySet() else readers.map { it.name }.toSet()
+                assertEquals(expectedReaders + ProgressiveToolCatalog.NAME, catalog.selected(allowed).map { it.name }.toSet())
                 val discovered = catalog.execute("discover-write", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_write")))) })
                 assertFalse(discovered.isError)
                 assertFalse(discovered.dispatched)
                 assertTrue(catalog.selected(allowed).contains(deferredOperations.first()))
             }
         }
+    }
+
+    @Test fun researchInGitHubChatStartsWithWebSchemasWithoutRepositorySchemas() {
+        val web = AgentToolDefinition("web_search", "Search the web", JsonObject(emptyMap()), setOf(AgentToolCapability.WEB_SEARCH))
+        val reader = AgentToolDefinition("read_url", "Read a web source", JsonObject(emptyMap()), setOf(AgentToolCapability.PAGE_READER))
+        val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) } + web + reader
+        val catalog = ProgressiveToolCatalog(definitions, "Research the latest Android incremental indexing libraries", githubMode = true)
+        val selected = catalog.selected(definitions + catalog.definition)
+        assertTrue(selected.any { it.name == "web_search" })
+        assertTrue(selected.any { it.name == "read_url" })
+        assertFalse(selected.any { it.name.startsWith("github_") })
     }
 
     @Test fun explicitLargeGithubDiscoveryReachesHardAdmissionInStatusAndIntegrationCatalogs() = runTest {

@@ -1,0 +1,11 @@
+{
+  "compile_exit": 0,
+  "junit_exit": 0,
+  "passed_test_count": 20,
+  "test_class": "dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest",
+  "assertions_enabled": true,
+  "manifest": "/workspace/scratch/49479c165f4e/voice-plugin-fallback-host/manifest.json",
+  "full_android_qualification": false,
+  "device_audio_qualification": false,
+  "production_fallback_policy_source_unchanged": true
+}

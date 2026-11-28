@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -21,6 +22,69 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSavedPageCapacityTest {
+    @Test fun unrelatedToolResultsCannotEvictReceiptsForRetainedSavedPageNotes() {
+        val savedDigest = "b".repeat(64)
+        val reading = buildJsonObject {
+            put("schema", "saved_page_reading.v1")
+            put(
+                "reads",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put(
+                                "sources",
+                                buildJsonObject {
+                                    put(
+                                        "saved-call",
+                                        buildJsonObject {
+                                            put("invocation_sha256", "a".repeat(64))
+                                            put("body_sha256", savedDigest)
+                                        }
+                                    )
+                                }
+                            )
+                            put("notes", "The saved page contains the relevant source.")
+                        }
+                    )
+                )
+            )
+        }
+        val delivered = linkedMapOf(
+            "saved-call" to savedDigest,
+            "unrelated-old" to "c".repeat(64),
+            "unrelated-new" to "d".repeat(64)
+        )
+
+        val retained = SavedPageReading.retainDeliveryDigests(delivered, reading, maxResults = 2)
+
+        assertEquals(setOf("saved-call", "unrelated-new"), retained.keys)
+        assertEquals(savedDigest, retained["saved-call"])
+        assertEquals("d".repeat(64), retained["unrelated-new"])
+    }
+
+    @Test fun oversizedPrivateReadRetainsWholeUnicodeObservationsOnlyAfterFreshCompletion() = runBlocking {
+        val note = "Retained commit fixé.\n"
+        val verbose = note + "📁".repeat(120)
+        suspend fun read(reply: List<ProviderEvent>, fresh: Boolean, retained: MutableList<String>): List<ProviderEvent> {
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    reply.forEach { emit(it) }
+                }.let { if (fresh) SavedPageDeliveryRound.providerRound(exchanges, it) else it }
+            }
+            return SavedPageDeliveryRound.read(session, emptyList(), 80) { retained += it }.toList()
+        }
+        val retained = mutableListOf<String>()
+        val complete = listOf(ProviderEvent.TextDelta(verbose), ProviderEvent.Completed)
+        assertEquals(listOf(ProviderEvent.Completed), read(complete, true, retained))
+        assertEquals(note.trimEnd() + "…", retained.single())
+        assertTrue(retained.single().encodeToByteArray().size <= 80)
+        for (events in listOf(complete.dropLast(1), listOf(ProviderEvent.TextDelta("A".repeat(120)), ProviderEvent.Completed), listOf(ProviderEvent.TextDelta(verbose), ProviderEvent.ToolCall("x", "tool", JsonObject(emptyMap())), ProviderEvent.Completed))) {
+            assertTrue(read(events, true, retained).last() is ProviderEvent.Failed)
+        }
+        assertTrue(read(complete, false, retained).last() is ProviderEvent.Failed)
+        assertEquals(1, retained.size)
+    }
+
     @Test fun replayDiagnosticsUseCanonicalOperationsWithoutRetainingPrivateToolNames() {
         for ((name, operation) in listOf(
             "github_context" to "github_context",
@@ -74,7 +138,8 @@ class GitHubSavedPageCapacityTest {
     @Test fun onlyAnIssuedLargerPageWithinTheChangedAllowanceCanResumeAndKeepRemoteContinuations() {
         val fixture = Fixture()
         assertNull(fixture.next())
-        assertNull(fixture.next(tokens = 1400))
+        val intermediate = requireNotNull(fixture.next(tokens = 1400))
+        assertEquals(4096, requireNotNull(GitHubSavedReadProgress.cursor(intermediate.arguments)).bytes)
         val larger = requireNotNull(fixture.next(tokens = 3000))
         val selected = requireNotNull(GitHubSavedReadProgress.cursor(larger.arguments))
         val refused = requireNotNull(GitHubSavedReadProgress.cursor(fixture.cursor))
@@ -161,7 +226,7 @@ class GitHubSavedPageCapacityTest {
         assertNull(fixture.next(tokens = 3000))
     }
 
-    @Test fun compactedRefusalsKeepTheirNativeCorrectionAndOmittedBodiesCannotInventOne() {
+    @Test fun compactedRefusalsKeepTheirNativeCorrectionAcrossReplayEvictionAndRestart() {
         val fixture = Fixture()
         val compacted = fixture.refused.copy(content = requireNotNull(GitHubReplayRecovery.compact(fixture.refused.content, 1000)))
         assertEquals(JsonPrimitive(true), (compacted.content as ToolResultContent.Json).value.jsonObject["replay_compacted"])
@@ -179,8 +244,12 @@ class GitHubSavedPageCapacityTest {
         assertFalse(fixture.read(requireNotNull(fixture.next(tokens = 3000, exchanges = earlier))).isError)
         val missingRecipeHistory = earlier + AgentToolExchange(listOf(fixture.blocked), listOf(omitted))
         val missingRecipe = GitHubReplayRecovery.State(missingRecipeHistory.flatMap { it.calls }, missingRecipeHistory.flatMap { it.results })
-        assertNull(fixture.next(tokens = 3000, state = missingRecipe, exchanges = missingRecipeHistory))
+        assertFalse(fixture.read(requireNotNull(fixture.next(tokens = 3000, state = missingRecipe, exchanges = missingRecipeHistory))).isError)
         assertFalse(missingRecipe.hasRead(fixture.route, fixture.cursor))
+        val withoutIssuance = omitted.copy(executionReceipt = JsonObject(requireNotNull(omitted.executionReceipt) - "saved_view_recovery_call" - "saved_view_recovery_options"))
+        val unissuedHistory = earlier + AgentToolExchange(listOf(fixture.blocked), listOf(withoutIssuance))
+        val unissued = GitHubReplayRecovery.State(unissuedHistory.flatMap { it.calls }, unissuedHistory.flatMap { it.results })
+        assertNull(fixture.next(tokens = 3000, state = unissued, exchanges = unissuedHistory))
     }
 
     @Test fun aCapacityReceiptCannotAuthorizeAnotherViewOffsetRouteOrInventedIntermediateSize() {
@@ -191,6 +260,7 @@ class GitHubSavedPageCapacityTest {
             JsonObject(original + ("tool" to JsonPrimitive("github_ci"))),
             JsonObject(original + ("arguments" to buildJsonObject { put("view_cursor", "foreign:" + cursor.substringAfter(':')) })),
             JsonObject(original + ("arguments" to buildJsonObject { put("view_cursor", cursor.substringBefore(':') + ":999:8192") })),
+            JsonObject(original + ("arguments" to buildJsonObject { put("view_cursor", cursor.substringBeforeLast(':') + ":3072") })),
             JsonObject(original + ("arguments" to fixture.blocked.arguments))
         )
         for (correction in alternatives) {
@@ -200,8 +270,9 @@ class GitHubSavedPageCapacityTest {
             assertNull(fixture.next(tokens = 3000, state = state, exchanges = history))
             assertFalse(state.hasRead(fixture.route, fixture.cursor))
         }
-        // A larger allowance does not create an unissued 4096-byte handle at this offset.
-        assertNull(fixture.next(tokens = 1400))
+        val issued = requireNotNull(fixture.next(tokens = 1400))
+        assertEquals(4096, requireNotNull(GitHubSavedReadProgress.cursor(issued.arguments)).bytes)
+        assertTrue((fixture.refused.executionReceipt?.get("saved_view_recovery_options") as JsonArray).any { (it as JsonObject)["arguments"] == issued.arguments })
     }
 
     @Test fun issuedCapacityRecoveryUsesExistingRoundAllowanceAndDeliversTheWholePage() {
@@ -222,8 +293,11 @@ class GitHubSavedPageCapacityTest {
 
     @Test fun capacityAdmissionCannotIncreaseContextOutputOrAttemptBudgets() {
         val fixture = Fixture()
-        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 2000, maxOutputBytes = 8192))
-        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 4000, maxOutputBytes = 4096))
+        val contextBound = requireNotNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 2000, maxOutputBytes = 8192))
+        assertTrue(requireNotNull(GitHubSavedReadProgress.cursor(contextBound.arguments)).bytes <= (2000 - 512) * 3)
+        val outputBound = requireNotNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 4000, maxOutputBytes = 4096))
+        assertEquals(4096, requireNotNull(GitHubSavedReadProgress.cursor(outputBound.arguments)).bytes)
+        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 1000, maxOutputBytes = 1536))
         assertFalse(fixture.state.hasRead(fixture.route, fixture.cursor))
         val call = requireNotNull(fixture.next(tokens = 3000))
         val refusal = fixture.refused.copy(callId = call.callId)
@@ -237,8 +311,13 @@ class GitHubSavedPageCapacityTest {
         assertFalse(result.isError)
         assertFalse(result.dispatched)
         val exchange = AgentToolExchange(listOf(call), listOf(result))
-        val required = (requireNotNull(GitHubSavedReadProgress.cursor(call.arguments)).bytes + 2) / 3
-        assertTrue(required > 512 && required <= 4000 - 512)
+        val cursorTokens = (requireNotNull(GitHubSavedReadProgress.cursor(call.arguments)).bytes + 2) / 3
+        val required = (ToolHandoffReceipt.payload(result.content).encodeToByteArray().size + 2) / 3
+        assertTrue(required in 513 until cursorTokens)
+        // A native, measured smaller final page can fit even when its cursor maximum cannot.
+        assertEquals(mapOf(call.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), required + 512, 512))
+        val unmeasured = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - "saved_view_body_bytes"))
+        assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange.copy(results = listOf(unmeasured))), emptySet(), required + 512, 512).isEmpty())
         assertEquals(mapOf(call.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), 4000, 512))
         assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), setOf(call.callId), 4000, 512).isEmpty())
         assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), required + 511, 512).isEmpty())
@@ -276,7 +355,7 @@ class GitHubSavedPageCapacityTest {
         )
         val matching = fixture.read(matchingCall, JsonObject(matchingCall.arguments - "view_cursor"))
         assertFalse(matching.isError)
-        assertEquals(mapOf(matchingCall.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(matchingCall), listOf(matching))), emptySet(), 4000, 512))
+        assertEquals(mapOf(matchingCall.callId to (ToolHandoffReceipt.payload(matching.content).encodeToByteArray().size + 2) / 3), GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(matchingCall), listOf(matching))), emptySet(), 4000, 512))
         val conflictingCall = matchingCall.copy(callId = "provider-conflicting-context", arguments = JsonObject(matchingCall.arguments + ("owner" to JsonPrimitive("other"))))
         val conflicting = fixture.read(conflictingCall, JsonObject(conflictingCall.arguments - "view_cursor"))
         assertTrue(conflicting.isError)
@@ -411,6 +490,38 @@ class GitHubSavedPageCapacityTest {
         for (reply in listOf(listOf(proposedWrite, ProviderEvent.Completed), listOf(ProviderEvent.Completed), listOf(ProviderEvent.TextDelta("local", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)), ProviderEvent.Completed))) {
             assertEquals("REPLAY_EVIDENCE_REQUIRED", (read(reply).single() as ProviderEvent.Failed).errorCode)
         }
+    }
+
+    @Test fun longPrivateNotesFitUtf8AcrossDeltasAndNeverAcknowledgeAnInterruptedOrUnsupportedRead() = runBlocking {
+        val fixture = Fixture()
+        val call = requireNotNull(fixture.next(tokens = 3000))
+        val exchanges = listOf(AgentToolExchange(listOf(call), listOf(fixture.read(call))))
+        var saved: String? = null
+        suspend fun read(limit: Int, vararg events: ProviderEvent): List<ProviderEvent> {
+            saved = null
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = SavedPageDeliveryRound.providerRound(
+                    exchanges,
+                    flow {
+                        events.forEach { emit(it) }
+                    }
+                )
+            }
+            return SavedPageDeliveryRound.read(session, exchanges, limit) { saved = it }.toList()
+        }
+        val note = "改😀. Next finding " + "x".repeat(50_000)
+        assertEquals(listOf(ProviderEvent.Completed), read(17, ProviderEvent.TextDelta(note.substring(0, 2)), ProviderEvent.TextDelta(note.substring(2)), ProviderEvent.Completed))
+        assertEquals("改😀.…", saved)
+        assertTrue(requireNotNull(saved).toByteArray(Charsets.UTF_8).size <= 17)
+        assertEquals(listOf(ProviderEvent.Completed), read(7, ProviderEvent.TextDelta("改😀"), ProviderEvent.Completed))
+        assertEquals("改😀", saved)
+        val tool = ProviderEvent.ToolCall("unexpected", call.name, call.arguments)
+        assertTrue(read(17, ProviderEvent.TextDelta(note), tool, ProviderEvent.Completed).single() is ProviderEvent.Failed)
+        assertNull(saved)
+        assertTrue(read(17, ProviderEvent.TextDelta(note)).single() is ProviderEvent.Failed)
+        assertNull(saved)
+        assertTrue(read(3, ProviderEvent.TextDelta(note), ProviderEvent.Completed).single() is ProviderEvent.Failed)
+        assertNull(saved)
     }
 
     @Test fun twoAdmittedPagesKeepTheirOwnBodiesWhenLaterCallsReturnIdenticalBytes() {

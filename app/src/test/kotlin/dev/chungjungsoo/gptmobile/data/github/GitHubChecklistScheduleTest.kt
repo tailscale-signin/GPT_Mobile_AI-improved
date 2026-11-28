@@ -28,6 +28,60 @@ class GitHubChecklistScheduleTest {
         acquire: Boolean = true
     ) = GitHubChecklistSchedule.select(authorized, advertised, receipts, candidates, planned, null, acquire)
 
+    @Test fun pendingActionSchemaDiscoveryPrecedesUnrelatedInventoryContinuation() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
+        val pullRequest = GitHubOperationTool.definition("github_pr")
+        val pending = call(pullRequest.name, "comments")
+        val priorAction = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_pr"],"action":"headers"}}""")
+        val receipts = mapOf("prior-action" to priorAction)
+        val unrelatedInventoryRead = call(context.name, "repository")
+
+        val plan = GitHubChecklistSchedule.select(
+            listOf(context, pullRequest, directory),
+            listOf(directory, context),
+            receipts,
+            listOf(pending),
+            null,
+            unrelatedInventoryRead,
+            true
+        )
+
+        assertEquals(directory.name, plan.next?.name)
+        assertEquals(json("""{"names":["github_pr"],"action":"comments"}"""), plan.next?.arguments)
+        assertEquals(JsonPrimitive("ACTION_SCHEMA_DISCOVERY_REQUIRED"), plan.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+    }
+
+    @Test fun partialReadSchemaDiscoveryValidatesSuppliedFieldsWithoutRequiringSelectors() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
+        val pullRequest = GitHubOperationTool.definition("github_pr")
+        val pending = call(pullRequest.name, "comments")
+        val plan = GitHubChecklistSchedule.select(
+            listOf(context, pullRequest, directory),
+            listOf(directory, context),
+            emptyMap(),
+            listOf(pending),
+            null,
+            call(context.name, "repository"),
+            true
+        )
+        assertEquals(directory.name, plan.next?.name)
+        assertEquals(json("""{"names":["github_pr"]}"""), plan.next?.arguments)
+        assertEquals(JsonPrimitive("EXACT_SCHEMA_DISCOVERY_REQUIRED"), plan.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+
+        val invalid = pending.copy(arguments = json("""{"action":"comments","page":"two"}"""))
+        val rejected = GitHubChecklistSchedule.select(
+            listOf(context, pullRequest, directory),
+            listOf(directory, context),
+            emptyMap(),
+            listOf(invalid),
+            null,
+            null,
+            true
+        )
+        assertNull(rejected.next)
+        assertEquals(JsonPrimitive("ACTION_ARGUMENTS_REJECTED"), rejected.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+    }
+
     @Test fun sixPreparedIndependentReadsContinueAfterUnrelatedOperationFailures() {
         val actions = listOf("resolve", "index", "efficiency", "capabilities", "repository", "recovery")
         val tools = listOf(context)
@@ -100,6 +154,62 @@ class GitHubChecklistScheduleTest {
         assertNull(exhausted.next)
         assertEquals(JsonPrimitive("SCHEMA_BUDGET_RECOVERY_EXHAUSTED"), exhausted.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
         assertNull(select(receipts = receipts, acquire = false).next)
+    }
+
+    @Test fun successfulBatchWhoseSchemasLeftTheWireGetsOneTargetedAttempt() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        for (result in listOf("{}", """{"context_budget_excluded":["github_context"]}""")) {
+            val receipts = linkedMapOf("batch" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_ci","github_context"]},"result":$result}"""))
+            val scoped = requireNotNull(select(advertised = listOf(directory), receipts = receipts).next)
+            assertEquals(json("""{"names":["github_context"],"action":"repository"}"""), scoped.arguments)
+            receipts["scoped"] = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":${scoped.arguments}}""")
+            assertNull(select(advertised = listOf(directory), receipts = receipts).next)
+            assertEquals(call(), select(advertised = listOf(context, directory), receipts = receipts).next)
+            assertNull(select(advertised = listOf(directory), authorized = listOf(directory), receipts = receipts).next)
+        }
+    }
+
+    @Test fun successfulSingleNameDiscoveryDoesNotRepeatWithAnActionUnlessTheReceiptExplainsAnExclusion() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        val attempt = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_context"]}}""")
+        val unchanged = select(advertised = listOf(directory), receipts = mapOf("first" to attempt))
+        assertNull(unchanged.next)
+        assertEquals(JsonPrimitive("TOOL_NOT_ADVERTISED_AFTER_DISCOVERY"), unchanged.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+
+        val excluded = JsonObject(attempt + ("result" to json("""{"context_budget_excluded":["github_context"]}""")))
+        val recover = select(advertised = listOf(directory), receipts = mapOf("first" to excluded))
+        assertEquals(json("""{"names":["github_context"],"action":"repository"}"""), recover.next?.arguments)
+    }
+
+    @Test fun anotherSelectorCanReacquireAnEvictedActionOnlyAfterAnObservedRead() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        val branch = call(action = "commits").copy(arguments = json("""{"action":"commits","page":2}"""))
+        val scoped = json("""{"names":["github_context"],"action":"commits"}""")
+        val discovered = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":$scoped}""")
+        val receipts = linkedMapOf("first" to discovered)
+        assertNull(select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next)
+        receipts["page-one"] = json("""{"trusted":true,"success":true,"tool":"github_context_inspect","arguments":{"action":"commits","page":1}}""")
+        val reopened = requireNotNull(select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next)
+        assertEquals(scoped, reopened.arguments)
+        assertFalse(reopened.callId == "checklist-discovery-" + GitHubEvidenceBook.digest(scoped.toString()).take(20))
+        assertEquals(reopened.callId, select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next?.callId)
+        receipts["second"] = JsonObject(discovered.toMap())
+        assertNull(select(candidates = listOf(branch), advertised = listOf(directory), receipts = receipts).next)
+    }
+
+    @Test fun completedDifferentReadCanReopenAPreviouslyDisplacedPullRequestAction() {
+        val directory = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array"},"action":{"type":"string"}}}"""))
+        val pr = GitHubOperationTool.definition("github_pr")
+        val pending = call(pr.name, "copilot_tasks")
+        val arguments = json("""{"names":["github_pr"],"action":"copilot_tasks"}""")
+        val receipts = linkedMapOf(
+            "scoped" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":$arguments}"""),
+            "other-read" to json("""{"trusted":true,"success":true,"tool":"github_pr","arguments":{"action":"headers","pull_number":17}}""")
+        )
+        val result = select(listOf(pending), listOf(directory), listOf(directory, pr), receipts)
+        assertEquals(arguments, result.next?.arguments)
+        receipts["reopened"] = receipts.getValue("scoped")
+        assertNull(select(listOf(pending), listOf(directory), listOf(directory, pr), receipts).next)
     }
 
     @Test fun anotherProjectedActionCanAcquireItsOwnSchemaOnlyOnce() {

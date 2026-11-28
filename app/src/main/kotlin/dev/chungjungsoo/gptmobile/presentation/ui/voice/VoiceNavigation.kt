@@ -20,9 +20,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionCompute
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.presentation.common.Route
 import kotlinx.coroutines.delay
@@ -45,8 +49,12 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         }
         val stores by voiceSettings.modelStores.collectAsStateWithLifecycle()
         val moonshine = stores?.moonshine?.state?.collectAsStateWithLifecycle()?.value
+        val recognitionConfiguration = preferences?.recognitionConfiguration ?: VoiceRecognitionConfiguration()
+        val recognitionStore = stores?.recognition?.store(recognitionConfiguration)
+        val recognition = recognitionStore?.state?.collectAsStateWithLifecycle()?.value
+        LaunchedEffect(recognitionStore) { recognitionStore?.refresh(forceVerification = false) }
         val kokoro = stores?.kokoro?.state?.collectAsStateWithLifecycle()?.value
-        val streamingKokoro = stores?.streamingKokoro?.state?.collectAsStateWithLifecycle()?.value
+        val defaultStreaming = stores?.defaultStreaming?.state?.collectAsStateWithLifecycle()?.value
         val context = LocalContext.current
         val androidRecognition = preferences?.recognitionBackend == VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
         val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -55,7 +63,9 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             androidx.compose.runtime.remember(context, lifecycleState) {
                 android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
             }
-        val modelsReady = preferences != null && voiceEntryModelsReady(moonshine, kokoro, backend, preferences?.spokenReplies != false, if (androidRecognition) offlineService else null)
+        val modelsReady = preferences != null &&
+            (androidRecognition || recognitionConfiguration.model.supportsLanguage(preferences?.language.orEmpty())) &&
+            voiceEntryModelsReady(recognition, kokoro, backend, preferences?.spokenReplies != false, if (androidRecognition) offlineService else null)
         val installation by VoicePluginInstall.state.collectAsStateWithLifecycle()
         LaunchedEffect(voiceSettings, lifecycle, state.loaded, state.route) {
             if (state.loaded && state.route == null) {
@@ -83,39 +93,77 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             showInstallation = installation.pending || installation.phase in setOf("FAILED", "CANCELLED"),
             setup = {
                 preferences?.let { saved ->
-                    RecognitionLanguageChoice(saved.language, saved.recognitionBackend) { tag, engine ->
+                    VoiceRecognitionModelChoices(
+                        saved.recognitionModel,
+                        saved.recognitionCompute,
+                        saved.recognitionThreads,
+                        saved.language,
+                        { selected -> voiceSettings.save(saved.copy(recognitionModel = selected, recognitionCompute = VoiceRecognitionCompute.CPU, recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE)) },
+                        { selected -> voiceSettings.save(saved.copy(recognitionCompute = selected)) },
+                        { selected -> voiceSettings.save(saved.copy(recognitionThreads = selected)) }
+                    )
+                    RecognitionLanguageChoice(saved.language, saved.recognitionBackend, saved.recognitionModel) { tag, engine ->
                         voiceSettings.save(saved.copy(language = tag, recognitionBackend = engine))
                     }
-                    if (androidRecognition && !offlineService) androidx.compose.material3.Text("Android offline recognition is unavailable on this phone. Choose English and the Moonshine engine to use the bundled recognizer.")
-                    SynthesisLanguageChoices(saved.synthesis, backend.backend.usesKokoroVoices) {
-                        val native = it.nativeVoice(saved.kokoroVoice)
-                        voiceSettings.save(saved.copy(synthesis = it, kokoroVoice = native))
+                    if (androidRecognition && !offlineService) androidx.compose.material3.Text("Android offline recognition is unavailable on this phone. Choose a local model that supports your recognition language.")
+                    if (!androidRecognition && saved.recognitionModel != VoiceRecognitionModel.MOONSHINE_TINY && recognition != null) {
+                        LocalVoiceSetupCard(
+                            recognition,
+                            { voiceSettings.installRecognitionModel(recognitionConfiguration) },
+                            { voiceSettings.cancelRecognitionModelInstall(recognitionConfiguration) },
+                            { voiceSettings.removeRecognitionModel(recognitionConfiguration) },
+                            showRemove = true,
+                            model = saved.recognitionModel,
+                            compute = saved.recognitionCompute
+                        )
+                    }
+                    if (backend.backend.usesKokoroVoices) {
+                        SynthesisLanguageChoices(saved.synthesis, backend.backend.usesKokoroVoices) {
+                            val native = it.nativeVoice(saved.kokoroVoice)
+                            voiceSettings.save(saved.copy(synthesis = it, kokoroVoice = native))
+                        }
                     }
                 }
                 VoiceEntrySpeechSettings(backend, backendOwner::selectBackend, backendOwner::selectGateway)
-                if (moonshine != null && kokoro != null && streamingKokoro != null) {
+                if (moonshine != null && kokoro != null && defaultStreaming != null) {
                     val engine = backend.backend.streamingEngine()
-                    val bundleSelected = preferences?.spokenReplies != false && (engine == null || engine == MediaPipeSpeechEngine.KOKORO)
+                    val bundleSelected = recognitionConfiguration.model == VoiceRecognitionModel.MOONSHINE_TINY && preferences?.spokenReplies != false && !backend.backend.isCompiledPocket && (engine == null || engine == MediaPipeSpeechCatalog.DEFAULT_ENGINE)
                     if (installation.pending || bundleSelected) {
                         VoicePluginSetup(
                             moonshine,
                             kokoro,
-                            streamingKokoro,
+                            defaultStreaming,
                             installation,
                             { stores?.let { VoicePluginInstall.start(context, it.kokoroVariant) } },
                             { VoicePluginInstall.cancel(context) }
                         ) {
                             VoicePluginInstall.refresh(context)
-                            VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status, streamingKokoro.status)
+                            VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status, defaultStreaming.status)
                             onReportDownload()
                         }
-                    } else {
+                    } else if (recognitionConfiguration.model == VoiceRecognitionModel.MOONSHINE_TINY) {
                         LocalVoiceSetupCard(
                             moonshine,
                             voiceSettings::installLocalModel,
                             voiceSettings::cancelLocalModelInstall,
                             voiceSettings::removeLocalModel,
                             compact = true
+                        )
+                    }
+                    if (!bundleSelected && !installation.pending && backend.factory.requiresKokoroAssets && preferences?.spokenReplies != false) {
+                        val saved = preferences
+                        KokoroPlaybackCard(
+                            state = kokoro,
+                            voice = saved?.kokoroVoice,
+                            threads = saved?.kokoroThreads ?: dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy.AUTO,
+                            english = saved?.synthesis?.language?.startsWith("en") != false,
+                            previewError = null,
+                            selectThreads = { count -> saved?.let { voiceSettings.save(it.copy(kokoroThreads = count)) } },
+                            install = voiceSettings::installKokoroModel,
+                            cancel = voiceSettings::cancelKokoroInstall,
+                            remove = voiceSettings::removeKokoroModel,
+                            preview = {},
+                            setup = true
                         )
                     }
                     if (engine != null && !bundleSelected && preferences?.spokenReplies != false) {
@@ -125,6 +173,8 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                             standardPack = backend.streamingModels[MediaPipeSpeechEngine.KOKORO],
                             preparingNpuBase = backend.preparingNpuBase,
                             npuBaseError = backend.npuBaseError,
+                            voiceId = backend.streamingVoiceId,
+                            selectVoice = backendOwner::selectStreamingVoice,
                             enabled = backend.loaded,
                             install = backendOwner::installStreamingModel,
                             importCompiled = backendOwner::importSm8750Model,
@@ -132,6 +182,19 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                             remove = backendOwner::removeStreamingModel,
                             preview = {},
                             previewError = null,
+                            setup = true
+                        )
+                    }
+                    if (backend.backend.isCompiledPocket && preferences?.spokenReplies != false) {
+                        PocketCompiledModelCard(
+                            state = backend.compiledPocketModel,
+                            captionState = backend.pocketCaptionModel,
+                            voiceId = backend.streamingVoiceId,
+                            selectVoice = backendOwner::selectStreamingVoice,
+                            enabled = backend.loaded && !backend.removingCompiledPocket,
+                            install = backendOwner::installStreamingModel,
+                            cancel = backendOwner::cancelStreamingInstall,
+                            remove = backendOwner::removeStreamingModel,
                             setup = true
                         )
                     }
@@ -218,7 +281,7 @@ internal fun VoicePluginSetup(
     val message = models.firstNotNullOfOrNull { it.message }
     val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
     val ready = models.all { it.status == LocalVoiceModelStatus.READY }
-    androidx.compose.material3.Text("Moonshine recognition · Kokoro streaming · Native Kokoro")
+    androidx.compose.material3.Text("Moonshine recognition · Pocket streaming · Native Kokoro")
     if (ready) {
         androidx.compose.material3.Text("Voice Chat plugin ready", color = accent)
     } else if (active == null && (installation.pending || checking)) {
@@ -237,7 +300,7 @@ internal fun VoicePluginSetup(
         androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancel download") }
     } else {
         val remaining = models.filter { it.status != LocalVoiceModelStatus.READY }.sumOf { it.totalBytes }
-        androidx.compose.material3.Text("Multilingual speech · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}", color = accent)
+        androidx.compose.material3.Text("Offline English voice bundle · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}", color = accent)
         if (installation.failure != null && message == null) {
             androidx.compose.material3.Text(
                 if (installation.failure == "WORK_NOT_FOUND") "Android no longer has this download. Start it again to resume verified files." else "Voice download could not start or finish. Tap to try again.",

@@ -6,13 +6,13 @@ On private Wi-Fi, enter the PC's IP on Android. When both devices already use th
 
 If the devices use different credentials, **Other connection options** on Windows includes **Copy secure phone link**. Paste the full link into **Gateway settings** on Android and tap **Connect** within five minutes. If the PC has several network interfaces, **Advanced network choice** lets you select the one your phone can reach. Android verifies the certificate fingerprint in the link and signs its request over TLS. Future connections use the saved certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**.
 
-Engineering starts automatically for each authorized owner. Upgrades enable older owner connections that still have their original default. The PC can pause new jobs for an owner during maintenance. An explicit admission pause survives a restart. The PC’s model, GitHub connection and approved repositories determine which jobs can run. Existing owner and viewer grants retain their permissions.
+Engineering is built into the Gateway experience for each authorized owner. There is no engineering enable/disable switch or persistent toggle card in GitHub chat. Upgrades remove the old admission pause, and older clients attempting to disable the feature receive a retained rejection. The PC’s model, GitHub connection and approved repositories determine which jobs can run. Existing owner and viewer grants retain their permissions; individual jobs can still be cancelled.
 
 ## What a setting means
 
 | Setting | Scope and activation |
 | --- | --- |
-| Engineering | Admission of new saved jobs for the selected owner. Turning it off retains accepted jobs and their original receipts. Missing host prerequisites remain visible as setup required. |
+| Engineering readiness | Built-in capability for an authorized owner. Missing host prerequisites remain visible as setup required. Old disable commands are rejected; compatible enable requests retain revision checks. |
 | Workers and active chats | Installation capacity; changes wait until existing work reaches the supervisor's safe boundary. |
 | Batch mode and local validation workers | Future work uses the changed preference after the safe boundary. Accepted work retains its bound policy. |
 | Repository validation profile | Windows first approves an immutable snapshot of an existing validated policy. A phone with an explicit grant can select an approved profile within its repository scope; activation waits for the safe boundary and rejects a policy changed on the host. |
@@ -91,10 +91,41 @@ this single control plane during PR #1741. Its broad grants are not silently
 converted to scoped owner permission. If that prototype was installed from an
 intermediate development build, pair explicitly through the current controls.
 Existing journal and credential files are left intact for deliberate recovery;
-the host's read-only retained-work view preserves the recorded job owner.
+the host's retained-work view preserves the recorded job owner. Its separate
+local-supervisor stop action uses that original identity and a fresh revision;
+it does not transfer the job to the current phone.
 Unconfirmed commands from that prototype are not replayed. Validated host
 configuration that was already applied remains the initialization source for
 the shared settings record.
+
+## Removing work from the Windows queue
+
+Open **Jobs** to inspect active and retained work. The default list includes host
+receipts from old device identities. **Load more host jobs** pages through that
+history; the recent dashboard snapshot is not the complete inventory.
+
+For active work, **Cancel** first reads the original job, owner, installation and
+revision. The PC retains its cancellation command before sending it. Requested
+cancellation remains pending until the original engine confirms its local work
+has stopped. After a lost response, read the original command receipt instead
+of creating a replacement request. A definitively rejected stale target can be
+reviewed again with a fresh target; an uncertain request remains retained.
+
+A job waiting for a client-tool result can be stopped locally after a Gateway
+restart. The original handoff IDs and result evidence remain available. Stopping
+the local continuation does not establish whether a remote tool already ran or
+reverse its side effects. An uncertain GitHub write similarly retains its
+operation receipt and reconciliation action.
+
+Once a fresh read confirms a terminal job, **Remove** hides that entry from the
+normal list. **Removed** lets you restore it. This is reversible presentation:
+the journal, original results and operation evidence are retained. Removing a
+row cannot free a still-running slot. Failed engineering work and interrupted
+generations are terminal for the open-work count.
+
+The GitHub Copilot preview API does not provide remote task cancellation. The
+Gateway therefore does not offer a local stop as if it cancelled the cloud
+worker. Uncertain submissions and timeouts remain visible for reconciliation.
 
 ## Additive API contract
 
@@ -112,6 +143,20 @@ The capability is `controlSettings.v1`. It is advertised only while the separate
 listener is observed running. Ordinary chat and legacy clients do not require
 this capability. The settings and command schemas are
 `gptmobile.gateway.settings.v1` and `gptmobile.gateway.command.v1`.
+
+The settings snapshot also reports `engineeringAlwaysOn.v1`. Local supervisor
+queue controls use a separate authority and are not forwarded as phone grants:
+
+| Local supervisor endpoint | Purpose |
+| --- | --- |
+| `GET /gateway/admin/retained-work` | Page original-owner host work and observed state counts. |
+| `GET /gateway/admin/retained-work/{job_id}` | Read the original job and current cancellation target. |
+| `POST /gateway/admin/retained-work/{job_id}/cancel` | Retain a command and signal the original local execution. |
+| `GET /gateway/admin/retained-work/{job_id}/cancel/{command_id}` | Read the original cancellation receipt and current observed outcome. |
+
+Only the authenticated `local:manager` supervisor can use these controls. A
+paired proxy, shared-network client or missing management credential cannot
+cancel another owner's retained work.
 
 ## Verification boundary
 

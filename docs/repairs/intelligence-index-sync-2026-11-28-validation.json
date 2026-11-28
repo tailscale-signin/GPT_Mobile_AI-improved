@@ -1,0 +1,50 @@
+{
+  "schema": "focused-jvm-validation-v1",
+  "task_date": "2026-11-28",
+  "base_commit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+  "scope": "Current eligibility and permission/destination classifiers; Android record boundaries are explicit DTO ports. No network or device execution.",
+  "runtime": {
+    "jdk": 21,
+    "kotlin": "2.4.20",
+    "junit": "4.13.2"
+  },
+  "current": {
+    "compile_exit": 0,
+    "test_exit": 0,
+    "tests": 5,
+    "failures": 0,
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/AppFeatureSettings.kt": "7f325e9d8640b35777350298012030dae0daef0a3bd3418f112f58b7aa630738",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/EngineeringGatewayConnection.kt": "9eed40effba7195ced7ca4913467ecec5e03aa23a188771f1d33f37984892511",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ModelDelegationSettings.kt": "73200cd92ebaf7cf971254219fa0203c2c637e78f8608b3497a57096eb5eecd3",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncEligibility.kt": "ac08d1820a176276f293fc1980d06cec74baf73fad69a54f344ad8c0a5cc11fb",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAutonomousEngineeringPolicy.kt": "26a634dd42202a00549a7bbd1596ea3b12ec517831aea2f4ef9e01d42052662c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryMode.kt": "f884b1a271a65d82f442cd4279b89abe1caef81e0fa00930f248b3e637b09805",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ClientType.kt": "fc83ec0094968843a954d7306a9b3992b2d0d81b0e353a37ee9769b7ee63a114",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncEligibilityTest.kt": "13d338986195e56d77188ab369ceba9cfaa5704c8a9ba0b897eb6f9feb8d68fd"
+    }
+  },
+  "boundary_port_sha256": {
+    "EndpointClassification.kt": "003f8f2a943d4481d75203d0890ef2192810d994364621e6b60b655e11773708",
+    "PlatformPort.kt": "f11b8beba1e3dcbc4808762b7696eebdd531a08347ab7c3bbfd4300cc12aaa11",
+    "SettingsPort.kt": "6cc0934424c4da1893a7779f34e3138920a827ce6d79d9757457a53395d68dfa",
+    "ContextPort.kt": "e532274b86818731a2010c4f11cfc076a40f0b318e1c82e6c701bd9bcdc249df",
+    "GatewaySelection.kt": "ab0940dd6185af79d6305965188c00d961b191abe48fd2c5b092ffc814e41511"
+  },
+  "local_harness_sha256": {
+    "index_eligibility.py": "b0064e129e446e64e43b48f278eb102a90f58aa4c1b94c26ce9cd6af88780056",
+    "cached_kotlin.py": "f85b04ebca764a0a1b5b04fd705ff40e5982756a56cd2de77d20a53a36fb97db"
+  },
+  "behavioral_cases": [
+    "Explicit enabled engineering Gateway is required for the selected profile; no implicit host fallback.",
+    "Missing, disabled or duplicate main profile cannot consume a background sync slot.",
+    "Global, profile, connection, remote-tool and all-tool exclusions remain authoritative.",
+    "Session-only engineering memory and disabled persistent cache are ineligible.",
+    "A newly restored valid configuration is eligible on the next observation; no negative cache."
+  ],
+  "limits": [
+    "The new eligibility object and checked-in tests were compiled with current permission and destination selection methods; Android record types are thin explicit test ports.",
+    "GatewayIndexSyncService integration is source-reviewed; no live Gateway, Android service or handset executed.",
+    "The graph repository still performs live authority checks on every read; eligibility is only a local scheduling hint."
+  ]
+}

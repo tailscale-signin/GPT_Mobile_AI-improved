@@ -1,0 +1,56 @@
+{
+  "checked_at_utc": "2026-11-28T05:27:58.049039+00:00",
+  "parent": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+  "implementation": "db5fae14a76681e616bafa203d2beed2ccdc2572",
+  "canonical_fast": {
+    "command": "bash scripts/validate-local.sh fast",
+    "exit_code": 0,
+    "tests": 863,
+    "skipped": 1,
+    "failures": 0,
+    "literal_regex_patterns": 2349,
+    "dynamic_regex_patterns_unmeasured": 153,
+    "xml_files": 38
+  },
+  "ktlint": {
+    "version": "1.3.1",
+    "exit_code": 0,
+    "paths": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAppendRecoverySessionTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+    ]
+  },
+  "independent_review": {
+    "result": "no material blocker",
+    "scope": "Four Kotlin files and 14 matching early CI selectors; no replay guard or voice source changes."
+  },
+  "hosted_full_android_and_device": "not established by local host checks",
+  "published_voice_ci_preflight_fix": {
+    "run_id": 46111561130,
+    "job_id": 140876088850,
+    "failure": "git diff --check rejected trailing blank lines in three evidence logs before resource/ktlint execution",
+    "changes": [
+      {
+        "path": "docs/repairs/evidence/voice-microphone-turn-cycle/lifecycle-baseline-junit.log",
+        "original_sha256": "ac3c4c50ab39ace81366cd5cf883320e7bd0312e22d5f61a3185469bf1b7c557",
+        "normalized_sha256": "ca566c7d22b94d7666516681c0bf0720e44b42a98974a823a3267d597976d9b5",
+        "change": "Remove only trailing blank lines; preserve all test output and result text."
+      },
+      {
+        "path": "docs/repairs/evidence/voice-microphone-turn-cycle/lifecycle-junit.log",
+        "original_sha256": "76e1649326e9fea1387a6d6188e22b9d832d90f4d85b394529c8b829d12e0199",
+        "normalized_sha256": "ef5b79488494421ab6af3460f6901ede2b51a5b261f28e49df442410aeec62f5",
+        "change": "Remove only trailing blank lines; preserve all test output and result text."
+      },
+      {
+        "path": "docs/repairs/evidence/voice-microphone-turn-cycle/presentation-junit.log",
+        "original_sha256": "98f30df99f9037d1e35ed8b40b1fa2daf0a3f8edf3dd0536951daf05717c01ea",
+        "normalized_sha256": "1eb7574b46ce610758807af056a4b1f0f68004ed39f602fd0da0111c14a76da8",
+        "change": "Remove only trailing blank lines; preserve all test output and result text."
+      }
+    ]
+  }
+}

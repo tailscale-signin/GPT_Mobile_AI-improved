@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.workspace
 import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction
+import dev.chungjungsoo.gptmobile.data.agent.isToolFailure
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -113,7 +114,7 @@ internal object GitHubWorkflowPresentation {
         }
         val failureCategory = (verification?.get("original_failure") as? JsonObject)?.text("code")?.takeIf(String::isNotBlank)
             ?: verification?.text("verification_failure") ?: typedFailure(run.terminalError)
-            ?: observed.lastOrNull { it.isError || it.status == ToolEventStatus.FAILED }?.let { typedFailure(it.error) ?: jsonObject(it.result)?.text("error_code") }
+            ?: observed.lastOrNull { it.isToolFailure() }?.let { typedFailure(it.error) ?: jsonObject(it.result)?.text("error_code") }
         val failureText = listOfNotNull(run.terminalError, failureCategory).joinToString(" ")
         val failure = ProfileFailureRecord.classify(failureText, nowMillis = nowMillis)
         val pendingApproval = failure.category == "WAITING_FOR_APPROVAL" ||
@@ -267,7 +268,7 @@ internal object GitHubWorkflowPresentation {
             listOfNotNull(name, action).distinct().joinToString(" · "),
             rows.size,
             rows.count { it.status == ToolEventStatus.COMPLETED && !it.isError },
-            rows.count { it.status == ToolEventStatus.FAILED || it.isError },
+            rows.count { it.isToolFailure() },
             rows.count { it.status in setOf(ToolEventStatus.PENDING, ToolEventStatus.RUNNING) }
         )
     }

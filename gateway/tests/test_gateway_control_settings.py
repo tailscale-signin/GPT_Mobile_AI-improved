@@ -98,7 +98,7 @@ class ControlSettingsTests(unittest.TestCase):
         self.assertIsNone(unknown.code)
         self.assertIsNone(unknown.status)
 
-    def test_desktop_and_phone_edit_same_owner_without_cancelling_existing_work(self):
+    def test_desktop_and_phone_cannot_disable_engineering_or_cancel_existing_work_through_settings(self):
         _, grant = self.paired()
         owner = grant['principal_id']
         self.store.patch(owner, self.command({'engineering_enabled': True}))
@@ -107,17 +107,17 @@ class ControlSettingsTests(unittest.TestCase):
             db.execute('CREATE TABLE accepted_fixture (job_id TEXT PRIMARY KEY)')
             db.execute("INSERT INTO accepted_fixture VALUES ('original-job-id')")
             EngineeringStore.require_new_jobs(adapter, db, owner)
-        self.store.patch(owner, self.command({'engineering_enabled': False}, revision=1), local=True)
-        self.assertFalse(self.store.snapshot(owner)['effective']['engineering_enabled'])
+        refusal = self.store.patch(owner, self.command({'engineering_enabled': False}, revision=1), local=True)
+        self.assertEqual('rejected', refusal['status'])
+        self.assertEqual('engineering_always_on', refusal['error']['code'])
+        self.assertTrue(self.store.snapshot(owner)['effective']['engineering_enabled'])
         with self.store.tx() as db:
-            with self.assertRaises(ExecutionBindingError) as error:
-                EngineeringStore.require_new_jobs(adapter, db, owner)
-            self.assertEqual('ENGINEERING_JOBS_PAUSED', error.exception.code)
+            EngineeringStore.require_new_jobs(adapter, db, owner)
             self.assertEqual('original-job-id', db.execute('SELECT job_id FROM accepted_fixture').fetchone()[0])
         config = Config(control_journal=str(self.store.path))
-        self.assertTrue(principal_authorized(config, owner, None), 'Turning admission off must retain accepted-job authority')
+        self.assertTrue(principal_authorized(config, owner, None), 'A rejected feature toggle cannot change accepted-job authority')
 
-    def test_upgraded_owner_defaults_admit_jobs_and_keep_explicit_pauses_and_viewer_scope(self):
+    def test_upgraded_owner_defaults_retire_legacy_pauses_and_keep_viewer_scope(self):
         _, default = self.paired()
         _, missing = self.paired()
         _, paused = self.paired()
@@ -125,18 +125,18 @@ class ControlSettingsTests(unittest.TestCase):
         self.assertTrue(self.store.snapshot(default['principal_id'])['effective']['engineering_enabled'])
         self.assertFalse(default['engineering_connection'], 'A normal invitation can belong to a different inference PC')
         with self.store.tx() as db:
-            db.execute("DELETE FROM gateway_control_migrations WHERE name='owner_job_admission_default'")
+            db.execute("DELETE FROM gateway_control_migrations WHERE name='engineering_always_on_v1'")
             db.execute('UPDATE engineering_admission_settings SET enabled=0,revision=0 WHERE principal=?', (default['principal_id'],))
             db.execute('DELETE FROM engineering_admission_settings WHERE principal=?', (missing['principal_id'],))
             db.execute('UPDATE engineering_admission_settings SET enabled=0,revision=2 WHERE principal=?', (paused['principal_id'],))
         reopened = ControlStore(self.root)
         adapter = SimpleNamespace(admission_settings=EngineeringStore.admission_settings)
-        for grant in (default, missing):
+        for grant in (default, missing, paused):
             self.assertTrue(reopened.snapshot(grant['principal_id'])['effective']['engineering_enabled'])
             with reopened.tx() as db:
                 EngineeringStore.require_new_jobs(adapter, db, grant['principal_id'])
         self.assertEqual(1, reopened.snapshot(default['principal_id'])['revision'])
-        for grant, code in ((paused, 'ENGINEERING_JOBS_PAUSED'), (viewer, 'PAIRED_OWNER_REQUIRED')):
+        for grant, code in ((viewer, 'PAIRED_OWNER_REQUIRED'),):
             self.assertFalse(reopened.snapshot(grant['principal_id'])['desired']['engineering_enabled'])
             with reopened.tx() as db, self.assertRaises(ExecutionBindingError) as rejected:
                 EngineeringStore.require_new_jobs(adapter, db, grant['principal_id'])
@@ -217,9 +217,10 @@ class ControlSettingsTests(unittest.TestCase):
         owner = result['principal_id']
         self.assertTrue(self.store.snapshot(owner)['effective']['engineering_enabled'])
         self.assertEqual(['owner/repo'], self.store.snapshot(owner)['repositories'])
-        self.store.patch(owner, self.command({'engineering_enabled': False}))
+        refusal = self.store.patch(owner, self.command({'engineering_enabled': False}))
+        self.assertEqual('engineering_always_on', refusal['error']['code'])
         self.assertEqual(result, self.store.pairing_finish(link['code'], request, self.secret)[0])
-        self.assertFalse(self.store.snapshot(owner)['desired']['engineering_enabled'])
+        self.assertTrue(self.store.snapshot(owner)['desired']['engineering_enabled'])
 
     def test_pairing_requires_local_confirmation_and_preserves_delivery_identity(self):
         invitation = self.store.pairing_create({'repositories': ['owner/repo']})

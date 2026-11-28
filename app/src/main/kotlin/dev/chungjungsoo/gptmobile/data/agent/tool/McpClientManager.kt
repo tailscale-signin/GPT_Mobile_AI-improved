@@ -193,7 +193,10 @@ class McpClientManager internal constructor(
 
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueEpoch)?.value
 
-    suspend fun peekToolsForConnection(uid: String, endpointUrl: String? = null, allowCleartext: Boolean = false): List<Tool>? {
+    suspend fun peekToolsForConnection(uid: String, endpointUrl: String? = null, allowCleartext: Boolean = false): List<Tool>? =
+        peekToolsForConnection(uid, endpointUrl, allowCleartext, false)
+
+    internal suspend fun peekToolsForConnection(uid: String, endpointUrl: String?, allowCleartext: Boolean, sessionMetadata: Boolean): List<Tool>? {
         val validatedKey = endpointUrl?.let { McpConnectionConfig(uid, it, allowCleartext).validatedKey() }
         val health = healthSnapshot(uid)
         if (health.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED || protocolFailures.containsKey(uid)) return null
@@ -217,6 +220,12 @@ class McpClientManager internal constructor(
         )
         val snapshot = current ?: identity?.takeIf { staleNetworkEligible }?.let { catalogue.peek(it.second, 15 * 60_000L) }
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(snapshot != null, snapshot?.let { System.nanoTime() / 1_000_000 - it.observedAt > 300_000 } == true)
+        if (snapshot == null && sessionMetadata && health.state == McpConnectionHealthState.CONNECTED && health.toolReadiness == McpToolReadiness.READY) {
+            val key = identity?.second ?: return null
+            if (key.endsWith("|$networkEpoch:${identity.first}") && transportConfigurationKeys[uid]?.let { "$it:${identity.first}" } == key) {
+                return validatedCatalogues[uid]?.takeIf { it.first == key }?.second
+            }
+        }
         return snapshot?.value
     }
 

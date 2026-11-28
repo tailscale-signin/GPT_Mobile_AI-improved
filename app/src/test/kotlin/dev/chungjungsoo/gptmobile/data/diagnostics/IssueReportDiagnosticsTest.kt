@@ -48,8 +48,8 @@ class IssueReportDiagnosticsTest {
     @Test fun streamingVoiceCapabilityDependsOnEmittedValuesAcrossSnapshotAndContextRestoration() {
         val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
         val additions = mapOf(
-            "voice_engine" to setOf("MEDIAPIPE"),
-            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
+            "voice_engine" to setOf("MEDIAPIPE", "COMPILED_POCKET"),
+            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU"),
             "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
         )
         for ((field, choices) in additions) {
@@ -77,6 +77,31 @@ class IssueReportDiagnosticsTest {
         }
         val noCapture = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "diagnostic_capture_mode" to "NO_CAPTURE", "voice_engine" to "MEDIAPIPE"), 1_000L))
         assertFalse(feature in noCapture.requiredServiceFeatures())
+    }
+
+    @Test fun compiledPocketVocabularyAndPackSurviveRestorationAndNegotiateTheirOwnCapability() {
+        val additions = listOf(
+            "voice_engine" to "COMPILED_POCKET",
+            "voice_selected_backend" to "POCKET_GPU",
+            "voice_selected_backend" to "POCKET_NPU",
+            "voice_failure_requested_backend" to "POCKET_GPU",
+            "voice_failure_requested_backend" to "POCKET_NPU",
+            "voice_install_pack" to "POCKET"
+        )
+        val feature = VoiceExecutionDiagnostics.POCKET_COMPILED_FEATURE
+        for ((field, value) in additions) {
+            val captured = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
+            val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), captured)))
+            assertEquals(JsonPrimitive(value), restored.values[field])
+            assertTrue(feature in restored.requiredServiceFeatures())
+            assertFalse("voice_effective_provider" in restored.values)
+            val noCapture = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "diagnostic_capture_mode" to "NO_CAPTURE", field to value), 1_000L))
+            assertFalse(feature in noCapture.requiredServiceFeatures())
+        }
+        for ((field, value) in listOf("voice_engine" to "MEDIAPIPE", "voice_selected_backend" to "POCKET_CPU", "voice_install_pack" to "LITERT_KOKORO")) {
+            val legacy = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
+            assertFalse(feature in legacy.requiredServiceFeatures())
+        }
     }
 
     @Test fun singlePassRepairStopIsPreservedAndNegotiatedOnlyWhenObserved() {
@@ -337,7 +362,18 @@ class IssueReportDiagnosticsTest {
         assertEquals(3, snapshot.schemaVersion)
         assertEquals(2, snapshot.requiredReporterVersion())
         assertTrue(VoiceExecutionDiagnostics.FEATURE in snapshot.requiredServiceFeatures())
-        assertTrue(VoiceExecutionDiagnostics.fields.all { it in snapshot.values })
+        val observedExecutionFields = setOf(
+            "voice_selected_backend",
+            "voice_effective_provider",
+            "voice_fallback_source",
+            "voice_fallback_target",
+            "voice_fallback_outcome",
+            "voice_fallback_failure",
+            "voice_fallback_count"
+        )
+        assertEquals(observedExecutionFields, snapshot.values.keys.intersect(VoiceExecutionDiagnostics.fields))
+        assertTrue(VoiceExecutionDiagnostics.fallbackCauseFields.none { it in snapshot.values })
+        assertFalse(VoiceExecutionDiagnostics.FALLBACK_CAUSES_FEATURE in snapshot.requiredServiceFeatures())
         val approved = report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(snapshot))
         val payload = approved.approvedPayload()
         val restored = requireNotNull(IssueReport.json.decodeFromString(IssueReport.serializer(), payload).context?.diagnostics).validated()
@@ -393,7 +429,7 @@ class IssueReportDiagnosticsTest {
         assertFalse("voice_install_failure_kind" in snapshot.values)
         assertTrue("VOICE_INSTALL_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
         assertFalse(IssueReportDiagnostics.VOICE_STREAMING_INSTALL_FEATURE in snapshot.requiredServiceFeatures())
-        for (observation in listOf("voice_install_streaming_status" to "DOWNLOADING", "voice_install_pack" to "LITERT_KOKORO")) {
+        for (observation in listOf("voice_install_streaming_status" to "DOWNLOADING", "voice_install_pack" to "LITERT_KOKORO", "voice_install_pack" to "POCKET")) {
             val streaming = capture("VOICE", mapOf(observation))
             assertTrue(IssueReportDiagnostics.VOICE_STREAMING_INSTALL_FEATURE in streaming.requiredServiceFeatures())
         }
@@ -402,7 +438,7 @@ class IssueReportDiagnosticsTest {
         for ((key, value) in listOf(
             "voice_install_elapsed_ms" to JsonPrimitive(16_000_001),
             "voice_install_downloaded_bytes" to JsonPrimitive(-1),
-            "voice_install_total_bytes" to JsonPrimitive(1_000_000_001),
+            "voice_install_total_bytes" to JsonPrimitive(17_179_869_185L),
             "voice_install_http_status" to JsonPrimitive(600),
             "voice_install_downloaded_bytes" to JsonPrimitive("123"),
             "voice_install_pending_reason" to JsonPrimitive("private network"),
@@ -412,10 +448,31 @@ class IssueReportDiagnosticsTest {
         )) {
             assertNull(snapshot.copy(values = snapshot.values + (key to value)).validated())
         }
-        val boundary = capture("VOICE", mapOf("voice_install_total_bytes" to 1_000_000_000, "voice_install_http_status" to 599, "voice_install_failure_kind" to "HTTP"))
+        val boundary = capture("VOICE", mapOf("voice_install_total_bytes" to 17_179_869_184L, "voice_install_http_status" to 599, "voice_install_failure_kind" to "HTTP"))
         assertTrue(boundary.isValid())
         val otherArea = capture("PROVIDER", emptyMap()).copy(values = mapOf("voice_install_pending_reason" to JsonPrimitive("CONNECTIVITY")))
         assertNull(otherArea.validated())
+    }
+
+    @Test fun largeRecognitionGraphTransferKeepsExactLongByteCounts() {
+        val snapshot = capture("VOICE", mapOf("voice_install_downloaded_bytes" to 2_454_405_120L, "voice_install_total_bytes" to 2_594_373_279L))
+        assertTrue(snapshot.isValid())
+        assertEquals(JsonPrimitive(2_454_405_120L), snapshot.values["voice_install_downloaded_bytes"])
+        assertEquals(JsonPrimitive(2_594_373_279L), snapshot.values["voice_install_total_bytes"])
+        assertEquals(setOf("VOICE_INSTALL_EVIDENCE_V1", IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE), snapshot.requiredServiceFeatures())
+        assertNull(snapshot.copy(values = snapshot.values + ("voice_install_downloaded_bytes" to JsonPrimitive(17_179_869_185L))).validated())
+        for (field in listOf("voice_install_downloaded_bytes", "voice_install_total_bytes")) {
+            for (count in listOf(0L, 1_000_000_000L)) {
+                val legacy = capture("VOICE", mapOf(field to count))
+                assertTrue(legacy.isValid())
+                assertEquals(setOf("VOICE_INSTALL_EVIDENCE_V1"), legacy.requiredServiceFeatures())
+            }
+            val expanded = capture("VOICE", mapOf(field to 1_000_000_001L))
+            assertTrue(IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE in expanded.requiredServiceFeatures())
+            val omitted = capture("VOICE", emptyMap()).copy(omittedFields = listOf(field))
+            assertTrue(omitted.isValid())
+            assertEquals(setOf("VOICE_INSTALL_EVIDENCE_V1"), omitted.requiredServiceFeatures())
+        }
     }
 
     @Test fun omittedVoiceInstallEvidenceAndMissingWorkRequireMatchingReporterSupport() {

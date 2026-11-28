@@ -192,6 +192,7 @@ class ChatViewModel @Inject constructor(
     val pendingMcpInput get() = mcpInteractions?.pending ?: MutableStateFlow(emptyList())
     val githubDecisions get() = gitHubDecisions?.decisions ?: MutableStateFlow(emptyList())
     val waitingGitHubDecisions get() = gitHubDecisions?.waiting ?: MutableStateFlow(emptySet())
+    private var pendingGitHubDecisionResume: String? = null
     suspend fun loadGitHubDecisions() {
         try {
             gitHubDecisions?.load()
@@ -220,12 +221,21 @@ class ChatViewModel @Inject constructor(
     fun resumeGitHubDecision(id: String) {
         val decision = gitHubDecisions?.decisions?.value?.firstOrNull { it.id == id && it.chatId == _chatRoom.value.id && !it.delivered && !it.cancelled } ?: return
         val workspace = _chatToolConfig.value.github ?: return
-        if (decision.workspace != dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(workspace) || isGenerationBusy()) return
+        if (decision.workspace != dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(workspace)) {
+            _attachmentNotice.value = "This choice belongs to its original repository, branch and profile. Return to that task to continue."
+            return
+        }
+        if (isGenerationBusy()) {
+            // A very fast tap may beat the runner's durable pause publication.
+            pendingGitHubDecisionResume = id
+            return
+        }
         val turn = _groupedMessages.value.userMessages.indexOfFirst { it.id == decision.sourceMessageId }
         val profile = enabledPlatformsInChat.indexOf(decision.profileUid)
         if (turn >= 0 && profile >= 0) retryChat(turn, profile, null, answeredDecision = true) else _attachmentNotice.value = "Your choice is saved. Open the original task and retry it to continue."
     }
     fun stopGitHubDecision(id: String) {
+        if (pendingGitHubDecisionResume == id) pendingGitHubDecisionResume = null
         viewModelScope.launch {
             try {
                 gitHubDecisions?.dismiss(id, _chatRoom.value.id)
@@ -557,14 +567,63 @@ class ChatViewModel @Inject constructor(
         savedStateHandle["voiceAdmission"] = kotlinx.serialization.json.Json.encodeToString(VoiceTurnAdmission.serializer(), value)
     }
 
-    internal var voiceReplyLanguage: String? = null
-    private fun selectedVoicePolicy() = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.forLanguage(voiceReplyLanguage)
+    internal var voiceReplyPolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.RESPONSIVE
+    private var voiceAttempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace? = null
+    private var voicePreflightJob: kotlinx.coroutines.Job? = null
+    private val _stoppedVoiceRuns = MutableStateFlow<Set<String>>(emptySet())
+    internal val stoppedVoiceRuns = _stoppedVoiceRuns.asStateFlow()
+
+    private fun cancelVoiceRuns(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        _stoppedVoiceRuns.update { it + ids }
+        agentRunCoordinator.cancelRuns(ids)
+    }
+
+    private fun stopQueuedVoice(request: VoiceTurnAdmission) {
+        viewModelScope.launch {
+            try {
+                durablePromptQueue?.stopVoiceRequest(request.chatId, request.requestId)?.let(::cancelVoiceRuns)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not confirm the queued turn stopped. Open text chat to check its status."
+            }
+        }
+    }
+
+    internal fun stopVoiceTurn(playingRunId: String?) {
+        val request = _voiceAdmission.value?.takeIf { it.chatId == _chatRoom.value.id }
+        val playingRun = playingRunId?.let { _agentRunsById.value[it] }
+        val ownsPlayback = request != null &&
+            (
+                playingRunId in request.runIds ||
+                    playingRun != null &&
+                    playingRun.chatId == request.chatId &&
+                    playingRun.userMessageId == request.userMessageId &&
+                    playingRun.profileUid == request.profileUid
+                )
+        if (playingRunId != null && !ownsPlayback) {
+            cancelVoiceRuns(setOf(playingRunId))
+            return
+        }
+        if (request == null || request.stage == VoiceAdmissionStage.FAILED) return
+        updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.FAILED, reason = "VOICE_TURN_STOPPED"))
+        voiceAttempt?.takeIf { it.requestId == request.requestId }?.let {
+            it.stop()
+            voicePreflightJob?.cancel()
+            voicePreflightJob = null
+        }
+        queuedPrompts.removeAll { it.attempt.requestId == request.requestId }
+        _queuedPromptCount.value = queuedPrompts.size
+        cancelVoiceRuns(request.runIds.toSet() + listOfNotNull(playingRunId))
+        if (request.runIds.isEmpty()) stopQueuedVoice(request)
+    }
 
     private fun voiceTrace(request: VoiceTurnAdmission, text: String) = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(
         requestId = request.requestId,
-        voiceResponsePolicy = selectedVoicePolicy(),
+        voiceResponsePolicy = voiceReplyPolicy,
         onOutcome = { reason ->
-            if (_voiceAdmission.value?.requestId == request.requestId) {
+            if (_voiceAdmission.value?.requestId == request.requestId && _voiceAdmission.value?.reason != "VOICE_TURN_STOPPED") {
                 updateVoiceAdmission(
                     request.copy(
                         stage = if (reason in setOf("DURABLY_QUEUED", "SESSION_QUEUED")) VoiceAdmissionStage.QUEUED else VoiceAdmissionStage.FAILED,
@@ -574,7 +633,7 @@ class ChatViewModel @Inject constructor(
             }
         },
         onAccepted = { ids, chatId, messageId ->
-            if (_voiceAdmission.value?.requestId == request.requestId && chatId == request.chatId) {
+            if (_voiceAdmission.value?.requestId == request.requestId && chatId == request.chatId && _voiceAdmission.value?.reason != "VOICE_TURN_STOPPED") {
                 if (question.text.toString() == text) question.clearText()
                 updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.ACCEPTED, userMessageId = messageId, runIds = ids))
             }
@@ -586,6 +645,7 @@ class ChatViewModel @Inject constructor(
             _voiceAdmission.collectLatest { request ->
                 if (request?.stage != VoiceAdmissionStage.QUEUED) return@collectLatest
                 durablePromptQueue?.observeRequest(request.chatId, request.requestId)?.collect { prompt ->
+                    if (_voiceAdmission.value != request) return@collect
                     if (prompt == null) {
                         updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.FAILED, reason = "QUEUED_TURN_REMOVED"))
                     } else if (prompt.userMessageId != null) {
@@ -887,7 +947,7 @@ class ChatViewModel @Inject constructor(
     fun askQuestion() = submitComposer(null)
 
     /** Typed input in a voice conversation uses the same durable admission as the normal composer. */
-    fun askVoiceQuestion() = submitComposer(selectedVoicePolicy())
+    fun askVoiceQuestion() = submitComposer(voiceReplyPolicy)
 
     private fun submitComposer(voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy?) {
         // The first tap owns its frozen draft and resumes after admission.
@@ -978,11 +1038,12 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>, attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(), gatewayAdmissionChecked: Boolean = false, reasoningAdmissionChecked: Boolean = false, combinedPrior: GroupedMessages? = null) {
-        if (attachments.isEmpty() && _voiceAdmission.value?.requestId != attempt.requestId && handleActiveTaskControl(questionText)) {
+        if (attempt.stopped) return
+        if (attachments.isEmpty() && attempt.voiceResponsePolicy?.translationOnly != true && _voiceAdmission.value?.requestId != attempt.requestId && handleActiveTaskControl(questionText)) {
             attempt.finish("TASK_CONTROL_HANDLED")
             return
         }
-        if (_combinedSettingsSaveState.value.isCommitting) {
+        if (_combinedSettingsSaveState.value.isCommitting && attempt.voiceResponsePolicy?.translationOnly != true) {
             _attachmentNotice.value = "Saving the Combined setup. Your message draft is kept."
             attempt.finish("VALIDATION_REJECTED")
             return
@@ -994,7 +1055,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         val room = _chatRoom.value
-        if (room.conversationMode == ConversationMode.COMBINED && room.id > 0 && combinedPrior == null) {
+        if (room.conversationMode == ConversationMode.COMBINED && room.id > 0 && combinedPrior == null && attempt.voiceResponsePolicy?.translationOnly != true) {
             if (SendPreparation.HISTORY_LOAD in _sendPreparation.value) return
             val composerAtCheck = question.text.toString()
             val attachmentsAtCheck = _selectedAttachments.value
@@ -1019,7 +1080,11 @@ class ChatViewModel @Inject constructor(
             return
         }
         val acceptedTools = try {
-            captureCombinedTools(questionText, combinedPrior?.userMessages.orEmpty()).copy(voiceResponsePolicy = attempt.voiceResponsePolicy)
+            if (attempt.voiceResponsePolicy?.translationOnly == true) {
+                _chatToolConfig.value.withVoicePolicy(attempt.voiceResponsePolicy)
+            } else {
+                captureCombinedTools(questionText, combinedPrior?.userMessages.orEmpty()).withVoicePolicy(attempt.voiceResponsePolicy)
+            }
         } catch (error: IllegalArgumentException) {
             _attachmentNotice.value = error.message ?: "Could not accept the Combined setup. Your draft is kept."
             attempt.finish("VALIDATION_REJECTED")
@@ -1154,6 +1219,7 @@ class ChatViewModel @Inject constructor(
                         if (generation == reasoningSendGeneration) reasoningSendChecking = false
                     }
                 }
+                if (attempt === voiceAttempt && reasoningSendCheckJob?.isActive == true) voicePreflightJob = reasoningSendCheckJob
                 return
             }
         }
@@ -1178,7 +1244,7 @@ class ChatViewModel @Inject constructor(
             val modelsAtCheck = _chatPlatformModels.value
             val toolsAtCheck = _chatToolConfig.value
             gatewayAdmissionChecking = true
-            viewModelScope.launch {
+            val checkJob = viewModelScope.launch {
                 try {
                     if (gatewayTurn &&
                         !localAcknowledgement &&
@@ -1224,6 +1290,7 @@ class ChatViewModel @Inject constructor(
                     gatewayAdmissionChecking = false
                 }
             }
+            if (attempt === voiceAttempt && checkJob.isActive) voicePreflightJob = checkJob
             return
         }
         if (gatewayQueued || isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
@@ -1242,6 +1309,7 @@ class ChatViewModel @Inject constructor(
                 val snapshot = attachments.toList()
                 viewModelScope.launch {
                     try {
+                        if (attempt.stopped) return@launch
                         durablePromptQueue.enqueue(
                             roomId,
                             questionText,
@@ -1254,6 +1322,10 @@ class ChatViewModel @Inject constructor(
                                 gateway = gatewaySelection
                             )
                         )
+                        if (attempt.stopped) {
+                            cancelVoiceRuns(durablePromptQueue.stopVoiceRequest(roomId, attempt.requestId))
+                            return@launch
+                        }
                         followAcceptedTurn()
                         attempt.finish("DURABLY_QUEUED")
                         if (nextMessageProfileUid.value == oneMessageUid) savedStateHandle["nextMessageProfileUid"] = null
@@ -1481,6 +1553,38 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    internal suspend fun prepareListeningSession(
+        states: StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceState>,
+        profile: PlatformV2,
+        config: ChatMcpToolConfig,
+        remoteAllowed: Boolean
+    ) {
+        val room = _chatRoom.value
+        if (room.id <= 0 || room.isTemporary || room.privacyModeLocked || !profile.enabled || config.voiceResponsePolicy?.translationOnly == true) return
+        val memory = memoryPreview?.takeUnless { profile.excludesMemory() }
+        val owner = memory?.openVoice(room.id, profile.uid)
+        try {
+            dev.chungjungsoo.gptmobile.data.readiness.prepareWhileListening(
+                states,
+                warmCatalogues = {
+                    if (!profile.disableAllTools && !config.allToolsDisabled) {
+                        chatRepository.warmVoiceCatalogues(room.id, profile.uid, config, remoteAllowed, _groupedMessages.value.assistantMessages)
+                    }
+                },
+                warmMemory = { memory?.warmMetadata() },
+                searchMemory = { text ->
+                    if (owner != null) {
+                        withContext(Dispatchers.Default) {
+                            memory.previewVoice(owner, text, profile.isPrivateDestination(), profile.compatibleType == ClientType.LITERT_LM, _groupedMessages.value.userMessages.takeLast(2).joinToString("\n") { it.content.takeLast(1000) })
+                        }
+                    }
+                }
+            )
+        } finally {
+            if (owner != null) memory.closeVoice(owner)
+        }
+    }
+
     /** Check the selected account and privacy policy before activating microphone capture. */
     suspend fun preflightVoiceProfile(profile: PlatformV2) {
         val room = _chatRoom.value
@@ -1547,7 +1651,9 @@ class ChatViewModel @Inject constructor(
         checkpointVoiceDraft(text.trim())
         val request = VoiceTurnAdmission(UUID.randomUUID().toString(), _chatRoom.value.id, profileUid)
         updateVoiceAdmission(request)
-        submitOrQueueQuestion(text.trim(), emptyList(), voiceTrace(request, text.trim()))
+        val attempt = voiceTrace(request, text.trim())
+        voiceAttempt = attempt
+        submitOrQueueQuestion(text.trim(), emptyList(), attempt)
         return true
     }
 
@@ -1842,7 +1948,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Consent for this saved GitHub chat; toggling never enrolls or merges a PR. */
+    /** Preference for this saved GitHub chat; toggling never enrolls or merges a PR. */
     fun setGitHubCopilotEnabled(enabled: Boolean) {
         val chatId = _chatRoom.value.id
         val context = _chatToolConfig.value.github ?: return
@@ -1852,26 +1958,7 @@ class ChatViewModel @Inject constructor(
                 val identity = settingRepository.ensureConversationIdentity(chatId)
                 conversationDelegationMutex.withLock {
                     settingRepository.mutateFeatureSettings { latest ->
-                        val bound = latest.conversationGitHub[chatId]?.sameWorkspace(context) == true &&
-                            latest.conversationIdentities[chatId] == identity
-                        val pluginEnabled =
-                            latest.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
-                        if (!bound || (enabled && !pluginEnabled)) {
-                            latest
-                        } else {
-                            val updated = if (enabled) {
-                                latest.githubCopilotConversations + mapOf(
-                                    chatId to dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference(
-                                        identity,
-                                        dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(context),
-                                        true
-                                    )
-                                )
-                            } else {
-                                latest.githubCopilotConversations - chatId
-                            }
-                            latest.copy(githubCopilotConversations = updated)
-                        }
+                        dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.withPreference(latest, chatId, context, identity, enabled)
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -2753,6 +2840,24 @@ class ChatViewModel @Inject constructor(
 
     fun retryChat(turnIndex: Int, platformIndex: Int) = retryChat(turnIndex, platformIndex, null)
 
+    fun discardInterruptedRun(runId: String) {
+        val run = _agentRunsById.value[runId]?.takeIf { it.chatId == _chatRoom.value.id } ?: return
+        val message = _groupedMessages.value.assistantMessages.flatten().firstOrNull { it.currentRunId == runId } ?: return
+        val failure = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+            ?: run.terminalError?.let { ProfileFailureRecord.classify(it) }
+        if (!showsInterruptedResponseControls(run.status, failure)) return
+        viewModelScope.launch {
+            if (run.gatewayJobId != null || agentRunCoordinator.gatewayOwnsRequest(runId)) {
+                agentRunCoordinator.cancelRuns(setOf(runId))
+                _attachmentNotice.value = "Cancellation requested for the original remote job. Its receipt remains until cancellation is confirmed."
+            } else {
+                if (chatRepository.discardInterruptedAgentRun(runId, run.ownershipFence, currentTimeStamp)) {
+                    _agentRunsById.update { it + (runId to run.copy(status = AgentRunStatus.CANCELED, terminalError = null)) }
+                }
+            }
+        }
+    }
+
     private fun retryChat(turnIndex: Int, platformIndex: Int, requestedRecovery: dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction?, answeredDecision: Boolean = false) {
         val currentAssistantMessage = _groupedMessages.value.assistantMessages
             .getOrNull(turnIndex)
@@ -2763,14 +2868,26 @@ class ChatViewModel @Inject constructor(
         if (_loadingStates.value.getOrNull(ownerLoadingIndex) == LoadingState.Loading) return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
+        val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
+        val recordedFailure = currentAssistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+        val interruptedResponse = showsInterruptedResponseControls(previousRun?.status, recordedFailure ?: failureDetails?.let { ProfileFailureRecord.classify(it) })
+        if (previousRun?.gatewayJobId != null && dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.canReadSavedResult(previousRun)) {
+            viewModelScope.launch {
+                agentRunCoordinator.recoverInterruptedGatewayRuns()
+                _attachmentNotice.value = "Checked the original remote job. Any recovered response appears here; an unknown outcome will not be resubmitted."
+            }
+            return
+        }
         if (previousRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) return
         if (previousRun?.status == AgentRunStatus.WAITING_FOR_APPROVAL) {
             _attachmentNotice.value = "Resolve the existing GitHub approval card before continuing this task."
             return
         }
-        val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
-        if (dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(failureDetails) ||
-            dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(currentAssistantMessage.content)
+        if (!answeredDecision &&
+            (
+                dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(failureDetails) ||
+                    dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(currentAssistantMessage.content)
+                )
         ) {
             _attachmentNotice.value = "The time allowance ended. Send “Continue for 10 minutes” to reopen the saved task."
             return
@@ -2779,7 +2896,6 @@ class ChatViewModel @Inject constructor(
             _attachmentNotice.value = it
             return
         }
-        val recordedFailure = currentAssistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
         val recoveryKind = failureDetails?.let { profileRecoveryKind(recordedFailure?.category ?: ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
         if (recoveryKind != ProfileRecoveryKind.NONE && (!recoveryKind.requiresModelRecheck || !permitsReasoningRecovery(turnIndex, platformIndex, currentAssistantMessage.currentRunId))) {
             _attachmentNotice.value = when (recoveryKind) {
@@ -2807,12 +2923,23 @@ class ChatViewModel @Inject constructor(
             return
         }
         val writerUid = previousRun?.profileUid?.takeIf { previousRun.synthesisKey != null } ?: ownerProfileUid
-        if (writerUid in _disabledPlatformUids.value) return
-        val platform = _platformsInApp.value.firstOrNull { it.uid == writerUid && it.enabled } ?: return
+        if (writerUid in _disabledPlatformUids.value) {
+            _attachmentNotice.value = "Enable this task's original AI profile to resume. Its saved progress has been retained."
+            return
+        }
+        val platform = _platformsInApp.value.firstOrNull { it.uid == writerUid && it.enabled } ?: run {
+            _attachmentNotice.value = "The original AI profile is unavailable. Restore it in profile settings to resume this task."
+            return
+        }
+        val restoreOriginalModel = interruptedResponse || answeredDecision
+        if (restoreOriginalModel && previousRun != null && platform.compatibleType.name != previousRun.providerSnapshot) {
+            _attachmentNotice.value = "The original profile now uses a different provider. Restore the saved provider before resuming this task."
+            return
+        }
         val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(previousRun?.synthesisSnapshot)
         val platformWithChatModel = resolvePlatformModel(platform).let { current ->
             current.copy(
-                model = accepted?.context?.requested?.requestedModels?.get(current.uid) ?: current.model,
+                model = accepted?.context?.requested?.requestedModels?.get(current.uid) ?: previousRun?.modelSnapshot?.takeIf { restoreOriginalModel } ?: current.model,
                 temperature = if (accepted != null) accepted.context.requested.temperatureFor(current.uid, current.temperature) else current.temperature
             )
         }
@@ -2846,7 +2973,11 @@ class ChatViewModel @Inject constructor(
                 }
                 val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(contextMessages.userMessages)
                 val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
-                val recoveryAction = requestedRecovery ?: if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+                val recoveryAction = requestedRecovery ?: when {
+                    prior?.primaryOnly == true -> dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY
+                    interruptedResponse -> dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_RUN
+                    else -> dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+                }
                 val recovery = if (recordedFailure?.isUnsentSetup == true && accepted == null && requestedRecovery == null) {
                     null
                 } else {
@@ -3602,8 +3733,12 @@ class ChatViewModel @Inject constructor(
                             )
                         )
                     },
-                    startProvider = { persisted ->
+                    startProvider = start@{ persisted ->
                         acceptedRunIds = persisted.runs.map { it.runId }
+                        if (attempt.stopped) {
+                            cancelVoiceRuns(acceptedRunIds.toSet())
+                            return@start
+                        }
                         onSaved()
                         followAcceptedTurn()
                         attempt.accepted(acceptedRunIds, persisted.chatRoom.id, persisted.userMessage.id)
@@ -3617,12 +3752,16 @@ class ChatViewModel @Inject constructor(
                             )
                         }
                         dispatchTools = dispatchTools.copy(combined = dispatchTools.combined?.copy(chatId = persisted.chatRoom.id))
-                        val contextMessages = priorToCombined?.let { prior ->
-                            GroupedMessages(
-                                prior.userMessages + persisted.userMessage,
-                                prior.assistantMessages + listOf(normalizeAssistantRow(persisted.assistantMessages, enabledPlatformsInChat, persisted.chatRoom.id))
-                            )
-                        } ?: acceptedHistoryWithPersistedTurn(persisted)
+                        val contextMessages = if (dispatchTools.voiceResponsePolicy?.translationOnly == true) {
+                            GroupedMessages(listOf(persisted.userMessage), listOf(persisted.assistantMessages))
+                        } else {
+                            priorToCombined?.let { prior ->
+                                GroupedMessages(
+                                    prior.userMessages + persisted.userMessage,
+                                    prior.assistantMessages + listOf(normalizeAssistantRow(persisted.assistantMessages, enabledPlatformsInChat, persisted.chatRoom.id))
+                                )
+                            } ?: acceptedHistoryWithPersistedTurn(persisted)
+                        }
                         dispatchTools.combined?.let {
                             chatRepository.prepareCombinedTurn(
                                 it,
@@ -3656,10 +3795,10 @@ class ChatViewModel @Inject constructor(
                                 }
                             )
                         }
-                        val recoveryTask = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(contextMessages.userMessages)
-                        val originalMessageId = recoveryTask?.sourceMessageId ?: persisted.userMessage.id
-                        val taskText = recoveryTask?.originalRequest ?: persisted.userMessage.content
-                        if (taskText.isNotBlank()) {
+                        if (dispatchTools.voiceResponsePolicy?.translationOnly != true && persisted.userMessage.content.isNotBlank()) {
+                            val recoveryTask = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(contextMessages.userMessages)
+                            val originalMessageId = recoveryTask?.sourceMessageId ?: persisted.userMessage.id
+                            val taskText = recoveryTask?.originalRequest ?: persisted.userMessage.content
                             val acceptedResearch = dispatchTools.combined?.requested?.acceptedResearch
                             val researchSettings = (dispatchTools.research ?: featureSettings.value.conversationResearch[persisted.chatRoom.id])?.normalized()
                             researchSessionStore?.acceptTask(
@@ -3677,6 +3816,10 @@ class ChatViewModel @Inject constructor(
                                 requestedModels = platforms.associate { it.value.uid to it.value.model }
                             )
                         }
+                        if (attempt.stopped) {
+                            cancelVoiceRuns(acceptedRunIds.toSet())
+                            return@start
+                        }
                         agentRunCoordinator.start(
                             platforms.mapIndexed { runIndex, (_, platform) ->
                                 AgentRunRequest(
@@ -3692,7 +3835,7 @@ class ChatViewModel @Inject constructor(
                                             platform.uid
                                         )
                                     ),
-                                    gatewayAdmissionAllowed = { !_chatToolConfig.value.allToolsDisabled }
+                                    gatewayAdmissionAllowed = { dispatchTools.voiceResponsePolicy?.translationOnly != true && !_chatToolConfig.value.allToolsDisabled }
                                 )
                             }
                         )
@@ -4123,9 +4266,9 @@ class ChatViewModel @Inject constructor(
                     delegation = features.conversationDelegation[room.id],
                     reasoning = features.conversationReasoning[room.id],
                     research = features.conversationResearch[room.id],
-                    github = workspace,
-                    allowAllByDefault = if (workspace != null) false else it.allowAllByDefault,
-                    enabledToolIds = workspace?.let { scope -> setOf(scope.connectionUid) } ?: it.enabledToolIds
+                    // A GitHub conversation retains the user's ordinary tool selection.
+                    // Live profile, connection and per-tool policy still control dispatch.
+                    github = workspace
                 )
             }
             if (room.id > 0 && targetMessageId > 0) {
@@ -4765,6 +4908,11 @@ class ChatViewModel @Inject constructor(
         // GitHub subjects come from the first persisted prompt and do not wait for a response.
         if (_chatToolConfig.value.github != null) checkAndGenerateAiTitle(runs)
         if (_combinedFailures.value.isNotEmpty() || isGenerationBusy()) return
+        pendingGitHubDecisionResume?.let { id ->
+            pendingGitHubDecisionResume = null
+            resumeGitHubDecision(id)
+            return
+        }
         maybeStartCombinedSynthesis(runs)
         if (_chatToolConfig.value.github == null) checkAndGenerateAiTitle(runs)
         drainPromptQueueIfIdle()

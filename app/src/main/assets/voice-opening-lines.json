@@ -1,0 +1,10 @@
+{
+  "en": {"help":"Sure, no problem.","check":"I can look into that.","lookup":"Let me check.","care":"That sounds hard."},
+  "fr": {"help":"Oui, bien sûr.","check":"Je peux regarder ça.","lookup":"Je vais vérifier.","care":"Ça a l’air difficile."},
+  "es": {"help":"Claro, con gusto.","check":"Puedo revisarlo.","lookup":"Déjame comprobarlo.","care":"Eso suena difícil."},
+  "it": {"help":"Certo, volentieri.","check":"Posso controllare.","lookup":"Ora verifico.","care":"Sembra difficile."},
+  "pt": {"help":"Claro, com prazer.","check":"Posso verificar isso.","lookup":"Deixe-me conferir.","care":"Parece difícil."},
+  "hi": {"help":"हाँ, बिल्कुल।","check":"मैं देख सकता हूँ।","lookup":"मैं जाँचता हूँ।","care":"यह मुश्किल लगता है।"},
+  "zh": {"help":"当然可以。","check":"我可以看看。","lookup":"我来查一下。","care":"听起来很不容易。"},
+  "ja": {"help":"はい、もちろんです。","check":"確認してみますね。","lookup":"少し調べますね。","care":"それは大変ですね。"}
+}

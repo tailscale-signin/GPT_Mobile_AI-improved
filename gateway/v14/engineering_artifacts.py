@@ -14,6 +14,7 @@ from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
 
 CHUNK = 64 * 1024
 MAX_ARTIFACT = 32 * 1024 * 1024
+MAX_JOB_ARTIFACT_BYTES = 256 * 1024 * 1024
 
 
 class EngineeringArtifacts:
@@ -56,7 +57,7 @@ class EngineeringArtifacts:
                 if not isinstance(block, bytes) or len(block) > CHUNK:
                     raise ValueError('Artifact writer requires bounded byte chunks')
                 total += len(block)
-                if total > MAX_ARTIFACT or used + total > 256 * 1024 * 1024:
+                if total > MAX_ARTIFACT:
                     raise ExecutionBindingError('EXECUTION_ARTIFACT_CAPACITY', 'Retained evidence reached its private storage quota. Existing pinned artifacts were preserved.', 507)
                 digest.update(block)
                 aad = job['id'] + ':' + temporary + ':' + str(sequence)
@@ -70,6 +71,11 @@ class EngineeringArtifacts:
                 db.execute('DELETE FROM engineering_artifact_chunks WHERE artifact_id=?', (temporary,))
                 reference = json.loads(existing[1])
             else:
+                # Re-pinning identical evidence uses no additional retained bytes.
+                # Check the job quota only after resolving its content identity;
+                # the per-artifact bound still limits temporary transaction work.
+                if used + total > MAX_JOB_ARTIFACT_BYTES:
+                    raise ExecutionBindingError('EXECUTION_ARTIFACT_CAPACITY', 'Retained evidence reached its private storage quota. Existing pinned artifacts were preserved.', 507)
                 identity = 'artifact_' + fingerprint([job['principal'], job['id'], checksum])[:40]
                 reference = {'schema_version': 1, 'result_ref': identity, 'sha256': checksum, 'byte_length': total,
                     'media_type': media_type, 'owner_scope': fingerprint([job['principal'], job['id']]),

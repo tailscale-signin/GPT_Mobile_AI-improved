@@ -17,7 +17,10 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.PocketCaptionModelStore
+import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
+import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import io.mockk.coEvery
@@ -54,6 +57,236 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoiceBackendViewModelTest {
+    @Test fun translationFactoriesKeepBothVoicesWithoutReplacingTheOrdinaryPlaybackFactory() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            saved.edit().putString("backend", VoiceSpeechBackend.POCKET_CPU.name)
+                .putStringSet("streaming_voices", setOf("POCKET=marius")).commit()
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val models = mockk<MediaPipeSpeechModelStore>(relaxed = true)
+            val multilingual = mockk<LocalVoiceModelStore>(relaxed = true)
+            every { models.state } returns MutableStateFlow(emptyMap())
+            every { models.localStore(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns multilingual
+            every { multilingual.state } returns MutableStateFlow(LocalVoiceModelState(LocalVoiceModelStatus.READY))
+            every { models.isReady(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns true
+            every { models.acceleratorEnvironment } returns "translation-test"
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher, createStreamingStore = { _, _ -> models })
+            owners.put("voice", model)
+            runCurrent()
+            val original = model.state.value.factory
+            val originalPreferences = saved.all.toMap()
+            val english = model.translationFactory("en-GB", "azelma")
+            val french = model.translationFactory("fr-CA", "estelle")
+            assertEquals(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU, english.selectedBackend)
+            assertEquals(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU, french.selectedBackend)
+            assertEquals(english.residentIdentity, french.residentIdentity)
+            assertNotEquals(english.identity, french.identity)
+            assertTrue(english.identity.endsWith("voice=azelma"))
+            assertTrue(french.identity.endsWith("voice=estelle"))
+            val idleEngine = mockk<VoicePhraseEngine>(relaxed = true)
+            english.prepareForPlayback(idleEngine)
+            french.prepareForPlayback(idleEngine)
+            verify(exactly = 1) { idleEngine.selectVoice("azelma") }
+            verify(exactly = 1) { idleEngine.selectVoice("estelle") }
+            assertTrue(runCatching { model.translationFactory("fr-FR", "azelma") }.exceptionOrNull() is IllegalArgumentException)
+            assertSame(original, model.state.value.factory)
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, model.state.value.backend)
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            assertEquals(originalPreferences, saved.all)
+            coVerify(exactly = 0) { models.install(any()) }
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun translationRejectsTheEnglishOnlyPackAndInstallsMultilingualOnlyAfterAnExplicitAction() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val models = mockk<MediaPipeSpeechModelStore>(relaxed = true)
+            val multilingual = mockk<LocalVoiceModelStore>(relaxed = true)
+            every { models.state } returns MutableStateFlow(emptyMap())
+            every { models.localStore(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns multilingual
+            every { multilingual.state } returns MutableStateFlow(LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED))
+            every { models.isReady(MediaPipeSpeechEngine.POCKET) } returns true
+            every { models.isReady(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns false
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher, createStreamingStore = { _, _ -> models })
+            owners.put("voice", model)
+            runCurrent()
+            val original = model.state.value.factory
+            val failure = runCatching { model.translationFactory("fr-FR", "estelle") }.exceptionOrNull()
+            assertTrue(failure is java.io.IOException)
+            assertTrue(failure?.message.orEmpty().contains("Install the Pocket Multilingual voice pack"))
+            model.refreshTranslationModel()
+            runCurrent()
+            coVerify(exactly = 0) { models.install(any()) }
+            model.installTranslationModel()
+            runCurrent()
+            coVerify(exactly = 1) { models.install(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) }
+            coVerify(exactly = 0) { models.install(MediaPipeSpeechEngine.POCKET) }
+            model.cancelTranslationModel()
+            verify(exactly = 1) { models.cancelInstall(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) }
+            assertSame(original, model.state.value.factory)
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, model.state.value.backend)
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun compiledPocketRemovalRetiresTheCombinedInstallBeforeEitherPackIsDeleted() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        val allowInstallReturn = CompletableDeferred<Unit>()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            saved.edit().putString("backend", VoiceSpeechBackend.POCKET_GPU.name).commit()
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val speech = mockk<PocketCompiledSpeechModelStore>(relaxed = true)
+            val captions = mockk<PocketCaptionModelStore>(relaxed = true)
+            every { speech.state } returns MutableStateFlow(LocalVoiceModelState())
+            every { captions.state } returns MutableStateFlow(LocalVoiceModelState())
+            every { speech.isReady() } returns true
+            coEvery { speech.install() } coAnswers { withContext(NonCancellable) { allowInstallReturn.await() } }
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher, createCompiledPocketStore = { speech }, createPocketCaptionStore = { captions })
+            owners.put("voice", model)
+            runCurrent()
+            model.installStreamingModel()
+            runCurrent()
+            coVerify(exactly = 1) { speech.install() }
+            model.removeStreamingModel()
+            runCurrent()
+            assertTrue(model.state.value.removingCompiledPocket)
+            coVerify(exactly = 0) { speech.remove() }
+            coVerify(exactly = 0) { captions.remove() }
+            model.installStreamingModel()
+            runCurrent()
+            coVerify(exactly = 1) { speech.install() }
+            allowInstallReturn.complete(Unit)
+            runCurrent()
+            assertFalse(model.state.value.removingCompiledPocket)
+            coVerify(exactly = 0) { captions.install() }
+            coVerify(exactly = 1) { speech.remove() }
+            coVerify(exactly = 1) { captions.remove() }
+            verify(exactly = 1) { speech.cancelInstall() }
+            verify(exactly = 1) { captions.cancelInstall() }
+        } finally {
+            allowInstallReturn.complete(Unit)
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun compiledPocketSharesItsVerifiedPackAndKeepsItsOwnVoiceAcrossBackendChanges() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val store = mockk<PocketCompiledSpeechModelStore>(relaxed = true)
+            every { store.state } returns MutableStateFlow(LocalVoiceModelState())
+            every { store.isReady() } returns false
+            val captions = mockk<PocketCaptionModelStore>(relaxed = true)
+            every { captions.state } returns MutableStateFlow(LocalVoiceModelState())
+            every { captions.isReady() } returns false
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher, createCompiledPocketStore = { store }, createPocketCaptionStore = { captions })
+            owners.put("voice", model)
+            runCurrent()
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, model.state.value.backend)
+            model.selectBackend(VoiceSpeechBackend.POCKET_GPU)
+            runCurrent()
+            assertEquals(VoiceSpeechBackend.POCKET_GPU, model.state.value.factory.selectedBackend)
+            assertFalse(model.state.value.factory.requiresKokoroAssets)
+            assertFalse(model.state.value.factory.isReady())
+            assertFalse(model.state.value.backend.usesKokoroVoices)
+            model.selectStreamingVoice("mary")
+            runCurrent()
+            assertEquals("mary", model.state.value.streamingVoiceId)
+            model.configureSpeech(KokoroVoice.HEART, 1.25f, synthesis = VoiceSynthesisPreferences("fr"))
+            runCurrent()
+            assertEquals("en-US", model.state.value.synthesisProfile(VoiceSynthesisPreferences("fr")).tag)
+            assertEquals(VoiceSpeechBackend.POCKET_GPU, model.state.value.backend)
+            model.selectBackend(VoiceSpeechBackend.POCKET_CPU)
+            runCurrent()
+            assertEquals("alba", model.state.value.streamingVoiceId)
+            model.selectBackend(VoiceSpeechBackend.POCKET_NPU)
+            runCurrent()
+            assertEquals("mary", model.state.value.streamingVoiceId)
+            model.selectStreamingVoice("estelle")
+            runCurrent()
+            assertEquals("mary", model.state.value.streamingVoiceId)
+            coVerify(exactly = 1) { store.refresh() }
+            coVerify(exactly = 1) { captions.refresh() }
+            coVerify(exactly = 0) { store.install() }
+            coVerify(exactly = 0) { captions.install() }
+            model.installStreamingModel()
+            runCurrent()
+            coVerify(exactly = 1) { store.install() }
+            coVerify(exactly = 0) { captions.install() }
+            every { store.isReady() } returns true
+            model.installStreamingModel()
+            runCurrent()
+            coVerify(exactly = 2) { store.install() }
+            coVerify(exactly = 1) { captions.install() }
+            model.cancelStreamingInstall()
+            verify(exactly = 1) { store.cancelInstall() }
+            verify(exactly = 1) { captions.cancelInstall() }
+            model.removeStreamingModel()
+            runCurrent()
+            coVerify(exactly = 1) { store.remove() }
+            coVerify(exactly = 1) { captions.remove() }
+            val restored = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            runCurrent()
+            assertEquals(VoiceSpeechBackend.POCKET_NPU, restored.state.value?.value?.backend)
+            assertEquals("mary", restored.state.value?.value?.compiledPocketVoiceId)
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun pocketDefaultDoesNotReplaceAnExplicitSavedEngine() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        try {
+            for (backend in listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.POCKET_GPU)) {
+                val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+                saved.edit().putString("backend", backend.name).putString("compiled_pocket_voice", "invalid").commit()
+                val preferences = VoiceBackendPreferenceStore({ saved }, scope)
+                runCurrent()
+                assertEquals(backend, preferences.state.value?.value?.backend)
+                assertEquals("alba", preferences.state.value?.value?.compiledPocketVoiceId)
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
     @Test fun streamingSelectionKeepsItsModelAndRateIdentityWithoutNativeKokoroAssets() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
@@ -69,8 +302,8 @@ class VoiceBackendViewModelTest {
             assertFalse(model.state.value.factory.isReady())
             runCurrent()
             val defaultFactory = model.state.value.factory
-            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, model.state.value.backend)
-            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, defaultFactory.selectedBackend)
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, model.state.value.backend)
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, defaultFactory.selectedBackend)
             assertFalse(defaultFactory.requiresKokoroAssets)
             model.configureSpeech(KokoroVoice.HEART, 1f)
             runCurrent()
@@ -112,8 +345,9 @@ class VoiceBackendViewModelTest {
             val japanese = VoiceSynthesisPreferences("ja").selectVoice("jf_nezumi")
             model.configureSpeech(KokoroVoice.HEART, 1f, synthesis = japanese)
             runCurrent()
-            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, model.state.value.backend)
-            assertTrue(model.state.value.factory.identity.endsWith("voice=jf_nezumi"))
+            assertEquals(VoiceSpeechBackend.PHONON_CPU, model.state.value.backend)
+            assertTrue(model.state.value.factory.identity.endsWith("voice=freya"))
+            assertEquals("en-US", model.state.value.synthesisProfile(japanese).tag)
             assertEquals(VoiceSpeechBackend.PHONON_CPU, preferences.state.value?.value?.backend)
             model.configureSpeech(KokoroVoice.HEART, 1f, synthesis = japanese.selectLanguage("en-US"))
             runCurrent()
@@ -180,11 +414,13 @@ class VoiceBackendViewModelTest {
         }
     }
 
-    @Test fun nonEnglishSpeechUsesMultilingualKokoroAndRetainsConfiguredKokoroDelegates() {
+    @Test fun nativeMultilingualFallbackRetainsStreamingPacksAndTheirOwnVoiceLocales() {
         val japanese = VoiceSynthesisPreferences("ja").selectVoice("jf_nezumi")
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.QNN_GPU.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_NPU, VoiceSpeechBackend.QNN_HTP.forSynthesis(japanese.selectLanguage("fr-CA")))
-        assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.PHONON_CPU.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.PHONON_CPU.forSynthesis(japanese))
+        assertEquals(VoiceSpeechBackend.POCKET_CPU, VoiceSpeechBackend.POCKET_CPU.forSynthesis(japanese))
+        assertEquals("en-US", VoiceBackendSettings(backend = VoiceSpeechBackend.POCKET_CPU).synthesisProfile(japanese).tag)
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.GATEWAY_CUDA.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_GPU.forSynthesis(japanese))
         assertEquals(VoiceSpeechBackend.AUTO, VoiceSpeechBackend.AUTO.forSynthesis(japanese.selectLanguage("en-US")))
@@ -195,10 +431,55 @@ class VoiceBackendViewModelTest {
         assertEquals(MediaPipeSpeechEngine.KOKORO, VoiceSpeechBackend.LITERT_KOKORO_GPU.streamingEngine())
         assertEquals(MediaPipeSpeechEngine.PHONON, VoiceSpeechBackend.PHONON_CPU.streamingEngine())
         assertEquals(MediaPipeSpeechEngine.POCKET, VoiceSpeechBackend.POCKET_CPU.streamingEngine())
+        assertEquals(MediaPipeSpeechEngine.POCKET_MULTILINGUAL, VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU.streamingEngine())
         assertEquals(null, VoiceSpeechBackend.CPU.streamingEngine())
         assertEquals(null, VoiceSpeechBackend.GATEWAY_CUDA.streamingEngine())
         assertEquals("af_heart", KokoroVoice.HEART.streamingVoiceId)
         assertEquals("am_adam", KokoroVoice.ADAM.streamingVoiceId)
+    }
+
+    @Test fun streamingVoiceSelectionSurvivesEngineSwitchAndPreferenceReload() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher)
+            owners.put("voice", model)
+            runCurrent()
+            model.selectBackend(VoiceSpeechBackend.POCKET_CPU)
+            runCurrent()
+            val alba = model.state.value.factory
+            model.selectStreamingVoice("marius")
+            runCurrent()
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            assertTrue(model.state.value.factory.identity.endsWith("voice=marius"))
+            assertEquals(alba.residentIdentity, model.state.value.factory.residentIdentity)
+            model.selectStreamingVoice("rafael")
+            runCurrent()
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            model.selectBackend(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU)
+            runCurrent()
+            model.selectStreamingVoice("rafael")
+            runCurrent()
+            assertEquals("pt-BR", model.state.value.synthesisProfile(VoiceSynthesisPreferences()).tag)
+            assertTrue(model.state.value.factory.identity.endsWith("voice=rafael"))
+            model.selectBackend(VoiceSpeechBackend.POCKET_CPU)
+            runCurrent()
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            val restored = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            runCurrent()
+            assertEquals("marius", restored.state.value?.value?.streamingVoice(MediaPipeSpeechEngine.POCKET))
+            assertEquals("rafael", restored.state.value?.value?.streamingVoice(MediaPipeSpeechEngine.POCKET_MULTILINGUAL))
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun voiceAndRateChangesReplaceOnlyTheMatchingQualificationIdentity() = runTest {
@@ -253,7 +534,7 @@ class VoiceBackendViewModelTest {
             owners.put("voice", model)
             runCurrent()
             assertTrue(model.state.value.loaded)
-            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_CPU, model.state.value.backend)
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, model.state.value.backend)
             assertTrue(model.state.value.status.contains("could not be read"))
             assertTrue(model.state.value.status.contains("connections could not be loaded"))
         } finally {

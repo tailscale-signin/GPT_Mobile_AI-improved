@@ -4,6 +4,11 @@ The benchmark separates measured model outcomes, evaluator availability, and the
 authority of model identity receipts. A configured model name, a proposed patch,
 or green CI alone does not establish a successful coding/GitHub trial.
 
+The Windows app embeds matched native-product campaigns under **Benchmarks →
+Native products**. See [Native product campaigns](NATIVE_CAMPAIGNS.md) for Quick
+and Comprehensive setup, native capture imports, independent supplied-answer
+grading, original-request recovery and unknown-preserving scoreboards.
+
 ## Task packs and evaluation boundaries
 
 | Pack | Quick / Standard / Deep | Measured contract |

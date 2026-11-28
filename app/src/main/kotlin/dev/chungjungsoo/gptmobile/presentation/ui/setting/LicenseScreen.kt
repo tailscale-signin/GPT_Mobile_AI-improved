@@ -44,20 +44,28 @@ fun LicenseScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val libraries = produceLibraries(R.raw.aboutlibraries)
     val context = LocalContext.current
-    var showAmazonNotice by remember { mutableStateOf(false) }
-    val amazonNotice by produceState("") {
+    var showSourceNotices by remember { mutableStateOf(false) }
+    val sourceNotices by produceState("") {
         value = withContext(Dispatchers.IO) {
-            listOf("amazon-mcp", "jsoup").joinToString("\n\n") { name ->
+            listOf(
+                "amazon-mcp",
+                "jsoup",
+                "sonic-NOTICES",
+                "kokoro-sherpa-onnx-NOTICES",
+                "mediapipe-speech-models-NOTICES",
+                "streaming-asr-NOTICES",
+                "recognition-models-NOTICES"
+            ).joinToString("\n\n") { name ->
                 "$name\n\n" + context.assets.open("licenses/$name.txt").bufferedReader().use { it.readText() }
             }
         }
     }
-    if (showAmazonNotice) {
+    if (showSourceNotices) {
         AlertDialog(
-            onDismissRequest = { showAmazonNotice = false },
-            title = { Text("Amazon Research Free · source notice") },
-            text = { Text(amazonNotice, modifier = Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { showAmazonNotice = false }) { Text(stringResource(R.string.close)) } }
+            onDismissRequest = { showSourceNotices = false },
+            title = { Text("Additional source notices") },
+            text = { Text(sourceNotices, modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = { showSourceNotices = false }) { Text(stringResource(R.string.close)) } }
         )
     }
 
@@ -71,7 +79,7 @@ fun LicenseScreen(
         Column(
             modifier = Modifier.fillMaxSize().padding(innerPadding)
         ) {
-            TextButton(onClick = { showAmazonNotice = true }) { Text("Amazon Research Free · MIT source notices") }
+            TextButton(onClick = { showSourceNotices = true }) { Text("Additional source licenses") }
             LibrariesContainer(libraries.value, modifier = Modifier.weight(1f))
         }
     }

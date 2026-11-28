@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.github
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** A run-local comparison between already admitted ways to advance one typed proof obligation. */
 internal class GitHubEvidenceRoutePolicy(
@@ -19,7 +21,43 @@ internal class GitHubEvidenceRoutePolicy(
 
     private val history = mutableMapOf<Key, Measurement>()
     private var attempt: Attempt? = null
-    private var multipleRoutes = false
+    private val pendingKeys = mutableSetOf<Key>()
+    private val outcomes = mutableMapOf<Key, MutableMap<String, Int>>()
+    private val shadow = mutableMapOf<String, Pair<Route, Route>>()
+
+    private fun record(key: Key, outcome: String) {
+        val counts = outcomes.getOrPut(key) { mutableMapOf() }
+        counts[outcome] = (counts[outcome] ?: 0) + 1
+    }
+
+    fun diagnostics(): JsonObject = buildJsonObject {
+        put("scope", "CURRENT_BOUND_RUN")
+        put("shadow_only", true)
+        put(
+            "observations",
+            JsonArray(
+                outcomes.map { (key, counts) ->
+                    buildJsonObject {
+                        put("family", key.producer)
+                        put("route", key.route.name)
+                        counts.forEach { (outcome, count) -> put(outcome, count) }
+                    }
+                }
+            )
+        )
+        put(
+            "comparisons",
+            JsonArray(
+                shadow.map { (context, routes) ->
+                    buildJsonObject {
+                        put("family_and_admitted_capabilities", context)
+                        put("selected", routes.first.name)
+                        put("shadow", routes.second.name)
+                    }
+                }
+            )
+        )
+    }
 
     fun choose(producer: String, admitted: Set<Route>): List<Route> {
         val options = when (producer) {
@@ -30,7 +68,7 @@ internal class GitHubEvidenceRoutePolicy(
         val available = options.filter { it in admitted }
         val knownCosts = available.mapNotNull { history[Key(producer, it)]?.meanTokens }
         val meanCost = knownCosts.takeIf { it.isNotEmpty() }?.average()
-        return available.sortedByDescending { route ->
+        val selected = available.sortedByDescending { route ->
             // Smoothed verified criteria per second. An unseen route retains an exploration
             // prior. Wall time includes verification and is never presented as API latency.
             val m = history[Key(producer, route)] ?: Measurement()
@@ -39,19 +77,34 @@ internal class GitHubEvidenceRoutePolicy(
             val tokenCost = if (meanCost == null) 1.0 else 1.0 + (m.meanTokens ?: meanCost) / (1.0 + meanCost)
             (m.verified + 1.0) / (m.samples + 2.0) / (1.0 + m.elapsed / (m.samples + 1.0) / 1000.0) / tokenCost
         }
+        if (selected.isNotEmpty()) {
+            val alternative = available.maxBy { route ->
+                val counts = outcomes[Key(producer, route)].orEmpty()
+                val pass = counts["verified"] ?: 0
+                val fail = counts["failed"] ?: 0
+                (pass + 1.0) / (pass + fail + 2.0)
+            }
+            shadow[producer + "/" + available.joinToString("+") { it.name }] = selected.first() to alternative
+        }
+        return selected
     }
 
     suspend fun started(producer: String, route: Route, criterion: String) = begin(producer, route, criterion, monotonicMillis(), measuredRunTokens())
 
     private fun begin(producer: String, route: Route, criterion: String, startMillis: Long, tokens: Int?) {
-        if (attempt != null) multipleRoutes = true
-        attempt = Attempt(Key(producer, route), criterion, startMillis, tokens)
+        val key = Key(producer, route)
+        attempt?.let { pendingKeys.add(it.key) }
+        if (attempt != null) pendingKeys.add(key)
+        attempt = Attempt(key, criterion, startMillis, tokens)
     }
 
     suspend fun <T> review(producer: String, criterion: String, open: suspend () -> T?): T? {
         val start = monotonicMillis()
         val tokens = measuredRunTokens()
-        val result = open() ?: return null
+        val result = open() ?: run {
+            record(Key(producer, Route.REVIEWER), "unavailable")
+            return null
+        }
         begin(producer, Route.REVIEWER, criterion, start, tokens)
         return result
     }
@@ -60,15 +113,29 @@ internal class GitHubEvidenceRoutePolicy(
     suspend fun observed(report: JsonObject) {
         val pending = attempt ?: return
         attempt = null
-        if (multipleRoutes) {
-            multipleRoutes = false
+        if (pendingKeys.isNotEmpty()) {
+            pendingKeys.forEach { record(it, "joint") }
+            pendingKeys.clear()
             return
         }
-        val rows = (report["acceptance_ledger"] as? JsonObject)?.get("requirements") as? JsonArray ?: return
-        val row = rows.filterIsInstance<JsonObject>().singleOrNull { it["id"] == JsonPrimitive(pending.criterion) && it["required"] == JsonPrimitive(true) } ?: return
-        val state = row["state"] as? JsonPrimitive ?: return
+        val rows = (report["acceptance_ledger"] as? JsonObject)?.get("requirements") as? JsonArray
+        val row = rows?.filterIsInstance<JsonObject>()?.singleOrNull { it["id"] == JsonPrimitive(pending.criterion) && it["required"] == JsonPrimitive(true) }
+        val state = row?.get("state") as? JsonPrimitive
+        if (state == null) {
+            record(pending.key, "unobserved")
+            return
+        }
+        record(
+            pending.key,
+            when (state.content) {
+                "PASS" -> "verified"
+                "FAIL", "FAILED", "CONTRADICTED" -> "failed"
+                else -> "pending"
+            }
+        )
         val old = history[pending.key] ?: Measurement()
         val delta = pending.startTokens?.let { before -> measuredRunTokens()?.takeIf { it >= before && it < Int.MAX_VALUE }?.minus(before) }
+        if (delta == null) record(pending.key, "unmetered")
         history[pending.key] = Measurement(
             old.samples + 1,
             old.verified + if (state.content == "PASS") 1 else 0,

@@ -33,9 +33,10 @@ class ProgressiveToolCatalog(
     internal val scopedGitHubStatus = githubMode && !integrationPreset && dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)
     private val lookup = if (githubMode && !integrationPreset) GitHubLookupRoute.from(task) else null
     private val scopedRead = scopedGitHubStatus || lookup != null
-    private val githubUpfront = githubMode && !scopedRead || integrationPreset
+    private val requestIntent = IntelligenceIntent.from(task, selectedRepository = githubMode)
+    private val githubUpfront = githubMode && requestIntent.repository && !scopedRead || integrationPreset
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
-    private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
+    private val toolAllowance get() = if (advanced) MAX_TOOLS else INITIAL_TOOLS
     private val schemaAllowance get() = minOf(
         if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE,
         contextSchemaAllowance(contextCeilingTokens)
@@ -48,12 +49,21 @@ class ProgressiveToolCatalog(
     private val actionSelections = mutableMapOf<String, Pair<String, String>>()
     private val requirementActions = mutableMapOf<String, Pair<String, String>>()
     private val explicitSelections = linkedSetOf<String>()
+    private data class PendingDiscovery(val name: String, val contract: String, val action: String?)
+    private var pendingDiscovery: PendingDiscovery? = null
     private var stagedRequiredOperations = emptyList<String>()
     private val completedStagedContracts = mutableMapOf<String, String>()
     private var candidateRevision = 0L
     private var requirementFocusKey: Pair<String, Long>? = null
+
+    @Volatile private var conciseReadSchemas = false
+
+    fun useConciseReadSchemas() {
+        conciseReadSchemas = true
+    }
+
     private fun presented(tool: AgentToolDefinition): AgentToolDefinition {
-        val selected = actionSelections[tool.name] ?: requirementActions[tool.name] ?: return tool
+        val selected = actionSelections[tool.name] ?: requirementActions[tool.name] ?: return if (conciseReadSchemas) GitHubActionSchema.compactRead(tool) else tool
         if (selected.first != contractFingerprint(tool)) return tool
         return GitHubActionSchema.project(tool, selected.second) ?: tool
     }
@@ -66,7 +76,7 @@ class ProgressiveToolCatalog(
     // Explicit engineering tasks need stage/commit schemas without a repeated
     // discovery round; all executable authorization and wire-context gates remain.
     // Larger write/release and check-watch contracts stay on-demand.
-    private val upfrontEngineering = if (githubMode && !scopedRead && !integrationPreset && !codeResearch) {
+    private val upfrontEngineering = if (githubMode && requestIntent.repository && !scopedRead && !integrationPreset && !codeResearch) {
         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
             .intersect(setOf("github_stage_patch", "github_commit"))
     } else {
@@ -87,16 +97,19 @@ class ProgressiveToolCatalog(
     }
 
     private val plannedOperations = when {
+        !requestIntent.repository -> emptySet()
         lookup != null -> setOf(lookup.operation)
         codeResearch -> RepositoryToolHint.readOperations
         else -> dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
     }
+    private val issueIntake = githubMode && !integrationPreset && dev.chungjungsoo.gptmobile.data.github.GitHubIssueRemediation.requested(task)
     private val taskRequired = definitions.filter { definition ->
         definition.modelVisible &&
             !conversational &&
             (
                 definition.name == "read_recovery_context" ||
-                    AgentToolCapability.USER_DECISION in definition.capabilities ||
+                    AgentToolCapability.USER_DECISION in definition.capabilities &&
+                    (!definition.name.startsWith("github_") || requestIntent.repository) ||
                     lookup?.matchesTool(definition) == true ||
                     (
                         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in plannedOperations &&
@@ -104,14 +117,14 @@ class ProgressiveToolCatalog(
                         )
                 )
     }.let { preferredInitialContracts(it, initialNames) }.also { initial ->
-        if (lookup != null) {
-            for (tool in initial) {
-                if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name) == lookup.operation &&
-                    GitHubActionSchema.project(tool, lookup.action) != null
-                ) {
-                    actionSelections[tool.name] = contractFingerprint(tool) to lookup.action
-                }
+        for (tool in initial) {
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+            val action = when {
+                lookup != null && operation == lookup.operation -> lookup.action
+                scopedGitHubStatus && operation == "github_ci" -> "runs"
+                else -> continue
             }
+            if (GitHubActionSchema.project(tool, action) != null) actionSelections[tool.name] = contractFingerprint(tool) to action
         }
     }
     private val implementationTools = if (upfrontEngineering.isEmpty()) {
@@ -132,7 +145,7 @@ class ProgressiveToolCatalog(
         } else if (githubUpfront) {
             val rankedTask = ranked(task)
             window(
-                implementationTools + rankedTask.filter {
+                taskRequired.filter { issueIntake && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_issue" } + implementationTools + rankedTask.filter {
                     !codeResearch &&
                         !integrationPreset &&
                         (initialNames == null || it.name in initialNames) &&
@@ -198,6 +211,15 @@ class ProgressiveToolCatalog(
     internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis(), arguments: JsonObject? = null) {
         val candidate = candidates[resolveName(name)] ?: return
         val contract = contractFingerprint(candidate)
+        // Advertising a schema is not execution. Keep the exact discovery handoff
+        // until its action returns a dispatched receipt, including an uncertain
+        // outcome which must be reconciled by the existing execution policy.
+        pendingDiscovery?.takeIf {
+            it.name == candidate.name &&
+                it.contract == contract &&
+                result.dispatched &&
+                (it.action == null || arguments?.get("action") == JsonPrimitive(it.action))
+        }?.let { pendingDiscovery = null }
         if (name in stagedRequiredOperations && githubSchemaPhaseComplete(name, result, arguments)) completedStagedContracts[name] = contract
         if (!result.dispatched || result.sharedResult) return
         if (!observedCalls.add("${candidate.name}:$contract:${result.callId}")) return
@@ -249,7 +271,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "Discover tools with {} or query/names. For GitHub use names:[tool]+action. Copy continuation_call." + if (githubMode) " repository_hint selects repository reads." else "",
+        "Discover via query/names or {}. Actions: names:[tool]+action. Copy continuation_call." + if (githubMode) " repository_hint selects repository reads." else "",
         buildJsonObject {
             put("type", "object")
             put(
@@ -296,7 +318,6 @@ class ProgressiveToolCatalog(
                         "inventory_version",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "From continuation_call.")
                         }
                     )
                 }
@@ -307,9 +328,16 @@ class ProgressiveToolCatalog(
                 JsonArray(
                     listOf(
                         buildJsonObject {
-                            // The global action:string constraint makes this
-                            // branch valid only when action is absent.
-                            put("properties", buildJsonObject { put("action", buildJsonObject { put("type", "null") }) })
+                            // Express absence directly; advertising action:null here
+                            // encourages proposals that contradict action:string above.
+                            put(
+                                "properties",
+                                buildJsonObject {
+                                    for (field in listOf("query", "names", "catalog_only", "inventory_cursor", "inventory_version")) put(field, buildJsonObject {})
+                                    if (githubMode) put("repository_hint", buildJsonObject {})
+                                }
+                            )
+                            put("additionalProperties", false)
                         },
                         buildJsonObject {
                             put("required", JsonArray(listOf(JsonPrimitive("action"), JsonPrimitive("names"))))
@@ -345,9 +373,17 @@ class ProgressiveToolCatalog(
 
     /** Preserve a requirement's selected action across pagination and corrective reads. */
     @Synchronized
-    internal fun focusedOperation(allowed: List<AgentToolDefinition>): String? = allowed.firstOrNull { tool ->
-        tool.name in explicitSelections || tool.name in requirementActions
-    }?.name
+    internal fun focusedOperation(allowed: List<AgentToolDefinition>): String? {
+        val pending = pendingDiscovery?.takeIf { selection ->
+            val candidate = candidates[selection.name]
+            candidate?.let(::contractFingerprint) == selection.contract &&
+                allowed.any { definition ->
+                    definition.name == selection.name &&
+                        (contractFingerprint(definition) == selection.contract || selection.action?.let { action -> GitHubActionSchema.project(requireNotNull(candidate), action) == definition } == true)
+                }
+        }
+        return pending?.name ?: allowed.firstOrNull { it.name in requirementActions }?.name
+    }
 
     @Synchronized
     fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> {
@@ -405,7 +441,8 @@ class ProgressiveToolCatalog(
             val action = focus.actions[operation] ?: continue
             if (GitHubActionSchema.project(tool, action) != null) requirementActions[tool.name] = contractFingerprint(tool) to action
         }
-        val explicit = (explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
+        val pending = pendingDiscovery?.takeIf { candidates[it.name]?.let(::contractFingerprint) == it.contract }?.name
+        val explicit = (listOfNotNull(pending) + explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
         val recovery = taskRequired.filter { it.name == "read_recovery_context" || AgentToolCapability.USER_DECISION in it.capabilities }
         // The focused action's declared evidence sources can fit in the same schema window.
         // Resolve exact, already-authorized aliases; prefetch never calls or acquires a tool.
@@ -523,6 +560,23 @@ class ProgressiveToolCatalog(
     internal fun canonicalArguments(arguments: JsonObject): JsonObject {
         if (arguments.keys.any { it !in setOf("query", "names", "action", "repository_hint", "catalog_only") }) return arguments
         val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
+        // A null action selects no backend action. Recover only explicit local
+        // queries or exact visible names, without acquiring another connection.
+        if (normalized["action"] == JsonNull &&
+            arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
+            normalized["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            val query = (normalized["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+            val names = normalized["names"] as? JsonArray
+            val exactNames = names?.takeIf { it.size in 1..12 }?.all { name ->
+                val literal = (name as? JsonPrimitive)?.takeIf { it.isString }?.content
+                literal != null && literal in candidates
+            } == true
+            if ((query != null || exactNames) && ("names" !in normalized || exactNames)) {
+                normalized.remove("action")
+                normalized["catalog_only"] = JsonPrimitive(true)
+            }
+        }
         // A query-only search describes local discovery, not a named tool action.
         // Keep the query unchanged and never turn an explicit acquisition choice into a local one.
         val discoveryQuery = (normalized["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
@@ -909,7 +963,8 @@ class ProgressiveToolCatalog(
         // Discovery may reveal repository intent after an ordinary first message.
         // This raises only the schema window; runtime context and grants still apply.
         if (advancedTask(query) || names.any { it in candidates && it.contains("github", true) } || exact?.name?.contains("github", true) == true) advanced = true
-        val undiscovered = if (query.isNotBlank() || repositoryHint != null) ranked(query, repositoryHint) else emptyList()
+        // An exact name selects that contract; shared name fragments do not expand a precise lookup.
+        val undiscovered = if (repositoryHint != null || exact == null && query.isNotBlank()) ranked(query, repositoryHint) else emptyList()
         val selectedFeatures = ReviewedFeatureSelection(query.ifBlank { taskText }, taskText)
         val selectedProducts = if (githubMode) IndexedFeatureToolSelection(query.ifBlank { taskText }, taskText) else null
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
@@ -925,6 +980,9 @@ class ProgressiveToolCatalog(
         active.clear()
         active.addAll(selected.map { it.name })
         explicitSelections.retainAll(active)
+        explicit.firstOrNull { it.name in active }?.let { tool ->
+            pendingDiscovery = PendingDiscovery(tool.name, contractFingerprint(tool), actionSelections[tool.name]?.second)
+        }
         val admitted = found.filter { it.name in active }
         discovered.addAll(admitted.map { it.name })
         val unchanged = previousActive == active && previousSchemas == presentedSchemas()
@@ -1049,7 +1107,15 @@ class ProgressiveToolCatalog(
     private fun ranked(query: String, repositoryHint: RepositoryToolHint? = null): List<AgentToolDefinition> {
         val needle = query.lowercase(java.util.Locale.ROOT).trim()
         val words = Regex("[\\p{L}\\p{N}]+").findAll(needle).map { it.value }.filter { it.length > 2 && it !in STOP_WORDS }.toSet()
-        val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query) + if (githubMode && repositoryHint != null) RepositoryToolHint.readOperations else emptySet()
+        val github = if (IntelligenceIntent.from(query, selectedRepository = githubMode).repository ||
+            repositoryHint != null ||
+            query != taskText &&
+            dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTask(query)
+        ) {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query) + if (githubMode && repositoryHint != null) RepositoryToolHint.readOperations else emptySet()
+        } else {
+            emptySet()
+        }
         val features = if (query == taskText) taskFeatureSelection else ReviewedFeatureSelection(query, taskText)
         val products = when {
             !githubMode || scopedRead || integrationPreset -> null
@@ -1093,6 +1159,7 @@ class ProgressiveToolCatalog(
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }
         const val NAME = "discover_available_tools"
         const val INITIAL_TOOLS = 8
+        const val MAX_TOOLS = 16
         private val STOP_WORDS = setOf("the", "and", "for", "this", "that", "with", "please", "can", "could", "use", "help", "what", "how", "all", "work", "continue")
 
         // Leaves room for the discovery schema and source content in the parent request planner.
@@ -1105,7 +1172,7 @@ class ProgressiveToolCatalog(
             ceiling?.takeIf { it > 0 }?.let { (it / 3).coerceAtLeast(128) } ?: Int.MAX_VALUE
         private fun advancedTask(task: String): Boolean =
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).isNotEmpty() || Regex("(?iu)\\b(research|study|studies|papers)\\b").containsMatchIn(task)
-        internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
+        internal fun schemaTokens(tool: AgentToolDefinition): Int = UniversalToolRegistry.schemaTokens(tool)
         internal fun isGitHubTool(tool: AgentToolDefinition): Boolean = AgentToolCapability.GITHUB in tool.capabilities || tool.name.split("__").any { it == "github" || it.startsWith("github_") || it in setOf("repository_graph", "repository_workspace", "gitmcp") }
         fun create(
             definitions: List<AgentToolDefinition>,

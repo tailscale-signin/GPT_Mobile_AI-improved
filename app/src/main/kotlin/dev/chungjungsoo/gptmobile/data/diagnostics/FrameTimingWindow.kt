@@ -11,6 +11,9 @@ internal class FrameTimingWindow(startedMs: Long, private val intervalMs: Long =
         require(intervalMs > 0)
     }
 
+    /** Monotonic within the owning lifecycle; pair with its coverageId to join one report only. */
+    var sequence = 0L
+        private set
     var epoch: Long? = null
         private set
     var startedMs = startedMs
@@ -76,6 +79,7 @@ internal class FrameTimingWindow(startedMs: Long, private val intervalMs: Long =
 
     /** Silence can mean an idle surface or missing callbacks; it cannot establish a jank rate. */
     fun callbackCoverage(nowMs: Long) = buildJsonObject {
+        put("windowSequence", sequence)
         put("denominator", "DELIVERED_WINDOW_FRAME_METRICS")
         put(
             "coverage",
@@ -99,6 +103,7 @@ internal class FrameTimingWindow(startedMs: Long, private val intervalMs: Long =
 
     /** A threshold flush and a queued timer both advance this same deadline. */
     fun clear(nowMs: Long) {
+        sequence++
         startedMs = nowMs
         deadlineMs = nowMs + intervalMs
         frames = 0

@@ -5,7 +5,7 @@ import kotlin.math.sqrt
 
 internal data class VoicePcmSignal(val samples: Long, val rms: Double, val peak: Double, val clipped: Long, val nonSilent: Long)
 
-/** Constant-space statistics for raw SDK callbacks before the playback queue. */
+/** Constant-space statistics for observed engine output before the playback queue. */
 internal class VoicePcmSignalMeasurement {
     private var count = 0L
     private var sumSquares = 0.0

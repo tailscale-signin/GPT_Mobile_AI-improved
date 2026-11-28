@@ -1,0 +1,1713 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "branch": "feature/windows-native-benchmark-kit",
+  "baselineReviewed": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+  "parentAtFinalExecution": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+  "parentAtReceipt": "606721dc837f3d0a7342b9150094f97872153957",
+  "scope": "Direct QNN ASR ownership, partial construction and checked retirement; exact production-source host failure injection and Android arm64 API/object compilation. No model inference or physical accelerator qualification.",
+  "physicalDeviceQualified": false,
+  "gpuExecutionQualified": false,
+  "npuExecutionQualified": false,
+  "acousticQualified": false,
+  "sourceSha256": {
+    "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "b33af8eb0d0b8bf41e750d0c73016128e235204cf171ece92148020c72ec52fd",
+    "local-kokoro-runtime/src/main/cpp/sherpa-streaming-asr.patch": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp": "3a06016c7930fd1e9be5e99e2e08dc52b5bd24d9442cd87e64bc77d6748c26cf",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_provider.h": "e3ac438cdd42c3ff7aa2ac525cbb7bdef374423e485d8030af262c974fa39e51",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_context.h": "5b24be35df9fde3a5da44b7553cb6ae1e703b122e5a3e7663aeaa1307d3e804d",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_retirement.h": "a242ce67ced9e356699ef9d1959d6aa041a39fb804a0ef1d14ef9671447eab94",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.h": "1b7f5d0858cfb242a273465663b54a6c18f8fcd587c188bb191b5e3c8019f472",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.cpp": "b48208f737c23c577df1ec0c85e84a550b14fd836ffdaf2622858386084b9f70",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_retirement_test.cpp": "4ff8220676f7b804615ce553f68dc787accb2d143a7565a761ed0fce38639f26",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "b8b7df417794549473b0e4c3e750abd04706ba7d7303525a8402e735de3d0c63",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626"
+  },
+  "changes": [
+    "Admit process-owned Session before native model acquisition; retain fully constructed shared QNN states before initialization can throw.",
+    "Retire metadata/context/power/device/backend/logger in dependency order. First uncertain free retains all remaining owners and seals new admission; it cannot be retried.",
+    "Keep QNN model mappings, metadata, tensors and libraries through confirmed retirement, including failed constructor rollback without a returned Java handle.",
+    "Null outputs on failed creation permit cleanup of only earlier confirmed acquisitions. Non-null outputs accompanying an error remain quarantined because their valid ownership is unconfirmed.",
+    "Reject successful power-client creation returning zero before changing process-global settings; never destroy the global/NULL id.",
+    "JNI waits for the session mutex and erases only after checked retirement succeeds. Healthy sessions can independently retire after another session seals new admission.",
+    "Java and Kotlin clear native handles only after successful close. A failed/no-handle constructor rollback remains an explicit close failure consumed by the existing model-lease quarantine.",
+    "ASR NPU model loading accepts pinned context binaries only and fails if a binary disappears instead of attempting upstream model-SO fallback.",
+    "Host-only CTest regression compiles the actual patched QNN classes against a deterministic C ABI fixture; Android production targets do not include the fixture."
+  ],
+  "pinnedInputs": {
+    "sherpa": {
+      "revision": "38016c6e0622e90bf417c35e8b47e0eb805af417",
+      "archiveSha256": "39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086",
+      "archiveBytes": 12292551,
+      "normalizedPatchSha256": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+      "normalizationPreservesAll12AppliedSources": true,
+      "appliedSourceSha256": {
+        "sherpa-onnx/csrc/macros.h": "2251fd0d793045facd62dab7d34c089fd0c2c1b485f617467cce1e22653ac099",
+        "sherpa-onnx/csrc/offline-tts-kokoro-model.cc": "e358cadf155691e10c5e7c577f13a8260b0382fcc20f5ac83d7da1a6ad77714f",
+        "sherpa-onnx/csrc/offline-tts-kokoro-model.h": "7ba4f96ec03ab93439538bf582cb631cd6c824490353c4f184940c58a6b07468",
+        "sherpa-onnx/csrc/online-recognizer-impl.cc": "a56bdd3e5831793fddbe0f0aa58a236b94dbb700e5ce3c4ec6dcbbed95c58427",
+        "sherpa-onnx/csrc/online-transducer-nemo-model.cc": "5af52213ed51efdfec1d5e00d297a630b1b24c921a75391cb087400f8291fdc1",
+        "sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc": "b924dc870be3aad1f2e2c8ffcb8639b764cc27fe977ff4c1fe108bd7377af044",
+        "sherpa-onnx/csrc/qnn/online-recognizer-nemo-transducer-qnn-impl.h": "8e263a434927758acade2e6a8ed35a9c19c087d1a956d76dbed99db30ae7d4a8",
+        "sherpa-onnx/csrc/qnn/qnn-backend.cc": "407d9ae38b3be4199243aef612433f0ad597703109e5abd1eacbb9d7e226c640",
+        "sherpa-onnx/csrc/qnn/qnn-backend.h": "853fa3d6a0c76e7a3469459b07b2fe367bddb476b627331ede2a35b560626939",
+        "sherpa-onnx/csrc/qnn/qnn-model.cc": "e4dba52c498199c766cf1bca760dec7f699a5ac49b04cfadd72ceec8038c1cbb",
+        "sherpa-onnx/csrc/qnn/qnn-model.h": "ae21c808c39560336628913663852866d76a17826afed264374bff5e4a041264",
+        "sherpa-onnx/csrc/session.cc": "2b7b30b88d2f93459fd8ebbc7c34b4ce9299559467cc29007c0c2e8dc212b516"
+      }
+    },
+    "qairt": {
+      "version": "2.52.0.261104",
+      "sdkSource": "https://apigwx-aws.qualcomm.com:443/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.52.0.261104/v2.52.0.261104.zip",
+      "sdkArchiveSha256": "e4c88416efa47eb8ed32fe2bd36fe63df58a3f4b48a347de5cf565a8c38e0961",
+      "verifiedHeaderTreeSha256": "ba0553991309e51262cc9398442ad406331ed7f2708dc78d11c55c1a843491c5",
+      "headerCount": 222,
+      "contracts": {
+        "QnnContext_free": "Context retirement is checked before releasing device/backend/log/library ownership.",
+        "QnnDevice_free": "A device may reject retirement while associated contexts remain.",
+        "QnnBackend_free": "A non-success status does not prove dependent handles were invalidated.",
+        "QnnHtpPerfInfrastructure_CreatePowerConfigIdFn_t": "The error contract does not establish ownership of a nonzero error output.",
+        "QnnHtpPerfInfrastructure_SetPowerConfigFn_t": "Power client zero controls process-global settings; a dedicated nonzero id is required here."
+      }
+    },
+    "onnxruntime": {
+      "publicApiProof": {
+        "androidArchiveSha256": "25f8a9649e775af85d4216e624ef1a820b1e1f26d82d5fc5145657fa9789c685",
+        "hostArchiveSha256": "71359ff0ec7ac0a61b0ce599352d8ccd37146b88d79135ff4b20a6258bd1eb92",
+        "hostArchiveBytes": 11103051,
+        "publicHeaders": {
+          "onnxruntime_c_api.h": {
+            "androidSha256": "43d584f596ef66820421317df32a79a95fc1d39ee46cb3971a870c08d8ba4baa",
+            "hostSha256": "43d584f596ef66820421317df32a79a95fc1d39ee46cb3971a870c08d8ba4baa",
+            "samePublicApiBytes": true
+          },
+          "onnxruntime_cxx_api.h": {
+            "androidSha256": "1e80d494c47091b07d84de60ad570326f82ed841c6de66e5b3eb7dce17bfc467",
+            "hostSha256": "1e80d494c47091b07d84de60ad570326f82ed841c6de66e5b3eb7dce17bfc467",
+            "samePublicApiBytes": true
+          },
+          "onnxruntime_cxx_inline.h": {
+            "androidSha256": "908a50414c3f67f32fd556cd16f7779fa78380e12e9d08e44f5e6f66b965a7be",
+            "hostSha256": "908a50414c3f67f32fd556cd16f7779fa78380e12e9d08e44f5e6f66b965a7be",
+            "samePublicApiBytes": true
+          },
+          "onnxruntime_ep_c_api.h": {
+            "androidSha256": "b64036772115dbc6f06a900487ce22d34e862100db03e2ad62210758e27a19b2",
+            "hostSha256": "b64036772115dbc6f06a900487ce22d34e862100db03e2ad62210758e27a19b2",
+            "samePublicApiBytes": true
+          }
+        },
+        "hostLibrarySha256": "f5cb4d1819c54707100fe4b6b3df1cde097609d4cd54328423f6cdfc29980647"
+      },
+      "hostPublisherAsset": {
+        "name": "onnxruntime-linux-x64-glibc2_24-Release-1.31.0.zip",
+        "bytes": 11103051,
+        "sha256": "71359ff0ec7ac0a61b0ce599352d8ccd37146b88d79135ff4b20a6258bd1eb92",
+        "url": "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.31.0/onnxruntime-linux-x64-glibc2_24-Release-1.31.0.zip",
+        "source": "https://api.github.com/repos/csukuangfj/onnxruntime-libs/releases/assets/677761353"
+      },
+      "scope": "Host fixture uses the verified publisher glibc2_24 ORT1.31 artifact. Its four public API headers exactly match the separately pinned Android arm64 archive. CI full-model host uses its independently pinned glibc2_28 artifact; no equivalence of full model execution is claimed."
+    }
+  },
+  "androidArm64Compile": {
+    "status": "passed",
+    "target": "aarch64-none-linux-android31",
+    "ndk": "29.0.14206865",
+    "optimization": "Release O3 with DNDEBUG, unchanged production boundary flags",
+    "units": [
+      {
+        "source": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417/sherpa-onnx/csrc/qnn/qnn-backend.cc",
+        "exitCode": 0,
+        "objectSha256": "3e7e06ecddf06570ac16c2a0ebcc2bc9a6d50e598af5804f344b0716c02a39a3"
+      },
+      {
+        "source": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417/sherpa-onnx/csrc/qnn/qnn-model.cc",
+        "exitCode": 0,
+        "objectSha256": "6dc3aaa2ff5a96f7cb0e23f7e45ba11e1efcdcbad2f8e66bf0a38e211e048e3d"
+      },
+      {
+        "source": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417/sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc",
+        "exitCode": 0,
+        "objectSha256": "98199daf14f8dd1d6d1e90aea552102c55f1bf165906c20535bdfe1be072c3e2"
+      },
+      {
+        "source": "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp/streaming_asr.cpp",
+        "exitCode": 0,
+        "objectSha256": "e288dd76248d43af26283dec23172762bc6775629723b8d89d247b3ce0742fee"
+      }
+    ],
+    "commandRecordSha256": "92b8cfc907e0a01340095cda599d4da8c9cc51be7f84c5b4701bf2916509b43e",
+    "scope": "Four actual translation units compiled to arm64 objects. This is not a full app build, final shared-library link, JNI invocation, model run or device test."
+  },
+  "nativeCTest": {
+    "status": "passed",
+    "ctestTargets": 1,
+    "internalCases": 20,
+    "optimization": "Release O3, hidden visibility, explicit fixture C exports",
+    "scope": "Exact new production CMake host-target block configured, compiled and executed against the actual patched QnnBackend/QnnModel/utils and unchanged file-utils. The bounded source slice contains no substitute Sherpa ownership implementation and does not compile the full ASR graph library.",
+    "cases": [
+      "Each of context/power/device/backend/logger free failures stops parents and cannot retry (5)",
+      "Two healthy owners retire independently",
+      "Failed backend construction with safe rollback",
+      "Failed backend construction with uncertain rollback",
+      "Failed metadata cleanup retains mapping and parent owners",
+      "Healthy binary model releases its mapping and library after all frees",
+      "Failed context creation with null output safely rolls back prior acquisitions",
+      "Graph retrieval failure after context creation retains parents if context retirement fails",
+      "Existing healthy owner retires after another failure seals new admission",
+      "Non-null error outputs from log/backend/device/power/system/context creation remain unfreed and quarantine admission (6)",
+      "Successful power creation returning zero never changes global power settings"
+    ],
+    "ctestOutput": "Internal ctest changing into directory: /workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-build\nTest project /workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-build\n    Start 1: speech_asr_checked_qnn_retirement\n1/1 Test #1: speech_asr_checked_qnn_retirement ...   Passed    0.02 sec\n\n100% tests passed, 0 tests failed out of 1\n\nTotal Test time (real) =   0.02 sec\n",
+    "internalSummary": "20 actual patched QNN lifetime cases passed; fake API only, no device qualification",
+    "testBinarySha256": "1358842f563224fa95fbcdc15a32c78fb235164ec63ae6e23245436d623e9abd",
+    "fixtureLibrarySha256": "a206b3e1817d8ee200c94c922137c9fe762056fced96090501db55cdda598d21",
+    "isolatedCmakeSha256": "aac3402784ff608449a9799653a5049a14dc1bc969dc3bd0b93066713ece130d",
+    "commandRecord": [
+      {
+        "step": "configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-source",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-build",
+          "-G",
+          "Ninja",
+          "-DCMAKE_MAKE_PROGRAM=/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ninja",
+          "-DCMAKE_BUILD_TYPE=Release"
+        ],
+        "exitCode": 0,
+        "seconds": 0.01493884500087006
+      },
+      {
+        "step": "build",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-build",
+          "--parallel",
+          "1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.5374680070017348
+      },
+      {
+        "step": "ctest",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-build",
+          "--output-on-failure"
+        ],
+        "exitCode": 0,
+        "seconds": 0.03263706300640479
+      }
+    ]
+  },
+  "negativeControl": {
+    "status": "expected_failure_observed",
+    "baseline": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+    "scope": "The same regression compiles and executes the actual previous patched QnnBackend/QnnModel. It fails the first case because contextFree failure is only logged and native close reports success.",
+    "compileExit": 0,
+    "testExit": 1,
+    "output": "/workspace/scratch/d6788699ebc6/asr-retirement-review/negative-control/source/sherpa-onnx/csrc/qnn/qnn-backend.cc:~Impl:55 Failed to call contextFree: 1\ncase 0: Expected failure was not raised\n"
+  },
+  "kotlin": {
+    "scope": "Complete current Sherpa decoder and its10 tests plus actual current Java StreamingAsr API; exact extracted LocalSpeechEvent/LocalSpeechDecoder interfaces. Reused unchanged source-bound model/catalog/transcript/listening/Qnn API contracts. Tests inject SherpaSpeechNative; no model, Android capture or physical accelerator execution.",
+    "sources_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "b8b7df417794549473b0e4c3e750abd04706ba7d7303525a8402e735de3d0c63",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "d00f4671f836c240378f04fda0e396fb626cf33a39da5479671736727482dca1"
+    },
+    "exact_contract_excerpt_sha256": "8c10e8c887103c6c2e18aa97d82d92366f78110ce21d3a30653c77e11edffb45",
+    "reused_contract_sources_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModel.kt": "b5010aa0eeea4b380e5a1944b410a6bfeb63c07ab50b3f82b1f8bf5bd1fcf483",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt": "f9528fb751f21f88b1d3550fcdc9c36ad422f40e6a02f41d8d2a8144d629fbce",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionTranscript.kt": "a6c572feca8d549ecdc90c9cc2d07c92260cccd5f0e7bb32b7f6020babd543e7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceListeningPolicy.kt": "4021997d470f894b14ad6efdf257e519aee8bb3b27393cc3eed73f1c3c683b8d",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/QnnEnvironment.kt": "591e6603a2e355fd35bb4d387450a8614b203fb59eb5d9a08dc58b071c4d735a",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/QualcommSocSupport.kt": "8d04f5d5618d2012a3d69398be7442d6fd4255976eda11374eab58ff0d3caf7e",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": "6d70a6793e30936e51c9dbf0a422ec91ef10db2acbfab3a36ff7df6f123e5a6c"
+    },
+    "dependency_jars_sha256": {
+      "/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+      "/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar": "f42ffc9c89834e8b4d88bccc0ee3549fe8c20be6aa939b302fd03172ef2b4fdf",
+      "/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar": "278d3e0609847ee04ce5b1c003da03b20ae2df2d5f79cbfa874fd0425630053b",
+      "/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar": "ae594e808e5a3afa7f96fb8522640e23ee09f14675a4aa29b60c07793158d326",
+      "/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar": "d92371650ca467fcbcb5fef73a39128379827d44283b0c0d0621ef89ce9f6832",
+      "/workspace/scratch/9c056940f631/recognition-capture-host-tests/moonshine.jar": "573286a599f606abce11eb81050eb849dd363b657548d12865d50f0779d8998b",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar": "2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-core-jvm-1.11.0.jar": "f4a801c647d4351327cd9e1ac4113e2be9ea37a64ab0abae269c25a52e28f35d",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-json-jvm-1.11.0.jar": "563a25b4eb5c9128ae9c2479f3d1a5c44dcd176112b91cf03682e906eba5c935",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar": "7b0f19724082cbfcbc66e5abea2b9bc92cf08a1ea11e191933ed43801eb3cd05"
+    },
+    "compile_command": [
+      "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+      "-Xmx256m",
+      "-XX:MaxMetaspaceSize=160m",
+      "-cp",
+      "/workspace/scratch/4ae19a99b59d/jvm-deps/*",
+      "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
+      "-no-stdlib",
+      "-no-reflect",
+      "-jvm-target",
+      "21",
+      "-classpath",
+      "/workspace/scratch/d6788699ebc6/asr-retirement-review/kotlin/java:/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar:/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar:/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/moonshine.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-json-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar",
+      "-Xfriend-paths=/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar,/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar,/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar,/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar",
+      "-d",
+      "/workspace/scratch/d6788699ebc6/asr-retirement-review/kotlin/tests.jar",
+      "/workspace/scratch/d6788699ebc6/gpt-mobile/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt",
+      "/workspace/scratch/d6788699ebc6/gpt-mobile/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt",
+      "/workspace/scratch/d6788699ebc6/asr-retirement-review/kotlin/ExactDecoderContracts.kt"
+    ],
+    "test_command": [
+      "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+      "-ea",
+      "-Xmx192m",
+      "-cp",
+      "/workspace/scratch/d6788699ebc6/asr-retirement-review/kotlin/tests.jar:/workspace/scratch/d6788699ebc6/asr-retirement-review/kotlin/java:/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar:/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar:/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/moonshine.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-json-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar",
+      "org.junit.runner.JUnitCore",
+      "dev.chungjungsoo.gptmobile.data.voice.SherpaNativeSpeechDecoderTest"
+    ],
+    "test_exit": 0,
+    "scope_limit": "Outer recognizer/model-store lease release is not executed by this slice; this regression verifies the close-failure signal that its existing quarantine consumes.",
+    "status": "passed",
+    "tests": 10,
+    "output": "JUnit version 4.13.2\n..........\nTime: 0.131\n\nOK (10 tests)\n\n",
+    "ktlint": "1.3.1 passed"
+  },
+  "independentReview": "Captions/live-quality agent read the actual patched constructors, metadata copy/free, JNI registry and Java/Kotlin propagation and found no concrete blocker; no independent execution claim.",
+  "whitespace": "git diff --check passed for owned sources",
+  "limitations": [
+    "No physical Qualcomm GPU/NPU, actual ASR model inference, audio accuracy or performance claim is established by these tests.",
+    "The native fixture injects SDK statuses; it cannot prove real device/driver behavior.",
+    "The focused Kotlin tests verify the retirement-failure signal. They do not execute the outer capture/model-store lease lifecycle or Android microphone.",
+    "Full required CI, minified Android packaging, final shared-library/JNI loading and release checks remain required at the final published head.",
+    "Existing model/tensor math, archive pins, CPU/GPU route selection and device qualification gates were not changed."
+  ],
+  "subsequentCancellationReconciliation": {
+    "schemaVersion": 1,
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "branch": "feature/windows-native-benchmark-kit",
+    "incomingCommit": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "incomingParent": "2d26e331ad24062a88dd0b2d30e384d9568cbebe",
+    "parentAtExecution": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "parentAtReceipt": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "scope": "Reconcile the incoming cancellation-holder drainage fix with the independently reviewed native checked-retirement implementation. Execute only the new five-case Java/JNI scheduling fixture, its real unfenced negative control, and the ten-case actual decoder/API slice whose Java binding changed.",
+    "sourceEditsByThisReview": false,
+    "remoteMutationsByThisReview": false,
+    "integration": {
+      "comparedAgainst": "Actual staged bytes captured before root reconciliation, not only the incoming parent commit",
+      "comparisonManifest": {
+        "incomingCommit": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+        "parent": "2d26e331ad24062a88dd0b2d30e384d9568cbebe",
+        "comparison": "incoming immutable commit versus actual index bytes captured before reconciliation, not versus parent",
+        "paths": [
+          {
+            "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt",
+            "stagedPresent": true,
+            "stagedSha256": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+            "incomingSha256": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+            "identical": true
+          },
+          {
+            "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt",
+            "stagedPresent": true,
+            "stagedSha256": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626",
+            "incomingSha256": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
+            "stagedPresent": true,
+            "stagedSha256": "b33af8eb0d0b8bf41e750d0c73016128e235204cf171ece92148020c72ec52fd",
+            "incomingSha256": "64f8bf25ae4f0c3ddc7d87b3f5eb4a639fd30de7426ab6d201fece7035df7c20",
+            "identical": false
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/sherpa-streaming-asr.patch",
+            "stagedPresent": true,
+            "stagedSha256": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+            "incomingSha256": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp",
+            "stagedPresent": true,
+            "stagedSha256": "3a06016c7930fd1e9be5e99e2e08dc52b5bd24d9442cd87e64bc77d6748c26cf",
+            "incomingSha256": "3a06016c7930fd1e9be5e99e2e08dc52b5bd24d9442cd87e64bc77d6748c26cf",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/streaming_asr_provider.h",
+            "stagedPresent": true,
+            "stagedSha256": "e3ac438cdd42c3ff7aa2ac525cbb7bdef374423e485d8030af262c974fa39e51",
+            "incomingSha256": "e3ac438cdd42c3ff7aa2ac525cbb7bdef374423e485d8030af262c974fa39e51",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.cpp",
+            "stagedPresent": true,
+            "stagedSha256": "b48208f737c23c577df1ec0c85e84a550b14fd836ffdaf2622858386084b9f70",
+            "incomingSha256": "b48208f737c23c577df1ec0c85e84a550b14fd836ffdaf2622858386084b9f70",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.h",
+            "stagedPresent": true,
+            "stagedSha256": "1b7f5d0858cfb242a273465663b54a6c18f8fcd587c188bb191b5e3c8019f472",
+            "incomingSha256": "1b7f5d0858cfb242a273465663b54a6c18f8fcd587c188bb191b5e3c8019f472",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_retirement_test.cpp",
+            "stagedPresent": true,
+            "stagedSha256": "4ff8220676f7b804615ce553f68dc787accb2d143a7565a761ed0fce38639f26",
+            "incomingSha256": "4ff8220676f7b804615ce553f68dc787accb2d143a7565a761ed0fce38639f26",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/streaming_asr_retirement.h",
+            "stagedPresent": true,
+            "stagedSha256": "a242ce67ced9e356699ef9d1959d6aa041a39fb804a0ef1d14ef9671447eab94",
+            "incomingSha256": "a242ce67ced9e356699ef9d1959d6aa041a39fb804a0ef1d14ef9671447eab94",
+            "identical": true
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java",
+            "stagedPresent": true,
+            "stagedSha256": "b8b7df417794549473b0e4c3e750abd04706ba7d7303525a8402e735de3d0c63",
+            "incomingSha256": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+            "identical": false
+          },
+          {
+            "path": "local-kokoro-runtime/src/main/cpp/streaming_asr_cancellation_fixture.cpp",
+            "stagedPresent": false,
+            "stagedSha256": null,
+            "incomingSha256": "845f8457443e243175992d482d37370ccc343ae74d99e470da4b37d98868c0b9",
+            "identical": false
+          },
+          {
+            "path": "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java",
+            "stagedPresent": false,
+            "stagedSha256": null,
+            "incomingSha256": "3f3103c6ee3eacbf966967dd575768258af482269b0c02a7190fdbe0b8488776",
+            "identical": false
+          },
+          {
+            "path": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+            "stagedPresent": true,
+            "stagedSha256": "944130509d1ae3d1ec23d313c9372e9d8a07b4b779926b051a63a6f98cc368fc",
+            "incomingSha256": "b29684832756f873fe9346a143cd98f870362082dcc5cf98b4a618867965c6db",
+            "identical": false
+          }
+        ],
+        "sourceMutation": false,
+        "integrationRecommendation": "Preserve every incoming native/Sherpa path. Nine paths are byte-identical; the five changed/new paths are the independent cancellation drainage fix and its mandatory host fixture wiring."
+      },
+      "decision": "Retain all incoming native and decoder files unchanged. Nine compared files are byte-identical; the five differences comprise the separate Java cancellation monitor, its exact CMake fixture target, native/Java host fixture sources and mandatory lifecycle driver integration.",
+      "semanticDelta": [
+        "cancel() holds a separate cancellationMonitor only around its nativeCancel call; it never acquires the inference monitor.",
+        "close() requests cancellation before waiting for inference, then holds inference followed by cancellationMonitor until checked nativeDelete and handle publication complete.",
+        "An existing JNI cancellation holder must return before retirement starts; later cancellation cannot acquire a holder until close succeeds or permanently quarantines the handle.",
+        "The incoming host-only CMake fixture and driver entry exercise this exact Java class through deterministic JNI scheduling, without any substitute Java ownership implementation."
+      ],
+      "lockOrderReview": "No path takes cancellationMonitor and then waits for the inference monitor. The initial close cancellation releases its monitor before close acquires inference. Native cancel has no Java callback that reverses the order.",
+      "mandatoryDriverReview": "The current driver compiles the added Java fixture, runs it as asr_cancellation_monitor, hashes its JNI library and source, and includes its exit status in the existing all-results-zero gate. Existing model cases remain present."
+    },
+    "currentSourceSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626",
+      "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "64f8bf25ae4f0c3ddc7d87b3f5eb4a639fd30de7426ab6d201fece7035df7c20",
+      "local-kokoro-runtime/src/main/cpp/sherpa-streaming-asr.patch": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp": "3a06016c7930fd1e9be5e99e2e08dc52b5bd24d9442cd87e64bc77d6748c26cf",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_provider.h": "e3ac438cdd42c3ff7aa2ac525cbb7bdef374423e485d8030af262c974fa39e51",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.cpp": "b48208f737c23c577df1ec0c85e84a550b14fd836ffdaf2622858386084b9f70",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.h": "1b7f5d0858cfb242a273465663b54a6c18f8fcd587c188bb191b5e3c8019f472",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_retirement_test.cpp": "4ff8220676f7b804615ce553f68dc787accb2d143a7565a761ed0fce38639f26",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_retirement.h": "a242ce67ced9e356699ef9d1959d6aa041a39fb804a0ef1d14ef9671447eab94",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_cancellation_fixture.cpp": "845f8457443e243175992d482d37370ccc343ae74d99e470da4b37d98868c0b9",
+      "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java": "3f3103c6ee3eacbf966967dd575768258af482269b0c02a7190fdbe0b8488776",
+      "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "b29684832756f873fe9346a143cd98f870362082dcc5cf98b4a618867965c6db"
+    },
+    "newCancellationExecution": {
+      "schemaVersion": 1,
+      "parentAtExecution": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+      "sourceCommit": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+      "scope": "Actual production Java ownership class with exact incoming host-only JNI scheduling fixture, built from the exact new CMake target block. No ASR model, production JNI inference implementation, GPU/NPU or physical device execution.",
+      "sourceSha256": {
+        "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "64f8bf25ae4f0c3ddc7d87b3f5eb4a639fd30de7426ab6d201fece7035df7c20",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr_cancellation_fixture.cpp": "845f8457443e243175992d482d37370ccc343ae74d99e470da4b37d98868c0b9",
+        "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java": "3f3103c6ee3eacbf966967dd575768258af482269b0c02a7190fdbe0b8488776",
+        "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "b29684832756f873fe9346a143cd98f870362082dcc5cf98b4a618867965c6db"
+      },
+      "exactCmakeTargetBlockSha256": "c86776fd3377ff977b8250691068d5cb858a23f8127bcd281594b12426ce97ea",
+      "fixtureLibrarySha256": "5f8a3851d357e06b5ee0bbcc80ca496d35127b6fad82fdb3af816e68ae12b54a",
+      "casesPassed": 5,
+      "negativeControl": {
+        "sourceSha256": "b8b7df417794549473b0e4c3e750abd04706ba7d7303525a8402e735de3d0c63",
+        "exitCode": 1,
+        "output": "Exception in thread \"main\" java.lang.AssertionError: Close entered nativeDelete while a cancellation JNI holder was active\n\tat dev.melo.kokoro.StreamingAsrCancellationIntegration.require(StreamingAsrCancellationIntegration.java:20)\n\tat dev.melo.kokoro.StreamingAsrCancellationIntegration.closeDrainsCancellationHolder(StreamingAsrCancellationIntegration.java:80)\n\tat dev.melo.kokoro.StreamingAsrCancellationIntegration.main(StreamingAsrCancellationIntegration.java:135)\n"
+      },
+      "current": {
+        "sourceSha256": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+        "exitCode": 0,
+        "output": "5 actual Java cancellation/retirement cases passed; JNI scheduling fixture only\n"
+      },
+      "commands": [
+        {
+          "step": "configure",
+          "command": [
+            "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+            "-S",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/source",
+            "-B",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/build",
+            "-G",
+            "Ninja",
+            "-DCMAKE_MAKE_PROGRAM=/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ninja",
+            "-DCMAKE_BUILD_TYPE=Release"
+          ],
+          "exitCode": 0,
+          "seconds": 0.4617,
+          "logSha256": "aea09bb120634dfc0915eed60b2e1a3b4d7c13cea177bd0369d8c4fd710e2438"
+        },
+        {
+          "step": "build",
+          "command": [
+            "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+            "--build",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/build",
+            "--parallel",
+            "1"
+          ],
+          "exitCode": 0,
+          "seconds": 0.2666,
+          "logSha256": "4fa5851b79caeba94d79de05bab9d19ba18bede8cdded17d4dc298650ece6714"
+        },
+        {
+          "step": "unfenced-javac",
+          "command": [
+            "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/javac",
+            "-J-Xmx128m",
+            "-d",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/unfenced",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/staged_before/local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java",
+            "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java"
+          ],
+          "exitCode": 0,
+          "seconds": 0.6126,
+          "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "step": "unfenced-test",
+          "command": [
+            "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+            "-Xmx128m",
+            "-Xcheck:jni",
+            "-Djava.library.path=/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/build/asr-cancellation",
+            "-cp",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/unfenced",
+            "dev.melo.kokoro.StreamingAsrCancellationIntegration",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/unfenced.json"
+          ],
+          "exitCode": 1,
+          "seconds": 0.0458,
+          "logSha256": "a98e10973d653c0cd072445dfa8ea5e35e232de8952b70fcd89b153881921355"
+        },
+        {
+          "step": "current-javac",
+          "command": [
+            "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/javac",
+            "-J-Xmx128m",
+            "-d",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/current",
+            "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java",
+            "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java"
+          ],
+          "exitCode": 0,
+          "seconds": 0.5884,
+          "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "step": "current-test",
+          "command": [
+            "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+            "-Xmx128m",
+            "-Xcheck:jni",
+            "-Djava.library.path=/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/build/asr-cancellation",
+            "-cp",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/current",
+            "dev.melo.kokoro.StreamingAsrCancellationIntegration",
+            "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/cancellation/current.json"
+          ],
+          "exitCode": 0,
+          "seconds": 0.0515,
+          "logSha256": "40098642694063a19556108532885d42a0cf517617093f5a74a3832af12fdfe8"
+        }
+      ],
+      "modelExecuted": false,
+      "physicalDeviceQualified": false
+    },
+    "refreshedDecoderExecution": {
+      "scope": "Complete current Sherpa decoder and its10 tests plus actual current Java StreamingAsr API; exact extracted LocalSpeechEvent/LocalSpeechDecoder interfaces. Reused unchanged source-bound model/catalog/transcript/listening/Qnn API contracts. Tests inject SherpaSpeechNative; no model, Android capture or physical accelerator execution.",
+      "sources_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626",
+        "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "d00f4671f836c240378f04fda0e396fb626cf33a39da5479671736727482dca1"
+      },
+      "exact_contract_excerpt_sha256": "8c10e8c887103c6c2e18aa97d82d92366f78110ce21d3a30653c77e11edffb45",
+      "reused_contract_sources_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModel.kt": "b5010aa0eeea4b380e5a1944b410a6bfeb63c07ab50b3f82b1f8bf5bd1fcf483",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt": "f9528fb751f21f88b1d3550fcdc9c36ad422f40e6a02f41d8d2a8144d629fbce",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionTranscript.kt": "a6c572feca8d549ecdc90c9cc2d07c92260cccd5f0e7bb32b7f6020babd543e7",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceListeningPolicy.kt": "4021997d470f894b14ad6efdf257e519aee8bb3b27393cc3eed73f1c3c683b8d",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/QnnEnvironment.kt": "591e6603a2e355fd35bb4d387450a8614b203fb59eb5d9a08dc58b071c4d735a",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/QualcommSocSupport.kt": "8d04f5d5618d2012a3d69398be7442d6fd4255976eda11374eab58ff0d3caf7e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": "6d70a6793e30936e51c9dbf0a422ec91ef10db2acbfab3a36ff7df6f123e5a6c"
+      },
+      "dependency_jars_sha256": {
+        "/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+        "/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar": "f42ffc9c89834e8b4d88bccc0ee3549fe8c20be6aa939b302fd03172ef2b4fdf",
+        "/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar": "278d3e0609847ee04ce5b1c003da03b20ae2df2d5f79cbfa874fd0425630053b",
+        "/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar": "ae594e808e5a3afa7f96fb8522640e23ee09f14675a4aa29b60c07793158d326",
+        "/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar": "d92371650ca467fcbcb5fef73a39128379827d44283b0c0d0621ef89ce9f6832",
+        "/workspace/scratch/9c056940f631/recognition-capture-host-tests/moonshine.jar": "573286a599f606abce11eb81050eb849dd363b657548d12865d50f0779d8998b",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar": "2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-core-jvm-1.11.0.jar": "f4a801c647d4351327cd9e1ac4113e2be9ea37a64ab0abae269c25a52e28f35d",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-json-jvm-1.11.0.jar": "563a25b4eb5c9128ae9c2479f3d1a5c44dcd176112b91cf03682e906eba5c935",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar": "7b0f19724082cbfcbc66e5abea2b9bc92cf08a1ea11e191933ed43801eb3cd05"
+      },
+      "compile_command": [
+        "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+        "-Xmx256m",
+        "-XX:MaxMetaspaceSize=160m",
+        "-cp",
+        "/workspace/scratch/4ae19a99b59d/jvm-deps/*",
+        "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
+        "-no-stdlib",
+        "-no-reflect",
+        "-jvm-target",
+        "21",
+        "-classpath",
+        "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/kotlin/java:/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar:/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar:/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/moonshine.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-json-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar",
+        "-Xfriend-paths=/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar,/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar,/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar,/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar",
+        "-d",
+        "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/kotlin/tests.jar",
+        "/workspace/scratch/d6788699ebc6/gpt-mobile/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt",
+        "/workspace/scratch/d6788699ebc6/gpt-mobile/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt",
+        "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/kotlin/ExactDecoderContracts.kt"
+      ],
+      "test_command": [
+        "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+        "-ea",
+        "-Xmx192m",
+        "-cp",
+        "/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/kotlin/tests.jar:/workspace/scratch/d6788699ebc6/asr-retirement-review/dbf-overlap/kotlin/java:/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar:/workspace/scratch/9c056940f631/recognition-benchmark-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/tests.jar:/workspace/scratch/9c056940f631/recognition-pack-host-tests/tests.jar:/workspace/scratch/4ae19a99b59d/voice-jvm-9aa/tests.jar:/workspace/scratch/9c056940f631/recognition-capture-host-tests/moonshine.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-core-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-serialization-json-jvm-1.11.0.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar:/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar",
+        "org.junit.runner.JUnitCore",
+        "dev.chungjungsoo.gptmobile.data.voice.SherpaNativeSpeechDecoderTest"
+      ],
+      "test_exit": 0,
+      "scope_limit": "Outer recognizer/model-store lease release is not executed by this slice; this regression verifies the close-failure signal that its existing quarantine consumes.",
+      "status": "passed",
+      "tests": 10,
+      "javacOutput": "",
+      "compilerOutput": "",
+      "junitOutput": "JUnit version 4.13.2\n..........\nTime: 0.116\n\nOK (10 tests)\n\n"
+    },
+    "unchangedNativeEvidenceCarriedForward": {
+      "originalReceiptSha256": "b6888a3073c694b87d379a5dcda90085e734c81831817a08b8275c959e5f1649",
+      "originalReceiptRepositoryPath": "docs/repairs/recognition-native-retirement-2026-11-28-validation.json",
+      "originalParentAtExecution": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+      "noNativeRerun": true,
+      "unchangedOriginalSourceBindings": {
+        "local-kokoro-runtime/src/main/cpp/sherpa-streaming-asr.patch": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp": "3a06016c7930fd1e9be5e99e2e08dc52b5bd24d9442cd87e64bc77d6748c26cf",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr_provider.h": "e3ac438cdd42c3ff7aa2ac525cbb7bdef374423e485d8030af262c974fa39e51",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr_context.h": "5b24be35df9fde3a5da44b7553cb6ae1e703b122e5a3e7663aeaa1307d3e804d",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr_retirement.h": "a242ce67ced9e356699ef9d1959d6aa041a39fb804a0ef1d14ef9671447eab94",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.h": "1b7f5d0858cfb242a273465663b54a6c18f8fcd587c188bb191b5e3c8019f472",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.cpp": "b48208f737c23c577df1ec0c85e84a550b14fd836ffdaf2622858386084b9f70",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_retirement_test.cpp": "4ff8220676f7b804615ce553f68dc787accb2d143a7565a761ed0fce38639f26",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626"
+      },
+      "changedOriginalSourceBindings": [
+        {
+          "path": "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
+          "priorSha256": "b33af8eb0d0b8bf41e750d0c73016128e235204cf171ece92148020c72ec52fd",
+          "currentSha256": "64f8bf25ae4f0c3ddc7d87b3f5eb4a639fd30de7426ab6d201fece7035df7c20"
+        },
+        {
+          "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java",
+          "priorSha256": "b8b7df417794549473b0e4c3e750abd04706ba7d7303525a8402e735de3d0c63",
+          "currentSha256": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016"
+        }
+      ],
+      "qnnCmakeTargetBlockUnchanged": true,
+      "qnnCmakeTargetBlockSha256": "28f4b5775fdb6e9580e87e856df45021e1143d06493ab2e26986242a67a3f715",
+      "qnnPatchSha256": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+      "sherpaRevision": "38016c6e0622e90bf417c35e8b47e0eb805af417",
+      "sherpaArchiveSha256": "39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086",
+      "appliedPinnedSourceSha256": {
+        "sherpa-onnx/csrc/macros.h": "2251fd0d793045facd62dab7d34c089fd0c2c1b485f617467cce1e22653ac099",
+        "sherpa-onnx/csrc/offline-tts-kokoro-model.cc": "e358cadf155691e10c5e7c577f13a8260b0382fcc20f5ac83d7da1a6ad77714f",
+        "sherpa-onnx/csrc/offline-tts-kokoro-model.h": "7ba4f96ec03ab93439538bf582cb631cd6c824490353c4f184940c58a6b07468",
+        "sherpa-onnx/csrc/online-recognizer-impl.cc": "a56bdd3e5831793fddbe0f0aa58a236b94dbb700e5ce3c4ec6dcbbed95c58427",
+        "sherpa-onnx/csrc/online-transducer-nemo-model.cc": "5af52213ed51efdfec1d5e00d297a630b1b24c921a75391cb087400f8291fdc1",
+        "sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc": "b924dc870be3aad1f2e2c8ffcb8639b764cc27fe977ff4c1fe108bd7377af044",
+        "sherpa-onnx/csrc/qnn/online-recognizer-nemo-transducer-qnn-impl.h": "8e263a434927758acade2e6a8ed35a9c19c087d1a956d76dbed99db30ae7d4a8",
+        "sherpa-onnx/csrc/qnn/qnn-backend.cc": "407d9ae38b3be4199243aef612433f0ad597703109e5abd1eacbb9d7e226c640",
+        "sherpa-onnx/csrc/qnn/qnn-backend.h": "853fa3d6a0c76e7a3469459b07b2fe367bddb476b627331ede2a35b560626939",
+        "sherpa-onnx/csrc/qnn/qnn-model.cc": "e4dba52c498199c766cf1bca760dec7f699a5ac49b04cfadd72ceec8038c1cbb",
+        "sherpa-onnx/csrc/qnn/qnn-model.h": "ae21c808c39560336628913663852866d76a17826afed264374bff5e4a041264",
+        "sherpa-onnx/csrc/session.cc": "2b7b30b88d2f93459fd8ebbc7c34b4ce9299559467cc29007c0c2e8dc212b516"
+      },
+      "qairtVersion": "2.52.0.261104",
+      "verifiedQnnHeaderTreeSha256": "ba0553991309e51262cc9398442ad406331ed7f2708dc78d11c55c1a843491c5",
+      "nativeCTest": {
+        "status": "passed",
+        "internalCases": 20,
+        "scope": "Exact new production CMake host-target block configured, compiled and executed against the actual patched QnnBackend/QnnModel/utils and unchanged file-utils. The bounded source slice contains no substitute Sherpa ownership implementation and does not compile the full ASR graph library.",
+        "output": "Internal ctest changing into directory: /workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-build\nTest project /workspace/scratch/d6788699ebc6/asr-retirement-review/ctest-build\n    Start 1: speech_asr_checked_qnn_retirement\n1/1 Test #1: speech_asr_checked_qnn_retirement ...   Passed    0.02 sec\n\n100% tests passed, 0 tests failed out of 1\n\nTotal Test time (real) =   0.02 sec\n",
+        "testBinarySha256": "1358842f563224fa95fbcdc15a32c78fb235164ec63ae6e23245436d623e9abd",
+        "fixtureLibrarySha256": "a206b3e1817d8ee200c94c922137c9fe762056fced96090501db55cdda598d21"
+      },
+      "androidArm64Compile": {
+        "status": "passed",
+        "target": "aarch64-none-linux-android31",
+        "ndk": "29.0.14206865",
+        "optimization": "Release O3 with DNDEBUG, unchanged production boundary flags",
+        "units": [
+          {
+            "source": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417/sherpa-onnx/csrc/qnn/qnn-backend.cc",
+            "exitCode": 0,
+            "objectSha256": "3e7e06ecddf06570ac16c2a0ebcc2bc9a6d50e598af5804f344b0716c02a39a3"
+          },
+          {
+            "source": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417/sherpa-onnx/csrc/qnn/qnn-model.cc",
+            "exitCode": 0,
+            "objectSha256": "6dc3aaa2ff5a96f7cb0e23f7e45ba11e1efcdcbad2f8e66bf0a38e211e048e3d"
+          },
+          {
+            "source": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417/sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc",
+            "exitCode": 0,
+            "objectSha256": "98199daf14f8dd1d6d1e90aea552102c55f1bf165906c20535bdfe1be072c3e2"
+          },
+          {
+            "source": "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp/streaming_asr.cpp",
+            "exitCode": 0,
+            "objectSha256": "e288dd76248d43af26283dec23172762bc6775629723b8d89d247b3ce0742fee"
+          }
+        ],
+        "commandRecordSha256": "92b8cfc907e0a01340095cda599d4da8c9cc51be7f84c5b4701bf2916509b43e",
+        "scope": "Four actual translation units compiled to arm64 objects. This is not a full app build, final shared-library link, JNI invocation, model run or device test."
+      },
+      "reason": "Production native C++, normalized upstream patch, API/context/provider/ownership headers and QNN fixtures remain byte-identical. The CMake difference is confined to the added NOT ANDROID host fixture. The exact prior QNN test block is unchanged. Java binding and decoder/API compilation were refreshed separately above."
+    },
+    "independentReview": "Captions/live-quality independently reviewed exact dbf Java monitor ordering, cancellation drainage, quarantine, fixture source and mandatory driver path and reported no concrete blocker. That review did not rerun tests.",
+    "limitations": [
+      "The five new cases execute the actual Java ownership boundary against a deterministic host-only JNI fixture. They do not execute production ASR native inference or a model.",
+      "The decoder slice uses the actual Java API and production decoder with an injected native boundary. It does not execute outer Android capture or model-store lease release.",
+      "The 20 patched-QNN fault cases and four Android arm64 object compilation results are historical evidence carried forward by matching source hashes; they were not rerun after reconciliation.",
+      "No physical GPU/NPU, acoustic, performance, sustained memory, thermal or battery qualification is established.",
+      "Required exact-head hosted CI, final native linking/minified packaging, actual model smoke and final merged-main release checks remain mandatory."
+    ]
+  },
+  "subsequentReceiptIdentity": {
+    "artifact": "dbf-overlap/reconciliation-validation.json",
+    "bytes": 33338,
+    "sha256": "656fa518ae9ae04a2b41c8261c4442e4e17e0476b7dffebaff5f56dc513f844a"
+  },
+  "nativeHostTestIntentCorrection": {
+    "schemaVersion": 1,
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "branch": "feature/windows-native-benchmark-kit",
+    "baseBranch": "main",
+    "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+    "parentPr": 2651,
+    "baselineCommit": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "parentAtExecution": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "intent": "Preserve caller-owned host test admission across pinned transitive Eigen cache changes; reject an empty mandatory CTest suite.",
+    "hostedFailure": {
+      "runId": 46122818374,
+      "jobId": 140910873882,
+      "artifactId": 15254274305,
+      "artifactSha256": "647495a7d4eba66e54839cc0cede54a69135a3dc3ae03a9a4a73d62685595671",
+      "ctestLog": "Internal ctest changing into directory: /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/artifacts/native/build\nTest project /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/artifacts/native/build\nNo tests were found!!!\n",
+      "cancellationLog": "Exception in thread \"main\" java.lang.UnsatisfiedLinkError: no timed_kokoro in java.library.path: /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/artifacts/native/build/asr-cancellation\n\tat java.base/java.lang.ClassLoader.loadLibrary(ClassLoader.java:2458)\n\tat java.base/java.lang.Runtime.loadLibrary0(Runtime.java:916)\n\tat java.base/java.lang.System.loadLibrary(System.java:2064)\n\tat dev.melo.kokoro.StreamingAsrCancellationIntegration.<clinit>(StreamingAsrCancellationIntegration.java:11)\n",
+      "rootCause": "Pinned transitive Eigen CMake forces BUILD_TESTING OFF in the shared cache. The root host test block was reached after that mutation, so no app test targets or cancellation fixture were generated; unguarded CTest returned success for zero tests.",
+      "originalRealModelResults": "The retained hosted driver log reports all existing lifecycle/context cases and Zipformer English/French plus Nemotron CPU cases exit0; those results are preserved and were not rerun by this fix."
+    },
+    "changedSourceSha256": {
+      "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "1362fe646f2971633bc8330632604390b2ab205a23f7bc8612b45acfe72bd757",
+      "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "d4c72c5e6c34523a7603102ef4b4b57370c720e23f9c3541fbe23c98bf8c2a99"
+    },
+    "validationSourceSha256": {
+      "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "1362fe646f2971633bc8330632604390b2ab205a23f7bc8612b45acfe72bd757",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr.cmake": "90b991413b62baca35a97d94a607f7fe8961b2f14bc0e70c4baf569e8eb4fde6",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_dependencies.json": "f5d6fadf161ea9d7917edecea85b5abffd602b10ff67c7b982a2dd4ce4e3505e",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_cancellation_fixture.cpp": "845f8457443e243175992d482d37370ccc343ae74d99e470da4b37d98868c0b9",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+      "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java": "3f3103c6ee3eacbf966967dd575768258af482269b0c02a7190fdbe0b8488776",
+      "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "d4c72c5e6c34523a7603102ef4b4b57370c720e23f9c3541fbe23c98bf8c2a99"
+    },
+    "dependencyArchiveProof": [
+      {
+        "name": "kaldi_native_fbank",
+        "archive": "/tmp/asr-android-build/_deps/kaldi_native_fbank-subbuild/kaldi_native_fbank-populate-prefix/src/v1.23.1.tar.gz",
+        "bytes": 855263,
+        "sha256": "c9722d55bf791d591baf6f79c8db8c66b7eeacf3bec59a4ac37864eacf2e8f37"
+      },
+      {
+        "name": "kaldi_native_io",
+        "archive": "/tmp/asr-android-build/_deps/kaldi_native_io-subbuild/kaldi_native_io-populate-prefix/src/v1.23.2.tar.gz",
+        "bytes": 153989,
+        "sha256": "8c0eadd3aa2d9cafe62e82c2e3075a57bc41cac7e83f9553671413f07b070426"
+      },
+      {
+        "name": "kissfft",
+        "archive": "/tmp/asr-android-build/_deps/kissfft-subbuild/kissfft-populate-prefix/src/febd4caeed32e33ad8b2e0bb5ea77542c40f18ec.zip",
+        "bytes": 74252,
+        "sha256": "497103e664168ebe39580b757adbe616f6cf85a16572af581ca7bc42d0ab13fd"
+      },
+      {
+        "name": "openfst",
+        "archive": "/tmp/asr-android-build/_deps/openfst-subbuild/openfst-populate-prefix/src/v1.8.5-2026-07-09.tar.gz",
+        "bytes": 1501685,
+        "sha256": "2ff712a32952fcb01d351121a6bc8ccf4fdc6b2aa06ce8df2b3095dedd518c0e"
+      },
+      {
+        "name": "kaldifst",
+        "archive": "/tmp/asr-android-build/_deps/kaldifst-subbuild/kaldifst-populate-prefix/src/v1.9.0.tar.gz",
+        "bytes": 181053,
+        "sha256": "225d8377d1d262e3aedab23558fead106b4cbc83462fb29f1c5e7d9e3b0c14dd"
+      },
+      {
+        "name": "kaldi_decoder",
+        "archive": "/tmp/asr-android-build/_deps/kaldi_decoder-subbuild/kaldi_decoder-populate-prefix/src/v0.4.0.tar.gz",
+        "bytes": 147985,
+        "sha256": "078f2ebb9927c19445096549f880b4ac6db14b7eeb263062f50697873901c955"
+      },
+      {
+        "name": "simple-sentencepiece",
+        "archive": "/tmp/asr-android-build/_deps/simple-sentencepiece-subbuild/simple-sentencepiece-populate-prefix/src/v0.7.tar.gz",
+        "bytes": 355335,
+        "sha256": "1748a822060a35baa9f6609f84efc8eb54dc0e74b9ece3d82367b7119fdc75af"
+      },
+      {
+        "name": "json",
+        "archive": "/tmp/asr-android-build/_deps/json-subbuild/json-populate-prefix/src/v3.12.0.tar.gz",
+        "bytes": 9678593,
+        "sha256": "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187"
+      },
+      {
+        "name": "eigen",
+        "archive": "/tmp/asr-android-build/_deps/eigen-subbuild/eigen-populate-prefix/src/eigen-5.0.1.tar.gz",
+        "bytes": 2967272,
+        "sha256": "e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec"
+      }
+    ],
+    "dependencySourceDirectories": {
+      "EIGEN": "/tmp/asr-android-build/_deps/eigen-src",
+      "FLITE": "/tmp/asr-android-build/_deps/flite-src",
+      "JSON": "/tmp/asr-android-build/_deps/json-src",
+      "KALDIFST": "/tmp/asr-android-build/_deps/kaldifst-src",
+      "KALDI_DECODER": "/tmp/asr-android-build/_deps/kaldi_decoder-src",
+      "KALDI_NATIVE_FBANK": "/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+      "KALDI_NATIVE_IO": "/tmp/asr-android-build/_deps/kaldi_native_io-src",
+      "KISSFFT": "/tmp/asr-android-build/_deps/kissfft-src",
+      "OPENFST": "/tmp/asr-android-build/_deps/openfst-src",
+      "SHERPA": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+      "SIMPLE-SENTENCEPIECE": "/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+      "UTF8PROC": "/tmp/asr-android-build/_deps/utf8proc-src"
+    },
+    "dependencyControlSourceSha256": {
+      "/tmp/asr-android-build/_deps/kaldi_native_fbank-src/cmake/eigen.cmake": "8239d74b44e37e1bb05be2e1c86f6b1e931f0daca93b325fb2e0b6d6e996b2ed",
+      "/tmp/asr-android-build/_deps/kaldi_decoder-src/cmake/eigen.cmake": "feff6c2e446ab71d70aca6cdf763fd8d4f7a7977324bc3fe48a3433bc06f403b"
+    },
+    "fullProductionCmake": {
+      "noStubDependencyConfiguration": true,
+      "networkDisabled": true,
+      "baselineOn": {
+        "requested": "ON",
+        "cachedBuildTesting": "OFF",
+        "ctestNames": [],
+        "testCount": 0,
+        "cancellationTarget": false,
+        "qnnRetirementTarget": false
+      },
+      "fixedOn": {
+        "requested": "ON",
+        "cachedBuildTesting": "ON",
+        "ctestNames": [
+          "english_dictionary_misses",
+          "speech_asr_checked_qnn_retirement",
+          "speech_cache_audio_and_device_discovery",
+          "speech_compiled_context_cache",
+          "speech_convex_graph_partitions",
+          "speech_finalization_cancellation",
+          "speech_live_native_progress",
+          "speech_provider_abi_ownership",
+          "speech_provider_execution_evidence"
+        ],
+        "testCount": 9,
+        "cancellationTarget": true,
+        "qnnRetirementTarget": true
+      },
+      "sameTreeReconfigureWithoutOverride": {
+        "requested": null,
+        "cachedBuildTesting": "ON",
+        "ctestNames": [
+          "english_dictionary_misses",
+          "speech_asr_checked_qnn_retirement",
+          "speech_cache_audio_and_device_discovery",
+          "speech_compiled_context_cache",
+          "speech_convex_graph_partitions",
+          "speech_finalization_cancellation",
+          "speech_live_native_progress",
+          "speech_provider_abi_ownership",
+          "speech_provider_execution_evidence"
+        ],
+        "testCount": 9,
+        "cancellationTarget": true,
+        "qnnRetirementTarget": true
+      },
+      "freshExplicitOff": {
+        "requested": "OFF",
+        "cachedBuildTesting": "OFF",
+        "ctestNames": [],
+        "testCount": 0,
+        "cancellationTarget": false,
+        "qnnRetirementTarget": false
+      },
+      "sameTreeOffToOn": {
+        "requested": "ON",
+        "cachedBuildTesting": "ON",
+        "ctestNames": [
+          "english_dictionary_misses",
+          "speech_asr_checked_qnn_retirement",
+          "speech_cache_audio_and_device_discovery",
+          "speech_compiled_context_cache",
+          "speech_convex_graph_partitions",
+          "speech_finalization_cancellation",
+          "speech_live_native_progress",
+          "speech_provider_abi_ownership",
+          "speech_provider_execution_evidence"
+        ],
+        "testCount": 9,
+        "cancellationTarget": true,
+        "qnnRetirementTarget": true
+      },
+      "freshUndefinedDefault": {
+        "requested": null,
+        "cachedBuildTesting": "ON",
+        "ctestNames": [
+          "english_dictionary_misses",
+          "speech_asr_checked_qnn_retirement",
+          "speech_cache_audio_and_device_discovery",
+          "speech_compiled_context_cache",
+          "speech_convex_graph_partitions",
+          "speech_finalization_cancellation",
+          "speech_live_native_progress",
+          "speech_provider_abi_ownership",
+          "speech_provider_execution_evidence"
+        ],
+        "testCount": 9,
+        "cancellationTarget": true,
+        "qnnRetirementTarget": true
+      },
+      "onlyNineAppTestsRegistered": true,
+      "dependencyTestSuitesEnabled": false
+    },
+    "emptySuiteGuard": {
+      "oldExitCode": 0,
+      "guardedExitCode": 8,
+      "output": "Internal ctest changing into directory: /workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-build\nTest project /workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-build\nNo tests were found!!!\nErrors while running CTest\n"
+    },
+    "fullGraphCancellation": {
+      "target": "streaming_asr_cancellation_fixture",
+      "actualLibrary": "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build/asr-cancellation/libtimed_kokoro.so",
+      "librarySha256": "5f8a3851d357e06b5ee0bbcc80ca496d35127b6fad82fdb3af816e68ae12b54a",
+      "result": {
+        "scope": "ACTUAL_JAVA_OWNERSHIP_WITH_HOST_ONLY_JNI_SCHEDULING_FIXTURE",
+        "casesPassed": 5,
+        "modelExecuted": false,
+        "physicalDeviceQualified": false
+      },
+      "output": "5 actual Java cancellation/retirement cases passed; JNI scheduling fixture only\n"
+    },
+    "commands": [
+      {
+        "step": "baseline-on-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-source",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src",
+          "-DBUILD_TESTING=ON"
+        ],
+        "exitCode": 0,
+        "seconds": 0.843,
+        "logSha256": "e51910b8b1cda96de73afc856bb2623621fcaab70336f3833e487c1eb6fbda44"
+      },
+      {
+        "step": "baseline-on-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.003,
+        "logSha256": "655b4edf543a99640d87b7cec2509f8071db3e631f77a63bd8b28f1533babfc4"
+      },
+      {
+        "step": "baseline-on-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.048,
+        "logSha256": "2953062e98d6499ff8c85760ea6b7d04f66e7f20dea33eae84a94e776a23f60e"
+      },
+      {
+        "step": "baseline-empty-old-ctest",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-build",
+          "--output-on-failure"
+        ],
+        "exitCode": 0,
+        "seconds": 0.003,
+        "logSha256": "c4c80a1e7caa2b4934c9a22752341ecc5a55f5dc5e96705b3893b15deb5f07a4"
+      },
+      {
+        "step": "baseline-empty-guarded-ctest",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/baseline-build",
+          "--output-on-failure",
+          "--no-tests=error"
+        ],
+        "exitCode": 8,
+        "seconds": 0.002,
+        "logSha256": "d264c65bb73ea580176a488ebbdb85b173575ae5c17187c643864b6584491fee"
+      },
+      {
+        "step": "fixed-on-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src",
+          "-DBUILD_TESTING=ON"
+        ],
+        "exitCode": 0,
+        "seconds": 0.886,
+        "logSha256": "f8626bee9fc39c4d444df4f6f68b3f9ec54f87f30e532ca24068b459a62b30a4"
+      },
+      {
+        "step": "fixed-on-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.004,
+        "logSha256": "2e95c63627ec4469e3178f923df2adecc192022a6dfa33996b1f1ef27b37dae6"
+      },
+      {
+        "step": "fixed-on-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.102,
+        "logSha256": "6d57d205f86e08216da9af12b705ada87d67fab93bcbec88429bcf2f0e23c6a4"
+      },
+      {
+        "step": "fixed-reconfigure-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src"
+        ],
+        "exitCode": 0,
+        "seconds": 0.19,
+        "logSha256": "677c5cb3a1cb368f76558852bc35453cbc07ff3a8a52306b94ce73a0fc66ad90"
+      },
+      {
+        "step": "fixed-reconfigure-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.004,
+        "logSha256": "2e95c63627ec4469e3178f923df2adecc192022a6dfa33996b1f1ef27b37dae6"
+      },
+      {
+        "step": "fixed-reconfigure-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.109,
+        "logSha256": "6d57d205f86e08216da9af12b705ada87d67fab93bcbec88429bcf2f0e23c6a4"
+      },
+      {
+        "step": "fixed-off-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/off-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src",
+          "-DBUILD_TESTING=OFF"
+        ],
+        "exitCode": 0,
+        "seconds": 0.778,
+        "logSha256": "18f05eb8599b63508531b58f5fb5bbfffc1d8ed5c3506ac78c5a459c00b611b0"
+      },
+      {
+        "step": "fixed-off-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/off-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.003,
+        "logSha256": "655b4edf543a99640d87b7cec2509f8071db3e631f77a63bd8b28f1533babfc4"
+      },
+      {
+        "step": "fixed-off-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/off-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.047,
+        "logSha256": "2953062e98d6499ff8c85760ea6b7d04f66e7f20dea33eae84a94e776a23f60e"
+      },
+      {
+        "step": "fixed-off-to-on-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/off-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src",
+          "-DBUILD_TESTING=ON"
+        ],
+        "exitCode": 0,
+        "seconds": 0.286,
+        "logSha256": "a10ea228254ffe80520aafddb91dc25cee1a7ed2166a1a1ec97a1118a5d7ca43"
+      },
+      {
+        "step": "fixed-off-to-on-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/off-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.005,
+        "logSha256": "18d680556336a5f0b42b0b37fe848e931c5915ba6a68c591035b282997e58dd2"
+      },
+      {
+        "step": "fixed-off-to-on-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/off-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.119,
+        "logSha256": "6d57d205f86e08216da9af12b705ada87d67fab93bcbec88429bcf2f0e23c6a4"
+      },
+      {
+        "step": "fixed-default-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/default-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src"
+        ],
+        "exitCode": 0,
+        "seconds": 1.027,
+        "logSha256": "315f9dc6a1b4e76ef56e3ff5be3f182c5a37bfc7669654de501b9e3a03918199"
+      },
+      {
+        "step": "fixed-default-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/default-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.004,
+        "logSha256": "fcaf720bcb16b8e2d98de6517f8751a1553fad389cef475006f3f8eaa9a0b795"
+      },
+      {
+        "step": "fixed-default-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/default-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.103,
+        "logSha256": "6d57d205f86e08216da9af12b705ada87d67fab93bcbec88429bcf2f0e23c6a4"
+      },
+      {
+        "step": "full-graph-cancellation-build",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build",
+          "--parallel",
+          "1",
+          "--target",
+          "streaming_asr_cancellation_fixture"
+        ],
+        "exitCode": 0,
+        "seconds": 0.275,
+        "logSha256": "20861af37d28364d5cc9baecd2cc1045cd68dd99eb337d600fc77bb5ad457ea8"
+      },
+      {
+        "step": "javac",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/javac",
+          "-J-Xmx128m",
+          "-d",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/classes",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java"
+        ],
+        "exitCode": 0,
+        "seconds": 0.707,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "step": "checked-jni",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+          "-Xmx128m",
+          "-Xcheck:jni",
+          "-Djava.library.path=/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/fixed-build/asr-cancellation",
+          "-cp",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/classes",
+          "dev.melo.kokoro.StreamingAsrCancellationIntegration",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/cancellation-result.json"
+        ],
+        "exitCode": 0,
+        "seconds": 0.048,
+        "logSha256": "40098642694063a19556108532885d42a0cf517617093f5a74a3832af12fdfe8"
+      }
+    ],
+    "limitations": [
+      "Only the cancellation target was built and executed from the complete host CMake graph; the other nine CTest cases were inventoried and preserved, not rerun.",
+      "Cached source overrides and pinned header/ORT inputs were used without network. This validation executes actual production/transitive CMake, not a substitute test-intent model.",
+      "No ASR model inference, full app build or physical GPU/NPU qualification was rerun. Exact-head hosted native and publication gates remain required."
+    ]
+  },
+  "nativeHostTestIntentReceiptIdentity": {
+    "artifact": "host-test-intent/validation.json",
+    "bytes": 32215,
+    "sha256": "edb4f21f7804863f1a8d1532cad82e9b97add9f844ff157df49bdc54d7a6439c"
+  },
+  "concurrentHostTestIntentRevalidation": {
+    "schemaVersion": 1,
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "branch": "feature/windows-native-benchmark-kit",
+    "baseBranch": "main",
+    "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+    "parentPr": 2651,
+    "sourceCommit": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+    "parentAtExecution": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+    "intent": "Bind the preserved incoming host-test configuration and mandatory CTest helper to a fresh complete dependency-graph configure and actual checked-JNI cancellation target execution.",
+    "sourceSha256": {
+      "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "7721da301141efabbc42164602bc4fc12ea924128a979e10a841b1bea3e9098c",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr.cmake": "90b991413b62baca35a97d94a607f7fe8961b2f14bc0e70c4baf569e8eb4fde6",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_dependencies.json": "f5d6fadf161ea9d7917edecea85b5abffd602b10ff67c7b982a2dd4ce4e3505e",
+      "local-kokoro-runtime/src/main/cpp/streaming_asr_cancellation_fixture.cpp": "845f8457443e243175992d482d37370ccc343ae74d99e470da4b37d98868c0b9",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+      "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java": "3f3103c6ee3eacbf966967dd575768258af482269b0c02a7190fdbe0b8488776",
+      "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "7558f56afd5d7165571aeae5bb67c44ca5ba75f0f98bc407c0384902216c7b0c",
+      "scripts/tests/test_kokoro_host_test_configuration.py": "98edf1fdd2e59c1031380f562e069894bd88d080df02d886b809fac38458ecc3"
+    },
+    "fullProductionCmake": {
+      "observations": [
+        {
+          "phase": "initial-on",
+          "requested": "ON",
+          "cachedBuildTesting": "ON",
+          "ctestNames": [
+            "english_dictionary_misses",
+            "speech_asr_checked_qnn_retirement",
+            "speech_cache_audio_and_device_discovery",
+            "speech_compiled_context_cache",
+            "speech_convex_graph_partitions",
+            "speech_finalization_cancellation",
+            "speech_live_native_progress",
+            "speech_provider_abi_ownership",
+            "speech_provider_execution_evidence"
+          ],
+          "testCount": 9,
+          "fixtureTargets": [
+            "streaming_asr_cancellation_fixture",
+            "streaming_asr_qnn_fixture",
+            "streaming_asr_qnn_retirement_test"
+          ],
+          "extraDependencyTests": []
+        },
+        {
+          "phase": "reconfigure",
+          "requested": null,
+          "cachedBuildTesting": "ON",
+          "ctestNames": [
+            "english_dictionary_misses",
+            "speech_asr_checked_qnn_retirement",
+            "speech_cache_audio_and_device_discovery",
+            "speech_compiled_context_cache",
+            "speech_convex_graph_partitions",
+            "speech_finalization_cancellation",
+            "speech_live_native_progress",
+            "speech_provider_abi_ownership",
+            "speech_provider_execution_evidence"
+          ],
+          "testCount": 9,
+          "fixtureTargets": [
+            "streaming_asr_cancellation_fixture",
+            "streaming_asr_qnn_fixture",
+            "streaming_asr_qnn_retirement_test"
+          ],
+          "extraDependencyTests": []
+        }
+      ],
+      "noDependencySubstitutes": true,
+      "networkDisabled": true,
+      "cachedSourceOverrides": {
+        "EIGEN": "/tmp/asr-android-build/_deps/eigen-src",
+        "FLITE": "/tmp/asr-android-build/_deps/flite-src",
+        "JSON": "/tmp/asr-android-build/_deps/json-src",
+        "KALDIFST": "/tmp/asr-android-build/_deps/kaldifst-src",
+        "KALDI_DECODER": "/tmp/asr-android-build/_deps/kaldi_decoder-src",
+        "KALDI_NATIVE_FBANK": "/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+        "KALDI_NATIVE_IO": "/tmp/asr-android-build/_deps/kaldi_native_io-src",
+        "KISSFFT": "/tmp/asr-android-build/_deps/kissfft-src",
+        "OPENFST": "/tmp/asr-android-build/_deps/openfst-src",
+        "SHERPA": "/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+        "SIMPLE-SENTENCEPIECE": "/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+        "UTF8PROC": "/tmp/asr-android-build/_deps/utf8proc-src"
+      },
+      "dependencyArchiveProof": [
+        {
+          "name": "kaldi_native_fbank",
+          "archive": "/tmp/asr-android-build/_deps/kaldi_native_fbank-subbuild/kaldi_native_fbank-populate-prefix/src/v1.23.1.tar.gz",
+          "bytes": 855263,
+          "sha256": "c9722d55bf791d591baf6f79c8db8c66b7eeacf3bec59a4ac37864eacf2e8f37"
+        },
+        {
+          "name": "kaldi_native_io",
+          "archive": "/tmp/asr-android-build/_deps/kaldi_native_io-subbuild/kaldi_native_io-populate-prefix/src/v1.23.2.tar.gz",
+          "bytes": 153989,
+          "sha256": "8c0eadd3aa2d9cafe62e82c2e3075a57bc41cac7e83f9553671413f07b070426"
+        },
+        {
+          "name": "kissfft",
+          "archive": "/tmp/asr-android-build/_deps/kissfft-subbuild/kissfft-populate-prefix/src/febd4caeed32e33ad8b2e0bb5ea77542c40f18ec.zip",
+          "bytes": 74252,
+          "sha256": "497103e664168ebe39580b757adbe616f6cf85a16572af581ca7bc42d0ab13fd"
+        },
+        {
+          "name": "openfst",
+          "archive": "/tmp/asr-android-build/_deps/openfst-subbuild/openfst-populate-prefix/src/v1.8.5-2026-07-09.tar.gz",
+          "bytes": 1501685,
+          "sha256": "2ff712a32952fcb01d351121a6bc8ccf4fdc6b2aa06ce8df2b3095dedd518c0e"
+        },
+        {
+          "name": "kaldifst",
+          "archive": "/tmp/asr-android-build/_deps/kaldifst-subbuild/kaldifst-populate-prefix/src/v1.9.0.tar.gz",
+          "bytes": 181053,
+          "sha256": "225d8377d1d262e3aedab23558fead106b4cbc83462fb29f1c5e7d9e3b0c14dd"
+        },
+        {
+          "name": "kaldi_decoder",
+          "archive": "/tmp/asr-android-build/_deps/kaldi_decoder-subbuild/kaldi_decoder-populate-prefix/src/v0.4.0.tar.gz",
+          "bytes": 147985,
+          "sha256": "078f2ebb9927c19445096549f880b4ac6db14b7eeb263062f50697873901c955"
+        },
+        {
+          "name": "simple-sentencepiece",
+          "archive": "/tmp/asr-android-build/_deps/simple-sentencepiece-subbuild/simple-sentencepiece-populate-prefix/src/v0.7.tar.gz",
+          "bytes": 355335,
+          "sha256": "1748a822060a35baa9f6609f84efc8eb54dc0e74b9ece3d82367b7119fdc75af"
+        },
+        {
+          "name": "json",
+          "archive": "/tmp/asr-android-build/_deps/json-subbuild/json-populate-prefix/src/v3.12.0.tar.gz",
+          "bytes": 9678593,
+          "sha256": "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187"
+        },
+        {
+          "name": "eigen",
+          "archive": "/tmp/asr-android-build/_deps/eigen-subbuild/eigen-populate-prefix/src/eigen-5.0.1.tar.gz",
+          "bytes": 2967272,
+          "sha256": "e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec"
+        }
+      ],
+      "dependencyControlSourceSha256": {
+        "/tmp/asr-android-build/_deps/kaldi_native_fbank-src/cmake/eigen.cmake": "8239d74b44e37e1bb05be2e1c86f6b1e931f0daca93b325fb2e0b6d6e996b2ed",
+        "/tmp/asr-android-build/_deps/kaldi_decoder-src/cmake/eigen.cmake": "feff6c2e446ab71d70aca6cdf763fd8d4f7a7977324bc3fe48a3433bc06f403b"
+      }
+    },
+    "actualDriverCtestCommand": [
+      "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+      "--test-dir",
+      "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+      "--output-on-failure",
+      "--no-tests=error"
+    ],
+    "driverCommandScope": "Read from and checked against the exact incoming helper. The complete nine-case CTest command was not executed in this refresh because only the cancellation target was built.",
+    "cancellationExecution": {
+      "target": "streaming_asr_cancellation_fixture",
+      "library": "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build/asr-cancellation/libtimed_kokoro.so",
+      "librarySha256": "5f8a3851d357e06b5ee0bbcc80ca496d35127b6fad82fdb3af816e68ae12b54a",
+      "result": {
+        "scope": "ACTUAL_JAVA_OWNERSHIP_WITH_HOST_ONLY_JNI_SCHEDULING_FIXTURE",
+        "casesPassed": 5,
+        "modelExecuted": false,
+        "physicalDeviceQualified": false
+      },
+      "output": "5 actual Java cancellation/retirement cases passed; JNI scheduling fixture only\n"
+    },
+    "commands": [
+      {
+        "step": "initial-on-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src",
+          "-DBUILD_TESTING=ON"
+        ],
+        "exitCode": 0,
+        "seconds": 1.066,
+        "logSha256": "fa81a0bbc5cab39445c8c0294f1936c4507ff6d06cafd2c0f4c29c7c9b0d4ad8"
+      },
+      {
+        "step": "initial-on-ctest-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.015,
+        "logSha256": "6e74d288136498d12e2bc8e68cb8101286d232b05ff12e894bf8aaeed6414518"
+      },
+      {
+        "step": "initial-on-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.104,
+        "logSha256": "6d57d205f86e08216da9af12b705ada87d67fab93bcbec88429bcf2f0e23c6a4"
+      },
+      {
+        "step": "reconfigure-configure",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "-S",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp",
+          "-B",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
+          "-DORT_INCLUDE_DIR=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/include",
+          "-DORT_LIBRARY=/tmp/asr-host-ort/onnxruntime-linux-x64-glibc2_24-Release-1.31.0/lib/libonnxruntime.so",
+          "-DASR_QNN_MANIFEST=/workspace/scratch/d6788699ebc6/gpt-mobile/docs/audits/qnn-runtime-candidate.json",
+          "-DFETCHCONTENT_SOURCE_DIR_EIGEN=/tmp/asr-android-build/_deps/eigen-src",
+          "-DFETCHCONTENT_SOURCE_DIR_FLITE=/tmp/asr-android-build/_deps/flite-src",
+          "-DFETCHCONTENT_SOURCE_DIR_JSON=/tmp/asr-android-build/_deps/json-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDIFST=/tmp/asr-android-build/_deps/kaldifst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_DECODER=/tmp/asr-android-build/_deps/kaldi_decoder-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_FBANK=/tmp/asr-android-build/_deps/kaldi_native_fbank-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KALDI_NATIVE_IO=/tmp/asr-android-build/_deps/kaldi_native_io-src",
+          "-DFETCHCONTENT_SOURCE_DIR_KISSFFT=/tmp/asr-android-build/_deps/kissfft-src",
+          "-DFETCHCONTENT_SOURCE_DIR_OPENFST=/tmp/asr-android-build/_deps/openfst-src",
+          "-DFETCHCONTENT_SOURCE_DIR_SHERPA=/workspace/scratch/d6788699ebc6/asr-retirement-review/pinned/sherpa-onnx-38016c6e0622e90bf417c35e8b47e0eb805af417",
+          "-DFETCHCONTENT_SOURCE_DIR_SIMPLE-SENTENCEPIECE=/tmp/asr-android-build/_deps/simple-sentencepiece-src",
+          "-DFETCHCONTENT_SOURCE_DIR_UTF8PROC=/tmp/asr-android-build/_deps/utf8proc-src"
+        ],
+        "exitCode": 0,
+        "seconds": 0.232,
+        "logSha256": "1841f54fad696756ffe46ebafffd8e02220b7925a59701ad3e220ee84c0b2dc8"
+      },
+      {
+        "step": "reconfigure-ctest-inventory",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/ctest",
+          "--test-dir",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+          "--show-only=json-v1"
+        ],
+        "exitCode": 0,
+        "seconds": 0.004,
+        "logSha256": "6e74d288136498d12e2bc8e68cb8101286d232b05ff12e894bf8aaeed6414518"
+      },
+      {
+        "step": "reconfigure-targets",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+          "--target",
+          "help"
+        ],
+        "exitCode": 0,
+        "seconds": 0.1,
+        "logSha256": "6d57d205f86e08216da9af12b705ada87d67fab93bcbec88429bcf2f0e23c6a4"
+      },
+      {
+        "step": "build-cancellation-target",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake",
+          "--build",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build",
+          "--parallel",
+          "1",
+          "--target",
+          "streaming_asr_cancellation_fixture"
+        ],
+        "exitCode": 0,
+        "seconds": 0.336,
+        "logSha256": "20861af37d28364d5cc9baecd2cc1045cd68dd99eb337d600fc77bb5ad457ea8"
+      },
+      {
+        "step": "javac",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/javac",
+          "-J-Xmx128m",
+          "-d",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/classes",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java",
+          "/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java"
+        ],
+        "exitCode": 0,
+        "seconds": 0.747,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "step": "checked-jni",
+        "command": [
+          "/workspace/scratch/0f34c62a99bc/jdk21/jdk-21.0.13.1+2/bin/java",
+          "-Xmx128m",
+          "-Xcheck:jni",
+          "-Djava.library.path=/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/full-build/asr-cancellation",
+          "-cp",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/classes",
+          "dev.melo.kokoro.StreamingAsrCancellationIntegration",
+          "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/6bec-refresh/cancellation-result.json"
+        ],
+        "exitCode": 0,
+        "seconds": 0.049,
+        "logSha256": "40098642694063a19556108532885d42a0cf517617093f5a74a3832af12fdfe8"
+      }
+    ],
+    "historicalProof": {
+      "path": "/workspace/scratch/d6788699ebc6/asr-retirement-review/host-test-intent/validation.json",
+      "sha256": "edb4f21f7804863f1a8d1532cad82e9b97add9f844ff157df49bdc54d7a6439c",
+      "preservedUnchanged": true,
+      "scope": "Earlier source-bound receipt holds the real unfixed negative control and full-graph ON/OFF/default checks for the previous implementation. Those cases were not rerun or relabeled as incoming-source execution."
+    },
+    "limitations": [
+      "The production/transitive CMake graph was configured without stubs. Only the cancellation target was built and its five actual Java/host-JNI scheduling cases executed.",
+      "All nine app-owned CTest cases and three fixture targets were inventoried on the incoming source, not all executed.",
+      "The new repository configuration regression test is source-bound here but is executed by the parent canonical gate, not this slice.",
+      "No QNN fault test, Android arm64 compile, real ASR model, GPU/NPU or physical-device qualification was repeated.",
+      "Required exact-head hosted native, model, minified packaging and publication gates remain mandatory."
+    ]
+  },
+  "concurrentHostTestIntentReceiptIdentity": {
+    "sha256": "07e5080654897048f505a90284836f93476115f67b0592d925eaeec835a7342b",
+    "bytes": 17443,
+    "scope": "The nine registered CTests were inventoried, not rerun; the separate cancellation fixture executed five Java ownership cases. Full dependency configuration and fixture build were rerun against incoming6bec bytes. Original prior-source receipts remain historical."
+  }
+}

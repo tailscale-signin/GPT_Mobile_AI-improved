@@ -89,7 +89,7 @@ class GitHubTaskCoverageTest {
         assertEquals(JsonPrimitive(1), row["failed_observations"])
         assertEquals(2, (row["receipt_ids"] as JsonArray).size)
         val text = GitHubTaskCoverage.render(receipts)
-        assertTrue(text.contains("partial acceptance"))
+        assertTrue(text.contains("Task outcome: blocked; partial coverage retained"))
         assertTrue(text.contains("INVALID_ARGUMENTS"))
         assertTrue(text.contains("source inspection"))
         assertFalse(text.contains("@Test"))
@@ -114,7 +114,7 @@ class GitHubTaskCoverageTest {
         val answer = json("""{"claims":[{"kind":"not_measured","subject":"all tests"}]}""")
         val (text, report) = GitHubEvidencePolicy.render(answer, mapOf("a" to receipt("a", true)), 1000, 0, "test all tools")
         assertTrue(text.contains("github_read / ranges"))
-        assertEquals(JsonPrimitive("PARTIAL"), report["task_outcome"])
+        assertEquals(JsonPrimitive("BLOCKED"), report["task_outcome"])
         assertEquals(JsonPrimitive(false), report["completion_verified"])
         assertFalse(text.contains("Would you like"))
     }

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -15,7 +16,7 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
     val nextAction: String get() = if (code == "PROVIDER_WAIT_OUTCOME_UNKNOWN") "RECONCILE_TOOL_RECEIPTS" else "REVIEW_SAVED_RECOVERY"
 
     fun event(): ProviderEvent.Failed = ProviderEvent.Failed(
-        "Saved work could not resume because its recovery evidence needs review. Completed tool receipts remain retained.",
+        if (code == "RESEARCH_RECOVERY_ACTION_CHANGED") ResearchRecoveryEvidence.message(correlation) else "Saved work could not resume because its recovery evidence needs review. Completed tool receipts remain retained.",
         errorCode = code,
         taskOutcome = "BLOCKED",
         failureDetails = buildJsonObject {
@@ -38,6 +39,7 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
             put("next_action", nextAction)
             original?.let { put("original_interruption", it) }
             correlation.filterKeys { it in CORRELATION_KEYS }.forEach { (key, value) -> put(key, value) }
+            if (code == "RESEARCH_RECOVERY_ACTION_CHANGED") ResearchRecoveryEvidence.retained(correlation).forEach { (key, value) -> put(key, value) }
         }
     )
 
@@ -98,6 +100,7 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
             return buildJsonObject {
                 details.filterKeys { it in CORRELATION_KEYS || it in setOf("recovery_code", "failure_origin", "next_action", "attempt_dispatch_state", "dispatch_evidence_scope") }
                     .filterValues { it is JsonPrimitive && it.content.length <= 160 }.forEach { (key, value) -> put(key, value) }
+                if (code == "RESEARCH_RECOVERY_ACTION_CHANGED") ResearchRecoveryEvidence.retained(details).forEach { (key, value) -> put(key, value) }
                 interruptions?.forEach { (key, value) -> put(key, value) }
             }
         }

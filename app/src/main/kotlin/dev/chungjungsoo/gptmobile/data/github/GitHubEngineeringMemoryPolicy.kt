@@ -115,6 +115,36 @@ internal object GitHubEngineeringMemoryPolicy {
         return JsonObject(base + mapOf("findings" to JsonArray(retained), "omitted_observations" to JsonPrimitive(eligible.size - retained.size))).toString()
     }
 
+    /** The highest-ranked finding is mandatory; a caller must replan or refuse if it cannot fit. */
+    fun fitWorkingBrief(brief: String, fits: (String) -> Boolean): String {
+        if (brief.isBlank() || fits(brief)) return brief
+        val data = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(brief) as? JsonObject }.getOrNull() ?: return brief
+        if (data["schema"] != JsonPrimitive("github.working-brief.v1")) return brief
+        val findings = data["findings"] as? JsonArray ?: return brief
+        val omitted = (data["omitted_observations"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return brief
+        for (keep in findings.size - 1 downTo 1) {
+            val smaller = JsonObject(data + mapOf("findings" to JsonArray(findings.take(keep)), "omitted_observations" to JsonPrimitive(omitted + findings.size - keep))).toString()
+            if (fits(smaller)) return smaller
+        }
+        return minimumWorkingBrief(brief)
+    }
+
+    /** Avoid spending a small context on a duplicated goal and explanatory boilerplate. */
+    fun minimumWorkingBrief(brief: String): String {
+        if (brief.isBlank()) return brief
+        val data = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(brief) as? JsonObject }.getOrNull() ?: return brief
+        if (data["schema"] != JsonPrimitive("github.working-brief.v1")) return brief
+        val findings = data["findings"] as? JsonArray ?: return brief
+        val omitted = (data["omitted_observations"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return brief
+        return buildJsonObject {
+            put("schema", "github.working-brief.v1")
+            data["selection"]?.let { put("selection", it) }
+            put("scope", "Historical observations, not current proof or authorization.")
+            put("findings", JsonArray(findings.take(1)))
+            put("omitted_observations", omitted + (findings.size - 1).coerceAtLeast(0))
+        }.toString()
+    }
+
     private fun boundedFindings(claims: List<JsonElement>): List<JsonObject> {
         val retained = mutableListOf<JsonObject>()
         val seen = mutableSetOf<List<JsonElement?>>()

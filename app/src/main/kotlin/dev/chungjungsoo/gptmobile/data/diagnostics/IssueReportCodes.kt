@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 /** Public issue reports retain only application-owned codes, never arbitrary provider strings. */
 internal object IssueReportCodes {
+    const val APPLICATION_FAILURE_CAUSES_FEATURE = "APPLICATION_FAILURE_CAUSES_V1"
+    val applicationFailureCauses = setOf("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", "GATEWAY_CONVERSATION_READ_ONLY", "TOOL_BATCH_REJECTED", "TOOL_BATCH_OVERSIZE")
+
     val allowed = setOf(
         "APP_ERROR",
         "WORKSPACE_EVIDENCE_CONFLICT",
@@ -15,6 +18,7 @@ internal object IssueReportCodes {
         "NO_AVAILABLE_PLATFORMS",
         "SUBMITTED_TURN_UNAVAILABLE",
         "COMBINED_REQUIREMENTS_UNMET",
+        "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN",
         "REVIEW_INPUT_REQUIRED",
         "GITHUB_REVIEW_COMPARISON_REQUIRED",
         "PRIVACY_CONFIGURATION",
@@ -56,6 +60,7 @@ internal object IssueReportCodes {
         "LOCAL_PREFILL_TIMEOUT",
         "LOCAL_SERVICE_UNREACHABLE",
         "GATEWAY_UNREACHABLE",
+        "GATEWAY_CONVERSATION_READ_ONLY",
         "MODEL_PREPARATION_INCOMPLETE",
         "MODEL_PREPARATION_REJECTED",
         "MODEL_PREPARATION_STORAGE_UNAVAILABLE",
@@ -85,6 +90,8 @@ internal object IssueReportCodes {
         "TOOL_FAILURE",
         "TOOL_PRECHECK_FAILED",
         "TOOL_PROTOCOL_INVALID_FRAME",
+        "TOOL_BATCH_REJECTED",
+        "TOOL_BATCH_OVERSIZE",
         "TOOL_BUDGET_EXHAUSTED",
         "COMBINED_BUDGET_EXHAUSTED",
         "OUTPUT_LIMIT",

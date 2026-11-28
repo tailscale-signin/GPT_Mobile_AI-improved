@@ -28,6 +28,80 @@ import org.robolectric.annotation.LooperMode
 @Config(manifest = Config.NONE, sdk = [34])
 @LooperMode(LooperMode.Mode.PAUSED)
 class AndroidVoiceAudioTest {
+    @Test fun modernPlatformFailureKeepsItsTypedCodeAndRejectsStaleCallbacks() {
+        var initialized: TextToSpeech.OnInitListener? = null
+        val engine = mock(TextToSpeech::class.java)
+        val failures = mutableListOf<VoicePlaybackFailure>()
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, callback ->
+            initialized = callback
+            engine
+        }
+        audio.allowOnlineSpeech = true
+        try {
+            audio.speakWithFailure("Saved reply", {}, failures::add)
+            requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+            val main = shadowOf(Looper.getMainLooper())
+            main.idle()
+            val listener = ArgumentCaptor.forClass(UtteranceProgressListener::class.java)
+            val utterance = ArgumentCaptor.forClass(String::class.java)
+            verify(engine).setOnUtteranceProgressListener(listener.capture())
+            verify(engine).speak(eq<CharSequence>("Saved reply"), eq(TextToSpeech.QUEUE_ADD), isNull(), utterance.capture())
+            listener.value.onError("stale-private-id", TextToSpeech.ERROR_NETWORK)
+            main.idle()
+            assertTrue(failures.isEmpty())
+            listener.value.onError(utterance.value, TextToSpeech.ERROR_SERVICE)
+            main.idle()
+            listener.value.onError(utterance.value, TextToSpeech.ERROR_NETWORK)
+            main.idle()
+            assertEquals(1, failures.size)
+            assertEquals("SERVICE_FAILED", failures.single().code)
+            assertEquals(TextToSpeech.ERROR_SERVICE, failures.single().platformErrorCode)
+            assertEquals(VoicePlaybackFailureStage.PLAYBACK, failures.single().stage)
+            assertEquals("system", failures.single().sourceProvider)
+            assertEquals(null, failures.single().cause)
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun offlineFallbackRejectsNetworkOnlyCatalogWithoutSpeaking() {
+        var initialized: TextToSpeech.OnInitListener? = null
+        val engine = mock(TextToSpeech::class.java)
+        val onlineVoice = android.speech.tts.Voice("network", Locale.US, 400, 200, true, emptySet())
+        org.mockito.Mockito.`when`(engine.voices).thenReturn(setOf(onlineVoice))
+        val failures = mutableListOf<VoicePlaybackFailure>()
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, callback ->
+            initialized = callback
+            engine
+        }
+        audio.allowOnlineSpeech = true
+        audio.synthesisLanguageTag = "en-US"
+        try {
+            audio.captureOfflineSpeech()("Saved reply", {}, failures::add)
+            requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals("OFFLINE_VOICE_UNAVAILABLE", failures.single().code)
+            assertEquals(VoicePlaybackFailureStage.CATALOG, failures.single().stage)
+            verify(engine, org.mockito.Mockito.never()).speak(org.mockito.ArgumentMatchers.any(CharSequence::class.java), eq(TextToSpeech.QUEUE_ADD), isNull(), anyString())
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun constructorFailureRetainsTheActualCauseForTypedFallback() {
+        val observed = IllegalStateException("private service detail")
+        val failures = mutableListOf<VoicePlaybackFailure>()
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, _ -> throw observed }
+        try {
+            audio.captureOfflineSpeech()("Saved reply", {}, failures::add)
+            assertSame(observed, failures.single().cause)
+            assertEquals("INITIALIZATION_FAILED", failures.single().code)
+            assertEquals(VoicePlaybackFailureStage.INITIALIZATION, failures.single().stage)
+        } finally {
+            audio.close()
+        }
+    }
+
     @Test fun interiorSourceAddressesStayFilteredBeforeAndroidLiteralCorrections() {
         val candidates = mapOf(
             "x_https://example.test/private" to "x_https",

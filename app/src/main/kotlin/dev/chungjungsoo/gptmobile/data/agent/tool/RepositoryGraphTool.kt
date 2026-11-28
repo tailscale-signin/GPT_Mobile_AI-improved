@@ -34,18 +34,19 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
-/** Revision-bound map reads run on the phone by default; Gateway is an explicit optional source. */
+/** Revision-bound map reads prefer an admitted live Gateway and retain a standalone phone route. */
 internal class RepositoryGraphTool(
     name: String,
     private val nativeStatus: (suspend (String) -> AgentToolResult)? = null,
     private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
     private val accountIdentity: String? = null,
+    private val defaultSource: suspend () -> String = { "phone" },
     private val query: suspend (JsonObject) -> JsonObject
 ) : AgentTool {
     private val nativeContextName = "github_context" + name.removePrefix("repository_graph")
     override val definition = AgentToolDefinition(
         name = name,
-        description = "Inspect the selected repository map. Phone is the default source: status shows structure immediately; index prepares bounded source batches; task_context_bundle returns task-ranked exact source and document sections with reference freshness, coverage, test candidates and optional variant CURRENT/REFERENCE/TASK/SEMANTIC; architecture, query, node, callers, callees, path, impact and metrics use cached source. Follow index_cursor while has_more=true. Phone relationships include explicit lexical candidates, never compiler or executed-test proof; retain coverage and confidence. Set map_source=gateway only for an explicitly configured and authorized Gateway. Gateway impact accepts a source symbol, path or exact JVM method descriptor. Gateway diff uses options.base_sha to compare indexed revisions, including changed compiled methods, callers and test paths when both revisions have qualified workflow artifacts. Retain compiler_impact confidence and fallback reason. Gateway additionally supports diff, diagnose, contracts, prs, notes, requirements, wiki, federated and provider. Observe background Gateway jobs with status; do not replay indexing or notes after unknown outcomes. options carries paths, source, target, index_cursor or result_cursor. Verify source and required CI.",
+        description = "Inspect the selected repository map. An authorized, connected Gateway is selected automatically when source sharing is allowed; otherwise the phone is used. Explicit map_source choices remain effective. Phone status shows structure immediately; index prepares bounded source batches; task_context_bundle returns task-ranked exact source and document sections with reference freshness, coverage, test candidates and optional variant CURRENT/REFERENCE/TASK/SEMANTIC; architecture, query, node, callers, callees, path, impact and metrics use cached source. Follow index_cursor while has_more=true. Phone relationships include explicit lexical candidates, never compiler or executed-test proof; retain coverage and confidence. Set map_source=gateway to require the configured, authorized Gateway. task_context_bundle uses the phone source. Gateway impact accepts a source symbol, path or exact JVM method descriptor. Gateway diff uses options.base_sha to compare indexed revisions, including changed compiled methods, callers and test paths when both revisions have qualified workflow artifacts. Retain compiler_impact confidence and fallback reason. Gateway additionally supports diff, diagnose, contracts, prs, notes, requirements, wiki, federated and provider. Observe background Gateway jobs with status; do not replay indexing or notes after unknown outcomes. options carries paths, source, target, index_cursor or result_cursor. Verify source and required CI.",
         inputSchema = schema
     )
 
@@ -78,7 +79,7 @@ internal class RepositoryGraphTool(
         if (options.keys.any { it in setOf("repository", "owner", "repo", "branch", "commit_sha", "ref", "action", "map_source") }) {
             return AgentToolResult(callId, ToolResultContent.Text("Repository revision, action and map source cannot be overridden through options."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
-        val mapSource = arguments["map_source"] ?: JsonPrimitive("phone")
+        val mapSource = arguments["map_source"] ?: JsonPrimitive(if (arguments["action"] == JsonPrimitive("task_context_bundle")) "phone" else defaultSource())
         val phone = mapSource == JsonPrimitive("phone")
         val phoneAccounting = if (phone) GitHubDispatchAccounting() else null
         val phoneInterruption = if (phone) currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.PhoneIndexInterruption]?.begin(callId, definition.name, arguments, repositoryScope, accountIdentity) else null
@@ -544,7 +545,7 @@ internal class RepositoryGraphTool(
 
     companion object {
         val schema = Json.parseToJsonElement(
-            """{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["status","index","task_context_bundle","query","node","callers","callees","path","impact","architecture","diff","diagnose","contracts","prs","note","notes","requirements","wiki","metrics","federated","provider"]},"map_source":{"type":"string","enum":["phone","gateway"],"default":"phone"},"query":{"type":"string","maxLength":2000},"symbol":{"type":"string","maxLength":2000},"options":{"type":"object"}}}"""
+            """{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["status","index","task_context_bundle","query","node","callers","callees","path","impact","architecture","diff","diagnose","contracts","prs","note","notes","requirements","wiki","metrics","federated","provider"]},"map_source":{"type":"string","enum":["phone","gateway"]},"query":{"type":"string","maxLength":2000},"symbol":{"type":"string","maxLength":2000},"options":{"type":"object"}}}"""
         ) as JsonObject
 
         const val RECEIPT_SCHEMA = "gptmobile.repository-graph.v1"

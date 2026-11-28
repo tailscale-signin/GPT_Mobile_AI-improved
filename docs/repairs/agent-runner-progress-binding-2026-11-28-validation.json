@@ -1,0 +1,76 @@
+{
+  "schema": "source-scope-correction-validation-v1",
+  "recorded_at": "2026-11-28T06:01:18.844521+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "base_commit": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+  "intent": "Restore the existing LoopState GitHubInvestigationProgress binding through processToolCalls and finishBatch after the fresh-result observation moved to the latter helper.",
+  "hosted_failure": {
+    "head_sha": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+    "workflow": "Minified native memory smoke",
+    "run_id": 46113580173,
+    "job_id": 140882351346,
+    "job": "R8 and real JNI on Android 16",
+    "step_number": 12,
+    "step": "Compile native test app sources in a fresh process",
+    "gradle_task": ":app:compileNativeSmokeKotlin",
+    "logged_at": "2026-11-28T05:56:25Z",
+    "diagnostic": "AgentRunner.kt:2096:57 Unresolved reference 'investigation'.",
+    "interpretation": "Kotlin lexical scope error before native runtime execution; not GPU/NPU execution or R8 validation failure."
+  },
+  "review": {
+    "owning_instance": "LoopState.investigation = GitHubInvestigationProgress(acceptedTask)",
+    "binding_chain": [
+      "executeToolRound with(state) passes investigation",
+      "processToolCalls receives investigation: GitHubInvestigationProgress and passes the same reference",
+      "finishBatch receives investigation: GitHubInvestigationProgress and observes the current authoritative exchange once"
+    ],
+    "properties": [
+      "No new tracker is created; historical restore and round-to-round progress remain on the owning LoopState instance.",
+      "Existing GitHub-task condition, admission, authority, cancellation and replay guards are unchanged.",
+      "Observation stays before replay projection, with only the stop reason returned in BatchCompletion."
+    ],
+    "review_kind": "STATIC_TYPED_OWNERSHIP_REVIEW",
+    "changed_parameter_sites": 4
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "430c2127e7625b5fabcd0ba22bf6cc6fce56b4fa97e1e091885e02c0260fcb41",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFreshProgressRunnerTest.kt": "cd2684e2aed06f6facdfcfd6d9fce2cad1bac9028a4bd101a96336d032fbbb7e",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationRecoveryRunnerTest.kt": "6d417806a305b36925ced0f36fc2f8168a7bc62614672a2896167dc49e335e45"
+  },
+  "base_source_git_blob": "7c918369195ad85a1cef61510e398d1e98b5c322",
+  "corrected_source_git_blob": "e42c4dae5523091cb863fe4fdc638380cbb00448",
+  "patch_sha256": "fbc0ac04311049e5c8cf10822e6ea75cb05dcfe15bf3c98e148c186db2aaac48",
+  "validation": [
+    {
+      "command": "java -Xmx512m -jar /workspace/scratch/4ae19a99b59d/ktlint-1.3.1.jar app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+      "exit_code": 0,
+      "scope": "Kotlin formatting only"
+    },
+    {
+      "command": "git diff --check -- app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+      "exit_code": 0,
+      "scope": "Whitespace only"
+    }
+  ],
+  "pending": [
+    {
+      "gate": "Hosted actual project compileNativeSmokeKotlin (or equivalent complete production compile)",
+      "status": "NOT_YET_EXECUTED_FOR_CORRECTED_SOURCE"
+    },
+    {
+      "tests": [
+        "GitHubFreshProgressRunnerTest.freshRetainedRunPagesReachTheGuardBeforeDisplayProjectionDropsTheirRows",
+        "GitHubFreshProgressRunnerTest.changingPageArgumentsCannotHideRepeatedRunIdentities"
+      ],
+      "status": "EXISTING_REGRESSIONS_NOT_EXECUTED_LOCALLY",
+      "reason": "Existing scratch harnesses compile isolated observation or batch excerpts and do not cover the two helper scopes; no massive substitute stub graph or memory-preflight bypass was introduced."
+    }
+  ],
+  "limits": [
+    "This receipt does not claim production compilation or behavioral tests passed for the corrected source.",
+    "The complete AgentRunner integration remains the hosted gate.",
+    "No new test mirrors the four-site plumbing; existing multi-round fresh/repeated identity tests are the meaningful regression."
+  ]
+}

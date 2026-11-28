@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 /** Each extraction is scoped to a small group of acceptance requirements. */
 internal object GitHubClaimBatches {
     const val REQUIREMENTS_PER_BATCH = 4
-    const val MAX_BATCHES = 8
+    const val MAX_BATCHES = 8 // per durable window, never a limit on accepted task criteria
     const val MAX_CLAIMS = 8
 
     data class Request(val payload: String, val requirementIds: Set<String>, val maxClaims: Int = MAX_CLAIMS)
@@ -108,6 +108,12 @@ internal object GitHubClaimBatches {
         val reduced = JsonObject(
             (parsed - "format_correction") + buildJsonObject {
                 put("claim_limit", limit)
+                if (limit == 1 && !invalidResponse) {
+                    if ("claim_selection" in parsed) put("claim_selection", "Return one short supported claim. Map only the criteria it answers. Leave other criteria open.")
+                    (parsed["candidate"] as? JsonPrimitive)?.takeIf { it.isString }?.let {
+                        put("candidate", GitHubRepositorySession.utf8Prefix(it.content, 768))
+                    }
+                }
                 if (invalidResponse) put("format_correction", "Return 1 to $limit claims in total. Use only the supplied requirement IDs and zero-based indexes into this smaller claims array. Omit mappings without a supported claim. Encode source values in value_json and give each not_measured claim a subject.")
             }
         )

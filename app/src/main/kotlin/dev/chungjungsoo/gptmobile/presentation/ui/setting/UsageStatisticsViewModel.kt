@@ -3,13 +3,13 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.agent.isToolFailure
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.RunOutputLength
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.time.Instant
 import java.time.LocalDate
@@ -88,7 +88,7 @@ internal fun calculateUsageStatistics(
     val toolUsage = selectedTools.groupBy { it.connectionUidSnapshot to it.modelToolName.ifBlank { it.toolName } }.values.map { events ->
         val event = events.first()
         val name = listOfNotNull(event.connectionNameSnapshot?.takeIf { it.isNotBlank() }, event.modelToolName.ifBlank { event.toolName }).joinToString(" · ")
-        ToolUsage(name, events.size, events.count { it.status == ToolEventStatus.FAILED || it.isError })
+        ToolUsage(name, events.size, events.count { it.isToolFailure() })
     }.sortedWith(compareByDescending<ToolUsage> { it.calls }.thenBy { it.name })
     fun totals(key: (AgentRun) -> String): List<Pair<String, Long>> = filtered.filter { it.outputTokens != null }
         .groupBy(key).map { (name, items) -> name to items.sumOf { it.outputTokens!!.coerceAtLeast(0).toLong() } }

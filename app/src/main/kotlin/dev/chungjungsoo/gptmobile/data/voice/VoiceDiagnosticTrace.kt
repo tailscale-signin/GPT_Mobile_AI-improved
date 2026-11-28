@@ -22,7 +22,7 @@ class VoiceDiagnosticTrace internal constructor(
     private val allowed: () -> Boolean = { LocalDiagnosticsPolicy.enabled && !AppLogRecorder.privateSessionActive && !IssueReportIncidents.privateSession.value },
     private val retainSnapshot: (IssueReportDiagnostics) -> Unit = ReportDiagnosticSnapshots::retain
 ) {
-    enum class Engine { SYSTEM, LOCAL, KOKORO, MEDIAPIPE }
+    enum class Engine { SYSTEM, LOCAL, KOKORO, MEDIAPIPE, COMPILED_POCKET }
     enum class Focus { GRANTED, DENIED, ERROR, NOT_REQUESTED }
     enum class PlaybackAudioMode {
         NORMAL,
@@ -51,6 +51,8 @@ class VoiceDiagnosticTrace internal constructor(
     val performance = VoicePerformanceHistory()
     private val values = linkedMapOf<String, Any?>()
     private val moments = mutableMapOf<String, Long>()
+    private var pendingCaptureEnd: Long? = null
+    private var replyCaptureEnd: Long? = null
     private var speechProvider: String? = null
     private var capturedAt = 0L
     private var closed = false
@@ -68,6 +70,8 @@ class VoiceDiagnosticTrace internal constructor(
         if (reset || probe.epoch != privacyEpoch.get()) {
             values.clear()
             moments.clear()
+            pendingCaptureEnd = null
+            replyCaptureEnd = null
             speechProvider = null
             capturedAt = 0
         }
@@ -80,7 +84,10 @@ class VoiceDiagnosticTrace internal constructor(
     internal fun incidentFields(): Map<String, Any?> = fields("INCIDENT")?.first.orEmpty()
 
     /** Explicit retries/replay are new playback measurements, even when the draft is retained. */
-    internal fun beginReply(generation: Long): Probe = synchronized(lock) {
+    internal fun beginReply(generation: Long, fromCapture: Boolean = false): Probe = synchronized(lock) {
+        // Consume the capture once. Retries, text-only replies and replay cannot reuse its boundary.
+        replyCaptureEnd = pendingCaptureEnd.takeIf { fromCapture }
+        pendingCaptureEnd = null
         speechProvider = null
         values.keys.removeAll { it in IssueReportIncidentCapsule.fieldsFor("VOICE") || it in setOf("voice_reply_state", "voice_reply_characters") }
         moments.keys.retainAll(setOf("speech_end", "final_transcript"))
@@ -103,6 +110,8 @@ class VoiceDiagnosticTrace internal constructor(
     private fun clear(dispose: Boolean = false) = synchronized(lock) {
         values.clear()
         moments.clear()
+        pendingCaptureEnd = null
+        replyCaptureEnd = null
         speechProvider = null
         capturedAt = 0
         if (dispose) closed = true
@@ -162,7 +171,7 @@ class VoiceDiagnosticTrace internal constructor(
 
     private fun performanceEngine(metric: String): String = when (metric) {
         "final_to_request", "request_to_text", "text_to_queue" -> "SESSION"
-        else -> if (values["voice_engine"] in setOf(Engine.KOKORO.name, Engine.MEDIAPIPE.name)) speechProvider ?: values["voice_engine"] as String else values["voice_engine"] as? String ?: "SESSION"
+        else -> if (values["voice_engine"] in setOf(Engine.KOKORO.name, Engine.MEDIAPIPE.name, Engine.COMPILED_POCKET.name)) speechProvider ?: values["voice_engine"] as String else values["voice_engine"] as? String ?: "SESSION"
     }
 
     /** Backends retain this immutable ticket inside their capture/playback operation. */
@@ -209,7 +218,8 @@ class VoiceDiagnosticTrace internal constructor(
             val engine = provider ?: when (raw) {
                 "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested", "mediapipe-kokoro-npu-requested" -> "MEDIAPIPE_KOKORO"
                 "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON"
-                "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET"
+                "mediapipe-pocket-cpu-requested", "mediapipe-pocket-multilingual-cpu-requested" -> "MEDIAPIPE_POCKET"
+                "litert-compiled-pocket-gpu-requested", "litert-compiled-pocket-npu-requested" -> "COMPILED_POCKET"
                 else -> null
             }
             if (owner.speechProvider != null && engine != null && owner.speechProvider != engine) {
@@ -233,14 +243,35 @@ class VoiceDiagnosticTrace internal constructor(
                 "gateway-cuda" -> "GATEWAY_CUDA"
                 "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested", "mediapipe-kokoro-npu-requested" -> "LITERT_KOKORO"
                 "mediapipe-phonon-cpu-requested" -> "PHONON"
-                "mediapipe-pocket-cpu-requested" -> "POCKET"
+                "mediapipe-pocket-cpu-requested", "mediapipe-pocket-multilingual-cpu-requested" -> "POCKET"
                 else -> "KOKORO"
             }
             owner.values["voice_fallback_source"] = source
             owner.values["voice_fallback_target"] = target
             owner.values["voice_fallback_outcome"] = outcome
             owner.values["voice_fallback_failure"] = failure.code?.takeIf { it in VoiceExecutionDiagnostics.playbackFailures } ?: "ENGINE_FAILED"
+            owner.values["voice_fallback_source_observation"] = if (failure.sourceProvider == null) "NOT_INITIALIZED" else "INITIALIZED"
+            recordPlaybackCauses(failure)
             if (outcome == "STARTED") owner.values["voice_fallback_count"] = ((owner.values["voice_fallback_count"] as? Long ?: 0L) + 1).coerceAtMost(100)
+        }
+
+        fun playbackFailure(failure: VoicePlaybackFailure) = owner.record(this) {
+            failure.code?.takeIf { it in VoiceExecutionDiagnostics.playbackFailures }?.let { owner.values["voice_playback_failure"] = it }
+            recordPlaybackCauses(failure)
+        }
+
+        private fun recordPlaybackCauses(failure: VoicePlaybackFailure) {
+            VoiceExecutionDiagnostics.fallbackCauseFields.filterNot { it == "voice_fallback_source_observation" }.forEach(owner.values::remove)
+            failure.requestedBackend?.takeIf { it in VoiceExecutionDiagnostics.enums.getValue("voice_failure_requested_backend") }
+                ?.let { owner.values["voice_failure_requested_backend"] = it }
+            failure.stage?.let { owner.values["voice_primary_failure_stage"] = it.name }
+            failure.cause?.let(IssueReportContext::exceptionFingerprint)?.let { owner.values["voice_primary_cause_fingerprint"] = it }
+            failure.terminalFallback?.let { fallback ->
+                fallback.code?.takeIf { it in VoiceExecutionDiagnostics.playbackFailures }?.let { owner.values["voice_fallback_terminal_failure"] = it }
+                fallback.stage?.let { owner.values["voice_fallback_failure_stage"] = it.name }
+                fallback.cause?.let(IssueReportContext::exceptionFingerprint)?.let { owner.values["voice_fallback_cause_fingerprint"] = it }
+            }
+            (failure.terminalFallback ?: failure).platformErrorCode?.takeIf { it in -9..-1 }?.let { owner.values["voice_system_error_code"] = it }
         }
         fun phase(phase: VoicePhase) = owner.record(this) { owner.values["voice_phase"] = phase.name }
         fun access(permission: Boolean, foreground: Boolean, muted: Boolean) = owner.record(this) {
@@ -322,7 +353,9 @@ class VoiceDiagnosticTrace internal constructor(
         fun captureQueue(ageMs: Long) = owner.record(this) { owner.performance.queueAge(ageMs) }
         fun speechEnded() = owner.record(this) { owner.moments.putIfAbsent("speech_end", owner.now()) }
         fun finalTranscript() = owner.record(this) {
-            owner.moments.putIfAbsent("final_transcript", owner.now())
+            if (owner.moments.putIfAbsent("final_transcript", owner.now()) == null) {
+                owner.pendingCaptureEnd = owner.moments["acoustic_speech_end"]
+            }
             owner.elapsed("voice_speech_end_to_transcript_ms", "speech_end", "final_transcript")
             owner.elapsed("voice_acoustic_end_to_transcript_ms", "acoustic_speech_end", "final_transcript")
         }
@@ -374,6 +407,11 @@ class VoiceDiagnosticTrace internal constructor(
             if (first && owner.moments.putIfAbsent("answer_audio", owner.now()) == null) {
                 owner.moments["accepted"]?.let { accepted ->
                     owner.performance.observe("request_to_answer_audio", owner.now() - accepted, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean)
+                    if (basis != FirstAudio.UTTERANCE_START) {
+                        owner.replyCaptureEnd?.takeIf { it <= accepted }?.let { speechEnd ->
+                            owner.performance.observe("speech_end_to_answer_audio", owner.now() - speechEnd, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean)
+                        }
+                    }
                 }
             }
             if (first) owner.moments["pcm"]?.let { pcm -> owner.performance.observe("pcm_to_audio", owner.now() - pcm, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean) }

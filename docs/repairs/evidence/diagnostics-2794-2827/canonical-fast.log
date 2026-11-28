@@ -1,0 +1,204 @@
+CI policy passed
+App audit inventory: 3282 files, 26 areas; executed-line coverage unavailable.
+Dependency declarations use the shared version catalog.
+.{"status": "SUFFICIENT"}
+.{"status": "SUFFICIENT"}
+{"status": "SUFFICIENT"}
+{"status": "SUFFICIENT"}
+{"status": "SUFFICIENT"}
+{"status": "SUFFICIENT"}
+{"status": "SUFFICIENT"}
+..{"status": "INSUFFICIENT", "swapCountsAsHeadroom": false}
+{"status": "UNKNOWN", "swapCountsAsHeadroom": false}
+.{"status": "SUFFICIENT"}
+.....................................................................................................................................................................................................................................................{"output": "/tmp/tmptkbgvsf3/qualification.json", "source_areas": 2, "reports": 2, "report_errors": 0}
+{"output": "/tmp/tmptkbgvsf3/qualification.json", "source_areas": 2, "reports": 2, "report_errors": 0}
+{"qualification": "NOT_QUALIFIED", "reason": "BEFORE_MEASUREMENT_IDENTITY_MISSING", "candidateCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+Warning: An error occurred while preparing SDK package CMake 3.22.1: Error reading Zip content from a SeekableByteChannel.:
+Caused by: java.util.zip.ZipException: Archive is not a ZIP archive
+"Install CMake 3.22.1 v.3.22.1" failed.
+Execution failed for task ':local-gguf-runtime:configureCMakeDebug[arm64-v8a]' (registered by plugin 'com.android.internal.library').
+> com.android.builder.sdk.InstallFailedException: Failed to install the following SDK components:
+      cmake;3.22.1 CMake 3.22.1
+Android SDK CMake 3.22.1 installation received a non-ZIP archive. Retrying the original build once.
+Retry 2/4 after 0s. Gradle cache is retained.
+Warning: An error occurred while preparing SDK package CMake 3.22.1: Error reading Zip content from a SeekableByteChannel.:
+Caused by: java.util.zip.ZipException: Archive is not a ZIP archive
+"Install CMake 3.22.1 v.3.22.1" failed.
+Execution failed for task ':local-gguf-runtime:configureCMakeDebug[arm64-v8a]' (registered by plugin 'com.android.internal.library').
+> com.android.builder.sdk.InstallFailedException: Failed to install the following SDK components:
+      cmake;3.22.1 CMake 3.22.1
+Android SDK CMake 3.22.1 installation received a non-ZIP archive. Retrying the original build once.
+Retry 2/4 after 0s. Gradle cache is retained.
+Warning: An error occurred while preparing SDK package CMake 3.22.1: Error reading Zip content from a SeekableByteChannel.:
+Caused by: java.util.zip.ZipException: Archive is not a ZIP archive
+"Install CMake 3.22.1 v.3.22.1" failed.
+Execution failed for task ':local-gguf-runtime:configureCMakeDebug[arm64-v8a]' (registered by plugin 'com.android.internal.library').
+> com.android.builder.sdk.InstallFailedException: Failed to install the following SDK components:
+      cmake;3.22.1 CMake 3.22.1
+Warning: An error occurred while preparing SDK package CMake 3.22.1: Error reading Zip content from a SeekableByteChannel.:
+Caused by: java.util.zip.ZipException: Archive is not a ZIP archive
+"Install CMake 3.22.1 v.3.22.1" failed.
+Execution failed for task ':local-gguf-runtime:configureCMakeDebug[arm64-v8a]' (registered by plugin 'com.android.internal.library').
+> com.android.builder.sdk.InstallFailedException: Failed to install the following SDK components:
+      cmake;3.22.1 CMake 3.22.1
+..Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found
+Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')
+Rechecking dependency metadata with the Maven Central mirror. Dependency verification remains enabled.
+Retry 2/4 after 0s. Gradle cache is retained.
+Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found
+Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')
+Retry 3/4 after 0s. Gradle cache is retained.
+Plugin [id: 'io.objectbox', version: '5.4.2', artifact: 'io.objectbox:objectbox-gradle-plugin:5.4.2', apply: false] was not found
+Plugin Repositories (could not resolve plugin artifact 'io.objectbox:objectbox-gradle-plugin:5.4.2')
+Retry 4/4 after 0s. Gradle cache is retained.
+.Could not resolve plugin artifact. HTTP 503
+Retry 2/4 after 0s. Gradle cache is retained.
+..Could not resolve dependency. HTTP 503
+Build process deadline expired; terminating its process group. No automatic retry.
+.Could not GET resource. HTTP 429
+Retry 2/4 after 0.09859741800028132s. Gradle cache is retained.
+..Downloading https://services.gradle.org/distributions/gradle-9.8.0-bin.zip
+Server returned HTTP response code: 500 for URL: https://github.com/gradle/gradle-distributions/releases/download/v9.8.0/gradle-9.8.0-bin.zip
+Retry 2/4 after 0s. Gradle cache is retained.
+..Could not GET resource. HTTP 429
+Retry 2/4 after 0s. Gradle cache is retained.
+Could not GET resource. HTTP 429
+Retry 3/4 after 0s. Gradle cache is retained.
+Could not GET resource. HTTP 429
+Retry 4/4 after 0s. Gradle cache is retained.
+Could not GET resource. HTTP 429
+..Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found
+Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')
+Rechecking dependency metadata with the Maven Central mirror. Dependency verification remains enabled.
+Retry 2/4 after 0s. Gradle cache is retained.
+..Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found
+Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')
+Rechecking dependency metadata with the Maven Central mirror. Dependency verification remains enabled.
+Retry 2/4 after 0s. Gradle cache is retained.
+Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found
+Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')
+.Could not resolve dependency. HTTP 429
+Retry 2/4 after 0s. Gradle cache is retained.
+.Could not GET https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.9.1/asm-9.9.1.pom
+Received status code 429 from server: Too Many Requests
+Rechecking dependency metadata with the Maven Central mirror. Dependency verification remains enabled.
+Retry 2/2 after 0s. Gradle cache is retained.
+............................s.....................................................................................................................................................................................................................................................................................................fixture: MediaPipe Java/JNI definitions verified across 1 DEX files
+fixture: MediaPipe Java/JNI definitions verified across 2 DEX files
+fixture: MediaPipe Java/JNI definitions verified across 2 DEX files
+Instrumentation: dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest.kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing skipped for the exact approved device prerequisite
+Instrumentation: AcceptanceTest.measured executed and passed
+Instrumentation: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion executed and passed
+Instrumentation: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion executed and passed
+Instrumentation: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion executed and passed
+Native memory smoke: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion passed on 1 device(s)
+fixture: ObjectBox scored-query JNI definitions verified across 2 DEX files
+fixture: ObjectBox scored-query JNI definitions verified across 2 DEX files
+app.aab: 2 host shared libraries have 16 KB aligned PT_LOAD segments; 0 Qualcomm DSP skeletons excluded
+Google Play SDK/identity configuration: min=31, target=37, compile=37, code=122
+Pinned artifact HTTP 429; waiting 20s before attempt 2/3
+.Pinned artifact HTTP 429; waiting 5s before attempt 2/3
+..Pinned artifact HTTP 429; waiting 5s before attempt 2/3
+Pinned artifact HTTP 429; waiting 10s before attempt 3/3
+..Pinned artifact HTTP 429; waiting 7s before attempt 2/3
+.Pinned artifact HTTP 429; waiting 5s before attempt 2/3
+Pinned artifact HTTP 429; waiting 5s before attempt 2/3
+...Pinned artifact HTTP 429; waiting 60s before attempt 2/3
+Pinned artifact HTTP 429; waiting 5s before attempt 2/3
+Pinned artifact HTTP 429; waiting 5s before attempt 2/3
+.....................both-unsigned.apk: 100,392 -> 100,392 bytes
+Waiting for a complete workflow inventory: page shifted
+....................All required checks passed on aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Publication acknowledgement unavailable; reconciling the same release ID.
+...........................................................Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 4/6
+Robolectric source cooldowns exceed the remaining provisioning deadline
+....Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+.....Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 4/6
+Waiting 30s for a Robolectric source cooldown
+..Verified android-all-instrumented-test-version.jar
+Verified android-all-instrumented-test-version.pom
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+Transient Robolectric download failure (HTTP 404); selecting ready transport for attempt 4/6
+Waiting 15s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 15s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+Waiting 30s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 4/6
+Waiting 60s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 5/6
+Waiting 60s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 6/6
+Waiting 60s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 503); selecting ready transport for attempt 2/3
+Waiting 5s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 503); selecting ready transport for attempt 3/3
+Waiting 10s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 15s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+Waiting 30s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 4/6
+Waiting 60s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 5/6
+Waiting 60s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 6/6
+Waiting 60s for a Robolectric source cooldown
+...Transient Robolectric download failure (HTTP 404); selecting ready transport for attempt 2/3
+Transient Robolectric download failure (HTTP 404); selecting ready transport for attempt 2/3
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Verified android-all-instrumented-sample.jar
+Verified android-all-instrumented-sample.pom
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Robolectric source cooldowns exceed the remaining provisioning deadline
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Robolectric source cooldowns exceed the remaining provisioning deadline
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 90s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 90s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 33s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 15s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+Waiting 30s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 4/6
+Waiting 60s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 15s for a Robolectric source cooldown
+.Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 2/6
+Waiting 15s for a Robolectric source cooldown
+Transient Robolectric download failure (HTTP 429); selecting ready transport for attempt 3/6
+Robolectric source cooldowns exceed the remaining provisioning deadline
+...............................................arm64.apk: v2 and v3 signatures verified
+.arm64.apk: v2 and v3 signatures verified
+universal.apk: v2 and v3 signatures verified
+.........................................................................................
+----------------------------------------------------------------------
+Ran 863 tests in 26.789s
+
+OK (skipped=1)
+39 tool definition producers have explicit statistics coverage policies. This is not an end-to-end execution test.
+Unified Reliability v2:  {'IN_PROGRESS': 48} {'NOT_RUN': 110} partial-component-only cases: 1
+Formal promotions: 0. Receipt review and complete case qualification still required.
+Unified Reliability v2:  {'IN_PROGRESS': 48} {'NOT_RUN': 110} partial-component-only cases: 0
+Formal promotions: 0. Receipt review and complete case qualification still required.
+Unified Reliability v2:  {'IN_PROGRESS': 48} {'NOT_RUN': 110} partial-component-only cases: 1
+Formal promotions: 0. Receipt review and complete case qualification still required.
+Android regex check: 2349 literal patterns, 153 dynamic patterns skipped, 0 errors.
+Resource preflight passed (38 XML files checked).
+Icon resources match the reference SVG.
+QNN provenance matches LiteRT-LM 0.18.0 / QAIRT 2.52.0 / QNN EP 2.8.0; device execution remains unverified.

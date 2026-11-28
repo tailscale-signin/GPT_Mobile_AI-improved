@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 data class ChatSearchMatch(val room: ChatRoomV2, val messageId: Int? = null)
 
 interface ChatRepository {
+    suspend fun warmVoiceCatalogues(chatId: Int, profileUid: String, config: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig, remoteAllowed: Boolean, history: List<List<dev.chungjungsoo.gptmobile.data.database.entity.MessageV2>>) = Unit
 
     /** Validate known privacy constraints before asking for or dispatching user input. */
     suspend fun preflightAnswerPrivacy(platform: PlatformV2) = Unit
@@ -199,6 +200,8 @@ interface ChatRepository {
     suspend fun finishQueuedAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun finishActiveAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun finishInterruptedAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean = false
+
+    suspend fun discardInterruptedAgentRun(runId: String, expectedFence: Long, completedAt: Long): Boolean = false
     suspend fun commitAgentRun(message: MessageV2, runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun updateAgentMessage(message: MessageV2)
 

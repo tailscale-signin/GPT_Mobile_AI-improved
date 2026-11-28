@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -191,6 +192,29 @@ class CombinedAppendRecoverySessionTest {
             assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
             assertEquals("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", (events.last() as ProviderEvent.Failed).errorCode)
         }
+    }
+
+    @Test fun unknownCompletionKeepsApplicationReviewEvidenceWithoutInventingAProviderReceipt() = runTest {
+        val state = protocol().also { it.accept(passage(1)) }.checkpoint().copy(lastAttemptOutcome = "UNKNOWN", recoveryAttempts = 2)
+        val forbidden = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> { error("A prior unknown outcome cannot send another request") }
+        }
+        val wrapper = CombinedRecordRecoverySession(forbidden, protocol(state), Int.MAX_VALUE, restored = true, acceptedAppend = true, validateAccess = {}, save = {}) { _, _ -> error("Unknown completion cannot append") }
+        val failure = wrapper.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", failure.errorCode)
+        val fields = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("APPLICATION"), fields["failure_origin"])
+        assertEquals(JsonPrimitive("final_synthesis"), fields["failed_stage"])
+        assertEquals(JsonPrimitive(true), fields["requires_reconciliation"])
+        assertEquals(JsonPrimitive(false), fields["retryable"])
+        assertEquals(JsonPrimitive(false), fields["resume_allowed"])
+        assertEquals(JsonPrimitive(false), fields["request_replay_allowed"])
+        assertEquals(JsonPrimitive(false), fields["logical_continuation_allowed"])
+        assertEquals(JsonPrimitive("REVIEW_SAVED_RECOVERY"), fields["recovery_action"])
+        assertEquals(JsonPrimitive("snapshot:revision:2"), fields["causal_id"])
+        assertEquals(JsonPrimitive("EXPLICIT_CAUSE"), fields["causal_provenance"])
+        assertEquals(null, failure.invocationId)
+        assertTrue(listOf("dispatched", "http_status", "remote_acceptance", "invocation_id", "transport_complete").none { it in fields })
     }
 
     @Test fun cancellationPersistsUnknownCompletionAndUnfinishedBytes() = runTest {

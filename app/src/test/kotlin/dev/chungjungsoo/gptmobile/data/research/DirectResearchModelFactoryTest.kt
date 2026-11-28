@@ -19,6 +19,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DirectResearchModelFactoryTest {
+    @Test fun githubResearchRunsOnBoundPrimaryAndNeverInheritsTheGlobalResearchReviewer() = runTest {
+        val primary = PlatformV2(uid = "primary", name = "Primary", model = "gpt-4.1")
+        val other = PlatformV2(uid = "other", name = "Research reviewer", model = "gpt-4o")
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), primary.uid)
+        val profiles = listOf(primary, other)
+        val configured = AppFeatureSettings(researchFeature = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings(reviewerProfileUid = other.uid))
+        val features = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(configured, primary.uid, context)
+        val admitted = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.researchProfiles(primary, profiles, context)
+        var permitted = true
+        val invoked = mutableListOf<String>()
+        val worker = DirectResearchModelFactory.create(primary, admitted, features, ModelDelegationSettings(enabled = false, reviewerEnabled = false), "github-primary-research", { profiles }, { configured }, { permitted }, { _, _ -> false }, { target, _, _, _ ->
+            invoked += target.uid
+            ResearchModelReply("""{"questions":[],"queries":[]}""", target.model)
+        })
+        assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
+        worker.generate(ResearchModelStage.REVIEW, "evidence", 128, "author")
+        assertTrue(invoked.isNotEmpty())
+        assertTrue(invoked.all { it == primary.uid })
+        val count = invoked.size
+        permitted = false
+        assertNull(worker.generate(ResearchModelStage.EXTRACT, "source", 128))
+        assertEquals(count, invoked.size)
+    }
+
     @Test fun unboundedHuggingFaceSpaceIsIneligibleForBoundedResearchBeforeGeneration() = runTest {
         val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.HUGGING_FACE
         val primary = PlatformV2(uid = "space", name = "Space", compatibleType = ClientType.FREE, apiUrl = provider.apiUrl, model = provider.model)

@@ -375,6 +375,16 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             response.close()
             return
 
+    def response_lines():
+        try:
+            yield from response.iter_lines(chunk_size=256)
+        except (AttributeError, ValueError) as exc:
+            # Closing urllib3's chunk reader from the watchdog can clear its file
+            # reference or close the file while its reader is still inside readline.
+            if not (tail_finished.is_set() or expired.is_set() or stopped.is_set()):
+                raise
+            raise requests.ConnectionError("Stream closed by the backend watchdog.") from exc
+
     def observed(state):
         nonlocal last_progress, last_size, last_state, terminal_seen_at, backend_first_output_ms
         nonlocal backend_first_visible_output_ms, backend_first_reasoning_output_ms, backend_first_event_ms
@@ -385,6 +395,15 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         if state.finish is not None and terminal_seen_at is None:
             terminal_seen_at = now
         size = state.generated_characters + len(state.calls)
+        # Retain the structured checkpoint and validate the text-only contract
+        # before publication. Diagnostic progress may synchronously persist to
+        # a slow journal; already-validated answer text must not wait behind it.
+        checkpoint_structured_stream(state.message.get('content') or '')
+        if visible_output is not None:
+            if state.calls:
+                raise GatewayContractError('The backend returned a tool in a text-only final round. No tool was executed.',
+                                           'unauthorized_tool_call', 502)
+            visible_output(state.message.get('content') or '')
         if size > 0 and backend_first_output_ms is None:
             backend_first_output_ms = round((now - started) * 1000, 3)
             progress({"phase": "model_output", "event": "backend_first_output", "status": "running", "stage": "generating",
@@ -397,12 +416,6 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             progress({"phase": "model_output", "event": "backend_first_visible_output", "status": "running", "stage": "generating",
                       "message": "Backend answer text received; completion validation is pending",
                       "backend_first_visible_output_ms": backend_first_visible_output_ms, "user_visible": False})
-        checkpoint_structured_stream(state.message.get('content') or '')
-        if visible_output is not None:
-            if state.calls:
-                raise GatewayContractError('The backend returned a tool in a text-only final round. No tool was executed.',
-                                           'unauthorized_tool_call', 502)
-            visible_output(state.message.get('content') or '')
         if state.received and size != last_size and (last_progress == 0.0 or now - last_progress >= 0.25):
             progress({"phase": "model_output", "event": "model_output_progress", "status": "running", "stage": "generating", "message": "Receiving model output", "elapsed_seconds": round(now - started, 3), "output_characters": state.visible_characters, "reasoning_characters": state.reasoning_characters, "tool_calls_pending": len(state.calls), "observed_output": True})
             last_progress, last_size = now, size
@@ -442,7 +455,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             return response, None
         if "text/event-stream" in response.headers.get("content-type", "").lower():
             try:
-                data = consume_sse(response.iter_lines(chunk_size=256), observed, lambda: cancelled() or stopped.is_set() or expired.is_set())
+                data = consume_sse(response_lines(), observed, lambda: cancelled() or stopped.is_set() or expired.is_set())
             except (requests.RequestException, OSError):
                 # A complete finish marker is sufficient. Give a trailing usage
                 # chunk a short grace period, not an unbounded wait for socket EOF.

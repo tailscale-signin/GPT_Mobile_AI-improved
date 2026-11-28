@@ -2,6 +2,7 @@
 from v14.engineering_recovery import continuous_progress, retry_summary
 from v14.engineering_scope import accepted_scope
 import asyncio
+from itertools import islice
 import json
 import sqlite3
 import time
@@ -14,14 +15,19 @@ from v14.engineering_batch_plan import summary as batch_summary
 from v14.execution_binding import ExecutionBindingError
 
 
-def generation_summary(public, now):
-    status = str(public.get('status', 'unknown')).lower()
-    if status in {'running', 'resuming'} and public.get('scheduling_state') == 'queued':
+def generation_state(status, scheduling_state):
+    status = str(status or 'unknown').lower()
+    if status in {'running', 'resuming'} and scheduling_state == 'queued':
         status = 'queued'
-    state = ('needs_attention' if status in {'waiting_for_client_tool', 'needs_input', 'cancel_requested'} else
+    return ('needs_attention' if status in {'waiting_for_client_tool', 'needs_input', 'cancel_requested'} else
              'queued' if status == 'queued' else 'running' if status in {'running', 'resuming', 'cancelling'} else
              'cancelled' if status == 'canceled' else status)
-    return {'job_id': public['job_id'], 'job_kind': 'generation', 'conversation_id': public.get('conversation_id'),
+
+
+def generation_summary(public, now):
+    status = str(public.get('status', 'unknown')).lower()
+    state = generation_state(status, public.get('scheduling_state'))
+    return {'job_id': public['job_id'], 'job_kind': 'generation', 'principal_id': public.get('principal_id'), 'conversation_id': public.get('conversation_id'),
             'title': public.get('title') or short_title(public.get('task_preview') or public.get('model')),
             'profile_id': public.get('profile_id'), 'profile_name': public.get('profile_name'), 'model': public.get('model'), 'repository': None, 'branch': None, 'base': None,
             'state': state, 'phase': public.get('stage', status), 'revision': public.get('last_sequence', 0),
@@ -35,15 +41,19 @@ def generation_summary(public, now):
             'original_profile_known': bool(public.get('profile_id')), 'original_profile_limitation': None if public.get('profile_id') else 'unknown_original_profile'}
 
 
+def engineering_state(phase, lease, provider_retry_at, now):
+    awaiting_provider = type(provider_retry_at) in (float, int) and provider_retry_at > now
+    return ('completed' if phase == 'COMPLETED' else 'cancelled' if phase == 'CANCELLED' else 'failed' if phase == 'FAILED' else
+             'needs_attention' if phase in {'NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'} else 'running' if lease and not awaiting_provider else 'queued')
+
+
 def engineering_summary(job, lease, now):
     request, phase = job['request'], job['state']
     data = job.get('data', {})
     recovery = data.get('post_merge') or {}
     provider_retry_at = (job.get('provider_wait') or {}).get('retry_at')
-    awaiting_provider = type(provider_retry_at) in (float, int) and provider_retry_at > now
-    state = ('completed' if phase == 'COMPLETED' else 'cancelled' if phase == 'CANCELLED' else 'failed' if phase == 'FAILED' else
-             'needs_attention' if phase in {'NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'} else 'running' if lease and not awaiting_provider else 'queued')
-    return {'job_id': job['id'], 'job_kind': 'engineering', 'conversation_id': job.get('conversation_id'),
+    state = engineering_state(phase, lease, provider_retry_at, now)
+    return {'job_id': job['id'], 'job_kind': 'engineering', 'principal_id': job.get('principal'), 'conversation_id': job.get('conversation_id'),
             'title': job.get('title') or short_title(request.get('objective')), 'profile_id': request.get('profile_id'), 'profile_name': request.get('profile_name'),
             'model': request.get('model'), 'repository': request['repository'], 'branch': request['branch'], 'base': request['base'],
             'source_branch': request.get('source_branch', request['branch']), 'source_sha': request.get('source_sha'), 'working_branch': request['branch'],
@@ -61,6 +71,72 @@ def engineering_summary(job, lease, now):
             'queue_reason': ('automatic_retry' if provider_retry_at is not None else 'ci_wait' if phase == 'CI' else 'engineering_worker') if state == 'queued' else None,
             'queue_position': None, 'result_available': phase == 'COMPLETED', 'transcript_available': bool(job.get('conversation_id')),
             'allowed_actions': ['open'] + (['cancel'] if phase not in {'COMPLETED', 'CANCELLED', 'FAILED', 'CANCELLING'} else []) + (['approve'] if phase == 'MERGE_READY' else [])}
+
+
+def copilot_state(phase):
+    return {'ACCEPTED': 'queued', 'QUEUED': 'queued', 'IN_PROGRESS': 'running', 'DISPATCHING': 'running',
+              'COMPLETED': 'completed', 'CANCELLED': 'cancelled', 'FAILED': 'failed', 'TIMED_OUT': 'failed',
+              'REJECTED': 'failed'}.get(phase, 'needs_attention')
+
+
+def copilot_summary(task, now):
+    from v14.copilot_tasks import CopilotTasks
+    source, phase = task['request'], task['state']
+    public = CopilotTasks.public(task)
+    bucket = copilot_state(phase)
+    return {'job_id': task['id'], 'job_kind': 'copilot', 'principal_id': task['principal'],
+            'title': 'Copilot · ' + source['repository'], 'repository': source['repository'],
+            'branch': source.get('head_ref') or source['base_ref'], 'state': bucket, 'phase': phase,
+            'model': source.get('model'), 'revision': task['revision'], 'accepted_at': task['accepted_at'],
+            'finished_at': task['updated_at'] if bucket in {'completed', 'failed', 'cancelled'} else None,
+            'server_now': now, 'allowed_actions': ['open'], 'transcript_available': False,
+            'progress': public['progress'], 'task_name': public.get('task_name'),
+            'pull_request_numbers': public['pull_request_numbers'], 'ci_verified': False, 'merge_authorized': False}
+
+
+def catalog_identities(db, principal, permissions, kind, include_copilot, upper):
+    # Store small state projections in covering indexes during migration. Legacy
+    # snapshots without a catalog key keep their original (0, kind, id) order.
+    arms, args = [], []
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    sources = (
+        ('generation', 'gateway_jobs', 'job_id', "CASE WHEN json_valid(public_json) THEN json_extract(public_json,'$.status') ELSE '_INVALID_SNAPSHOT' END,CASE WHEN json_valid(public_json) THEN json_extract(public_json,'$.scheduling_state') ELSE NULL END,NULL", permissions[0]),
+        ('engineering', 'engineering_jobs', 'id', "state,lease,json_extract(data,'$.provider_wait.retry_at')", permissions[1]),
+        ('copilot', 'engineering_copilot_tasks', 'id', 'state,NULL,NULL', permissions[1] and (include_copilot or kind == 'copilot')),
+    )
+    indexes = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+    for family, table, key, fields, allowed in sources:
+        if not allowed or table not in tables or kind not in (None, family):
+            continue
+        index = 'gateway_catalog_' + family + '_state'
+        indexed = ' INDEXED BY ' + index if index in indexes else ''
+        arm = (f"SELECT COALESCE(k.sequence,0) AS seq,'{family}' AS family,j.{key} AS jid,{fields} "
+               f"FROM {table} j{indexed} LEFT JOIN gateway_catalog_keys k ON k.job_kind=? AND k.job_id=j.{key} "
+               "WHERE COALESCE(k.sequence,0)<=?")
+        args.extend((family, upper))
+        if family != 'generation':
+            arm += ' AND j.principal=?'
+            args.append(principal)
+        arms.append(arm)
+    if arms:
+        yield from db.execute(' UNION ALL '.join(arms) + ' ORDER BY seq DESC,family DESC,jid DESC', args)
+
+
+def catalog_row(db, family, job_id, principal, now):
+    if family == 'generation':
+        raw = db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()
+        try:
+            public = json.loads(raw[0])
+        except (ValueError, TypeError) as error:
+            raise sqlite3.DatabaseError('Saved job snapshot cannot be read') from error
+        if not isinstance(public, dict) or public.setdefault('job_id', job_id) != job_id:
+            raise sqlite3.DatabaseError('Saved job identity does not match the catalog')
+        return generation_summary(public, now)
+    if family == 'engineering':
+        data, phase, revision, lease = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?', (job_id, principal)).fetchone()
+        return engineering_summary(dict(json.loads(data), state=phase, revision=revision), lease, now)
+    data = db.execute('SELECT data FROM engineering_copilot_tasks WHERE id=? AND principal=?', (job_id, principal)).fetchone()[0]
+    return copilot_summary(json.loads(data), now)
 
 
 def catalog(conversations, engineering, principal, ownership, cursor=None, limit=50, kind=None, state=None, include_copilot=False):
@@ -83,64 +159,47 @@ def catalog(conversations, engineering, principal, ownership, cursor=None, limit
                 raise ValueError('Invalid catalog cursor')
         else:
             upper = db.execute('SELECT COALESCE(MAX(sequence),0) FROM gateway_catalog_keys').fetchone()[0]
-        keys = db.execute('SELECT * FROM gateway_catalog_keys WHERE job_kind=?', (kind,)) if kind else db.execute('SELECT * FROM gateway_catalog_keys')
-        sequence = {(row['job_kind'], row['job_id']): row['sequence'] for row in keys}
-        rows = []
-        if permissions[0] and kind in {None, 'generation'}:
-            candidates = db.execute('SELECT job_id FROM gateway_jobs')
-            while batch := candidates.fetchmany(200):
-                ids = [row[0] for row in batch if sequence.get(('generation', row[0]), 0) <= upper]
-                allowed = ownership.owned_job_ids(ids, principal.id)
-                if allowed:
-                    placeholders = ','.join('?' for _ in allowed)
-                    for row in db.execute(f'SELECT job_id,public_json FROM gateway_jobs WHERE job_id IN ({placeholders})', tuple(allowed)):
-                        try:
-                            public = json.loads(row[1])
-                        except (ValueError, TypeError) as error:
-                            raise sqlite3.DatabaseError('Saved job snapshot cannot be read') from error
-                        if not isinstance(public, dict) or public.setdefault('job_id', row[0]) != row[0]:
-                            raise sqlite3.DatabaseError('Saved job identity does not match the catalog')
-                        rows.append(generation_summary(public, now))
-        if permissions[1] and kind in {None, 'engineering'} and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_jobs'").fetchone():
-            for row in db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE principal=?', (principal.id,)):
-                job = dict(json.loads(row[0]), state=row[1], revision=row[2])
-                rows.append(engineering_summary(job, row[3], now))
-        if (kind == 'copilot' or kind is None and include_copilot) and permissions[1] and db.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_copilot_tasks'").fetchone():
-            for record in db.execute('SELECT data FROM engineering_copilot_tasks WHERE principal=?', (principal.id,)):
-                task = json.loads(record[0])
-                source, phase = task['request'], task['state']
-                bucket = {'ACCEPTED': 'queued', 'QUEUED': 'queued', 'IN_PROGRESS': 'running', 'DISPATCHING': 'running',
-                          'COMPLETED': 'completed', 'CANCELLED': 'cancelled', 'FAILED': 'failed', 'TIMED_OUT': 'failed',
-                          'REJECTED': 'failed'}.get(phase, 'needs_attention')
-                rows.append({'job_id': task['id'], 'job_kind': 'copilot', 'title': 'Copilot · ' + source['repository'],
-                             'repository': source['repository'], 'branch': source.get('head_ref') or source['base_ref'],
-                             'state': bucket, 'phase': phase, 'model': source.get('model'), 'revision': task['revision'],
-                             'accepted_at': task['accepted_at'], 'finished_at': task['updated_at'] if bucket in {'completed','failed','cancelled'} else None,
-                             'server_now': now, 'allowed_actions': ['open'], 'transcript_available': False})
-        rows = [row for row in rows if sequence.get((row['job_kind'], row['job_id']), 0) <= upper and (not kind or row['job_kind'] == kind)]
         counts = {'running': 0, 'queued': 0, 'needs_attention': 0, 'recent': 0}
         state_counts = {key: 0 for key in ('running', 'queued', 'needs_attention', 'completed', 'failed', 'cancelled', 'other')}
-        for row in rows:
-            state_counts[row['state'] if row['state'] in state_counts else 'other'] += 1
-            bucket = row['state'] if row['state'] in counts else 'recent'
-            counts[bucket] += 1
-        rows = [row for row in rows if not state or row['state'] == state]
-        order = lambda row: (sequence.get((row['job_kind'], row['job_id']), 0), row['job_kind'], row['job_id'])
-        rows.sort(key=order, reverse=True)
-        if anchor:
-            rows = [row for row in rows if order(row) < tuple(anchor)]
-        more = len(rows) > limit
-        page = rows[:limit]
+        identities = catalog_identities(db, principal.id, permissions, kind, include_copilot, upper)
+        page_keys = []
+        while batch := list(islice(identities, 200)):
+            generation_ids = [r[2] for r in batch if r[1] == 'generation']
+            owned = ownership.owned_job_ids(generation_ids, principal.id) if generation_ids else set()
+            for seq, family, jid, phase, detail, retry in batch:
+                if family == 'generation':
+                    if jid not in owned:
+                        continue
+                    if phase == '_INVALID_SNAPSHOT':
+                        raise sqlite3.DatabaseError('Saved job snapshot cannot be read')
+                    bucket = generation_state(phase, detail)
+                elif family == 'engineering':
+                    bucket = engineering_state(phase, detail, retry, now)
+                else:
+                    bucket = copilot_state(phase)
+                counts[bucket if bucket in counts else 'recent'] += 1
+                state_counts[bucket if bucket in state_counts else 'other'] += 1
+                key = (seq, family, jid)
+                if len(page_keys) <= limit and (state is None or state == bucket) and (anchor is None or key < tuple(anchor)):
+                    page_keys.append(key)
+        more = len(page_keys) > limit
+        page = [catalog_row(db, family, jid, principal.id, now) for _, family, jid in page_keys[:limit]]
         for item in page:
             conversation = db.execute('SELECT * FROM gateway_conversations WHERE id=? AND principal=?', (item.get('conversation_id'), principal.id)).fetchone()
             if conversation:
                 item.update(conversations.history_status(db, conversation))
             else:
                 item.update(history_complete=False, history_limitation='conversation_retention_disabled' if item.get('conversation_retention') == 'none' else 'legacy_snapshot_only')
+        pressure = None
+        if permissions[0] and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_queue_count'").fetchone():
+            occupied = db.execute("SELECT occupied FROM gateway_queue_count WHERE dimension='pending_generations'").fetchone()
+            if occupied:
+                capacity = getattr(conversations.runtime, 'gateway_max_queued', 64)
+                pressure = {'dimension': 'pending_generations', 'occupied': occupied[0], 'capacity': capacity,
+                            'saturated': occupied[0] >= capacity, 'scope': 'shared_host'}
         return {'schema_version': 1, 'gateway_id': gateway_id, 'principal_id': principal.id, 'server_now': now,
-                'items': page, 'counts': counts, 'state_counts': state_counts, 'counts_complete': True, 'has_more': more, 'complete': not more,
-                'next_cursor': conversations.encode_cursor(db, {'scope': scope, 'upper': upper, 'anchor': list(order(page[-1]))}) if more else None}
+                'items': page, 'queue_pressure': pressure, 'counts': counts, 'state_counts': state_counts, 'counts_complete': True, 'has_more': more, 'complete': not more,
+                'next_cursor': conversations.encode_cursor(db, {'scope': scope, 'upper': upper, 'anchor': list(page_keys[limit - 1])}) if more else None}
     return conversations.read(read)
 
 
@@ -164,8 +223,8 @@ def install_routes(app, conversations, engineering, service, ownership):
         except ExecutionBindingError as error:
             return JSONResponse({'error': error.error_payload(),
                                  **({'preflight': error.result} if hasattr(error, 'result') else {})}, status_code=error.status)
-        except QueueFull:
-            return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
+        except QueueFull as error:
+            return JSONResponse({'error': error.payload()}, status_code=429)
         except CursorExpired:
             return JSONResponse({'error': {'code': 'cursor_expired', 'message': 'Refresh the saved conversation snapshot before continuing this read.'}}, status_code=409)
         except ConversationConflict as error:

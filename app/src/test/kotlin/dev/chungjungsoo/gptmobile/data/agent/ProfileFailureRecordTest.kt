@@ -83,6 +83,17 @@ class ProfileFailureRecordTest {
         assertFalse(restored.copy(category = "PROVIDER_INVOCATION_FAILED").isUserInputRequired)
     }
 
+    @Test fun durableChoicePauseRetainsItsInputStageWithoutOfferingGenericRetry() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"user_decision","dispatched":false,"request_replay_allowed":false,"recovery_action":"ANSWER_SAVED_CHOICE"}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("The choice is saved", "GITHUB_CHOICE_PENDING", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString(ProfileFailureRecord.serializer(), kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertTrue(restored.isUserInputRequired)
+        assertEquals("user_decision", restored.phase)
+        assertFalse(restored.retryAllowed)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertTrue(ProfileFailureRecord.reviewRetryBlock("GITHUB_CHOICE_PENDING").orEmpty().contains("saved choice"))
+    }
+
     @Test fun typedReviewPrerequisitesKeepTheirCategoryWithoutDependingOnErrorProse() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"review_comparison","dispatched":false,"dispatch_state":"NOT_DISPATCHED","remote_acceptance":"NO","retryable":false,"request_replay_allowed":false,"next_action":"SELECT_REVIEW_BASELINE"}""") as kotlinx.serialization.json.JsonObject
         for (code in listOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")) {

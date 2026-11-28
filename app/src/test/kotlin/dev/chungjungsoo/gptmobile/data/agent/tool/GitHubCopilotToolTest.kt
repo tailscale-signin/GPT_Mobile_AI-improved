@@ -29,6 +29,9 @@ class GitHubCopilotToolTest {
         pluginExecution = mapOf(ToolPluginId.GITHUB to PluginExecutionSettings(githubCopilotEnabled = true)),
         githubCopilotConversations = mapOf(42 to GitHubCopilotConversationPreference("chat-42", GitHubChatDecisions.workspaceKey(context), true))
     )
+    private val disabledConversation = enabled.copy(
+        githubCopilotConversations = mapOf(42 to enabled.githubCopilotConversations.getValue(42).copy(enabled = false))
+    )
     private val request = buildJsonObject {
         put("action", "copilot_create_task")
         put("request_id", "request-42")
@@ -37,7 +40,38 @@ class GitHubCopilotToolTest {
         put("expected_base_sha", "a".repeat(40))
     }
 
-    @Test fun creationRequiresBothLiveTogglesForDirectAndGatewayOwners() = runTest {
+    @Test fun defaultOnAvailabilityWaitsForAnExplicitTaskAndUsesTheSelectedController() = runTest {
+        val defaults = enabled.copy(pluginExecution = emptyMap(), githubCopilotConversations = emptyMap())
+        var directPosts = 0
+        var gatewaySubmissions = 0
+        HttpClient(
+            MockEngine { req ->
+                if (req.method == HttpMethod.Post) {
+                    directPosts++
+                    respond("""{"id":"direct-task","state":"queued"}""")
+                } else {
+                    respond("""{"object":{"type":"commit","sha":"${"a".repeat(40)}"}}""")
+                }
+            }
+        ).use { http ->
+            val direct = tool(http, defaults)
+            val gateway = tool(http, defaults, owner = "GATEWAY", backend = { action, _ ->
+                assertEquals("copilot_create_task", action)
+                gatewaySubmissions++
+                gatewayReceipt()
+            })
+            assertEquals(0, directPosts)
+            assertEquals(0, gatewaySubmissions)
+            assertFalse(direct.execute("direct", request).isError)
+            assertEquals(1, directPosts)
+            assertEquals(0, gatewaySubmissions)
+            assertFalse(gateway.execute("gateway", request).isError)
+            assertEquals(1, directPosts)
+            assertEquals(1, gatewaySubmissions)
+        }
+    }
+
+    @Test fun creationHonorsLiveOptOutsAndConversationBindingForDirectAndGatewayOwners() = runTest {
         var network = 0
         var gateway = 0
         HttpClient(
@@ -46,7 +80,7 @@ class GitHubCopilotToolTest {
                 error("Disabled Copilot cannot contact GitHub")
             }
         ).use { http ->
-            val deniedSettings = listOf(AppFeatureSettings(), enabled.copy(githubCopilotConversations = emptyMap()), enabled.copy(pluginExecution = emptyMap()))
+            val deniedSettings = listOf(AppFeatureSettings(), disabledConversation, enabled.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to PluginExecutionSettings(githubCopilotEnabled = false))))
             for (settings in deniedSettings) {
                 for (owner in listOf("ANDROID_DIRECT", "GATEWAY")) {
                     val backend: (suspend (String, JsonObject) -> JsonObject)? = if (owner == "GATEWAY") {
@@ -73,7 +107,7 @@ class GitHubCopilotToolTest {
                 conversationId = "42",
                 repositoryScope = context,
                 featureSettings = enabled,
-                copilotSettings = { enabled.copy(githubCopilotConversations = emptyMap()) }
+                copilotSettings = { disabledConversation }
             ).operations().single { it.definition.name == "github_pr" }.execute("revoked-after-planning", request)
             assertEquals("GITHUB_COPILOT_DISABLED", revoked.errorCode)
             assertEquals(0, network)
@@ -145,7 +179,7 @@ class GitHubCopilotToolTest {
                     posts++
                     respond("""{"id":"accepted-after-renewed-consent","state":"queued"}""")
                 } else {
-                    if (revoke) live = enabled.copy(githubCopilotConversations = emptyMap())
+                    if (revoke) live = disabledConversation
                     respond("""{"object":{"type":"commit","sha":"${"a".repeat(40)}"}}""")
                 }
             }
@@ -161,7 +195,7 @@ class GitHubCopilotToolTest {
         }
     }
 
-    @Test fun genericCopilotReviewerEnrollmentHonorsDefaultOffAndLivePreflightRevocation() = runTest {
+    @Test fun genericCopilotReviewerEnrollmentRequiresBoundAuthorityAndHonorsLivePreflightRevocation() = runTest {
         var live = enabled
         var reads = 0
         var writes = 0
@@ -174,7 +208,7 @@ class GitHubCopilotToolTest {
         HttpClient(
             MockEngine { req ->
                 if (req.method == HttpMethod.Get) reads++ else writes++
-                live = enabled.copy(githubCopilotConversations = emptyMap())
+                live = disabledConversation
                 respond("""{"head":{"sha":"${"a".repeat(40)}"}}""")
             }
         ).use { http ->

@@ -16,22 +16,28 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -44,6 +50,8 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTiming
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPrompt
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -143,39 +151,203 @@ class VoiceConversationInstrumentedTest {
         compose.onNodeWithTag("voice_caption_return_to_live").assertDoesNotExist()
     }
 
-    @Test fun captionsWaitForRestoredPreferencesAndExposeCheckedState() {
-        val initial = state(VoiceState()).copy(preferencesApplied = false, captions = true)
-        val current = mutableStateOf(initial)
-        var changes = 0
+    @Test fun microphoneAndLanguageControlsFollowTheTurnAndPickerState() {
+        val current = mutableStateOf(state(VoiceState()).copy(preferencesApplied = false))
+        var presses = 0
         compose.setContent {
             MaterialTheme {
                 VoiceConversationScreen(
                     current.value,
-                    actions(captions = {
-                        changes++
-                        current.value = current.value.copy(captions = !current.value.captions)
-                    })
+                    actions(
+                        stop = { presses++ },
+                        language = { current.value = current.value.copy(replyLanguage = it) },
+                        translate = { current.value = current.value.copy(translationMode = it) }
+                    )
                 )
             }
         }
-        val captions = compose.onNodeWithTag("voice_captions_toggle")
-        captions.assertIsDisplayed().assertIsNotEnabled().assertIsOn().performTouchInput { click() }
-        compose.runOnIdle {
-            assertEquals(0, changes)
-            assertEquals(initial, current.value)
-            current.value = initial.copy(preferencesApplied = true, captions = false)
+        val microphone = compose.onNodeWithTag("voice_microphone_toggle")
+        val language = compose.onNodeWithTag("voice_reply_language")
+        compose.onNodeWithTag("voice_captions_toggle").assertDoesNotExist()
+        compose.onNodeWithText("Audio").assertDoesNotExist()
+        language.assertIsNotEnabled()
+        compose.runOnIdle { current.value = current.value.copy(preferencesApplied = true) }
+        val chat = compose.onNodeWithText("Text chat").assertIsDisplayed().assertHeightIsAtLeast(48.dp).fetchSemanticsNode().boundsInRoot
+        val mic = microphone.assertContentDescriptionEquals("Start listening").assertIsDisplayed()
+            .assertWidthIsAtLeast(88.dp).assertHeightIsAtLeast(88.dp).fetchSemanticsNode().boundsInRoot
+        assertTrue("The microphone $mic must sit above Text chat $chat", mic.bottom <= chat.top)
+        assertEquals(mic.center.x, chat.center.x, 2f)
+        assertTrue(language.fetchSemanticsNode().boundsInRoot.center.x > chat.center.x)
+        microphone.performClick()
+        language.performClick()
+        val translate = compose.onNodeWithTag("voice_translation_mode")
+        translate.assertIsOff()
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_reply_language_fr"))
+        compose.onNodeWithTag("voice_reply_language_fr").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals("fr", current.value.replyLanguage) }
+        language.performClick()
+        translate.assertIsOff().performClick().assertIsOn()
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_base_language"))
+        compose.onNodeWithTag("voice_translation_base_language").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_target_language"))
+        compose.onNodeWithTag("voice_translation_target_language").assertIsDisplayed()
+        compose.onNodeWithText("Done").performClick()
+        language.performClick()
+        translate.assertIsOn()
+        compose.onNodeWithText("Done").performClick()
+        for (phase in listOf(VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING)) {
+            compose.runOnIdle { current.value = current.value.copy(session = VoiceState(phase = phase)) }
+            language.assertIsNotEnabled()
+            microphone.assertContentDescriptionEquals(if (phase == VoicePhase.LISTENING) "Finish speaking" else "Stop").performClick()
         }
-        captions.assertIsEnabled().assertIsOff().performClick()
-        compose.runOnIdle {
-            assertEquals(1, changes)
-            assertEquals(initial.copy(preferencesApplied = true, captions = true), current.value)
+        compose.runOnIdle { assertEquals(6, presses) }
+    }
+
+    @Test fun translationLanguageChoicesKeepEachVoiceAndOfferSourceRecoveryAndPackInstallation() {
+        val pair = mutableStateOf(VoiceTranslationPair())
+        var installs = 0
+        var ordinaryChanges = 0
+        compose.setContent {
+            MaterialTheme {
+                VoiceReplyLanguageDialog(
+                    selected = "ja",
+                    translationMode = true,
+                    changeTranslationMode = {},
+                    select = { ordinaryChanges++ },
+                    dismiss = {},
+                    translationPair = pair.value,
+                    changeTranslationPair = { pair.value = it },
+                    translationModel = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED),
+                    installTranslationModel = { installs++ }
+                )
+            }
         }
-        captions.assertIsOn().performClick()
-        compose.runOnIdle {
-            assertEquals(2, changes)
-            assertEquals(initial.copy(preferencesApplied = true, captions = false), current.value)
+        fun choose(tag: String, value: String) {
+            compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag(tag))
+            compose.onNode(hasClickAction() and hasAnyAncestor(hasTestTag(tag))).performClick()
+            compose.onNode(hasText(value) and hasAnyAncestor(isPopup())).performClick()
         }
-        captions.assertIsOff()
+        choose("voice_translation_base_voice", "Marius")
+        compose.runOnIdle {
+            assertEquals("marius", pair.value.baseVoiceId)
+            assertEquals("estelle", pair.value.translationVoiceId)
+        }
+        choose("voice_translation_base_language", java.util.Locale.forLanguageTag("en-US").displayName)
+        compose.runOnIdle { assertEquals("marius", pair.value.baseVoiceId) }
+        choose("voice_translation_source_language", java.util.Locale.forLanguageTag("fr-FR").displayName)
+        compose.runOnIdle { assertEquals("fr-FR", pair.value.sourceLanguage) }
+        choose("voice_translation_source_language", "Auto · either language")
+        compose.runOnIdle { assertEquals(null, pair.value.sourceLanguage) }
+        choose("voice_translation_target_language", java.util.Locale.forLanguageTag("es-ES").displayName)
+        compose.runOnIdle {
+            assertEquals("lola", pair.value.translationVoiceId)
+            assertEquals("marius", pair.value.baseVoiceId)
+        }
+        choose("voice_translation_target_language", java.util.Locale.forLanguageTag("fr-FR").displayName)
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_pack"))
+        compose.onNodeWithTag("voice_translation_pack_install").performScrollTo().assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals(1, installs)
+            assertEquals(0, ordinaryChanges)
+            assertEquals(VoiceTranslationPair(baseVoiceId = "marius"), pair.value)
+        }
+    }
+
+    @Test fun translationKeepsTheSourceAboveTheResponseAndControlsAcrossCaptures() {
+        val words = "Where is the train station?"
+        val translated = "Où est la gare ?"
+        val source = VoiceTranslationPrompt(1L, words)
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.LISTENING, transcript = words, translationPrompt = source))
+        val translating = mutableStateOf(true)
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.4f)) {
+                MaterialTheme {
+                    Box(Modifier.width(320.dp).fillMaxHeight()) {
+                        VoiceConversationScreen(state(session.value).copy(translationMode = translating.value, captions = false), actions())
+                    }
+                }
+            }
+        }
+        val top = compose.onNodeWithTag("voice_translation_source")
+        val bottom = compose.onNodeWithTag("voice_caption_text")
+        top.assertTextEquals(words).assertIsDisplayed()
+        bottom.assertDoesNotExist()
+        val microphone = compose.onNodeWithTag("voice_microphone_toggle")
+        val controls = microphone.fetchSemanticsNode().boundsInRoot
+        for (phase in listOf(VoicePhase.THINKING, VoicePhase.SPEAKING, VoicePhase.PAUSED, VoicePhase.STARTING)) {
+            compose.runOnIdle { session.value = session.value.copy(phase = phase, transcript = "", reply = translated) }
+            top.assertTextEquals(words).assertIsDisplayed()
+            bottom.assertTextEquals(translated).assertIsDisplayed()
+            assertTrue(top.fetchSemanticsNode().boundsInRoot.bottom <= bottom.fetchSemanticsNode().boundsInRoot.top)
+            assertTrue(bottom.fetchSemanticsNode().boundsInRoot.bottom <= controls.top)
+            assertEquals(controls, microphone.fetchSemanticsNode().boundsInRoot)
+        }
+        compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.LISTENING, translationPrompt = null) }
+        top.assertDoesNotExist()
+        bottom.assertTextEquals(translated)
+        val longText = "A long dictated translation prompt. ".repeat(80)
+        compose.runOnIdle { session.value = session.value.copy(translationPrompt = VoiceTranslationPrompt(2L, longText), reply = "", phase = VoicePhase.THINKING) }
+        top.assertTextEquals(longText).assertIsDisplayed()
+        bottom.assertTextEquals(translated).assertIsDisplayed()
+        assertEquals(controls, microphone.fetchSemanticsNode().boundsInRoot)
+        compose.runOnIdle { session.value = session.value.copy(reply = "Le prochain train arrive.", replyComplete = true) }
+        bottom.assertTextEquals("Le prochain train arrive.")
+        compose.runOnIdle { translating.value = false }
+        top.assertDoesNotExist()
+        bottom.assertDoesNotExist()
+    }
+
+    @Test fun translationSourceFadesWithinOneSecondAndKeepsItsOpacityOnPartialCorrections() {
+        val source = mutableStateOf<VoiceTranslationPrompt?>(null)
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(background = Color.White, onSurface = Color.Black)) {
+                VoiceConversationScreen(state(VoiceState(phase = VoicePhase.LISTENING, translationPrompt = source.value)).copy(translationMode = true), actions())
+            }
+        }
+        val top = compose.onNodeWithTag("voice_translation_source")
+        fun ink(): Int {
+            compose.waitForIdle()
+            val bitmap = top.captureToImage().asAndroidBitmap()
+            var darkest = 0
+            for (y in 0 until bitmap.height) {
+                for (x in 0 until bitmap.width) {
+                    val pixel = bitmap.getPixel(x, y)
+                    darkest = maxOf(darkest, (255 - android.graphics.Color.red(pixel)) * android.graphics.Color.alpha(pixel) / 255)
+                }
+            }
+            return darkest
+        }
+        fun settleComposition() {
+            repeat(2) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+            }
+        }
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { source.value = VoiceTranslationPrompt(1L, "Where is the station?") }
+            settleComposition()
+            compose.mainClock.advanceTimeBy(160)
+            val entering = ink()
+            compose.mainClock.advanceTimeBy(240)
+            val middle = ink()
+            compose.mainClock.advanceTimeBy(480)
+            val fullyVisible = ink()
+            assertTrue("Fade in: $entering, $middle, $fullyVisible", entering < middle && middle < fullyVisible && fullyVisible > 220)
+            compose.runOnIdle { source.value = VoiceTranslationPrompt(1L, "Where is the train station?") }
+            settleComposition()
+            top.assertTextEquals("Where is the train station?")
+            assertTrue(ink() >= fullyVisible - 10)
+            compose.runOnIdle { source.value = null }
+            settleComposition()
+            compose.mainClock.advanceTimeBy(112)
+            val exiting = ink()
+            assertTrue("Fade out: $exiting of $fullyVisible", exiting in 1 until fullyVisible)
+            compose.mainClock.advanceTimeBy(200)
+            top.assertDoesNotExist()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
     }
 
     @Test fun theProfilePickerChangesProfileOnlyBetweenTurns() {
@@ -416,9 +588,8 @@ class VoiceConversationInstrumentedTest {
         draft = ""
     )
 
-    private fun actions(stop: () -> Unit = {}, select: (String) -> Unit = {}, captions: () -> Unit = {}) = VoiceConversationActions(
+    private fun actions(stop: () -> Unit = {}, select: (String) -> Unit = {}, language: (String) -> Unit = {}, translate: (Boolean) -> Unit = {}) = VoiceConversationActions(
         selectProfile = select,
-        openTranscript = {},
         openSettings = {},
         showSettings = {},
         installLocalModel = {},
@@ -432,8 +603,8 @@ class VoiceConversationInstrumentedTest {
         replay = {},
         openChat = {},
         toggleMicrophone = stop,
-        toggleCaptions = captions,
-        openAudioRoute = {},
+        changeReplyLanguage = language,
+        changeTranslationMode = translate,
         end = {}
     )
 }

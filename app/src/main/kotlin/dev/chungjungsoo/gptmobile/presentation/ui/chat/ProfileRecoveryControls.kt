@@ -29,12 +29,12 @@ internal enum class ProfileRecoveryKind {
 }
 
 internal fun profileRecoveryKind(category: String, details: String): ProfileRecoveryKind = when {
-    category == "BILLING_UNAVAILABLE" || Regex("\\bBILLING_UNAVAILABLE\\b").containsMatchIn(details) -> ProfileRecoveryKind.BILLING
+    category in setOf("BILLING_UNAVAILABLE", "SOURCE_PAYMENT_REQUIRED") || Regex("\\bBILLING_UNAVAILABLE\\b").containsMatchIn(details) -> ProfileRecoveryKind.BILLING
     category == "GITHUB_TOOL_CONTEXT_BUDGET" -> ProfileRecoveryKind.SETTINGS
     category.isSelectedModelBlocker() -> ProfileRecoveryKind.MODEL
     Regex("\\bREASONING_(?:ON_UNSUPPORTED|OFF_UNSUPPORTED|CAPABILITY_[A-Z_]+)\\b").containsMatchIn(details) -> ProfileRecoveryKind.REASONING
     Regex("\\bGATEWAY_(?:REMOTE_SURFACE_NOT_ADMITTED|MISSING_SCOPE|TRANSPORT_IDENTITY_REQUIRED|IDENTITY_MISMATCH|UNSUPPORTED_CONTRACT|INVALID_RESPONSE|INVALID_CONNECTION|SOURCE_MISMATCH|HTTP_REJECTED)\\b").containsMatchIn(details) -> ProfileRecoveryKind.SETTINGS
-    category in setOf("INCOMPATIBLE_CONFIGURATION", "ENDPOINT_RETIRED", "REQUEST_REJECTED", "POLICY_STALE", "PRIVACY_CONFIGURATION", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN") -> ProfileRecoveryKind.SETTINGS
+    category in setOf("INCOMPATIBLE_CONFIGURATION", "ENDPOINT_RETIRED", "REQUEST_REJECTED", "POLICY_STALE", "DISPATCH_POLICY_CHANGED", "PRIVACY_CONFIGURATION", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN") -> ProfileRecoveryKind.SETTINGS
     else -> ProfileRecoveryKind.NONE
 }
 

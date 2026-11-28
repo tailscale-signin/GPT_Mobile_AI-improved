@@ -12,7 +12,7 @@ from . import EXTRACTOR_VERSION
 
 LANGUAGES = {'.py': 'python', '.kt': 'kotlin', '.kts': 'kotlin', '.java': 'java',
              '.js': 'javascript', '.mjs': 'javascript', '.jsx': 'javascript', '.ts': 'typescript', '.tsx': 'tsx'}
-SUPPORTED = frozenset(LANGUAGES) | {'.json', '.md', '.mdx', '.xml', '.yaml', '.yml', '.toml', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp'}
+SUPPORTED = frozenset(LANGUAGES) | {'.cs', '.xaml', '.json', '.md', '.mdx', '.xml', '.yaml', '.yml', '.toml', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp'}
 MAX_FILE_BYTES = 256 * 1024
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 MAX_NODES = 4000
@@ -114,6 +114,19 @@ def extract(path, text):
                                                   'symbol': alias.name if isinstance(current, ast.ImportFrom) else None,
                                                   'namespace': isinstance(current, ast.Import),
                                                   'line': current.lineno, 'source': root['id'], 'path': path})
+                if (path.endswith('/native_bridge.py') and isinstance(current, ast.If) and
+                        isinstance(current.test, ast.Compare) and isinstance(current.test.left, ast.Name) and
+                        current.test.left.id == 'action' and len(current.test.ops) == 1 and isinstance(current.test.ops[0], ast.Eq)):
+                    operand = current.test.comparators[0]
+                    if isinstance(operand, ast.Constant) and isinstance(operand.value, str):
+                        node(operand.value, 'bridge_command', current.lineno,
+                             current.body[-1].end_lineno, owner, lines[current.lineno - 1].strip())
+                if path.endswith('/native_bridge.py') and isinstance(current, ast.If) and isinstance(current.test, ast.Call):
+                    call = current.test
+                    if (isinstance(call.func, ast.Attribute) and call.func.attr == 'startswith' and
+                            isinstance(call.func.value, ast.Name) and call.func.value.id == 'action' and
+                            len(call.args) == 1 and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)):
+                        node(call.args[0].value, 'bridge_prefix', current.lineno, current.body[-1].end_lineno, owner)
                 if isinstance(current, ast.Call):
                     called = current.func
                     if isinstance(called, ast.Name):
@@ -224,7 +237,44 @@ def extract(path, text):
                 for child in current.named_children:
                     walk(child, owner)
             walk(tree.root_node, root)
-        elif extension == '.xml':
+        elif extension == '.cs':
+            result.update(language='csharp', parser='bounded.csharp.structure', status='partial')
+            result['warnings'].append('Source declarations and literal bridge calls only; compiler binding and execution are unverified')
+            # Mask comments and literal contents before finding braces or declarations.
+            # Keep all offsets and newlines so locations point into the original blob.
+            literals = re.compile(r'//[^\n]*|/\*[\s\S]*?(?:\*/|\Z)|@"(?:""|[^"])*"|"{3,}[\s\S]*?"{3,}|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'')
+            clean = literals.sub(lambda m: re.sub(r'[^\n]', ' ', m[0]), text)
+            masked = clean.splitlines()
+            ends, braces = {}, []
+            for number, row in enumerate(masked, 1):
+                for ch in row:
+                    if ch == '{':
+                        braces.append(number)
+                    elif ch == '}' and braces:
+                        ends[braces.pop()] = number
+            owners = [root]
+            declaration = re.compile(r'\b(class|struct|interface|enum|record(?:\s+struct|\s+class)?)\s+([A-Za-z_]\w*)')
+            method = re.compile(r'^\s*(?:(?:public|private|protected|internal|static|async|override|virtual|sealed|partial|new|unsafe|extern)\s+)*(?:[\w.<>?,\[\]]+\s+)+([A-Za-z_]\w*)\s*(?:<[^>]+>)?\s*\(')
+            for number, row in enumerate(masked, 1):
+                while len(owners) > 1 and owners[-1]['end_line'] < number:
+                    owners.pop()
+                ns = re.match(r'\s*namespace\s+([\w.]+)', row)
+                if ns:
+                    result['package'] = ns[1]
+                typ = declaration.search(row)
+                fn = method.match(row) if not typ else None
+                if typ or (fn and fn[1] not in {'if', 'in', 'for', 'while', 'switch', 'catch', 'using', 'return', 'new'} and
+                           not re.match(r'\s*(?:return|throw|await|using|new|else|foreach)\b', row)):
+                    opening = next((i for i in range(number, min(len(masked), number + 8) + 1)
+                                    if any(c in masked[i-1] for c in '{;') or '=>' in masked[i-1]), number)
+                    end = ends.get(opening, number) if '{' in masked[opening-1] else opening
+                    owners.append(node(typ[2] if typ else fn[1], 'class' if typ else 'function', number, end,
+                                       owners[-1], lines[number-1].strip()))
+                for call in re.finditer(r'\bCall\s*\(\s*', row):
+                    literal = re.match(r'\s*"([a-z][a-z0-9-]{0,79})"', lines[number-1][call.start():].split('(', 1)[1])
+                    if literal:
+                        reference(owners[-1], literal[1], 'invokes_bridge', number)
+        elif extension in {'.xml', '.xaml'}:
             result['parser'] = 'xml.expat.structure'
             parser = xml.parsers.expat.ParserCreate()
             def deny(*args):
@@ -233,7 +283,14 @@ def extract(path, text):
             parser.EntityDeclHandler = deny
             parser.ExternalEntityRefHandler = deny
             def element(tag, attrs):
-                name = attrs.get('android:name') or attrs.get('name') or attrs.get('android:id')
+                name = attrs.get('android:name') or attrs.get('name') or attrs.get('android:id') or attrs.get('x:Name') or attrs.get('x:Class')
+                if extension == '.xaml':
+                    result['language'] = 'xaml'
+                    if attrs.get('x:Class'):
+                        result['code_behind'] = attrs['x:Class']
+                    for key in ('Click', 'Loaded', 'SelectionChanged', 'TextChanged', 'Checked', 'Unchecked', 'Closing'):
+                        if re.fullmatch(r'[A-Za-z_]\w*', attrs.get(key, '')):
+                            reference(root, attrs[key], 'binds_handler', parser.CurrentLineNumber)
                 if name:
                     line = parser.CurrentLineNumber
                     child = node(name, 'resource', line, line, root, tag)

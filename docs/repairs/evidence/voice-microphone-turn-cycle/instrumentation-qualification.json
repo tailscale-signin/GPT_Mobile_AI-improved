@@ -1,0 +1,16 @@
+{
+  "root_head": "e7f4f08a04450f12ead89ac4535315f916f6154b",
+  "compile_exit": 0,
+  "methods": 2,
+  "device_executed": false,
+  "source_manifest": "instrumentation-sources.json",
+  "compose_test_version": "1.12.1",
+  "downloaded_publisher_sha256_verified": {
+    "ui-test-junit4-android-1.12.1.aar": "bc01fda8b36dd259055e2768f7ba753f9ee9d95e9ce6feda284c913ad7bd8a4d",
+    "ui-test-android-1.12.1.aar": "2beafe8ba6c4ac2335159a7bdc08ac3eaac205f183d5d6b29b2eb87a2458b7ff"
+  },
+  "scope": "Compile-only check of exact new instrumentation class and actual shared composable against pinned Android/Compose test APIs. Exact phase/state/action declarations are extracted; existing device motion gate is an explicit compile port. No Android/device test execution.",
+  "integrated_source_binding": "integrated-source-binding.json",
+  "verified_integrated_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "source_match": true
+}

@@ -9,6 +9,7 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -41,7 +42,7 @@ class AndroidVoiceAudio internal constructor(
     private var recognizerInstance: Long? = null
     private var recognizerOnDevice: Boolean? = null
     private var recognitionActive = false
-    private var cachedRecognitionSupport: Pair<String, RecognitionQualification>? = null
+    private var cachedRecognitionSupport: Pair<RecognitionRequestKey, RecognitionQualification>? = null
 
     @Volatile private var tts: TextToSpeech? = null
 
@@ -78,7 +79,7 @@ class AndroidVoiceAudio internal constructor(
         diagnosticProbe = probe
     }
     private var pendingSpeech: (() -> Unit)? = null
-    private var playbackError: ((String) -> Unit)? = null
+    private var playbackError: ((VoicePlaybackFailure) -> Unit)? = null
     private var speechInitializationTimeout: Runnable? = null
     private class SpeechInitialization(val generation: Long) {
         val result = java.util.concurrent.atomic.AtomicReference<Int?>()
@@ -157,12 +158,13 @@ class AndroidVoiceAudio internal constructor(
         mutableVoiceCatalog.value = SpeechVoiceCatalogState.CHECKING
         speechWork.execute {
             if (closed || version != speechGeneration || tts !== engine || !speechReady) return@execute
-            val catalog = runCatching { engine.voices?.toSet() }.getOrNull()
+            val catalogResult = runCatching { engine.voices?.toSet() }
+            val catalog = catalogResult.getOrNull()
             main.post {
                 if (!closed && version == speechGeneration && tts === engine) {
                     voiceQueryInFlight = null
                     if (catalog == null) {
-                        unavailableSpeechCatalog(engine, version)
+                        unavailableSpeechCatalog(engine, version, catalogResult.exceptionOrNull())
                         return@post
                     }
                     installedVoices = catalog
@@ -173,7 +175,7 @@ class AndroidVoiceAudio internal constructor(
         }
     }
 
-    private fun unavailableSpeechCatalog(engine: TextToSpeech, version: Long) {
+    private fun unavailableSpeechCatalog(engine: TextToSpeech, version: Long, cause: Throwable? = null) {
         if (closed || version != speechGeneration || tts !== engine) return
         val failed = playbackError
         val wasPlaying = operation?.first == "tts"
@@ -185,7 +187,7 @@ class AndroidVoiceAudio internal constructor(
         if (wasPlaying) {
             terminal("catalog_unavailable")
             stop()
-            failed?.invoke("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.")
+            failed?.invoke(systemFailure("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.", "CATALOG_UNAVAILABLE", VoicePlaybackFailureStage.CATALOG, cause))
         }
     }
     private fun event(name: String, ticket: Long = generation) = diagnostics("VoiceTiming", "$name · incidentId=voice:$sessionId:$ticket · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}", "I")
@@ -193,7 +195,7 @@ class AndroidVoiceAudio internal constructor(
         val locale = languageTag.takeIf { it.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8}){0,4}")) } ?: "und"
         diagnostics(
             "VoiceRecognition",
-            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$locale · onDevice=${recognizerOnDevice ?: (!allowOnlineSpeech || conversationPrivacy()?.enabled == true)}",
+            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$locale · onDevice=${recognizerOnDevice ?: (translationLanguages.isNotEmpty() || !allowOnlineSpeech || conversationPrivacy()?.enabled == true)}",
             "W"
         )
     }
@@ -201,10 +203,13 @@ class AndroidVoiceAudio internal constructor(
     private var requestRecognitionFinish: (() -> Unit)? = null
     var synthesisLanguageTag: String? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
+
+    /** Empty keeps single-source recognition. A pair requests qualified offline Android language switching. */
+    var translationLanguages: List<String> = emptyList()
     var allowOnlineSpeech: Boolean = false
     var speechRate: Float = 1f
     var selectedVoice: String? = null
-    val processingLocation: String get() = if (allowOnlineSpeech && conversationPrivacy()?.enabled != true) "System speech service may use the network" else "On device speech only"
+    val processingLocation: String get() = if (translationLanguages.isEmpty() && allowOnlineSpeech && conversationPrivacy()?.enabled != true) "System speech service may use the network" else "On device speech only"
     fun routeName(): String = runCatching { audioManager?.communicationDevice?.productName?.toString() }.getOrNull() ?: "System audio route"
     fun routes(): List<Pair<Int, String>> = audioManager?.availableCommunicationDevices.orEmpty().map { it.id to it.productName.toString() }
     fun selectRoute(id: Int): Boolean = runCatching {
@@ -237,11 +242,44 @@ class AndroidVoiceAudio internal constructor(
         if (closed || recognitionActive) return
         val privacy = conversationPrivacy()
         stop()
+        val translationPair = translationRecognitionLanguages(translationLanguages)
+        if (translationPair == null || translationPair.isNotEmpty() && Build.VERSION.SDK_INT < 34) {
+            listener.failure(
+                if (translationPair == null) {
+                    "Choose two different speech languages for automatic translation, or choose one source language manually."
+                } else {
+                    "Automatic translation recognition requires Android 14 or later with both offline speech languages installed. Choose the source language manually on this device."
+                },
+                "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE",
+                recoveryAction = VoiceRecoveryAction.SPEECH_LANGUAGE
+            )
+            return
+        }
+        val automaticTranslation = translationPair.isNotEmpty()
+        val recognitionLanguage = translationPair.firstOrNull() ?: languageTag
+        val onDevice = automaticTranslation || !allowOnlineSpeech || privacy?.enabled == true
+        val requestKey = RecognitionRequestKey(recognitionLanguage, translationPair, onDevice)
         val observations = diagnosticProbe
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         observations?.focus(VoiceDiagnosticTrace.Focus.NOT_REQUESTED)
         if (!recognitionGate.acquire(sessionId)) {
-            listener.failure("Speech service is busy. Your chat is still available.", "VOICE_MICROPHONE_BUSY", recognitionGate.remainingMillis())
+            val block = recognitionGate.blocked()
+            val limited = block?.reason == RecognitionStartGate.BlockReason.RATE_LIMITED
+            val unavailable = block?.reason == RecognitionStartGate.BlockReason.SERVICE_UNAVAILABLE
+            listener.failure(
+                when {
+                    limited -> SPEECH_LIMIT_MESSAGE
+                    unavailable -> "The Android speech service is recovering. Wait before trying again, or review its settings. Your chat is still available."
+                    else -> "Speech service is busy. Your chat is still available."
+                },
+                when {
+                    limited -> "VOICE_RECOGNIZER_RATE_LIMITED"
+                    unavailable -> "VOICE_RECOGNIZER_UNAVAILABLE"
+                    else -> "VOICE_MICROPHONE_BUSY"
+                },
+                block?.remainingMillis ?: recognitionGate.remainingMillis(),
+                recoveryAction = if (limited || unavailable) VoiceRecoveryAction.SPEECH_SERVICE else null
+            )
             return
         }
         if (closed) {
@@ -283,13 +321,14 @@ class AndroidVoiceAudio internal constructor(
             )
         }
         try {
-            val onDevice = !allowOnlineSpeech || privacy?.enabled == true
             if (!recognitionService.available(onDevice)) {
                 recognitionGate.bindingFailed(sessionId)
                 recognitionFailure("SPEECH_SERVICE_UNAVAILABLE", failedStage, false, ticket)
                 stop()
                 listener.failure(
-                    if (onDevice) {
+                    if (automaticTranslation) {
+                        "Automatic translation needs an on-device Android speech service and both offline speech languages. Install them in Android speech settings, choose a source language manually, or continue typing."
+                    } else if (onDevice) {
                         "On device speech is unavailable. Choose a compatible speech service, or explicitly allow online speech in Voice settings. You can continue typing in chat."
                     } else {
                         "Speech recognition is unavailable. Install or enable a speech service in Android settings, or continue typing in chat."
@@ -311,6 +350,8 @@ class AndroidVoiceAudio internal constructor(
             failedStage = "listener_configuration"
             var becameReady = false
             var finalizing = false
+            val detectedLanguages = mutableSetOf<String>()
+            var ambiguousLanguage = false
             fun active() = !closed && recognitionActive && ticket == generation && recognizer === engine
             fun finalizeCapture() {
                 if (!active() || finalizing) return
@@ -383,6 +424,35 @@ class AndroidVoiceAudio internal constructor(
                 override fun onPartialResults(partialResults: Bundle?) {
                     if (active()) listener.partial(partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
                 }
+                override fun onLanguageDetection(results: Bundle) {
+                    if (!active() || !dispatched || !automaticTranslation || Build.VERSION.SDK_INT < 34) return
+                    if (translationRecognitionLanguages(translationLanguages) != translationPair) {
+                        listener.detectedLanguage(null)
+                        return
+                    }
+                    val confidence = results.getInt(SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL, SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_UNKNOWN)
+                    val confident = confidence == SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_CONFIDENT || confidence == SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_HIGHLY_CONFIDENT
+                    val language = if (confident) {
+                        results.getString(SpeechRecognizer.DETECTED_LANGUAGE)?.let { tag ->
+                            runCatching { Locale.Builder().setLanguageTag(tag).build().language }.getOrNull()
+                                ?.takeIf { it.isNotEmpty() && it != "und" }
+                        }
+                    } else {
+                        null
+                    }
+                    val selected = translationPair.firstOrNull { Locale.forLanguageTag(it).language == language }
+                    if (language != null) {
+                        detectedLanguages += language
+                        // Android reports the latest audio chunk. Several confidently
+                        // detected languages cannot identify this whole turn's source.
+                        if (detectedLanguages.size > 1 || selected == null) ambiguousLanguage = true
+                    }
+                    val switchResult = results.getInt(SpeechRecognizer.LANGUAGE_SWITCH_RESULT, SpeechRecognizer.LANGUAGE_SWITCH_RESULT_NOT_ATTEMPTED)
+                    val usableSwitch = switchResult == SpeechRecognizer.LANGUAGE_SWITCH_RESULT_NOT_ATTEMPTED || switchResult == SpeechRecognizer.LANGUAGE_SWITCH_RESULT_SUCCEEDED
+                    // Missing/uncertain language or a failed switch revokes earlier
+                    // evidence. Never substitute the request's initial locale.
+                    listener.detectedLanguage(selected?.takeIf { !ambiguousLanguage && usableSwitch })
+                }
                 override fun onResults(results: Bundle?) {
                     if (!active()) return
                     val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
@@ -408,6 +478,13 @@ class AndroidVoiceAudio internal constructor(
                         recognitionGate.bindingFailed(sessionId)
                     } else {
                         recognitionGate.failed(false, sessionId)
+                    }
+                    // A quiet turn is a normal terminal response, not a broken Binder.
+                    // Reuse its qualified service just as onResults does. Recreating it
+                    // after every silent turn adds support/bind requests and can exhaust
+                    // Android's connection/request allowance during translation.
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                        recognitionActive = false
                     }
                     stop()
                     val code = when {
@@ -477,10 +554,16 @@ class AndroidVoiceAudio internal constructor(
             })
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, onDevice)
+                if (automaticTranslation && Build.VERSION.SDK_INT >= 34) {
+                    putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
+                    putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, ArrayList(translationPair))
+                    putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_HIGH_PRECISION)
+                    putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, ArrayList(translationPair))
+                }
             }
             started("recognition", ticket)
             failedStage = "support_check"
@@ -498,7 +581,7 @@ class AndroidVoiceAudio internal constructor(
                 if (!active() || qualified) return@supportResult
                 qualified = true
                 event("recognition_support_${support.status.name.lowercase()}", ticket)
-                if (support.status !in setOf(RecognitionSupportStatus.SUPPORTED, RecognitionSupportStatus.UNVERIFIED)) {
+                if (support.status != RecognitionSupportStatus.SUPPORTED && (automaticTranslation || support.status != RecognitionSupportStatus.UNVERIFIED)) {
                     terminal("support_unavailable")
                     val limited = support.errorCode == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS
                     if (limited) recognitionGate.failed(true, sessionId) else recognitionGate.bindingFailed(sessionId)
@@ -506,13 +589,17 @@ class AndroidVoiceAudio internal constructor(
                     stop()
                     val repair = when {
                         support.errorCode == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> VoiceRecoveryAction.MICROPHONE_PERMISSION
-                        support.status in setOf(RecognitionSupportStatus.LANGUAGE_UNAVAILABLE, RecognitionSupportStatus.UNSUPPORTED) || support.errorCode in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) -> VoiceRecoveryAction.SPEECH_LANGUAGE
+                        support.status in setOf(RecognitionSupportStatus.LANGUAGE_UNAVAILABLE, RecognitionSupportStatus.UNSUPPORTED) || support.errorCode in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) || automaticTranslation && support.status == RecognitionSupportStatus.UNVERIFIED -> VoiceRecoveryAction.SPEECH_LANGUAGE
                         else -> VoiceRecoveryAction.SPEECH_SERVICE
                     }
                     listener.failure(
                         when (repair) {
                             VoiceRecoveryAction.MICROPHONE_PERMISSION -> "Microphone permission is needed for voice chat."
-                            VoiceRecoveryAction.SPEECH_LANGUAGE -> "The selected speech language is not ready for this service. Install or select a supported language in Android speech settings."
+                            VoiceRecoveryAction.SPEECH_LANGUAGE -> if (automaticTranslation) {
+                                "Both selected offline speech languages must be confirmed before automatic translation can listen. Install them in Android speech settings, choose the source language manually, or continue typing."
+                            } else {
+                                "The selected speech language is not ready for this service. Install or select a supported language in Android speech settings."
+                            }
                             VoiceRecoveryAction.SPEECH_SERVICE -> if (limited) SPEECH_LIMIT_MESSAGE else "The Android speech service could not confirm this recognition configuration. Review its settings or continue typing."
                             VoiceRecoveryAction.LOCAL_MODEL -> "Install a local speech model in Voice settings, or select Android speech."
                         },
@@ -535,6 +622,14 @@ class AndroidVoiceAudio internal constructor(
                     return@supportResult
                 }
                 if (!microphonePermitted()) return@supportResult
+                val currentPair = translationRecognitionLanguages(translationLanguages)
+                // The checked intent keeps its captured language and transport. Changing the
+                // automatic translation selection invalidates it; online authorization is rechecked below.
+                if (currentPair == null || currentPair != translationPair) {
+                    stop()
+                    listener.failure("Speech languages changed before recording started. Tap the microphone to use the current selection.", "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE", recoveryAction = VoiceRecoveryAction.SPEECH_LANGUAGE)
+                    return@supportResult
+                }
                 if (!onDevice) {
                     val currentPrivacy = conversationPrivacy()
                     if (!allowOnlineSpeech || currentPrivacy?.enabled == true || currentPrivacy?.chatId != privacy?.chatId) {
@@ -543,7 +638,7 @@ class AndroidVoiceAudio internal constructor(
                         return@supportResult
                     }
                 }
-                cachedRecognitionSupport = intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE).orEmpty() to support
+                cachedRecognitionSupport = requestKey to support
                 try {
                     armWatchdog(15_000) {
                         if (active()) {
@@ -565,7 +660,7 @@ class AndroidVoiceAudio internal constructor(
                     failedStart(failure)
                 }
             }
-            val cached = cachedRecognitionSupport?.takeIf { it.first == intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE) }
+            val cached = cachedRecognitionSupport?.takeIf { it.first == requestKey }
             if (cached != null) {
                 event("recognition_support_reused · engineInstance=$recognizerInstance", ticket)
                 handleSupport(cached.second)
@@ -583,6 +678,9 @@ class AndroidVoiceAudio internal constructor(
         .build()
 
     override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) =
+        speakWithFailure(text, complete) { error(it.message) }
+
+    override fun speakWithFailure(text: String, complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit) =
         speak(text, allowOnlineSpeech, complete, error)
 
     internal fun captureOfflineSpeech(): VoiceOfflineSpeech {
@@ -590,7 +688,21 @@ class AndroidVoiceAudio internal constructor(
         return { text, complete, error -> speak(text, false, complete, error, dictionary) }
     }
 
-    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit, pronunciation: VoicePronunciationDictionary = pronunciations) {
+    private fun systemFailure(message: String, code: String, stage: VoicePlaybackFailureStage, cause: Throwable? = null, platformErrorCode: Int? = null) =
+        VoicePlaybackFailure(message, cause, code, "system", stage = stage, platformErrorCode = platformErrorCode)
+
+    private fun androidSpeechFailureCode(code: Int): String = when (code) {
+        TextToSpeech.ERROR_SYNTHESIS -> "SYNTHESIS_FAILED"
+        TextToSpeech.ERROR_SERVICE -> "SERVICE_FAILED"
+        TextToSpeech.ERROR_OUTPUT -> "AUDIO_FAILED"
+        TextToSpeech.ERROR_NETWORK -> "NETWORK_FAILED"
+        TextToSpeech.ERROR_NETWORK_TIMEOUT -> "NETWORK_TIMEOUT"
+        TextToSpeech.ERROR_INVALID_REQUEST -> "INVALID_REQUEST"
+        TextToSpeech.ERROR_NOT_INSTALLED_YET -> "VOICE_NOT_INSTALLED"
+        else -> "ENGINE_FAILED"
+    }
+
+    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit, pronunciation: VoicePronunciationDictionary = pronunciations) {
         val privacy = conversationPrivacy()
         stop()
         if (closed) return
@@ -608,10 +720,11 @@ class AndroidVoiceAudio internal constructor(
                 if (change < 0 && !closed && ticket == generation) {
                     observations?.playbackFailure("AUDIO_FOCUS_LOST")
                     stop()
-                    error("Audio paused because another app needs the speaker.")
+                    error(systemFailure("Audio paused because another app needs the speaker.", "AUDIO_FOCUS_LOST", VoicePlaybackFailureStage.AUDIO_FOCUS))
                 }
             }, main).build()
-        val focusResult = runCatching { audioManager?.requestAudioFocus(request) }.getOrNull()
+        val focusAttempt = runCatching { audioManager?.requestAudioFocus(request) }
+        val focusResult = focusAttempt.getOrNull()
         observations?.playbackFocus(
             when (focusResult) {
                 AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
@@ -623,13 +736,20 @@ class AndroidVoiceAudio internal constructor(
         if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             playbackError = null
             observations?.playbackFailure("AUDIO_FOCUS_DENIED")
-            error("Audio output is unavailable. Your answer is available in captions.")
+            error(systemFailure("Audio output is unavailable. Your answer is available in captions.", "AUDIO_FOCUS_DENIED", VoicePlaybackFailureStage.AUDIO_FOCUS, focusAttempt.exceptionOrNull()))
             return
         }
         focus = request
         observations?.warmupStarted()
         started("tts", ticket)
-        fun fail(message: String, retireEngine: Boolean = false) {
+        fun fail(
+            message: String,
+            retireEngine: Boolean = false,
+            code: String = "ENGINE_FAILED",
+            stage: VoicePlaybackFailureStage = VoicePlaybackFailureStage.PREPARATION,
+            cause: Throwable? = null,
+            platformErrorCode: Int? = null
+        ) {
             main.post {
                 if (!closed && ticket == generation) {
                     terminal("failed")
@@ -638,7 +758,8 @@ class AndroidVoiceAudio internal constructor(
                     // initialize a fresh engine without repeated stop warnings.
                     if (retireEngine) releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
                     stop()
-                    error(message)
+                    observations?.playbackFailure(code)
+                    error(systemFailure(message, code, stage, cause, platformErrorCode))
                 }
             }
         }
@@ -651,7 +772,8 @@ class AndroidVoiceAudio internal constructor(
                 if (!closed && ticket == generation) {
                     terminal("timeout_start")
                     stop()
-                    error("Speech playback did not start. Your answer remains in chat.")
+                    observations?.playbackFailure("TIMEOUT")
+                    error(systemFailure("Speech playback did not start. Your answer remains in chat.", "TIMEOUT", VoicePlaybackFailureStage.PREPARATION))
                 }
             }
             speechWork.execute work@{
@@ -668,10 +790,11 @@ class AndroidVoiceAudio internal constructor(
                             fail("The speech engine is unavailable. Captions remain available.", retireEngine = true)
                             return@work
                         }
-                        val voices = runCatching { engine.voices?.toSet() }.getOrNull()
+                        val voiceResult = runCatching { engine.voices?.toSet() }
+                        val voices = voiceResult.getOrNull()
                         if (voices == null) {
                             main.post {
-                                if (ticket == generation) unavailableSpeechCatalog(engine, engineVersion)
+                                if (ticket == generation) unavailableSpeechCatalog(engine, engineVersion, voiceResult.exceptionOrNull())
                             }
                             return@work
                         }
@@ -684,17 +807,17 @@ class AndroidVoiceAudio internal constructor(
                         }
                         val locale = Locale.forLanguageTag(config.language)
                         if (engine.setLanguage(locale) < 0) {
-                            fail("A voice for this language is not installed. Captions are still available.")
+                            fail("A voice for this language is not installed. Captions are still available.", code = "LANGUAGE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         val eligible = eligibleVoices(voices, config.language, config.online)
                         val voice = eligible.firstOrNull { it.name == config.voice } ?: eligible.firstOrNull()
                         if (!config.online && voice == null) {
-                            fail("No offline voice is installed for this language. Your answer remains in chat.")
+                            fail("No offline voice is installed for this language. Your answer remains in chat.", code = "OFFLINE_VOICE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         if (voice != null && engine.setVoice(voice) == TextToSpeech.ERROR) {
-                            fail("The selected voice is unavailable. Choose an installed voice; captions remain available.")
+                            fail("The selected voice is unavailable. Choose an installed voice; captions remain available.", code = "VOICE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         if (engine.setSpeechRate(config.rate) == TextToSpeech.ERROR) {
@@ -733,7 +856,8 @@ class AndroidVoiceAudio internal constructor(
                                         if (!closed && ticket == generation) {
                                             terminal("timeout_playback")
                                             stop()
-                                            error("Speech playback stopped responding. Your answer remains in chat.")
+                                            observations?.playbackFailure("TIMEOUT")
+                                            error(systemFailure("Speech playback stopped responding. Your answer remains in chat.", "TIMEOUT", VoicePlaybackFailureStage.PLAYBACK))
                                         }
                                     }
                                     if (!reportedStart) {
@@ -790,7 +914,19 @@ class AndroidVoiceAudio internal constructor(
                         @Deprecated("Platform compatibility callback")
                         override fun onError(utteranceId: String?) {
                             if (engineVersion == speechGeneration && tts === engine && (utteranceId == null || utteranceId in utteranceIds)) {
-                                fail("Could not play this response. Turn off the speaker to continue with captions.", retireEngine = true)
+                                fail("Could not play this response. Turn off the speaker to continue with captions.", retireEngine = true, code = "AUDIO_FAILED", stage = VoicePlaybackFailureStage.PLAYBACK)
+                            }
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            if (engineVersion == speechGeneration && tts === engine && (utteranceId == null || utteranceId in utteranceIds)) {
+                                fail(
+                                    "Could not play this response. Turn off the speaker to continue with captions.",
+                                    retireEngine = true,
+                                    code = androidSpeechFailureCode(errorCode),
+                                    stage = VoicePlaybackFailureStage.PLAYBACK,
+                                    platformErrorCode = errorCode
+                                )
                             }
                         }
                     })
@@ -804,17 +940,17 @@ class AndroidVoiceAudio internal constructor(
                             }
                         }
                         if (!admitted) return@work
-                        if (privacy?.enabled == true && engine.voice?.isNetworkConnectionRequired != false) {
-                            fail("Choose an offline voice for Privacy Mode. Captions are still available.", retireEngine = true)
+                        if (!config.online && engine.voice?.isNetworkConnectionRequired != false) {
+                            fail("Choose an installed offline voice. Captions are still available.", retireEngine = true, code = "OFFLINE_VOICE_UNAVAILABLE", stage = VoicePlaybackFailureStage.CATALOG)
                             return@work
                         }
                         if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
-                            fail("Could not play this response. Captions are still available.", retireEngine = true)
+                            fail("Could not play this response. Captions are still available.", retireEngine = true, code = "AUDIO_FAILED", stage = VoicePlaybackFailureStage.PLAYBACK, platformErrorCode = TextToSpeech.ERROR)
                             break
                         }
                     }
-                } catch (_: Exception) {
-                    fail("The speech engine stopped. Turn off the speaker or try again.", retireEngine = true)
+                } catch (failure: Exception) {
+                    fail("The speech engine stopped. Turn off the speaker or try again.", retireEngine = true, cause = failure)
                 }
             }
         }
@@ -844,7 +980,7 @@ class AndroidVoiceAudio internal constructor(
                 if (pending != null) {
                     terminal("timeout_initialization")
                     stop()
-                    failed?.invoke("The speech engine did not initialize. Your answer remains in chat.")
+                    failed?.invoke(systemFailure("The speech engine did not initialize. Your answer remains in chat.", "TIMEOUT", VoicePlaybackFailureStage.INITIALIZATION))
                 }
             }
         }.also { main.postDelayed(it, 10_000) }
@@ -861,7 +997,7 @@ class AndroidVoiceAudio internal constructor(
             // Test doubles and vendor engines may call onInit before their constructor returns.
             // Re-dispatch after publishing engine/tts; handled fences the normal async path.
             initializationLease.result.get()?.let { dispatchSpeechInitialization(initializationLease, it) }
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             speechInitialization = null
             val failed = playbackError
             val pending = pendingSpeech
@@ -873,7 +1009,7 @@ class AndroidVoiceAudio internal constructor(
                 // focus as an asynchronous initialization failure before notifying.
                 terminal("initialization_failed")
                 stop()
-                failed?.invoke("Could not start text-to-speech. Install a voice or continue with captions.")
+                failed?.invoke(systemFailure("Could not start text-to-speech. Install a voice or continue with captions.", "INITIALIZATION_FAILED", VoicePlaybackFailureStage.INITIALIZATION, failure))
             }
         }
     }
@@ -913,7 +1049,7 @@ class AndroidVoiceAudio internal constructor(
                 if (pending != null) {
                     terminal("initialization_failed")
                     stop()
-                    failed?.invoke("Text-to-speech is unavailable. Install a voice or continue with captions.")
+                    failed?.invoke(systemFailure("Text-to-speech is unavailable. Install a voice or continue with captions.", "INITIALIZATION_FAILED", VoicePlaybackFailureStage.INITIALIZATION, platformErrorCode = status))
                 }
             }
         }

@@ -252,7 +252,9 @@ def document(root=ROOT):
 
 def synchronize(root=ROOT, check=False):
     manifest = document(root)
-    serialized = json.dumps(manifest, indent=2, ensure_ascii=False) + '\n'
+    # The runtime consumes this machine-generated map; keep the reviewed source
+    # readable while removing transport whitespace without relaxing its byte cap.
+    serialized = json.dumps(manifest, separators=(',', ':'), ensure_ascii=False) + '\n'
     if len(serialized.encode('utf-8')) > MAX_MANIFEST_BYTES:
         raise ValueError('Feature map exceeds the bounded runtime reader')
     changed = False

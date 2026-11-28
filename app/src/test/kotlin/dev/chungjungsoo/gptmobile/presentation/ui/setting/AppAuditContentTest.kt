@@ -27,6 +27,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditAssertionCode
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditAssertionEvidence
@@ -113,10 +114,16 @@ class AppAuditContentTest {
 
     @Test fun auditNavigationIsAvailableWithoutDebugMode() {
         var selected = -1
-        show { BenchmarkNavigation(0, debugMode = false) { selected = it } }
-        compose.onNodeWithText("App audit").assertIsDisplayed().performClick()
+        show { BenchmarkNavigation(STANDARD_BENCHMARK_TAB, debugMode = false) { selected = it } }
+        compose.onNodeWithText("Developer diagnostics").assertDoesNotExist()
+        compose.onNodeWithText("Overview").assertIsDisplayed().performClick()
+        assertEquals(STANDARD_BENCHMARK_TAB, selected)
+        compose.onNodeWithText("Results").performClick()
+        assertEquals(STANDARD_BENCHMARK_RESULTS_TAB, selected)
+        compose.onNodeWithText("Advanced").performClick()
+        compose.onNodeWithText("Developer diagnostics").performScrollTo().assertIsDisplayed().performClick()
         assertEquals(APP_AUDIT_TAB, selected)
-        compose.onNodeWithText("Queue").performClick()
+        compose.onNodeWithText("Comprehensive campaigns").performScrollTo().performClick()
         assertEquals(0, selected)
     }
 

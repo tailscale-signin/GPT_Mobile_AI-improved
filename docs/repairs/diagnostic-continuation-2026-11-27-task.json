@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "diagnostic-continuation-2026-11-27",
+  "pullRequest": 2651,
+  "baseBranch": "feature/windows-native-benchmark-kit",
+  "baseSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
+  "targetBaseBranch": "main",
+  "targetBaseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "codex/diagnostic-continuation-20261127",
+  "intent": "Implement the reviewed diagnostic repair plan across Gateway continuation, bounded task context, durable tool repair, acceptance windows, recovery, diagnostics, voice and efficiency on the existing PR while preserving concurrent commits.",
+  "authorization": "The user requested implementation of all features and repairs in the preceding latest-PR audit. This authorizes production changes, focused and required validation, and publication to the existing PR branch.",
+  "state": "IMPLEMENTING",
+  "acceptedScope": [
+    "Preserve exact pending Gateway tool handoffs across role changes, compaction, restart and reconnect.",
+    "Retain answered decisions, corrections and useful task findings at the observed 5632-token route capacity.",
+    "Replan stage budgets and prevent unchanged context-capacity retries.",
+    "Retain argument-repair lineage and measure progress across interleaved discovery, reads and questions.",
+    "Verify general acceptance contracts through durable bounded windows without dropping criteria.",
+    "Recover policy changes, conversation conflicts and definite command rejections without replaying uncertain effects.",
+    "Repair output, protocol framing, saved-page delivery and capability-readiness diagnosis.",
+    "Separate transport dispatch, upstream inference and accepted logical-job evidence.",
+    "Retain typed primary and fallback voice failure causes and safe playback recovery.",
+    "Repair deadline-source CI contracts and investigate streaming timeout with deterministic delivery regression coverage.",
+    "Reduce repeated control-plane work and excessive blocked-report presentation; retain measured performance boundaries."
+  ],
+  "constraints": [
+    "Preserve original account, repository, model, source, privacy, permission and write-authority fences.",
+    "Return completed tool results rather than executing completed tools again.",
+    "Retain every accepted requirement and exact verification source identity.",
+    "Do not infer physical GPU/NPU/handset qualification or comparative model performance from synthetic tests.",
+    "Recheck the mutable PR branch before publication and integrate concurrent changes without force-overwriting them."
+  ],
+  "checkpoints": [
+    {
+      "state": "INTAKE",
+      "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
+      "details": "Rechecked live PR2651. Isolated implementation and three collaborator worktrees from the same head. The preceding audit covers all 49 open reports through2753 and all retained diagnostic stages."
+    },
+    {
+      "state": "IMPLEMENTATION",
+      "sourceSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65",
+      "details": "Observed concurrent PR commits and rebase in progress. Gateway exact pending protocol, same-task role binding, persistent capacity stop, fenced job/sequence binding, typed policy recovery, authenticated conflict refresh, durable generation rejection receipts and off-loop terminal persistence implemented. Three agents own context, acceptance and voice/dispatch changes; production integration awaits their commits."
+    }
+  ],
+  "validation": [
+    {
+      "command": "Gateway incremental delivery tests",
+      "status": "PASS",
+      "tests": 10
+    },
+    {
+      "command": "Gateway generation outcome tests",
+      "status": "PASS",
+      "tests": 4
+    },
+    {
+      "command": "Conversation, command outcome and journal regressions",
+      "status": "IN_PROGRESS",
+      "details": "85 of 86 passed initially; one existing queue test updated to require fresh command identity after durable rejection. Focused rerun passes."
+    },
+    {
+      "command": "./gradlew --version",
+      "status": "ENVIRONMENT_BLOCKED",
+      "details": "Gradle 9.8.0 distribution download could not reach services.gradle.org; no local Android SDK found. Hosted PR checks required."
+    }
+  ],
+  "measurements": {
+    "physicalHandset": null,
+    "liveGatewayModel": null,
+    "paidRequestsInitiated": 0
+  }
+}

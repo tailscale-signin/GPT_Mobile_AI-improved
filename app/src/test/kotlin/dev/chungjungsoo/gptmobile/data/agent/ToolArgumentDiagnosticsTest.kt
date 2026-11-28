@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,6 +35,54 @@ class ToolArgumentDiagnosticsTest {
         )
         put("required", JsonArray(listOf(JsonPrimitive("query"))))
         put("additionalProperties", false)
+    }
+
+    @Test fun invalidJobOnAJobsRequestOffersDiscoveryForOnlyItsObservedRun() {
+        val schema = GitHubOperationTool.definition("github_ci").inputSchema
+        val args = buildJsonObject {
+            put("action", "jobs")
+            put("owner", "selected-owner")
+            put("repo", "selected-repository")
+            put("run_id", 45915200846L)
+            put("run_attempt", 2)
+            put("expected_head_sha", "a".repeat(40))
+            put("page", 3)
+            put("per_page", 25)
+            put("job_id", 0)
+        }
+        val rejected = ToolArgumentValidator.rejection("invalid-job", "github_ci", args, schema)
+        assertTrue(rejected.isError)
+        assertFalse(rejected.dispatched)
+        val body = (rejected.content as ToolResultContent.Json).value as JsonObject
+        val call = body.getValue("correction_call") as JsonObject
+        assertEquals(JsonPrimitive("github_ci"), call["tool"])
+        val corrected = call.getValue("arguments") as JsonObject
+        assertEquals(JsonObject(args - "job_id"), corrected)
+        assertTrue(ToolArgumentValidator.errors(corrected, schema).isEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_ci", corrected).isEmpty())
+        assertEquals(JsonArray(listOf(JsonPrimitive("job_id"))), rejected.executionReceipt?.get("invalid_fields"))
+        for (unsafe in listOf(
+            JsonObject(args - "run_id"),
+            JsonObject(args + ("run_id" to JsonPrimitive(0))),
+            JsonObject(args - "repo"),
+            JsonObject(args + ("unrecognized" to JsonPrimitive(true))),
+            JsonObject(args + ("job_id" to JsonPrimitive(7)))
+        )) {
+            assertNull(ToolArgumentValidator.ciJobDiscovery(unsafe))
+        }
+    }
+
+    @Test fun selectorlessSourceReadReportsAlternativeSourceFieldsWithoutClaimingBothAreRequired() {
+        val args = buildJsonObject { put("commit_sha", "a".repeat(40)) }
+        val schema = GitHubOperationTool.definition("github_read").inputSchema
+        val rejected = ToolArgumentValidator.rejection("missing-source", "github_read", args, schema)
+        assertFalse(rejected.dispatched)
+        val receipt = requireNotNull(rejected.executionReceipt)
+        assertEquals(JsonArray(listOf(JsonPrimitive("SOURCE_REQUIRED"))), receipt["semantic_read_rules"])
+        assertEquals(JsonArray(listOf("evidence_id", "ranges").map(::JsonPrimitive)), receipt["validation_field_names"])
+        assertFalse((receipt["missing_fields"] as? JsonArray).orEmpty().containsAll(listOf("evidence_id", "ranges").map(::JsonPrimitive)))
+        val saved = ToolArgumentValidator.rejection("saved", "github_read", buildJsonObject { put("view_cursor", 3) }, schema)
+        assertFalse((saved.executionReceipt?.get("semantic_read_rules") as? JsonArray).orEmpty().contains(JsonPrimitive("SOURCE_REQUIRED")))
     }
 
     @Test fun focusedLogSchemaCanSelectTheReadNeededToDiscoverAnActualJob() {

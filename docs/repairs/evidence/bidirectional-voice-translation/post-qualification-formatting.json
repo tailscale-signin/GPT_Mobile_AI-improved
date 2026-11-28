@@ -1,0 +1,39 @@
+{
+  "schema": "post-qualification-formatting-proof-v1",
+  "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+  "retained_tested_source": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/sources/0-VoiceSession.kt",
+  "tested_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+  "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612",
+  "delta_bytes": 1,
+  "change": "Inserted exactly one LF between preparingPlaybackOwner and its following KDoc.",
+  "exact_reversal_matches_tested_bytes": true,
+  "jvm_recompiled": false,
+  "qualification_effect": "Original test and compile receipts are retained unchanged. The current file is not byte-identical; deleting only the documented single LF reproduces the complete tested file exactly. Behavior qualification is carried across this formatting-only delta.",
+  "affected_current_manifest_references": [
+    {
+      "manifest": "core/manifest.json",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+      "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+    },
+    {
+      "manifest": "settings/ui/source-manifest.json",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+      "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+    },
+    {
+      "manifest": "settings/wiring/source-manifest.json",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+      "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+    },
+    {
+      "manifest": "fallback/manifest.json",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+      "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+    }
+  ],
+  "unified_diff": "--- tested/VoiceSession.kt\n+++ current/VoiceSession.kt\n@@ -147,6 +147,7 @@\n     private var audioHeld = false\n     private var generation = 0L\n     private var preparingPlaybackOwner: Long? = null\n+\n     /** A suspended replay preparation cannot survive any capture/playback cancellation. */\n     internal fun playbackPreparationOwner(): Long = generation.also { preparingPlaybackOwner = it }\n     internal fun ownsPlaybackPreparation(owner: Long): Boolean = preparingPlaybackOwner == owner && generation == owner && accessAllowed() && state.phase == VoicePhase.PAUSED\n"
+}

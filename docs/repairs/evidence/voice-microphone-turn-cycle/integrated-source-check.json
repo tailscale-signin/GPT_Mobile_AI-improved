@@ -1,0 +1,69 @@
+{
+  "repository_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "source_binding": "PASS",
+  "manifests": [
+    {
+      "manifest": "voice-lifecycle-host/current/manifest.json",
+      "manifest_sha256": "40ef53a4ce5b811ad04e2ba2a3d794fc1c8ba97b3a82e846196d5a7d0ca98104",
+      "previous_pass_count": 71,
+      "source_files": 38,
+      "mismatches": [],
+      "rerun_required": false
+    },
+    {
+      "manifest": "new-issues-host-tests/gateway-sources.json",
+      "manifest_sha256": "eb43ed630721517f50cc03c4dd9152b3a71a56df91f7ec3c9df3a76f7642092d",
+      "previous_pass_count": 8,
+      "source_files": 26,
+      "mismatches": [],
+      "rerun_required": false
+    }
+  ],
+  "ci_wiring": {
+    "scope": "Current working-tree CI changes reviewed alongside integrated source; no hosted or device execution performed here.",
+    "early_class_count": 12,
+    "early_classes": [
+      "dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSourceTest",
+      "dev.chungjungsoo.gptmobile.data.workspace.ProtectedDiagnosticProjectionTest",
+      "dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest",
+      "dev.chungjungsoo.gptmobile.data.github.GitHubCommitPaginationRecoveryTest",
+      "dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest",
+      "dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionRoutingTest",
+      "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest",
+      "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceListeningEntryTest",
+      "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneAppearanceTest",
+      "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneCueReadinessTest",
+      "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePreferenceStoreTest",
+      "dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest"
+    ],
+    "classes_present": true,
+    "policy_expected_set_matches": true,
+    "policy_count_assertion_matches": true,
+    "policy_count_assertion_observed": "len(expected)",
+    "subset_xml_exit_preservation_unchanged": true,
+    "early_pipefail": true,
+    "early_continue_on_error": false,
+    "full_suite_rerun_retained": true,
+    "device_methods_registered": [
+      "pressingTheIdleMicrophoneHighlightsAndPulsesWhileStopRemainsStatic",
+      "reducedMotionKeepsCaptureHighlightedAndReadinessDisablesTheIdleControl"
+    ],
+    "device_methods_declared": [
+      "pressingTheIdleMicrophoneHighlightsAndPulsesWhileStopRemainsStatic",
+      "reducedMotionKeepsCaptureHighlightedAndReadinessDisablesTheIdleControl"
+    ],
+    "device_methods_exact_match": true,
+    "device_receipt_skip_not_allowed": true,
+    "device_status_fatal": true,
+    "source_hashes": {
+      ".github/workflows/pr-validation.yml": "bec61ccf2341a2b8688e60032d282656ea34d97e9e97ec298449333bc446bd3e",
+      "scripts/tests/test_ci_modernization.py": "add0d321ed5b8fb88a47257880d4cb10fa2fcec5e602d41cfe3d19c5ae5611e1",
+      "scripts/run_release0950_acceptance.sh": "b8181fe38dca30b6b08539628d9ac9d17878f3c4d1d840b5414b99db8650a04e",
+      "scripts/tests/test_native_memory_smoke.py": "9f64e3d705cc2953b6e3f9a909a278feea44b88a484145d7fd06ebaebbd1f1d1",
+      "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt": "e062cf2b8d071924fa6d1b23cfbc7e9da00658c69b8e5456b040044a2acfb7a4"
+    }
+  },
+  "findings": [],
+  "result": "PASS",
+  "validation_limits": "Source/CI wiring review only. Previous 71-case lifecycle and 8-case gateway host results are reusable because all 64 tracked source files match; Android/device execution remains a hosted gate."
+}

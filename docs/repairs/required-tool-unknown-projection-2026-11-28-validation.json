@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-28T05:56:58.205492+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseHead": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "purpose": "Preserve authoritative required-tool remote acceptance UNKNOWN when a public provider projection is merged with earlier negative acceptance; preserve unrelated omission semantics.",
+  "changedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt"
+  ],
+  "currentRepositorySourceSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt": "e104f73edba93409b0b31e9db1fcef1f1fcfee5ca119563703a4e4c97113b295",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt": "cffbe47668e7c0e37fcde89a37f5dbc467815ff4f0040083da4d64d6c82d14c4"
+  },
+  "testScope": {
+    "tests": 8,
+    "fullProductionProjectionCompiled": true,
+    "receiptDeclarationAndFullClassifierCompiled": true,
+    "newMergedProjectionCases": 48,
+    "unrelatedOmissionControls": 2,
+    "peripheralPorts": true,
+    "wrapperMerge": "Actual production JsonObject(originalDetails + projectedFields) expression exercised by the repository regression; Android coroutine wrapper excluded.",
+    "excludedExistingTest": "publicIssueProjectionPreservesTypedAdmissionCodeAndDomainWithoutPrivateInputs requires the full IssueReportDiagnostics/Android module and is excluded by the source-slice harness."
+  },
+  "baseline": {
+    "productionRevision": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+    "compileExit": 0,
+    "testExit": 1,
+    "testsRun": 8,
+    "failures": 1,
+    "failure": "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE/tool_readiness + requires_reconciliation=true: expected UNKNOWN but was NO after merging original remote_acceptance=NO.",
+    "sourceBindings": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "ff08123c95a83792cc87f029cce53c4d0a512b8ffcb93870c24c4d0c5a0eca30",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt": "ce8bacb2c760bd26a33f2168e7d068f9ff31148ae37d4f72f05999df993573e9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderContractFailure.kt": "7e4aa85ae41f0ba82ecd7c8890621f02ab8c5f2015cee351770ab381e18242e6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": "b16808ae567e7f776ff5c22b199d61a11a11b000c2be86f5091e472e54947874",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderConfigurationIdentity.kt": "a944ff44a245aed0be74d798091c738013c31ee4ae0cb0763e40e6e3bc6bb6de",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt": "be35b0f92d301c704e51763679c3038f5061f957bb03150c8ee621bd513e58e7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt": "db9bc43cf13acc7bdd7aaa3eff9e6b3fb25f7f30cf85fed89f5770a3af2b5667",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayOutcomeRecovery.kt": "52fca375ca48a6ac82581b6611770160cd1753d9cfd6217dcefdf9553115f5a6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/InferencePreflightRejection.kt": "b31ed7585db1e1313760d5c637538894c6460cc1a09b8f55c3f87735ce216f88",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt": "9b8d959238341cf9bdc1402bcba6f5415c323884bd62ed1ff47aa87842b2cc2f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityFailureEvidence.kt": "e62d653f3cdae8b1dd4f211355ad6979d2a98d74b275aa8e27802ed9163954e3",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt": "cffbe47668e7c0e37fcde89a37f5dbc467815ff4f0040083da4d64d6c82d14c4"
+    },
+    "logSha256": "aacc3fa65a8a0f5b92d79a9d249d990c9305fa9d9c35092cc8768c2d92e6db2e",
+    "jarSha256": "23e54b490f9095cebb6fba4f890a2f8b807acd650e765e966108d11d01e7adc7",
+    "testOutput": "JUnit version 4.13.2\n.E.......\nTime: 0.194\nThere was 1 failure:\n1) mergedPublicProjectionPreservesAuthoritativeUnknownDespiteOriginalNegativeAcceptance(dev.chungjungsoo.gptmobile.data.diagnostics.ToolAdmissionFailureReceiptTest)\njava.lang.AssertionError: REQUIRED_TOOL_CAPABILITY_UNAVAILABLE/tool_readiness: {\"requires_reconciliation\":true} expected:<\"UNKNOWN\"> but was:<\"NO\">\n\tat org.junit.Assert.fail(Assert.java:89)\n\tat org.junit.Assert.failNotEquals(Assert.java:835)\n\tat org.junit.Assert.assertEquals(Assert.java:120)\n\tat dev.chungjungsoo.gptmobile.data.diagnostics.ToolAdmissionFailureReceiptTest.mergedPublicProjectionPreservesAuthoritativeUnknownDespiteOriginalNegativeAcceptance(ToolAdmissionFailureReceiptTest.kt:161)\n\nFAILURES!!!\nTests run: 8,  Failures: 1",
+    "buildScriptSha256": "b46ba225eea68a70db5b42cdc149b1b0cf511ecb2d7a1f4bef46d91fff368b1b"
+  },
+  "current": {
+    "compileExit": 0,
+    "testExit": 0,
+    "testsRun": 8,
+    "failures": 0,
+    "sourceBindings": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "ff08123c95a83792cc87f029cce53c4d0a512b8ffcb93870c24c4d0c5a0eca30",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt": "ce8bacb2c760bd26a33f2168e7d068f9ff31148ae37d4f72f05999df993573e9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderContractFailure.kt": "7e4aa85ae41f0ba82ecd7c8890621f02ab8c5f2015cee351770ab381e18242e6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": "b16808ae567e7f776ff5c22b199d61a11a11b000c2be86f5091e472e54947874",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderConfigurationIdentity.kt": "a944ff44a245aed0be74d798091c738013c31ee4ae0cb0763e40e6e3bc6bb6de",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt": "be35b0f92d301c704e51763679c3038f5061f957bb03150c8ee621bd513e58e7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt": "db9bc43cf13acc7bdd7aaa3eff9e6b3fb25f7f30cf85fed89f5770a3af2b5667",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayOutcomeRecovery.kt": "52fca375ca48a6ac82581b6611770160cd1753d9cfd6217dcefdf9553115f5a6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/InferencePreflightRejection.kt": "b31ed7585db1e1313760d5c637538894c6460cc1a09b8f55c3f87735ce216f88",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt": "e104f73edba93409b0b31e9db1fcef1f1fcfee5ca119563703a4e4c97113b295",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityFailureEvidence.kt": "e62d653f3cdae8b1dd4f211355ad6979d2a98d74b275aa8e27802ed9163954e3",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt": "cffbe47668e7c0e37fcde89a37f5dbc467815ff4f0040083da4d64d6c82d14c4"
+    },
+    "logSha256": "0e46fc2e1b36676b24a6abb27fbfd50b345cc040a936f9ce5d20d7db4d6dfb7e",
+    "jarSha256": "aa4b1f48a8f0692c8042db70805cb4f0f7847066541ee6298817486891e8f5e4",
+    "testOutput": "JUnit version 4.13.2\n........\nTime: 0.228\n\nOK (8 tests)",
+    "revalidatedAt": "2026-11-28T06:04:25.218692+00:00",
+    "revalidationReason": "A formatting-only condition wrap changed the source hash. The scratch harness now excludes its archived full repository test copy from the source glob; the same eight selected tests pass against current actual source."
+  },
+  "harness": {
+    "prepareSha256": "e02a45b7695ea2cd1138105eddf14a11cf4dea3fa8fa6292b7533aa2ddc46d74",
+    "buildSha256": "7be37fbb625c0472ab6b20a6c8055ec017cec28546ceba41fe1decb43cf896b4",
+    "compilerHeap": "512m",
+    "testHeap": "512m",
+    "artifactLocation": "Session validation workspace; source and result hashes retained here. The unchanged full Android gate executes the repository regression."
+  },
+  "diffCheckExit": 0,
+  "limits": [
+    "No full Gradle build or Android module integration was run; mandatory memory gate remains in force.",
+    "No live provider request, report submission, deployment, workflow mutation, commit, or push was performed.",
+    "The test verifies actual typed receipt and public JSON projection plus original-details merge; report persistence, HTTP transport, and Android coroutine ownership remain CI integration coverage."
+  ]
+}

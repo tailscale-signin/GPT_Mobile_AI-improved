@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -10,6 +11,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEffectiveRecoveryTest {
+    @Test fun completedClaimExtractionLimitAllowsSmallerBatchResumeWithoutReplayingProviderRequest() {
+        val action = "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+        val decision = GitHubEffectiveRecovery.resolve(
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","generation_completed":true,"remote_acceptance":"YES","logical_continuation_allowed":false,"request_replay_allowed":false,"recovery_action":"$action","batch":{"max_claims":8,"requirement_ids":["REQ-1"]}}}""")
+        )
+
+        assertEquals(GitHubEffectiveRecovery.Kind.CONTINUE_WORK, decision.kind)
+        assertTrue(decision.continueWork)
+        assertEquals(action, decision.action)
+        assertEquals(JsonPrimitive(false), decision.json()["request_replay_allowed"])
+    }
+
+    @Test fun claimExtractionRepairStillRequiresCompletedRetainedEvidenceAndKnownAcceptance() {
+        val action = "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+        val blocked = listOf(
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":false,"remote_acceptance":"YES","logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}"""),
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"UNKNOWN","logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}"""),
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":false}"""),
+            json("""{"verification_failure":{"code":"GITHUB_EXTRACTION_OUTPUT_LIMIT","failed_stage":"claim_extraction","transport_complete":true,"remote_acceptance":"YES","automatic_retry_allowed":false,"logical_continuation_allowed":false,"recovery_action":"$action"},"evidence_retention_complete":true}""")
+        )
+
+        blocked.forEach { report ->
+            val decision = GitHubEffectiveRecovery.resolve(report)
+            assertEquals(GitHubEffectiveRecovery.Kind.INSPECT_FAILURE, decision.kind)
+            assertFalse(decision.continueWork)
+        }
+    }
+
     private fun fault() = buildJsonObject {
         put("failure_code", "GITHUB_VERIFICATION_INTERNAL_ERROR")
         put("task_outcome", "PARTIAL")
@@ -288,3 +317,5 @@ class GitHubEffectiveRecoveryTest {
         assertFalse(GitHubExecutionContinuation.hasAcquisitionBudget(null, 60000))
     }
 }
+
+private fun json(value: String): JsonObject = Json.parseToJsonElement(value) as JsonObject

@@ -111,7 +111,7 @@ public partial class MainWindow
         attention.Children.Add(Ui.Button("Repository access · "+repository+" "+Check("repository"),()=>Navigate("Tools/GitHub")));
         string policyState=workspaceReadiness["validation_enabled"]==null?"Policy unobserved":workspaceReadiness.Flag("validation_enabled")?"Policy enabled":"Policy disabled";
         attention.Children.Add(Ui.Button("Validation environment · "+Check("environment")+" · "+policyState,()=>Navigate("Tools/Environments")));
-        attention.Children.Add(Ui.Button("Engineering · "+(effective["engineering_enabled"] is null?"Unobserved":effective.Flag("engineering_enabled")?"Enabled":"Disabled")
+        attention.Children.Add(Ui.Button("Engineering · "+(effective["engineering_enabled"] is null?"Unobserved":effective.Flag("engineering_enabled")?"Ready":"Setup required")
             +" · "+(readinessObserved==default?"unobserved":readinessObserved.ToLocalTime().ToString("T")),()=>Navigate("Settings/Execution")));
         if(readiness.Array("pending").Count>0)attention.Children.Add(Ui.Button("Review pending settings",()=>Navigate("Settings/Execution")));
         foreach(var row in jobs.Where(j=>j.State is "needs_attention" or "failed").Take(3))

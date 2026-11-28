@@ -1,0 +1,25 @@
+{
+  "root_head": "ec72dcbd7f3544650bdcc17a8363c8799935ed2d",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt": "e5b23f669d2d0371453300161a6c0f41eab95659ff4b199364e3731e068ce526",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt": "f93987302aecfaa1d4fc20ce9ae7bcaa4d5c741d3fa0a877e57a762bb49ef70e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "b069180fe44275ed4f0ad9794d6b03dafaeae08f77ac04b178df154aab9f884d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": "6d70a6793e30936e51c9dbf0a422ec91ef10db2acbfab3a36ff7df6f123e5a6c",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt": "3b01bd2f91ce61f2ac5dd994270187804a5b1cd55d7cef5a7fa676508ed21376"
+  },
+  "generated_inputs_sha256": {
+    "sources/VoiceLanguageSettings.kt": "e5b23f669d2d0371453300161a6c0f41eab95659ff4b199364e3731e068ce526",
+    "sources/VoiceConversationContent.kt": "f93987302aecfaa1d4fc20ce9ae7bcaa4d5c741d3fa0a877e57a762bb49ef70e",
+    "sources/VoiceMicrophoneButton.kt": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+    "sources/VoiceState.kt": "6e9c60337fe175ef39516f5cd669ec9d93131ba0d8ab467d92f473027858689c",
+    "sources/VoiceChoice.kt": "cb301810e72cc7a1468c5777cc3e1248ca0a11f869ef2b61fc85c0e799258384",
+    "sources/LocalModelState.kt": "8c6dc61856f5c619385d2d48dd6fb547ad3549b9894a9b09064a58699b2bcac6",
+    "sources/VoiceUiPorts.kt": "90fd6e876b2382cfe140edc08f1f20054cfd232a2e85ab824b05cb14c61fc176",
+    "sources/PlatformPort.kt": "1e2369a221a093b454a31435303879ecf673431220a6d18c3806d702275273f4",
+    "sources/UiWidgetPorts.kt": "3dff5f743dbda6eb5fbad49971a805e46eddb4df2376ec1ee9299ceca18a8164",
+    "sources/DropdownPort.kt": "d5979f4dc8a0e2e3f895083551db8f02157b1680fb734af4faea010232967e40",
+    "sources/SelectedUiInstrumentation.kt": "a6903c674588fc64f072800ecf67465f8096a05d052f24d152d38e6ab8db3947"
+  }
+}

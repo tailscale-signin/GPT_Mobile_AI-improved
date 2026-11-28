@@ -31,6 +31,49 @@ class GatewayGraphRepository @Inject constructor(
     private val state: GitHubRepositoryStateStore
 ) {
     private val operations = Mutex()
+    private val synchronization = Mutex()
+
+    /** Refresh the shared branch mirror without changing any conversation/task's accepted SHA. */
+    internal suspend fun synchronize(context: GitHubConversationContext, admissionAllowed: suspend () -> Boolean = { true }): Boolean = synchronization.withLock {
+        check(admissionAllowed()) { "The repository synchronization conversation changed." }
+        val admitted = admission(context, null)
+        val config = admitted.gateway.engineeringConfig()
+        val capability = client.capabilities(config)
+        val principal = capability.requireGraphReadiness()
+        if (capability.codeGraph?.repositorySync != 1 || capability.gatewayId.isNullOrBlank()) return@withLock false
+        val identity = mirrorScope(capability, principal, context)
+        val mirror = GatewayRepositoryIndexMirror(state, identity)
+        val status = executeForMap(context, buildJsonObject { put("action", "status") }, admitted.gateway.uid, refreshReadiness = false).result
+        val head = status.text("observed_branch_head")?.takeIf { it.matches(Regex("[a-f0-9]{40}")) } ?: context.commitSha
+        // A newer map is useful for the next task; accepted work keeps its own
+        // immutable context. Nothing here publishes or rebases a user's branch.
+        val selected = context.copy(commitSha = head)
+        repeat(8) {
+            check(admissionAllowed()) { "The repository synchronization conversation changed." }
+            verifyAdmission(context, admitted.gateway.uid, admitted)
+            val request = mirror.request(selected.commitSha)
+            val page = try {
+                executeForMap(selected, request, admitted.gateway.uid, refreshReadiness = false).result
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: GatewayGraphOperationException) {
+                // A changing parser/index invalidates only the partial transfer.
+                // The last verified manifest remains available for inspection.
+                if (request["sync_offset"] != null && (failure.cause as? GatewayGraphHttpFailure)?.httpStatus == 409) mirror.restartTransfer()
+                throw failure
+            }
+            if (page.text("status") == "NOT_INDEXED") return@withLock false
+            verifyAdmission(context, admitted.gateway.uid, admitted)
+            if (mirror.accept(page, selected.commitSha) {
+                    verifyAdmission(context, admitted.gateway.uid, admitted)
+                    admissionAllowed()
+                }
+            ) {
+                return@withLock true
+            }
+        }
+        false // The durable cursor resumes on the next connection/maintenance slice.
+    }
 
     /** Read-only admission; inference and engineering connections retain separate authority. */
     suspend fun readiness(context: GitHubConversationContext): String? = try {
@@ -246,8 +289,15 @@ class GatewayGraphRepository @Inject constructor(
             val observed = if (action == "status") retained.reconcileObserved(result, requireAttemptIdentity = expectedAttempt != null) else retained.observation()
             verifyAdmission(context, expectedGatewayProfileUid, admitted)
             requireSharing()
+            val synchronized = if (action == "status" && capability.codeGraph?.repositorySync == 1) {
+                GatewayRepositoryIndexMirror(state, mirrorScope(capability, principal, context)).snapshot()
+                    ?.takeIf { it["access_scope"] == result["access_scope"] }
+                    ?.let { JsonObject(it.filterKeys { key -> key in setOf("commit_sha", "generation", "synchronized_at", "state") }) }
+            } else {
+                null
+            }
             GatewayGraphResponse(
-                JsonObject(result - "confirmed_sync_request_id"),
+                JsonObject(result - "confirmed_sync_request_id" + synchronized?.let { mapOf("phone_index_sync" to it) }.orEmpty()),
                 action,
                 admitted.gateway.uid,
                 admitted.gateway.name,
@@ -336,6 +386,10 @@ class GatewayGraphRepository @Inject constructor(
     }
 
     companion object {
+        private fun mirrorScope(capability: GatewayEngineeringCapabilities, principal: String, context: GitHubConversationContext) = GitHubRepositoryStateStore.digest(
+            listOf("gateway-map-mirror-v1", capability.gatewayId, principal, context.connectionUid, context.repository.fullName.lowercase(java.util.Locale.ROOT), context.ref).joinToString("\u0000")
+        )
+
         internal fun boundRequest(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
             require(arguments.toString().length <= 64_000) { "Graph request exceeds its inspection limit." }
             require(context.commitSha.matches(Regex("[a-fA-F0-9]{40}"))) { "Graph qualification requires the exact selected repository commit SHA." }

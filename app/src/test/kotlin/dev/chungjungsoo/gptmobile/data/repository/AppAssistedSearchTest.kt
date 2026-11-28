@@ -76,14 +76,42 @@ class AppAssistedSearchTest {
         assertEquals("tool_readiness", error.failureDetails?.get("failed_stage")?.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
         assertEquals(kotlinx.serialization.json.JsonPrimitive(false), error.failureDetails?.get("dispatched"))
         assertEquals(kotlinx.serialization.json.JsonPrimitive("web_search"), error.failureDetails?.get("operation"))
+        assertEquals(JsonPrimitive("WEB_SEARCH"), error.failureDetails?.get("capability"))
+        assertEquals(JsonPrimitive("Tools → Effective search inventory"), error.failureDetails?.get("settings_path"))
+        assertEquals(JsonPrimitive("SELECT_SEARCH_ENGINE"), error.failureDetails?.get("user_action"))
+        assertEquals(JsonPrimitive(false), error.failureDetails?.get("permission_bypass_allowed"))
+        assertEquals(JsonPrimitive(false), error.failureDetails?.get("retryable"))
         fun report(fields: Map<String, Any?>) = IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "TOOL_UNAVAILABLE", fields), 1000)
         val details = requireNotNull(error.failureDetails)
         val diagnostics = requireNotNull(report(details).diagnostics)
         assertEquals(JsonPrimitive("NO_ENGINE_RESOLVED"), diagnostics.values["app_search_readiness"])
+        assertEquals(JsonPrimitive("PROFILE"), diagnostics.values["app_search_settings_scope"])
+        assertEquals(JsonPrimitive("SELECT_SEARCH_ENGINE"), diagnostics.values["app_search_user_action"])
+        assertEquals(JsonPrimitive(false), diagnostics.values["app_search_permission_bypass_allowed"])
         assertTrue(IssueReportDiagnostics.SEARCH_READINESS_FEATURE in diagnostics.requiredServiceFeatures())
         assertFalse("app_search_readiness" in requireNotNull(report(details + ("dispatched" to true)).diagnostics).values)
         assertFalse("app_search_readiness" in requireNotNull(report(details + ("search_readiness_observation" to "private text")).diagnostics).values)
         assertFalse(events.any { it is ApiState.Done })
+    }
+
+    @Test fun explicitlyDisabledSearchHasAnActionablePreflightWithoutPreparingTools() {
+        for ((disabled, reason) in listOf(
+            (true to false) to AppAssistedSearch.Readiness.CHAT_TOOLS_DISABLED,
+            (false to true) to AppAssistedSearch.Readiness.PROFILE_TOOLS_DISABLED,
+            (true to true) to AppAssistedSearch.Readiness.CHAT_TOOLS_DISABLED
+        )) {
+            val error = requireNotNull(AppAssistedSearch.configurationBlock(disabled.first, disabled.second))
+            assertEquals("TOOL_UNAVAILABLE", error.errorCode)
+            assertEquals("BLOCKED", error.taskOutcome)
+            val details = requireNotNull(error.failureDetails)
+            assertEquals(JsonPrimitive(reason.name), details["search_readiness_observation"])
+            assertEquals(JsonPrimitive(reason.settingsScope), details["settings_scope"])
+            assertEquals(JsonPrimitive(reason.userAction), details["user_action"])
+            assertEquals(JsonPrimitive(false), details["permission_bypass_allowed"])
+            assertEquals(JsonPrimitive(false), details["dispatched"])
+            assertEquals(JsonPrimitive("NO"), details["remote_acceptance"])
+        }
+        assertEquals(null, AppAssistedSearch.configurationBlock(false, false))
     }
 
     @Test fun searchReadinessIdentifiesTheFirstInventoryThatLostAnEngine() {
@@ -132,6 +160,79 @@ class AppAssistedSearchTest {
         assertTrue(packet!!.contains("https://example.org/launch"))
         assertTrue(packet.contains("Orion launch confirmed for October 27."))
         assertTrue(events.any { it is ApiState.ToolCall })
+        assertFalse(events.any { it is ApiState.Error })
+    }
+
+    @Test fun dnsFailureAndConnectivityPrecheckRetainTheToolCauseAtTheChatBoundary() = runBlocking {
+        for ((code, phase) in listOf("DNS_FAILED" to "dns_resolution", "DNS_RECOVERY" to "connection_preflight", "THROWN" to "dns_resolution")) {
+            val tool = mockk<dev.chungjungsoo.gptmobile.data.agent.AgentTool>()
+            io.mockk.coEvery { tool.execute(any(), any()) } coAnswers {
+                if (code == "THROWN") throw java.net.UnknownHostException("Search service unavailable")
+                dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(firstArg(), code, "Search unavailable")
+            }
+            val trace = mockk<ToolTraceSession>()
+            val started = mockk<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent>(relaxed = true)
+            io.mockk.every { started.callId } returns "run:app-search"
+            io.mockk.every { started.modelToolName } returns "web_search"
+            io.mockk.coEvery { trace.start(any()) } returns started
+            io.mockk.coEvery { trace.finish(any(), any()) } returns ApiState.ToolCall(0)
+            val events = mutableListOf<ApiState>()
+            val resolved = dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(tool, null, "Search", "web_search", "web_search")
+            val result = AppAssistedSearch.prepare(listOf(MessageV2(content = "Search online for Orion", platformType = null)), listOf(resolved), trace, "run", 2200, events::add)
+            val failure = events.filterIsInstance<ApiState.Error>().single()
+            assertEquals(null, result)
+            assertEquals("DNS_RESOLUTION_FAILED", failure.errorCode)
+            assertEquals(JsonPrimitive(phase), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+            assertEquals(JsonPrimitive(true), failure.failureDetails?.get("retryable"))
+            io.mockk.coVerify(exactly = 1) { tool.execute(any(), any()) }
+        }
+    }
+
+    @Test fun javaHeapPressureSkipsOptionalPageEnrichmentAndRetainsSearchSnippets() = runBlocking {
+        var pageReads = 0
+        val search = object : dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+            override val definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("web_search", "Authorized aggregate", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject) =
+                dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(
+                    callId,
+                    dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json(
+                        kotlinx.serialization.json.Json.parseToJsonElement("""{"results":[{"title":"Launch update","url":"https://example.org/launch","snippet":"Launch scheduled for October 27."}]}""")
+                    ),
+                    false
+                )
+        }
+        val reader = object : dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+            override val definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("read_url", "Read public page", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): dev.chungjungsoo.gptmobile.data.agent.AgentToolResult {
+                pageReads++
+                return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "JAVA_HEAP_PRESSURE", "waiting for Java heap capacity")
+            }
+        }
+        val trace = mockk<ToolTraceSession>()
+        val started = mockk<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent>()
+        io.mockk.every { started.sequence } returns 0
+        io.mockk.coEvery { trace.start(any()) } returns started
+        io.mockk.coEvery { trace.finish(any(), any()) } returns ApiState.ToolCall(0)
+        val events = mutableListOf<ApiState>()
+        val tools = listOf(
+            dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(search, "authorized-search", "Search", "web_search", "web_search"),
+            dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(reader, null, "Reader", "read_url", "read_url")
+        )
+
+        val packet = AppAssistedSearch.prepare(
+            listOf(MessageV2(content = "Search online for Orion", platformType = null)),
+            tools,
+            trace,
+            "run",
+            2200,
+            events::add
+        )
+
+        assertTrue(packet != null)
+        assertTrue(requireNotNull(packet).contains("Launch scheduled for October 27."))
+        assertEquals(1, pageReads)
+        assertTrue(events.any { it is ApiState.Notice })
         assertFalse(events.any { it is ApiState.Error })
     }
 

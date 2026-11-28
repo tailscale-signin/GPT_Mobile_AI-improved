@@ -1,22 +1,38 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
+import android.content.ContextWrapper
+import android.os.Looper
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.ViewModelStore
+import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatButton
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -24,6 +40,56 @@ import org.junit.Test
 
 class VoiceEntryInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun oneStartAndStopKeepsAReadableExport() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val isolated = File(context.cacheDir, "bench-ui-${UUID.randomUUID()}").apply { mkdirs() }
+        val store = ViewModelStore()
+        val benchmarkStarted = AtomicBoolean(false)
+        val discoveryEntered = CountDownLatch(1)
+        val resumeDiscovery = CountDownLatch(1)
+        val model = VoiceSpeechBenchmarkViewModel(object : ContextWrapper(context) {
+            override fun getApplicationContext() = this
+            override fun getNoBackupFilesDir(): File {
+                // Without installed packs discovery can finish before the emulator sends the Stop tap.
+                if (benchmarkStarted.get() && Looper.myLooper() != Looper.getMainLooper()) {
+                    discoveryEntered.countDown()
+                    check(resumeDiscovery.await(45, TimeUnit.SECONDS)) { "Benchmark model discovery did not resume" }
+                }
+                return isolated
+            }
+        })
+        store.put("benchmark", model)
+        try {
+            compose.setContent {
+                MaterialTheme {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        VoiceSpeechBenchmarkSettings(KokoroVoice.HEART, 0, 1f, true, beforeStart = { benchmarkStarted.set(true) }, viewModel = model)
+                    }
+                }
+            }
+            compose.waitUntil(10_000) { model.state.value.loaded }
+            compose.onNodeWithText("Run full voice benchmark").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
+            compose.waitUntil(10_000) { model.state.value.running && discoveryEntered.count == 0L }
+            compose.onNodeWithText("Stop benchmark").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
+            compose.waitUntil(10_000) { model.state.value.cancelling }
+            resumeDiscovery.countDown()
+            compose.waitUntil(20_000) { !model.state.value.running && model.state.value.suite != null }
+            compose.onNodeWithTag("voice_benchmark_suite_export").performScrollTo().assertIsEnabled()
+            val suite = requireNotNull(model.state.value.suite)
+            assertEquals("CANCELLED", suite.state)
+            val output = ByteArrayOutputStream()
+            model.exportSuite(suite, output)
+            val exported = JSONObject(output.toString("UTF-8"))
+            assertEquals(suite.runId, exported.getJSONObject("suite").getString("runId"))
+            assertEquals("CANCELLED", exported.getJSONObject("suite").getString("state"))
+            assertEquals(suite.results.size, exported.getJSONArray("stageEvidence").length())
+        } finally {
+            resumeDiscovery.countDown()
+            store.clear()
+            isolated.deleteRecursively()
+        }
+    }
 
     @Test fun selectedStreamingPackCanStartVoiceChatWithoutTheNativeKokoroPack() {
         var starts = 0

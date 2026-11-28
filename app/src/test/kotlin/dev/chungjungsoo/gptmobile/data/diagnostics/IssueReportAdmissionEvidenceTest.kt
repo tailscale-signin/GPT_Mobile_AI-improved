@@ -233,15 +233,23 @@ class IssueReportAdmissionEvidenceTest {
         val invalid = listOf<JsonElement>(JsonNull, JsonPrimitive("UNRECOGNIZED_EVIDENCE_OPERATION"), JsonArray(emptyList()), JsonArray(failures + failures.first()), JsonArray(listOf(failures.first(), failures.first())), JsonArray(listOf(JsonPrimitive("private-tool"))), JsonArray(listOf(JsonPrimitive(1))))
         invalid.forEach { assertNull("$key=$it", base.copy(values = base.values + (key to it)).validated()) }
         val entries = GitHubAcceptancePublicationEvidence.Entry.entries
-        assertEquals(18, entries.size)
+        assertEquals(19, entries.size)
         assertTrue(GitHubAcceptancePublicationEvidence.Entry.LOOKUP_OBSERVATION in entries)
         assertTrue(GitHubAcceptancePublicationEvidence.Entry.EVIDENCE_RETENTION_INCOMPLETE in entries)
+        val issueIntake = base.copy(
+            values = base.values + mapOf(
+                "acceptance_publication_entry" to JsonPrimitive(GitHubAcceptancePublicationEvidence.Entry.ISSUE_INTAKE.name),
+                "acceptance_publication_source" to JsonPrimitive(GitHubAcceptancePublicationEvidence.Source.ISSUE_INTAKE.name)
+            )
+        )
+        assertTrue(issueIntake.isValid())
         assertNull(base.copy(values = base.values + ("acceptance_publication_entry" to JsonPrimitive("UNKNOWN_ENTRY"))).validated())
         for (entry in entries) {
             val partial = base.copy(values = base.values + ("acceptance_publication_entry" to JsonPrimitive(entry.name)), omittedFields = listOf(key))
             assertTrue(partial.isValid())
             assertNull(partial.values[key])
             assertTrue(GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE in partial.requiredServiceFeatures())
+            assertEquals(entry == GitHubAcceptancePublicationEvidence.Entry.ISSUE_INTAKE, GitHubAcceptancePublicationEvidence.ISSUE_INTAKE_FEATURE in partial.requiredServiceFeatures())
         }
         for (field in GitHubAcceptancePublicationEvidence.observationFields) {
             val value = if (field == key) JsonArray(failures.take(1)) else JsonPrimitive("STATUS_COLLECTION")

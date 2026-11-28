@@ -22,7 +22,10 @@ class VoicePerformanceExportTest {
             Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-gpu-requested", "GPU"),
             Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-npu-requested", "NPU"),
             Triple("MEDIAPIPE_PHONON", "mediapipe-phonon-cpu-requested", "CPU"),
-            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-cpu-requested", "CPU")
+            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-cpu-requested", "CPU"),
+            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-multilingual-cpu-requested", "CPU"),
+            Triple("COMPILED_POCKET", "litert-compiled-pocket-gpu-requested", "GPU"),
+            Triple("COMPILED_POCKET", "litert-compiled-pocket-npu-requested", "NPU")
         )) {
             val history = VoicePerformanceHistory()
             history.observe("text_to_audio", 125, family, true)
@@ -54,7 +57,7 @@ class VoicePerformanceExportTest {
         assertEquals("NO_RECORDED_SAMPLES", availability.getValue("speechStageTimings").jsonPrimitive.content)
         assertEquals("OBSERVED", availability.getValue("graphicsGpuFrameDuration").jsonPrimitive.content)
         assertEquals("NOT_MEASURED", availability.getValue("cpuGpuNpuUtilization").jsonPrimitive.content)
-        assertEquals("NOT_MEASURED", availability.getValue("endToEndConversationLatency").jsonPrimitive.content)
+        assertEquals("NO_COMPLETE_CAPTURE_TO_PRESENTATION_SAMPLE", availability.getValue("endToEndConversationLatency").jsonPrimitive.content)
         for (field in listOf("cpuUtilization", "gpuUtilization", "npuUtilization", "latestSynthesis")) assertEquals(JsonNull, json[field])
         assertEquals(6295L, json.getValue("observedFrameSamples").jsonPrimitive.long)
         assertEquals(3L, json.getValue("droppedFrameMetricCallbacks").jsonPrimitive.long)
@@ -67,7 +70,7 @@ class VoicePerformanceExportTest {
 
     @Test fun absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance() {
         val json = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot())).jsonObject
-        assertEquals(4, json.getValue("schemaVersion").jsonPrimitive.int)
+        assertEquals(5, json.getValue("schemaVersion").jsonPrimitive.int)
         assertEquals(JsonNull, json["captureQueueMs"])
         assertEquals(JsonNull, json["thermalStatus"])
         assertEquals(JsonNull, json["latestSynthesis"])
@@ -75,6 +78,22 @@ class VoicePerformanceExportTest {
         assertEquals(JsonNull, json["batteryEnergy"])
         assertFalse(json.getValue("pairedSpeedComparison").jsonPrimitive.boolean)
         assertTrue(json.getValue("series").jsonArray.isEmpty())
+    }
+
+    @Test fun conversationLatencyRequiresItsOwnMatchedSampleAndKeepsTheSoftwareClockBoundary() {
+        val history = VoicePerformanceHistory()
+        history.observe("text_to_audio", 125, "COMPILED_POCKET", true)
+        val synthesisOnly = Json.parseToJsonElement(voicePerformanceExport(history.snapshots.value)).jsonObject
+        assertEquals("NO_COMPLETE_CAPTURE_TO_PRESENTATION_SAMPLE", synthesisOnly.getValue("availability").jsonObject.getValue("endToEndConversationLatency").jsonPrimitive.content)
+        history.observe("speech_end_to_answer_audio", 1_875, "COMPILED_POCKET", true)
+        val document = Json.parseToJsonElement(voicePerformanceExport(history.snapshots.value)).jsonObject
+        assertEquals("MEASURED", document.getValue("availability").jsonObject.getValue("endToEndConversationLatency").jsonPrimitive.content)
+        val latency = document.getValue("conversationLatency").jsonObject
+        assertEquals("DETECTED_SPEECH_END_TO_PRESENTED_ANSWER_AUDIO", latency.getValue("scope").jsonPrimitive.content)
+        assertEquals("AUDIO_TIMESTAMP_OR_PLAYBACK_HEAD_NOT_ACOUSTIC_LOOPBACK", latency.getValue("audioBoundary").jsonPrimitive.content)
+        assertEquals("DRAFT_REVIEW_QUEUE_AND_PROCESSING", latency.getValue("elapsedTimeIncludes").jsonPrimitive.content)
+        assertEquals(1, latency.getValue("retainedSamples").jsonPrimitive.int)
+        assertEquals(JsonNull, document["acousticSpeakerLatency"])
     }
 
     @Test fun coldWarmAndActualProvidersKeepTheirOwnRecordedSeries() {

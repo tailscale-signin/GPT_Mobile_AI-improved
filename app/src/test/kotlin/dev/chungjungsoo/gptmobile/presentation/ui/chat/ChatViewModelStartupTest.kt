@@ -1287,6 +1287,67 @@ class ChatViewModelStartupTest {
         assertEquals(71, model.voiceAdmission.value?.userMessageId)
         assertEquals(accepted.runs.map { it.runId }, model.voiceAdmission.value?.runIds)
         assertEquals("", model.question.text.toString())
+        val acceptedIds = accepted.runs.mapTo(mutableSetOf()) { it.runId }
+        model.stopVoiceTurn(acceptedIds.single())
+        verify(exactly = 1) { coordinator.cancelRuns(acceptedIds) }
+        verify(exactly = 0) { coordinator.cancelChat(any()) }
+        assertEquals(acceptedIds, model.stoppedVoiceRuns.value)
+    }
+
+    @Test fun translateOnlyTreatsTaskControlAsSourceAndBypassesCombinedPlanningAndHistory() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1)
+        val profile = profiles.single()
+        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "Previous unrelated instructions", platformType = null))
+        val dispatched = CompletableDeferred<AgentRunRequest>()
+        coEvery { repository.persistAgentTurn(any()) } answers {
+            val request = firstArg<PersistAgentTurnRequest>()
+            val draft = request.runs.single()
+            val user = request.userMessage.copy(id = 71)
+            val answer = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = 71, currentRunId = draft.runId)
+            val run = AgentRun(draft.runId, 7, 71, 72, profile.uid, profile.compatibleType.name, profile.model)
+            PersistAgentTurnResult(request.chatRoom, user, listOf(answer), listOf(run))
+        }
+        every { coordinator.start(any()) } answers {
+            dispatched.complete(firstArg<List<AgentRunRequest>>().single())
+            Unit
+        }
+        val model = createViewModel(combined = true, testFeatures = features.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT, true))
+        val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.TRANSLATE_FRENCH
+        model.voiceReplyPolicy = policy
+        model.question.edit { replace(0, length, "Stop this task") }
+        model.askVoiceQuestion()
+        val accepted = withTimeout(5000) { dispatched.await() }
+        assertEquals("Stop this task", accepted.userMessages.single().content)
+        assertEquals(policy, dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(accepted.userMessages))
+        assertTrue(accepted.assistantMessages.flatten().all { it.content.isEmpty() })
+        val tools = requireNotNull(accepted.chatToolConfig)
+        assertEquals(policy, tools.voiceResponsePolicy)
+        assertTrue(tools.allToolsDisabled)
+        assertNull(tools.combined)
+        assertFalse(requireNotNull(accepted.gatewayAdmissionAllowed).invoke())
+        coVerify(exactly = 0) { repository.prepareCombinedTurn(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.fetchMessageReferencesV2(7) }
+        verify(exactly = 0) { coordinator.cancelRuns(any()) }
+        verify(exactly = 0) { coordinator.cancelChat(any()) }
+    }
+
+    @Test fun stopWhileCheckingRetiresOnlyTheDictatedRequestBeforeDispatch() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val check = CompletableDeferred<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } coAnswers { check.await() }
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities, testFeatures = features.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT, true))
+        assertTrue(model.submitVoiceTranscript("My voice turn"))
+        model.stopVoiceTurn(null)
+        val profile = profiles.single()
+        check.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "configuration", "runtime", System.currentTimeMillis(), null, true, true))
+        runCurrent()
+        assertEquals("VOICE_TURN_STOPPED", model.voiceAdmission.value?.reason)
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        verify(exactly = 0) { coordinator.cancelChat(any()) }
     }
 
     @Test fun deletedVoiceRoomIsRecoverableAndCannotAdmitSpeech() = runTest(dispatcher) {

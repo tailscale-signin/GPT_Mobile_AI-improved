@@ -55,6 +55,7 @@ class GitHubAcceptanceCompactionTest {
                     put("task_deadline_check", "BEFORE_MODEL_LOOP")
                     put("task_deadline_observation", "WINDOW_EXPIRED")
                     put("task_deadline_clock", "WALL_CLOCK")
+                    put("task_deadline_source", "EXPLICIT_USER_REQUEST")
                     put("task_deadline_renewed", false)
                     put("task_deadline_window_seconds", 3600)
                     put("task_deadline_overdue_seconds", 46)
@@ -131,6 +132,7 @@ class GitHubAcceptanceCompactionTest {
         assertEquals(JsonPrimitive(3646), captured.values["task_deadline_elapsed_seconds"])
         assertEquals(JsonPrimitive(0), captured.values["task_deadline_remaining_seconds"])
         assertEquals(JsonPrimitive(false), captured.values["task_deadline_renewed"])
+        assertEquals(JsonPrimitive("EXPLICIT_USER_REQUEST"), captured.values["task_deadline_source"])
         val retained = (captured.values.getValue("unmet_criterion_states") as JsonArray).size
         assertTrue(retained in 1..7)
         for (key in listOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes", "unmet_criterion_categories", "unmet_criterion_states", "unmet_criterion_blockers")) {

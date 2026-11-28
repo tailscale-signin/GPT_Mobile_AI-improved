@@ -45,12 +45,41 @@ class ToolExecutionBudget(
     private val remainingBytes = AtomicInteger(limits.maxToolOutputBytes)
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
     private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
+
+    // The accepted objective is immutable for this budget. Protect its initial
+    // proof allowance even when one parallel source batch crosses a round boundary.
+    private data class VerificationAllocation(val proof: Int, val cleanup: Int)
+    private val verificationAllocation by lazy {
+        AtomicReference(
+            VerificationAllocation(
+                dev.chungjungsoo.gptmobile.data.github.GitHubChecklistBudget.ordinaryVerificationReserve(
+                    executionLimit,
+                    limits.githubTaskRequest?.let { dev.chungjungsoo.gptmobile.data.github.GitHubRequestCompletion.requirements(it).size } ?: 0
+                ),
+                0
+            )
+        )
+    }
     private val combinedMode = combined != null || limits.combined != null
+
+    internal fun restoreArgumentRepairs(receipts: Iterable<JsonObject>) = argumentRepairs.restore(receipts)
 
     // GitHub delivers bounded saved-view pages; a cumulative excerpt allowance
     // must not stop traversal after three 8 KiB pages. The call ceiling,
     // per-result bound and provider replay/context admission still apply.
     private val separateResultAllowance = limits.researchAcquisition || combinedMode || limits.githubTask && limits.maxToolOutputBytes > 0
+
+    /** Only adjusts the stage allocation; every call still spends the same durable total allowance. */
+    fun updateVerificationBudget(pendingCriteria: Int, cleanupReserve: Int) {
+        if (limits.githubTask) {
+            verificationAllocation.set(
+                VerificationAllocation(
+                    dev.chungjungsoo.gptmobile.data.github.GitHubChecklistBudget.ordinaryVerificationReserve(executionLimit, pendingCriteria),
+                    cleanupReserve.coerceIn(0, executionLimit.coerceAtLeast(0))
+                )
+            )
+        }
+    }
 
     fun usedCalls(): Int = calls.get()
 
@@ -188,7 +217,10 @@ class ToolExecutionBudget(
                 }
             }
             if (invalid.isNotEmpty()) {
-                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid, searchValidationOwner = tool.searchValidationOwner, catalog = tool.argumentCatalog())
+                val repairs = currentCoroutineContext()[ToolArgumentRepairScope]?.budget ?: argumentRepairs
+                if (repairs !== argumentRepairs) repairs.restore(argumentRepairs.snapshot())
+                val rejected = repairs.rejection(callId, definition, arguments, invalid, searchValidationOwner = tool.searchValidationOwner, catalog = tool.argumentCatalog())
+                argumentRepairs.restore(listOfNotNull(rejected.executionReceipt))
                 return { withBudgetState(rejected) }
             }
             semanticArgumentRejections[signature]?.let { previous ->
@@ -212,11 +244,21 @@ class ToolExecutionBudget(
             }
             val family = definition.name.substringBefore("__")
             val liveVerification = arguments["verify_live"] == JsonPrimitive(true) && (definition.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true
+            // Reopening an issued local page is evidence consumption, not new
+            // repository acquisition. The operation still validates the cursor,
+            // owning scope and current grants, and spends the same durable call.
+            val retainedPageRead = GitHubSavedReadProgress.cursor(arguments) != null &&
+                (definition.inputSchema["properties"] as? JsonObject)?.containsKey("view_cursor") == true
             val inventoryRead = family in setOf("github_repository", "github_issue", "github_pr", "github_ci", "github_release", "github_commit") &&
                 (arguments["action"] as? JsonPrimitive)?.content in setOf("list", "search", "branches", "tags", "runs", "jobs", "workflows", "commits", "releases")
-            val sourceAcquisition = limits.githubTask && !liveVerification && (family in setOf("github_read", "github_search") || inventoryRead)
-            val callCeiling = if (sourceAcquisition && executionLimit != Int.MAX_VALUE) {
-                executionLimit - dev.chungjungsoo.gptmobile.data.github.GitHubChecklistBudget.ordinaryVerificationReserve(executionLimit)
+            val sourceAcquisition = limits.githubTask && !liveVerification && !retainedPageRead && (family in setOf("github_read", "github_search") || inventoryRead)
+            val allocation = verificationAllocation.get()
+            val callCeiling = if (limits.githubTask && executionLimit != Int.MAX_VALUE) {
+                when {
+                    sourceAcquisition -> (executionLimit - allocation.proof - allocation.cleanup).coerceAtLeast(0)
+                    liveVerification || retainedPageRead -> (executionLimit - allocation.cleanup).coerceAtLeast(0)
+                    else -> executionLimit // Exact cleanup recipes still use the accepted total ceiling.
+                }
             } else {
                 executionLimit
             }
@@ -270,7 +312,17 @@ class ToolExecutionBudget(
             if (!acquired) {
                 if (callCeiling < executionLimit && calls.get() < executionLimit) {
                     return {
-                        withBudgetState(ToolResultEnvelope.error(callId, "VERIFICATION_RESERVE_REACHED", "Source acquisition stopped before spending the verification reserve. Retain the task checkpoint and verify completed work; no source request was dispatched."))
+                        withBudgetState(
+                            ToolResultEnvelope.error(
+                                callId,
+                                "VERIFICATION_RESERVE_REACHED",
+                                if (allocation.cleanup > 0 && (liveVerification || retainedPageRead)) {
+                                    "Verification reads stopped before spending the required fixture cleanup allowance. Retain the task checkpoint and complete its owned cleanup; no read was dispatched."
+                                } else {
+                                    "Source acquisition stopped before spending the verification and cleanup allowance. Retain the task checkpoint and verify completed work; no source request was dispatched."
+                                }
+                            )
+                        )
                     }
                 }
                 val message = toolCallBudgetMessage()

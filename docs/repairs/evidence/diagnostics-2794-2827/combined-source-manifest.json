@@ -1,0 +1,16 @@
+{
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt": "c9ec9e4148c4e3f70cacedbae35cbf97315751e87765dbd3642bcf223b3a657c",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetStore.kt": "1c38800e3a821a37e9b1d488fbb5b9e9196d05742c7d6f7625373b203a8d8511",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWorkPlan.kt": "131982da133850484313eb2d273f92cb5253f97604f28937028e36a5683c6b8e",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWorkInventory.kt": "417dea1b071362f5525fc19e5a0c3db1d4a6d49044eaca7fba10dbbd723d632a",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedProgressSnapshot.kt": "01417b62f16721a83213c2879a8288a76f7ac69efa43dc701df272022c618015",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliveryPhase.kt": "b0409a873077f0dc3a94d83b5c86f6bbc3d853c08e47c9093fa6febeb9129b87",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedPolicyResolver.kt": "4b151ea1392c35f36c9c5f0a1a4d8a574aa06d906d54e5ef881992e622ac06d7",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedSynthesisPreferences.kt": "37ac09ee6238b850719d2d8bc5a4cf13322d59d011b1ab311d0f8659e42548c2",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRequestScope.kt": "adc5d8dab2dc921e55ed7e790a55eb37d111a2afe14fea2809f399958b5efad2",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedContributorAllowance.kt": "edbdea004f952d8e74eeea66b4a5192e3885dbb4aaee837e76c14cd313dac753",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/RoutineTaskPolicy.kt": "3d4bc1e18102faefb7188d35ca941baddc11b2334342bd0e53fb4f23af319b98",
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ConversationCombinedSettings.kt": "50e6c893fb262f3324e7e40fb0e22c938ea3ac6d8508209335a6e7b7417c3ebf",
+  "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt": "a102dc2d1a13ad92b9d78b87b6ffc3d80c1c02452f11a977f3cbd2afcfe0c529",
+  "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedSinglePassTest.kt": "c2f75a542b88794cb230da012aac7f1cef93a7e87ebf1a8e5cf07cc4bb2361a1"
+}

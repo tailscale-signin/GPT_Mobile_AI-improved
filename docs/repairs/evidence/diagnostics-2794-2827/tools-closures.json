@@ -1,0 +1,702 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "scope": [
+    2794,
+    2795,
+    2796,
+    2797,
+    2798,
+    2799,
+    2803,
+    2804,
+    2805,
+    2814,
+    2815,
+    2816,
+    2817
+  ],
+  "authorization": "Root delegated the user-authorized action-taken resolution comments, closures, and readback for these 13 issues only.",
+  "published_revision": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+  "assessment_path": "/workspace/scratch/49479c165f4e/new-issues-2794-2827-tools-assessment.json",
+  "published_source_check": "/workspace/scratch/49479c165f4e/batch2794-tools-host/published-source-check.json",
+  "created_at": "2026-11-28T05:14:50.847Z",
+  "issues": [
+    {
+      "issue": 2794,
+      "report_id": "06743f58-99b1-4a53-aad4-91bd280e417e",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2794",
+      "intake_body_sha256": "1e9bc2a7a3f81a995f19f47f893b968df37fbf6175dd58b68b8994a5dafe29e4",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659297909,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:44:49Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `06743f58-99b1-4a53-aad4-91bd280e417e` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234550621,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2794#issuecomment-7234550621",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:15:11.654Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:15:03Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:15:02.738Z",
+      "closure_response": {
+        "id": 6659297909,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:15:03Z",
+        "closed_at": "2026-11-28T05:15:03Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:15:39.592Z",
+        "id": 7234550621,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2794#issuecomment-7234550621",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2795,
+      "report_id": "90a10839-a720-487c-85b2-5a477e070906",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2795",
+      "intake_body_sha256": "0465dc1c6dabfeb8de9252767fe197d0a9aaad06292fe264279cc2107d32da6c",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659298167,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:44:51Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `90a10839-a720-487c-85b2-5a477e070906` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234558137,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2795#issuecomment-7234558137",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:15:42.915Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:15:41Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:15:40.174Z",
+        "id": 6659298167,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:15:40.990Z",
+      "closure_response": {
+        "id": 6659298167,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:15:41Z",
+        "closed_at": "2026-11-28T05:15:41Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:15:42.915Z",
+        "id": 7234558137,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2795#issuecomment-7234558137",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2796,
+      "report_id": "6a9b5bb7-1ee7-411e-b0a3-1e0a8dadd849",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2796",
+      "intake_body_sha256": "01a4b7f25af423b759b28ed55ea46c2b6dece4855140bf64a1b618da8f1f8b58",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659298345,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:44:53Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `6a9b5bb7-1ee7-411e-b0a3-1e0a8dadd849` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234558786,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2796#issuecomment-7234558786",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:15:46.680Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:15:45Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:15:43.570Z",
+        "id": 6659298345,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:15:44.706Z",
+      "closure_response": {
+        "id": 6659298345,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:15:45Z",
+        "closed_at": "2026-11-28T05:15:45Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:15:46.680Z",
+        "id": 7234558786,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2796#issuecomment-7234558786",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2797,
+      "report_id": "fd49b704-3a9e-4dd6-bc27-6ce3b8d895fd",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2797",
+      "intake_body_sha256": "55ac95489c679afa6eaa43cb7feea24c81f4861b7141796c38edb77a112642b6",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659298533,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:44:54Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `fd49b704-3a9e-4dd6-bc27-6ce3b8d895fd` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234559379,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2797#issuecomment-7234559379",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:15:49.951Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:15:48Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:15:47.271Z",
+        "id": 6659298533,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:15:48.021Z",
+      "closure_response": {
+        "id": 6659298533,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:15:48Z",
+        "closed_at": "2026-11-28T05:15:48Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:15:49.951Z",
+        "id": 7234559379,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2797#issuecomment-7234559379",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2798,
+      "report_id": "103f7f8d-6afa-42ea-8519-f4b7964333f3",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2798",
+      "intake_body_sha256": "daea39522dfe2febe1e5ae3bf2ec9d316b447cc264306a4c79ee150e12fe8dbf",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659298710,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:44:55Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `103f7f8d-6afa-42ea-8519-f4b7964333f3` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234560014,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2798#issuecomment-7234560014",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:15:53.409Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:15:52Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:15:50.645Z",
+        "id": 6659298710,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:15:51.457Z",
+      "closure_response": {
+        "id": 6659298710,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:15:52Z",
+        "closed_at": "2026-11-28T05:15:52Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:15:53.409Z",
+        "id": 7234560014,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2798#issuecomment-7234560014",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2799,
+      "report_id": "813159a9-98ce-4977-a5b7-33210c84970f",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2799",
+      "intake_body_sha256": "e32c3ab6ecc263fb7cd3ce6ebdb511be54bfe4d3caed558ae358099493a7d215",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659298866,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:44:56Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `813159a9-98ce-4977-a5b7-33210c84970f` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\nThe later HTTP 404 report #2804 has the same run hash but a different call hash. That does not prove a common URL or successful recovery of this lookup.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234560607,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2799#issuecomment-7234560607",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:15:56.872Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:15:55Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:15:53.907Z",
+        "id": 6659298866,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:15:54.684Z",
+      "closure_response": {
+        "id": 6659298866,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:15:55Z",
+        "closed_at": "2026-11-28T05:15:55Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:15:56.872Z",
+        "id": 7234560607,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2799#issuecomment-7234560607",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2803,
+      "report_id": "aaafb8b4-ce0b-4170-b69a-a8124a87709d",
+      "title": "[Debug] chat · TOOL_UNAVAILABLE · tool_readiness",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2803",
+      "intake_body_sha256": "05551b651284dc4c7f2ad79f4843a6a7b9e93ac6e875a85dad84fa3907353939",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659299623,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:45:02Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `aaafb8b4-ce0b-4170-b69a-a8124a87709d` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** App-assisted `web_search` was blocked with `PROFILE_TOOLS_DISABLED`, settings scope `PROFILE`, and recovery action `ENABLE_PROFILE_TOOLS`. The report explicitly records `permission_bypass_allowed=false`, `dispatched=false`, `remoteAcceptance=NO`, and `retryable=false`.\n\n**Action taken:** Reviewed [AppAssistedSearch's configuration gate and guidance](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt) and its ChatRepository caller. The caller returns this configuration error before optional search-tool preparation. Confirmed the relevant guard/caller source matches the captured revision. Executed **14 focused exact-source host cases**, all passing, including the unchanged [explicit-disablement regression](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchTest.kt) for chat-only, profile-only, and both-disabled settings, with no permission bypass or remote acceptance.\n\n**Recovery:** Open the selected **AI profile → Tools**, review and enable the tools you intend to authorize, then submit the search again. If tools were deliberately disabled, retain that choice and revise the request to avoid web search. The app must not silently select a different profile, connection, or engine.\n\n**Disposition:** Closing this report after validating the configuration guard and actionable recovery guidance; no app defect was reproduced. This was a local admission decision, not a dispatched OpenRouter request. No profile setting or permission was changed by this audit. The host qualification does not establish a later successful search, and adjacent DNS/context events do not prove the cause of this profile setting.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234561218,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2803#issuecomment-7234561218",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:16:00.638Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:15:59Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:15:57.410Z",
+        "id": 6659299623,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:15:58.350Z",
+      "closure_response": {
+        "id": 6659299623,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:15:59Z",
+        "closed_at": "2026-11-28T05:15:59Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:16:00.638Z",
+        "id": 7234561218,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2803#issuecomment-7234561218",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2804,
+      "report_id": "5645a7c5-0a92-40c6-b03b-4d06aa47e2cf",
+      "title": "[Debug] tools · SOURCE_UNAVAILABLE · retrieval",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2804",
+      "intake_body_sha256": "42a40a599320dfd173080e6431e895c9c909c3294570d9a95201f01b6f55710a",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659300873,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:45:12Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `5645a7c5-0a92-40c6-b03b-4d06aa47e2cf` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call received **HTTP 404**, with `SOURCE_UNAVAILABLE`, `url_reader_availability=HTTP_UNAVAILABLE`, `dispatched=true`, `retryable=false`, and `requiresReconciliation=false`.\n\n**Action taken:** Traced the observed 404 through the [reader's failure classifier, receipt, and missing-source handling](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt), and confirmed the relevant captured/current source is unchanged. Executed **14 focused exact-source host cases**, all passing; the 404 fixture executes the actual status classifier and receipt producer and checks `SOURCE_UNAVAILABLE`, `FAILED`, `requestSent=true`, `httpStatus=404`, and `retryable=false`. Also reviewed the existing [missing-source cache regression](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlToolTest.kt), which distinguishes cached suppression from another dispatched request and permits a different source.\n\n**Recovery:** Inspect the saved URL, correct a stale or missing path, or select another authorized source. Retain this source as unavailable evidence; do not repeatedly resend the unchanged 404 path or treat its error body as retrieved content. A later explicit retry should follow a real URL/source change and normal cache/turn boundaries.\n\n**Disposition:** Closing this report after completed source review and guard qualification; no app defect was reproduced. The payload omits the URL and cannot distinguish a moved/deleted resource, an incorrect path, or request-specific access behavior. This call shares a run with #2799 but has a different call identity 22.948 seconds later; a shared URL or DNS recovery is unproven. The host fixture did not contact the remote source or execute the complete HTTP/cache integration test. No remote content was repaired or successful retrieval claimed.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234565058,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2804#issuecomment-7234565058",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:16:22.185Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:20Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:16:19.170Z",
+        "id": 6659300873,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:16:19.904Z",
+      "closure_response": {
+        "id": 6659300873,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:16:20Z",
+        "closed_at": "2026-11-28T05:16:20Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:16:22.185Z",
+        "id": 7234565058,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2804#issuecomment-7234565058",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2805,
+      "report_id": "a40b28e6-fd85-42e5-aeec-e21acfc70803",
+      "title": "[Debug] chat · TOOL_UNAVAILABLE · tool_readiness",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2805",
+      "intake_body_sha256": "7ac1ed33d0173050a83c168f16d89d3bc3875843c99ec7c910f47b34919dbc05",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659334672,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:49:40Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `a40b28e6-fd85-42e5-aeec-e21acfc70803` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** App-assisted `web_search` was blocked with `PROFILE_TOOLS_DISABLED`, settings scope `PROFILE`, and recovery action `ENABLE_PROFILE_TOOLS`. The report explicitly records `permission_bypass_allowed=false`, `dispatched=false`, `remoteAcceptance=NO`, and `retryable=false`.\n\n**Action taken:** Reviewed [AppAssistedSearch's configuration gate and guidance](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt) and its ChatRepository caller. The caller returns this configuration error before optional search-tool preparation. Confirmed the relevant guard/caller source matches the captured revision. Executed **14 focused exact-source host cases**, all passing, including the unchanged [explicit-disablement regression](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchTest.kt) for chat-only, profile-only, and both-disabled settings, with no permission bypass or remote acceptance.\n\n**Recovery:** Open the selected **AI profile → Tools**, review and enable the tools you intend to authorize, then submit the search again. If tools were deliberately disabled, retain that choice and revise the request to avoid web search. The app must not silently select a different profile, connection, or engine.\n\n**Disposition:** Closing this report after validating the configuration guard and actionable recovery guidance; no app defect was reproduced. This was a local admission decision, not a dispatched OpenRouter request. No profile setting or permission was changed by this audit. The host qualification does not establish a later successful search, and adjacent DNS/context events do not prove the cause of this profile setting.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234565710,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2805#issuecomment-7234565710",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:16:25.616Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:24Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:16:22.784Z",
+        "id": 6659334672,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:16:23.721Z",
+      "closure_response": {
+        "id": 6659334672,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:16:24Z",
+        "closed_at": "2026-11-28T05:16:24Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:16:25.616Z",
+        "id": 7234565710,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2805#issuecomment-7234565710",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2814,
+      "report_id": "bd813b5a-16d9-4e6f-adcd-986e0ade7b77",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2814",
+      "intake_body_sha256": "649aa88b838440630340b79b7073726e3e3ac8b7a7eee73ce2c3a0c819610ac0",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659336234,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:49:53Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `bd813b5a-16d9-4e6f-adcd-986e0ade7b77` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234566293,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2814#issuecomment-7234566293",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:16:28.984Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:27Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:16:26.174Z",
+        "id": 6659336234,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:16:26.897Z",
+      "closure_response": {
+        "id": 6659336234,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:16:27Z",
+        "closed_at": "2026-11-28T05:16:27Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:16:28.985Z",
+        "id": 7234566293,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2814#issuecomment-7234566293",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2815,
+      "report_id": "28e2d286-8d82-4729-99d5-034da2a35260",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2815",
+      "intake_body_sha256": "ac75e6baf96438de81d7537a48720a489960d0d24e8be3ae207c7a142f516096",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659336354,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:49:54Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `28e2d286-8d82-4729-99d5-034da2a35260` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234566833,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2815#issuecomment-7234566833",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:16:32.600Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:31Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:16:29.516Z",
+        "id": 6659336354,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:16:30.296Z",
+      "closure_response": {
+        "id": 6659336354,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:16:31Z",
+        "closed_at": "2026-11-28T05:16:31Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:16:32.600Z",
+        "id": 7234566833,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2815#issuecomment-7234566833",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2816,
+      "report_id": "f50642a0-aca1-4947-a38c-76f3a0f5ffa6",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2816",
+      "intake_body_sha256": "1180bb0508c3076243d95ba45e167b4652bc96f2d539477ba2eafec66f2c4cda",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659336509,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:49:55Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `f50642a0-aca1-4947-a38c-76f3a0f5ffa6` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234567494,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2816#issuecomment-7234567494",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:16:36.657Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:35Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:16:33.411Z",
+        "id": 6659336509,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:16:34.462Z",
+      "closure_response": {
+        "id": 6659336509,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:16:35Z",
+        "closed_at": "2026-11-28T05:16:35Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:16:36.657Z",
+        "id": 7234567494,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2816#issuecomment-7234567494",
+        "body_matches": true
+      }
+    },
+    {
+      "issue": 2817,
+      "report_id": "bd03c9e8-90a9-49c8-9488-9a0b993d95d0",
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2817",
+      "intake_body_sha256": "7cca39df31b45db0bee4428efa22d313f76f8c0dd720f48943bcea73c8723d10",
+      "intake_match": true,
+      "refreshed_at": "2026-11-28T05:14:50.848Z",
+      "refresh": {
+        "id": 6659336644,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "updated_at": "2026-11-28T04:49:56Z",
+        "closed_at": null
+      },
+      "status": "verified_closed",
+      "comment_body": "### Resolution after incident review and guard qualification\n\nReviewed report `bd03c9e8-90a9-49c8-9488-9a0b993d95d0` against the original intake and the current source associated with [PR #2651](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2651), published revision `74ba873cad202e7a99d5fa0681fc75a75b334614`.\n\n**Observed:** This `read_url` call recorded `DNS_RESOLUTION_FAILED` at `redirect_precheck`, with `url_reader_dns_state=LOOKUP_FAILED`, `dispatched=true`, `retryable=true`, and `requiresReconciliation=false`. The incident records no subsequent recovery.\n\n**Action taken:** Traced the report to the [reader's redirect and dispatch-preservation path](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt) and verified that the relevant captured/current guard source is unchanged. A redirected hostname can fail lookup after an earlier hop has already responded; retaining that earlier dispatch is intentional. Reviewed the existing redirect-DNS regression and executed **14 focused exact-source host cases**, all passing, including the six existing [connectivity-gate cases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt) and five existing search receipt cases. The gate retains bounded cooldown/single-probe recovery without bypassing URL scope, address restrictions, or authorization.\n\n**Recovery:** Inspect the original URL and redirect target in the saved local receipt. Correct a stale target, address the actual DNS/network/VPN condition, or choose another permitted source. Retry the authorized read after that condition changes, within the existing request and cooldown limits.\n\n**Disposition:** Closing this report after the completed review and regression qualification; no app defect was reproduced. The public payload omits the hostname and later outcome, so it cannot establish the external root cause or prove recovery. The host suite did not perform live DNS/HTTP or Android device tests. No external DNS/service was repaired, and the voice changes are not asserted to resolve this incident.\n\n<!-- report-disposition:batch-2794-2827-tools-v1 -->",
+      "comment_id": 7234568104,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2817#issuecomment-7234568104",
+      "closure_readback": {
+        "observed_at": "2026-11-28T05:16:39.720Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:38Z",
+        "comments": 1,
+        "body_matches_intake": true
+      },
+      "pre_mutation_refresh": {
+        "observed_at": "2026-11-28T05:16:37.173Z",
+        "id": 6659336644,
+        "state": "open",
+        "state_reason": null,
+        "comments": 0,
+        "body_matches_intake": true
+      },
+      "comment_created_at": "2026-11-28T05:16:37.876Z",
+      "closure_response": {
+        "id": 6659336644,
+        "state": "closed",
+        "state_reason": "completed",
+        "updated_at": "2026-11-28T05:16:38Z",
+        "closed_at": "2026-11-28T05:16:38Z",
+        "comments": 1
+      },
+      "comment_readback": {
+        "observed_at": "2026-11-28T05:16:39.720Z",
+        "id": 7234568104,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2817#issuecomment-7234568104",
+        "body_matches": true
+      }
+    }
+  ],
+  "finished_at": "2026-11-28T05:16:39.979Z",
+  "summary": {
+    "assigned": 13,
+    "new_comments": 13,
+    "verified_closed": 13,
+    "already_closed_skipped": 0,
+    "outside_scope_mutations": 0
+  }
+}

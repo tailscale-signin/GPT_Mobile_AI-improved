@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "integrationHead": "06dfc0785c1e2f2eb0725c4b015f2903335316b2",
+  "remoteParent": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+  "canonicalHostGate": {
+    "command": "bash scripts/validate-local.sh fast",
+    "exitCode": 0,
+    "tests": 863,
+    "skipped": 1,
+    "log": "fast-final.log"
+  },
+  "initialHostGate": {
+    "exitCode": 1,
+    "tests": 863,
+    "skipped": 1,
+    "failures": 1,
+    "failedTest": "test_every_current_privacy_persistence_and_caption_method_has_a_required_receipt",
+    "correction": "Require translationLanguageChoicesKeepEachVoiceAndOfferSourceRecoveryAndPackInstallation in scripts/run_release0950_acceptance.sh; the full gate was rerun successfully."
+  },
+  "ktlint": {
+    "version": "1.3.1",
+    "exitCode": 0,
+    "files": 27,
+    "fileManifest": "ktlint-files.json",
+    "log": "ktlint-final.log",
+    "priorCorrection": "One required blank line before a VoiceSession KDoc; see ../post-qualification-formatting.json."
+  },
+  "ciReleasePolicy": {
+    "command": "PYTHONPATH=scripts python3 -m unittest scripts.tests.test_ci_modernization scripts.tests.test_release_scope",
+    "exitCode": 0,
+    "tests": 29
+  },
+  "secretSnapshot": {
+    "scannerVersion": "8.30.1",
+    "scannerSha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+    "exitCode": 0,
+    "findings": 0,
+    "files": 86,
+    "manifest": "gitleaks-snapshot-manifest.json",
+    "scope": "Current changed-source snapshot at scan time; final metadata readback is separate and hosted full reachable-history scanning remains required."
+  },
+  "fullAndroidPreflight": {
+    "exitCode": 1,
+    "status": "UNKNOWN",
+    "requiredRamHeadroomMiB": 8960,
+    "observedMemAvailableBytes": 2220486656,
+    "swapCountsAsHeadroom": false,
+    "compilationStarted": false,
+    "message": "Production compilation requires verified RAM/cgroup headroom; the existing guard was retained."
+  },
+  "fullPrWhitespace": {
+    "base": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+    "exitCode": 0
+  },
+  "files": {
+    "fast-final.log": {
+      "originalBytes": 16129,
+      "originalSha256": "2a1170086e43adbb70f670ccfd110f1d6c48fcff1e2324f9207fbec5da98ab02",
+      "savedBytes": 16129,
+      "savedSha256": "2a1170086e43adbb70f670ccfd110f1d6c48fcff1e2324f9207fbec5da98ab02"
+    },
+    "ktlint-final.log": {
+      "originalBytes": 0,
+      "originalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "savedBytes": 0,
+      "savedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ktlint-files.json": {
+      "originalBytes": 2590,
+      "originalSha256": "49231dc0d73acf587f5f1cf26626d17b3375988a2090f3a15843c468b93f1f6d",
+      "savedBytes": 2590,
+      "savedSha256": "49231dc0d73acf587f5f1cf26626d17b3375988a2090f3a15843c468b93f1f6d"
+    },
+    "gitleaks-snapshot.json": {
+      "originalBytes": 3,
+      "originalSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "savedBytes": 3,
+      "savedSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "gitleaks-snapshot.log": {
+      "originalBytes": 79,
+      "originalSha256": "b453b90c75775cb4e3b89562153f638b23f6b76e928ca85c6cdfc318d9ac1eac",
+      "savedBytes": 79,
+      "savedSha256": "b453b90c75775cb4e3b89562153f638b23f6b76e928ca85c6cdfc318d9ac1eac"
+    },
+    "gitleaks-snapshot-manifest.json": {
+      "originalBytes": 18540,
+      "originalSha256": "f302c9c2035a690c924fdb10cb4770ba9fbaedecc95067b1a52a66c0040029f0",
+      "savedBytes": 18540,
+      "savedSha256": "f302c9c2035a690c924fdb10cb4770ba9fbaedecc95067b1a52a66c0040029f0"
+    }
+  }
+}

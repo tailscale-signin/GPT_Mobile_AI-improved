@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -37,7 +38,7 @@ import org.junit.runner.RunWith
 /**
  * Opt-in real JNI/checkpoint smoke. Push the exact catalog model to
  * /data/local/tmp/mediapipe-speech/<fileName> and pass mediapipeSmokeEngine=phonon,
- * kokoro or pocket. A supplied argument makes missing/bad weights a failure.
+ * kokoro, pocket or pocket-multilingual. A supplied argument makes missing/bad weights a failure.
  * On a compatible phone, select the optimized GPU or compiled SM8750 pack by catalog id.
  * Each defaults to its supported delegate. Standard Kokoro also accepts an explicit GPU or NPU.
  * The receipt identifies the request. Kernel placement needs separate device evidence.
@@ -51,7 +52,8 @@ class MediaPipeSpeechNativeSmokeTest {
             MediaPipeSpeechEngine.KOKORO_GPU to VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED,
             MediaPipeSpeechEngine.KOKORO_SM8750 to VoiceSpeechBackend.LITERT_KOKORO_SM8750,
             MediaPipeSpeechEngine.PHONON to VoiceSpeechBackend.PHONON_CPU,
-            MediaPipeSpeechEngine.POCKET to VoiceSpeechBackend.POCKET_CPU
+            MediaPipeSpeechEngine.POCKET to VoiceSpeechBackend.POCKET_CPU,
+            MediaPipeSpeechEngine.POCKET_MULTILINGUAL to VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU
         )
         assertEquals(MediaPipeSpeechEngine.entries.toSet(), defaults.keys)
         for ((engine, backend) in defaults) assertEquals(backend, smokeBackend(engine, null))
@@ -59,6 +61,8 @@ class MediaPipeSpeechNativeSmokeTest {
         assertEquals(VoiceSpeechBackend.LITERT_KOKORO_NPU, smokeBackend(MediaPipeSpeechEngine.KOKORO, "NPU"))
         assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.KOKORO_GPU, "CPU") }
         assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.KOKORO_SM8750, "GPU") }
+        assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.POCKET_MULTILINGUAL, "GPU") }
+        assertThrows(IllegalArgumentException::class.java) { smokeBackend(MediaPipeSpeechEngine.POCKET_MULTILINGUAL, "NPU") }
     }
 
     private fun smokeBackend(kind: MediaPipeSpeechEngine, selectedDelegate: String?): VoiceSpeechBackend {
@@ -93,10 +97,15 @@ class MediaPipeSpeechNativeSmokeTest {
         val expectedBytes = descriptor.downloadBytes
         assertTrue("Insufficient space for model and runtime caches", directory.usableSpace >= expectedBytes * 4)
         val digest = MessageDigest.getInstance("SHA-256")
+        val remoteDirectory = if (InstrumentationRegistry.getArguments().getString("mediapipeSmokeIsolatedModel") == "true") {
+            "/data/local/tmp/mediapipe-speech/${requireNotNull(runId)}"
+        } else {
+            "/data/local/tmp/mediapipe-speech"
+        }
         var copied = 0L
         val staged = File(directory, descriptor.fileName + ".part")
         ParcelFileDescriptor.AutoCloseInputStream(
-            instrumentation.uiAutomation.executeShellCommand("cat /data/local/tmp/mediapipe-speech/${descriptor.fileName}")
+            instrumentation.uiAutomation.executeShellCommand("cat $remoteDirectory/${descriptor.fileName}")
         ).use { input ->
             staged.outputStream().use { output ->
                 val buffer = ByteArray(64 * 1024)
@@ -122,62 +131,87 @@ class MediaPipeSpeechNativeSmokeTest {
         var evidence: JSONObject? = null
         try {
             assertTrue(descriptor.defaultVoice in task.voiceIds())
-            if (kind.isKokoro) {
-                val missing = SpeechLanguages.synthesis.flatMap { it.voices }.toSet() - task.voiceIds()
-                assertTrue("Kokoro pack is missing catalogued voices: $missing", missing.isEmpty())
-            }
+            val availableVoices = task.voiceIds()
+            val missingVoices = MediaPipeSpeechVoices.ids(kind).toSet() - availableVoices
+            assertTrue("Speech pack is missing catalogued voices: $missingVoices", missingVoices.isEmpty())
+            engine.setCaptionAlignmentEnabled(true)
             val frames = VoiceStreamFrames(FIXTURE)
+            val coverage = VoiceCaptionWordCoverage(FIXTURE)
+            val captionPublication = CaptionPublication()
             val started = SystemClock.elapsedRealtime()
             var firstPcmMs: Long? = null
             var chunks = 0
             var unicodeCue = false
             engine.stream(FIXTURE, 0, 1f) { chunk ->
+                captionPublication.observe(chunk)
                 chunks++
                 if (chunk.samples.isNotEmpty() && firstPcmMs == null) firstPcmMs = SystemClock.elapsedRealtime() - started
-                frames.accept(chunk).forEach { cue ->
+                val cues = frames.accept(chunk)
+                coverage.observe(cues)
+                cues.forEach { cue ->
                     assertEquals(VoiceWordCueProvenance.ESTIMATED, cue.provenance)
                     unicodeCue = unicodeCue || cue.range == 0..3
                 }
                 true
             }
             frames.finish()
+            val wordCoverage = wordCoverageReceipt(coverage)
             assertTrue(firstPcmMs != null)
             assertTrue("Expected a valid UTF-8 Café cue from the real SDK", unicodeCue)
             val before = cancelNativeStream(task, descriptor.defaultVoice, afterFirstChunk = false)
             val after = cancelNativeStream(task, descriptor.defaultVoice, afterFirstChunk = true)
             engine.resetCancellation()
             val recovered = VoiceStreamFrames(FIXTURE)
+            val recoveredCoverage = VoiceCaptionWordCoverage(FIXTURE)
+            val recoveredPublication = CaptionPublication()
             engine.stream(FIXTURE, 0, 1f) {
-                recovered.accept(it)
+                recoveredPublication.observe(it)
+                recoveredCoverage.observe(recovered.accept(it))
                 true
             }
             recovered.finish()
+            val recoveredWordCoverage = wordCoverageReceipt(recoveredCoverage)
             val incremental = consumeIncremental(engine, task)
             val incrementalBefore = cancelNativeStream(task, descriptor.defaultVoice, afterFirstChunk = false, incremental = true)
             val incrementalAfter = cancelWaitingInput(engine, task)
             engine.resetCancellation()
             val incrementalRecovered = consumeIncremental(engine, task)
-            val frenchFrames = if (kind.isKokoro) {
-                val french = SpeechLanguages.forLocale("fr-CA")!!
-                engine.selectVoice(french.voices.first())
+            val frenchPreview = if (kind.isKokoro || kind == MediaPipeSpeechEngine.POCKET_MULTILINGUAL) {
+                val french = MediaPipeSpeechVoices.profiles(kind).first { it.dictionaryLanguage == "fr" }
+                val voiceId = french.voices.first()
+                engine.selectVoice(voiceId)
                 val sample = VoiceStreamFrames(french.preview)
+                val previewCoverage = VoiceCaptionWordCoverage(french.preview)
+                val previewPublication = CaptionPublication()
+                val signal = VoicePcmSignalMeasurement()
+                val start = SystemClock.elapsedRealtime()
+                var firstAudio: Long? = null
                 engine.stream(french.preview, 0, 1f) {
-                    sample.accept(it)
+                    previewPublication.observe(it)
+                    if (it.samples.isNotEmpty() && firstAudio == null) firstAudio = SystemClock.elapsedRealtime() - start
+                    signal.accept(it.samples)
+                    previewCoverage.observe(sample.accept(it))
                     true
                 }
                 sample.finish()
-                assertTrue(sample.frames in 1..VOICE_PCM_SAMPLE_RATE * 30L)
-                sample.frames
+                val pcm = checkNotNull(signal.snapshot())
+                assertTrue(sample.frames in 1..VOICE_PCM_SAMPLE_RATE * 30L && pcm.samples == sample.frames)
+                JSONObject().put("voice_id", voiceId).put("frames", pcm.samples).put("first_pcm_ms", checkNotNull(firstAudio))
+                    .put("rms", pcm.rms).put("peak", pcm.peak).put("clipped_samples", pcm.clipped).put("non_silent_samples", pcm.nonSilent)
+                    .put("caption_word_coverage", wordCoverageReceipt(previewCoverage))
+                    .put("caption_publication", previewPublication.receipt())
             } else {
                 null
             }
             evidence = JSONObject()
-                .put("french_preview_frames", frenchFrames ?: JSONObject.NULL)
-                .put("schema", "mediapipe-android-jni-smoke-v2")
+                .put("french_preview_frames", frenchPreview?.getLong("frames") ?: JSONObject.NULL)
+                .put("french_preview", frenchPreview ?: JSONObject.NULL)
+                .put("schema", "mediapipe-android-jni-smoke-v3")
                 .put("scope", "android_jni_checkpoint_smoke")
                 .put("status", "passed")
                 .put("run_id", runId ?: JSONObject.NULL)
                 .put("engine", kind.name)
+                .put("available_voice_ids", JSONArray(availableVoices.sorted()))
                 .put("model_id", descriptor.id)
                 .put("configured_backend", backend.name)
                 .put("runtime", MediaPipeSpeechCatalog.RUNTIME_ID)
@@ -191,9 +225,13 @@ class MediaPipeSpeechNativeSmokeTest {
                 .put("prepare_ms", prepareMs)
                 .put("first_pcm_ms", firstPcmMs)
                 .put("utf8_estimated_cue_observed", unicodeCue)
+                .put("caption_word_coverage", wordCoverage)
+                .put("caption_publication", captionPublication.receipt())
                 .put("cancel_before_first_read", before)
                 .put("cancel_after_first_chunk", after)
                 .put("recovered_frames", recovered.frames)
+                .put("recovered_caption_word_coverage", recoveredWordCoverage)
+                .put("recovered_caption_publication", recoveredPublication.receipt())
                 .put("incremental_stream", incremental)
                 .put("incremental_cancel_before_first_read", incrementalBefore)
                 .put("incremental_cancel_while_waiting_for_text", incrementalAfter)
@@ -202,8 +240,8 @@ class MediaPipeSpeechNativeSmokeTest {
             // If native retirement fails, preserve its files rather than unlink mapped data.
             engine.close()
             try {
-                if (backend == VoiceSpeechBackend.LITERT_KOKORO_CPU) {
-                    evidence?.put("application_playback", observeKokoroPlayback(instrumentation, descriptor, model))
+                if (kind.isKokoro) {
+                    evidence?.put("application_playback", observeKokoroPlayback(instrumentation, descriptor, model, backend))
                 }
             } finally {
                 check(directory.deleteRecursively()) { "Could not remove the native smoke checkpoint/cache." }
@@ -214,11 +252,18 @@ class MediaPipeSpeechNativeSmokeTest {
         instrumentation.sendStatus(2, Bundle().apply { putString("mediapipe_smoke_evidence", completedEvidence.toString()) })
     }
 
-    private fun observeKokoroPlayback(instrumentation: Instrumentation, descriptor: MediaPipeSpeechModel, model: File): JSONObject {
+    private fun observeKokoroPlayback(instrumentation: Instrumentation, descriptor: MediaPipeSpeechModel, model: File, backend: VoiceSpeechBackend): JSONObject {
         val context = instrumentation.targetContext
         val root = Files.createTempDirectory(context.cacheDir.toPath(), "kokoro-playback-").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val models = MediaPipeSpeechModelStore(File(root, "models"), File(root, "cache"), scope, listOf(descriptor)) {
+        val models = MediaPipeSpeechModelStore(
+            File(root, "models"),
+            File(root, "cache"),
+            scope,
+            listOf(descriptor),
+            prepareNpu = { prepareMediaPipeSpeechNpu(context) },
+            acceleratorEnvironment = speechAcceleratorEnvironment(context)
+        ) {
             object : LocalVoiceAssetSource {
                 override fun open(url: String): LocalVoiceAssetStream {
                     check(url == descriptor.downloadUrl)
@@ -250,12 +295,15 @@ class MediaPipeSpeechNativeSmokeTest {
         val voice = KokoroVoice.HEART
         val observed = AtomicReference<ObservedNativeTask>()
         val ending = "The next word arrives."
-        val factory = MediaPipeVoicePhraseEngineFactory(models, descriptor.engine, VoiceSpeechBackend.LITERT_KOKORO_CPU, 1f, voice.streamingVoiceId) {
-            ObservedNativeTask(AndroidMediaPipeSpeechTask(it)).also(observed::set)
+        val requested = requestedSpeechDelegate(backend)
+        val factory = MediaPipeVoicePhraseEngineFactory(models, descriptor.engine, backend, 1f, voice.streamingVoiceId) { config ->
+            check(config.delegate.name == requested)
+            ObservedNativeTask(AndroidMediaPipeSpeechTask(config)).also(observed::set)
         }
         var activity: android.app.Activity? = null
         try {
-            runBlocking { models.install(descriptor.engine) }
+            // The provisioned model is already the exact pack, including for patched vocoders.
+            runBlocking { models.localStore(descriptor.engine).install() }
             check(models.isReady(descriptor.engine))
             // API 35+ grants audio focus to a foreground app. Start its real launcher activity.
             activity = instrumentation.startActivitySync(checkNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName)))
@@ -289,6 +337,8 @@ class MediaPipeSpeechNativeSmokeTest {
             check(written.get() in 0..presented.get() && appendedAfterPresentation.get())
             check(firstCaption.get() && lastCaption.get()) { "Playback did not present both original caption ranges." }
             return JSONObject()
+                .put("requested_delegate", requested)
+                .put("kernel_placement", "unreported_by_task")
                 .put("voice_id", voice.streamingVoiceId)
                 .put("speaking_rate", 1f.toDouble())
                 .put("first_audio_track_write_ms", written.get())
@@ -329,12 +379,13 @@ class MediaPipeSpeechNativeSmokeTest {
     private fun consumeIncremental(engine: MediaPipeVoicePhraseEngine, task: ObservedNativeTask): JSONObject {
         val firstPcm = CountDownLatch(1)
         val frames = VoiceStreamFrames(FIXTURE)
+        val coverage = VoiceCaptionWordCoverage(FIXTURE)
+        val publication = CaptionPublication()
         val started = SystemClock.elapsedRealtime()
         var firstPcmMs: Long? = null
         var supplied = 0
         var chunks = 0
         var unicodeCue = false
-        var lastWordCue = false
         engine.streamInput(
             nextText = {
                 when (supplied++) {
@@ -349,25 +400,28 @@ class MediaPipeSpeechNativeSmokeTest {
             speaker = 0,
             speed = 1f
         ) { chunk ->
+            publication.observe(chunk)
             check(++chunks <= 4_096)
             if (chunk.samples.isNotEmpty() && firstPcmMs == null) {
                 firstPcmMs = SystemClock.elapsedRealtime() - started
                 firstPcm.countDown()
             }
-            frames.accept(chunk).forEach { cue ->
+            val cues = frames.accept(chunk)
+            coverage.observe(cues)
+            cues.forEach { cue ->
                 assertEquals(VoiceWordCueProvenance.ESTIMATED, cue.provenance)
                 unicodeCue = unicodeCue || cue.range == 0..3
-                lastWordCue = lastWordCue || FIXTURE.lastIndex - 1 in cue.range
             }
             check(frames.frames <= VOICE_PCM_SAMPLE_RATE * 30L) { "Incremental smoke exceeded its PCM bound." }
             true
         }
         frames.finish()
+        val wordCoverage = wordCoverageReceipt(coverage)
         val trace = checkNotNull(task.latestInput)
         assertEquals(listOf(FIRST_DELTA, LAST_DELTA), trace.pushedText.toList())
         assertEquals(1, trace.finishCalls.get())
         assertTrue("Native PCM must precede finishInput and the later text delta", trace.firstPcmBeforeFinish.get())
-        assertTrue("Both ends of the full Unicode input need valid cues", unicodeCue && lastWordCue)
+        assertTrue("Expected a valid UTF-8 Café cue from the real SDK", unicodeCue)
         assertTrue(trace.closed.get())
         assertTrue(frames.frames in 1..(VOICE_PCM_SAMPLE_RATE * 30L))
         return JSONObject()
@@ -377,11 +431,29 @@ class MediaPipeSpeechNativeSmokeTest {
             .put("text_delta_count", trace.pushedText.size)
             .put("finish_input_calls", trace.finishCalls.get())
             .put("first_pcm_before_finish_input", trace.firstPcmBeforeFinish.get())
-            .put("full_input_cues_observed", unicodeCue && lastWordCue)
+            .put("full_input_cues_observed", coverage.result().complete)
+            .put("caption_word_coverage", wordCoverage)
+            .put("caption_publication", publication.receipt())
             .put("stream_closed", trace.closed.get())
             .put("frames", frames.frames)
             .put("emitted_chunks", chunks)
             .put("first_pcm_ms", checkNotNull(firstPcmMs))
+    }
+
+    private fun wordCoverageReceipt(coverage: VoiceCaptionWordCoverage): JSONObject {
+        val result = coverage.result()
+        assertTrue("Every lexical source word needs its own completed SDK cue: $result", result.complete)
+        return JSONObject()
+            .put("measurement_scope", "SOURCE_WORD_SPANS_ONLY")
+            .put("timing_provenance", "SDK_ESTIMATED")
+            .put("acoustic_alignment", "NOT_MEASURED")
+            .put("expected_words", result.expectedWords)
+            .put("covered_words", result.coveredWords)
+            .put("individually_timed_words", result.individuallyTimedWords)
+            .put("grouped_word_spans", result.groupedWordSpans)
+            .put("partial_word_spans", result.partialWordSpans)
+            .put("provisional_word_spans", result.provisionalWordSpans)
+            .put("complete", result.complete)
     }
 
     private fun cancelWaitingInput(engine: MediaPipeVoicePhraseEngine, task: ObservedNativeTask): JSONObject {
@@ -434,6 +506,32 @@ class MediaPipeSpeechNativeSmokeTest {
             .put("input_owner_retired", inputRetired.count == 0L)
             .put("stream_closed", trace.closed.get())
             .put("total_ms", SystemClock.elapsedRealtime() - started)
+    }
+
+    /** Packet ordering proof only; SDK estimates are not acoustic word-boundary qualification. */
+    private class CaptionPublication {
+        private val introduced = mutableSetOf<Pair<Int, Int>>()
+        private var pcmFrames = 0L
+
+        fun observe(chunk: VoicePcmChunk) {
+            for (cue in chunk.wordCues) {
+                if (cue.revision == 0 && introduced.add(cue.startByte to cue.endByte)) {
+                    assertTrue("A new caption arrived after its starting PCM was released", cue.startFrame >= pcmFrames)
+                }
+            }
+            pcmFrames += chunk.samples.size
+        }
+
+        fun receipt(): JSONObject {
+            assertTrue("Expected at least one real SDK word timestamp", introduced.isNotEmpty())
+            return JSONObject()
+                .put("measurement_scope", "SDK_PACKET_PUBLICATION_ONLY")
+                .put("caption_staging_enabled", true)
+                .put("first_cue_count", introduced.size)
+                .put("first_cues_before_pcm", true)
+                .put("pcm_frames", pcmFrames)
+                .put("acoustic_alignment", "NOT_MEASURED")
+        }
     }
 
     /** Observes successful calls to the packaged JNI; every operation delegates to the real SDK. */

@@ -29,8 +29,9 @@ private fun voicePerformanceJson(snapshot: VoicePerformanceSnapshot, latest: Voi
             it.p95Ms in it.p50Ms..86_400_000L
     }
     val synthesis = latest?.takeIf { it.generatedAudioMs > 0 }
+    val conversationLatency = rows.filter { it.metric == "speech_end_to_answer_audio" }
     val document = buildJsonObject {
-        put("schemaVersion", 4)
+        put("schemaVersion", 5)
         put("scope", "current_app_process")
         put("seriesWindow", "since_last_performance_reset")
         put("latestSynthesisWindow", "most_recent_synthesis_may_precede_series_reset")
@@ -51,10 +52,21 @@ private fun voicePerformanceJson(snapshot: VoicePerformanceSnapshot, latest: Voi
                 put("speechStageTimings", if (rows.any { it.metric !in VoicePerformanceHistory.FRAME_METRICS }) "OBSERVED" else "NO_RECORDED_SAMPLES")
                 put("latestSynthesis", if (synthesis != null) "OBSERVED" else "NO_RECORDED_SAMPLE")
                 put("graphicsGpuFrameDuration", if (rows.any { it.metric == "gpu_duration" }) "OBSERVED" else "NO_RECORDED_SAMPLES")
-                put("endToEndConversationLatency", "NOT_MEASURED")
+                put("endToEndConversationLatency", if (conversationLatency.isNotEmpty()) "MEASURED" else "NO_COMPLETE_CAPTURE_TO_PRESENTATION_SAMPLE")
                 put("cpuGpuNpuUtilization", "NOT_MEASURED")
                 put("acousticSpeakerLatency", "NOT_MEASURED")
                 put("batteryEnergy", "NOT_MEASURED")
+            }
+        )
+        put(
+            "conversationLatency",
+            buildJsonObject {
+                put("scope", "DETECTED_SPEECH_END_TO_PRESENTED_ANSWER_AUDIO")
+                put("audioBoundary", "AUDIO_TIMESTAMP_OR_PLAYBACK_HEAD_NOT_ACOUSTIC_LOOPBACK")
+                put("elapsedTimeIncludes", "DRAFT_REVIEW_QUEUE_AND_PROCESSING")
+                put("sampleScope", "SERIES_ROWS_PER_PROVIDER_AND_WARM_STATE")
+                put("retainedSamples", conversationLatency.sumOf { it.count })
+                put("observedSamples", conversationLatency.sumOf { it.observedSamples })
             }
         )
         put("gpuFrameDurationScope", "android_graphics_frame_metrics_not_speech_accelerator_execution")
@@ -71,7 +83,7 @@ private fun voicePerformanceJson(snapshot: VoicePerformanceSnapshot, latest: Voi
                     add(
                         buildJsonObject {
                             put("metric", row.metric)
-                            val sdkFamily = row.engine.takeIf { it in MEDIAPIPE_FAMILIES }
+                            val sdkFamily = row.engine.takeIf { it in SDK_FAMILIES }
                             put("observedProvider", row.engine.takeIf { sdkFamily == null }?.let(::JsonPrimitive) ?: JsonNull)
                             put("modelFamily", sdkFamily?.let(::JsonPrimitive) ?: JsonNull)
                             put("warm", row.warm?.let(::JsonPrimitive) ?: JsonNull)
@@ -89,7 +101,7 @@ private fun voicePerformanceJson(snapshot: VoicePerformanceSnapshot, latest: Voi
             "latestSynthesis",
             synthesis?.let { sample ->
                 buildJsonObject {
-                    val sdk = mediaPipeExecution(sample.executionProvider)
+                    val sdk = streamingExecution(sample.executionProvider)
                     val nativeThreads = sample.executionProvider in setOf("cpu", "qnn-gpu", "qnn-htp")
                     put("observedProvider", sample.executionProvider.takeIf { it in setOf("cpu", "qnn-gpu", "qnn-htp", "gateway-cuda") }?.let(::JsonPrimitive) ?: JsonNull)
                     put("modelFamily", sdk?.first?.let(::JsonPrimitive) ?: JsonNull)
@@ -128,14 +140,16 @@ private fun voicePerformanceJson(snapshot: VoicePerformanceSnapshot, latest: Voi
     return document
 }
 
-private val MEDIAPIPE_FAMILIES = setOf("MEDIAPIPE", "MEDIAPIPE_KOKORO", "MEDIAPIPE_PHONON", "MEDIAPIPE_POCKET")
+private val SDK_FAMILIES = setOf("MEDIAPIPE", "MEDIAPIPE_KOKORO", "MEDIAPIPE_PHONON", "MEDIAPIPE_POCKET", "COMPILED_POCKET")
 
-private fun mediaPipeExecution(provider: String): Pair<String, String>? = when (provider) {
+private fun streamingExecution(provider: String): Pair<String, String>? = when (provider) {
     "mediapipe-kokoro-cpu-requested" -> "MEDIAPIPE_KOKORO" to "CPU"
     "mediapipe-kokoro-gpu-requested" -> "MEDIAPIPE_KOKORO" to "GPU"
     "mediapipe-kokoro-npu-requested" -> "MEDIAPIPE_KOKORO" to "NPU"
     "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON" to "CPU"
-    "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET" to "CPU"
+    "mediapipe-pocket-cpu-requested", "mediapipe-pocket-multilingual-cpu-requested" -> "MEDIAPIPE_POCKET" to "CPU"
+    "litert-compiled-pocket-gpu-requested" -> "COMPILED_POCKET" to "GPU"
+    "litert-compiled-pocket-npu-requested" -> "COMPILED_POCKET" to "NPU"
     else -> null
 }
 

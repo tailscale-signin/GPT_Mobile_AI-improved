@@ -63,7 +63,7 @@ public partial class MainWindow
             {
                 if (owner.SelectedItem is OwnerChoice choice && choice.Principal != settingsOwner) { settingsOwner = choice.Principal; Navigate(currentRoute); }
             };
-            body.Children.Add(Ui.Text("Engineering applies only to the selected owner. Capacity, model route, startup and update settings apply to this PC.", 13, "MutedBrush"));
+            body.Children.Add(Ui.Text("Engineering is built into Gateway. Repository access belongs to the selected owner; capacity, model route, startup and updates apply to this PC. Manage individual work in Jobs.", 13, "MutedBrush"));
             }
             var readers = new Dictionary<string, Func<JsonNode?>>();
             void Toggle(string key, string name)
@@ -84,7 +84,8 @@ public partial class MainWindow
                 var input = Ui.Select(body, name + " · effective " + effective.Text(key), values, desired.Text(key));
                 readers[key] = () => JsonValue.Create(input.SelectedItem?.ToString());
             }
-            Toggle("engineering_enabled", "Accept new engineering jobs for this owner (pause for maintenance)");
+            if(tab=="Execution") body.Children.Add(Ui.Text(effective.Flag("engineering_enabled")
+                ? "Engineering · Ready" : "Engineering · Complete the connection and runtime prerequisites below", 14, "MutedBrush"));
             Integer("workers", "Concurrent workers (1–16)"); Integer("active_chats", "Admitted chats (workers–64)");
             Selection("batch_mode", "Batch mode", ["standard", "smart", "full"]);
             Integer("local_validation_workers", "Local validation workers (1–4)");

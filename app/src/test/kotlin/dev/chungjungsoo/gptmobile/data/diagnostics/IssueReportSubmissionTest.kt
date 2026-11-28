@@ -26,6 +26,87 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportSubmissionTest {
+    @Test fun applicationFailureCausesWaitForReceiverSupportWithoutRewritingApprovedBytes() {
+        val feature = IssueReportCodes.APPLICATION_FAILURE_CAUSES_FEATURE
+        val applicationCodes = listOf("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", "GATEWAY_CONVERSATION_READ_ONLY", "TOOL_BATCH_REJECTED", "TOOL_BATCH_OVERSIZE")
+        val requiredToolCodes = listOf(
+            "REQUIRED_TOOL_ACQUISITION_FAILED",
+            "REQUIRED_TOOL_ACQUISITION_PENDING",
+            "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+            "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION",
+            "REQUIRED_TOOL_AUTHORIZATION_REQUIRED",
+            "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
+        )
+        val cases = mutableListOf<Pair<IssueReport, Boolean>>()
+        for (code in applicationCodes) {
+            cases += report.copy(source = "debug", feature = "chat", errorCode = code, title = null, description = null) to true
+            cases += report.copy(events = listOf("-1ms E chat $code")) to true
+            val previous = IssueReportContext.fromFields(
+                "CHAT_FAILURE",
+                mapOf("failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "original_interruption" to mapOf("code" to code)),
+                1_000L
+            )
+            assertEquals(code, previous.originalFailureCode)
+            cases += report.copy(context = previous) to true
+            for ((area, field) in listOf("INCIDENT" to "causal_failure_code", "VOICE" to "voice_chat_failure_code")) {
+                val context = IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", mapOf("diagnostic_area" to area, field to code), 1_000L)
+                assertEquals(JsonPrimitive(code), context.diagnostics?.values?.get(field))
+                cases += report.copy(context = context) to true
+            }
+        }
+        for (code in requiredToolCodes) {
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER", "provider_failure_code" to code), 1_000L)
+            assertEquals(JsonPrimitive(code), context.diagnostics?.values?.get("provider_failure_code"))
+            cases += report.copy(context = context) to true
+            // These top-level codes predate their new provider-receipt projection.
+            cases += report.copy(source = "debug", feature = "chat", errorCode = code, title = null, description = null) to false
+        }
+        for ((approved, needsUpdate) in cases) {
+            val payload = approved.approvedPayload()
+            val needed = approved.context?.diagnostics?.requiredServiceFeatures().orEmpty() + if (needsUpdate) setOf(feature) else emptySet()
+            var supported = false
+            var dispatches = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    if (needsUpdate) assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    val features = (legacyReadyFeatures + needed.filter { supported || it != feature }).distinct()
+                    response(
+                        request,
+                        200,
+                        buildJsonObject {
+                            put("service", "gpt-mobile-issue-reporter")
+                            put("version", 2)
+                            put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                            put("reportDiagnosticFeatures", JsonArray(features.map(::JsonPrimitive)))
+                        }.toString()
+                    )
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${approved.reportId}","number":941}""")
+                }
+            }.build()
+            val sender = IssueReportSubmission(origin, client)
+            if (needsUpdate) {
+                val blocked = sender.send(approved.reportId, payload) { dispatches++ } as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                assertFalse(blocked.automaticRetry)
+                assertEquals(listOf("GET"), methods)
+                assertEquals(0, dispatches)
+                assertTrue(posted.isEmpty())
+                supported = true
+            }
+            assertEquals(IssueReportSubmission.Confirmed(941), sender.send(approved.reportId, payload) { dispatches++ })
+            assertEquals(if (needsUpdate) listOf("GET", "GET", "POST") else listOf("POST"), methods)
+            assertEquals(1, dispatches)
+            assertEquals(listOf(payload), posted)
+            assertEquals(payload, approved.approvedPayload())
+        }
+    }
+
     @Test fun audioFocusRetryCountsNegotiateBeforePostingRestoredApprovedBytes() {
         val feature = IssueReportDiagnostics.VOICE_FOCUS_RETRIES_FEATURE
         for (attempts in listOf(3, 1, 2)) {
@@ -321,17 +402,27 @@ class IssueReportSubmissionTest {
     @Test fun streamingVoiceValuesRequireTheirOwnCapabilityBeforePostingRestoredApprovedBytes() {
         val cases = listOf(
             "voice_engine" to "MEDIAPIPE",
+            "voice_engine" to "COMPILED_POCKET",
             "voice_selected_backend" to "LITERT_KOKORO_CPU",
             "voice_selected_backend" to "LITERT_KOKORO_GPU",
             "voice_selected_backend" to "LITERT_KOKORO_NPU",
             "voice_selected_backend" to "PHONON_CPU",
             "voice_selected_backend" to "POCKET_CPU",
+            "voice_selected_backend" to "POCKET_GPU",
+            "voice_selected_backend" to "POCKET_NPU",
+            "voice_failure_requested_backend" to "POCKET_GPU",
+            "voice_failure_requested_backend" to "POCKET_NPU",
+            "voice_install_pack" to "POCKET",
             "voice_fallback_source" to "LITERT_KOKORO",
             "voice_fallback_source" to "PHONON",
             "voice_fallback_source" to "POCKET"
         )
         for ((field, value) in cases) {
-            val feature = if (value == "LITERT_KOKORO_NPU") VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE else VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
+            val feature = when {
+                value == "LITERT_KOKORO_NPU" -> VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE
+                value in setOf("COMPILED_POCKET", "POCKET_GPU", "POCKET_NPU") || field == "voice_install_pack" -> VoiceExecutionDiagnostics.POCKET_COMPILED_FEATURE
+                else -> VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
+            }
             val captured = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
             val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), captured)))
             val context = IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = 1_000L).withDiagnostics(restored)
@@ -600,6 +691,41 @@ class IssueReportSubmissionTest {
             1000L
         )
     )
+
+    @Test fun issueIntakePublicationWaitsForASupportingReporter() {
+        val feature = GitHubAcceptancePublicationEvidence.ISSUE_INTAKE_FEATURE
+        val original = requireNotNull(publicationReport().context)
+        val diagnostics = requireNotNull(original.diagnostics)
+        assertFalse(feature in diagnostics.requiredServiceFeatures())
+        for (field in listOf("acceptance_publication_source", "acceptance_publication_entry")) {
+            val observed = diagnostics.copy(values = diagnostics.values + (field to JsonPrimitive("ISSUE_INTAKE")))
+            val needed = observed.requiredServiceFeatures()
+            assertTrue(feature in needed)
+            val approved = report.copy(context = original.withDiagnostics(observed))
+            val payload = approved.approvedPayload()
+            var supported = false
+            val methods = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("extended", request.url.queryParameter("capabilities"))
+                    val features = JsonArray(needed.filter { supported || it != feature }.map(::JsonPrimitive))
+                    response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                } else {
+                    assertEquals(payload, body(request))
+                    response(request, 200, """{"reportId":"${approved.reportId}","number":1240}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(approved.reportId, payload) as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertEquals(listOf("GET"), methods)
+            supported = true
+            assertEquals(IssueReportSubmission.Confirmed(1240), submission.send(approved.reportId, payload))
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+        }
+    }
 
     @Test fun verificationReserveReasonUsesExistingCapabilitiesAndPreservesApprovedBytes() {
         val observations = listOf(
@@ -1720,6 +1846,8 @@ class IssueReportSubmissionTest {
             "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INPUT_REQUIRED")),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND"),
+            IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE to mapOf("voice_install_downloaded_bytes" to 2_454_405_120L),
+            IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE to mapOf("voice_install_total_bytes" to 2_594_373_279L),
             "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "PROVIDER_ADAPTER_STREAM_CATCH", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
             "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
             "CHAT_DELIVERY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_FLOW_EMPTY_ANSWER"),
@@ -1728,7 +1856,7 @@ class IssueReportSubmissionTest {
             val area = when (feature) {
                 "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1" -> "ACCEPTANCE"
                 "CLAIM_FRESHNESS_EVIDENCE_V1" -> "ACCEPTANCE"
-                "VOICE_INSTALL_EVIDENCE_V1" -> "VOICE"
+                "VOICE_INSTALL_EVIDENCE_V1", IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE -> "VOICE"
                 "CHAT_DELIVERY_EVIDENCE_V1" -> "INCIDENT"
                 else -> "PROVIDER"
             }
@@ -1743,6 +1871,7 @@ class IssueReportSubmissionTest {
             val client = OkHttpClient.Builder().addInterceptor { chain ->
                 val request = chain.request()
                 if (request.method == "GET") {
+                    if (feature == IssueReportDiagnostics.VOICE_LARGE_MODEL_INSTALL_FEATURE) assertEquals("extended", request.url.queryParameter("capabilities"))
                     val features = JsonArray(requiredFeatures.filter { supported || it != feature }.map(::JsonPrimitive)).toString()
                     response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
                 } else {
@@ -1762,6 +1891,28 @@ class IssueReportSubmissionTest {
             assertEquals(1, dispatched)
             assertEquals(listOf(payload), posted)
         }
+    }
+
+    @Test fun legacyVoiceInstallationCountsKeepTheExistingReadinessContract() {
+        val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_install_downloaded_bytes" to 1_000_000_000L, "voice_install_total_bytes" to 1_000_000_000L), 1_000L)
+        val approved = report.copy(context = context)
+        val payload = approved.approvedPayload()
+        val methods = mutableListOf<String>()
+        val posted = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            if (request.method == "GET") {
+                assertEquals("$origin/health/ready", request.url.toString())
+                response(request, 200, ready(false))
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${approved.reportId}","number":941}""")
+            }
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(approved.reportId, payload))
+        assertEquals(listOf("GET", "POST"), methods)
+        assertEquals(listOf(payload), posted)
     }
 
     @Test fun githubCooldownValuesAndOmittedFieldsWaitWithoutChangingApprovedBytes() {

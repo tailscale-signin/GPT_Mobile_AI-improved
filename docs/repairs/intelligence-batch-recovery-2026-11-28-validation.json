@@ -1,0 +1,193 @@
+{
+  "schema": "focused-jvm-validation-v1",
+  "task_date": "2026-11-28",
+  "base_commit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+  "runtime": {
+    "jdk": 21,
+    "kotlin": "2.4.20",
+    "serialization_compiler": "2.4.20",
+    "serialization": "1.11.0",
+    "coroutines": "1.11.0",
+    "junit": "4.13.2"
+  },
+  "changed_source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "80c255bdc472dcea3fa7476bbdc018f29e01b08ef52ebf7ae88d89aa0e805b39",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt": "d260647d9d2c7257fa5df32611004fab611eb4ca767a0ddc463301235c95ce49",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt": "3bab344ace84562f029b60e11f80f31a60d627e594033baf3c05f3c275f2b6eb",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRoundAdmissionTest.kt": "34fc47591f664d5c3f0999bbd08884f65602a4a425476494a1f2054557ec28f4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt": "5a0cdbebec11f6c05f3e45561c5840de57dde09be3f0038fda201eba5deedede",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchBudgetTest.kt": "d7c2b65d4d76600aeac41bdac10d45cf027029747d28655eb6a593f17ee5a479"
+  },
+  "validation": [
+    {
+      "name": "combined",
+      "scope": "Complete checked-in CombinedTurnBudgetTest class compiled against actual budget, store, planning, policy and accounting sources, with Kotlin serialization enabled.",
+      "boundary_ports": "Unused Android Context, injection annotations, BuildConfig flag and AcceptedTaskRef carrier. forInvocationKind is an exact source excerpt, not a behavioral reimplementation.",
+      "compile_exit": 0,
+      "test_exit": 0,
+      "tests": 21,
+      "failures": 0,
+      "test_classes": [
+        "dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetTest"
+      ],
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt": "d260647d9d2c7257fa5df32611004fab611eb4ca767a0ddc463301235c95ce49",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetStore.kt": "1c38800e3a821a37e9b1d488fbb5b9e9196d05742c7d6f7625373b203a8d8511",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWorkPlan.kt": "131982da133850484313eb2d273f92cb5253f97604f28937028e36a5683c6b8e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWorkInventory.kt": "417dea1b071362f5525fc19e5a0c3db1d4a6d49044eaca7fba10dbbd723d632a",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedPolicyResolver.kt": "4b151ea1392c35f36c9c5f0a1a4d8a574aa06d906d54e5ef881992e622ac06d7",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRequestScope.kt": "adc5d8dab2dc921e55ed7e790a55eb37d111a2afe14fea2809f399958b5efad2",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/RoutineTaskPolicy.kt": "3d4bc1e18102faefb7188d35ca941baddc11b2334342bd0e53fb4f23af319b98",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedContributorAllowance.kt": "edbdea004f952d8e74eeea66b4a5192e3885dbb4aaee837e76c14cd313dac753",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedSynthesisPreferences.kt": "37ac09ee6238b850719d2d8bc5a4cf13322d59d011b1ab311d0f8659e42548c2",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliveryPhase.kt": "b0409a873077f0dc3a94d83b5c86f6bbc3d853c08e47c9093fa6febeb9129b87",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedProgressSnapshot.kt": "01417b62f16721a83213c2879a8288a76f7ac69efa43dc701df272022c618015",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ConversationCombinedSettings.kt": "50e6c893fb262f3324e7e40fb0e22c938ea3ac6d8508209335a6e7b7417c3ebf",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/SpendBudget.kt": "37a605b0c0a0435f1113ae5cc68d7997ac3fd1eb3fe5f3bd5e51641879aa74cc",
+        "core-domain/src/commonMain/kotlin/dev/chungjungsoo/gptmobile/core/UsageMath.kt": "20cff43909f334fe0c73a5690e38423b507a161407b2bb45756e7e09da7b9b2b",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt": "5a0cdbebec11f6c05f3e45561c5840de57dde09be3f0038fda201eba5deedede"
+      },
+      "local_harness_source_sha256": {
+        "Android.kt": "8af2fd3ea15987e33cf12efe41d78afbf6a0117ba916b5e89aa5b2055c5449b0",
+        "Inject.kt": "ad333e973206e9a8546878dc3234430bd1cf4a7683e64c60ca867ef697366b05",
+        "Hilt.kt": "a25c4474a9879385d1a842282c3fc7aa90cab939a98ac4999892bf3eca11dbaa",
+        "Build.kt": "e7a396a1a722c5abbe3fa310116360b5621da356ed893cd2e13ffb7bfbe1e550",
+        "AcceptedTask.kt": "3b55d44ce00a3022a4a459c44475367dc50f4df3e78f588e7af764a68f1aa997",
+        "InvocationKind.kt": "15c2e2819fd445c2bd1925b68d9db843ff4a4f26189049dff0e9b0676141f160"
+      },
+      "harness_builder_sha256": "eccff696f0eacf0ca696bcbacebfdc048689642bce5cedf889ff8aea87437a6d",
+      "behavioral_cases": [
+        "BLOCKED and EVIDENCE_MISSING retain distinct terminal counts, release unused contributor reserve, survive serialization, and settle idempotently without reporting success.",
+        "WAITING_FOR_APPROVAL keeps work pending and protected, survives serialization, clears on admitted resume, and ignores a late wait callback after terminal completion.",
+        "Finalization approval does not authorize automatic retry or consume final reserve.",
+        "Existing 18 tests cover admission bounds, reservation persistence, settlement, cancellation and delivery recovery."
+      ],
+      "test_output": "JUnit version 4.13.2\n.....................\nTime: 0.275\n\nOK (21 tests)",
+      "compiled_excerpts": [
+        {
+          "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAcceptedTurn.kt",
+          "source_sha256": "41471f3c08d7c362b2bef07b46ff8594c911874045143a894053e9695f69c1fc",
+          "method": "CombinedExecutionContext.forInvocationKind"
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "scope": "Complete actual AppAssistedSearch source with a local two-test behavior suite; the checked-in MockK integration test is pending.",
+      "boundary_ports": "Agent/DTO data carriers, ToolTraceSession sink, diagnostic log sink and unused SearchTransportFailure translation. Search selection and page-read loop are actual production code.",
+      "compile_exit": 0,
+      "test_exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "test_classes": [
+        "dev.chungjungsoo.gptmobile.data.repository.SearchBudgetHostTest"
+      ],
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt": "3bab344ace84562f029b60e11f80f31a60d627e594033baf3c05f3c275f2b6eb"
+      },
+      "local_harness_source_sha256": {
+        "Agent.kt": "a5ae319c1d82d886d5b39aba1f3c090f3803f6576f065a2702cbb3e453eda354",
+        "Tools.kt": "b39ef3980196a11f7bcbcd1e40110c624c2a11f937791821e73173d229fb91ba",
+        "Entities.kt": "7ad9c213b192b5d5a95f0cd085fa7e325118f4b5c173d0efb14bc00ade95dd4c",
+        "Api.kt": "aaad99f4f5b701fb006931ffb53918813d4dd20627429d874ca93c6e5e8c0b70",
+        "Trace.kt": "958217007ba35fef90dbdba1cce24d9485d444dc90b8475d9b5a126010c84d0d",
+        "Diagnostics.kt": "d9a1f37b71848e750ae398e8cb9a78078ab2f1fc5edf71a15839719876ebfa40",
+        "SearchBudgetHostTest.kt": "54af5550a4a18aefff24567c9ed35c3e4141ec95590d33165c20fef3139677c0"
+      },
+      "harness_builder_sha256": "288969d14db521476a610925e1e68553fe6cc8fc1ac69a7036b0699101ef4292",
+      "behavioral_cases": [
+        "Authoritative Combined work exhaustion stops after one optional page request; ordinary per-page failure still tries the second page.",
+        "Both search snippets and source URLs remain available; no full-page excerpt or success is fabricated.",
+        "An unselected search capability remains BLOCKED; exhaustion does not authorize an alternate tool."
+      ],
+      "test_output": "JUnit version 4.13.2\n..\nTime: 0.096\n\nOK (2 tests)"
+    },
+    {
+      "name": "batch",
+      "scope": "Actual ToolRoundAdmission, ProviderToolBatchPolicy and ChatCompletionsEventAssembler plus exact AgentRunner recoverRejectedBatch and parser observed-count excerpts. Does not compile the complete AgentRunner loop.",
+      "boundary_ports": "Provider interfaces/events, DTO carriers, log sink and unused reasoning parser. Local wrapper exposes the unmodified production recovery method to five focused tests.",
+      "compile_exit": 0,
+      "test_exit": 0,
+      "tests": 5,
+      "failures": 0,
+      "test_classes": [
+        "dev.chungjungsoo.gptmobile.data.agent.BatchRecoveryHostTest"
+      ],
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRoundAdmission.kt": "f019cd9d22b057f90e0a8a9ce6181726d12bd1556e4137052c9e129cc41a8011",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderToolBatchPolicy.kt": "3c59f3b935e6d4bb878e073204d986b31115477b6d9f7e135427e14c34d20640",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ChatCompletionsEventAssembler.kt": "7801389f492342837161bdb50839238635f2f0b63a4b043ae1e816f7208e5aa1"
+      },
+      "local_harness_source_sha256": {
+        "Agent.kt": "b1dbbd061328ccb05b368abfd715a0a8c86c5f28ca54a94c16ec0d7fbe0cf89f",
+        "Api.kt": "848f9added95a5cb1b48157134245ded8a9a919ab6c8c193b7e18d2a89e4603b",
+        "Parser.kt": "31889377e650f8d436379a21c253eae242a8b86f8d58d1b17e5341fd83f25297",
+        "Client.kt": "ccfa016b4d859c15e5c15afbef7a39386bf48e7231060eff2a8eb649ef726bd7",
+        "Diagnostics.kt": "dcdd189cb94bcaac37f0f96434a6619ae91e7534c90dc830d64a3f2a5db53328",
+        "Deltas.kt": "8ff0a81442891a8ce70ee5246e92300fed01837f3a6393b7895a5e1b2f8f2398",
+        "RecoveryBoundary.kt": "840409ec685007d45c610d6a05c34b3777b6b67211496db678b410083839fa65",
+        "BatchRecoveryHostTest.kt": "7888b9da18e470f21bc1653581d943e750506984cfa6993339497b7aa63eea3b"
+      },
+      "harness_builder_sha256": "5d4e27a7558a640db1098471d9bb629de49de71b4ef29163789a428e2dd086a1",
+      "behavioral_cases": [
+        "A 32-call complete batch with an 8-call parser limit is wholly rejected; no call leaks from parser.finish, observed count remains 32, and a correction requests at most one call.",
+        "Observed calls exhaust their independent allowance before correction can be admitted.",
+        "Repeated and non-count failures do not gain an additional retry; exhausted finalization retains typed TOOL_BATCH_OVERSIZE.",
+        "Internal tool providers and already-visible answer text do not gain a replay.",
+        "Existing stream-slot overflow correction remains bounded."
+      ],
+      "test_output": "JUnit version 4.13.2\n.....\nTime: 0.1\n\nOK (5 tests)",
+      "compiled_excerpts": [
+        {
+          "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+          "source_sha256": "80c255bdc472dcea3fa7476bbdc018f29e01b08ef52ebf7ae88d89aa0e805b39",
+          "methods": [
+            "recoverRejectedBatch",
+            "collectRound parser count branch"
+          ]
+        }
+      ]
+    }
+  ],
+  "total": {
+    "tests": 28,
+    "failures": 0,
+    "scope": "21 complete budget tests plus 2 search behavior tests plus 5 parser/recovery boundary tests"
+  },
+  "formatting": {
+    "tool": "ktlint 1.3.1",
+    "scope": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRoundAdmissionTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchBudgetTest.kt"
+    ],
+    "exit": 0
+  },
+  "pending": [
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRoundAdmissionTest.kt",
+      "tests": [
+        "completeCallOverflowRetriesOnceWithoutDispatchingRejectedWrites",
+        "completeCallOverflowChargesObservedCallsBeforeConsideringRepair"
+      ],
+      "status": "CHECKED_IN_NOT_EXECUTED_IN_LOCAL_SLICE",
+      "gate": "Complete AgentRunner integration using actual project dependencies."
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchBudgetTest.kt",
+      "status": "CHECKED_IN_NOT_EXECUTED_IN_LOCAL_SLICE",
+      "gate": "Project AppAssistedSearchBudgetTest using MockK and actual trace/session contracts."
+    }
+  ],
+  "local_compiler_helper_sha256": "f85b04ebca764a0a1b5b04fd705ff40e5982756a56cd2de77d20a53a36fb97db",
+  "limits": [
+    "No full Android app compile, Android SDK/device run, or live provider validation in these focused slices.",
+    "Full compile preflight rejected the host memory envelope; its 8960 MiB minimum was not overridden.",
+    "The local compiler and serialization plugin are cached Kotlin 2.4.20, not a claim that the configured Gradle toolchain passed.",
+    "AgentRunner source hash binds the reviewed file, but only named batch recovery excerpts are covered by this receipt; the separate fresh-progress change is excluded from the five-test scope.",
+    "Local harness source digests identify temporary verification ports and tests; this receipt does not claim they are checked-in production files."
+  ]
+}

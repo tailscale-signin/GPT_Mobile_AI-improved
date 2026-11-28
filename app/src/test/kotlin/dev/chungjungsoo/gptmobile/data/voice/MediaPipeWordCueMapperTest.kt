@@ -6,6 +6,62 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaPipeWordCueMapperTest {
+    @Test fun aNewerEstimateReplacesAFutureWordBeforeItHasAnyAudio() {
+        val mapper = MediaPipeWordCueMapper("one two")
+        val one = WordTimestamp("one", 0, 3, 0f, .1f)
+        val two = WordTimestamp("two", 4, 7, 1f, 1.5f)
+        assertEquals(listOf(VoiceWordCue(0, 3, 0, 2_400)), mapper.accept(listOf(one, two), 2_400))
+        assertEquals(listOf(VoiceWordCue(4, 7, 4_800, 9_600)), mapper.accept(listOf(two.copy(startSec = .2f, endSec = .4f)), 12_000))
+    }
+
+    @Test fun completedEstimatedWordsReceiveExplicitCorrectionsWithoutConsumingAnotherCueSlot() {
+        val mapper = MediaPipeWordCueMapper("one two", cueLimit = 2)
+        val one = WordTimestamp("one", 0, 3, 0f, .4f)
+        val two = WordTimestamp("two", 4, 7, .5f, .8f)
+        mapper.accept(listOf(one, two), 24_000)
+        val correction = mapper.accept(listOf(one.copy(startSec = .1f, endSec = .3f)), 24_000).single()
+        assertEquals(VoiceWordCue(0, 3, 2_400, 7_200, revision = 1), correction)
+        assertTrue(mapper.accept(listOf(one.copy(startSec = .1f, endSec = .3f)), 24_000).isEmpty())
+        assertTrue(mapper.accept(listOf(one.copy(endSec = .6f)), 24_000).isEmpty())
+        assertTrue(mapper.accept(listOf(one.copy(endChar = 4)), 24_000).isEmpty())
+    }
+
+    @Test fun anOpenEstimateCanFinishSoonerWithoutRetractingTheObservedPrefix() {
+        val mapper = MediaPipeWordCueMapper("one")
+        val first = WordTimestamp("one", 0, 3, 0f, 1f)
+        assertEquals(listOf(VoiceWordCue(0, 3, 0, 2_400, finalEnd = false)), mapper.accept(listOf(first), 2_400))
+        assertEquals(listOf(VoiceWordCue(0, 3, 0, 4_800)), mapper.accept(listOf(first.copy(endSec = .2f)), 4_800))
+    }
+
+    @Test fun oldAndOverlappingCorrectionsNeverReopenRetiredText() {
+        val mapper = MediaPipeWordCueMapper("one two", frameLimit = VOICE_PCM_SAMPLE_RATE * 120L)
+        val one = WordTimestamp("one", 0, 3, 0f, .4f)
+        val two = WordTimestamp("two", 4, 7, .5f, .8f)
+        mapper.accept(listOf(one, two), 24_000)
+        assertTrue(mapper.accept(listOf(one.copy(startSec = .1f)), VOICE_PCM_SAMPLE_RATE * 62L).isEmpty())
+        assertTrue(mapper.accept(listOf(two.copy(startSec = .2f)), VOICE_PCM_SAMPLE_RATE * 62L).isEmpty())
+    }
+
+    @Test fun aPublishedCorrectionCannotConsumeTheNextPendingWord() {
+        val mapper = MediaPipeWordCueMapper("one two")
+        val one = WordTimestamp("one", 0, 3, 0f, .1f)
+        val two = WordTimestamp("two", 4, 7, .2f, .3f)
+        mapper.accept(listOf(one, two), 2_400)
+        assertTrue(mapper.accept(listOf(one.copy(endSec = .25f)), 2_400).isEmpty())
+        assertEquals(listOf(VoiceWordCue(4, 7, 4_800, 7_200)), mapper.accept(emptyList(), 7_200))
+    }
+
+    @Test fun revisionHistoryIsBoundedByTheMostRecentWordsAsWellAsAudioAge() {
+        val count = VoiceStreamFrames.MAX_REVISION_WORDS + 1
+        val mapper = MediaPipeWordCueMapper("one ".repeat(count).trimEnd())
+        val words = List(count) { index -> WordTimestamp("one", index * 4, index * 4 + 3, index * .01f, index * .01f + .005f) }
+        assertEquals(count, mapper.accept(words, 100_000).size)
+        assertTrue(mapper.accept(listOf(words.first().copy(startSec = .001f)), 100_000).isEmpty())
+        val retained = mapper.accept(listOf(words[1].copy(startSec = .011f)), 100_000).single()
+        assertEquals(4, retained.startByte)
+        assertEquals(1, retained.revision)
+    }
+
     @Test fun unicodeOffsetsAndTimesRemainRelativeToTheWholeStream() {
         val mapper = MediaPipeWordCueMapper("Café 🍵 go")
         val words = listOf(

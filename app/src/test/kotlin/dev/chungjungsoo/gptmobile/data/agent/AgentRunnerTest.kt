@@ -24,6 +24,36 @@ import org.junit.Test
 
 class AgentRunnerTest {
 
+    @Test fun sourceTranslationKeepsQuotedClaimsAndMarkupWhileOrdinaryAnswersRemainGuarded() = runBlocking {
+        for (text in listOf("I searched the web yesterday.", "<think>Words to translate.</think>", "<progress_update>Hello.</progress_update>", "{\"name\":\"web_search\",\"parameters\":{}}")) {
+            var rounds = 0
+            val provider = session { tools, exchanges ->
+                assertTrue(tools.isEmpty())
+                assertTrue(exchanges.isEmpty())
+                flow {
+                    rounds++
+                    text.forEach { emit(ProviderEvent.TextDelta(it.toString())) }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val events = AgentRunner(AgentRunLimits(maxRounds = 1, maxToolCalls = 0)).run(SourceTranslationSession(provider), emptyList()).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(text, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertFalse(events.any { it is ProviderEvent.Failed || it is ProviderEvent.ToolCall || it is ProviderEvent.ToolResult })
+            assertTrue(events.contains(ProviderEvent.Completed))
+            assertEquals(1, rounds)
+        }
+        val ordinary = session { _, _ ->
+            flow {
+                emit(ProviderEvent.TextDelta("I searched the web yesterday."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val normalEvents = AgentRunner(AgentRunLimits(maxRounds = 1, maxToolCalls = 0)).run(ordinary, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertTrue(normalEvents.filterIsInstance<ProviderEvent.Failed>().any { it.errorCode == "UNSUPPORTED_SEARCH_CLAIM" })
+    }
+
     @Test fun adaptiveReadFeedbackSurvivesRoundsAndResetsForNextCollection() = runBlocking {
         val reader = tool("github_read") { id, _ ->
             AgentToolResult(id, ToolResultContent.Text("source receipt"), isError = id == "read-1", errorCode = if (id == "read-1") "REMOTE_UNAVAILABLE" else null)

@@ -38,6 +38,9 @@ internal object GitHubSemanticSummary {
                 put("action", action)
                 put("source_result_sha256", GitHubEvidenceBook.digest(source.toString()))
                 put("hash_scope", "IMMUTABLE_SOURCE_RESULT")
+                if (operation.githubOperationFamily() == "github_pr" && action in setOf("copilot_create_task", "copilot_task_status")) {
+                    copilotObservation(data, canonicalRequest)?.let { put("copilot_observation", it) }
+                }
                 if (operation.githubOperationFamily() == "github_read" && action in setOf("", "ranges", "read_ranges")) {
                     val coverage = (data["source_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                     if (coverage.isNotEmpty()) {
@@ -55,6 +58,7 @@ internal object GitHubSemanticSummary {
                     }
                 }
                 put("scope", "Captured observations only; task completion and required-check policy are independently verified.")
+                GitHubCopilotProgress.facts(operation, canonicalRequest, data)?.let { put("copilot_task", it) }
                 data.text("base_sha").takeIf(sha::matches)?.let { put("base_sha", it) }
                 if (consistentHead) {
                     listOf("commit_sha", "head_sha").forEach { key ->
@@ -133,6 +137,13 @@ internal object GitHubSemanticSummary {
                 }
                 if (operation.githubOperationFamily() == "github_ci" && action in setOf("logs", "failure")) {
                     GitHubCiSizeGate.observation(canonicalRequest, data)?.let { put("apk_size_failure", it) }
+                    if (action == "logs" &&
+                        listOf("job_id", "run_id", "run_attempt").all { (canonicalRequest.text(it).toLongOrNull() ?: 0L) > 0 && canonicalRequest[it] == data[it] } &&
+                        sha.matches(canonicalRequest.text("expected_head_sha")) &&
+                        canonicalRequest["expected_head_sha"] == data["head_sha"]
+                    ) {
+                        (data["diagnostic_excerpts"] as? JsonArray)?.let { excerpts -> put("diagnostic_excerpts", JsonArray(excerpts.take(4))) }
+                    }
                 }
                 if (operation.githubOperationFamily() == "github_ci" && action == "runs") {
                     GitHubCiFailureObservation.emptyRevision(request, data)?.let { head ->
@@ -198,6 +209,9 @@ internal object GitHubSemanticSummary {
                 (data["status_details"] as? JsonObject)?.let { statuses ->
                     (statuses["statuses"] as? JsonArray)?.let { put("observed_statuses", it.size) }
                     (statuses["total_count"] as? JsonPrimitive)?.intOrNull?.let { put("reported_total_statuses", it) }
+                }
+                if (operation.githubOperationFamily() == "github_issue" && GitHubIssueRemediation.completeEmptyOpenPage(canonicalRequest, source)) {
+                    put("open_issue_inventory_empty", true)
                 }
                 if (operation.githubOperationFamily() == "github_pr" && action == "list") {
                     val items = (data["items"] ?: data["pull_requests"]) as? JsonArray
@@ -334,6 +348,33 @@ internal object GitHubSemanticSummary {
         )
     }
 
+    /** Saved purpose uses the same task identity and observed phase as the live preview. */
+    private fun copilotObservation(data: JsonObject, request: JsonObject): JsonObject? {
+        val facts = GitHubCopilotProgress.facts("github_pr", request, data) ?: return null
+        val repository = request.text("owner") + "/" + request.text("repo")
+        if (!repository.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) || data.text("repository").let { it.isNotEmpty() && !it.equals(repository, true) }) return null
+        val id = facts.text("task_id")
+        val phase = when (val observed = facts.text("phase")) {
+            "ACCEPTED" -> "saved by Gateway"
+            "REMOTE_ACCEPTED" -> "accepted by GitHub"
+            "RECONCILE_REQUIRED" -> "awaiting reconciliation"
+            "QUEUED", "IN_PROGRESS", "COMPLETED", "FAILED", "IDLE", "WAITING_FOR_USER", "TIMED_OUT", "CANCELLED" -> observed.lowercase(java.util.Locale.ROOT)
+            else -> return null
+        }
+        val intent = when {
+            Regex("""\b(review|audit)\b""", RegexOption.IGNORE_CASE).containsMatchIn(request.text("prompt")) -> "review the requested change"
+            Regex("""\b(test|tests|benchmark)\b""", RegexOption.IGNORE_CASE).containsMatchIn(request.text("prompt")) -> "work on the requested verification"
+            else -> "work on the submitted task"
+        }
+        return buildJsonObject {
+            put("repository", repository)
+            put("phase", phase.replace('_', ' '))
+            put("purpose", intent)
+            put("controller", facts.text("controller"))
+            if (id.isNotBlank() && id.length <= 256 && id.none(Char::isISOControl)) put("url", "https://github.com/$repository/copilot/tasks/${GitHubWorkspaceClient.segment(id)}")
+        }
+    }
+
     /** Keep useful observations when an older summary exceeds the replay allowance. */
     internal fun bounded(summary: JsonObject, maxCharacters: Int = MAX_SUMMARY_CHARACTERS): JsonObject {
         if (summary.toString().length <= maxCharacters) return summary
@@ -351,7 +392,7 @@ internal object GitHubSemanticSummary {
         if (JsonObject(retained).toString().length <= maxCharacters) return JsonObject(retained)
         // Legacy or malformed summaries cannot consume an unbounded replay. Keep
         // identity and the first useful observation, not an all-or-nothing placeholder.
-        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "pr_head_ref", "pr_head_repo", "source_result_sha256", "apk_size_failure", "failed_job_step", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "source_ranges", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
+        val priority = listOf("schema", "operation", "action", "copilot_task", "copilot_observation", "commit_sha", "head_sha", "base_sha", "pr_head_ref", "pr_head_repo", "source_result_sha256", "hash_scope", "apk_size_failure", "diagnostic_excerpts", "failed_job_step", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "source_ranges", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
         val bounded = linkedMapOf<String, kotlinx.serialization.json.JsonElement>("summary_truncated" to JsonPrimitive(true))
         for (key in priority + retained.keys) {
             if (key in bounded) continue

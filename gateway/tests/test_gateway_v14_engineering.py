@@ -964,6 +964,45 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertEqual(1, self.backend.calls.count('reconcile:COMMIT'))
         self.assertEqual('UNKNOWN_OUTCOME', self.store.get(job['id'])['data']['latest_operation']['state'])
 
+    def test_rate_limit_after_physical_write_retains_response_and_never_replays(self):
+        original_step = self.backend.step
+        for http_status in (429, 403):
+            with self.subTest(status=http_status):
+                self.backend.step = original_step
+                job = self.store.create('owner', dict(self.request, request_id='write-limit-' + str(http_status)))
+                for _ in range(4):
+                    self.service.tick(job['id'])
+                self.assertEqual('COMMIT', self.store.get(job['id'])['state'])
+                self.backend.physical_operation_journal = True
+                writes = []
+                def limited(claimed, phase):
+                    claimed['data']['execution_integrity'] = 'VERIFIED'
+                    operation = self.service.operations.prepare(claimed, 'PATCH', '/repos/owner/repo/git/refs/heads/feature/job', {'sha': 'a' * 40})
+                    self.service.operations.dispatch(claimed, operation)
+                    writes.append(operation['operation_id'])
+                    self.service.operations.finish(claimed, operation, {'http_status': http_status, 'error': 'fixture rate limit'}, http_status)
+                    response = requests.Response()
+                    response.status_code = http_status
+                    response.headers.update({'Retry-After': '60', 'X-RateLimit-Remaining': '0'})
+                    raise requests.HTTPError('fixture rate limit after dispatch', response=response)
+                self.backend.step = limited
+                self.service.tick(job['id'])
+                retained = self.store.get(job['id'])
+                operation = retained['data']['latest_operation']
+                self.assertEqual('NEEDS_INPUT', retained['state'])
+                self.assertEqual('FAILED', operation['state'])
+                self.assertTrue(operation['dispatched'])
+                self.assertEqual(http_status, operation['http_status'])
+                self.assertEqual(http_status, self.service.artifacts.json_value(retained, operation['response_ref'])['http_status'])
+                self.assertIn('reconcile', retained['message'].lower())
+                self.assertNotIn('provider_wait', retained)
+                for _ in range(3):
+                    self.time += 600
+                    self.assertNotIn(job['id'], self.store.due())
+                    self.service.tick(job['id'])
+                self.assertEqual(1, len(writes))
+        self.backend.step = original_step
+
     def test_stale_prompt_is_retired_and_unchanged_ci_polls_do_not_duplicate_updates(self):
         job = self.ready()
         self.backend.evidence['checks_passed'] = False

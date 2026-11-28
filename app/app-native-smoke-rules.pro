@@ -21,12 +21,29 @@
 -keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngine { *; }
 -keep interface dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoicePcmChunk { *; }
+# The packet-publication assertion reads the raw cue across the app/test APK boundary.
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceWordCue { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceStreamFrames { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceStreamCue { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceWordCueProvenance { *; }
+# The separate test APK reflects and calls these caption-verification types.
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionWordCoverage { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionWordCoverageResult { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend { *; }
 # The minified test APK opens the real streaming output and observes its Android playback clock.
 -keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore { *; }
+-keepclassmembers class dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore {
+    java.lang.Object install(kotlin.coroutines.Continuation);
+}
+-keep class dev.chungjungsoo.gptmobile.data.voice.SpeechVoiceEvidenceKt {
+    public static java.lang.String speechAcceleratorEnvironment(android.content.Context);
+}
+-keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechNpuKt {
+    public static void prepareMediaPipeSpeechNpu(android.content.Context);
+    public static boolean isSm8750SpeechDevice();
+}
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoicePcmSignalMeasurement { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoicePcmSignal { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.KokoroVoiceOutput { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack { *; }
@@ -35,3 +52,28 @@
 -keep interface dev.chungjungsoo.gptmobile.data.voice.VoicePlaybackMeasurementObserver { *; }
 -keep interface dev.chungjungsoo.gptmobile.data.voice.LocalVoiceAssetSource { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.LocalVoiceAssetStream { *; }
+
+# The separately compiled runner still calls AndroidX tracing after app R8.
+-keep class androidx.tracing.Trace { *; }
+
+# Native memory tests call constructors, copy/default bridges and generated
+# ObjectBox APIs that whole-program app optimization can otherwise erase.
+-keep class dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection { *; }
+-keep class dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext { *; }
+-keep class dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation$Companion { *; }
+-keepclassmembers class dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation {
+    public static final dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation$Companion Companion;
+}
+-keep class dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDocument { *; }
+-keep class dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk { *; }
+-keep class dev.chungjungsoo.gptmobile.data.memory.MyObjectBox { *; }
+-keep class io.objectbox.Box { *; }
+-keep class io.objectbox.BoxStore { *; }
+-keep class io.objectbox.BoxStoreBuilder { *; }
+
+# Speech JNI tests select real routes/voices through these app APIs. Keep the
+# enum entries, getters and object instance dispatch used by the separate APK.
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkResultKt { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEngine { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage { *; }

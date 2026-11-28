@@ -16,7 +16,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal enum class BenchmarkExportContent { BENCHMARKS, APP_AUDIT, VOICE_PERFORMANCE, VOICE_SPEECH }
+internal enum class BenchmarkExportContent { BENCHMARKS, APP_AUDIT, VOICE_PERFORMANCE, VOICE_SPEECH, VOICE_SUITE }
 
 internal data class BenchmarkExportArtifact(
     val id: String,
@@ -30,6 +30,7 @@ internal data class BenchmarkExportArtifact(
     val fileName: String get() = "${when {
         content == BenchmarkExportContent.APP_AUDIT -> "app-audit"
         content == BenchmarkExportContent.VOICE_PERFORMANCE -> "voice-performance"
+        content == BenchmarkExportContent.VOICE_SUITE -> "full-voice-benchmark"
         content == BenchmarkExportContent.VOICE_SPEECH -> "speech-benchmark"
         includesPrivateProfileDetails -> "benchmark-private"
         detailed -> "benchmark-debug"

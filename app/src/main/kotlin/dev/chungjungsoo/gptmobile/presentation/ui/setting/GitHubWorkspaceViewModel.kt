@@ -119,6 +119,10 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
     private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null
 ) : ViewModel() {
+    private companion object {
+        const val MAX_INSTALLATION_LOOKUP_PAGES = 10
+    }
+
     private val _state = MutableStateFlow(GitHubWorkspaceState())
     val state = _state.asStateFlow()
     private var client: GitHubWorkspaceClient? = null
@@ -257,12 +261,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 if (appAuthorization) {
                     // Permission metadata is required before enabling writes, but the
                     // repository and branch inventories are not startup dependencies.
-                    loadInstallations(1)
-                    val installation = _state.value.installations.firstOrNull {
-                        it["account"]?.jsonObject?.text("login").equals(previousSelection.owner, true) &&
-                            (it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull)
-                    }
-                    updateState { it.copy(installationId = installation?.text("id")) }
+                    resolveRepositoryInstallation(previousSelection.owner)
                 }
                 // A saved repository can be revalidated directly. Account inventories,
                 // branch menus, commit history and indexing are loaded only when opened.
@@ -287,14 +286,18 @@ class GitHubWorkspaceViewModel @Inject constructor(
         val account = api("get_account").jsonObject
         updateState { it.copy(login = account.text("login")) }
         if (_state.value.appAuthorization) {
-            loadInstallations(1)
             val current = _state.value
-            val active = current.installations.filter { it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull }
-            val installation = active.firstOrNull { it.text("id") == current.installationId }
-                ?: active.firstOrNull { it["account"]?.jsonObject?.text("login").equals(current.selection?.owner, true) }
-                ?: active.singleOrNull()?.takeUnless { current.moreInstallations }
-            val id = installation?.text("id")
-            updateState { it.copy(installationId = id) }
+            if (current.selection != null) {
+                resolveRepositoryInstallation(current.selection.owner, current.installationId)
+                refreshRepositoryAccessInternal(refreshInstallations = false, refreshHead = false)
+            } else {
+                loadInstallations(1)
+                val loaded = _state.value
+                val active = loaded.installations.filter { it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull }
+                val installation = active.firstOrNull { it.text("id") == loaded.installationId }
+                    ?: active.singleOrNull()?.takeUnless { loaded.moreInstallations }
+                updateState { it.copy(installationId = installation?.text("id")) }
+            }
         }
         loadRepositories(1)
         updateState { it.copy(repositoryChoicesLoaded = true) }
@@ -341,12 +344,44 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
     fun moreRepositories() = work { loadRepositories(_state.value.repositoryPage + 1) }
 
-    fun moreInstallations() = work { loadInstallations(_state.value.installationPage + 1) }
+    fun moreInstallations() = work {
+        loadInstallations(_state.value.installationPage + 1)
+        val current = _state.value
+        val selected = current.selection
+        if (current.appAuthorization && selected != null && !current.canWrite) {
+            current.repositoryInstallation(selected.owner, current.installationId)?.let { installation ->
+                updateState { it.copy(installationId = installation.text("id")) }
+                refreshRepositoryAccessInternal(refreshInstallations = false, refreshHead = false)
+            }
+        }
+    }
 
     private suspend fun loadInstallations(page: Int) {
         val result = api("list_installations", buildJsonObject { put("page", page) }).jsonObject
         val items = result["items"]?.jsonArray.orEmpty().map { it.jsonObject }
         updateState { it.copy(installations = if (page == 1) items else (it.installations + items).distinctBy { installation -> installation.text("id") }, installationPage = page, moreInstallations = result.flag("has_more")) }
+    }
+
+    /** Resolve only this saved repository's owner; a known installation cannot be replaced. */
+    private suspend fun resolveRepositoryInstallation(owner: String, preferredId: String? = null) {
+        updateState { it.copy(installationId = preferredId, canWrite = false) }
+        for (page in 1..MAX_INSTALLATION_LOOKUP_PAGES) {
+            loadInstallations(page)
+            val current = _state.value
+            current.repositoryInstallation(owner, preferredId)?.let { installation ->
+                updateState { it.copy(installationId = installation.text("id")) }
+                return
+            }
+            if (!current.moreInstallations) return
+        }
+        updateState { it.copy(notice = "More GitHub App installations are available. Load more installations to finish checking access for $owner.") }
+    }
+
+    private fun GitHubWorkspaceState.repositoryInstallation(owner: String, preferredId: String?): JsonObject? = installations.singleOrNull { installation ->
+        installation.text("id").matches(Regex("[1-9][0-9]{0,19}")) &&
+            (preferredId == null || installation.text("id") == preferredId) &&
+            installation["account"]?.jsonObject?.text("login").equals(owner, true) &&
+            (installation["suspended_at"] == null || installation["suspended_at"] == kotlinx.serialization.json.JsonNull)
     }
 
     fun selectInstallation(id: String) = work {
@@ -408,7 +443,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         require(default.isNotBlank()) { "Repository has no default branch." }
         val recoveredRef = recovery?.selection?.takeIf { it.fullName.equals("$owner/$repo", true) }?.ref
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: recoveredRef ?: default)
-        val appCanWrite = !current.appAuthorization || current.installations.firstOrNull { it.text("id") == current.installationId }?.get("permissions")?.jsonObject?.text("contents") == "write"
+        val appCanWrite = !current.appAuthorization || current.installationId != null && current.repositoryInstallation(owner, current.installationId)?.get("permissions")?.jsonObject?.text("contents") == "write"
         val canWrite = appCanWrite && metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && current.connection?.toolPolicy != "READ_ONLY"
         updateState { it.copy(selection = selected, repositoryId = metadata.text("id").takeIf(String::isNotBlank), defaultBranch = default, canWrite = canWrite, branches = emptyList(), branchesLoaded = false, file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), pullsLoaded = false, pullPage = 1, morePullRequests = false, commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = if (restoring) current.headSha else "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         var refreshed = false
@@ -479,9 +514,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     /** A direct account/repository check; the saved prompt and staged edits stay intact. */
-    fun refreshRepositoryAccess() = refreshWork(auth = true) {
+    fun refreshRepositoryAccess() = refreshWork(auth = true) { refreshRepositoryAccessInternal() }
+
+    private suspend fun refreshRepositoryAccessInternal(refreshInstallations: Boolean = true, refreshHead: Boolean = true) {
         val selected = requireNotNull(_state.value.selection) { "Choose a repository before refreshing access." }
-        if (_state.value.appAuthorization) loadInstallations(1)
+        if (_state.value.appAuthorization && refreshInstallations) resolveRepositoryInstallation(selected.owner, _state.value.installationId)
         val metadata = api(
             "get_repository",
             buildJsonObject {
@@ -491,7 +528,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
         ).jsonObject
         val current = _state.value
-        val appCanWrite = !current.appAuthorization || current.installations.firstOrNull { it.text("id") == current.installationId }?.get("permissions")?.jsonObject?.text("contents") == "write"
+        val appCanWrite = !current.appAuthorization || current.installationId != null && current.repositoryInstallation(selected.owner, current.installationId)?.get("permissions")?.jsonObject?.text("contents") == "write"
         updateState {
             it.copy(
                 repositoryId = metadata.text("id").takeIf(String::isNotBlank),
@@ -500,11 +537,15 @@ class GitHubWorkspaceViewModel @Inject constructor(
             )
         }
         // A refresh with local edits must not move their pinned base or reset the editor.
-        if (current.staged.isEmpty() && current.editorDrafts.isEmpty() && current.patchStage == null && pendingRecovery?.dirty != true) loadHeadAndDirectory()
+        if (refreshHead && current.staged.isEmpty() && current.editorDrafts.isEmpty() && current.patchStage == null && pendingRecovery?.dirty != true) loadHeadAndDirectory()
         updateState {
             it.copy(
                 composerReadiness = if (it.headSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY else it.composerReadiness,
-                notice = "Repository access refreshed. Your saved request is unchanged; continue it when ready."
+                notice = if (current.appAuthorization && current.moreInstallations && current.repositoryInstallation(selected.owner, current.installationId) == null) {
+                    current.notice
+                } else {
+                    "Repository access refreshed. Your saved request is unchanged; continue it when ready."
+                }
             )
         }
     }

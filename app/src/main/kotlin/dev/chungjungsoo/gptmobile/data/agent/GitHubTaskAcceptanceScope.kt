@@ -45,12 +45,13 @@ internal data class GitHubTaskScope(
             val count = if (workspace != null) 1 else targets.size
             val boundedRead = hasNativeTools && count > 0 && (GitHubLookupRoute.from(request) != null || GitHubCiObservationReport.matches(request))
             val required = boundedRead || requiresNativeGitHubAcceptance(request, hasNativeTools)
+            val relevantWorkspace = workspace?.takeIf { IntelligenceIntent.from(request, selectedRepository = true).repository }
             val inferred = targets.singleOrNull()?.takeIf { required && hasNativeTools }
-            val head = workspace?.commitSha ?: inferred?.let { target ->
+            val head = relevantWorkspace?.commitSha ?: inferred?.let { target ->
                 contexts.filter { it.connectionUid == target.connectionUid && it.repository == target.repository }
                     .mapNotNull { it.observedCommitSha }.distinct().singleOrNull()
             }
-            return GitHubTaskScope(required, workspace?.repository ?: inferred?.repository, workspace?.connectionUid ?: inferred?.connectionUid, head, count)
+            return GitHubTaskScope(required, relevantWorkspace?.repository ?: inferred?.repository, relevantWorkspace?.connectionUid ?: inferred?.connectionUid, head, count)
         }
     }
 }
@@ -68,6 +69,7 @@ internal fun GitHubMcpRepositoryRead.matchesTool(tool: ResolvedAgentTool): Boole
 /** Availability alone cannot turn unrelated work or account discovery into a repository task. */
 internal fun requiresNativeGitHubAcceptance(request: String, hasNativeTools: Boolean): Boolean {
     if (CurrentRequestContract.from(request).conversational || dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityRequest.from(request) != null) return false
+    if (IntelligenceIntent.externalServiceOnly(request) || IntelligenceIntent.accountRepositoryDiscovery(request)) return false
     val explicitGitHub = Regex("(?i)(?<![A-Za-z0-9])github(?:_[A-Za-z0-9_]+)?(?![A-Za-z0-9])").containsMatchIn(request)
     if (!hasNativeTools && !explicitGitHub) return false
     if (dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.intent(request) != null) return true
@@ -75,8 +77,7 @@ internal fun requiresNativeGitHubAcceptance(request: String, hasNativeTools: Boo
     val repositoryScope = explicitGitHub || repositoryEntity
     val repositoryRead = repositoryEntity &&
         Regex("(?i)^(?:please\\s+)?(?:read|inspect|review|audit|show|list|fetch|open|check|verify|summari[sz]e|compare)\\b").containsMatchIn(request.trim()) &&
-        !Regex("(?i)^(?:please\\s+)?(?:show(?: me)?|review|compare)\\s+(?:how|why|what)\\b").containsMatchIn(request.trim()) &&
-        !Regex("(?i)\\b(?:my|accessible|available)\\s+(?:github\\s+)?(?:repos|repositories)\\b|\\brepositories\\s+(?:I|we)\\s+(?:can|have)\\b").containsMatchIn(request)
+        !Regex("(?i)^(?:please\\s+)?(?:show(?: me)?|review|compare)\\s+(?:how|why|what)\\b").containsMatchIn(request.trim())
     return repositoryScope &&
         (
             dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(request) ||

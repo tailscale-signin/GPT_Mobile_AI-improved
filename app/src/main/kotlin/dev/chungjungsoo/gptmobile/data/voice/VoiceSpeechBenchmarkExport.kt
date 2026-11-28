@@ -39,7 +39,7 @@ internal fun writeVoiceSpeechBenchmarkExport(report: VoiceSpeechBenchmarkReport,
                         )
                     }
                 },
-                "playbackResults" to { array(report.playbackResults) { element(playbackJson(it)) } },
+                "playbackResults" to { array(report.playbackResults) { element(playbackJson(it, report.configuration)) } },
                 "engineResults" to {
                     array(report.engineResults) { result ->
                         objectValue(
@@ -206,14 +206,26 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put("outcome", report.outcome.name)
     nullable("issue", report.issue?.name)
     nullable("recommendedBackend", report.recommendation()?.name)
+    nullable("measuredStreamingLatencyCandidate", report.measuredStreamingCandidate()?.name)
+    put("streamingComparisons", streamingComparisonsJson(report))
+    put("independentSpeechQuality", buildJsonArray { report.independentSpeechQuality.forEach { add(independentSpeechQualityJson(it)) } })
     put(
         "configuration",
         buildJsonObject {
             val c = report.configuration
             put("engine", c.engine.name)
+            nullable("pcmProcessingId", c.pcmProcessingId)
+            put("enginePcmObservationScope", c.enginePcmObservationScope)
             nullable("engineVoiceId", c.engineVoiceId?.takeIf { it.matches(IDENTITY) })
             put("voiceScope", if (nativeEngine) "configured_native_voice" else "engineVoiceId_is_actual_sdk_voice_native_voice_field_is_not_used")
-            put("threadsScope", if (nativeEngine) "configured_native_cpu_threads" else "not_exposed_by_sdk_native_threads_field_is_not_used")
+            put(
+                "threadsScope",
+                when {
+                    nativeEngine -> "configured_native_cpu_threads"
+                    c.engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED -> "configured_cpu_transformer_threads_accelerator_thread_count_unobserved"
+                    else -> "not_exposed_by_sdk_native_threads_field_is_not_used"
+                }
+            )
             put("deepDiagnostics", c.deepDiagnostics)
             put("kokoroBucket", c.kokoroBucket.name)
             put("kokoroBucketTokens", c.kokoroBucket.sdkValue)
@@ -234,6 +246,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
                 "modelWeightFormat",
                 when {
                     nativeEngine -> c.nativeModelVariant.name
+                    c.engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED -> "FP16_FP32"
                     c.engine.mediaPipeEngine()?.isKokoro == true -> "INT8_FP16"
                     else -> "INT8"
                 }
@@ -242,6 +255,17 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
                 put("nativeGpuGraphPrecisionRequest", "FP32_WHEN_ADRENO_IS_SELECTED")
             }
             put("acceleratorArithmeticPrecision", "UNOBSERVED")
+            if (c.engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED) {
+                put(
+                    "requestedGraphPlacement",
+                    buildJsonObject {
+                        put("languageModel", "REQUESTED_BACKEND")
+                        put("mimiTransformer", "CPU")
+                        put("vocoder", "REQUESTED_BACKEND")
+                        put("kernelAttribution", "NOT_MEASURED")
+                    }
+                )
+            }
             put(
                 "deadlines",
                 c.deadlines?.let { limits ->
@@ -286,7 +310,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             }
         }
     )
-    put("playbackResults", buildJsonArray { report.playbackResults.takeIf { includeRecords }.orEmpty().forEach { add(playbackJson(it)) } })
+    put("playbackResults", buildJsonArray { report.playbackResults.takeIf { includeRecords }.orEmpty().forEach { add(playbackJson(it, report.configuration)) } })
     put("engineResults", buildJsonArray { report.engineResults.takeIf { includeRecords }.orEmpty().forEach { add(speechEngineBenchmarkJson(it, playback = report.configuration.playback)) } })
 }
 
@@ -690,7 +714,7 @@ private fun readFailureObservation(o: JsonObject, validatedAudio: Boolean = fals
     )
 }
 
-private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
+private fun playbackJson(r: VoiceSpeechPlaybackResult, configuration: VoiceSpeechBenchmarkConfiguration) = buildJsonObject {
     put("requestedBackend", r.requestedBackend.name)
     put("state", r.state.name)
     nullable("firstPcmMs", r.firstPcmMs)
@@ -721,32 +745,44 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
     nullable("prewarmElapsedMs", r.prewarmElapsedMs)
     nullable("recoveryAfter", r.recoveryAfter?.name)
     nullable("prewarmStartToFirstPresentedMs", r.prewarmElapsedMs?.let { elapsed -> r.firstPresentedAudioMs?.plus(elapsed) })
+    // Retain legacy names for old readers; these callbacks now follow the app tempo processor.
     nullable("firstSdkPcmAfterStreamStartMs", r.firstSdkPcmAfterStreamStartMs)
+    nullable("firstEnginePcmAfterStreamStartMs", r.firstSdkPcmAfterStreamStartMs)
+    put("enginePcmObservationScope", configuration.enginePcmObservationScope)
+    nullable("pcmProcessingId", configuration.pcmProcessingId)
     nullable("cacheDirectoryPresentAtEntry", r.cacheDirectoryPresent)
     nullable("cacheDirectoriesEvictedOnAcquire", r.cacheDirectoriesEvicted)
-    put(
-        "sdkPcmSignal",
-        r.sdkPcm?.let { signal ->
-            buildJsonObject {
-                put("samples", signal.samples)
-                put("rms", signal.rms)
-                put("peak", signal.peak)
-                put("clipped", signal.clipped)
-                put("nonSilent", signal.nonSilent)
-                put("scope", "RAW_SDK_CALLBACKS_BEFORE_PLAYBACK_TRIMMING")
-            }
-        } ?: JsonNull
-    )
+    val enginePcmSignal = r.sdkPcm?.let { signal ->
+        buildJsonObject {
+            put("samples", signal.samples)
+            put("rms", signal.rms)
+            put("peak", signal.peak)
+            put("clipped", signal.clipped)
+            put("nonSilent", signal.nonSilent)
+            put("scope", configuration.enginePcmObservationScope)
+        }
+    } ?: JsonNull
+    put("sdkPcmSignal", enginePcmSignal)
+    put("enginePcmSignal", enginePcmSignal)
     nullable("warmFirstPcmTargetMet", r.firstPcmMs?.takeIf { r.expectedResident && r.engineReused == true }?.let { it < VoiceSpeechBenchmarkTargets.WARM_FIRST_PCM_MS })
     nullable("prepareToFirstPcmTargetMet", r.firstPcmMs?.takeIf { r.engineReused == false }?.let { it < VoiceSpeechBenchmarkTargets.PREPARE_TO_FIRST_PCM_MS })
     nullable("firstPresentedTargetMet", r.firstPresentedAudioMs?.let { it <= VoiceSpeechPlaybackProtocol.FIRST_AUDIO_TARGET_MS })
     nullable("zeroClippingTargetMet", r.sdkPcm?.let { it.clipped <= VoiceSpeechBenchmarkTargets.CLIPPED_SAMPLES })
     nullable("renderedManifestWords", r.renderedManifestWords)
+    nullable("captionNativeTimingWords", r.captionNativeTimingWords)
+    nullable("captionEstimatedTimingWords", r.captionEstimatedTimingWords)
+    nullable("captionAsrAlignmentTimingWords", r.captionAsrAlignmentTimingWords)
+    put("captionAlignmentStatuses", buildJsonArray { r.captionAlignmentStatuses.sorted().forEach { add(JsonPrimitive(it)) } })
+    nullable("captionTimingRevisions", r.captionTimingRevisions)
+    put("captionTimingSourceScope", "LATEST_SOURCE_RANGE_PROVENANCE_REVISIONS_COUNTED_SEPARATELY_NOT_ACOUSTIC_VALIDATION")
+    put("asrAlignmentScope", "ASR_DERIVED_AUDIO_TIMING_EXACT_SOURCE_MATCH_NOT_INDEPENDENT_ACOUSTIC_VALIDATION")
     put("captionObservations", r.captionObservations)
     put("captionClockRegressions", r.captionClockRegressions)
     put("captionTimingViolations", r.captionTimingViolations)
     nullable("clockBasis", r.clockBasis?.takeIf { it in CLOCKS })
     nullable("route", r.route?.takeIf { it in ROUTES })
+    nullable("outputRouteIdentity", r.outputRouteIdentity?.takeIf(::isVoiceOutputRouteIdentity))
+    nullable("outputRouteIdentityChanges", r.outputRouteIdentityChanges)
     put("effectiveProvider", provider(r.effectiveProvider))
     put("acceleratorExecutionObserved", r.acceleratorExecutionObserved)
     nullable("streamedAudioValidated", r.streamedAudioValidated)
@@ -935,6 +971,7 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         captionOffsetMs = c.optionalSignedInt("captionOffsetMs")?.also { require(it in -500..500) } ?: 0,
         engine = c.optionalString("engine")?.let(VoiceSpeechBenchmarkEngine::valueOf) ?: VoiceSpeechBenchmarkEngine.NATIVE_KOKORO,
         engineVoiceId = c.optionalString("engineVoiceId")?.also { require(it.matches(IDENTITY)) },
+        pcmProcessingId = c.optionalString("pcmProcessingId"),
         deepDiagnostics = c.optionalBoolean("deepDiagnostics") ?: false,
         kokoroBucket = c.optionalString("kokoroBucket")?.let(MediaPipeKokoroBucket::valueOf) ?: MediaPipeKokoroBucket.AUTO,
         incrementalInput = c.optionalBoolean("incrementalInput") ?: (c.optionalString("engine") in setOf(null, VoiceSpeechBenchmarkEngine.NATIVE_KOKORO.name)),
@@ -1061,7 +1098,8 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         playbackResults = playback,
         engineResults = engines,
         energyObservations = energy,
-        stopOrigin = value.optionalString("runStopOrigin")?.let(VoiceSpeechStopOrigin::valueOf)
+        stopOrigin = value.optionalString("runStopOrigin")?.let(VoiceSpeechStopOrigin::valueOf),
+        independentSpeechQuality = readIndependentSpeechQuality(value["independentSpeechQuality"], configuration)
     )
 }.getOrNull()
 
@@ -1135,6 +1173,15 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
         VoicePcmSignal(samples, rms, peak, pcm.boundedLong("clipped", samples), pcm.boundedLong("nonSilent", samples))
     },
     nativeRetirementMs = r.optionalBoundedLong("nativeRetirementMs"), renderedManifestWords = r.optionalBoundedLong("renderedManifestWords", VoiceSpeechCaptionManifest.MAX_WORDS.toLong())?.toInt(),
+    captionNativeTimingWords = r.optionalBoundedLong("captionNativeTimingWords", VoiceSpeechCaptionManifest.MAX_WORDS.toLong())?.toInt(),
+    captionEstimatedTimingWords = r.optionalBoundedLong("captionEstimatedTimingWords", VoiceSpeechCaptionManifest.MAX_WORDS.toLong())?.toInt(),
+    captionAsrAlignmentTimingWords = r.optionalBoundedLong("captionAsrAlignmentTimingWords", VoiceSpeechCaptionManifest.MAX_WORDS.toLong())?.toInt(),
+    captionAlignmentStatuses = r["captionAlignmentStatuses"]?.jsonArray.orEmpty().also { require(it.size <= VOICE_CAPTION_ALIGNMENT_STATUSES.size) }
+        .map { it.jsonPrimitive.content.also { status -> require(status in VOICE_CAPTION_ALIGNMENT_STATUSES) } }
+        .also { require(it.distinct().size == it.size) }.toSet(),
+    captionTimingRevisions = r.optionalBoundedLong("captionTimingRevisions", 100_000)?.toInt(),
+    outputRouteIdentity = r.optionalString("outputRouteIdentity")?.also { require(isVoiceOutputRouteIdentity(it)) },
+    outputRouteIdentityChanges = r.optionalBoundedLong("outputRouteIdentityChanges", 100_000)?.toInt(),
     captionObservations = r.boundedLong("captionObservations").toInt(), captionClockRegressions = r.boundedLong("captionClockRegressions").toInt(), captionTimingViolations = r.boundedLong("captionTimingViolations").toInt(),
     clockBasis = r.optionalString("clockBasis")?.also { require(it in CLOCKS) }, route = r.optionalString("route")?.also { require(it in ROUTES) },
     effectiveProvider = r.optionalProvider("effectiveProvider"), acceleratorExecutionObserved = r.getValue("acceleratorExecutionObserved").jsonPrimitive.boolean,
@@ -1237,6 +1284,13 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
         require(result.validatedChunks == result.chunkRecords.count { it.verifiedAudio })
         require(result.renderedManifestWords == null || result.manifestWordsObserved?.let { result.renderedManifestWords <= it } == true)
         require(result.manifestWordsObserved == null || result.manifestWordsExpected?.let { result.manifestWordsObserved <= it } == true)
+    }
+    require(result.outputRouteIdentity == null || result.outputRouteIdentityChanges != null)
+    val timingCounts = listOf(result.captionNativeTimingWords, result.captionEstimatedTimingWords, result.captionTimingRevisions)
+    require(timingCounts.all { it == null } || timingCounts.all { it != null })
+    require(result.captionAsrAlignmentTimingWords == null || timingCounts.all { it != null })
+    if (result.captionNativeTimingWords != null && result.captionEstimatedTimingWords != null) {
+        require(result.captionNativeTimingWords + result.captionEstimatedTimingWords + (result.captionAsrAlignmentTimingWords ?: 0) in 1..VoiceSpeechCaptionManifest.MAX_WORDS)
     }
 }
 

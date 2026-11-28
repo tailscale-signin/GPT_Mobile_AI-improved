@@ -52,5 +52,137 @@
       "mediaControls": "Notification and media-session taps target the same reply. A delayed pause or Stop from another reply cannot cancel the new owner.",
       "scannerControlsPassed": 112
     }
+  },
+  "acceleratorCompatibilityReview": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "workingBranch": "feature/windows-native-benchmark-kit",
+    "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+    "startingHead": "26e09fb88225b86f7ade90047bb1eba19253a5d4",
+    "intent": "Verify the actual Android speech SDK and Qualcomm provider interfaces, and improve startup, output validity and compiled-cache compatibility for foreground and service playback.",
+    "pullRequest": 2651,
+    "integratedHead": "21dcd5fd5c2fc8df7bbedaacae147580c11f3b05",
+    "upstream": [
+      {
+        "speechSdk": "com.google.mediapipe:tasks-audio:1.2.3",
+        "source": "https://github.com/google-ai-edge/mediapipe/releases/tag/v1.2.3",
+        "androidWrapper": "https://github.com/google-ai-edge/mediapipe/blob/v1.2.3/mediapipe/tasks/java/com/google/mediapipe/tasks/audio/texttospeech/TextToSpeech.kt",
+        "verified": "The AAR TTS nativeCreate receives the delegate enum, rate, bucket, default voice and locale, model path and cache path. The generic NPU and GPU options from BaseOptions are not arguments of this native method."
+      },
+      {
+        "nativeKokoro": "com.qualcomm.qti:onnxruntime-android-qnn:2.8.0 with com.qualcomm.qti:qnn-runtime:2.52.0",
+        "source": "https://github.com/onnxruntime/onnxruntime-qnn/blob/main/docs/execution_providers/QNN-ExecutionProvider.md",
+        "verified": "The Android publisher validates these two packages together. The app links its native Kokoro ARM64 bridge against static ONNX Runtime 1.31.0."
+      },
+      {
+        "localLanguageModel": "LiteRT-LM 0.20.0 reviewed. The app's 0.18.0 dispatch build is separate from MediaPipe Tasks Audio synthesis.",
+        "source": "https://github.com/google-ai-edge/LiteRT-LM/releases/tag/v0.20.0",
+        "buildInputs": "docs/audits/qualcomm-dispatch-inputs.json"
+      },
+      {
+        "driverDiscovery": "Android 12 or later requires explicit optional vendor library declarations.",
+        "source": "https://developer.android.com/guide/topics/manifest/uses-native-library-element"
+      }
+    ],
+    "routing": [
+      "Standard Kokoro can satisfy live startup and prefetch when either optimized pack is unavailable. A failed specialized lease or late driver load can recover with the same voice and rate. An exact benchmark never substitutes a different delegate.",
+      "Reject nonfinite output, any accelerator magnitude above full scale or four consecutive full-scale samples across SDK packets. A failed first packet can be retried locally. After audio or captions were delivered, the damaged packet is withheld and no published text is replayed.",
+      "GPU and NPU caches and successful-voice records share a firmware, ABI, native dependency and app-install identity. The existing CPU cache key and previous CPU voice records remain usable."
+    ],
+    "verification": {
+      "jvmTestsPassed": 349,
+      "robolectricTestsPassed": 80,
+      "serviceLifecycleTestsPassed": 1,
+      "speechSmokeHarnessTestsPassed": 39,
+      "beforeAndAfter": "Missing optimized packs, a lazy NPU loader error, corrupt first PCM and saturation across packets each failed with the previous factory/engine and passed with the candidate.",
+      "packaging": "The 1.2.3 ARM64 and x86_64 native binaries reference libOpenCL.so, libOpenCL-pixel.so and libOpenCL-car.so. Gradle's ARM64, x86_64 and universal packaged manifests expose all three and FastRPC as optional.",
+      "nativeContracts": "QNN provenance and C++/JNI context, cancellation, retirement and waveform validation controls passed on the host.",
+      "handsetRunner": "The manual minified native smoke workflow stages an ARM64 APK pair. The runner and verifier accept an explicit GPU or NPU request, the French waveform and startup timing, Android AudioTrack presentation, pronunciation, captions and cancellation. Synthetic runs exercise both routes and reject mismatched or clipped evidence.",
+      "physicalQualification": "No physical Android device was attached. ROG Phone 9 Pro kernel placement, cold/warm latency, listening quality and sustained performance are unmeasured for this candidate.",
+      "preexistingMinifiedFailure": {
+        "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45901243476/job/140198228868",
+        "cause": "The separate test APK invoked the optimized-away Kotlin configurePronunciation default bridge. Both instrumentation callers now pass English explicitly. Smoke-only R8 roots preserve the signal and NPU setup APIs that the separate test APK directly calls.",
+        "integration": "Retained the concurrent fix in 4eb088e16 and verified both compiled instrumentation callers invoke the explicit two-argument method. The new accelerated handset probe adds narrow smoke-only method retention."
+      }
+    }
+  },
+  "fullVoiceBenchmark": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "baseBranch": "main",
+    "baseCommit": "0e625e250117475446b8f216df2501ddbef168f2",
+    "workingBranch": "feature/windows-native-benchmark-kit",
+    "startingHead": "803c740faee1979c619c5ebdadb7487c0482d518",
+    "pullRequest": 2651,
+    "intent": "Replace the manual configuration matrix with one full on-device voice benchmark and one export that preserves detailed measurements, skips and interrupted work.",
+    "entry": "Voice settings → Run full voice benchmark → Export full voice benchmark",
+    "execution": "Activity-owned coordinator holds the process-wide microphone/playback lease. Native, streaming and playback runners execute sequentially, await retirement, and preserve strict model/delegate identities. Missing packs are reported before scheduling. Cooldown is bounded to five minutes; unresolved thermal pressure or native cleanup stops remaining stages.",
+    "coverage": [
+      "Four microphone batch sizes and audio route/effect capabilities",
+      "Two fixed English recognition recordings with three Moonshine endpointing styles; edit distance, first partial and final timings",
+      "All catalog languages and voices, dictionary source alignment, acoustic signal, first PCM and timed word cues; measure Android on-device loopback accuracy only when the engine reads the supplied audio",
+      "Android offline system voices rendered to validated WAV, reported language availability, and a previously selected CUDA Gateway",
+      "Native INT8 and FP32, standard/optimized Kokoro, Phonon and Pocket, supported CPU/GPU/NPU requests, device thread counts, QNN policies, LiteRT sequence buckets and text-input modes",
+      "Short/medium/long workloads, 20 warm repeats, caption offset, cancellation/recovery, playback gaps, bounded battery and thermal observations, and 1/5/10-minute sustained targets",
+      "Production automatic thread calibration, localized thinking/search cue planning and process-scoped live voice timings"
+    ],
+    "fixtures": {
+      "source": "Local synthesis with FFmpeg Flite voices slt and rms. G.711 mu-law mono at 16 kHz. The English references appear in VoiceBenchRecognition.kt.",
+      "ready.mulaw": "c413870702dcb1391947078bb63579ce74f55da0e9b9d2ff2c7afedfd6af5bf4",
+      "weather.mulaw": "f5112c380389c8ec4c0e6be80e0ef96db191500b68c907a72986948f112d996a"
+    },
+    "evidence": "The aggregate streams the original public benchmark exports, fixture metrics and separate live-session performance snapshot. Audio, transcripts, device addresses, connection credentials and local device keys are excluded. Driver kernel utilization, acoustic ear latency and subjective naturalness require independent observation.",
+    "limits": "The mobile suite covers connected audio routes and installed engines. Windows CUDA requires an explicitly selected Gateway. Unsupported hardware, missing language models, process death, user cancellation and thermal stops are preserved in the report."
+  },
+  "preparedOpenings": {
+    "branch": "feature/windows-native-benchmark-kit",
+    "startingHead": "e22213233b136094e0bc8c051ca5a6ebae3db38a",
+    "intent": "Preload localized speech at microphone start, suppress short answers and let generated speech interrupt an acknowledgement immediately. Improve pronunciation and sentence flow."
+  },
+  "streamingReplyContinuity": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "pullRequest": 2651,
+    "baseBranch": "main",
+    "baseCommit": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+    "workingBranch": "feature/windows-native-benchmark-kit",
+    "startingHead": "cda4933854bf41ff61ee77d70d378d2a14e9254b",
+    "intent": "Keep the first stable speech fast, reduce avoidable mid-sentence breaks and overlap local speech preparation with voice startup.",
+    "reproduction": {
+      "fixture": "23 words arriving every 90 ms while the first phrase is synthesizing",
+      "originalChunkWords": [
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "repairedChunkWords": [
+        2,
+        7,
+        7,
+        7
+      ],
+      "firstStableTextReleasedMs": {
+        "original": 120,
+        "repaired": 120
+      },
+      "playback": "With a simulated 1800 ms stream opening and 50 ms of PCM for the final submitted word, the original Android output worker held the phrase during the provider pause. The repaired worker presents it before the next text arrives. The fixture uses a controlled Android clock and AudioTrack."
+    },
+    "changes": [
+      "Use available audio and observed production cost to time follow-up text. Keep a nearby sentence ending within the SDK input and preserve complete text and caption offsets.",
+      "Measure incremental delivery intervals after first PCM. Once the final submitted word has a completed timing within the received audio, additional text waits can release the playback reserve and are excluded from recurring delivery estimates.",
+      "During foreground local asset preparation, preload the selected JNI library on the synthesis worker. Installed files can warm as the room and profile become ready."
+    ],
+    "verification": {
+      "speechAndPacingJVM": 108,
+      "sessionAndPluginJVM": 90,
+      "androidWorkerRobolectric": 33,
+      "priorHeadRegressionsReproduced": 4,
+      "targetHandset": "Time to first audible answer and listening quality on the ROG Phone 9 Pro are unmeasured.",
+      "speechSdkAndStreamJVM": 42,
+      "hostGate": "848 cases, 1 skipped. Generated source references, package checks and resource preflight passed.",
+      "compilation": "The affected speech classes and Compose voice screen compiled on the host. Full debug compilation with the default 3 GiB heap exhausted memory during Kotlin annotation stub generation."
+    }
   }
 }

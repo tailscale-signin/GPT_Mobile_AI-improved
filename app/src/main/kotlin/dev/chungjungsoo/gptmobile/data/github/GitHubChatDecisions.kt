@@ -51,7 +51,9 @@ data class GitHubChatDecision(
     val offeredAtMillis: Long? = null,
     val answeredAtMillis: Long? = null,
     val conversationIdentity: String = "",
-    val runId: String? = null
+    val runId: String? = null,
+    val expectedHeadSha: String? = null,
+    val selectedOption: Int? = null
 ) {
     init {
         require(chatId > 0 && sourceMessageId > 0 && profileUid.isNotBlank() && workspace.isNotBlank())
@@ -60,6 +62,8 @@ data class GitHubChatDecision(
         require(options.all { it.label.isNotBlank() && it.label.length <= 80 && it.detail.length <= 240 })
         require(recommended == null || recommended in options.indices)
         require(answer == null || answer.isNotBlank() && answer.length <= 2000)
+        require(selectedOption == null || selectedOption in options.indices)
+        require(expectedHeadSha == null || expectedHeadSha.matches(Regex("[a-fA-F0-9]{40}")))
     }
 }
 
@@ -110,12 +114,12 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         }
     }
 
-    suspend fun request(proposal: GitHubChatDecision, useSuggestion: Boolean = false, offered: suspend (GitHubChatDecision) -> Unit = {}): GitHubChatDecision {
+    suspend fun request(proposal: GitHubChatDecision, useSuggestion: Boolean = false, waitForAnswer: Boolean = true, offered: suspend (GitHubChatDecision) -> Unit = {}): GitHubChatDecision {
         var created = false
         val current = mutex.withLock {
             loadLocked()
             val existing = mutable.value.firstOrNull { it.id == proposal.id }
-            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent, offeredAtMillis = proposal.offeredAtMillis, answeredAtMillis = proposal.answeredAtMillis, runId = proposal.runId) == proposal) { "Decision identity changed." }
+            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent, offeredAtMillis = proposal.offeredAtMillis, answeredAtMillis = proposal.answeredAtMillis, runId = proposal.runId, expectedHeadSha = proposal.expectedHeadSha, selectedOption = proposal.selectedOption) == proposal) { "Decision identity changed." }
             // A resumed task may own the same question under a new run. Rebind
             // unanswered choices before issuing replacement notification actions.
             val rebound = existing?.takeIf { it.answer == null && it.runId != proposal.runId }?.copy(runId = proposal.runId)
@@ -126,19 +130,24 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
             val decision = rebound ?: existing ?: proposal.let {
                 val label = if (useSuggestion) it.recommended?.let(it.options::get)?.takeUnless(GitHubDecisionOption::enterValue)?.label else null
                 val at = System.currentTimeMillis()
-                if (label == null) it.copy(offeredAtMillis = at) else it.copy(answer = label, automatic = true, offeredAtMillis = at, answeredAtMillis = at)
+                if (label == null) it.copy(offeredAtMillis = at) else it.copy(answer = label, automatic = true, offeredAtMillis = at, answeredAtMillis = at, selectedOption = it.recommended)
             }.also {
                 check(mutable.value.count { !it.delivered } < MAX_PENDING) { "Answer or dismiss an existing GitHub decision before adding another." }
                 val retained = mutable.value.filter { !it.delivered } + mutable.value.filter { it.delivered }.takeLast(MAX_HISTORY)
                 save(retained + it)
                 created = true
             }
-            waiters[decision.id] = (waiters[decision.id] ?: 0) + 1
-            waitingMutable.value = waiters.keys.toSet()
+            if (waitForAnswer) {
+                waiters[decision.id] = (waiters[decision.id] ?: 0) + 1
+                waitingMutable.value = waiters.keys.toSet()
+            }
             decision
         }
         return try {
             if (created && current.answer == null) offered(current)
+            // The agent path parks the durable checkpoint immediately. Waiting
+            // for days must not occupy its worker, network request or model budget.
+            if (!waitForAnswer) return current
             // An opted-in suggestion is durable before the tool receives it.
             // Other questions remain available after an interruption.
             val items = mutable.first { items -> items.none { it.id == current.id } || items.any { it.id == current.id && it.answer != null } }
@@ -146,9 +155,11 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         } finally {
             withContext(NonCancellable) {
                 mutex.withLock {
-                    val count = (waiters[current.id] ?: 1) - 1
-                    if (count <= 0) waiters.remove(current.id) else waiters[current.id] = count
-                    waitingMutable.value = waiters.keys.toSet()
+                    if (waitForAnswer) {
+                        val count = (waiters[current.id] ?: 1) - 1
+                        if (count <= 0) waiters.remove(current.id) else waiters[current.id] = count
+                        waitingMutable.value = waiters.keys.toSet()
+                    }
                 }
             }
         }
@@ -186,7 +197,7 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
             require(GitHubReviewComparison.acceptsBaselineInput(answer)) { "Enter one commit, tag or branch." }
         }
         require(answer.isNotBlank() && answer.length <= 2000)
-        save(mutable.value.map { if (it.id == id) it.copy(answer = answer, answeredAtMillis = System.currentTimeMillis()) else it })
+        save(mutable.value.map { if (it.id == id) it.copy(answer = answer, answeredAtMillis = System.currentTimeMillis(), selectedOption = option) else it })
         return GitHubDecisionResponse(true, id in waiters)
     }
 

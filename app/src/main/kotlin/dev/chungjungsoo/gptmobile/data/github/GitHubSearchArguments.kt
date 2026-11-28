@@ -58,7 +58,10 @@ internal object GitHubSearchArguments {
 
     fun validate(args: JsonObject): GitHubSearchOptions {
         val query = text(args, "query")
-        if (query.isBlank() || query.length > 200) reject("query", GitHubSearchArgumentFailure.Rule.QUERY_LENGTH, GitHubSearchArgumentFailure.Expected.QUERY_1_200, "Use a non-blank query of at most 200 characters.")
+        if (query.isBlank() || query.length > 200) {
+            val help = if (args["mode"] == JsonPrimitive("paths")) "Use a filename or star pattern of at most 200 characters from the task or a previous result. For repository orientation, inspect github_context with action=index before retrying." else "Use a non-blank query of at most 200 characters."
+            reject("query", GitHubSearchArgumentFailure.Rule.QUERY_LENGTH, GitHubSearchArgumentFailure.Expected.QUERY_1_200, help)
+        }
         if (text(args, "mode", "literal") !in modes) reject("mode", GitHubSearchArgumentFailure.Rule.MODE, GitHubSearchArgumentFailure.Expected.SEARCH_MODE, "Use literal, definitions, references, paths, tests, or patterns.")
         if (args["mode"] != JsonPrimitive("literal") && qualifiers.containsMatchIn(query)) {
             reject("query", GitHubSearchArgumentFailure.Rule.QUERY_QUALIFIER, GitHubSearchArgumentFailure.Expected.EXPLICIT_FILTERS, "GitHub filename:/extension:/path: qualifiers are not query syntax here. Use mode=paths with a filename or star pattern, and file_extension/path_prefix filters. For source containing these exact characters, explicitly select mode=literal. OR is literal text, not a Boolean operator.")

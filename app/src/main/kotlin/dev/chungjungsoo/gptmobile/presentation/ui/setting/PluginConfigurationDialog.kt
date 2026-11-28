@@ -104,7 +104,7 @@ internal fun PluginConfigurationDialog(
                 if (id == ToolPluginId.GITHUB) {
                     SettingsPanel("GitHub Copilot · Cloud work") {
                         Text(
-                            "Allow Copilot cloud tasks, review requests, and Agent Merge repairs. Direct app access works without a Gateway. Native cloud tasks require the Business or Enterprise task API preview; MCP cloud tools use the separately configured GitHub connection.",
+                            "Enable Copilot cloud tasks, review requests, and Agent Merge repairs. Direct app access works without a Gateway; the selected Gateway can supervise cloud tasks. An eligible Copilot account and GitHub permissions are required. MCP cloud tools use their configured GitHub connection.",
                             style = MaterialTheme.typography.bodySmall
                         )
                         PluginSwitch("Allow Copilot tools", config.githubCopilotEnabled) {
@@ -117,7 +117,7 @@ internal fun PluginConfigurationDialog(
                             config = config.copy(githubCopilotResolveConflicts = it)
                         }
                         Text(
-                            "Off by default. Each conversation also needs opt-in. This switch never starts a task, enrolls a PR or enables auto-merge. Turning it off blocks new calls; accepted tasks continue on GitHub. Use agent_merge_disable on a watched PR to end its enrollment.",
+                            "On by default for saved GitHub conversations. Progress identifies when a request is being prepared, accepted or run by Copilot. This switch alone starts no work. Turning it off blocks new Copilot work; accepted tasks continue on GitHub. Use agent_merge_disable on a watched PR to end its enrollment.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

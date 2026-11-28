@@ -29,6 +29,13 @@ class SpeechVoiceEvidenceTest {
         assertFalse(reopened.has(model, VoiceSpeechBackend.LITERT_KOKORO_GPU, "jm_kumo"))
         assertFalse(reopened.has(MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO_GPU), cpu, "jm_kumo"))
         assertFalse(SpeechVoiceEvidence(preferences, "next-build").has(model, cpu, "jm_kumo"))
+        val gpu = VoiceSpeechBackend.LITERT_KOKORO_GPU
+        val oldRuntime = SpeechVoiceEvidence(preferences, "first-build", "old-install")
+        val updated = SpeechVoiceEvidence(preferences, "first-build", "new-install")
+        oldRuntime.record(model, gpu, "ff_siwis")
+        assertTrue(oldRuntime.has(model, gpu, "ff_siwis"))
+        assertFalse(updated.has(model, gpu, "ff_siwis"))
+        assertTrue(updated.has(model, cpu, "jm_kumo"))
         every { preferences.getBoolean(any(), false) } throws ClassCastException("malformed evidence")
         assertFalse(reopened.has(model, cpu, "jm_kumo"))
     }

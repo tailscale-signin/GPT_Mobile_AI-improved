@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "github-intelligence-evidence-2026-11-26",
+  "parentPullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "0e625e250117475446b8f216df2501ddbef168f2",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "integrationBaseSha": "e4a632059afdb4be020bd34826ccc4abc23b192b",
+  "intent": "Implement the November 26 intelligence audit, retain concurrent work, qualify the draft and main revisions, and verify release assets.",
+  "state": "DRAFT_VALIDATION",
+  "checkpoints": [
+    {
+      "state": "INSPECTED",
+      "sourceSha": "e4a632059afdb4be020bd34826ccc4abc23b192b",
+      "details": "Integration head includes the five voice changes made after the audited revision. The second open PR is already an ancestor."
+    },
+    {
+      "state": "INTEGRATED",
+      "sourceSha": "76745e48ee7b5d9dae625dc319c0855f4da64ed0",
+      "details": "Retained both newer voice commits. Added bounded GitHub retrieval, ephemeral graphs, Jobs projections and pressure, Copilot parity, observed verdicts and independently labeled source QA."
+    },
+    {
+      "state": "REBASED",
+      "sourceSha": "cb6518738c3d9cf6c6315b1a9d379811ca924dc7",
+      "details": "Preserved incoming microphone routing and regenerated both Android inventory files from the combined tree."
+    },
+    {
+      "state": "ANDROID_ACCEPTANCE_REPAIR",
+      "sourceSha": "dd9c93d5720d5e74412b40d9796206add3748f35",
+      "observedHead": "d94cadd78dd1ac1c0ad1998e8c4bbca42a749ddb",
+      "details": "The API 34 emulator on workflow 45913191695, job 140226354255, could not find Stop benchmark after the test clicked Start without first bringing it into view. The API 36 matrix job 140226354564 passed on the same source. The acceptance harness sets a 320 dp wide viewport and 2x font scale. The integrated head retains the same benchmark screen and test. Bring both controls into view, wait for the running state and retain the terminal state and readable export assertions."
+    },
+    {
+      "state": "ANDROID_LINT_REPAIR",
+      "sourceSha": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
+      "observedHead": "cb6518738c3d9cf6c6315b1a9d379811ca924dc7",
+      "details": "Android lint job 140223904547 in workflow 45912349608 reported NonObservableLocale in the voice benchmark results. The same expression remained in the integrated source. Use the active Compose locale to format benchmark measurements as the language changes."
+    },
+    {
+      "state": "SUCCESSOR_RELEASE_REQUEST",
+      "sourceSha": "589b11bb9ec19f29f8f201009482ade0c875700c",
+      "mainSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+      "predecessorReleaseWorkflowRun": 45919342950,
+      "details": "PR 2646 reached main with the Android 0.9.66.18 build 152 and Gateway 18.1.5 publication request. With the same versions, both release trigger decisions were false for PR 2651. Reserve Android 0.9.66.19 build 153 and Gateway 18.1.6 for this PR so the signed assets can identify its own qualified merge."
+    },
+    {
+      "state": "ANDROID_UNIT_REPAIR",
+      "sourceSha": "f987835a1bd3604ba075bc6b0b61db72427b75c2",
+      "observedHead": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
+      "workflowRun": 45918575936,
+      "job": 140244972763,
+      "details": "The Android unit suite reported two failures in 15,118 tests. The integrated phone enum added ISSUE_INTAKE while the service contract and count assertion still described the earlier wire format. A truncated tree read with no directory identity threw a generic exception before the incomplete-tree result could be returned. Both paths remain present at the source revision."
+    },
+    {
+      "state": "DETERMINISTIC_NATIVE_BENCHMARK_CANCELLATION",
+      "sourceSha": "3b08292a3e915fb7c43045a3fb5fc810e4184be0",
+      "observedHead": "cda4933854bf41ff61ee77d70d378d2a14e9254b",
+      "workflowRun": 45919757490,
+      "job": 140248455283,
+      "details": "The API 34 emulator rendered the Stop benchmark button, but the unpacked benchmark finished before Compose injected the tap. The stack identified VoiceEntryInstrumentedTest.kt:59 and the last rendered stop semantics. The same test remains on the integrated head. Hold initial model discovery in the isolated test directory until the real Stop button accepts cancellation, then verify the cancelled run identity and complete stage inventory in its exported JSON."
+    },
+    {
+      "state": "GATEWAY_DIAGNOSTIC_RELEASE_SCOPE",
+      "sourceSha": "3d7bdace1c9b53a75c058fbdd88ed0cd27ccfaa8",
+      "details": "The release scope check rejected five exact paths from the concurrent Gateway reasoning and continuation repair. Reviewed the checklist and budget implementation, the two named regression files and their diagnostic record. Include these paths and describe the user-visible change in the coordinated release."
+    },
+    {
+      "state": "NATIVE_TRANSLATION_ACCESSIBILITY_REPAIR",
+      "sourceSha": "76ba62867e47dc75d57bcdbcd89907d3518b41eb",
+      "observedHead": "21e17472811a60ba8411cf745b4a81a249eb0974",
+      "workflowRun": 45928909547,
+      "job": 140277411080,
+      "details": "At 320 dp width and 2x font scale the API 34 device recorded identical translation prompt fade samples (4, 4, 4) and rejected the comparison of microphone width with a wrapping text button’s height. The runner restored animation duration to zero before the voice motion suite. Run the suite with motion enabled, allow room for rendered prompt text at the active font scale, and verify the microphone target and control positions independently of label wrapping. API 36 independently failed the same microphone geometry assertion. The language picker uses one scrollable area for its explanation and available languages.",
+      "api36Job": 140277411370
+    },
+    {
+      "state": "INTEGRATED_ANDROID_CONTRACT_REPAIR",
+      "sourceSha": "76ba62867e47dc75d57bcdbcd89907d3518b41eb",
+      "workflowRun": 45929576752,
+      "job": 140278908025,
+      "junitArtifact": 15169116815,
+      "details": "The hosted GenieX unit run reported four failures in 15,168 tests. Its JUnit evidence identifies a status schema now restricted to runs, a model fixture missing an explicit low-effort capability, changed retrospective introduction wording, and a real-I/O workspace coroutine that resumed after its test reset Dispatchers.Main. Preserve the intended catalog, provider and retrospective behavior and retire the originating view model before restoring the dispatcher."
+    },
+    {
+      "sourceSha": "e2af4e3852d0de402417db832e102aff14e3868b",
+      "workflowRun": 45933509483,
+      "job": 140291315154,
+      "details": "Windows Python 3.12 exposed urllib3 reading a closed chunk stream after the terminal grace period. Reproduce the transport close with a validated finish marker and verify that cancellation, deadlines and unrelated read errors remain distinct. Exercise completion before the next ASGI progress poll independently of Windows host speed.",
+      "state": "WINDOWS_SSE_COMPLETION_REPAIR",
+      "localReproduction": "A watchdog-driven closed reader reproduced both AttributeError and ValueError on the original transport. A 5.5-second delay after backend generation reproduced the original fast-mode receipt mismatch. The repaired paths preserve the final answer, usage and ASGI receipt in each fixture."
+    }
+  ],
+  "verification": {
+    "focusedGatewayRegressionCases": 9,
+    "qualifiedHostFixture": "PASS",
+    "catalogRows": 10000,
+    "catalogPage": 30,
+    "fullProjections": 30,
+    "sourcePacketBudgetBytes": 12000,
+    "frozenQaSource": "76745e48ee7b5d9dae625dc319c0855f4da64ed0",
+    "qaTrialsPerArm": 30,
+    "exactPreparedLineHits": {
+      "baseline": {
+        "Kotlin": 2,
+        "Python": 2,
+        "C#": 0
+      },
+      "candidate": {
+        "Kotlin": 2,
+        "Python": 3,
+        "C#": 2
+      }
+    },
+    "candidateOwnerTopFive": {
+      "Kotlin": 3,
+      "Python": 4,
+      "C#": 3
+    },
+    "qaConditions": "One first attempt per arm per question, fixed Gateway/desktop/Android component corpus, identical immutable source and 12000-byte budget. No product model invoked. Candidate implementation indexed C# and XAML.",
+    "installedProductScore": null,
+    "generationCost": null,
+    "auditGraphAnchorOnly": {
+      "source": "803c740faee1979c619c5ebdadb7487c0482d518",
+      "before": 0,
+      "after": 6,
+      "total": 6,
+      "packetBytes": 12000
+    }
+  }
+}

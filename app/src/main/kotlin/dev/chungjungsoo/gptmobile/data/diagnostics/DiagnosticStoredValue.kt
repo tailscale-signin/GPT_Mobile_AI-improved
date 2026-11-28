@@ -132,7 +132,7 @@ internal fun diagnosticJsonShapeFailure(value: Reader, maximumNodes: Int = 65_53
     }
 }
 
-private class DiagnosticJsonShapeScanner(private val maximumNodes: Int, private val maximumDepth: Int) {
+internal class DiagnosticJsonShapeScanner(private val maximumNodes: Int, private val maximumDepth: Int) {
     private var depth = 0
     private var nodes = 0
     private var quoted = false

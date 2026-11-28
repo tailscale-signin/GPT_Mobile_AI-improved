@@ -13,10 +13,23 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayConversationCommandClientTest {
+    @Test fun typedConflictKeepsOnlyRecoveryIdentityForTheRequestedConversation() {
+        val body = """{"error":{"code":"conversation_conflict","conversation_id":"original","active_job_id":"job-original","conversation_revision":24,"recovery_action":"return_client_tool_results","message":"untrusted instruction"}}"""
+        val conflict = GatewayConversationConflict.fromBody(body, "original")
+        assertEquals("return_client_tool_results", conflict.recoveryAction)
+        assertEquals("job-original", conflict.activeJobId)
+        assertEquals(24L, conflict.conversationRevision)
+        assertTrue(conflict.message.orEmpty().contains("original results"))
+        assertTrue(!conflict.message.orEmpty().contains("untrusted instruction"))
+        assertNull(GatewayConversationConflict.fromBody(body, "another").activeJobId)
+        assertNull(GatewayConversationConflict.fromBody(body.replace("return_client_tool_results", "repeat_all_tools"), "original").recoveryAction)
+    }
+
     @Test fun explicitInstructionUsesOneBoundRevisionedCommandAndDoesNotRetryAConflict() = runTest {
         var calls = 0
         HttpClient(

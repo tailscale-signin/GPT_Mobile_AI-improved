@@ -37,7 +37,7 @@ class PrincipalResolver:
             local_peer = False
         path = scope.get('path', '').removeprefix('/v1')
         paired = headers.get('x-gateway-control-principal')
-        if paired or path.startswith('/gateway/admin/retained-work/') or path in {"/gateway/admin/desktop-search", "/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/settings", "/gateway/admin/engineering-admission"} or (
+        if paired or path.startswith('/gateway/admin/retained-work/') or path in {"/gateway/admin/retained-work", "/gateway/admin/desktop-search", "/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/settings", "/gateway/admin/engineering-admission"} or (
                 path == '/gateway/admin/debug/export' and 'x-gateway-management' in headers):
             # A specific-interface listener is reached through that interface on
             # the same PC. The independent supervisor secret is still mandatory.

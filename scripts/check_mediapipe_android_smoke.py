@@ -5,19 +5,21 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import sys
 import uuid
 
 from check_native_memory_smoke import check_instrumentation
-from smoke_mediapipe_speech import FIXTURE, MAX_FRAMES, MODELS, RUNTIME_VERSION, SAMPLE_RATE, verify_catalog
+from smoke_mediapipe_speech import FRENCH_PREVIEW, FIXTURE, MAX_FRAMES, MODELS, RUNTIME_VERSION, SAMPLE_RATE, lexical_word_spans, verify_catalog
 
 
 TEST_CLASS = "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechNativeSmokeTest"
 TEST_METHOD = "pinnedCheckpointStreamsAndCancelsThroughThePackagedAndroidJni"
 RECEIPT_PREFIX = "INSTRUMENTATION_STATUS: mediapipe_smoke_evidence="
-APK_NAMES = {"app-x86_64.apk", "test.apk"}
+SUPPORTED_ABIS = ("x86_64", "arm64-v8a")
+DELEGATES = ("CPU", "GPU", "NPU")
 
 
 def require(condition, message):
@@ -53,14 +55,16 @@ def digest_file(path):
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
-def verify_apks(directory, source_revision):
+def verify_apks(directory, source_revision, abi="x86_64"):
+    require(abi in SUPPORTED_ABIS, "Unsupported speech smoke ABI")
+    names = {f"app-{abi}.apk", "test.apk"}
     require(re.fullmatch(r"[0-9a-f]{40}", source_revision) is not None, "Expected an exact source commit")
     manifest = read_json(directory / "manifest.json")
     require(manifest.get("schema") == "native-smoke-apks-v1", "Unexpected APK manifest schema")
     require(manifest.get("source_revision") == source_revision, "APK source commit differs from this checkout")
     entries = manifest.get("apks")
-    require(isinstance(entries, dict) and set(entries) == APK_NAMES, "Expected the single app/test APK pair")
-    for name in sorted(APK_NAMES):
+    require(isinstance(entries, dict) and set(entries) == names, "Expected the single app/test APK pair")
+    for name in sorted(names):
         item = entries[name]
         path = directory / name
         require(isinstance(item, dict), f"Invalid APK manifest entry: {name}")
@@ -82,34 +86,52 @@ def verify_provisioning(path, engine):
     return receipt
 
 
-def check_receipt(receipt, engine, run_id):
+def check_receipt(receipt, engine, run_id, abi="x86_64", delegate="CPU"):
+    require(abi in SUPPORTED_ABIS and delegate in DELEGATES, "Unknown speech smoke route")
+    require(engine == "kokoro" or delegate == "CPU", "This model supports only CPU smoke")
     model = MODELS[engine]
     expected = {
-        "schema": "mediapipe-android-jni-smoke-v2",
+        "schema": "mediapipe-android-jni-smoke-v3",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
-        "engine": engine.upper(),
+        "engine": engine.upper().replace("-", "_"),
         "runtime": "mediapipe-tasks-audio-" + RUNTIME_VERSION,
         "run_id": run_id,
         "model_sha256": model["sha256"],
         "model_bytes": model["bytes"],
-        "requested_delegate": "CPU",
+        "requested_delegate": delegate,
         "sample_rate_hz": SAMPLE_RATE,
         "utf8_estimated_cue_observed": True,
     }
     for key, value in expected.items():
         require(type(receipt.get(key)) is type(value) and receipt[key] == value, f"Android receipt mismatch: {key}")
-    require("x86_64" in str(receipt.get("abis", "")).split(","), "Receipt does not identify the CI x86_64 ABI")
+    require(abi in str(receipt.get("abis", "")).split(","), f"Receipt does not identify the requested ABI {abi}")
     for key in ("frames", "recovered_frames"):
         require(type(receipt.get(key)) is int and 0 < receipt[key] <= MAX_FRAMES, f"Missing bounded PCM evidence: {key}")
+    for key in ("caption_word_coverage", "recovered_caption_word_coverage"):
+        check_word_coverage(receipt.get(key), FIXTURE, key)
+    for key, frames in (("caption_publication", "frames"), ("recovered_caption_publication", "recovered_frames")):
+        check_caption_publication(receipt.get(key), receipt[frames], key)
     require(type(receipt.get("emitted_chunks")) is int and 0 < receipt["emitted_chunks"] <= 4096, "Missing bounded stream chunk evidence")
     for key in ("prepare_ms", "first_pcm_ms"):
         require(type(receipt.get(key)) is int and 0 <= receipt[key] <= 300_000, f"Missing bounded native timing: {key}")
     for key in ("cancel_before_first_read", "cancel_after_first_chunk"):
         require(isinstance(receipt.get(key), str) and receipt[key] in {"native_cancelled", "end_of_stream"}, f"Native cancellation did not complete: {key}")
+    if engine in ("phonon", "pocket", "pocket-multilingual"):
+        voices = receipt.get("available_voice_ids")
+        require(isinstance(voices, list) and len(voices) <= 256 and all(isinstance(v, str) for v in voices), "Missing bounded voice enumeration")
+        require(set(model["required_voices"]) <= set(voices), "Pinned Android pack is missing selectable voices")
+    if engine == "pocket-multilingual":
+        check_french_preview(receipt.get("french_preview"), receipt.get("french_preview_frames"), voice="estelle")
     if engine == "kokoro":
         playback = receipt.get("application_playback")
         require(isinstance(playback, dict), "Missing actual application streaming playback")
+        if delegate != "CPU" or "requested_delegate" in playback:
+            require(receipt.get("configured_backend") == f"LITERT_KOKORO_{delegate}" and
+                    playback.get("requested_delegate") == delegate and playback.get("kernel_placement") == "unreported_by_task",
+                    "Application playback route differs from the requested Kokoro delegate")
+        if delegate != "CPU" or "french_preview" in receipt:
+            check_french_preview(receipt.get("french_preview"), receipt.get("french_preview_frames"))
         for key, expected in {
             "voice_id": "af_heart", "finish_input_calls": 1, "presented_before_last_text": True,
             "pronunciation_reached_sdk": True, "source_caption_ranges_presented": True, "stream_closed": True,
@@ -134,6 +156,49 @@ def check_receipt(receipt, engine, run_id):
     require(type(cancellation.get("total_ms")) is int and 0 <= cancellation["total_ms"] <= 300_000, "Open-input cancellation exceeded its bound")
 
 
+def check_french_preview(french, expected_frames, voice="ff_siwis"):
+    require(isinstance(french, dict) and french.get("voice_id") == voice, "Missing French voice receipt")
+    count = french.get("frames")
+    require(type(count) is int and type(expected_frames) is int and 0 < count <= SAMPLE_RATE * 30 and count == expected_frames,
+            "Invalid French frame count")
+    first = french.get("first_pcm_ms")
+    require(type(first) is int and 0 <= first <= 300_000, "Invalid French time to first audio")
+    rms, peak = french.get("rms"), french.get("peak")
+    require(all(type(v) in (int, float) and math.isfinite(v) for v in (rms, peak)) and 0 < rms <= peak < 1,
+            "Invalid French PCM level")
+    clipped, audible = french.get("clipped_samples"), french.get("non_silent_samples")
+    require(type(clipped) is int and clipped == 0 and type(audible) is int and 0 < audible <= count,
+            "French signal is missing, silent or clipped")
+    check_word_coverage(french.get("caption_word_coverage"), FRENCH_PREVIEW, "french_preview.caption_word_coverage")
+    check_caption_publication(french.get("caption_publication"), count, "french_preview.caption_publication")
+
+
+def check_caption_publication(publication, frames, label):
+    require(isinstance(publication, dict), f"Missing enabled caption publication evidence: {label}")
+    expected = {
+        "measurement_scope": "SDK_PACKET_PUBLICATION_ONLY", "caption_staging_enabled": True,
+        "first_cues_before_pcm": True, "pcm_frames": frames, "acoustic_alignment": "NOT_MEASURED",
+    }
+    for key, value in expected.items():
+        require(type(publication.get(key)) is type(value) and publication[key] == value, f"Caption publication mismatch: {label}.{key}")
+    require(type(publication.get("first_cue_count")) is int and 0 < publication["first_cue_count"] <= 2048,
+            f"Missing bounded first-cue observations: {label}")
+
+
+def check_word_coverage(coverage, text, label):
+    require(isinstance(coverage, dict), f"Missing complete source word coverage: {label}")
+    expected_words = len(lexical_word_spans(text))
+    expected = {
+        "measurement_scope": "SOURCE_WORD_SPANS_ONLY", "timing_provenance": "SDK_ESTIMATED",
+        "acoustic_alignment": "NOT_MEASURED", "expected_words": expected_words,
+        "covered_words": expected_words, "individually_timed_words": expected_words,
+        "grouped_word_spans": 0, "partial_word_spans": 0, "provisional_word_spans": 0,
+        "complete": True,
+    }
+    for key, value in expected.items():
+        require(type(coverage.get(key)) is type(value) and coverage[key] == value, f"Source word coverage mismatch: {label}.{key}")
+
+
 def check_incremental_stream(stream, label):
     require(isinstance(stream, dict), f"Missing actual incremental stream evidence: {label}")
     expected = {
@@ -145,12 +210,14 @@ def check_incremental_stream(stream, label):
     }
     for key, value in expected.items():
         require(type(stream.get(key)) is type(value) and stream[key] == value, f"Incremental evidence mismatch: {label}.{key}")
+    check_word_coverage(stream.get("caption_word_coverage"), FIXTURE, f"{label}.caption_word_coverage")
     require(type(stream.get("frames")) is int and 0 < stream["frames"] <= MAX_FRAMES, f"Missing bounded incremental PCM: {label}")
+    check_caption_publication(stream.get("caption_publication"), stream["frames"], f"{label}.caption_publication")
     require(type(stream.get("emitted_chunks")) is int and 0 < stream["emitted_chunks"] <= 4096, f"Missing bounded incremental chunks: {label}")
     require(type(stream.get("first_pcm_ms")) is int and 0 <= stream["first_pcm_ms"] <= 300_000, f"Missing bounded incremental timing: {label}")
 
 
-def check_results(output, engine, run_id):
+def check_results(output, engine, run_id, abi="x86_64", delegate="CPU"):
     require(str(uuid.UUID(run_id)) == run_id, "Expected this invocation's canonical UUID")
     require(output.is_file() and output.stat().st_size <= 16 * 1024 * 1024, "Missing or oversized instrumentation output")
     # No approved assumptions: a skipped, crashed, empty or misnamed test fails.
@@ -158,13 +225,15 @@ def check_results(output, engine, run_id):
     lines = [line[len(RECEIPT_PREFIX):] for line in output.read_text(encoding="utf-8").splitlines() if line.startswith(RECEIPT_PREFIX)]
     require(len(lines) == 1 and len(lines[0].encode("utf-8")) <= 32 * 1024, "Expected one bounded native completion receipt")
     receipt = parse_json(lines[0])
-    check_receipt(receipt, engine, run_id)
+    check_receipt(receipt, engine, run_id, abi, delegate)
     return receipt
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", required=True, choices=MODELS)
+    parser.add_argument("--abi", choices=SUPPORTED_ABIS, default="x86_64")
+    parser.add_argument("--delegate", choices=DELEGATES, default="CPU")
     parser.add_argument("--instrumentation-output", type=Path, required=True)
     parser.add_argument("--provisioning-receipt", type=Path, required=True)
     parser.add_argument("--apk-dir", type=Path, required=True)
@@ -176,7 +245,7 @@ def main(argv=None):
     status = {
         "schema": "mediapipe-android-smoke-verification-v1",
         "status": "NOT_VERIFIED",
-        "scope": "android_x86_64_cpu_jni_checkpoint_smoke",
+        "scope": f"android_{args.abi}_{args.delegate.lower()}_jni_checkpoint_smoke",
         "engine": args.engine,
         "source_revision": args.source_revision,
         "run_id": args.run_id,
@@ -191,9 +260,9 @@ def main(argv=None):
     write_status()
     try:
         require(args.process_exit == 0, f"Instrumentation process exited {args.process_exit}")
-        apks = verify_apks(args.apk_dir, args.source_revision)
+        apks = verify_apks(args.apk_dir, args.source_revision, args.abi)
         verify_provisioning(args.provisioning_receipt, args.engine)
-        receipt = check_results(args.instrumentation_output, args.engine, args.run_id)
+        receipt = check_results(args.instrumentation_output, args.engine, args.run_id, args.abi, args.delegate)
         status.update(
             status="PASSED",
             test_class=TEST_CLASS,

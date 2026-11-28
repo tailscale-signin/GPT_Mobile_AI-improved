@@ -4,8 +4,11 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.SearchTransportFailure
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes
+import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -57,14 +60,14 @@ internal object AppAssistedSearch {
         }
     }
 
-    enum class Readiness(val guidance: String) {
-        CHAT_TOOLS_DISABLED("Tools are disabled for this chat. Enable chat tools and retry."),
-        PROFILE_TOOLS_DISABLED("Tools are disabled for this profile. Enable profile tools and retry."),
-        PROFILE_REMOTE_DISABLED("Remote tools are disabled for this profile. Review the profile's remote tool settings."),
-        NO_ENGINE_RESOLVED("Open Tools → Effective search inventory to check the engines available to this profile."),
-        ROUTED_ENGINE_MISSING("The profile resolved a search engine, but this chat did not select it. Check the chat's tool selection."),
-        BOUND_ENGINE_MISSING("A search engine was selected but did not reach the authorized tools for this turn. Check the turn's tool settings."),
-        AGGREGATE_NOT_CREATED("An app-assisted search tool was unavailable for this turn. Check Tools → Effective search inventory.")
+    enum class Readiness(val guidance: String, val settingsScope: String, val settingsPath: String, val userAction: String) {
+        CHAT_TOOLS_DISABLED("Tools are disabled for this chat. Open this chat's Tools and enable the approved search tool, then retry.", "CHAT", "Chat → Tools", "ENABLE_CHAT_SEARCH_TOOL"),
+        PROFILE_TOOLS_DISABLED("Tools are disabled for this profile. Open the selected AI profile's Tools setting, enable approved tools, then retry.", "PROFILE", "AI profile → Tools", "ENABLE_PROFILE_TOOLS"),
+        PROFILE_REMOTE_DISABLED("Remote tools are disabled for this profile. Open the selected AI profile's Remote tools setting and review the approved connections.", "PROFILE", "AI profile → Tools → Remote tools", "ENABLE_APPROVED_REMOTE_TOOLS"),
+        NO_ENGINE_RESOLVED("Open Tools → Effective search inventory to select an available engine for this profile.", "PROFILE", "Tools → Effective search inventory", "SELECT_SEARCH_ENGINE"),
+        ROUTED_ENGINE_MISSING("The profile resolved a search engine, but this chat did not select it. Open this chat's tool selection and choose that engine.", "CHAT", "Chat → Tools → Search engine", "SELECT_CHAT_SEARCH_ENGINE"),
+        BOUND_ENGINE_MISSING("A search engine was selected but was not authorized for this turn. Review the connection and turn permissions without changing the selected profile.", "TURN", "Chat → Tools → Connections", "REVIEW_SEARCH_CONNECTION"),
+        AGGREGATE_NOT_CREATED("An app-assisted search tool was unavailable for this turn. Open Tools → Effective search inventory and inspect the selected engine's readiness.", "TURN", "Tools → Effective search inventory", "REVIEW_EFFECTIVE_SEARCH_INVENTORY")
     }
 
     fun readiness(chatDisabled: Boolean, profileDisabled: Boolean, remoteDisabled: Boolean, resolved: List<ResolvedAgentTool>, routed: List<ResolvedAgentTool>, bound: List<ResolvedAgentTool>): Readiness {
@@ -79,27 +82,40 @@ internal object AppAssistedSearch {
         }
     }
 
+    /** Explicitly disabled tools can be explained before any optional assist runtime is prepared. */
+    fun configurationBlock(chatDisabled: Boolean, profileDisabled: Boolean): ApiState.Error? = when {
+        chatDisabled -> unavailable(Readiness.CHAT_TOOLS_DISABLED)
+        profileDisabled -> unavailable(Readiness.PROFILE_TOOLS_DISABLED)
+        else -> null
+    }
+
+    private fun unavailable(observed: Readiness) = ApiState.Error(
+        "Web search is unavailable. ${observed.guidance}",
+        errorCode = "TOOL_UNAVAILABLE",
+        taskOutcome = "BLOCKED",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "tool_readiness")
+            put("operation", "web_search")
+            put("capability", "WEB_SEARCH")
+            put("search_readiness_observation", observed.name)
+            put("readiness_state", "CONFIGURATION_BLOCKED")
+            put("settings_scope", observed.settingsScope)
+            put("settings_path", observed.settingsPath)
+            put("user_action", observed.userAction)
+            put("permission_bypass_allowed", false)
+            put("failure_origin", "APPLICATION")
+            put("dispatched", false)
+            put("remote_acceptance", "NO")
+            put("retryable", false)
+        }
+    )
+
     suspend fun prepare(messages: List<MessageV2>, tools: List<ResolvedAgentTool>, trace: ToolTraceSession, runId: String, maxCharacters: Int, emit: suspend (ApiState) -> Unit, unavailableReason: () -> Readiness = { Readiness.AGGREGATE_NOT_CREATED }): String? {
         val state = kotlinx.coroutines.currentCoroutineContext()[AppSearchContext]
         state?.attempted = true
         val search = tools.firstOrNull { it.modelToolName == "web_search" }
         if (search == null) {
-            val observed = unavailableReason()
-            emit(
-                ApiState.Error(
-                    "Web search is unavailable. ${observed.guidance}",
-                    errorCode = "TOOL_UNAVAILABLE",
-                    taskOutcome = "BLOCKED",
-                    failureDetails = buildJsonObject {
-                        put("failed_stage", "tool_readiness")
-                        put("operation", "web_search")
-                        put("search_readiness_observation", observed.name)
-                        put("failure_origin", "APPLICATION")
-                        put("dispatched", false)
-                        put("remote_acceptance", "NO")
-                    }
-                )
-            )
+            emit(unavailable(unavailableReason()))
             return null
         }
         val task = question(messages)
@@ -110,13 +126,19 @@ internal object AppAssistedSearch {
         }
         val call = ProviderEvent.ToolCall("$runId:app-search", search.modelToolName, arguments)
         emit(ApiState.Notice("Search assisted by app · checking this profile's authorized engines.", true))
-        emit(ApiState.ToolCall(trace.start(call).sequence))
+        val started = trace.start(call)
+        emit(ApiState.ToolCall(started.sequence))
         val result = try {
             search.tool.execute(call.callId, arguments)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            AgentToolResult(call.callId, ToolResultContent.Text(error.message ?: "Search unavailable"), true)
+            val failure = SearchTransportFailure.from(error)
+            if (IssueReportCodes.toolResult(failure.code) == "DNS_RESOLUTION_FAILED") {
+                AgentToolResult(call.callId, ToolResultContent.Text(failure.message), true, errorCode = failure.code, dispatched = false)
+            } else {
+                AgentToolResult(call.callId, ToolResultContent.Text(error.message ?: "Search unavailable"), true)
+            }
         }
         trace.finish(call, result)?.let { emit(it) }
         val sources = (((result.content as? ToolResultContent.Json)?.value as? JsonObject)?.get("results") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
@@ -124,14 +146,23 @@ internal object AppAssistedSearch {
         state?.sourceCount = usable.size
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Search", "APP_SEARCH_OUTCOME · run=$runId · dispatched=${result.dispatched} · sources=${usable.size} · task=${if (usable.isEmpty()) "UNAVAILABLE" else "EVIDENCE_ACQUIRED"}")
         if (usable.isEmpty()) {
+            val code = if (result.isError) IssueReportCodes.known(ToolReportDiagnostics.reportCode(started, result)) else null
+            val dns = code == "DNS_RESOLUTION_FAILED"
             emit(
                 ApiState.Error(
-                    "Web search returned no usable sources. Check the search result for engine errors before retrying.",
-                    errorCode = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.known(result.errorCode) ?: "SOURCE_UNAVAILABLE",
+                    if (dns) "The search service hostname could not be resolved. Retry when the connection is available." else "Web search returned no usable sources. Check the search result for engine errors before retrying.",
+                    errorCode = code ?: "SOURCE_UNAVAILABLE",
                     failureDetails = buildJsonObject {
-                        put("failed_stage", if (result.dispatched) "tool_execution" else "tool_precheck")
+                        val stage = when {
+                            dns && result.errorCode == "DNS_RECOVERY" -> "connection_preflight"
+                            dns -> "dns_resolution"
+                            result.dispatched -> "tool_execution"
+                            else -> "tool_precheck"
+                        }
+                        put("failed_stage", stage)
                         put("operation", "web_search")
                         if (!result.dispatched) put("dispatched", false)
+                        if (dns) put("retryable", true)
                     }
                 )
             )
@@ -156,6 +187,10 @@ internal object AppAssistedSearch {
                     AgentToolResult(readCall.callId, ToolResultContent.Text(error.message ?: "Page unavailable"), true)
                 }
                 trace.finish(readCall, page)?.let { emit(it) }
+                if (page.errorCode == "JAVA_HEAP_PRESSURE") {
+                    emit(ApiState.Notice("Full-page enrichment was skipped because the app's Java heap is temporarily constrained. Search snippets are retained.", true))
+                    break
+                }
                 if (!page.isError) {
                     val text = when (val content = page.content) {
                         is ToolResultContent.Text -> content.text
@@ -166,7 +201,10 @@ internal object AppAssistedSearch {
                     }
                     if (text.isNotBlank()) enriched[index] = JsonObject(source + ("pageText" to JsonPrimitive(pageExcerpt(task, text))))
                 }
-                if (page.toolCallBudgetExhausted || page.outputBudgetExhausted) break
+                if (page.toolCallBudgetExhausted || page.outputBudgetExhausted || page.combinedWorkBudgetExhausted) {
+                    emit(ApiState.Notice("I’ve reached this turn’s limit for opening pages. The search results are still available.", true))
+                    break
+                }
             }
         }
         return compactEvidence(task, enriched, maxCharacters)

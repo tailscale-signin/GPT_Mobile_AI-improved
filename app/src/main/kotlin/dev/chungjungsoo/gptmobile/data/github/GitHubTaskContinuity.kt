@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+
 /** Only explicit controls and equivalent integration-test requests may reuse the active task. */
 internal object GitHubTaskContinuity {
     private fun normalized(text: String): String = request(text).lowercase(java.util.Locale.ROOT)
@@ -39,13 +42,66 @@ internal object GitHubTaskContinuity {
             Regex("(?i)\\bwhat happened to $subject\\s*[?.!]*$").containsMatchIn(prompt)
     }
 
-    fun sessionAudit(text: String): Boolean = request(text).length <= 300 &&
-        (
-            Regex(
-                "^(?:(?:list|find|show|identify|examine|review|audit|summarize) (?:me )?(?:all |the )?(?:issues|errors|failures|problems|bugs) (?:with|in|from|for) (?:this|the current|our) (?:github )?(?:session|chat|conversation)|audit (?:this|the current) (?:github )?(?:session|chat|conversation))(?: (?:using|with) github)?(?: and (?:offer|list|suggest) (?:fixes|solutions))?$"
-            ).matches(normalized(text)) ||
-                retrospectiveSessionQuestion.matches(normalized(text))
-            )
+    private val reportFollowUps = setOf("analyze and report", "analyse and report", "analyze the results and report", "analyse the results and report")
+    fun analysisReport(text: String): Boolean = normalized(text) in reportFollowUps
+
+    // Limit this local route to a question about improving the integration from this chat.
+    // A compound request to inspect source or implement a change keeps the engineering route.
+    private const val SESSION_SOURCE = "(?:from|based on|looking back at) (?:this(?: current)?|our|the current) (?:github )?(?:session|conversation|chat)"
+    private const val ADVICE_TARGET = "(?:the |our |this )?(?:repo(?:sitory)?|app|github integration)"
+    private val sessionAdviceQuestion = Regex(
+        """(?:(?:what|which) (?:upgrades?|changes?|improvements?)(?: (?:and|or) (?:upgrades?|changes?|improvements?))? would you (?:make|recommend|suggest)(?: (?:to|for) $ADVICE_TARGET)?|how would you improve $ADVICE_TARGET)""" +
+            """(?: to (?:improve (?:the )?github integration|make (?:sure )?(?:the )?github integration (?:is )?(?:(?:a lot |much )?more )?(?:thorough|intelligent|reliable|efficient)(?: and (?:more )?(?:thorough|intelligent|reliable|efficient))?))?"""
+    )
+    private val leadingSession = Regex("^$SESSION_SOURCE,? ")
+    private val trailingSession = Regex(",? $SESSION_SOURCE$")
+
+    private const val PROBLEMS = "(?:issues?|errors?|failures?|problems?|bugs?|blockers?)"
+    private const val ADVICE = "(?:how (?:to|(?:we|you) (?:can|could)) improve (?:it|them|the integration|github)|(?:offer|list|suggest|recommend) (?:fixes|solutions|improvements))"
+    private val experiencedProblems = Regex(
+        """(?:(?:tell|show) me (?:about )?(?:the |any )?$PROBLEMS (?:that )?you (?:experienced|encountered|ran into)|(?:what|which) $PROBLEMS (?:did you (?:experience|encounter|run into)|have you (?:experienced|encountered|run into))) """ +
+            """(?:while |when )?(?:using|working with) github(?: (?:in|during) (?:this|our) (?:session|chat|conversation))?"""
+    )
+    private val adviceEnding = Regex(",? and $ADVICE$")
+
+    fun sessionAdvice(text: String): Boolean {
+        if (request(text).length > 300) return false
+        val question = normalized(text)
+        val problem = question.replace(adviceEnding, "")
+        if (problem != question && (experiencedProblems.matches(problem) || sessionProblemReport.matches(problem) || retrospectiveSessionQuestion.matches(problem))) return true
+        val subject = question.replaceFirst(leadingSession, "").replace(trailingSession, "")
+        return subject != question && sessionAdviceQuestion.matches(subject)
+    }
+
+    /** Only the primary text turn can answer from local history. Explicit workflows own their inputs. */
+    fun localAuditTopic(messages: List<MessageV2>, tools: ChatMcpToolConfig?, profileUid: String, staged: Boolean = false): String? {
+        if (tools?.github?.mainProfileUid != profileUid || staged || tools.combined != null || tools.githubDraftRepair != null || tools.research?.researchToggle == true) return null
+        return auditTopic(messages)
+    }
+
+    /** Bind a bare report follow-up only to the immediately preceding audit in this workspace. */
+    fun auditTopic(messages: List<MessageV2>): String? {
+        val latest = messages.lastOrNull() ?: return null
+        if (latest.platformType != null || latest.attachments.isNotEmpty()) return null
+        if (sessionAudit(latest.content)) return latest.content
+        if (!analysisReport(latest.content)) return null
+        for (prior in messages.asReversed().drop(1)) {
+            if (prior.chatId != latest.chatId || prior.platformType != null) continue
+            if (prior.attachments.isNotEmpty() || sharesLookupWorkspace(prior.content, latest.content) == false) return null
+            if (!analysisReport(prior.content)) return prior.content.takeIf(::sessionAudit)
+        }
+        return null
+    }
+
+    private val sessionProblemReport = Regex(
+        "(?:(?:list|find|show|identify|examine|review|audit|summarize) (?:me )?(?:all |the )?(?:issues|errors|failures|problems|bugs) (?:with|in|from|for) (?:this|the current|our) (?:github )?(?:session|chat|conversation)|audit (?:this|the current) (?:github )?(?:session|chat|conversation))(?: (?:using|with) github)?"
+    )
+
+    fun sessionAudit(text: String): Boolean {
+        if (request(text).length > 300) return false
+        val question = normalized(text)
+        return sessionProblemReport.matches(question) || retrospectiveSessionQuestion.matches(question) || experiencedProblems.matches(question) || sessionAdvice(text)
+    }
 
     // Full-question matching keeps a new repository action out of the local audit route.
     private val retrospectiveSessionQuestion = Regex(
@@ -78,7 +134,8 @@ internal object GitHubTaskContinuity {
     fun followUp(text: String): Boolean = normalized(text) in followUpControls
 
     /** A request for the saved report authorizes delivery, not another mutation or test run. */
-    fun reportOnly(text: String): Boolean = dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.from(request(text)) == dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.STATUS ||
+    fun reportOnly(text: String): Boolean = analysisReport(text) ||
+        dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.from(request(text)) == dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.STATUS ||
         normalized(text) in
         setOf("show the last useful report", "show the report", "show the full report", "give me the full report", "show me the full report", "full report", "show the results", "summarize the results", "retry writing", "resume writing", "continue writing")
 

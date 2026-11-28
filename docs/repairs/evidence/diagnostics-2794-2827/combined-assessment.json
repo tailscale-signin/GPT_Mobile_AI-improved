@@ -1,0 +1,2001 @@
+{
+  "schema_version": 1,
+  "scope": {
+    "assigned_issue_numbers": [
+      2806,
+      2807,
+      2808,
+      2809,
+      2810,
+      2811,
+      2818,
+      2819,
+      2820,
+      2821,
+      2827
+    ],
+    "issue_count": 11,
+    "finite_batch": "#2794–2827 only",
+    "source_snapshot_sha256": "4b0e0bc31178354ecc5b7c7dfb0dabefa67d903dbd2d7dbd18b85d53506fa2c3",
+    "inspected_source_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+    "reported_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+    "github_mutations": false,
+    "repository_source_changes": false
+  },
+  "summary": {
+    "budget_precheck_reports": 10,
+    "unique_budget_run_hashes": 7,
+    "unique_budget_call_hashes": 10,
+    "budget_span_millis": 808,
+    "separate_completed_requirements_reports": 1,
+    "new_app_defects_reproduced": 0,
+    "new_code_fixes": 0,
+    "fresh_host_cases_passed": 6,
+    "live_recoveries_observed": 0
+  },
+  "source_references": {
+    "tool_admission": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+      "lines": [
+        372,
+        409
+      ],
+      "sha256": "d809d58489a87b387a7fb45f4f62b59d44c781ccb54e9da8f305fa36dd93cc67",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "quota_reservation": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt",
+      "lines": [
+        243,
+        364
+      ],
+      "sha256": "c9ec9e4148c4e3f70cacedbae35cbf97315751e87765dbd3642bcf223b3a657c",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "hard_limits_and_renewal": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt",
+      "lines": [
+        690,
+        718
+      ],
+      "sha256": "c9ec9e4148c4e3f70cacedbae35cbf97315751e87765dbd3642bcf223b3a657c",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "work_plan": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedPolicyResolver.kt",
+      "lines": [
+        45,
+        108
+      ],
+      "sha256": "4b151ea1392c35f36c9c5f0a1a4d8a574aa06d906d54e5ef881992e622ac06d7",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "retained_finalization": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+      "lines": [
+        2146,
+        2240
+      ],
+      "sha256": "a446c3a26d0bf04adecc9dea1bf73e9a0cb90388eca65decbaf73b0d18ce95ca",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": false
+    },
+    "github_only_finalization": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubIntegrationFinalization.kt",
+      "lines": [
+        31,
+        68
+      ],
+      "sha256": "d92ebe975a0dfe84f89d034537eeb3b0725e64eb1728e3202522d7bb2ee16435",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": false
+    },
+    "local_requirements_check": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySession.kt",
+      "lines": [
+        199,
+        239
+      ],
+      "sha256": "6f79870d7f06197410612ee5ebc304a4105fa4fb3ed499536c8620763d8711fe",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "publication_guard": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySession.kt",
+      "lines": [
+        560,
+        617
+      ],
+      "sha256": "6f79870d7f06197410612ee5ebc304a4105fa4fb3ed499536c8620763d8711fe",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "requirements_recovery": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecoveryFailure.kt",
+      "lines": [
+        84,
+        110
+      ],
+      "sha256": "c7312b8ee1a7bbbd90f0294c33344468d6886433ecf4fba1d4846b4c19c7a609",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "no_resume_for_completed_gap": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecoverySnapshot.kt",
+      "lines": [
+        17,
+        23
+      ],
+      "sha256": "1adc729fa90bfed5b5aed80abc93bc957ba0a074bd13534e39a8432c8bc2f565",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "explicit_revision_target": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerRevisionTarget.kt",
+      "lines": [
+        24,
+        49
+      ],
+      "sha256": "4dd87bd4cecd317b63f96307b166fc7083d3097a87d694e8d5e6a18c073a6c5e",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "tool_code_hashes": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+      "lines": [
+        261,
+        386
+      ],
+      "sha256": "e73022ea83db32071b65cfcc612f2a571033e3f578f8dc687304f55aa338aa6c",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    },
+    "domain_hash": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
+      "lines": [
+        363,
+        377
+      ],
+      "sha256": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+      "pinned_head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+      "identical_to_captured_commit": true
+    }
+  },
+  "fresh_validation": {
+    "head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+    "source_manifest": "source-manifest.json",
+    "compile_exit": 0,
+    "test_exit": 0,
+    "selected_existing_cases": {
+      "CombinedTurnBudgetTest": [
+        "concurrentWorkersShareOneAtomicToolCeilingAndDuplicateIdsDoNotExecute",
+        "unknownAttemptRemainsReservedAcrossSerializationAndCancellationBlocksFinalization",
+        "fullScaleRenewsOnlyForFiniteUnfinishedWorkAndMeasuredProgress",
+        "baselineAndFinalCapacityCannotBeConsumedByOptionalCallsOrContextEstimateExpansion"
+      ],
+      "CombinedSinglePassTest": [
+        "consumedSinglePassRequiresANewRevisionAndRestorationCannotAdvertiseAnImpossibleRetry",
+        "knownNotDispatchedFailureCanRetryAndClearsTheStaleFailureWhileWriting"
+      ]
+    },
+    "case_count": 6,
+    "scope": "Actual complete Combined budget/store/policy/work-plan source classes; six unchanged test method bodies and original fixtures extracted from the two checked-in classes. No tests or production files changed in the repository.",
+    "ports": [
+      "BuildConfigPort.kt",
+      "InjectionPort.kt",
+      "ApplicationContextPort.kt",
+      "AcceptedTaskPort.kt",
+      "PricingPort.kt"
+    ],
+    "limits": "No Android app execution, physical URL reads, device budget journal recovery, pricing, AgentRunner event loop or CombinedDeliverySession rendering was exercised. The pricing port fails loudly if reached. In-memory store, real serialization, quota admission/protection and recovery policy were exercised."
+  },
+  "test_evidence_directory": "/workspace/scratch/49479c165f4e/combined-report-host-tests",
+  "qualification_note": "Six current-source cases were executed; no historical Android suite pass is presented as a fresh test. No budget bypass, speculative source change, remote call, or GitHub mutation was made.",
+  "issues": [
+    {
+      "issue_number": 2806,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "aa84a7d7-d85c-40b8-a4c6-81ac14d7f2d0",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841370530,
+      "occurred_at_utc": "2026-11-28T04:49:30.530Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "a25555d46355cd9b5913f796cf41c3b51db1db5d77275466013bb25faa48795f",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "c4296f9aaa94d2541a2dedd37ee130c1b3873d05f1ab8a06abdd7e9048125be9",
+      "run_id_hash": "6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b",
+      "call_id_hash": "7a612716dfbabf00912d42e57143e555a8368d3a0ad1de3ec4622dedb7d5392c",
+      "payload": {
+        "reportId": "aa84a7d7-d85c-40b8-a4c6-81ac14d7f2d0",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-3492ms E chat TOOL_UNAVAILABLE",
+          "-141ms I tools",
+          "-133ms I tools",
+          "-130ms I tools",
+          "-128ms I tools",
+          "-127ms I tools",
+          "-119ms I tools",
+          "-111ms I tools",
+          "-111ms I tools",
+          "-109ms I tools",
+          "-95ms I tools",
+          "-93ms I tools",
+          "-90ms I tools",
+          "-84ms I tools",
+          "-76ms I tools",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841370530,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b",
+          "callIdHash": "7a612716dfbabf00912d42e57143e555a8368d3a0ad1de3ec4622dedb7d5392c",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841370530,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b",
+              "call_id_hash": "7a612716dfbabf00912d42e57143e555a8368d3a0ad1de3ec4622dedb7d5392c",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "d6bd25e8b2aa31b5b6f6a4235a11b88ea593a0cc301313eb65ab28301e9492d6",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": [
+        2810
+      ]
+    },
+    {
+      "issue_number": 2807,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2807",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "3aeb6545-7184-4a7e-abd8-8104074979e9",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841370540,
+      "occurred_at_utc": "2026-11-28T04:49:30.540Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "db845142c71eed681e7c8230f922cbfb82b43632cc6407bdd10037e390c357b3",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "0ebfc0dca6dd703d76bddee85313912f075ff751c7f9984e8710cadf778f1d27",
+      "run_id_hash": "d9bcce91911593d9080cdd5e3cd882302c2ad96543a32f47c1b8436b4d382e33",
+      "call_id_hash": "09eccf2ff7ec3a5fc379bcd925385771388a4f915e21b6d4643d4595b5e8852d",
+      "payload": {
+        "reportId": "3aeb6545-7184-4a7e-abd8-8104074979e9",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-3502ms E chat TOOL_UNAVAILABLE",
+          "-143ms I tools",
+          "-140ms I tools",
+          "-138ms I tools",
+          "-137ms I tools",
+          "-129ms I tools",
+          "-121ms I tools",
+          "-121ms I tools",
+          "-119ms I tools",
+          "-105ms I tools",
+          "-103ms I tools",
+          "-100ms I tools",
+          "-94ms I tools",
+          "-86ms I tools",
+          "-10ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841370540,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "d9bcce91911593d9080cdd5e3cd882302c2ad96543a32f47c1b8436b4d382e33",
+          "callIdHash": "09eccf2ff7ec3a5fc379bcd925385771388a4f915e21b6d4643d4595b5e8852d",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841370540,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "d9bcce91911593d9080cdd5e3cd882302c2ad96543a32f47c1b8436b4d382e33",
+              "call_id_hash": "09eccf2ff7ec3a5fc379bcd925385771388a4f915e21b6d4643d4595b5e8852d",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "31ed8009db18fcf1bfbfb46417214bb330878b60f6aab04326762e580860120d",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": [
+        2809
+      ]
+    },
+    {
+      "issue_number": 2808,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2808",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "50eb4f9b-a997-4189-a6c5-07a3e92fab80",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841370557,
+      "occurred_at_utc": "2026-11-28T04:49:30.557Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "78256326e9e1fc7c0550c4cd4926600e1d78922f63e736c2690e78fb2e79e3e1",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "03e06f64a7e1bab98757663d4bba205f1871438fe3a2c25f61f8f2cfab596774",
+      "run_id_hash": "b7dd0c2b7a34038bb3eb34c590e2df49dba8bf4521cefa0e07295aa35368ce1b",
+      "call_id_hash": "6bcc3285d4e91ac7040f25c20d8b4e6baebaada04b48af507fdc09f10ad9d51d",
+      "payload": {
+        "reportId": "50eb4f9b-a997-4189-a6c5-07a3e92fab80",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-3518ms E chat TOOL_UNAVAILABLE",
+          "-153ms I tools",
+          "-145ms I tools",
+          "-137ms I tools",
+          "-137ms I tools",
+          "-135ms I tools",
+          "-121ms I tools",
+          "-119ms I tools",
+          "-116ms I tools",
+          "-110ms I tools",
+          "-102ms I tools",
+          "-26ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-16ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-16ms I tools",
+          "-4ms I tools",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841370557,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "b7dd0c2b7a34038bb3eb34c590e2df49dba8bf4521cefa0e07295aa35368ce1b",
+          "callIdHash": "6bcc3285d4e91ac7040f25c20d8b4e6baebaada04b48af507fdc09f10ad9d51d",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841370557,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "b7dd0c2b7a34038bb3eb34c590e2df49dba8bf4521cefa0e07295aa35368ce1b",
+              "call_id_hash": "6bcc3285d4e91ac7040f25c20d8b4e6baebaada04b48af507fdc09f10ad9d51d",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "daff6f3326b8c8431f7829ea03046c1ae82f8ad3f4c41183d9f98a5713f6deac",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": [
+        2811
+      ]
+    },
+    {
+      "issue_number": 2809,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2809",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "cb89311d-c672-47a1-a552-158916f7305a",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841370616,
+      "occurred_at_utc": "2026-11-28T04:49:30.616Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "431f9f635473457b098b1d5bb37b5a067450660bd5e864a37e098dfe1c88f383",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "f28123bce280c1d9d6429ad4391e8d3c448d4aed8d117d8ab53aa4378690b4a0",
+      "run_id_hash": "d9bcce91911593d9080cdd5e3cd882302c2ad96543a32f47c1b8436b4d382e33",
+      "call_id_hash": "bf780fca7486f536128e6c538102685e30ce699c2cdbd88fcc1b925ee9808ccd",
+      "payload": {
+        "reportId": "cb89311d-c672-47a1-a552-158916f7305a",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-3577ms E chat TOOL_UNAVAILABLE",
+          "-196ms I tools",
+          "-196ms I tools",
+          "-194ms I tools",
+          "-180ms I tools",
+          "-178ms I tools",
+          "-175ms I tools",
+          "-169ms I tools",
+          "-161ms I tools",
+          "-85ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-75ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-75ms I tools",
+          "-63ms I tools",
+          "-59ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-43ms I tools",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841370616,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "d9bcce91911593d9080cdd5e3cd882302c2ad96543a32f47c1b8436b4d382e33",
+          "callIdHash": "bf780fca7486f536128e6c538102685e30ce699c2cdbd88fcc1b925ee9808ccd",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841370616,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "d9bcce91911593d9080cdd5e3cd882302c2ad96543a32f47c1b8436b4d382e33",
+              "call_id_hash": "bf780fca7486f536128e6c538102685e30ce699c2cdbd88fcc1b925ee9808ccd",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "d2bf27c76ca677fe15a6ac0167f8a0901e5e9c13ddd2ea968e9f2878cc40f9da",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": [
+        2807
+      ]
+    },
+    {
+      "issue_number": 2810,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2810",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "51ecd6d7-f424-4a0c-9712-c35e07fa5490",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841370620,
+      "occurred_at_utc": "2026-11-28T04:49:30.620Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "c96e9a4d6a2dea4ddbe53b10e3c626963143fef8dcf8c56c6aab13b292208129",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "8ad6176a9f91fcb80d6fa85fb7ad694d12137d73f277c841823f73e9b978e646",
+      "run_id_hash": "6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b",
+      "call_id_hash": "7636e0a110eebf13222a5ba49e03ec83e7991dfbb96ea83ec8f4a0052f6ddab8",
+      "payload": {
+        "reportId": "51ecd6d7-f424-4a0c-9712-c35e07fa5490",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-3581ms E chat TOOL_UNAVAILABLE",
+          "-200ms I tools",
+          "-198ms I tools",
+          "-184ms I tools",
+          "-182ms I tools",
+          "-179ms I tools",
+          "-173ms I tools",
+          "-165ms I tools",
+          "-89ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-79ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-79ms I tools",
+          "-67ms I tools",
+          "-63ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-47ms I tools",
+          "-4ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841370620,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b",
+          "callIdHash": "7636e0a110eebf13222a5ba49e03ec83e7991dfbb96ea83ec8f4a0052f6ddab8",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841370620,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b",
+              "call_id_hash": "7636e0a110eebf13222a5ba49e03ec83e7991dfbb96ea83ec8f4a0052f6ddab8",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "1f25a69f252b1f29fed68d171f02eb48efe183cb0c37855d1c9089a375fc6706",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": [
+        2806
+      ]
+    },
+    {
+      "issue_number": 2811,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2811",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "a78a937f-8388-4e15-9df6-7a492c109787",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841370637,
+      "occurred_at_utc": "2026-11-28T04:49:30.637Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "224277905c136c5d5e18f74a5b9dd9b6e276bf7f50b7a651dae29db2a0e02b3f",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "817019992fa95e2bbdd20148edd4c720c02ee771f238542a458bfd1ad596fdfb",
+      "run_id_hash": "b7dd0c2b7a34038bb3eb34c590e2df49dba8bf4521cefa0e07295aa35368ce1b",
+      "call_id_hash": "c8c5e700949d3ae9dba9635b2d0d19e4288a6392157302ad4209aa36cf95e161",
+      "payload": {
+        "reportId": "a78a937f-8388-4e15-9df6-7a492c109787",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-3597ms E chat TOOL_UNAVAILABLE",
+          "-214ms I tools",
+          "-200ms I tools",
+          "-198ms I tools",
+          "-195ms I tools",
+          "-189ms I tools",
+          "-181ms I tools",
+          "-105ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-95ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-95ms I tools",
+          "-83ms I tools",
+          "-79ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-63ms I tools",
+          "-20ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-16ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841370637,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "b7dd0c2b7a34038bb3eb34c590e2df49dba8bf4521cefa0e07295aa35368ce1b",
+          "callIdHash": "c8c5e700949d3ae9dba9635b2d0d19e4288a6392157302ad4209aa36cf95e161",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841370637,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "b7dd0c2b7a34038bb3eb34c590e2df49dba8bf4521cefa0e07295aa35368ce1b",
+              "call_id_hash": "c8c5e700949d3ae9dba9635b2d0d19e4288a6392157302ad4209aa36cf95e161",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "094779e7e6feb7c78ecbc76a498e032f52c6d66a1e4ae2c8665addcae1c31ea1",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": [
+        2808
+      ]
+    },
+    {
+      "issue_number": 2818,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2818",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "eff4b764-f06d-475f-912d-e352cc520b1e",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841371302,
+      "occurred_at_utc": "2026-11-28T04:49:31.302Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "34c6083d9576755366ecbe51702819617c90dcaeba6ed645fabab635173526f8",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "b9aae277f03ce1f4a5b0c2b4189c8d8b05cca602490a3fb70e2690f69f2db83f",
+      "run_id_hash": "ffd2c63bbc84d322bd619bf5326ff8bb00ecbbdd789d8dd0e5eb349508395943",
+      "call_id_hash": "dda6c6127ec1e4c986bc91cddd4f9241d38bcbb4f70b444cfb9f4362b1a46476",
+      "payload": {
+        "reportId": "eff4b764-f06d-475f-912d-e352cc520b1e",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-4264ms E chat TOOL_UNAVAILABLE",
+          "-667ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-619ms E chat CONTEXT_CAPACITY_EXCEEDED",
+          "-177ms I tools",
+          "-136ms I chat",
+          "-99ms I tools",
+          "-70ms E tools DNS_RESOLUTION_FAILED",
+          "-65ms E tools DNS_RESOLUTION_FAILED",
+          "-64ms I tools",
+          "-62ms I tools",
+          "-61ms I tools",
+          "-48ms E tools DNS_RESOLUTION_FAILED",
+          "-46ms E tools DNS_RESOLUTION_FAILED",
+          "-44ms I tools",
+          "-40ms I tools",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841371302,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "ffd2c63bbc84d322bd619bf5326ff8bb00ecbbdd789d8dd0e5eb349508395943",
+          "callIdHash": "dda6c6127ec1e4c986bc91cddd4f9241d38bcbb4f70b444cfb9f4362b1a46476",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841371302,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "ffd2c63bbc84d322bd619bf5326ff8bb00ecbbdd789d8dd0e5eb349508395943",
+              "call_id_hash": "dda6c6127ec1e4c986bc91cddd4f9241d38bcbb4f70b444cfb9f4362b1a46476",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "e3e632b9dd2f5992b426f0e0901c9178096f767a5d5f6920e43fc44ea5525b7f",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": []
+    },
+    {
+      "issue_number": 2819,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2819",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "b4a7cd01-5128-4c36-9d59-8b8e7afce9ad",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841371312,
+      "occurred_at_utc": "2026-11-28T04:49:31.312Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "30c32f8e777dadfdb625a770f50e98cba548a07909dcf10784e5f54fd47ecce8",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "72d77e660517b4d72d0266f1d6de35c38d34ec22ce365ea37897f438be4f15ab",
+      "run_id_hash": "e96faa808a7c1762d179d5d2e64f1715297419cde7675c183a2290dd6a66702f",
+      "call_id_hash": "fdb2c6e23c9a3f1cd903de1740d5ef5deb932fd97f6d165231b8c55100fc1c1c",
+      "payload": {
+        "reportId": "b4a7cd01-5128-4c36-9d59-8b8e7afce9ad",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-4273ms E chat TOOL_UNAVAILABLE",
+          "-628ms E chat CONTEXT_CAPACITY_EXCEEDED",
+          "-186ms I tools",
+          "-145ms I chat",
+          "-108ms I tools",
+          "-79ms E tools DNS_RESOLUTION_FAILED",
+          "-74ms E tools DNS_RESOLUTION_FAILED",
+          "-73ms I tools",
+          "-71ms I tools",
+          "-70ms I tools",
+          "-57ms E tools DNS_RESOLUTION_FAILED",
+          "-55ms E tools DNS_RESOLUTION_FAILED",
+          "-53ms I tools",
+          "-49ms I tools",
+          "-9ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841371312,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "e96faa808a7c1762d179d5d2e64f1715297419cde7675c183a2290dd6a66702f",
+          "callIdHash": "fdb2c6e23c9a3f1cd903de1740d5ef5deb932fd97f6d165231b8c55100fc1c1c",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841371312,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "e96faa808a7c1762d179d5d2e64f1715297419cde7675c183a2290dd6a66702f",
+              "call_id_hash": "fdb2c6e23c9a3f1cd903de1740d5ef5deb932fd97f6d165231b8c55100fc1c1c",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "d456fca6241d63c47f2e40b4ed648361c94cd5ec2f7d5dd97b49573c483ecf70",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": []
+    },
+    {
+      "issue_number": 2820,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2820",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "95f5fc5d-1e96-4194-86e7-cee0b6153353",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841371317,
+      "occurred_at_utc": "2026-11-28T04:49:31.317Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "21556d71d403c1b94f4c767de15e01937b3645804950761e52e1f057981bf9be",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "00b42d5d39ab15fd70145313f4d3605ebc1ba6e1db5870640c581da1246d6fae",
+      "run_id_hash": "1bf36c8e0a8c5e6727c779e5122082cc03f5e0f817de9b2984a378df71c4e2da",
+      "call_id_hash": "e82ce2d039e7acb64c50c9078eae136502a711482068232d06c7a163dd726f09",
+      "payload": {
+        "reportId": "95f5fc5d-1e96-4194-86e7-cee0b6153353",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-4284ms E chat TOOL_UNAVAILABLE",
+          "-639ms E chat CONTEXT_CAPACITY_EXCEEDED",
+          "-156ms I chat",
+          "-119ms I tools",
+          "-90ms E tools DNS_RESOLUTION_FAILED",
+          "-85ms E tools DNS_RESOLUTION_FAILED",
+          "-84ms I tools",
+          "-82ms I tools",
+          "-81ms I tools",
+          "-68ms E tools DNS_RESOLUTION_FAILED",
+          "-66ms E tools DNS_RESOLUTION_FAILED",
+          "-64ms I tools",
+          "-60ms I tools",
+          "-20ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-11ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841371317,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "1bf36c8e0a8c5e6727c779e5122082cc03f5e0f817de9b2984a378df71c4e2da",
+          "callIdHash": "e82ce2d039e7acb64c50c9078eae136502a711482068232d06c7a163dd726f09",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841371317,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "1bf36c8e0a8c5e6727c779e5122082cc03f5e0f817de9b2984a378df71c4e2da",
+              "call_id_hash": "e82ce2d039e7acb64c50c9078eae136502a711482068232d06c7a163dd726f09",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "2acbdb0a9b102bc6c36f0209afc3b73488a2017cf1ff548d0d094001b2ae8899",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": []
+    },
+    {
+      "issue_number": 2821,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2821",
+      "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+      "report_id": "3eec11e2-de34-4e4f-9374-79564150372b",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841371338,
+      "occurred_at_utc": "2026-11-28T04:49:31.338Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "7a242d49b294027da3cf1da8d0be71cbb687d4227ec8540cd2d87013136def1f",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "338d99edd01791965eefd6fb36c711905d7ffcd6437620dfae8f4924a8148590",
+      "run_id_hash": "5ed7c7e3e615e3d752c2733737c4445b32b25e9582b9b1f5490775c759a5724e",
+      "call_id_hash": "993483db1fedeacc9afd789a164c5f0e9d8956a9245d29d7fa5f4bbb9b3c8b27",
+      "payload": {
+        "reportId": "3eec11e2-de34-4e4f-9374-79564150372b",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "tools",
+        "errorCode": "COMBINED_BUDGET_EXHAUSTED",
+        "events": [
+          "-4298ms E chat TOOL_UNAVAILABLE",
+          "-653ms E chat CONTEXT_CAPACITY_EXCEEDED",
+          "-133ms I tools",
+          "-104ms E tools DNS_RESOLUTION_FAILED",
+          "-99ms E tools DNS_RESOLUTION_FAILED",
+          "-98ms I tools",
+          "-96ms I tools",
+          "-95ms I tools",
+          "-82ms E tools DNS_RESOLUTION_FAILED",
+          "-80ms E tools DNS_RESOLUTION_FAILED",
+          "-78ms I tools",
+          "-74ms I tools",
+          "-34ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-25ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-14ms E tools COMBINED_BUDGET_EXHAUSTED",
+          "-0ms E tools COMBINED_BUDGET_EXHAUSTED"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841371338,
+          "source": "TOOL_RESULT",
+          "unavailableFields": [
+            "provider",
+            "httpStatus",
+            "retryAfterMillis",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "tool_precheck",
+          "operation": "read_url",
+          "dispatched": false,
+          "reasonCode": "COMBINED_BUDGET_EXHAUSTED",
+          "runIdHash": "5ed7c7e3e615e3d752c2733737c4445b32b25e9582b9b1f5490775c759a5724e",
+          "callIdHash": "993483db1fedeacc9afd789a164c5f0e9d8956a9245d29d7fa5f4bbb9b3c8b27",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "TOOL",
+            "capturedAtMillis": 1795841371338,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "5ed7c7e3e615e3d752c2733737c4445b32b25e9582b9b1f5490775c759a5724e",
+              "call_id_hash": "993483db1fedeacc9afd789a164c5f0e9d8956a9245d29d7fa5f4bbb9b3c8b27",
+              "tool_reason_code": "COMBINED_BUDGET_EXHAUSTED",
+              "tool_name_hash": "cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41",
+              "original_error_code_hash": "308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93",
+              "original_reason_code_hash": "027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf",
+              "argument_shape_hash": "a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370",
+              "incident_phase": "tool_precheck",
+              "causal_id_hash": "ec8492d04dfc7629694f38be6048ff77fdad937e1c050f71b5e8f1852498e745",
+              "causal_provenance": "TOOL_CALL",
+              "causal_failure_code": "COMBINED_BUDGET_EXHAUSTED",
+              "incident_evidence_status": "TYPED_EVIDENCE",
+              "incident_origin": "TOOL",
+              "recovery_observation": "UNOBSERVED",
+              "argument_field_names": [
+                "url"
+              ],
+              "argument_field_types": [
+                "STRING"
+              ]
+            },
+            "unavailableFields": [
+              "tool_action_hash",
+              "tool_schema_hash",
+              "missing_field_count",
+              "invalid_field_count"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_PRE_DISPATCH_COMBINED_GUARD_REQUALIFIED",
+      "confirmed_facts": [
+        "This distinct read_url call was rejected at tool_precheck with dispatched=false and typed COMBINED_BUDGET_EXHAUSTED evidence.",
+        "The supplied argument shape contains one string field, url; its value is not included.",
+        "Both domain-separated original code hashes match the known public COMBINED_BUDGET_EXHAUSTED code. They do not encode a more specific denial subtype.",
+        "Recovery observation is UNOBSERVED. The report has no provider, HTTP status, accepted plan, remaining allowance, or selected quota dimension."
+      ],
+      "source_interpretation": "ToolExecutionBudget asks the shared Combined ledger to reserve work before statistics.begin and tool.execute. A denied reservation returns this code with combinedWorkBudgetExhausted=true and the default dispatched=false. The common code also covers other ledger admission refusals, so this body does not prove a particular numeric limit was exhausted.",
+      "guard_refs": [
+        "tool_admission",
+        "quota_reservation",
+        "hard_limits_and_renewal",
+        "work_plan",
+        "retained_finalization",
+        "tool_code_hashes",
+        "domain_hash"
+      ],
+      "actions_completed": [
+        "Read this complete approved body; verified its approved-payload SHA256 and its distinct report/run/call identity.",
+        "Matched code and admission ordering to the current production source, including the unchanged captured-commit budget core.",
+        "Ran the six-case current-source Combined guard/recovery qualification once; compile and all six existing cases passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Finish the current response from retained evidence and keep any unread or unmet scope explicit.",
+        "Inspect the saved accepted plan and remaining work before requesting more reads. If the scope needs more capacity, make a newly accepted bounded request with an appropriate allowance or reduce the requested scope.",
+        "Renew an existing tranche only through its accepted renewable-work and measured-progress rules; do not bypass hard limits, reset shared charges, or treat a rejected call as a successful URL read."
+      ],
+      "limits": [
+        "No numeric allowance, quota subtype, work assignment, deadline, or monetary state was exported; erroneous plan sizing cannot be ruled in or out from this report.",
+        "dispatched=false applies to this reported call only, not to every tool or provider operation in the run.",
+        "Distinct call IDs sharing a run hash are not proof of an automatic retry loop or repeated physical execution.",
+        "Nearby TOOL_UNAVAILABLE, context-capacity, or DNS events lack a causal join to this call and are not assigned as its cause.",
+        "No live device replay or URL request was performed; the host qualification covers ledger behavior, not the full Android dispatch loop."
+      ],
+      "closure_basis": "Action-taken audit receipt: this report was individually examined and the relevant guard/recovery behavior was requalified. Do not describe it as a new code fix, raised budget, successful URL read, or observed recovery.",
+      "same_run_peer_issues": []
+    },
+    {
+      "issue_number": 2827,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2827",
+      "title": "[Debug] chat · COMBINED_REQUIREMENTS_UNMET · final_synthesis",
+      "report_id": "c6151946-965e-4b2d-9aa8-d1febff459ad",
+      "captured_app_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_app_version": "0.9.66.19",
+      "captured_build": 153,
+      "occurred_at_millis": 1795841504417,
+      "occurred_at_utc": "2026-11-28T04:51:44.417Z",
+      "source_snapshot": "new-issues-2794-2827.json",
+      "approved_payload_sha256": "c3895e92b61890b57815bafac42d7c42a993e03ac537333fc914e2306514ce4d",
+      "approved_payload_hash_verified": true,
+      "issue_body_sha256": "02b7dca613f843b95bc2fdcebd56b5056b96402e525f874a1848a466f0db07a9",
+      "run_id_hash": "a5b32664fd3b81fd154d59728703fc097e35c8a621b4b6acb4865ddada24b8c1",
+      "call_id_hash": null,
+      "payload": {
+        "reportId": "c6151946-965e-4b2d-9aa8-d1febff459ad",
+        "source": "debug",
+        "version": "0.9.66.19",
+        "build": 153,
+        "commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "android": "16",
+        "sdk": 36,
+        "device": "asus ASUSAI2501C",
+        "feature": "chat",
+        "errorCode": "COMBINED_REQUIREMENTS_UNMET",
+        "events": [
+          "-38996ms E chat CHAT_FAILED",
+          "-28785ms I tools",
+          "-28454ms I tools",
+          "-28453ms I tools",
+          "-28401ms I local",
+          "-28258ms I chat",
+          "-27333ms I tools",
+          "-27287ms I chat",
+          "-27168ms I tools",
+          "-26340ms I tools",
+          "-26337ms I chat",
+          "-26335ms I chat",
+          "-25114ms I tools",
+          "-23945ms I app",
+          "-8816ms I chat",
+          "-0ms E chat COMBINED_REQUIREMENTS_UNMET"
+        ],
+        "context": {
+          "schemaVersion": 7,
+          "occurredAtMillis": 1795841504417,
+          "source": "CHAT_FAILURE",
+          "unavailableFields": [
+            "operation",
+            "httpStatus",
+            "retryAfterMillis",
+            "dispatched",
+            "retryable",
+            "resumeAllowed",
+            "requiresReconciliation",
+            "remoteAcceptance",
+            "jobState",
+            "recoveryAction",
+            "reasonCode",
+            "missingFields",
+            "invalidFields",
+            "invocationIdHash",
+            "callIdHash",
+            "jobIdHash",
+            "activeJobIdHash",
+            "exceptionFingerprint",
+            "requiredCriteria",
+            "verifiedCriteria",
+            "remainingCriteria",
+            "originalFailureCode",
+            "originalHttpStatus",
+            "checkpointBindingHash",
+            "checkpointDigestHash",
+            "resumeClaimIdHash",
+            "ownershipFence"
+          ],
+          "stage": "final_synthesis",
+          "provider": "OPENROUTER",
+          "runIdHash": "a5b32664fd3b81fd154d59728703fc097e35c8a621b4b6acb4865ddada24b8c1",
+          "diagnostics": {
+            "schemaVersion": 3,
+            "area": "INCIDENT",
+            "capturedAtMillis": 1795841504417,
+            "captureMode": "INCIDENT",
+            "values": {
+              "run_id_hash": "a5b32664fd3b81fd154d59728703fc097e35c8a621b4b6acb4865ddada24b8c1",
+              "failed_event_provider_text_seen": true,
+              "failed_event_answer_emitted": true,
+              "failed_event_code_present": true,
+              "failed_event_invocation_present": false,
+              "failed_event_details_present": true,
+              "incident_phase": "final_synthesis",
+              "incident_capture_site": "AGENT_FAILED_EVENT",
+              "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+              "causal_provenance": "UNAVAILABLE",
+              "causal_failure_code": "COMBINED_REQUIREMENTS_UNMET",
+              "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+              "incident_origin": "LOCAL_RECOVERY",
+              "recovery_observation": "UNOBSERVED",
+              "combined_requirement_gap": "TOPIC",
+              "combined_issue_count": 113,
+              "combined_failed_check_count": 105,
+              "combined_unverified_check_count": 5,
+              "combined_repair_rounds": 0,
+              "combined_repair_stop": "SINGLE_PASS_LOCAL_CHECKS_ONLY"
+            },
+            "unavailableFields": [
+              "causal_id_hash"
+            ]
+          }
+        }
+      },
+      "production_change": null,
+      "new_app_defect_reproduced": false,
+      "live_recovery_observed": false,
+      "external_actions_taken": [],
+      "disposition": "INVESTIGATED_COMPLETED_ANSWER_REQUIREMENTS_GAP",
+      "confirmed_facts": [
+        "CHAT_FAILURE at final_synthesis, provider OPENROUTER, public code COMBINED_REQUIREMENTS_UNMET.",
+        "Provider text was seen and an answer event was emitted; the report does not establish a checked final answer or successful fulfillment.",
+        "Local diagnostic counters: TOPIC gap, 113 issues, 105 FAIL checks, 5 NEEDS_VERIFICATION checks, zero repair rounds, SINGLE_PASS_LOCAL_CHECKS_ONLY.",
+        "Origin is LOCAL_RECOVERY; phase provenance is CAPTURE_BOUNDARY_ONLY, causal provenance is UNAVAILABLE, and recovery observation is UNOBSERVED."
+      ],
+      "source_interpretation": "The source producer emits this exact final diagnostic tuple for protocol-complete output that fails local completion requirements. Single-pass policy leaves repairRounds=0 and forbids an automatic verifier/replacement repair. Checked-final publication remains gated; a retained answer event can be a visibly unfinished draft. Existing recovery classifies this as COMPLETE_NEEDS_CORRECTION and REVIEW_COMPLETED_ANSWER, and rejects ordinary unfinished-record resume.",
+      "guard_refs": [
+        "local_requirements_check",
+        "publication_guard",
+        "requirements_recovery",
+        "no_resume_for_completed_gap",
+        "explicit_revision_target",
+        "quota_reservation"
+      ],
+      "actions_completed": [
+        "Read the complete approved body; verified its approved-payload SHA256 and preserved the difference from #2826 unknown remote completion.",
+        "Matched all six exported requirement fields to combinedRequirementEvidence and traced checked-final publication and new-revision recovery.",
+        "Confirmed CombinedDeliverySession, CombinedRecoveryFailure and CombinedRecoverySnapshot are byte-identical to the captured app commit.",
+        "Executed the existing consumed-single-pass/new-revision and known-not-dispatched-retry cases as part of the six-case current-source host qualification; both passed."
+      ],
+      "test_receipts": [
+        "combined-report-host-tests/qualification.json",
+        "combined-report-host-tests/source-manifest.json",
+        "combined-report-host-tests/junit.log"
+      ],
+      "recommended_recovery": [
+        "Review the retained completed draft and its unmet topic/verification checks.",
+        "Accept a new answer revision to correct the missing requirements, preserving the original contributions and revision ownership.",
+        "Do not resume this as an unfinished delivery, silently repeat the consumed writer request, or override the accepted single-pass constraint."
+      ],
+      "limits": [
+        "The original request, answer body, individual failed-check IDs, quality report, source claims, and accepted policy snapshot are absent, so semantic failure or a false-positive topic check cannot be reproduced from this capsule.",
+        "113 issues, 105 failed checks and 5 unverified checks are different aggregates; they are not a completion denominator and do not imply that exactly three checks passed.",
+        "provider OPENROUTER identifies the capture context, not an HTTP/provider outage; no HTTP code or provider failure is supplied.",
+        "The six host cases qualify ledger/recovery policy, not CombinedDeliverySession rendering or the 105 individual topic failures.",
+        "The app-wide earlier CHAT_FAILED event and #2826 are separate evidence; there is no supplied causal link."
+      ],
+      "closure_basis": "Action-taken audit receipt: finalization and recovery were examined and the relevant single-pass recovery guard was requalified. No new application defect or corrected user answer is claimed; live editorial recovery remains unobserved."
+    }
+  ]
+}

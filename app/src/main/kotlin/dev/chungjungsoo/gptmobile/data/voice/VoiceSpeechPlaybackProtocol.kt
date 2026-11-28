@@ -80,7 +80,7 @@ internal object VoiceSpeechPlaybackProtocol {
     const val MAX_CANCEL_TARGET_WAIT_MS = 90_000L
 
     fun cancellationTargets(configuration: VoiceSpeechBenchmarkConfiguration): List<VoiceSpeechCancellationTarget> {
-        val synthesis = if (configuration.playbackProtocolVersion >= 7 && configuration.engine != VoiceSpeechBenchmarkEngine.NATIVE_KOKORO) {
+        val synthesis = if (configuration.playbackProtocolVersion >= 7 && configuration.engine != VoiceSpeechBenchmarkEngine.NATIVE_KOKORO && configuration.engine != VoiceSpeechBenchmarkEngine.POCKET_COMPILED) {
             VoiceSpeechCancellationTarget.SDK_STREAM_CALL
         } else {
             VoiceSpeechCancellationTarget.INFERENCE

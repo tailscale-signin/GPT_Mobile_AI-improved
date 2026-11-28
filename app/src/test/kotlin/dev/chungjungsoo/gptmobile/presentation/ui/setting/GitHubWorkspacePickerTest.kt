@@ -1,17 +1,32 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.github.GitHubLookupRoute
+import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubChatStarters
+import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -51,5 +66,36 @@ class GitHubWorkspacePickerTest {
             assertEquals(route, GitHubLookupRoute.from(draft.text.toString()))
             compose.runOnIdle { draft.edit { replace(0, length, "") } }
         }
+    }
+
+    @Test fun savedEditsKeepInstallationLookupReachableWhileScopeSwitchingStaysDisabled() {
+        val model = mockk<GitHubWorkspaceViewModel>(relaxed = true)
+        val programmer = mockk<GitHubProgrammerViewModel>(relaxed = true)
+        var state by mutableStateOf(
+            GitHubWorkspaceState(
+                appAuthorization = true,
+                selection = GitHubRepositoryContext("owner", "repo", "main"),
+                headSha = "a".repeat(40),
+                staged = listOf(GitHubStagedFile("Code.kt", "old", "staged edit")),
+                editorDrafts = mapOf("Other.kt" to "unsaved edit"),
+                moreInstallations = true
+            )
+        )
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
+                    GitHubWorkspaceRepositoryCard(state, GitHubProgrammerState(), null, 3, false, null, remember { GitHubWorkspaceSelectionMenus() }, false, {}, model, programmer, {})
+                }
+            }
+        }
+        compose.onNodeWithText("Choose GitHub App installation").assertIsNotEnabled()
+        compose.onNodeWithTag("github_installation_lookup_continue").performScrollTo().assertIsEnabled().performClick()
+        verify(exactly = 1) { model.moreInstallations() }
+        verify(exactly = 0) { model.selectInstallation(any()) }
+        verify(exactly = 0) { model.discard() }
+        compose.runOnIdle { state = state.copy(busy = true) }
+        compose.onNodeWithTag("github_installation_lookup_continue").assertIsNotEnabled()
+        compose.runOnIdle { state = state.copy(busy = false, canWrite = true) }
+        compose.onNodeWithTag("github_installation_lookup_continue").assertDoesNotExist()
     }
 }

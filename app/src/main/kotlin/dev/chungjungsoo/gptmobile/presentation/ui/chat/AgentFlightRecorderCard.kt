@@ -42,6 +42,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.GatewayActivitySample
 import dev.chungjungsoo.gptmobile.data.agent.GatewayWorkState
 import dev.chungjungsoo.gptmobile.data.agent.gatewayEfficiencyPercent
+import dev.chungjungsoo.gptmobile.data.agent.isToolFailure
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
@@ -181,7 +182,7 @@ internal fun AgentFlightRecorderCard(
 ) {
     var expanded by remember(run.runId) { mutableStateOf(false) }
     val completedTools = toolEvents.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
-    val failedTools = toolEvents.count { it.status == ToolEventStatus.FAILED || it.isError }
+    val failedTools = toolEvents.count { it.isToolFailure() }
     val runningTool = toolEvents.lastOrNull {
         it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING
     }

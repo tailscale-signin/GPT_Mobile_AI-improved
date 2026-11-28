@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -62,7 +63,7 @@ class GitHubChatPolicyTest {
         assertEquals(32, GitHubChatPolicy.platform(fresh, quick, context).maxToolCalls)
     }
 
-    @Test fun githubCannotInheritAnotherProfileThroughHelpersResearchOrCombinedMode() {
+    @Test fun githubKeepsResearchSelectionWithoutInheritingAnotherProfileThroughHelpers() {
         val configured = features.copy(localAssist = true)
         assertFalse(GitHubChatPolicy.features(configured, "p", context).localAssist)
         assertTrue(configured.localAssist)
@@ -73,10 +74,14 @@ class GitHubChatPolicyTest {
         assertFalse(policy.fallbackToAnotherProfile)
         assertEquals(emptyList<String>(), policy.approvedWorkerUids)
         assertSame(workers, GitHubChatPolicy.delegation(workers, null))
-        val tools = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = context, enabledToolIds = setOf("delegate_to_model", "local_assist_plan"), research = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(researchToggle = true)), configured, "p"))
+        val research = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(researchToggle = true, depth = 25)
+        val tools = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = context, enabledToolIds = setOf("delegate_to_model", "local_assist_plan"), research = research), configured, "p"))
         assertFalse(tools.isToolEnabled("delegate_to_model"))
         assertFalse(tools.isToolEnabled("local_assist_plan"))
-        assertEquals(null, tools.research)
+        assertEquals(research, tools.research)
+        val other = profile.copy(uid = "different-profile")
+        assertEquals(listOf(profile), GitHubChatPolicy.researchProfiles(profile, listOf(profile, other), context))
+        assertTrue(GitHubChatPolicy.researchProfiles(other, listOf(profile, other), context).isEmpty())
         assertEquals(profile.uid, GitHubChatPolicy.platform(profile, configured, context).uid)
         assertEquals(profile.model, GitHubChatPolicy.platform(profile, configured, context).model)
     }
@@ -95,18 +100,21 @@ class GitHubChatPolicyTest {
         assertEquals(true, GitHubChatPolicy.tools(explicit, features, "p")?.reasoning)
     }
 
-    @Test fun copilotRequiresPluginAndExactSavedConversationConsent() {
+    @Test fun copilotDefaultsOnOnlyForTheExactBoundConversationAndRespectsExplicitOff() {
         val savedChat = features.copy(
             conversationGitHub = mapOf(42 to context),
             conversationIdentities = mapOf(42 to "room-42")
         )
-        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, 42, context))
+        assertTrue(GitHubCopilotAgentMergePolicy.enabled(savedChat, 42, context))
         assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, null, context))
-        assertEquals(emptyList<String>(), GitHubCopilotAgentMergePolicy.allowedActions(savedChat))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat.copy(conversationIdentities = emptyMap()), 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat.copy(conversationGitHub = emptyMap()), 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, 42, context.copy(ref = "other")))
+        assertEquals(listOf("fix_ci", "resolve_merge_conflicts"), GitHubCopilotAgentMergePolicy.allowedActions(savedChat))
 
         val plugin = dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings(githubCopilotEnabled = true)
         val permitted = savedChat.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to plugin))
-        assertFalse(GitHubCopilotAgentMergePolicy.enabled(permitted, 42, context))
+        assertTrue(GitHubCopilotAgentMergePolicy.enabled(permitted, 42, context))
         assertEquals(listOf("fix_ci", "resolve_merge_conflicts"), GitHubCopilotAgentMergePolicy.allowedActions(permitted))
         val opted = permitted.copy(
             githubCopilotConversations = mapOf(
@@ -118,6 +126,7 @@ class GitHubChatPolicyTest {
             )
         )
         assertTrue(GitHubCopilotAgentMergePolicy.enabled(opted, 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted.copy(githubCopilotConversations = mapOf(42 to opted.githubCopilotConversations.getValue(42).copy(enabled = false))), 42, context))
         assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted, 43, context))
         assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted.copy(conversationIdentities = mapOf(42 to "new-room")), 42, context))
         assertFalse(
@@ -195,9 +204,11 @@ class GitHubChatPolicyTest {
         assertSame(ordinary, GitHubChatPolicy.tools(ordinary, features, "p"))
     }
 
-    @Test fun githubDefaultsEnableScopedToolsAndAdaptiveBudgetWithoutMutatingStoredProfile() {
+    @Test fun githubDefaultsKeepGeneralCapabilitiesAndExplicitToolRestrictions() {
         val selected = GitHubChatPolicy.platform(profile, features, context)
-        assertFalse(selected.disableAllTools)
+        assertTrue(selected.disableAllTools)
+        assertTrue(selected.disableRemoteTools)
+        assertTrue(selected.disableLocalTools)
         assertEquals(4, selected.maxToolCalls)
         assertEquals(512, selected.maxTokens)
         assertTrue(profile.disableAllTools)
@@ -210,12 +221,48 @@ class GitHubChatPolicyTest {
         assertTrue(tools.isToolEnabled("c"))
         assertTrue(tools.isToolEnabled("web_search"))
         assertTrue(tools.isToolEnabled("github_decide"))
-        assertFalse(tools.isToolEnabled("unrelated-tool"))
+        assertTrue(tools.isToolEnabled("unrelated-tool")) // Actual dispatch still requires its enabled plugin and profile binding.
         val withPersonalMemory = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = context, enabledToolIds = setOf("memory", "memory_recall", "memory_read_document")), features, "p"))
-        assertFalse(withPersonalMemory.isToolEnabled("memory"))
-        assertFalse(withPersonalMemory.isToolEnabled("memory_recall"))
-        assertFalse(withPersonalMemory.isToolEnabled("memory_read_document"))
+        assertTrue(withPersonalMemory.isToolEnabled("memory"))
+        assertTrue(withPersonalMemory.isToolEnabled("memory_recall"))
+        assertTrue(withPersonalMemory.isToolEnabled("memory_read_document"))
         assertFalse(context.autoApproveTools)
+    }
+
+    @Test fun workspacePreferencesCannotReenableRevokedPluginsOrExpandAnExplicitAllowlist() {
+        val denied = features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false).withProfileToolPluginEnabled("p", ToolPluginId.GITHUB, false)
+        val effective = GitHubChatPolicy.features(denied, "p", context)
+        assertFalse(effective.isToolPluginEnabledForProfile("p", ToolPluginId.WEB_SEARCH))
+        assertFalse(effective.isToolPluginEnabledForProfile("p", ToolPluginId.GITHUB))
+        val tools = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = context), denied, "p"))
+        assertFalse(tools.isToolEnabled("web_search"))
+        assertFalse(tools.isToolEnabled(context.connectionUid))
+        val allowlist = ChatMcpToolConfig(github = context, allowAllByDefault = false, enabledToolIds = setOf(context.connectionUid), disabledToolIds = setOf("memory"))
+        val retained = requireNotNull(GitHubChatPolicy.tools(allowlist, features, "p"))
+        assertFalse(retained.allowAllByDefault)
+        assertEquals(allowlist.enabledToolIds, retained.enabledToolIds)
+        assertFalse(retained.isToolEnabled("web_search"))
+        assertFalse(retained.isToolEnabled("memory"))
+    }
+
+    @Test fun explicitDeepResearchRequestUsesEnabledWebResearchWithoutChangingSavedScopeOrPermissions() {
+        val permitted = features.withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true).withProfileToolPluginEnabled("p", ToolPluginId.DEEP_RESEARCH, true)
+        val request = ChatMcpToolConfig(github = context)
+        val selected = GitHubChatPolicy.tools(request, permitted, "p", "Do a deep search for Android indexing libraries")!!.research!!
+        assertTrue(selected.researchToggle)
+        assertEquals(dev.chungjungsoo.gptmobile.data.model.ResearchContentScope.WEB_ONLY, selected.scope)
+        assertEquals(permitted.delegationFor("p").deepResearch.effort, selected.depth)
+        assertEquals(null, request.research)
+        for (text in listOf("Hello", "What is deep research?", "Implement those improvements", "Review our latest pull request")) {
+            assertEquals(null, GitHubChatPolicy.tools(request, permitted, "p", text)?.research)
+        }
+        assertEquals(null, GitHubChatPolicy.tools(request, features, "p", "Deep research Android indexing")?.research)
+        assertEquals(null, GitHubChatPolicy.tools(request.copy(allToolsDisabled = true), permitted, "p", "Deep research Android indexing")?.research)
+        assertEquals(null, GitHubChatPolicy.tools(request.copy(disabledToolIds = setOf("web_search")), permitted, "p", "Deep research Android indexing")?.research)
+        val off = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(researchToggle = false, depth = 50)
+        assertEquals(off, GitHubChatPolicy.tools(request.copy(research = off), permitted, "p", "Deep research Android indexing")?.research)
+        val noSearch = permitted.copy(githubProfileOverrides = mapOf("p" to GitHubChatProfileOverride(webSearch = false)))
+        assertFalse(GitHubChatPolicy.tools(request.copy(research = selected), noSearch, "p")!!.research!!.researchToggle)
     }
 
     @Test fun maximumContextLeavesAutomaticOutputAdmissibleOnLlamaFallback() {

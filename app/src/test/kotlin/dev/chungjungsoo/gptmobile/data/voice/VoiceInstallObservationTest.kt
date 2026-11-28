@@ -34,6 +34,18 @@ class VoiceInstallObservationTest {
         assertEquals("HTTP", fields["voice_install_failure_kind"])
     }
 
+    @Test fun largeRecognitionPacksPreserveExactLongCountsAndRejectValuesBeyondTheBound() {
+        val transfer = VoiceInstallTransfer("MOONSHINE", VoiceTransferStage.TRANSFERRING, 2_454_405_120L, 2_594_373_279L)
+        val fields = VoiceInstallState("RUNNING", transfer = transfer).diagnosticFields("JOB_SCHEDULER")
+        assertEquals(2_454_405_120L, fields["voice_install_downloaded_bytes"])
+        assertEquals(2_594_373_279L, fields["voice_install_total_bytes"])
+        val boundary = VoiceInstallState("RUNNING", transfer = transfer.copy(downloadedBytes = 17_179_869_184L, totalBytes = 17_179_869_184L)).diagnosticFields("JOB_SCHEDULER")
+        assertEquals(17_179_869_184L, boundary["voice_install_total_bytes"])
+        val oversized = VoiceInstallState("RUNNING", transfer = transfer.copy(downloadedBytes = 17_179_869_185L, totalBytes = 17_179_869_185L)).diagnosticFields("JOB_SCHEDULER")
+        assertFalse(oversized.containsKey("voice_install_downloaded_bytes"))
+        assertFalse(oversized.containsKey("voice_install_total_bytes"))
+    }
+
     @Test fun invalidAndUnavailableMeasurementsAreOmittedInsteadOfClamped() {
         val fields = VoiceInstallState(
             "RUNNING",

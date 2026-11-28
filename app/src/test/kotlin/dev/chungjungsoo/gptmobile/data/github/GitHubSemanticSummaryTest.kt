@@ -16,6 +16,33 @@ import org.junit.Test
 class GitHubSemanticSummaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
 
+    @Test fun confirmedCopilotStateIsBoundToTheSelectedTask() {
+        val args = buildJsonObject {
+            put("action", "copilot_task_status")
+            put("owner", "owner")
+            put("repo", "work")
+            put("task_id", "task-7")
+        }
+        val task = buildJsonObject {
+            put("schema", "github.copilot-task.v1")
+            put("execution_owner", "GITHUB_CLOUD")
+            put("orchestration_owner", "ANDROID_DIRECT")
+            put("task_id", "task-7")
+            put(
+                "task",
+                buildJsonObject {
+                    put("id", "task-7")
+                    put("state", "queued")
+                }
+            )
+        }
+        val summary = GitHubSemanticSummary.from("github_pr", args, task)
+        assertEquals(JsonPrimitive("queued"), summary.getValue("copilot_observation").jsonObject["phase"])
+        assertFalse(GitHubSemanticSummary.from("github_pr", JsonObject(args + ("task_id" to JsonPrimitive("different"))), task).containsKey("copilot_observation"))
+        val missingTaskIdentity = JsonObject(task + ("task" to buildJsonObject { put("state", "queued") }))
+        assertFalse(GitHubSemanticSummary.from("github_pr", args, missingTaskIdentity).containsKey("copilot_observation"))
+    }
+
     @Test fun pathOnlySearchKeepsTheQueryPinnedBlobAndIncompleteCoverageAfterCompaction() {
         val request = json("""{"query":"Conversation","mode":"paths","path_prefix":"app/src/","path_suffix":".kt","fuzzy_match":false}""")
         val source = json("""{"schema":"github.result.v1","data":{"commit_sha":"${"a".repeat(40)}","matches_complete":false,"items":[{"path":"app/src/ConversationIcon.kt","sha":"${"b".repeat(40)}"}],"returned":1}}""")

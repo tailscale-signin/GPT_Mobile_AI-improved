@@ -48,6 +48,8 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun bindings(chatId: Int? = null): List<GatewayEngineeringBinding> = store.bindings(chatId)
 
+    internal suspend fun bindingHeaders(chatId: Int): List<GatewayEngineeringBinding> = store.bindings(chatId, includeUpdates = false)
+
     suspend fun ownsConversation(chatId: Int): Boolean {
         store.migrateLegacy()
         return conversations.ownsConversation(chatId)

@@ -1,15 +1,27 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.TreeMap
 import java.util.concurrent.CancellationException
 
 /** A provisional end covers the observed PCM prefix of a word that is still arriving. */
-internal data class VoiceStreamCue(val range: IntRange, val startFrame: Long, val endFrame: Long, val provenance: VoiceWordCueProvenance, val finalEnd: Boolean = true)
+internal data class VoiceStreamCue(
+    val range: IntRange,
+    val startFrame: Long,
+    val endFrame: Long,
+    val provenance: VoiceWordCueProvenance,
+    val finalEnd: Boolean = true,
+    val revision: Int = 0,
+    val startByte: Int = -1,
+    val endByte: Int = -1
+)
+
+internal const val VOICE_CUE_PUNCTUATION = ".,;:!?。，、；：！？"
 
 /** A Tasks word timestamp can include the punctuation closing a clause. Keep symbols and internal punctuation. */
 internal fun VoiceStreamCue.lexicalRange(source: String): VoiceStreamCue {
     if (range.isEmpty()) return this
     var last = range.last
-    while (last > range.first && source[last] in ".,;:!?。，、；：！？") last--
+    while (last > range.first && source[last] in VOICE_CUE_PUNCTUATION) last--
     return if (last == range.last || source.slice(range.first..last).none(Char::isLetterOrDigit)) {
         this
     } else {
@@ -63,6 +75,8 @@ internal class VoiceStreamFrames(
     private var lastCueFrame = 0L
     private var lastCueByte = 0
     private var openCue: VoiceWordCue? = null
+    private val revisionHistory = TreeMap<Int, VoiceWordCue>()
+    private var retiredCueEnd = 0L
     private var maximumCueEnd = 0L
     private var cues = 0
     private var nonSilent = false
@@ -83,9 +97,27 @@ internal class VoiceStreamFrames(
         require(chunk.samples.all(Float::isFinite)) { "STREAM_PCM_INVALID" }
         nonSilent = nonSilent || chunk.samples.any { kotlin.math.abs(it) >= 1e-5f }
         require(chunk.wordCues.size <= cueLimit + 1) { "STREAM_CUE_LIMIT" }
+        val completedHere = mutableSetOf<Int>()
         val mapped = chunk.wordCues.map { cue ->
             val previous = openCue
-            if (previous == null) {
+            require(cue.revision >= 0) { "STREAM_CUE_REVISION" }
+            if (cue.revision > 0) {
+                val replaced = revisionHistory[cue.startByte]
+                require(
+                    replaced != null &&
+                        replaced.finalEnd &&
+                        (replaced.endFrame <= frames || cue.startByte in completedHere) &&
+                        cue.finalEnd &&
+                        cue.endByte == replaced.endByte &&
+                        cue.provenance == replaced.provenance &&
+                        cue.provenance == VoiceWordCueProvenance.ESTIMATED &&
+                        cue.revision == replaced.revision + 1
+                ) { "STREAM_CUE_REVISION" }
+                val before = revisionHistory.lowerEntry(cue.startByte)?.value?.endFrame ?: retiredCueEnd
+                val after = revisionHistory.higherEntry(cue.startByte)?.value?.startFrame ?: openCue?.startFrame ?: Long.MAX_VALUE
+                require(cue.startFrame >= before && cue.endFrame <= after) { "STREAM_CUE_REVISION_OVERLAP" }
+                require(cue.endFrame <= frames + chunk.samples.size) { "STREAM_CUE_UNOBSERVED" }
+            } else if (previous == null) {
                 require(++cues <= cueLimit) { "STREAM_CUE_LIMIT" }
                 require(cue.startByte >= lastCueByte && cue.endByte > cue.startByte) { "STREAM_CUE_ORDER" }
                 require(cue.startFrame >= lastCueFrame) { "STREAM_CUE_FRAME_RANGE" }
@@ -115,11 +147,20 @@ internal class VoiceStreamFrames(
                     if (selected.isEmpty()) IntRange.EMPTY else selected.minOf { it.first }..selected.maxOf { it.last }
                 }
             }
-            lastCueByte = cue.startByte
-            lastCueFrame = cue.endFrame
+            if (cue.revision == 0) {
+                lastCueByte = cue.startByte
+                lastCueFrame = cue.endFrame
+                openCue = cue.takeUnless { it.finalEnd }
+            } else if (cue.startByte == lastCueByte && openCue == null) {
+                lastCueFrame = cue.endFrame
+            }
             maximumCueEnd = maxOf(maximumCueEnd, cue.endFrame)
-            openCue = cue.takeUnless { it.finalEnd }
-            VoiceStreamCue(range, cue.startFrame, cue.endFrame, cue.provenance, cue.finalEnd)
+            if (cue.finalEnd) {
+                revisionHistory[cue.startByte] = cue
+                if (cue.endFrame <= frames + chunk.samples.size) completedHere += cue.startByte
+                while (revisionHistory.size > MAX_REVISION_WORDS) retiredCueEnd = revisionHistory.pollFirstEntry().value.endFrame
+            }
+            VoiceStreamCue(range, cue.startFrame, cue.endFrame, cue.provenance, cue.finalEnd, cue.revision, cue.startByte, cue.endByte)
         }
         frames += chunk.samples.size
         return mapped
@@ -141,6 +182,7 @@ internal class VoiceStreamFrames(
         const val MAX_CHUNK_FRAMES = VOICE_PCM_SAMPLE_RATE * 6
         const val MAX_STREAM_FRAMES = VOICE_PCM_SAMPLE_RATE * 30L
         const val MAX_CUES = 2_048
+        const val MAX_REVISION_WORDS = 256
 
         /** Interior UTF-8 bytes remain -1; surrogate pairs map only at code point boundaries. */
         internal fun utf8Boundaries(text: String): IntArray {

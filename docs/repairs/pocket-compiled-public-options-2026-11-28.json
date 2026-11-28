@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Replace a tests-only LiteRT call with the approved version-pinned public-constructor compatibility recipe while preserving strict native accelerator flags.",
+  "observedFailure": {
+    "rule": "RestrictedApi",
+    "jobId": 140872122559,
+    "method": "CompiledModel.Options.disableAutoFallbackToCpu",
+    "annotation": "VisibleForTesting(NONE)"
+  },
+  "pinnedDependency": {
+    "coordinate": "com.google.ai.edge.litert:litert-api:2.4.1",
+    "versionCatalog": "gradle/libs.versions.toml#litertCompiled",
+    "verificationMetadata": "gradle/verification-metadata.xml",
+    "publisher": "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert-api/2.4.1/litert-api-2.4.1.aar",
+    "container": {
+      "name": "litert-api-2.4.1.aar",
+      "sha256": "7579c5566f227643990d7d49e9316ab4a9e2732e36842e76d51e7eb32d1eeeaa"
+    },
+    "members": [
+      {
+        "name": "classes.jar",
+        "sha256": "c3853a07330b1be8fb62ed880573e08567b827b764d714360d2e1c1c62249088"
+      },
+      {
+        "name": "jni/x86_64/liblitert_jni.so",
+        "sha256": "134544f9a2d62db48b4c97a49c93860f2f20cfb8f636b2aaa5579b580f734f9a"
+      },
+      {
+        "name": "jni/arm64-v8a/liblitert_jni.so",
+        "bytes": 220808,
+        "sha256": "d653d65f4e614123ad226cc3d4abbf8ede936374866f99c3e857ebed9a6422bc"
+      }
+    ]
+  },
+  "apiContract": {
+    "singletonNpu": "The pinned SDK adds CPU when NPU is the only accelerator and its private auto-fallback flag has the default value.",
+    "gpu": "Public Options(GPU) retains only GPU.",
+    "npu": "Public Options(NPU, NONE) retains those two enum entries; CPU is not inserted.",
+    "qualification": "NPU plus NONE is verified compatibility behavior of the pinned 2.4.1 artifact, not a documented cross-version strict-NPU guarantee.",
+    "testingGetter": "getAccelerators is VisibleForTesting(PACKAGE_PRIVATE); only unit tests invoke it. Production uses neither restricted method, reflection nor a lint suppression."
+  },
+  "nativeContract": {
+    "symbol": "Java_com_google_ai_edge_litert_CompiledModel_nativeCreateOptions",
+    "enumToMask": {
+      "NONE=0": 0,
+      "CPU=1": 1,
+      "GPU=2": 2,
+      "NPU=3": 4
+    },
+    "comparison": {
+      "oldGpuMask": 2,
+      "publicGpuMask": 2,
+      "oldStrictNpuMask": 4,
+      "publicNpuWithNoneMask": 4
+    },
+    "finding": "NONE advances the input index without adding a hardware flag. NPU enum identifier 3 maps to native bit mask 4; enum identifiers must not be OR-ed as bit masks.",
+    "method": "Independent inspection of exact approved API bytecode and packaged native JNI disassembly; no native inference was executed.",
+    "verifiedAbis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "arm64Observation": {
+      "nativeCreateOptionsAddress": "0x20764",
+      "jumpTableAddress": "0x8a64",
+      "jumpTableBytes": [
+        22,
+        0,
+        2,
+        4
+      ],
+      "branchAddressesByEnum0Through3": [
+        "0x2084c",
+        "0x207f4",
+        "0x207fc",
+        "0x20804"
+      ],
+      "reason": "w24 is initialized to 0 at 0x207b0. Table entry 0 branches directly to 0x2084c, which advances the input index. CPU, GPU and NPU branch to OR 1, OR 2 and OR 4 respectively. The accumulated value is stored into options at 0x20884.",
+      "qualification": "Read-only disassembly of approved ARM64 JNI member. No native code executed; no hardware placement claim."
+    }
+  },
+  "preservedBehavior": [
+    "Qualcomm enableJustInTime remains true.",
+    "Qualcomm HTP performance mode remains SUSTAINED_HIGH_PERFORMANCE.",
+    "The Mimi transformer remains an explicitly requested CPU graph with the configured thread count.",
+    "The language model and vocoder retain strict GPU or NPU native masks.",
+    "Graph opening, failure propagation, cleanup and cancellation checks are unchanged.",
+    "Receipts still distinguish requested placement from measured placement, with kernel_attribution=NOT_MEASURED and hardware_qualified=false."
+  ],
+  "guardBoundary": {
+    "enforcement": "Build-time dependency verification and actual-SDK contract tests. Updating LiteRT requires re-review of both Kotlin selection and native enum-to-mask behavior.",
+    "runtimeLimitation": "The pinned Kotlin API offers no unrestricted resolved-accelerator or actual-backend getter. This change adds no runtime placement detector and does not claim one.",
+    "invalidRequest": "The helper rejects CPU and NONE as requested accelerated graph backends."
+  },
+  "validation": {
+    "compileExitCode": 0,
+    "testExitCode": 0,
+    "testsPassed": 4,
+    "testClass": "PocketCompiledOptionsTest",
+    "compiledSourceScope": "Full incoming PocketCompiledRuntime.kt and PocketCompiledOptions.kt, PocketCompiledDecoder.kt, PocketCompiledSpeechCatalog.kt, VoiceSpeechBackend.kt and the actual incoming test class with one added JNI enum identity assertion.",
+    "realDependency": "The tested classes.jar is byte-identical to the approved AAR member.",
+    "hostPorts": [
+      "BuildConfig",
+      "QnnEnvironment prerequisite preparation"
+    ],
+    "sourceDto": "LocalVoiceAsset is copied exactly from its production declaration.",
+    "tests": [
+      "Production GPU options resolve to GPU alone, with no CPU or Qualcomm options.",
+      "Plain singleton NPU control exposes SDK CPU insertion; production NPU options resolve to NPU and NONE without CPU, and retain the pinned JNI enum identifiers 3 and 0.",
+      "Qualcomm JIT and sustained performance policy remain unchanged.",
+      "CPU and NONE inputs are rejected as accelerated graph requests."
+    ],
+    "productionBytecode": "Compiled PocketCompiledOptionsKt and PocketCompiledRuntime companion contain no restricted setter, testing getter or reflection reference; the runtime calls the public-constructor helper.",
+    "limitations": [
+      "This is a host API-contract check, not Android application compilation or release lint.",
+      "No native model compilation, GPU/NPU inference, kernel placement, listening quality or hardware qualification is claimed."
+    ],
+    "compilerHeapMiB": 384,
+    "sourceHashesUnchanged": true
+  },
+  "sourceSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt": "a225655d8c33e1883bc6e3e7ab6d21903bc96d9cfb3c8038546635bad46a4d0f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptions.kt": "a1aea09554dc37163547b13b408bdb6716ec4436de638411a6a70471d72124fa",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoder.kt": "4e258ab645ea0fa0d7cfcf38dd62861a4deabdbb64783298a0728afbc28d6be0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptionsTest.kt": "dc560bf3e1a7ef71e8bc3e6d7a1074309508c0d8bfd547da23db882c7d260faf"
+  },
+  "primaryReferences": [
+    "https://developers.google.com/edge/api/litert/kotlin/com/google/ai/edge/litert/CompiledModel.Options",
+    "https://developers.google.com/edge/api/litert/kotlin/com/google/ai/edge/litert/Accelerator",
+    "https://github.com/google-ai-edge/LiteRT/blob/main/litert/kotlin/src/main/kotlin/com/google/ai/edge/litert/Model.kt",
+    "https://github.com/google-ai-edge/LiteRT/issues/8093",
+    "https://github.com/google-ai-edge/LiteRT/issues/7891"
+  ],
+  "exactSourceAvailability": "Google Maven litert-api-2.4.1-sources.jar returned 404; exact-release conclusions use approved bytecode and native binaries, not main-source extrapolation.",
+  "sourceBaseCommit": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d"
+}

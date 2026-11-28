@@ -19,21 +19,43 @@ RUN_ID = "12345678-1234-4234-9234-123456789abc"
 SOURCE = "b" * 40
 
 
-def native_receipt(engine="phonon", run_id=RUN_ID):
+def word_coverage(words=12):
+    return {
+        "measurement_scope": "SOURCE_WORD_SPANS_ONLY", "timing_provenance": "SDK_ESTIMATED",
+        "acoustic_alignment": "NOT_MEASURED", "expected_words": words, "covered_words": words,
+        "individually_timed_words": words, "grouped_word_spans": 0, "partial_word_spans": 0,
+        "provisional_word_spans": 0, "complete": True,
+    }
+
+
+def caption_publication(frames=72000, words=12):
+    return {
+        "measurement_scope": "SDK_PACKET_PUBLICATION_ONLY", "caption_staging_enabled": True,
+        "first_cue_count": words, "first_cues_before_pcm": True, "pcm_frames": frames,
+        "acoustic_alignment": "NOT_MEASURED",
+    }
+
+
+def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU"):
     model = smoke.MODELS[engine]
     receipt = {
-        "schema": "mediapipe-android-jni-smoke-v2",
+        "schema": "mediapipe-android-jni-smoke-v3",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
-        "engine": engine.upper(),
+        "engine": engine.upper().replace("-", "_"),
+        "available_voice_ids": model["required_voices"],
         "runtime": "mediapipe-tasks-audio-1.2.3",
         "run_id": run_id,
         "model_sha256": model["sha256"],
         "model_bytes": model["bytes"],
-        "requested_delegate": "CPU",
+        "requested_delegate": delegate,
         "sample_rate_hz": 24000,
         "utf8_estimated_cue_observed": True,
-        "abis": "x86_64,x86",
+        "caption_word_coverage": word_coverage(),
+        "recovered_caption_word_coverage": word_coverage(),
+        "caption_publication": caption_publication(),
+        "recovered_caption_publication": caption_publication(),
+        "abis": abi,
         "frames": 72000,
         "recovered_frames": 72000,
         "emitted_chunks": 3,
@@ -51,11 +73,28 @@ def native_receipt(engine="phonon", run_id=RUN_ID):
         },
     }
     if engine == "kokoro":
+        receipt["configured_backend"] = f"LITERT_KOKORO_{delegate}"
+        receipt["french_preview_frames"] = 12000
+        receipt["french_preview"] = {
+            "voice_id": "ff_siwis", "frames": 12000, "first_pcm_ms": 120, "rms": .1,
+            "peak": .8, "clipped_samples": 0, "non_silent_samples": 11600,
+            "caption_word_coverage": word_coverage(8),
+            "caption_publication": caption_publication(12000, 8),
+        }
         receipt["application_playback"] = {
+            "requested_delegate": delegate, "kernel_placement": "unreported_by_task",
             "voice_id": "af_heart", "speaking_rate": 1, "first_audio_track_write_ms": 200,
             "first_presented_audio_ms": 240, "clock_basis": "audio_timestamp",
             "presented_before_last_text": True, "pronunciation_reached_sdk": True,
             "source_caption_ranges_presented": True, "finish_input_calls": 1, "stream_closed": True,
+        }
+    if engine == "pocket-multilingual":
+        receipt["french_preview_frames"] = 12000
+        receipt["french_preview"] = {
+            "voice_id": "estelle", "frames": 12000, "first_pcm_ms": 120, "rms": .1,
+            "peak": .8, "clipped_samples": 0, "non_silent_samples": 11600,
+            "caption_word_coverage": word_coverage(8),
+            "caption_publication": caption_publication(12000, 8),
         }
     return receipt
 
@@ -66,6 +105,8 @@ def incremental_receipt():
         "input_sha256": hashlib.sha256(smoke.FIXTURE.encode("utf-8")).hexdigest(),
         "text_delta_count": 2, "finish_input_calls": 1,
         "first_pcm_before_finish_input": True, "full_input_cues_observed": True,
+        "caption_word_coverage": word_coverage(),
+        "caption_publication": caption_publication(),
         "stream_closed": True, "frames": 72000, "emitted_chunks": 3, "first_pcm_ms": 200,
     }
 
@@ -80,12 +121,12 @@ def packets(receipt, *, code=0):
     )
 
 
-def fixture(directory, engine="phonon", source=SOURCE):
+def fixture(directory, engine="phonon", source=SOURCE, abi="x86_64", delegate="CPU"):
     apks = directory / "apks"
     apks.mkdir()
     manifest = {"schema": "native-smoke-apks-v1", "source_revision": source, "apks": {}}
     # Controlled binary identities test the transport gate, not APK execution.
-    for name in ("app-x86_64.apk", "test.apk"):
+    for name in (f"app-{abi}.apk", "test.apk"):
         data = ("fixture-" + name).encode()
         (apks / name).write_bytes(data)
         manifest["apks"][name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
@@ -101,11 +142,75 @@ def fixture(directory, engine="phonon", source=SOURCE):
         "inference_executed": False,
     }
     (evidence / "provisioning.json").write_text(json.dumps(provisioning))
-    (evidence / "instrumentation.txt").write_text(packets(native_receipt(engine)))
+    (evidence / "instrumentation.txt").write_text(packets(native_receipt(engine, abi=abi, delegate=delegate)))
     return apks, evidence
 
 
 class MediaPipeAndroidReceiptTest(unittest.TestCase):
+    def test_enabled_captions_require_first_metadata_before_its_pcm_without_acoustic_claims(self):
+        receipt = native_receipt("pocket")
+        for label in ("caption_publication", "recovered_caption_publication"):
+            missing = dict(receipt)
+            del missing[label]
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "Missing enabled caption"):
+                smoke.check_receipt(missing, "pocket", RUN_ID)
+            for field, value in (("caption_staging_enabled", False), ("first_cues_before_pcm", False),
+                                 ("pcm_frames", 1), ("acoustic_alignment", "VERIFIED"),
+                                 ("first_cue_count", 0), ("first_cue_count", True)):
+                changed = receipt | {label: receipt[label] | {field: value}}
+                with self.subTest(label=label, field=field, value=value), self.assertRaises(ValueError):
+                    smoke.check_receipt(changed, "pocket", RUN_ID)
+        for label in ("incremental_stream", "incremental_stream_after_cancellation"):
+            changed = receipt | {label: receipt[label] | {"caption_publication": None}}
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "Missing enabled caption"):
+                smoke.check_receipt(changed, "pocket", RUN_ID)
+        multilingual = native_receipt("pocket-multilingual")
+        changed = multilingual | {"french_preview": multilingual["french_preview"] | {"caption_publication": None}}
+        with self.assertRaisesRegex(ValueError, "Missing enabled caption"):
+            smoke.check_receipt(changed, "pocket-multilingual", RUN_ID)
+
+    def test_first_and_last_cues_cannot_qualify_missing_middle_or_grouped_words(self):
+        receipt = native_receipt("pocket")
+        for key in ("caption_word_coverage", "recovered_caption_word_coverage"):
+            for changes in ({"individually_timed_words": 2, "covered_words": 2},
+                            {"grouped_word_spans": 1}, {"partial_word_spans": 1},
+                            {"provisional_word_spans": 1}, {"expected_words": 2},
+                            {"complete": False}, {"individually_timed_words": True}):
+                with self.subTest(key=key, changes=changes), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                    smoke.check_receipt(receipt | {key: receipt[key] | changes}, "pocket", RUN_ID)
+        for key in ("incremental_stream", "incremental_stream_after_cancellation"):
+            changed = receipt[key] | {"caption_word_coverage": word_coverage() | {"individually_timed_words": 2}}
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                smoke.check_receipt(receipt | {key: changed}, "pocket", RUN_ID)
+
+    def test_missing_word_coverage_and_acoustic_claims_fail_the_structural_smoke_gate(self):
+        receipt = native_receipt("pocket-multilingual")
+        smoke.check_receipt(receipt, "pocket-multilingual", RUN_ID)
+        with self.assertRaisesRegex(ValueError, "schema"):
+            smoke.check_receipt(receipt | {"schema": "mediapipe-android-jni-smoke-v2"}, "pocket-multilingual", RUN_ID)
+        for field, value in (("acoustic_alignment", "PERFECT"), ("timing_provenance", "ACOUSTIC_MEASURED"),
+                             ("measurement_scope", "ACOUSTIC_WORD_ALIGNMENT")):
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                smoke.check_receipt(receipt | {"caption_word_coverage": word_coverage() | {field: value}}, "pocket-multilingual", RUN_ID)
+        for field in word_coverage():
+            coverage = word_coverage()
+            del coverage[field]
+            with self.subTest(missing=field), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                smoke.check_receipt(receipt | {"caption_word_coverage": coverage}, "pocket-multilingual", RUN_ID)
+        for coverage in (None, word_coverage(8) | {"individually_timed_words": 7}):
+            with self.subTest(french=coverage), self.assertRaises(ValueError):
+                smoke.check_receipt(receipt | {"french_preview": receipt["french_preview"] | {"caption_word_coverage": coverage}}, "pocket-multilingual", RUN_ID)
+
+    def test_multilingual_requires_every_advertised_voice_and_the_actual_french_voice(self):
+        receipt = native_receipt("pocket-multilingual")
+        smoke.check_receipt(receipt, "pocket-multilingual", RUN_ID)
+        for changes in ({"available_voice_ids": ["alba"]}, {"available_voice_ids": None},
+                        {"french_preview": {**receipt["french_preview"], "voice_id": "ff_siwis"}},
+                        {"requested_delegate": "GPU"}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                smoke.check_receipt(receipt | changes, "pocket-multilingual", RUN_ID)
+
+
     def test_kokoro_requires_playback_head_progress_before_second_text_and_original_caption_ranges(self):
         receipt = native_receipt("kokoro")
         smoke.check_receipt(receipt, "kokoro", RUN_ID)
@@ -121,6 +226,24 @@ class MediaPipeAndroidReceiptTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             smoke.check_receipt(receipt, "kokoro", RUN_ID)
 
+    def test_requested_accelerator_requires_matching_app_playback_and_valid_french_pcm(self):
+        for delegate in ("GPU", "NPU"):
+            receipt = native_receipt("kokoro", abi="arm64-v8a", delegate=delegate)
+            smoke.check_receipt(receipt, "kokoro", RUN_ID, "arm64-v8a", delegate)
+            for field, value in (("requested_delegate", "CPU"), ("configured_backend", "LITERT_KOKORO_CPU"),
+                                 ("abis", "x86_64"), ("french_preview", None), ("french_preview_frames", 1)):
+                with self.subTest(delegate=delegate, field=field), self.assertRaises(ValueError):
+                    smoke.check_receipt(receipt | {field: value}, "kokoro", RUN_ID, "arm64-v8a", delegate)
+            for field, value in (("voice_id", "af_heart"), ("clipped_samples", 1), ("non_silent_samples", 0),
+                                 ("peak", 1.2), ("rms", float("nan")), ("first_pcm_ms", -1)):
+                with self.subTest(delegate=delegate, field=field), self.assertRaises(ValueError):
+                    bad = receipt | {"french_preview": receipt["french_preview"] | {field: value}}
+                    smoke.check_receipt(bad, "kokoro", RUN_ID, "arm64-v8a", delegate)
+            for field, value in (("requested_delegate", "CPU"), ("kernel_placement", "hardware_verified")):
+                with self.subTest(delegate=delegate, field=field), self.assertRaises(ValueError):
+                    bad = receipt | {"application_playback": receipt["application_playback"] | {field: value}}
+                    smoke.check_receipt(bad, "kokoro", RUN_ID, "arm64-v8a", delegate)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -134,9 +257,9 @@ class MediaPipeAndroidReceiptTest(unittest.TestCase):
             return smoke.check_results(self.output, engine, RUN_ID)
 
     def test_each_engine_requires_its_named_test_and_exact_checkpoint(self):
-        for engine in ("kokoro", "phonon", "pocket"):
+        for engine in ("kokoro", "phonon", "pocket", "pocket-multilingual"):
             with self.subTest(engine=engine):
-                self.assertEqual(engine.upper(), self.check(packets(native_receipt(engine)), engine)["engine"])
+                self.assertEqual(engine.upper().replace("-", "_"), self.check(packets(native_receipt(engine)), engine)["engine"])
         self.check(packets(native_receipt()).replace("\n", "\r\n"))
 
     def test_empty_skipped_aborted_and_incomplete_tests_cannot_pass(self):
@@ -281,12 +404,12 @@ class MediaPipeAndroidReceiptTest(unittest.TestCase):
 
 
 class MediaPipeAndroidRunnerTest(unittest.TestCase):
-    def run_fixture(self, *, engine="phonon", skipped=False, native_exit=0):
+    def run_fixture(self, *, engine="phonon", skipped=False, native_exit=0, abi="x86_64", delegate="CPU"):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         directory = Path(temporary.name)
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        apks, evidence = fixture(directory, engine, revision)
+        apks, evidence = fixture(directory, engine, revision, abi, delegate)
         models, binary = directory / "models", directory / "bin"
         models.mkdir()
         binary.mkdir()
@@ -304,6 +427,8 @@ class MediaPipeAndroidRunnerTest(unittest.TestCase):
                 assert options["class"] == expected
                 assert options["mediapipeSmokeEngine"] == os.environ["SMOKE_TEST_ENGINE"]
                 receipt = json.loads(os.environ["SMOKE_TEST_RECEIPT"])
+                assert options["mediapipeSmokeDelegate"] == receipt["requested_delegate"]
+                assert options["mediapipeSmokeIsolatedModel"] == "true"
                 receipt["run_id"] = options["mediapipeSmokeRunId"]
                 owner, method = expected.split("#")
                 identity = f"INSTRUMENTATION_STATUS: class={owner}\\nINSTRUMENTATION_STATUS: test={method}\\n"
@@ -324,26 +449,41 @@ class MediaPipeAndroidRunnerTest(unittest.TestCase):
             MEDIAPIPE_SMOKE_MODEL_DIR=str(models), MEDIAPIPE_SMOKE_APK_DIR=str(apks),
             MEDIAPIPE_SMOKE_EVIDENCE_DIR=str(evidence), SMOKE_TEST_ADB_CALLS=str(calls),
             SMOKE_TEST_IDENTITY=smoke.TEST_CLASS + "#" + smoke.TEST_METHOD,
-            SMOKE_TEST_ENGINE=engine, SMOKE_TEST_RECEIPT=json.dumps(native_receipt(engine)),
+            MEDIAPIPE_SMOKE_ABI=abi, SMOKE_TEST_ENGINE=engine,
+            SMOKE_TEST_RECEIPT=json.dumps(native_receipt(engine, abi=abi, delegate=delegate)),
             SMOKE_TEST_SKIPPED=str(skipped).lower(), SMOKE_TEST_NATIVE_EXIT=str(native_exit),
         )
-        result = subprocess.run(["bash", "scripts/run_mediapipe_android_smoke.sh", engine], cwd=ROOT,
+        result = subprocess.run(["bash", "scripts/run_mediapipe_android_smoke.sh", engine, delegate], cwd=ROOT,
                                 env=environment, text=True, capture_output=True, timeout=15)
         return result, evidence, [json.loads(line) for line in calls.read_text().splitlines()]
 
     def test_actual_runner_selects_each_named_engine_and_collects_bound_evidence(self):
-        for engine in ("kokoro", "phonon", "pocket"):
+        for engine in ("kokoro", "phonon", "pocket", "pocket-multilingual"):
             with self.subTest(engine=engine):
                 result, evidence, calls = self.run_fixture(engine=engine)
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
                 status = json.loads((evidence / "status.json").read_text())
                 invocation = json.loads((evidence / "invocation.json").read_text())
                 self.assertEqual("PASSED", status["status"])
-                self.assertEqual(engine.upper(), status["native_receipt"]["engine"])
+                self.assertEqual(engine.upper().replace("-", "_"), status["native_receipt"]["engine"])
                 self.assertEqual(invocation["run_id"], status["native_receipt"]["run_id"])
                 self.assertNotEqual(RUN_ID, invocation["run_id"])
                 self.assertTrue(any(call[:3] == ["shell", "am", "force-stop"] for call in calls))
                 self.assertTrue(any(call[:3] == ["shell", "rm", "-f"] for call in calls))
+
+    def test_arm64_runner_passes_the_requested_delegate_from_install_through_output_verification(self):
+        for delegate in ("GPU", "NPU"):
+            with self.subTest(delegate=delegate):
+                result, evidence, calls = self.run_fixture(engine="kokoro", abi="arm64-v8a", delegate=delegate)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertTrue(any(call[:2] == ["install", "-r"] and call[-1].endswith("/app-arm64-v8a.apk") for call in calls))
+                status = json.loads((evidence / "status.json").read_text())
+                self.assertEqual("PASSED", status["status"])
+                self.assertEqual(f"android_arm64-v8a_{delegate.lower()}_jni_checkpoint_smoke", status["scope"])
+                self.assertEqual(delegate, status["native_receipt"]["application_playback"]["requested_delegate"])
+                pushed = next(call[-1] for call in calls if call[0] == "push")
+                self.assertEqual(Path(pushed).parent.name, status["run_id"])
+                self.assertFalse(any(call[0] == "logcat" for call in calls))
 
     def test_skips_and_nonzero_adb_exit_fail_even_with_success_shaped_receipt(self):
         for options in ({"skipped": True}, {"native_exit": 124}):
@@ -351,6 +491,29 @@ class MediaPipeAndroidRunnerTest(unittest.TestCase):
                 result, evidence, _ = self.run_fixture(**options)
                 self.assertNotEqual(0, result.returncode)
                 self.assertEqual("NOT_VERIFIED", json.loads((evidence / "status.json").read_text())["status"])
+
+    def test_manual_workflow_stages_a_separate_verified_arm64_pair_from_the_same_build(self):
+        workflow = (ROOT / ".github/workflows/native-memory-smoke.yml").read_text()
+        step = workflow.split("      - name: Stage one verified APK pair for every speech engine", 1)[1]
+        command = textwrap.dedent(step.split("        run: |\n", 1)[1].split("      - name:", 1)[0])
+        git_dir = subprocess.check_output(["git", "rev-parse", "--absolute-git-dir"], cwd=ROOT, text=True).strip()
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
+                build = Path(directory, "app/build")
+                root = build / "outputs/apk"
+                for name in ("nativeSmoke/app-x86_64.apk", "nativeSmoke/app-arm64-v8a.apk", "androidTest/nativeSmoke/instrumentation.apk"):
+                    source = root / name
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    source.write_bytes(name.encode())
+                subprocess.run(["bash", "-eu", "-c", command], cwd=directory, check=True,
+                               env={**os.environ, "GIT_DIR": git_dir, "GITHUB_EVENT_NAME": event})
+                smoke.verify_apks(build / "native-smoke-apks", revision)
+                arm = build / "native-smoke-apks-arm64"
+                if event == "workflow_dispatch":
+                    smoke.verify_apks(arm, revision, "arm64-v8a")
+                else:
+                    self.assertFalse(arm.exists())
 
     def test_workflow_sets_runner_paths_before_the_speech_artifact_download(self):
         workflow = (ROOT / ".github/workflows/native-memory-smoke.yml").read_text()
@@ -375,10 +538,10 @@ class MediaPipeAndroidRunnerTest(unittest.TestCase):
         self.assertIn("path: ${{ env.MEDIAPIPE_SMOKE_APK_DIR }}", download)
         self.assertIn('--model-dir "$MEDIAPIPE_SMOKE_MODEL_DIR"', download)
 
-    def test_ci_reuses_one_minified_build_and_runs_exact_main_and_three_engines(self):
+    def test_ci_reuses_one_minified_build_and_runs_exact_main_and_four_engines(self):
         workflow = (ROOT / ".github/workflows/native-memory-smoke.yml").read_text()
         self.assertRegex(workflow, r"on:\n  push:\n    branches: \[main\]")
-        self.assertIn("engine: [kokoro, phonon, pocket]", workflow)
+        self.assertIn("engine: [kokoro, phonon, pocket, pocket-multilingual]", workflow)
         self.assertIn("fail-fast: false", workflow)
         self.assertIn("needs: smoke", workflow)
         self.assertEqual(1, workflow.count(":app:minifyNativeSmokeWithR8"))

@@ -13,12 +13,13 @@ import kotlinx.serialization.json.put
 internal object GitHubAcceptancePublicationEvidence {
     const val FEATURE = "ACCEPTANCE_PUBLICATION_EVIDENCE_V1"
     const val OBSERVATION_FEATURE = "ACCEPTANCE_OBSERVATION_CAUSES_V1"
+    const val ISSUE_INTAKE_FEATURE = "GITHUB_ISSUE_INTAKE_EVIDENCE_V1"
     const val KEY = "publication_observation"
     const val TRUST_KEY = "trust_observation"
     private const val SCHEMA = "github.acceptance-publication.v1"
     private const val TRUST_SCHEMA = "github.receipt-trust.v1"
 
-    enum class Source { STATUS, COVERAGE, CI_OBSERVATION, LOOKUP_OBSERVATION, CLAIM_EXTRACTION, PARTIAL_FALLBACK, EVIDENCE_ADVANCED }
+    enum class Source { STATUS, COVERAGE, CI_OBSERVATION, ISSUE_INTAKE, LOOKUP_OBSERVATION, CLAIM_EXTRACTION, PARTIAL_FALLBACK, EVIDENCE_ADVANCED }
     enum class Extraction { NOT_NEEDED, NO_DRAFT, PLAN_BATCH_LIMIT, PLAN_INPUT_LIMIT, PLAN_LIMIT_CHANGED, COMPLETED, FAILED }
     enum class Draft { ABSENT, EMPTY, PRESENT }
     enum class TrustFailure { TOOL_NOT_IN_AUTHORIZED_CATALOG, UNRECOGNIZED_EVIDENCE_OPERATION, TARGET_OUTSIDE_ACCEPTED_SCOPE }
@@ -28,6 +29,7 @@ internal object GitHubAcceptancePublicationEvidence {
         APPROVAL_CHECKPOINT,
         SAVED_CLAIM_EXTRACTION,
         CI_OBSERVATION,
+        ISSUE_INTAKE,
         LOOKUP_OBSERVATION,
         INTEGRATION_COOLDOWN,
         INTEGRATION_CHECKPOINT,

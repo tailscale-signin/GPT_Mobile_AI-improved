@@ -53,7 +53,7 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     }
 
     /** Delivery gaps, rather than a complete stream's synthesis total, own streaming reserves. */
-    @Synchronized fun beginStream() = streamCadence.begin()
+    @Synchronized fun beginStream(incrementalInput: Boolean = false) = streamCadence.begin(incrementalInput)
 
     /** The caller excludes callback work and bounded-queue waits from productionMs. */
     @Synchronized fun observeStreamDelivery(productionMs: Long, retainedFrames: Int) = streamCadence.observe(productionMs, retainedFrames)

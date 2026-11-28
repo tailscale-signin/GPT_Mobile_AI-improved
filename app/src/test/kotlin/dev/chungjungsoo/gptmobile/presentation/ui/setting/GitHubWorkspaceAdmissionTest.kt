@@ -14,16 +14,23 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.mockkConstructor
+import io.mockk.unmockkConstructor
 import java.lang.reflect.InvocationTargetException
 import java.security.MessageDigest
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -45,9 +52,11 @@ class GitHubWorkspaceAdmissionTest {
     private lateinit var auth: GitHubPublicAuthCoordinator
     private lateinit var settings: SettingRepository
     private lateinit var state: MutableStateFlow<GitHubWorkspaceState>
+    private lateinit var dispatcher: TestDispatcher
 
     @Before fun setup() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        dispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(dispatcher)
         drafts = mockk(relaxed = true)
         connections = mockk()
         vault = mockk()
@@ -61,8 +70,11 @@ class GitHubWorkspaceAdmissionTest {
     }
 
     @After fun cleanup() {
-        model.viewModelScope.cancel()
-        Dispatchers.resetMain()
+        try {
+            runTest(dispatcher) { requireNotNull(model.viewModelScope.coroutineContext[Job]).cancelAndJoin() }
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun aFailedLazySectionDoesNotAutomaticallyRedispatchAfterBusyBecomesFalse() {
@@ -292,6 +304,170 @@ class GitHubWorkspaceAdmissionTest {
         assertTrue(rejected("selectRepositoryInternal", "other", "repository", "main", true).message.orEmpty().contains("installation"))
     }
 
+    @Test fun accessRefreshFindsTheSavedInstallationOnALaterPageWithoutChangingDrafts() = runTest(dispatcher) {
+        val client = authorize()
+        val saved = state.value.copy(
+            appAuthorization = true,
+            installationId = "42",
+            staged = listOf(GitHubStagedFile("Code.kt", "old", "saved edit")),
+            editorDrafts = mapOf("Other.kt" to "unsaved text")
+        )
+        state.value = saved
+        coEvery { client.execute("list_installations", any()) } answers {
+            if (secondArg<kotlinx.serialization.json.JsonObject>().text("page") == "1") {
+                Json.parseToJsonElement("""{"items":[{"id":41,"account":{"login":"other"},"permissions":{"contents":"write"}}],"has_more":true}""")
+            } else {
+                Json.parseToJsonElement("""{"items":[{"id":42,"account":{"login":"OWNER"},"permissions":{"contents":"write"},"suspended_at":null}],"has_more":false}""")
+            }
+        }
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"id":100,"default_branch":"main","permissions":{"push":true}}""")
+        model.refreshRepositoryAccess()
+        refreshJob().join()
+        assertTrue(state.value.error.orEmpty(), state.value.canWrite)
+        org.junit.Assert.assertEquals("42", state.value.installationId)
+        org.junit.Assert.assertEquals(saved.selection, state.value.selection)
+        org.junit.Assert.assertEquals(saved.headSha, state.value.headSha)
+        org.junit.Assert.assertEquals(saved.staged, state.value.staged)
+        org.junit.Assert.assertEquals(saved.editorDrafts, state.value.editorDrafts)
+        coVerify(exactly = 2) { client.execute("list_installations", any()) }
+        coVerify(exactly = 1) { client.execute("get_repository", match { it.text("owner") == "owner" && it.text("repo") == "repo" }) }
+        coVerify(exactly = 0) { client.execute("resolve_context", any()) }
+        coVerify(exactly = 0) { client.execute("list_installation_repositories", any()) }
+    }
+
+    @Test fun accessRefreshCanRecoverAnUnresolvedInstallationForTheSameSavedOwner() = runTest(dispatcher) {
+        val client = authorize()
+        state.value = state.value.copy(appAuthorization = true, installationId = null, editorDrafts = mapOf("File.kt" to "keep"))
+        coEvery { client.execute("list_installations", any()) } answers {
+            if (secondArg<kotlinx.serialization.json.JsonObject>().text("page") == "1") {
+                Json.parseToJsonElement("""{"items":[{"id":41,"account":{"login":"other"},"permissions":{"contents":"write"}}],"has_more":true}""")
+            } else {
+                Json.parseToJsonElement("""{"items":[{"id":42,"account":{"login":"owner"},"permissions":{"contents":"write"}}],"has_more":false}""")
+            }
+        }
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"default_branch":"main","permissions":{"push":true}}""")
+        model.refreshRepositoryAccess()
+        refreshJob().join()
+        assertTrue(state.value.error.orEmpty(), state.value.canWrite)
+        org.junit.Assert.assertEquals("42", state.value.installationId)
+        org.junit.Assert.assertEquals(mapOf("File.kt" to "keep"), state.value.editorDrafts)
+        coVerify(exactly = 0) { client.execute("resolve_context", any()) }
+    }
+
+    @Test fun openingASavedAppWorkspaceFindsItsInstallationAndRestoresOriginalEdits() = runTest(dispatcher) {
+        authorize()
+        val connection = requireNotNull(state.value.connection).copy(authType = "OAUTH")
+        coEvery { connections.getConnection(connection.connectionUid) } returns connection
+        coEvery { auth.connectedAccount(connection.connectionUid) } returns GitHubPublicAuthCoordinator.Account("user", "coder")
+        coEvery { drafts.read(connection.connectionUid) } returns """{"selection":{"owner":"owner","repo":"repo","ref":"main"},"baseSha":"${"a".repeat(40)}","directory":"src","file":null,"staged":[{"path":"Code.kt","original":"old","content":"saved edit"}],"edits":{"Other.kt":"unsaved text"}}"""
+        mockkConstructor(GitHubWorkspaceClient::class)
+        try {
+            coEvery { anyConstructed<GitHubWorkspaceClient>().execute("list_installations", any()) } answers {
+                if (secondArg<kotlinx.serialization.json.JsonObject>().text("page") == "1") {
+                    Json.parseToJsonElement("""{"items":[{"id":41,"account":{"login":"other"},"permissions":{"contents":"write"}}],"has_more":true}""")
+                } else {
+                    Json.parseToJsonElement("""{"items":[{"id":42,"account":{"login":"owner"},"permissions":{"contents":"write"}}],"has_more":false}""")
+                }
+            }
+            coEvery { anyConstructed<GitHubWorkspaceClient>().execute("get_repository", any()) } returns Json.parseToJsonElement("""{"id":100,"default_branch":"main","permissions":{"push":true}}""")
+            coEvery { anyConstructed<GitHubWorkspaceClient>().execute("resolve_context", any()) } returns buildJsonObject { put("commit_sha", "b".repeat(40)) }
+            val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext(connection.connectionUid, "owner", "repo", "main", "a".repeat(40), "profile")
+            model.open(connection, context)
+            refreshJob().join()
+            assertNull(state.value.error)
+            assertTrue(state.value.canWrite)
+            org.junit.Assert.assertEquals("42", state.value.installationId)
+            org.junit.Assert.assertEquals(context.repository, state.value.selection)
+            org.junit.Assert.assertEquals(context.commitSha, state.value.headSha)
+            org.junit.Assert.assertEquals(listOf(GitHubStagedFile("Code.kt", "old", "saved edit")), state.value.staged)
+            org.junit.Assert.assertEquals(mapOf("Other.kt" to "unsaved text"), state.value.editorDrafts)
+            coVerify(exactly = 2) { anyConstructed<GitHubWorkspaceClient>().execute("list_installations", any()) }
+            coVerify(exactly = 0) { anyConstructed<GitHubWorkspaceClient>().execute("get_account", any()) }
+            coVerify(exactly = 0) { anyConstructed<GitHubWorkspaceClient>().execute("list_installation_repositories", any()) }
+        } finally {
+            unmockkConstructor(GitHubWorkspaceClient::class)
+        }
+    }
+
+    @Test fun installationLookupIsBoundedAndManualPagingCanFinishWithoutDiscardingEdits() = runTest(dispatcher) {
+        val client = authorize()
+        val saved = state.value.copy(appAuthorization = true, installationId = null, editorDrafts = mapOf("File.kt" to "keep"))
+        state.value = saved
+        val pages = mutableListOf<Int>()
+        coEvery { client.execute("list_installations", any()) } answers {
+            val page = secondArg<kotlinx.serialization.json.JsonObject>().text("page").toInt()
+            pages += page
+            if (page <= 10) {
+                Json.parseToJsonElement("""{"items":[{"id":$page,"account":{"login":"other-$page"},"permissions":{"contents":"write"}}],"has_more":true}""")
+            } else {
+                Json.parseToJsonElement("""{"items":[{"id":42,"account":{"login":"owner"},"permissions":{"contents":"write"}}],"has_more":false}""")
+            }
+        }
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"default_branch":"main","permissions":{"push":true}}""")
+        model.refreshRepositoryAccess()
+        refreshJob().join()
+        org.junit.Assert.assertEquals((1..10).toList(), pages)
+        assertFalse(state.value.canWrite)
+        assertNull(state.value.installationId)
+        assertTrue(state.value.moreInstallations)
+        model.moreInstallations()
+        state.first { !it.busy }
+        org.junit.Assert.assertEquals((1..11).toList(), pages)
+        assertTrue(state.value.error.orEmpty(), state.value.canWrite)
+        org.junit.Assert.assertEquals("42", state.value.installationId)
+        org.junit.Assert.assertEquals(saved.selection, state.value.selection)
+        org.junit.Assert.assertEquals(saved.headSha, state.value.headSha)
+        org.junit.Assert.assertEquals(saved.editorDrafts, state.value.editorDrafts)
+        coVerify(exactly = 0) { client.execute("resolve_context", any()) }
+    }
+
+    @Test fun installationRefreshCannotSubstituteAnotherOwnerOrInstallationOrSuspendedGrant() = runTest(dispatcher) {
+        val client = authorize()
+        val saved = state.value.copy(appAuthorization = true, installationId = "42", editorDrafts = mapOf("File.kt" to "keep"))
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"default_branch":"main","permissions":{"push":true}}""")
+        for (installation in listOf(
+            """{"id":43,"account":{"login":"owner"},"permissions":{"contents":"write"}}""",
+            """{"id":42,"account":{"login":"other"},"permissions":{"contents":"write"}}""",
+            """{"id":42,"account":{"login":"owner"},"permissions":{"contents":"write"},"suspended_at":"2026-11-26T00:00:00Z"}""",
+            """{"id":42,"account":{"login":"owner"},"permissions":{"contents":"read"}}"""
+        )) {
+            state.value = saved
+            coEvery { client.execute("list_installations", any()) } returns Json.parseToJsonElement("""{"items":[$installation],"has_more":false}""")
+            model.refreshRepositoryAccess()
+            refreshJob().join()
+            assertFalse(installation, state.value.canWrite)
+            org.junit.Assert.assertEquals("42", state.value.installationId)
+            org.junit.Assert.assertEquals(saved.selection, state.value.selection)
+            org.junit.Assert.assertEquals(saved.editorDrafts, state.value.editorDrafts)
+        }
+        coVerify(exactly = 4) { client.execute("list_installations", any()) }
+        coVerify(exactly = 0) { client.execute("resolve_context", any()) }
+    }
+
+    @Test fun openingRepositoryChoicesKeepsTheLaterPageInstallationAndCurrentRevision() = runTest(dispatcher) {
+        val client = authorize()
+        val saved = state.value.copy(appAuthorization = true, installationId = "42", error = null)
+        state.value = saved
+        coEvery { client.execute("get_account", any()) } returns Json.parseToJsonElement("""{"login":"coder"}""")
+        coEvery { client.execute("list_installations", any()) } answers {
+            if (secondArg<kotlinx.serialization.json.JsonObject>().text("page") == "1") {
+                Json.parseToJsonElement("""{"items":[{"id":41,"account":{"login":"other"},"permissions":{"contents":"write"}}],"has_more":true}""")
+            } else {
+                Json.parseToJsonElement("""{"items":[{"id":42,"account":{"login":"owner"},"permissions":{"contents":"write"}}],"has_more":false}""")
+            }
+        }
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"default_branch":"main","permissions":{"push":true}}""")
+        coEvery { client.execute("list_installation_repositories", any()) } returns Json.parseToJsonElement("""{"items":[{"full_name":"owner/repo"}],"has_more":false}""")
+        model.onRepositoryPickerOpened()
+        refreshJob().join()
+        assertTrue(state.value.error.orEmpty(), state.value.canWrite)
+        org.junit.Assert.assertEquals("42", state.value.installationId)
+        org.junit.Assert.assertEquals(saved.selection, state.value.selection)
+        org.junit.Assert.assertEquals(saved.headSha, state.value.headSha)
+        coVerify(exactly = 1) { client.execute("list_installation_repositories", match { it.text("installation_id") == "42" }) }
+        coVerify(exactly = 0) { client.execute("resolve_context", any()) }
+    }
+
     @Test fun failedHeadRefreshPreservesTheRestoredDraftAndItsOriginalBase() = runBlocking {
         val client = authorize()
         val saved = state.value.copy(staged = listOf(GitHubStagedFile("Code.kt", "old", "saved edit")), editorDrafts = mapOf("Other.kt" to "unsaved text"))
@@ -366,6 +542,8 @@ class GitHubWorkspaceAdmissionTest {
         val error = runCatching { invokeSuspending(name, *arguments) }.exceptionOrNull() ?: throw AssertionError("Expected dispatch rejection")
         return (error as? InvocationTargetException)?.targetException ?: error
     }
+
+    private fun refreshJob(): Job = GitHubWorkspaceViewModel::class.java.getDeclaredField("refreshJob").apply { isAccessible = true }.get(model) as Job
 
     private fun pending(snapshot: GitHubWorkspaceState, sequence: Long): Any {
         val value = GitHubWorkspaceViewModel::class.java.getDeclaredMethod("draft", GitHubWorkspaceState::class.java).apply { isAccessible = true }.invoke(model, snapshot) as Pair<*, *>

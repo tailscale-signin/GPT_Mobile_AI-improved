@@ -1,0 +1,351 @@
+{
+  "schema": "github.source-qa.v1",
+  "distribution": "CONTROLLER_LABELS",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "source_sha": "76745e48ee7b5d9dae625dc319c0855f4da64ed0",
+  "budget_bytes": 12000,
+  "cases": [
+    {
+      "id": "kotlin-01",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryIndex.kt",
+      "blob_sha": "c415392a1a91d12202bce1412247a5879ede25f2",
+      "lines": [
+        {
+          "line": 43,
+          "line_sha256": "6c0da83426082717c0b3a52791fee905d938cca3535f03475f32de06c4e413e1"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-02",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryIndex.kt",
+      "blob_sha": "c415392a1a91d12202bce1412247a5879ede25f2",
+      "lines": [
+        {
+          "line": 46,
+          "line_sha256": "e103da78f809f7c16b0c5ec88c9528d27225ed82eaa53cd98436cb38e4388d56"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-03",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecovery.kt",
+      "blob_sha": "a4658931d2b83c5ef508debc40ea364e7ed88647",
+      "lines": [
+        {
+          "line": 44,
+          "line_sha256": "cd761dd4c65f0c46853a6cc5730e07160a3d446e99b393267c2cb2cd7e781839"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-04",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecovery.kt",
+      "blob_sha": "a4658931d2b83c5ef508debc40ea364e7ed88647",
+      "lines": [
+        {
+          "line": 42,
+          "line_sha256": "d0b9737fc58ceac05e8d8e62801d1246f80a9f8fc278f0a1172c7c642c5c36c6"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-05",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecovery.kt",
+      "blob_sha": "a4658931d2b83c5ef508debc40ea364e7ed88647",
+      "lines": [
+        {
+          "line": 58,
+          "line_sha256": "52c7f7cf4005ad222192c7cecd032cc91d7afb8bba32323181afd8333f3af63d"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-06",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextReadProgress.kt",
+      "blob_sha": "9d978e7d2beabd3759ebec2371ac3298d5d43390",
+      "lines": [
+        {
+          "line": 45,
+          "line_sha256": "b5c53d4e948d2fbcf79dbab2a84bcc16e6d1d30af7eea4e3ec7f215532835e83"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-07",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextReadProgress.kt",
+      "blob_sha": "9d978e7d2beabd3759ebec2371ac3298d5d43390",
+      "lines": [
+        {
+          "line": 42,
+          "line_sha256": "9b6de84f57feea3bcf3c12d5b93c28e3e8ea24e0dcbbfc779cce63ca2316a0a2"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-08",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCompactTaskContext.kt",
+      "blob_sha": "0067bde53f15542f97e53bbdf62640e38dd6f569",
+      "lines": [
+        {
+          "line": 67,
+          "line_sha256": "f13b76a8d4a185a14148cd9f10dc277905167c2a2ad1facdab08ea5f5db1773f"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-09",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCompactTaskContext.kt",
+      "blob_sha": "0067bde53f15542f97e53bbdf62640e38dd6f569",
+      "lines": [
+        {
+          "line": 28,
+          "line_sha256": "12d356748a45aa55d454a7ffc1d71bcee6cafcea91ce803f31a02a2fd1f37750"
+        }
+      ]
+    },
+    {
+      "id": "kotlin-10",
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPinnedPathResolver.kt",
+      "blob_sha": "89feed60648024e0e27f7c4fe054c8cf977a8bf1",
+      "lines": [
+        {
+          "line": 26,
+          "line_sha256": "b0f9cba5ff6d5cc4e09962526ae09fdfd37b4f29885044a5848703740a747418"
+        },
+        {
+          "line": 70,
+          "line_sha256": "98b474484de3279cd510ce20bcef873f6e17bb9ae8dd61a0add3833e64f6cfc9"
+        }
+      ]
+    },
+    {
+      "id": "python-01",
+      "path": "gateway/v14/pull_file_inventory.py",
+      "blob_sha": "ad8272e1608b886254e2305b1760295df5bf6f95",
+      "lines": [
+        {
+          "line": 11,
+          "line_sha256": "6f5a561c3b0463eb88d7de03bfef67b0f32e1ca4d6f16df4b57542db5c7acf4c"
+        }
+      ]
+    },
+    {
+      "id": "python-02",
+      "path": "gateway/v14/pull_file_inventory.py",
+      "blob_sha": "ad8272e1608b886254e2305b1760295df5bf6f95",
+      "lines": [
+        {
+          "line": 44,
+          "line_sha256": "686511c925890d84549c2880aaca62e8ee28cd5e5daf6defcdfa11fd61119282"
+        }
+      ]
+    },
+    {
+      "id": "python-03",
+      "path": "gateway/v14/graph_context.py",
+      "blob_sha": "3ee010e97501eeee7ca20933e9087990d438b076",
+      "lines": [
+        {
+          "line": 60,
+          "line_sha256": "8c96d78ea8a806c166988feaec8a53506b1458041c549398602bd0ad348a2533"
+        }
+      ]
+    },
+    {
+      "id": "python-04",
+      "path": "gateway/v14/graph_context.py",
+      "blob_sha": "3ee010e97501eeee7ca20933e9087990d438b076",
+      "lines": [
+        {
+          "line": 66,
+          "line_sha256": "cc0f18e279174a75e8c9e1205ae393bd74d2347044c9ad5b9d1c5772ba61382d"
+        }
+      ]
+    },
+    {
+      "id": "python-05",
+      "path": "gateway/v14/engineering_workspace.py",
+      "blob_sha": "fcfba9d685350e9b5b68b0c91af713e8fda226ba",
+      "lines": [
+        {
+          "line": 28,
+          "line_sha256": "661239cd8fe10fbbbe5ec379b7581e35b902239807e419b67fd61f8a75c162de"
+        }
+      ]
+    },
+    {
+      "id": "python-06",
+      "path": "gateway/v14/engineering_workspace.py",
+      "blob_sha": "fcfba9d685350e9b5b68b0c91af713e8fda226ba",
+      "lines": [
+        {
+          "line": 32,
+          "line_sha256": "2297bf10259c1616149312a555c3364aedb9aea369d3b36aa8841ac2261680c2"
+        }
+      ]
+    },
+    {
+      "id": "python-07",
+      "path": "gateway/v14/inference_scheduler.py",
+      "blob_sha": "497679c2e7b89e0350092a04e69479a1cc04dd0c",
+      "lines": [
+        {
+          "line": 34,
+          "line_sha256": "d65111b40fb21ee3b167a651df65c8940f93240b8e8cb18e1644f5b9e6adcb87"
+        }
+      ]
+    },
+    {
+      "id": "python-08",
+      "path": "gateway/v14/inference_scheduler.py",
+      "blob_sha": "497679c2e7b89e0350092a04e69479a1cc04dd0c",
+      "lines": [
+        {
+          "line": 64,
+          "line_sha256": "09b05a985edfbc84a4181b6a8a1968aeb6aa70dd87044fae2b08a0a4502909e9"
+        }
+      ]
+    },
+    {
+      "id": "python-09",
+      "path": "gateway/v14/copilot_tasks.py",
+      "blob_sha": "8eb2b3e1cb1748b74d00ba4cbd9bcff5e66cfb23",
+      "lines": [
+        {
+          "line": 76,
+          "line_sha256": "b7cc860add0c114048492cc80efaca9536113a3388271f9d97bca01e5d8d207f"
+        }
+      ]
+    },
+    {
+      "id": "python-10",
+      "path": "gateway/v14/copilot_tasks.py",
+      "blob_sha": "8eb2b3e1cb1748b74d00ba4cbd9bcff5e66cfb23",
+      "lines": [
+        {
+          "line": 169,
+          "line_sha256": "08db7e3ca19d6a844184b99b5e8eafcaab17cdf53bed66308b866caee5dbf577"
+        },
+        {
+          "line": 259,
+          "line_sha256": "4335e0042902de84b7afffbf3c9ea66acf8b22b5006252241e79ade1e269afe9"
+        }
+      ]
+    },
+    {
+      "id": "csharp-01",
+      "path": "gateway/desktop/native/MainWindow.Jobs.cs",
+      "blob_sha": "e62ad0d3b8eb6f5c20ad772e519da350da46f981",
+      "lines": [
+        {
+          "line": 89,
+          "line_sha256": "4124f9f76c1e45fe3f859e44819d507f304183625495b345007abeeee15e46bc"
+        }
+      ]
+    },
+    {
+      "id": "csharp-02",
+      "path": "gateway/desktop/native/MainWindow.Jobs.cs",
+      "blob_sha": "e62ad0d3b8eb6f5c20ad772e519da350da46f981",
+      "lines": [
+        {
+          "line": 84,
+          "line_sha256": "7842285623ec089b9d30171989652bdb02d2dc4cb03512ed1e1c98acc02ee504"
+        }
+      ]
+    },
+    {
+      "id": "csharp-03",
+      "path": "gateway/desktop/native/MainWindow.Jobs.cs",
+      "blob_sha": "e62ad0d3b8eb6f5c20ad772e519da350da46f981",
+      "lines": [
+        {
+          "line": 292,
+          "line_sha256": "3b4e1f85ce40647074ed078222aadfbbe2a06e5390711466506a1bca847e14bf"
+        }
+      ]
+    },
+    {
+      "id": "csharp-04",
+      "path": "gateway/desktop/native/MainWindow.NativeProducts.cs",
+      "blob_sha": "db575b0586e2cb2eab55f87d3174b8c108956d1f",
+      "lines": [
+        {
+          "line": 500,
+          "line_sha256": "a6bfac9407831cc0a35a43a2c4cde6729e8366742a86f871991594dc45d8e2a2"
+        }
+      ]
+    },
+    {
+      "id": "csharp-05",
+      "path": "gateway/desktop/native/MainWindow.NativeProducts.cs",
+      "blob_sha": "db575b0586e2cb2eab55f87d3174b8c108956d1f",
+      "lines": [
+        {
+          "line": 103,
+          "line_sha256": "10b0c30a38226b12b1a4f56c61bd6190411290a439cb54dc49a56622866c6da3"
+        }
+      ]
+    },
+    {
+      "id": "csharp-06",
+      "path": "gateway/desktop/native/BridgeClient.cs",
+      "blob_sha": "d6a9dafd9e560e678bf7af1f19ae5848e53d50b0",
+      "lines": [
+        {
+          "line": 41,
+          "line_sha256": "4ca7061366159487ca286a1569c453f9fa478f59ceae0e69f93af0f88f20d2ef"
+        }
+      ]
+    },
+    {
+      "id": "csharp-07",
+      "path": "gateway/desktop/native/BridgeClient.cs",
+      "blob_sha": "d6a9dafd9e560e678bf7af1f19ae5848e53d50b0",
+      "lines": [
+        {
+          "line": 19,
+          "line_sha256": "fe11b63cf1c48043354764e1d4874d1a14849ba05f558342fcb5d3d24b60a165"
+        }
+      ]
+    },
+    {
+      "id": "csharp-08",
+      "path": "gateway/desktop/native/MainWindow.Schedules.cs",
+      "blob_sha": "74c9aab961bc616d4f72e230160d38dda2a902a2",
+      "lines": [
+        {
+          "line": 26,
+          "line_sha256": "f6144505498c34b50be5152b098f1060c1be80da3504083260e35619bebcc9cd"
+        },
+        {
+          "line": 37,
+          "line_sha256": "0816c114076be6f4305b5cbcd7d0a3b0aef8b3f4703749db53b9e3ff455b3a18"
+        }
+      ]
+    },
+    {
+      "id": "csharp-09",
+      "path": "gateway/desktop/native/MainWindow.Saved.cs",
+      "blob_sha": "5bf2cc52433162d28e4eff083788c9f2be5df3b8",
+      "lines": [
+        {
+          "line": 19,
+          "line_sha256": "1ef7fa4f26404721df9210cf8694df822ec2683c83eb3e7d348ddb0f9f7b40ad"
+        }
+      ]
+    },
+    {
+      "id": "csharp-10",
+      "path": "gateway/desktop/native/MainWindow.Diagnostics.cs",
+      "blob_sha": "1d50d05e454aea9ff18756ec30fd1a240cd2371a",
+      "lines": [
+        {
+          "line": 33,
+          "line_sha256": "41051b7475713ac18e31920dff1b923c60044f84a1ab342c2292372a7ee13d2b"
+        }
+      ]
+    }
+  ]
+}

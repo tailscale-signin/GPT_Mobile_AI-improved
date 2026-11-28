@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -28,6 +29,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewedSessionTest {
+    @Test fun aContinuationInsideTheReviewGateCannotHideReplaySubstitutionFromTheRunner() = runBlocking {
+        val proof = dev.chungjungsoo.gptmobile.data.agent.ToolReplayDeliveryScope()
+        val next = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("next", "github_read", JsonObject(emptyMap()))
+        val first = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta("First finding. "), ProviderEvent.Failed("The response reached its output limit.", transportComplete = true))
+        }
+        val continued = dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(first) { _, _, _ ->
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(next, ProviderEvent.Completed)
+            }
+        }
+        val reviewed = GitHubReviewedSession(continued, GitHubReviewEvidence(), "Continue the source inspection", 8192, { _, _ -> error("An unfinished tool round is not a final answer") }, {})
+        val events = reviewed.streamRound(emptyList(), emptyList()).flowOn(proof).toList()
+        assertTrue(events.any { it == next })
+        assertFalse(proof.acknowledgesCallerBodies)
+    }
+
     @Test fun finalVerdictValidationCauseIsRetainedWithoutChangingTheFormatRepairLimit() = runBlocking {
         var passes = 0
         val evidence = GitHubReviewEvidence().also { receipt(it) }

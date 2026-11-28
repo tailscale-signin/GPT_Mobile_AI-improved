@@ -49,9 +49,9 @@ internal object GitHubAnswerPresentation {
         val remaining = (resources["remaining_calls"] as? JsonPrimitive)?.intOrNull
         val limit = (resources["effective_call_limit"] as? JsonPrimitive)?.intOrNull
         val request = GitHubTaskContinuity.request(task)
-        val showCatalog = runtimeClaim(request) || capabilityRequest.containsMatchIn(request)
+        val showCatalog = capabilityRequest.containsMatchIn(request)
         // The full catalog stays in the execution ledger for the details view.
-        if (!showCatalog && remaining != 0) return@buildString
+        if (!showCatalog && !runtimeClaim(request) && remaining != 0) return@buildString
         if (remaining != null) {
             append("\n\nTool calls remaining: ").append(remaining)
             if (limit != null) append(" of ").append(limit)
@@ -93,6 +93,35 @@ internal object GitHubAnswerPresentation {
         }
     }
 
+    /** The complete criterion ledger remains durable and expandable in Activity → Details. */
+    fun remainingWork(completion: JsonObject): String {
+        val remaining = (completion["remaining_requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .filter { it["required"] != JsonPrimitive(false) }
+        if (remaining.isEmpty()) return ""
+        val requirements = (completion["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .filter { it["required"] != JsonPrimitive(false) }
+        fun text(row: JsonObject, key: String) = (row[key] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+        fun short(value: String, limit: Int) = value.replace(Regex("[\\p{Cntrl}`<>\\[\\]|]"), " ").replace(Regex("\\s+"), " ").trim().let {
+            if (it.length > limit) it.take(limit - 1).trimEnd() + "…" else it
+        }
+        val verified = requirements.count { text(it, "status") == "PASSED" || text(it, "acceptance_state") == "PASS" || text(it, "state") == "PASS" }
+        val selected = remaining.sortedBy { if (text(it, "acceptance_state") in setOf("BLOCKED", "FAIL")) 0 else 1 }.take(3)
+        return buildString {
+            append("\n\n## Remaining work\n\n")
+            if (requirements.isNotEmpty()) append("$verified of ${requirements.size} criteria verified. ")
+            append("${remaining.size} remain unfinished.\n\n")
+            for (row in selected) {
+                val criterion = text(row, "requirement").ifBlank { text(row, "criterion") }
+                val reason = text(row, "acceptance").ifBlank { text(row, "reason") }
+                append("- ").append(short(criterion.ifBlank { "Unverified criterion" }, 160))
+                if (reason.isNotBlank()) append(" — ").append(short(reason, 180))
+                append('\n')
+            }
+            if (remaining.size > selected.size) append("\n${remaining.size - selected.size} additional criteria remain in the saved ledger.\n")
+            append("\nOpen Activity → Details for the full acceptance ledger and recovery controls.")
+        }
+    }
+
     fun render(task: String, facts: List<String>, notes: List<String>, excerpts: List<String>, questions: List<String>): String = buildString {
         val heading = title(task)
         append("# ").append(heading).append("\n\n")
@@ -131,7 +160,11 @@ internal object GitHubAnswerPresentation {
         }
         if (excerpts.isNotEmpty()) append("\n## Source evidence\n\n").append(excerpts.distinct().joinToString("\n\n")).append('\n')
         if (recommendations.isNotEmpty()) append("\n## Recommendations\n\n").append(recommendations.joinToString("\n")).append('\n')
-        if (limits.isNotEmpty()) append("\n## Open items\n\n").append(limits.distinct().joinToString("\n")).append('\n')
+        if (limits.isNotEmpty()) {
+            val distinct = limits.distinct()
+            append("\n## Open items\n\n").append(distinct.take(3).joinToString("\n")).append('\n')
+            if (distinct.size > 3) append("\n${distinct.size - 3} additional unverified observations are retained with the acceptance details.\n")
+        }
         if (questions.isNotEmpty()) append("\n## Next steps\n\n").append(questions.distinct().joinToString("\n") { "- $it" })
     }
 }

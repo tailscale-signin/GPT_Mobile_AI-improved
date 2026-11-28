@@ -30,6 +30,7 @@ internal fun voiceOpeningPlan(
     language: String
 ): VoiceOpeningPlan? {
     val user = messages.userMessages.lastOrNull()?.takeIf { it.chatId == room && it.platformType == null } ?: return null
+    if (user.timeline.any { it.voiceResponsePolicy?.translationOnly == true }) return null
     val run = if (typed) {
         if (user.timeline.none { it.voiceResponsePolicy != null }) return null
         runs.values.singleOrNull { it.chatId == room && it.userMessageId == user.id && it.profileUid == profile && it.status == AgentRunStatus.RUNNING }

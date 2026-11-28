@@ -20,6 +20,33 @@ import org.junit.Test
 class GatewayJobClientTest {
     private val config = ProviderRequestConfig("http://192.168.1.9:8090/v1", null)
 
+    @Test fun overlappingIdentityReadsNeverShareAcrossCredentialsOrProfileRevisions() = runBlocking {
+        for (changed in listOf(config.copy(token = "different-test-authority"), config.copy(profileRevision = "b".repeat(64)))) {
+            var calls = 0
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            HttpClient(
+                MockEngine {
+                    calls++
+                    if (calls == 1) {
+                        entered.complete(Unit)
+                        release.await()
+                    }
+                    respond("""{"schema_version":1,"protocol_version":1,"gateway_id":"canonical","principal_id":"owner"}""")
+                }
+            ) { install(HttpTimeout) }.use { http ->
+                val client = GatewayJobClient(http)
+                val first = async { client.identity(config) }
+                entered.await()
+                val separate = async { client.identity(changed) }
+                assertEquals("canonical", separate.await().gatewayId)
+                assertEquals(2, calls)
+                release.complete(Unit)
+                first.await()
+            }
+        }
+    }
+
     @Test fun overlappingIdentityReadsShareOnlyTheSameAuthenticatedInFlightObservation() = runBlocking {
         var calls = 0
         val entered = CompletableDeferred<Unit>()

@@ -16,6 +16,12 @@ REQUIRED.update({'v14/conversation_metadata.py', 'benchmarks/__init__.py', 'benc
 REQUIRED.update({'benchmarks/github_intelligence.py', 'benchmarks/github_intelligence_targets.py', 'benchmarks/product_cli.py',
                  'benchmarks/product_trials.py', 'benchmarks/preview_study.py', 'benchmarks/target_review.py', 'grade_external_reference.py'})
 REQUIRED.update({'benchmarks/context_experiment.py', 'benchmarks/context_fixture.py', 'benchmarks/context_semantic.py'})
+REQUIRED.update({'benchmarks/campaign.py', 'benchmarks/campaign_gateway.py', 'benchmarks/campaign_synthetic.py',
+                 'benchmarks/campaign_assets/config/lab.example.json', 'benchmarks/campaign_assets/config/quick.json',
+                 'benchmarks/campaign_assets/config/comprehensive.json', 'benchmarks/campaign_assets/scripts/Invoke-NativeCampaign.ps1',
+                 'benchmarks/campaign_assets/scenarios/github-intelligence-catalog.json', 'benchmarks/NATIVE_CAMPAIGNS.md',
+                 'desktop/benchmark_campaigns.py', 'desktop/native/MainWindow.NativeProducts.cs',
+                 'desktop/native/Core/NativeProductCampaignPresentation.cs'})
 REQUIRED.update({'v14/model_preparation.py', 'v14/model_preparation_routes.py', 'v14/inference_capabilities.py'})
 REQUIRED.update({'v14/voice.py', 'v14/voice_process.py', 'voice_worker.py', 'prepare_voice_pack.py', 'setup_voice_cuda.py', 'requirements-voice.txt'})
 

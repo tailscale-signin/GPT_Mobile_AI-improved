@@ -68,7 +68,7 @@ class ChatReadinessCoordinator @Inject constructor(
         trim()
     }
     private fun idle(): Boolean = AppForegroundTracker.visibility.value && uiReady.value && ReadinessWorkloadSignals.active.value == 0 && !InferenceAdmission.isExclusiveBusy && !runtime.getHardwareState().isModeratePressure && !runtime.getHardwareState().isThrottlingRequired
-    private fun networkAllowed(metered: Boolean): Boolean = metered || (context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.isActiveNetworkMetered == false
+    internal fun networkAllowed(metered: Boolean): Boolean = metered || (context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.isActiveNetworkMetered == false
 
     /** Called from the visible voice room's coroutine; leaving or switching profile cancels this work. */
     internal suspend fun prepareVoiceProfile(
@@ -146,6 +146,9 @@ class ChatReadinessCoordinator @Inject constructor(
                         profiles.firstOrNull { it.uid == uid && it.enabled }
                     }.take(count)
                     scheduler.requestFor("memory-metadata", ::idle, ReadinessResource.LOCAL) { memory.warmMetadata() }
+                    targets.forEach { profile ->
+                        scheduler.requestFor("tool-index:${profile.uid}", ::idle, ReadinessResource.LOCAL) { tools.warmLocalCatalogues(profile.uid) }
+                    }
                     if (networkAllowed(features.readiness.warmMeteredNetworks)) {
                         // Prime the shared inference transport first. Never send a draft, API credential or token.
                         if (composerEngaged) {

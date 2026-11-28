@@ -88,6 +88,53 @@ class AndroidSpeechQualificationTest {
         }
     }
 
+    @Test fun futureOnlineConsentDoesNotUpgradeOrCancelCapturedOfflineRecognition() {
+        val service = Service()
+        val audio = audio(service).apply { languageTag = "fr-CA" }
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            assertEquals(listOf(true), service.modes)
+            audio.allowOnlineSpeech = true
+            service.result(RecognitionQualification(RecognitionSupportStatus.SUPPORTED))
+            service.result(RecognitionQualification(RecognitionSupportStatus.SUPPORTED))
+            verify(service.engine, times(1)).startListening(service.intent)
+            assertTrue(service.intent.getBooleanExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false))
+            assertEquals("fr-CA", service.intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE))
+            assertTrue(listener.repairs.isEmpty())
+            verify(service.engine, never()).destroy()
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun pendingQualificationRejectsEnteringLeavingOrChangingAutomaticTranslation() {
+        val pair = listOf("en-US", "fr-FR")
+        val changes = listOf(
+            emptyList<String>() to pair,
+            pair to emptyList(),
+            pair to listOf("en-US", "fr-CA"),
+            pair to listOf("en-US", "en-GB")
+        )
+        for ((requested, current) in changes) {
+            val service = Service()
+            val audio = audio(service).apply { translationLanguages = requested }
+            val listener = Listener()
+            try {
+                audio.listen(listener)
+                audio.translationLanguages = current
+                service.result(RecognitionQualification(RecognitionSupportStatus.SUPPORTED))
+                service.result(RecognitionQualification(RecognitionSupportStatus.SUPPORTED))
+                verify(service.engine, never()).startListening(any(Intent::class.java))
+                verify(service.engine, times(1)).destroy()
+                assertEquals(listOf(VoiceRecoveryAction.SPEECH_LANGUAGE), listener.repairs)
+                assertTrue(listener.messages.single().contains("Speech languages changed"))
+            } finally {
+                audio.close()
+            }
+        }
+    }
+
     @Test fun unavailableLocaleOffersLanguageRepairWithoutRecordingOrOnlineFallback() {
         val service = Service()
         val audio = audio(service)

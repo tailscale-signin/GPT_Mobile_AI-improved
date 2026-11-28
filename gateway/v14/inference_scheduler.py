@@ -78,9 +78,20 @@ class FairInferenceScheduler:
         deadline = ticket.created + timeout
         with self.condition:
             queued = list(self.queues['interactive']) + list(self.queues['background'])
-            if len(queued) >= self.max_queue or sum(value.byte_length for value in queued) + byte_length > self.max_queue_bytes or sum(value.tokens for value in queued) + tokens > self.max_queue_tokens:
-                self.rejected += 1
-                raise ExecutionBindingError('INFERENCE_QUEUE_FULL', 'The selected backend queue reached its bounded capacity. Completed work is retained.', 429)
+            for dimension, occupied, requested, capacity in (
+                    ('requests', len(queued), 1, self.max_queue),
+                    ('bytes', sum(value.byte_length for value in queued), byte_length, self.max_queue_bytes),
+                    ('tokens', sum(value.tokens for value in queued), tokens, self.max_queue_tokens)):
+                if occupied + requested > capacity:
+                    self.rejected += 1
+                    message = (f'The backend queue has {occupied} of {capacity} {dimension} in use. '
+                               + ('Reduce the request size before retrying.' if requested > capacity else
+                                  'Retry after queued work starts, or cancel one of your queued jobs.'))
+                    error = ExecutionBindingError('INFERENCE_QUEUE_FULL', message, 429,
+                              observation={'queueDimension': dimension, 'queueOccupied': occupied,
+                                           'queueCapacity': capacity, 'queueRequested': requested})
+                    error.retryable = requested <= capacity
+                    raise error
             self.queues[lane].append(ticket)
             last_progress = -float('inf')
             try:
@@ -172,15 +183,17 @@ def install_scheduler(runtime):
                                    memory_bytes=metadata.get('memory_bytes', 0), timeout=timeout, cancelled=cancelled,
                                    progress=progress, validate=(invocation.validate_queue if invocation else lambda: None))
         local.ticket = ticket
-        if progress_callback:
-            progress_callback({'event': 'model_queue_admitted', 'phase': 'model_execution', 'status': 'running', 'scheduling_state': 'running', 'queue_reason': '', 'round': round_number})
-        if invocation:
-            try:
+        try:
+            if progress_callback:
+                progress_callback({'event': 'model_queue_admitted', 'phase': 'model_execution', 'status': 'running', 'scheduling_state': 'running', 'queue_reason': '', 'round': round_number})
+            if invocation:
                 invocation.queue_receipt(ticket, scheduler)
-            except BaseException:
-                scheduler.release(ticket)
-                local.ticket = None
-                raise
+        except BaseException:
+            # The caller does not own the acquired lease until this function
+            # returns. A disconnected progress consumer must not leak its slot.
+            scheduler.release(ticket)
+            local.ticket = None
+            raise
         return max(0, int((time.monotonic() - ticket.created) * 1000))
     def release(request_started):
         ticket = getattr(local, 'ticket', None)

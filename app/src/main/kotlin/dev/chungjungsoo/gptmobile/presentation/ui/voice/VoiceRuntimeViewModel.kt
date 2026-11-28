@@ -13,12 +13,14 @@ import dev.chungjungsoo.gptmobile.data.readiness.ChatReadinessCoordinator
 import dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings
 import dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudio
 import dev.chungjungsoo.gptmobile.data.voice.KokoroOutput
-import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
+import dev.chungjungsoo.gptmobile.data.voice.StreamingVoiceRecognizer
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlayback
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudio
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSession
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetector
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageResult
 import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
 import dev.chungjungsoo.gptmobile.data.voice.shouldCheckpointDraft
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
@@ -32,7 +34,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 internal class VoiceRuntime(
     val system: AndroidVoiceAudio,
-    val recognition: MoonshineVoiceRecognizer,
+    val recognition: StreamingVoiceRecognizer,
     val kokoro: KokoroOutput?,
     val audio: VoicePluginAudio,
     val session: VoiceSession,
@@ -48,6 +50,9 @@ internal class VoiceRuntime(
     val activeMessage = mutableStateOf<VoiceMessageIdentity?>(null)
     val manualMessage = mutableStateOf(false)
     val refreshMutedBaseline = mutableStateOf(false)
+
+    // The accepted turn owns its output until playback drains, including screen recreation.
+    val translationOutput = mutableStateOf<VoiceTranslationPlayback?>(null)
 }
 
 /** Navigation owns native runtimes; a recreated composition only attaches a presentation. */
@@ -57,6 +62,8 @@ internal class VoiceRuntimeViewModel @Inject constructor(
     private val readiness: Lazy<ChatReadinessCoordinator>,
     val background: VoiceBackgroundPlayback
 ) : ViewModel() {
+    fun canPrepareRemoteCatalogues(settings: ReadinessSettings) = readiness.get().networkAllowed(settings.warmMeteredNetworks)
+
     suspend fun prepareProfile(profile: PlatformV2, settings: ReadinessSettings, roomId: Int, privateRoom: Boolean) {
         withContext(Dispatchers.IO) {
             readiness.get().prepareVoiceProfile(profile, settings, ConversationPrivacyContext(roomId, privateRoom))
@@ -68,6 +75,12 @@ internal class VoiceRuntimeViewModel @Inject constructor(
     private var runtimeStores: VoiceModelStores? = null
     private var modelChangePending = false
     private var eviction: Job? = null
+    private var translationDetector: VoiceTranslationLanguageDetector? = null
+
+    suspend fun detectTranslationLanguage(text: String, languages: List<String>): VoiceTranslationLanguageResult {
+        val detector = translationDetector ?: VoiceTranslationLanguageDetector(context).also { translationDetector = it }
+        return detector.detect(text, languages)
+    }
 
     fun acquire(model: ChatViewModel, stores: VoiceModelStores, restore: (VoiceSession) -> Unit): VoiceRuntime {
         runtime?.takeIf { modelChangePending }?.let { return it }
@@ -86,7 +99,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(
             ConversationPrivacyContext(room.id.takeIf { it > 0 }, room.id <= 0 || room.privacyModeLocked)
         }
         system.bindConversationPrivacy(privacy)
-        val recognition = MoonshineVoiceRecognizer(context, stores.moonshine)
+        val recognition = StreamingVoiceRecognizer(context, stores.recognition)
         val kokoro = createKokoroVoiceOutput(context, stores.kokoro, system::playbackAttributes, { system.speechRate }, privacy)
         val audio = VoicePluginAudio(system, recognition, kokoro, system::captureOfflineSpeech, { system.releaseRecognition() })
         var observed: VoiceRuntime? = null
@@ -125,7 +138,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(
         if (runCatching { previous.session.close() }.isFailure) return false
         val retired = withContext(Dispatchers.IO) {
             withTimeoutOrNull(30_000) {
-                while (previous.kokoro?.awaitClosed(500) == false) delay(25)
+                while (previous.kokoro?.awaitClosed(500) == false || !previous.recognition.awaitClosed(500)) delay(25)
                 true
             } ?: false
         }
@@ -152,6 +165,8 @@ internal class VoiceRuntimeViewModel @Inject constructor(
 
     override fun onCleared() {
         eviction?.cancel()
+        translationDetector?.close()
+        translationDetector = null
         runtime?.let(background::releaseScreenOwner)
         runtime = null
         runtimeStores = null

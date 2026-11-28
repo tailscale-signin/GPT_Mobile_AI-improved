@@ -91,6 +91,8 @@ def validate_changes(changes, current, *, local=False, listener=None, approved_b
     for key in ('engineering_enabled', 'public_repository_maps', 'start_at_login', 'debug_mode'):
         if key in changes and type(changes[key]) is not bool:
             raise ControlError('invalid_setting_value', message=key + ' must be boolean')
+    if changes.get('engineering_enabled') is False:
+        raise ControlError('engineering_always_on', 409, 'Engineering is built into Gateway. Stop or cancel individual jobs from Jobs.')
     for key, low, high in [('workers', 1, 16), ('active_chats', 1, 64),
                            ('local_validation_workers', 1, 4), ('update_interval_hours', 1, 168)]:
         if type(result[key]) is not int or not low <= result[key] <= high:
@@ -144,7 +146,7 @@ class ControlStore:
     def schema(self, db):
         # The last completed migration also records that all preceding schema
         # setup committed. Advance this marker when adding a schema migration.
-        migration = 'owner_job_admission_default'
+        migration = 'engineering_always_on_v1'
         db.execute('CREATE TABLE IF NOT EXISTS gateway_control_migrations (name TEXT PRIMARY KEY)')
         if db.execute('SELECT 1 FROM gateway_control_migrations WHERE name=?', (migration,)).fetchone():
             return
@@ -185,14 +187,14 @@ class ControlStore:
             db.execute('UPDATE gateway_control_settings SET desired=?,effective=? WHERE id=1', (encoded(desired), encoded(effective)))
             db.execute('INSERT OR REPLACE INTO gateway_control_policy_observation VALUES (1,?,?)', (policy['revision'], policy['profile_id']))
 
-        # Older normal invitations wrote OFF at revision zero. Editing the
-        # admission switch advances its revision, including an explicit OFF.
+        # Engineering is built in for verified owners, including installations
+        # with an old feature pause. Viewer and revoked-device grants stay intact.
         changed = db.execute("""
             INSERT INTO engineering_admission_settings(principal,enabled,revision)
             SELECT 'paired:' || id, 1, 1 FROM gateway_control_devices
             WHERE role='owner' AND revoked=0
-            ON CONFLICT(principal) DO UPDATE SET enabled=1,revision=1
-            WHERE engineering_admission_settings.revision=0 AND engineering_admission_settings.enabled=0
+            ON CONFLICT(principal) DO UPDATE SET enabled=1,revision=engineering_admission_settings.revision+1
+            WHERE engineering_admission_settings.enabled=0
         """).rowcount
         if changed:
             db.execute('UPDATE gateway_control_settings SET revision=revision+1,author=?,changed=? WHERE id=1',
@@ -251,8 +253,7 @@ class ControlStore:
         account = self.connected_account is not None and principal == self.connected_account
         if not local and not grant and not account:
             raise ControlError('access_revoked', 401)
-        owner = db.execute('SELECT enabled,revision FROM engineering_admission_settings WHERE principal=?', (principal,)).fetchone()
-        enabled = bool(owner['enabled']) if owner else not principal.startswith('paired:')
+        enabled = not grant or grant['role'] == 'owner'
         desired, effective = json.loads(row['desired']), json.loads(row['effective'])
         desired['engineering_enabled'] = effective['engineering_enabled'] = enabled
         pending = json.loads(row['pending'])
@@ -265,7 +266,7 @@ class ControlStore:
             pending.append({'field': 'engineering_enabled', 'reason': 'setup_required', 'blocking_jobs': [], 'prerequisites': prerequisites})
         from desktop.phone_policies import choices
         repositories = json.loads(grant['repositories']) if grant else []
-        capabilities = {'controlSettings.v1': True}
+        capabilities = {'controlSettings.v1': True, 'engineeringAlwaysOn.v1': True}
         if grant and db.execute('SELECT 1 FROM gateway_control_address_devices WHERE device_id=?', (grant['id'],)).fetchone():
             capabilities['privateAddress.v1'] = True
         if account or capabilities.get('privateAddress.v1') and grant['role'] == 'owner':

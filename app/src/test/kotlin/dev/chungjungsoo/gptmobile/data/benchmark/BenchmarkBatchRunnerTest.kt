@@ -8,7 +8,9 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
+import dev.chungjungsoo.gptmobile.data.localruntime.ResourceRequest
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -19,9 +21,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -50,11 +54,12 @@ class BenchmarkBatchRunnerTest {
         savedProfiles: List<PlatformV2> = profiles.reversed().map { it.copy(model = "edited-model") },
         onExecution: () -> Unit = {},
         engineeringExecutor: BenchmarkEngineeringExternalExecutor? = null,
+        withTestCredentials: Boolean = true,
         validate: suspend (PlatformV2) -> Unit
     ): BenchmarkBatchRunner {
         val settings = mockk<SettingRepository>()
         // Saved edits never replace the accepted snapshot's model or order.
-        coEvery { settings.fetchPlatformV2s() } returns savedProfiles
+        coEvery { settings.fetchPlatformV2s() } returns savedProfiles.map { if (withTestCredentials) it.copy(token = it.token ?: "benchmark-test-key") else it }
         val chat = mockk<ChatRepository>()
         coEvery { chat.validateBenchmarkProfile(any()) } coAnswers { validate(firstArg()) }
         coEvery { chat.benchmarkContextTokens(any()) } returns null
@@ -162,7 +167,7 @@ class BenchmarkBatchRunnerTest {
                     val restored = checkNotNull(store.batch(accepted.id))
                     assertEquals(BenchmarkQueueState.BLOCKED, restored.items.single().state)
                     val run = store.history.value.single { it.batchId == accepted.id }
-                    val failure = checkNotNull(run.samples.first().failure)
+                    val failure = checkNotNull(run.preparation?.failure)
                     assertEquals("BENCHMARK_ENDPOINT_REDACTED", failure.code)
                     assertFalse(failure.retryable)
                     assertTrue(run.samples.all { it.requestDispatched == false })
@@ -190,7 +195,7 @@ class BenchmarkBatchRunnerTest {
                 assertEquals(0, executions)
                 assertEquals(BenchmarkQueueState.BLOCKED, checkNotNull(store.batch(accepted.id)).items.single().state)
                 val run = store.history.value.single { it.batchId == accepted.id }
-                assertEquals("BENCHMARK_ENDPOINT_REDACTED", run.samples.first().failureCategory)
+                assertEquals("BENCHMARK_ENDPOINT_REDACTED", run.preparation?.failure?.code)
                 assertTrue(run.samples.all { it.requestDispatched == false })
             }
         } finally {
@@ -247,7 +252,7 @@ class BenchmarkBatchRunnerTest {
                 assertTrue(records.all { it.finished && it.samples.size == 5 })
                 assertFalse(records.any { it.canceled })
                 val backup = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson())
-                assertEquals(15, backup.attempts.count { it.batchId == batch.id })
+                assertEquals(10, backup.attempts.count { it.batchId == batch.id })
                 assertTrue(backup.attempts.filter { it.batchId == batch.id }.all { it.state in setOf("TERMINAL", "SKIPPED") })
             }
         } finally {
@@ -348,6 +353,110 @@ class BenchmarkBatchRunnerTest {
             assertEquals(14, benchmarkCoverage(run).accounted)
             assertEquals(0, benchmarkCoverage(run).executed)
             assertEquals(BenchmarkOutcome.SKIPPED, run.samples.first().outcome)
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun userStopWhileQueuedRetainsOnePreparationIncidentAndNoFixtureAttempts() = runBlocking {
+        val store = BenchmarkStore(context)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val privateOwner = "private-chat-owner@example.invalid"
+        val holder = launch {
+            InferenceAdmission.shared(ResourceRequest.local(privateOwner)) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        try {
+            val selected = batch("queued-stop").copy(items = batch("queued-stop").items.take(1))
+            store.checkpoint(selected)
+            var validations = 0
+            var executions = 0
+            val batchRunner = runner(store, onExecution = { executions++ }) { validations++ }
+            val running = launch { batchRunner.run(selected.id) {} }
+            val waiting = withTimeout(5_000) {
+                store.history.first { records -> records.any { it.batchId == selected.id && it.preparation?.status == "WAITING" && it.preparation.blockerLabels.isNotEmpty() } }
+            }.single { it.batchId == selected.id }
+            assertEquals("admission", waiting.preparation?.stage)
+            assertEquals(BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS, waiting.preparation?.queueDeadlineMs)
+            assertFalse(waiting.preparation!!.blockerLabels.any { it.contains(privateOwner) || it.contains("@") })
+            assertEquals(0, validations)
+            assertEquals(0, executions)
+            assertTrue(batchRunner.requestStop(selected.id, BenchmarkStopOrigin.USER_STOP))
+            running.cancelAndJoin()
+            val run = store.history.value.single { it.batchId == selected.id }
+            val preparation = checkNotNull(run.preparation)
+            assertEquals("CANCELED", preparation.status)
+            assertEquals("USER_STOP", preparation.failure?.code)
+            assertEquals(BenchmarkStopOrigin.USER_STOP, run.cancellationOrigin)
+            assertTrue(preparation.elapsedMs != null && preparation.queueWaitMs != null)
+            assertTrue(run.samples.all { it.dispositionOnly && it.outcome == BenchmarkOutcome.SKIPPED && it.attemptId == null && it.causedByEventId == preparation.eventId })
+            assertEquals(0, benchmarkCoverage(run).executed)
+            val backup = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson())
+            assertTrue(backup.attempts.none { it.runId == run.id })
+            assertTrue(holder.isActive)
+        } finally {
+            release.complete(Unit)
+            holder.join()
+            store.close()
+        }
+    }
+
+    @Test fun invalidConfigurationFailsBeforeAnOccupiedInferenceLease() = runBlocking {
+        val store = BenchmarkStore(context)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val holder = launch {
+            InferenceAdmission.shared(ResourceRequest.local("busy-owner")) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        try {
+            for (profile in listOf(PlatformV2(uid = "blank-gateway", name = "Blank Gateway", compatibleType = ClientType.LLAMA, model = ""), PlatformV2(uid = "no-credential", name = "No credential", model = "selected-model"))) {
+                val selected = BenchmarkBatch("invalid-${profile.uid}", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "invalid-run-${profile.uid}", "config")))
+                store.checkpoint(selected)
+                var validated = false
+                var executed = false
+                withTimeout(5_000) {
+                    runner(store, savedProfiles = listOf(profile), onExecution = { executed = true }, withTestCredentials = false) { validated = true }.run(selected.id) {}
+                }
+                val run = store.history.value.single { it.batchId == selected.id }
+                assertFalse(validated)
+                assertFalse(executed)
+                assertEquals("configuration", run.preparation?.stage)
+                assertEquals("PROFILE_CONFIGURATION_INVALID", run.preparation?.failure?.code)
+                assertEquals(null, run.preparation?.queueWaitMs)
+                assertTrue(run.samples.all { it.dispositionOnly })
+            }
+        } finally {
+            release.complete(Unit)
+            holder.join()
+            store.close()
+        }
+    }
+
+    @Test fun nestedPreflightTimeoutRemainsAChildIncidentAndContinuesOtherProfiles() = runBlocking {
+        val store = BenchmarkStore(context)
+        try {
+            val accepted = batch("child-timeout")
+            store.checkpoint(accepted)
+            val visited = mutableListOf<String>()
+            runner(store) { profile ->
+                visited += profile.uid
+                if (profile.uid == profiles.first().uid) withTimeout(1) { awaitCancellation() }
+            }.run(accepted.id) {}
+            assertEquals(profiles.map { it.uid }, visited)
+            val failed = store.history.value.single { it.id == accepted.items.first().runId }
+            assertEquals("CHILD_OPERATION_ABORTED", failed.preparation?.failure?.code)
+            assertEquals("FAILED", failed.preparation?.status)
+            assertFalse(failed.canceled)
+            assertTrue(failed.samples.all { it.dispositionOnly })
+            assertEquals(2, store.batch(accepted.id)?.items?.count { it.state == BenchmarkQueueState.COMPLETED })
         } finally {
             store.close()
         }

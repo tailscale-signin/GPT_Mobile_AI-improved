@@ -158,7 +158,14 @@ internal object ProviderFailureReport {
         put("provider_failure_code", receipt.errorCode)
         receipt.httpStatus?.let { put("http_status", it) }
         receipt.dispatched?.let { put("dispatched", it) }
-        if (receipt.remoteAcceptance != dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN) put("remote_acceptance", receipt.remoteAcceptance.name)
+        val requiredToolOutcomeUnknown = receipt.errorCode in ProviderFailureReceipt.REQUIRED_TOOL_CODES &&
+            receipt.causeStage in setOf("tool_readiness", "tool_admission") &&
+            receipt.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN &&
+            receipt.requestReplayAllowed == false &&
+            receipt.logicalContinuationAllowed == false
+        // This projection is merged into the original details. Retain the
+        // receipt's established tool uncertainty so an earlier NO cannot resurface.
+        if (receipt.remoteAcceptance != dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN || requiredToolOutcomeUnknown) put("remote_acceptance", receipt.remoteAcceptance.name)
         if (receipt.errorCode == PrivacyFinalRequestFailureEvidence.CODE) {
             // The projection is merged into the original details. Explicit
             // unknowns prevent a later refusal's false/NO from resurfacing.

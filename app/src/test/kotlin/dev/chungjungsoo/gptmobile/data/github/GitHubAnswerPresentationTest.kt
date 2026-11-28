@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -11,6 +12,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAnswerPresentationTest {
+    @Test fun largeBlockedAcceptanceUsesABoundedPreviewAndPreservesItsFullLedger() {
+        val rows = (1..169).map { index ->
+            buildJsonObject {
+                put("id", "criterion-$index")
+                put("requirement", "Verify criterion $index")
+                put("status", "UNVERIFIED")
+                put("acceptance_state", "NOT_TESTED")
+                put("acceptance", "No executed test result is linked to the accepted revision")
+            }
+        }
+        val report = buildJsonObject {
+            put("completion_verified", false)
+            put("requirements", JsonArray(rows))
+            put("remaining_requirements", JsonArray(rows))
+        }
+        val original = report.toString()
+        val message = GitHubAnswerPresentation.remainingWork(report)
+        assertTrue(message.contains("0 of 169 criteria verified"))
+        assertTrue(message.contains("166 additional criteria"))
+        assertTrue(message.contains("Activity → Details"))
+        assertEquals(3, message.lineSequence().count { it.startsWith("- ") })
+        assertTrue(message.length < 1400)
+        assertEquals(original, report.toString())
+        assertEquals(169, (report["remaining_requirements"] as JsonArray).size)
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+    }
+
+    @Test fun repeatedMissingEvidenceDoesNotDumpTheFullClaimLedgerIntoChat() {
+        val notes = (1..64).map { "- **Not available / Not measured:** observation-$it" }
+        val message = GitHubAnswerPresentation.render("Inspect the issue", emptyList(), notes, emptyList(), emptyList())
+        assertEquals(3, message.lineSequence().count { it.startsWith("- **Not available") })
+        assertTrue(message.contains("61 additional unverified observations"))
+        assertEquals(64, notes.size)
+    }
+
     @Test fun finalHeadingUsesTheRequestedOperationAcrossWorkspaceAndQuestionWording() {
         val workspace = "GitHub workspace: owner/preview\nBranch: fix/review\n\n"
         assertEquals("Pull requests", GitHubAnswerPresentation.title(workspace + "List open PRs"))

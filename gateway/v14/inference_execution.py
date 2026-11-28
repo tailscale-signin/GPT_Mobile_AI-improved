@@ -263,7 +263,7 @@ class BoundModelInvocation:
             if self.stopped():
                 raise InterruptedError('Engineering inference cancelled before accepting its result')
             if self.task_context is not None:
-                self.task_context = admitted_task_context(self.task_context, self.dispatched_request, state='VERIFIED_RESPONSE')
+                self.task_context = admitted_task_context(self.task_context, self.dispatched_request, state='VERIFIED_RESPONSE', response=data)
                 self.current['task_context'] = copy.deepcopy(self.task_context)
                 self.job['data']['task_context_receipt'] = copy.deepcopy(self.task_context)
                 self.persist()

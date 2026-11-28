@@ -19,6 +19,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExecutionCompletionDiagnosticsTest {
+    @Test fun researchActionDifferencesSurviveStoredFailureAndPublicReportWithoutGrantingReplay() {
+        val facts = buildJsonObject {
+            put("research_recovery_changed_fields", JsonArray(listOf("REQUESTED_STAGE", "POLICY_REVISION", "EVIDENCE_REVISION").map(::JsonPrimitive)))
+            put("research_recovery_resolution", "REVIEW_CURRENT_SETTINGS_AND_START_NEW_ACTION")
+            put("research_recovery_saved_action_preserved", true)
+            put("private_policy", "private field values")
+        }
+        val event = dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure("RESEARCH_RECOVERY_ACTION_CHANGED", correlation = facts).event()
+        val code = requireNotNull(event.errorCode)
+        val record = ProfileFailureRecord.fromProvider(event.message, code, event.failureDetails)
+        assertFalse(record.retryAllowed)
+        assertEquals(false, record.requestReplayAllowed)
+        val summary = messageSummary(record, expectedFailureSource = "RECOVERY_CHECKPOINT")
+        assertEquals(JsonPrimitive(code), summary["failure_code"])
+        assertEquals(JsonPrimitive("lifecycle"), summary["failed_stage"])
+        assertEquals(JsonPrimitive(false), summary["request_replay_allowed"])
+        val context = capture(code, summary)
+        assertEquals("REVIEW_SAVED_RECOVERY", context.recoveryAction)
+        val diagnostics = requireNotNull(context.diagnostics)
+        for (key in dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.fields) assertEquals(facts[key], diagnostics.values[key])
+        assertTrue(dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.FEATURE in diagnostics.requiredServiceFeatures())
+        assertNotNull(diagnostics.validated())
+        assertFalse(diagnostics.toString().contains("private"))
+        val encoded = IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), diagnostics)
+        assertEquals(diagnostics, IssueReportDiagnostics.fromJson(encoded))
+        assertTrue(ExecutionCompletionDiagnostics.compact("PROVIDER_WAIT_CHECKPOINT_CHANGED", requireNotNull(event.failureDetails)).keys.none { it in dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.fields })
+        assertTrue(ExecutionCompletionDiagnostics.compact(code, JsonObject(requireNotNull(event.failureDetails) - "failure_origin")).keys.none { it in dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.fields })
+    }
+
     @Test fun typedBudgetEvidenceSurvivesStoredFailureAndRequiresItsServiceCapability() {
         val metadata = buildJsonObject {
             put("limit_source", "openrouter_in_flight_budget")
@@ -338,7 +367,7 @@ class ExecutionCompletionDiagnosticsTest {
         1_800_000_000_000
     )
 
-    private fun messageSummary(record: ProfileFailureRecord): JsonObject {
+    private fun messageSummary(record: ProfileFailureRecord, expectedFailureSource: String = "MESSAGE_PROFILE_FAILURE"): JsonObject {
         val restored = Json.decodeFromString(ProfileFailureRecord.serializer(), Json.encodeToString(ProfileFailureRecord.serializer(), record))
         val timeline = JsonArray(
             listOf(
@@ -350,8 +379,9 @@ class ExecutionCompletionDiagnosticsTest {
             )
         )
         val evidence = requireNotNull(diagnosticMessageFailureEvidence(77, timeline))
+        assertEquals("MESSAGE_PROFILE_FAILURE", evidence.source)
         val summary = diagnosticFailureSummary("run", "BLOCKED", null, "test", 147, "build", listOf(evidence))
-        assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), summary.getValue("field_sources").jsonObject["failure_code"])
+        assertEquals(JsonPrimitive(expectedFailureSource), summary.getValue("field_sources").jsonObject["failure_code"])
         return summary
     }
 }

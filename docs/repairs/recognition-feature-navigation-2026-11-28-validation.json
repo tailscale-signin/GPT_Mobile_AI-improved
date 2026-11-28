@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "result": "PASS",
+  "initialRecognitionFeatureAddition": {
+    "schemaVersion": 1,
+    "result": "PASS",
+    "current": {
+      "sourceSha256": "22fcac4c69f96b787f6aced410bae5cbdf8f5f260045d4512710a91c1660cf4a",
+      "projectedBytes": 523228,
+      "capBytes": 524288,
+      "remainingBytes": 1060,
+      "newFeature": "voice-local-recognition",
+      "newProductionPaths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionConfiguration.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionTranscript.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionSettings.kt",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp"
+      ],
+      "newTestPaths": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionControllerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionSessionTest.kt"
+      ],
+      "newArchitectureDocument": [
+        "docs/architecture/streaming-recognition-and-timing-2026-11-28.md"
+      ],
+      "previousFeaturesPreserved": 59,
+      "existingProductionReferencesPreserved": 773,
+      "existingTestReferencesPreserved": 604,
+      "allExistingRoutesTermsTitlesCommandsInvariantsAndRelativeFeatureOrderUnchanged": true,
+      "previous16VoiceCompactionsPreserved": true,
+      "historicalNavigation": [
+        {
+          "feature": "voice-pronunciation-vocabulary",
+          "path": "docs/repairs/voice-pronunciation-vocabulary-2026-11-23.md",
+          "reachableThrough": "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json"
+        },
+        {
+          "feature": "voice-performance-observations",
+          "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json",
+          "reachableThrough": "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json"
+        },
+        {
+          "feature": "voice-context-persistence",
+          "path": "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json",
+          "reachableThrough": "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json"
+        },
+        {
+          "feature": "speech-numeric-exponents",
+          "path": "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json",
+          "reachableThrough": "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json"
+        }
+      ],
+      "prior9HistoricalLinksReverified": true,
+      "generatedFilesWritten": false,
+      "independentReview": "captions_live_quality verified all existing non-document fields/order, all4 exact historical links, new paths and route fixtures. Input timing wording distinguishes captured ASR timings from compiled Pocket ASR_ALIGNMENT of synthesized PCM."
+    },
+    "previousCompaction": {
+      "projectedBytes": 519714,
+      "capBytes": 524288,
+      "remainingBytes": 4574,
+      "requestedRemainingBytes": 4096,
+      "meetsRequestedBuffer": true,
+      "features": 59,
+      "productionReferencesPreserved": 773,
+      "testReferencesPreserved": 604,
+      "allRoutesTermsTitlesCommandsAndFeatureOrderUnchanged": true,
+      "nonVoiceFeaturesUnchanged": true,
+      "numericConstraintTokensPreservedAcrossAllChangedFeatures": true,
+      "historicalReceiptsRemainReachable": true,
+      "historicalDirectReferencesConsolidated": 9,
+      "historicalNavigation": [
+        {
+          "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/native-contract-validation.json",
+          "reachableThrough": "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/warmup-validation.json",
+          "reachableThrough": "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/benchmark-validation.json",
+          "reachableThrough": "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/ordinary-test-methods.json",
+          "reachableThrough": "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/integration-validation.json",
+          "reachableThrough": "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
+          "reachableThrough": "docs/repairs/speech-benchmark-1795470489503-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
+          "reachableThrough": "docs/repairs/speech-benchmark-1795470489503-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
+          "reachableThrough": "docs/repairs/speech-benchmark-1795470489503-task.json"
+        },
+        {
+          "path": "docs/repairs/evidence/voice-literal-pronunciation-order/required-junit-methods.json",
+          "reachableThrough": "docs/repairs/voice-literal-pronunciation-order-2026-11-24-task.json"
+        }
+      ],
+      "bothNewReceiptsMapped": true,
+      "nativeModelLifetimeInvariantAdded": true,
+      "projectedFileBindings": 1240,
+      "sourceSha256": "c26f85176f4df53c6f6b11540d47d81939afa31d16dabe24ba43dab507ff21ce",
+      "independentSemanticReview": "Root reviewed numeric/ownership/privacy/qualification constraints; profile availability and actual provider kernel event wording explicitly restored.",
+      "generatedFilesWritten": false
+    },
+    "historicalNavigation": [
+      {
+        "feature": "voice-pronunciation-vocabulary",
+        "path": "docs/repairs/voice-pronunciation-vocabulary-2026-11-23.md",
+        "reachableThrough": "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json"
+      },
+      {
+        "feature": "voice-performance-observations",
+        "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json",
+        "reachableThrough": "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json"
+      },
+      {
+        "feature": "voice-context-persistence",
+        "path": "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json",
+        "reachableThrough": "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json"
+      },
+      {
+        "feature": "speech-numeric-exponents",
+        "path": "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json",
+        "reachableThrough": "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json"
+      }
+    ]
+  },
+  "currentReadinessReconciliation": {
+    "schemaVersion": 1,
+    "head": "606721dc837f3d0a7342b9150094f97872153957",
+    "currentSourceSha256": "b6b48123a6cd16f9185439545782165c3c30ea90d9670ff5031d7ef71d243d39",
+    "workingSnapshotSha256": "22fcac4c69f96b787f6aced410bae5cbdf8f5f260045d4512710a91c1660cf4a",
+    "features": 60,
+    "changedFeatureIds": [
+      "voice-paired-translation"
+    ],
+    "allExistingProductionTestDocumentReferencesPreserved": true,
+    "allOtherFeatureFieldsAndOrderUnchanged": true,
+    "existingLocalRecognitionFeatureUnchanged": true,
+    "prior16CompactionsAnd13HistoricalRedirectsPreserved": true,
+    "addedTests": [
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt"
+    ],
+    "addedDocuments": [
+      "docs/repairs/voice-session-readiness-restoration-2026-11-28-task.json"
+    ],
+    "updatedInvariants": [
+      {
+        "index": 2,
+        "before": "Auto capture needs Android 14+, on-device support and both installed locales. Translation permits English-only Moonshine only for explicit English input.",
+        "after": "Auto capture needs Android 14+, on-device support and both installed locales. Explicit sources require a supporting recognizer/model; English-only Moonshine needs explicit English."
+      },
+      {
+        "index": 8,
+        "before": "Restoration waits for saved preferences before configuring output; retain the accepted translation engine until ready.",
+        "after": "Configure output after saved preferences load. Pending readiness blocks new work while preserving authorized owned retained playback."
+      }
+    ],
+    "projectedBytes": 523885,
+    "capBytes": 524288,
+    "remainingBytes": 403,
+    "generatedFilesWritten": false
+  },
+  "currentGeneratedBytes": 523885,
+  "unchangedLimitBytes": 524288
+}

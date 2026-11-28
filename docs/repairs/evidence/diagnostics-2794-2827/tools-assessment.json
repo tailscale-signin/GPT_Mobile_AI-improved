@@ -1,0 +1,1107 @@
+{
+  "schema_version": 1,
+  "scope": "Finite assigned 13 of reports 2794–2827; no later reports inspected",
+  "reviewed_revision": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+  "input_snapshot": "/workspace/scratch/49479c165f4e/new-issues-2794-2827.json",
+  "input_snapshot_sha256": "4b0e0bc31178354ecc5b7c7dfb0dabefa67d903dbd2d7dbd18b85d53506fa2c3",
+  "result": "13 individually reviewed; no reproducible app defect demonstrated; relevant guards qualified without changing configuration or external services.",
+  "source_comparison": {
+    "relevant_whole_files_unchanged": 13,
+    "caller_hunks_unchanged": 1,
+    "receipt": "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+  },
+  "qualification": {
+    "passed": 14,
+    "failed": 0,
+    "existing_unmodified_test_methods": 13,
+    "additional_host_fixture": 1,
+    "source_files_hashed": 12,
+    "manifest": "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+    "compile_log": "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+    "junit_log": "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+    "limitations": [
+      "No HTTP/DNS traffic or real hostname validation performed; redirect executeOnce/read paths are source-reviewed, not executed in this slice.",
+      "No production profile setting was changed, no engine was authorized, and no provider request was made.",
+      "Android app/device, full ChatRepository caller execution, and complete ReadUrlTool HTTP integration tests are outside this slice."
+    ]
+  },
+  "counts": {
+    "DNS_redirect_precheck": 10,
+    "profile_tools_disabled": 2,
+    "HTTP404_source_unavailable": 1
+  },
+  "repository_or_GitHub_mutations": false,
+  "external_service_repair_claimed": false,
+  "issues": [
+    {
+      "issue": 2794,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "06743f58-99b1-4a53-aad4-91bd280e417e",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841090139,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "f7334cfa45c7ba2fd215ad64391a4331eb382630cac9e098f89e0b0735c8e9f2",
+        "callIdHash": "e0622332444eaad1da5538353ea91db7f40af3539a99bad9a8ef238a1e04ca81",
+        "occurred_at_utc": "2026-11-28T04:44:50.139000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Six distinct DNS calls in 33 ms at 04:44:50 UTC"
+    },
+    {
+      "issue": 2795,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "90a10839-a720-487c-85b2-5a477e070906",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841090143,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "9bbea8e8bd53c9f89e2b736c4947573329385ed936c1bac3fd92fcf1c1995b9c",
+        "callIdHash": "e71b8f9ff3915a4f3fb72cbf6ed5d8fd6d176a28cfe20419b7d1813720427776",
+        "occurred_at_utc": "2026-11-28T04:44:50.143000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Six distinct DNS calls in 33 ms at 04:44:50 UTC"
+    },
+    {
+      "issue": 2796,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "6a9b5bb7-1ee7-411e-b0a3-1e0a8dadd849",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841090147,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "96f80da6c3120138318956d54c48cd5a45004326b170dbbcff6fedf5dbf44c8e",
+        "callIdHash": "8e4343c5e365619945bd7d2cee9ca9444a5510f6a1f7ff9765df3a61a47b3a52",
+        "occurred_at_utc": "2026-11-28T04:44:50.147000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Six distinct DNS calls in 33 ms at 04:44:50 UTC"
+    },
+    {
+      "issue": 2797,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "fd49b704-3a9e-4dd6-bc27-6ce3b8d895fd",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841090153,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "3a1c011dd245d669bcbe39b978b6c784bc92a60421a0535292667cc1a9b8bcd2",
+        "callIdHash": "41430143efd663e4d27f16df5cd173f189858cd7918169a6134eb9c5b7114e07",
+        "occurred_at_utc": "2026-11-28T04:44:50.153000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Six distinct DNS calls in 33 ms at 04:44:50 UTC"
+    },
+    {
+      "issue": 2798,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "103f7f8d-6afa-42ea-8519-f4b7964333f3",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841090159,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "fd8111fd04168496df1e7e656a0ab658c95788f7008ac7805519f74da45edd64",
+        "callIdHash": "822e79227cac46bc18efd29bf69c076c11fa75604d81a4ff8d959830386892e7",
+        "occurred_at_utc": "2026-11-28T04:44:50.159000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Six distinct DNS calls in 33 ms at 04:44:50 UTC"
+    },
+    {
+      "issue": 2799,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "813159a9-98ce-4977-a5b7-33210c84970f",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841090172,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "9c5a5d6eca57a2f2250717c1910b7071f7b8091e1bcc61ed969b114279a5b5cc",
+        "callIdHash": "951a998160c088586a28de7c57df41fad025cb72cbabb323a72776d43ce9765b",
+        "occurred_at_utc": "2026-11-28T04:44:50.172000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Six distinct DNS calls in 33 ms at 04:44:50 UTC",
+      "related_evidence": {
+        "issue": 2804,
+        "relationship": "Same runIdHash, different callIdHash, 22.948 seconds later HTTP404. This proves another failed read in the same run, not DNS recovery or the same URL."
+      }
+    },
+    {
+      "issue": 2803,
+      "title": "[Debug] chat · TOOL_UNAVAILABLE · tool_readiness",
+      "report_id": "aaafb8b4-ce0b-4170-b69a-a8124a87709d",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841099898,
+        "source": "CHAT_FAILURE",
+        "stage": "tool_readiness",
+        "provider": "OPENROUTER",
+        "operation": "web_search",
+        "dispatched": false,
+        "retryable": false,
+        "remoteAcceptance": "NO",
+        "runIdHash": "936ff6b299549843909711a425601f0360ac67a34a4dbe8a9fd82372efd411c9",
+        "occurred_at_utc": "2026-11-28T04:44:59.898000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+          "causal_provenance": "UNAVAILABLE",
+          "causal_failure_code": "TOOL_UNAVAILABLE",
+          "recovery_observation": "UNOBSERVED",
+          "app_search_readiness": "PROFILE_TOOLS_DISABLED",
+          "app_search_settings_scope": "PROFILE",
+          "app_search_user_action": "ENABLE_PROFILE_TOOLS",
+          "app_search_permission_bypass_allowed": false
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "EXPLICIT_PROFILE_CONFIGURATION_BLOCK",
+      "disposition": "Profile-tool disablement correctly enforced and its recovery guidance qualified.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt",
+          "lines": "63-112",
+          "guard": "Explicit chat/profile disablement returns TOOL_UNAVAILABLE/BLOCKED with PROFILE settings guidance, dispatched=false, remote_acceptance=NO, retryable=false and permission_bypass_allowed=false."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+          "lines": "2693-2701",
+          "guard": "Requested app-assisted search checks configurationBlock before preparing/binding its optional tools and returns the error instead of dispatching a search."
+        }
+      ],
+      "action_taken": [
+        "Individually verified the PROFILE_TOOLS_DISABLED observation and the no-dispatch/no-remote-acceptance boundary.",
+        "Executed the unchanged configuration-block regression for chat-only, profile-only, and both-disabled settings, including precedence and no permission bypass.",
+        "Reviewed current ChatRepository caller wiring and confirmed the requested search returns the configuration error before optional search tool preparation."
+      ],
+      "recovery": [
+        "Open the selected AI profile → Tools, review and enable the tools the user wants authorized, then submit the search again.",
+        "If disablement was intentional, keep it disabled and revise the task to avoid web search; no profile, credential, model, or engine is silently substituted."
+      ],
+      "limits": [
+        "The report identifies the selected profile configuration state but does not include the profile identity, actual settings snapshot, who changed it, or whether it was subsequently enabled.",
+        "No HTTP status exists because this search was blocked locally; adjacent DNS or context-capacity events do not establish the cause of this profile block.",
+        "The incident marks causal provenance unavailable; its explicit readiness observation is evidence of the admission decision, not evidence of an upstream provider failure.",
+        "No user configuration was changed by this audit and no tool was dispatched."
+      ],
+      "closure_basis": "Configuration guard and precise enabled-tools recovery action validated. No app defect reproduced; do not claim the profile was enabled or an OpenRouter incident repaired."
+    },
+    {
+      "issue": 2804,
+      "title": "[Debug] tools · SOURCE_UNAVAILABLE · retrieval",
+      "report_id": "5645a7c5-0a92-40c6-b03b-4d06aa47e2cf",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841113120,
+        "source": "TOOL_RESULT",
+        "stage": "retrieval",
+        "operation": "read_url",
+        "httpStatus": 404,
+        "dispatched": true,
+        "retryable": false,
+        "requiresReconciliation": false,
+        "runIdHash": "9c5a5d6eca57a2f2250717c1910b7071f7b8091e1bcc61ed969b114279a5b5cc",
+        "callIdHash": "1372fb08eb9a4798b6241dbe3453b7fb08fee9a3c8f411a32c494ce51834eb76",
+        "occurred_at_utc": "2026-11-28T04:45:13.120000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "SOURCE_UNAVAILABLE",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "36ea39b1c0b894602dda5c619032f1d59dcf087ca1c5794204127a22bc6767bc",
+          "argument_field_names": [
+            "includeLinks",
+            "url"
+          ],
+          "argument_field_types": [
+            "BOOLEAN",
+            "STRING"
+          ],
+          "url_reader_availability": "HTTP_UNAVAILABLE"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_REMOTE_HTTP404",
+      "disposition": "Source rejection correctly classified and receipt semantics qualified; source availability remains unverified.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "131-145, 172-180, 243-264, 577-625",
+          "guard": "HTTP404/405/410 are SOURCE_UNAVAILABLE after the observed request, with nonretryable receipts. Missing-source cache and same-turn suppression retain unavailable status without inventing another request or HTTP observation."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "275-295",
+          "guard": "HTTP_UNAVAILABLE requires matching native search-operation receipt identity, dispatched=true/requestSent=true and observed404/405/410; negative-cache and turn-suppression observations are separate."
+        }
+      ],
+      "action_taken": [
+        "Matched this report to the typed HTTP_UNAVAILABLE receipt and retained its actual 404/request dispatch evidence.",
+        "Executed the exact reader status classifier and receipt producer against a 404 fixture, confirming SOURCE_UNAVAILABLE, FAILED, requestSent=true, httpStatus 404, retryable=false.",
+        "Reviewed the existing missing-source cache regression: cached refusal does not fabricate another HTTP request/status; another source remains available."
+      ],
+      "recovery": [
+        "Inspect the saved target URL, correct a stale/missing path or choose another authorized source; preserve the failed source as unverified evidence.",
+        "Do not repeatedly resend the unchanged 404 path or treat its error body as retrieved content. A later explicit retry should follow a real URL/source availability change and normal cache/turn boundaries."
+      ],
+      "limits": [
+        "A404 response cannot establish whether the resource was deleted, moved, mistyped, or inaccessible in this request. The report omits the URL and response body.",
+        "Same run as #2799 but a distinct call 22.948 seconds later; no evidence proves a common target or successful DNS recovery.",
+        "The host fixture executes exact classification/receipt code but does not contact the source; the complete HTTP/cache integration test was inspected, not executed.",
+        "No server-side content was changed, no URL was guessed, and no successful content retrieval is claimed."
+      ],
+      "related_evidence": {
+        "issue": 2799,
+        "relationship": "Same runIdHash; different callIdHash. DNS-to404 causality or recovery is unproven."
+      },
+      "closure_basis": "Source rejection guard, request evidence, and nonretryability qualified; no app defect reproduced. Do not state the source was repaired."
+    },
+    {
+      "issue": 2805,
+      "title": "[Debug] chat · TOOL_UNAVAILABLE · tool_readiness",
+      "report_id": "a40b28e6-fd85-42e5-aeec-e21acfc70803",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841367039,
+        "source": "CHAT_FAILURE",
+        "stage": "tool_readiness",
+        "provider": "OPENROUTER",
+        "operation": "web_search",
+        "dispatched": false,
+        "retryable": false,
+        "remoteAcceptance": "NO",
+        "runIdHash": "a8d3b7109ea8209dd69888a5910a928ee7b4431e2170de2a4e2a9e3a97de6c01",
+        "occurred_at_utc": "2026-11-28T04:49:27.039000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+          "causal_provenance": "UNAVAILABLE",
+          "causal_failure_code": "TOOL_UNAVAILABLE",
+          "recovery_observation": "UNOBSERVED",
+          "app_search_readiness": "PROFILE_TOOLS_DISABLED",
+          "app_search_settings_scope": "PROFILE",
+          "app_search_user_action": "ENABLE_PROFILE_TOOLS",
+          "app_search_permission_bypass_allowed": false
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "EXPLICIT_PROFILE_CONFIGURATION_BLOCK",
+      "disposition": "Profile-tool disablement correctly enforced and its recovery guidance qualified.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt",
+          "lines": "63-112",
+          "guard": "Explicit chat/profile disablement returns TOOL_UNAVAILABLE/BLOCKED with PROFILE settings guidance, dispatched=false, remote_acceptance=NO, retryable=false and permission_bypass_allowed=false."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+          "lines": "2693-2701",
+          "guard": "Requested app-assisted search checks configurationBlock before preparing/binding its optional tools and returns the error instead of dispatching a search."
+        }
+      ],
+      "action_taken": [
+        "Individually verified the PROFILE_TOOLS_DISABLED observation and the no-dispatch/no-remote-acceptance boundary.",
+        "Executed the unchanged configuration-block regression for chat-only, profile-only, and both-disabled settings, including precedence and no permission bypass.",
+        "Reviewed current ChatRepository caller wiring and confirmed the requested search returns the configuration error before optional search tool preparation."
+      ],
+      "recovery": [
+        "Open the selected AI profile → Tools, review and enable the tools the user wants authorized, then submit the search again.",
+        "If disablement was intentional, keep it disabled and revise the task to avoid web search; no profile, credential, model, or engine is silently substituted."
+      ],
+      "limits": [
+        "The report identifies the selected profile configuration state but does not include the profile identity, actual settings snapshot, who changed it, or whether it was subsequently enabled.",
+        "No HTTP status exists because this search was blocked locally; adjacent DNS or context-capacity events do not establish the cause of this profile block.",
+        "The incident marks causal provenance unavailable; its explicit readiness observation is evidence of the admission decision, not evidence of an upstream provider failure.",
+        "No user configuration was changed by this audit and no tool was dispatched."
+      ],
+      "closure_basis": "Configuration guard and precise enabled-tools recovery action validated. No app defect reproduced; do not claim the profile was enabled or an OpenRouter incident repaired."
+    },
+    {
+      "issue": 2814,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "bd813b5a-16d9-4e6f-adcd-986e0ade7b77",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841371233,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "ffd2c63bbc84d322bd619bf5326ff8bb00ecbbdd789d8dd0e5eb349508395943",
+        "callIdHash": "48525667745c75ceea735dfc6d57a313ec135ad360eb527fad559759f7d0f9eb",
+        "occurred_at_utc": "2026-11-28T04:49:31.233000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Four distinct DNS calls in 25 ms at 04:49:31 UTC"
+    },
+    {
+      "issue": 2815,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "28e2d286-8d82-4729-99d5-034da2a35260",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841371239,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "e96faa808a7c1762d179d5d2e64f1715297419cde7675c183a2290dd6a66702f",
+        "callIdHash": "e14cf62d20565d9591c0a20d7fb7717b74d8724d41771dc8a4227aedb8470d43",
+        "occurred_at_utc": "2026-11-28T04:49:31.239000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Four distinct DNS calls in 25 ms at 04:49:31 UTC"
+    },
+    {
+      "issue": 2816,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "f50642a0-aca1-4947-a38c-76f3a0f5ffa6",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841371256,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "5ed7c7e3e615e3d752c2733737c4445b32b25e9582b9b1f5490775c759a5724e",
+        "callIdHash": "a94b69665a2a4dd6c2c8410921b67abc3aa185aefc3397adfb5a5accbb5d3df7",
+        "occurred_at_utc": "2026-11-28T04:49:31.256000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Four distinct DNS calls in 25 ms at 04:49:31 UTC"
+    },
+    {
+      "issue": 2817,
+      "title": "[Debug] tools · DNS_RESOLUTION_FAILED · redirect_precheck",
+      "report_id": "bd03c9e8-90a9-49c8-9488-9a0b993d95d0",
+      "captured_revision": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+      "captured_version": "0.9.66.19",
+      "captured_build": 153,
+      "observations": {
+        "occurredAtMillis": 1795841371258,
+        "source": "TOOL_RESULT",
+        "stage": "redirect_precheck",
+        "operation": "read_url",
+        "dispatched": true,
+        "retryable": true,
+        "requiresReconciliation": false,
+        "runIdHash": "1bf36c8e0a8c5e6727c779e5122082cc03f5e0f817de9b2984a378df71c4e2da",
+        "callIdHash": "59091a307e7eebe39eb0f5730c15324750e0208be0b47b22189bc8d02bae1dde",
+        "occurred_at_utc": "2026-11-28T04:49:31.258000+00:00",
+        "diagnostics": {
+          "incident_evidence_status": "TYPED_EVIDENCE",
+          "causal_provenance": "TOOL_CALL",
+          "causal_failure_code": "DNS_RESOLUTION_FAILED",
+          "recovery_observation": "UNOBSERVED",
+          "original_error_code_hash": "d159d3447044e1f1d940f1580695606d1aace6f982b28e2f4e65e36182e08d92",
+          "argument_field_names": [
+            "url"
+          ],
+          "argument_field_types": [
+            "STRING"
+          ],
+          "url_reader_dns_state": "LOOKUP_FAILED"
+        }
+      },
+      "receipt_paths": [
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/manifest.json",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/compile.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/junit.log",
+        "/workspace/scratch/49479c165f4e/batch2794-tools-host/source-review.json"
+      ],
+      "app_patch_required": false,
+      "external_recovery_observed": false,
+      "classification": "OBSERVED_DNS_LOOKUP_FAILURE_WITH_RETAINED_PRIOR_HOP",
+      "disposition": "Existing guard qualified; external URL/DNS condition remains unresolved by this audit.",
+      "code_guards": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+          "lines": "147-220, 222-264, 416-474",
+          "guard": "DNS lookup occurs before each HTTP hop; when an earlier hop responded, a later precheck failure preserves dispatched=true/requestSent=true and REDIRECT_PRECHECK. Domain/special-use-address restrictions and DNS pinning remain enforced."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+          "lines": "22-113",
+          "guard": "Distinct DNS failures open a bounded cooldown; only one recovery probe is admitted, healthy hosts and literal endpoints remain usable, stale leases expire, and explicit network-change reset clears the gate."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+          "lines": "23-72",
+          "guard": "DNS_FAILED/DNS_RECOVERY are transient read failures; a failed precheck and a response-lost unknown outcome retain different receipt states."
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+          "lines": "254-260",
+          "guard": "Native read_url DNS_FAILED maps to DNS_RESOLUTION_FAILED/LOOKUP_FAILED; DNS_RECOVERY maps to RECOVERY_COOLDOWN. These reports record actual lookup failure, not a cooldown refusal."
+        }
+      ],
+      "action_taken": [
+        "Individually matched this report to the native redirect-precheck receipt path and confirmed the relevant captured/current source is identical.",
+        "Qualified existing DNS recovery, nested DNS classification, and transport-receipt guards in the 14-pass source-bound host suite; reviewed the existing redirect-DNS integration regression and current production dispatch-preservation code.",
+        "Retained retryable read-only recovery semantics and all URL/redirect/address/permission guards; no bypass or automatic mutation/replay added."
+      ],
+      "recovery": [
+        "Inspect the original saved URL and redirect target in the local tool receipt; the public incident intentionally omits them.",
+        "Check reachability and DNS/network/VPN configuration for that actual target, correct a stale URL if applicable, or select another permitted source.",
+        "After the observed cause is addressed or connectivity returns, retry the authorized read within its existing cooldown and request budget; the prior hop remains recorded."
+      ],
+      "limits": [
+        "The report omits the hostname, URL, initial response status, provider, and subsequent recovery result. It cannot establish whether the name was wrong, a redirect target was removed, or the device/resolver/network was temporarily unavailable.",
+        "Distinct run/call hashes and nearby timestamps do not prove a shared hostname, one repeated tool call, a provider fault, or a replay-loop defect.",
+        "retryable=true describes a permitted transient read recovery, not proof that an automatic retry occurred or succeeded.",
+        "Redirect network behavior was source-reviewed; no real DNS, HTTP redirect, device network, or live user target was exercised in this host slice.",
+        "The voice-cycle patch is unrelated and is not claimed to repair this DNS incident."
+      ],
+      "closure_basis": "Incident handling and bounded recovery guards reviewed and regression-qualified; no app defect reproduced. Do not state that external DNS or the source was repaired.",
+      "time_cluster": "Four distinct DNS calls in 25 ms at 04:49:31 UTC"
+    }
+  ]
+}

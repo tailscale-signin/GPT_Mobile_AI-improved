@@ -1,0 +1,141 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "initial_pr_head": "35b99dccffddc79f414cdb25e1672457d5878c91",
+  "pull_request": 2651,
+  "intent": "Address the build 152 diagnostic issue intake on the current PR and trace each report to a repair or verified prerequisite.",
+  "reconciled_pr_head": "21e17472811a60ba8411cf745b4a81a249eb0974",
+  "findings": [
+    {
+      "issues": [
+        2665,
+        2666
+      ],
+      "action": "Matched repeated identical inventory reads and the 75-receipt run to the existing issue-only completion repair. Verified the terminal empty-inventory path, its repository binding, and the separate evidence obligations for edits and tests.",
+      "code": "GitHubIssueRemediation, GitHubRequestCompletion"
+    },
+    {
+      "issues": [
+        2667
+      ],
+      "action": "Give a rejected blank path query an actionable filename, pattern and index lookup instruction. Preserve native validation and avoid inventing a broader query.",
+      "code": "GitHubSearchArguments"
+    },
+    {
+      "issues": [
+        2668,
+        2669
+      ],
+      "action": "Matched the two session-report context failures to the retained prior-turn lookup and bounded answer continuation already on this PR.",
+      "code": "GitHubTaskContinuity, ResponseContinuationPlan"
+    },
+    {
+      "issues": [
+        2670
+      ],
+      "action": "Checked the recognizer error 10 pre-ready path, the shared restart embargo, and the documented new-input recovery. Automatic retry during the native embargo would repeat the failure.",
+      "code": "AndroidVoiceAudio, RecognitionStartGate"
+    },
+    {
+      "issues": [
+        2671,
+        2688,
+        2691
+      ],
+      "action": "Isolate even a single pending saved page when ordinary history displaces it. Restore original bodies only from the same journal invocation and digest. Use the actual byte cost of a measured smaller page. Keep a fresh provider completion and atomic delivery proof as prerequisites.",
+      "code": "AgentRunner, ToolBatchCheckpoint, GitHubReplayRecovery"
+    },
+    {
+      "issues": [
+        2673,
+        2675,
+        2680,
+        2689
+      ],
+      "action": "Verified the integrated UTF-8 note truncation and fresh-completion check. Preserve whole observations where available, recognize multilingual punctuation, and reject an oversized unbroken identifier instead of retaining a fabricated prefix.",
+      "code": "SavedPageDeliveryRound, SavedPageReading",
+      "related_commit": "eacec6fc"
+    },
+    {
+      "issues": [
+        2672,
+        2674,
+        2679
+      ],
+      "action": "Verified the concurrent checklist repair for rediscovering a displaced read schema and the fixture-approval preflight. Exhaustion, missing inputs and approvals remain visible as distinct unresolved test prerequisites. Request action-specific discovery only for tools whose schemas support that projection.",
+      "code": "GitHubChecklistSchedule, GitHubIntegrationAcceptance, GitHubTestChecklist",
+      "related_commit": "3d7bdace"
+    },
+    {
+      "issues": [
+        2676,
+        2677,
+        2678
+      ],
+      "action": "Reconciled the concurrent fix for feeding a full receipt projection to the Combined frozen-input planner on resume. The resumption entry point uses the original task, measured stage framing, and whole receipt rows.",
+      "code": "GitHubContinuationBudget, GitHubExecutionContinuation, ChatRepositoryImpl",
+      "related_commit": "3d7bdace"
+    },
+    {
+      "issues": [
+        2681,
+        2683,
+        2685
+      ],
+      "action": "Matched all three unsupported-Off probe signatures to the corrected chat-created adapter preference wiring. Auto uses the saved choice. Explicit Off on an unverified template retains its actionable preflight rejection.",
+      "code": "ChatRepositoryImpl, GitHubReasoningPolicy",
+      "related_commit": "3d7bdace"
+    },
+    {
+      "issues": [
+        2682
+      ],
+      "action": "Supplement the concurrent status-specific CI runs projection with shorter documentation for read contracts on tight routes. Measure the catalog plus required operations, retain schema constraints and enforce the existing output/replay reserves.",
+      "code": "GitHubActionSchema, ToolCatalogAdmission, ProgressiveToolCatalog"
+    },
+    {
+      "issues": [
+        2684,
+        2686
+      ],
+      "action": "Select the lowest advertised OpenRouter reasoning effort for automatic claim extraction. Preserve explicit reasoning settings. Keep provider length failures and incomplete claim batches separate from verified output.",
+      "code": "GitHubReasoningPolicy, GitHubVerifiedSession"
+    },
+    {
+      "issues": [
+        2687
+      ],
+      "action": "Return exact diagnostic lines from within the requested CI range, including a failure beyond the first sequential page. Bind their publication to the selected job, run, attempt and head. The retained run included an HTTP 504 and a failed native dependency download.",
+      "code": "GitHubCiLogPage, GitHubSemanticSummary, GitHubPartialReport"
+    },
+    {
+      "issues": [
+        2690
+      ],
+      "action": "The incident had one receipt and a remaining requirement without matching proof. Surface the first named unverified requirement in partial results and preserve the verified count. Its diagnostic capsule did not record the underlying request.",
+      "code": "GitHubExecutionContinuation"
+    }
+  ],
+  "qualification": "Local tests exercise native contracts, bounded replay, admissible schemas, CI evidence and retained requirements. Physical handset behavior and live inference on the reporting accounts require separate verification.",
+  "validation": {
+    "focused_github_kotlin_tests": {
+      "run": 314,
+      "passed": 314,
+      "scope": "Current changed sources and related app classes, using Kotlin/JVM, JUnit and retained Android dependencies."
+    },
+    "android_recognition_robolectric": {
+      "run": 24,
+      "passed": 24,
+      "sdk": 34
+    },
+    "host_fast": {
+      "run": 848,
+      "skipped": 1,
+      "failures": 0,
+      "errors": 0
+    },
+    "android_gradle": "The full app Gradle daemon stopped during kspDebugKotlin. The focused suites ran independently."
+  }
+}

@@ -72,11 +72,15 @@ class VoiceMessagePlayback {
         highWaterMark = maxOf(highWaterMark, replies.maxOfOrNull { it.identity.messageId } ?: 0)
     }
 
-    fun next(opening: VoiceMessageIdentity? = null): VoiceMessageReply? {
+    /** Inspect the next owner before asynchronous output preparation can consume its admission. */
+    fun peek(opening: VoiceMessageIdentity? = null): VoiceMessageReply? {
         if (active != null || manualOwner != null) return null
-        val next = pending.values.firstOrNull { it.text.isNotBlank() || it.complete }
+        return pending.values.firstOrNull { it.text.isNotBlank() || it.complete }
             ?: opening?.let { pending[it.key] }?.takeIf { it.readAloud }
-            ?: return null
+    }
+
+    fun next(opening: VoiceMessageIdentity? = null): VoiceMessageReply? {
+        val next = peek(opening) ?: return null
         pending.remove(next.identity.key)
         consumed += next.identity.key
         active = next
@@ -116,6 +120,11 @@ class VoiceMessagePlayback {
         finish()
         manualOwner = identity
         if (identity.revision == -1) known.putIfAbsent(identity.messageId, identity.runId)
+    }
+
+    fun stopRuns(runIds: Set<String>) {
+        pending.entries.removeAll { (_, reply) -> reply.identity.runId in runIds }
+        if (active?.identity?.runId in runIds) finish()
     }
 
     fun discardPending() {

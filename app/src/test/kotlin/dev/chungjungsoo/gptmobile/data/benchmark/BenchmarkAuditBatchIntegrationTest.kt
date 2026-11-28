@@ -17,8 +17,13 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -46,7 +51,7 @@ class BenchmarkAuditBatchIntegrationTest {
         try {
             val profiles = listOf("bad", "good").map { PlatformV2(uid = it, name = it, model = "frozen-model", temperature = .8f) }
             val settings = mockk<SettingRepository>()
-            coEvery { settings.fetchPlatformV2s() } returns profiles.map { it.copy(model = "later-edit") }
+            coEvery { settings.fetchPlatformV2s() } returns profiles.map { it.copy(model = "later-edit", token = "benchmark-test-key") }
             val chats = mockk<ChatRepository>()
             coEvery { chats.validateBenchmarkProfile(any()) } returns Unit
             coEvery { chats.benchmarkContextTokens(any()) } returns null
@@ -113,7 +118,8 @@ class BenchmarkAuditBatchIntegrationTest {
                 assertEquals(attempt.deadlineAt - attempt.startedAt, sample.deadlineReceipt!!.totalRequestMs)
                 requests[attempt.logicalRequestId]?.let { assertEquals(sample.deadlineReceipt.totalRequestMs, it.requestDeadlineMs) }
             }
-            assertEquals(100, backup.attempts.size)
+            assertEquals(50, backup.attempts.size)
+            assertTrue(failed.samples.all { it.dispositionOnly && it.attemptId == null })
             assertEquals(7, backup.runs.sumOf { it.readiness?.probes?.size ?: 0 })
             assertNotNull(completed.fixtureManifestHash)
         } finally {
@@ -126,7 +132,7 @@ class BenchmarkAuditBatchIntegrationTest {
         try {
             val profile = PlatformV2(uid = "remote", name = "Remote", model = "model")
             val settings = mockk<SettingRepository>()
-            coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+            coEvery { settings.fetchPlatformV2s() } returns listOf(profile.copy(token = "benchmark-test-key"))
             val chats = mockk<ChatRepository>(relaxed = true)
             val runtime = mockk<LocalRuntime>(relaxed = true)
             every { runtime.loadedEngineSpec() } returns null
@@ -138,6 +144,47 @@ class BenchmarkAuditBatchIntegrationTest {
             assertEquals(21, run.samples.size)
             assertTrue(run.samples.none { it.requestDispatched == true })
             assertEquals(BenchmarkQueueState.BLOCKED, store.batch(batch.id)!!.items.single().state)
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun userStopDuringReadinessKeepsTheUserOriginAndOneCausalEvent() = runBlocking {
+        val store = BenchmarkStore(context)
+        try {
+            val profile = PlatformV2(uid = "readiness-stop", name = "Readiness stop", model = "model", token = "benchmark-test-key")
+            val settings = mockk<SettingRepository>()
+            coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+            val chats = mockk<ChatRepository>()
+            coEvery { chats.validateBenchmarkProfile(any()) } returns Unit
+            coEvery { chats.benchmarkContextTokens(any()) } returns null
+            coEvery { chats.supportsBenchmarkTools(any()) } returns false
+            coEvery { chats.benchmarkReadiness(any(), any(), any()) } returns BenchmarkReadinessReceipt(1, null, listOf(BenchmarkReadinessCheck("configuration", BenchmarkReadinessStatus.PASSED)), setOf("configuration"))
+            val entered = CompletableDeferred<Unit>()
+            coEvery { chats.openBenchmarkSession(any(), any(), any(), any(), any(), any(), any()) } returns object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                    entered.complete(Unit)
+                    awaitCancellation()
+                }
+            }
+            val runtime = mockk<LocalRuntime>(relaxed = true)
+            every { runtime.loadedEngineSpec() } returns null
+            val batch = BenchmarkBatch("readiness-stop-batch", BenchmarkMode.STANDARD, 1, listOf(BenchmarkQueueItem(0, profile.benchmarkSnapshot(), "readiness-stop-run", "config")))
+            store.checkpoint(batch)
+            val runner = BenchmarkBatchRunner(store, chats, settings, runtime, context)
+            val running = launch { runner.run(batch.id) {} }
+            entered.await()
+            assertTrue(runner.requestStop(batch.id, BenchmarkStopOrigin.USER_STOP))
+            running.cancelAndJoin()
+            val run = store.history.value.single { it.id == "readiness-stop-run" }
+            val probe = run.readiness!!.probes.single().sample!!
+            assertEquals(BenchmarkOutcome.CANCELED, probe.outcome)
+            assertEquals("USER_STOP", probe.failure?.code)
+            assertEquals("user", probe.failure?.owner)
+            assertEquals(BenchmarkStopOrigin.USER_STOP, run.cancellationOrigin)
+            assertTrue(run.samples.all { it.dispositionOnly && it.causedByEventId == probe.failure?.eventId })
+            val backup = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson())
+            assertTrue(backup.attempts.none { it.runId == run.id })
         } finally {
             store.close()
         }

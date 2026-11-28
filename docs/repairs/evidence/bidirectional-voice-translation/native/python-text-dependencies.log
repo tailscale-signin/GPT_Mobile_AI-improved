@@ -1,0 +1,13 @@
+Collecting protobuf==4.25.8
+  Downloading protobuf-4.25.8-cp37-abi3-manylinux2014_x86_64.whl.metadata (541 bytes)
+Collecting absl-py==2.3.1
+  Downloading absl_py-2.3.1-py3-none-any.whl.metadata (3.3 kB)
+Collecting numpy==1.26.4
+  Downloading numpy-1.26.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (61 kB)
+Downloading protobuf-4.25.8-cp37-abi3-manylinux2014_x86_64.whl (294 kB)
+Downloading absl_py-2.3.1-py3-none-any.whl (135 kB)
+Downloading numpy-1.26.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (18.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 18.0/18.0 MB 81.3 MB/s  0:00:00
+Installing collected packages: protobuf, numpy, absl-py
+
+Successfully installed absl-py-2.3.1 numpy-1.26.4 protobuf-4.25.8

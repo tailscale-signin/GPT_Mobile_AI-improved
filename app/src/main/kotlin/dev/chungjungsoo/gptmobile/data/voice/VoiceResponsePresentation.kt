@@ -23,11 +23,12 @@ internal object VoiceResponsePresentation {
         // new text request must never acquire voice mode from an earlier conversation turn.
         val recovery = resolveTaskRecovery(messages) ?: return null
         return messages.lastOrNull { it.id == recovery.sourceMessageId && it.chatId == latest.chatId && it.platformType == null }
-            ?.timeline?.lastOrNull { it.voiceResponsePolicy != null }?.voiceResponsePolicy
+            ?.timeline?.lastOrNull { it.voiceResponsePolicy != null }?.voiceResponsePolicy?.takeUnless { it.translationOnly }
     }
 
     fun compose(systemPrompt: String?, policy: VoiceResponsePolicy?): String? {
         if (policy == null) return systemPrompt
+        if (policy.translationOnly) return policy.instruction()
         return listOfNotNull(systemPrompt?.takeIf(String::isNotBlank), policy.instruction()).joinToString("\n\n")
     }
 }

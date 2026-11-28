@@ -1,0 +1,51 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "0e625e250117475446b8f216df2501ddbef168f2",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "initial_pr_head": "d94cadd78dd1ac1c0ad1998e8c4bbca42a749ddb",
+  "pull_request": 2651,
+  "capture_build": 152,
+  "capture_commit": "18d74f17a2bc2b8662f25cba8cc1292e6b217ff6",
+  "intent": "Use the recorded issue-repair and report turns to improve scoped issue intake, continuation admission and grounded session previews.",
+  "observed": {
+    "completed_runs": 3,
+    "issue_repair_tool_events": 75,
+    "issue_repair_model_invocations": 31,
+    "issue_repair_seconds": 543,
+    "report_turns_blocked_before_final_dispatch": 2
+  },
+  "integrated_parent": "f6fee1aa14e4a6f957955a706c2c43e20db666d1",
+  "validation": {
+    "recorded_empty_issue_replay": {
+      "tool_calls": 1,
+      "provider_calls": 0,
+      "criteria_verified": 2,
+      "criteria_total": 2
+    },
+    "focused_jvm_tests_including_capture_replays": 325,
+    "host_tests_run": 848,
+    "host_tests_skipped": 1,
+    "android_device_retest": "not run"
+  },
+  "merge_review": {
+    "base_sha": "0e625e250117475446b8f216df2501ddbef168f2",
+    "reviewed_pr_head": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
+    "parent_pr": 2646,
+    "intent": "Reconcile local report routing, historical turn boundaries and existing Gateway commands before merging both branches.",
+    "validation": {
+      "focused_jvm_tests_including_input_replays": 434,
+      "host_tests_run": 848,
+      "host_tests_skipped": 1,
+      "retry_query_sqlite_replay": "Only the earlier user turn was returned.",
+      "android_instrumentation": "Added to the named acceptance receipts, to run in CI."
+    },
+    "reconciled_pr_head": "d095e18dd7c86215776b7cebd1b02bba0bc88682",
+    "hosted_ci_followup": {
+      "observed_run": 45918575936,
+      "previous_revision": "a5c7a358d414379e212ba1d1276f5da542aa7f1e",
+      "diagnostics": "Android emitted ISSUE_INTAKE for the publication source and entry, while the report service rejected both. Android now negotiates the new values, and the closed vocabularies are tested together.",
+      "pinned_reads": "An HTTP check rejected an unidentified scoped directory before the session could preserve other verified ranges. That response stays out of the cache and leaves only the unknown path incomplete. A conflicting identity remains a revision mismatch."
+    }
+  }
+}

@@ -1,10 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.Locale
 import kotlinx.serialization.Serializable
 
 /** Presentation intent frozen on one accepted turn, independent of profile and tool authority. */
 @Serializable
-enum class VoiceResponsePolicy(private val replyLanguage: String? = null) {
+enum class VoiceResponsePolicy(
+    private val replyLanguage: String? = null,
+    private val languagePolicy: VoiceResponsePolicy? = null,
+    val translationOnly: Boolean = false
+) {
     CONVERSATIONAL,
     RESPONSIVE,
     FRENCH("French"),
@@ -15,34 +20,88 @@ enum class VoiceResponsePolicy(private val replyLanguage: String? = null) {
     MANDARIN("Mandarin Chinese"),
     JAPANESE("Japanese"),
     AMERICAN_ENGLISH("American English"),
-    BRITISH_ENGLISH("British English");
+    BRITISH_ENGLISH("British English"),
+    REPLY_AMERICAN_ENGLISH(languagePolicy = AMERICAN_ENGLISH),
+    TRANSLATE_AMERICAN_ENGLISH(languagePolicy = AMERICAN_ENGLISH, translationOnly = true),
+    REPLY_BRITISH_ENGLISH(languagePolicy = BRITISH_ENGLISH),
+    TRANSLATE_BRITISH_ENGLISH(languagePolicy = BRITISH_ENGLISH, translationOnly = true),
+    REPLY_SPANISH(languagePolicy = SPANISH),
+    TRANSLATE_SPANISH(languagePolicy = SPANISH, translationOnly = true),
+    REPLY_FRENCH(languagePolicy = FRENCH),
+    TRANSLATE_FRENCH(languagePolicy = FRENCH, translationOnly = true),
+    REPLY_ITALIAN(languagePolicy = ITALIAN),
+    TRANSLATE_ITALIAN(languagePolicy = ITALIAN, translationOnly = true),
+    REPLY_BRAZILIAN_PORTUGUESE(languagePolicy = BRAZILIAN_PORTUGUESE),
+    TRANSLATE_BRAZILIAN_PORTUGUESE(languagePolicy = BRAZILIAN_PORTUGUESE, translationOnly = true),
+    REPLY_HINDI(languagePolicy = HINDI),
+    TRANSLATE_HINDI(languagePolicy = HINDI, translationOnly = true),
+    REPLY_MANDARIN(languagePolicy = MANDARIN),
+    TRANSLATE_MANDARIN(languagePolicy = MANDARIN, translationOnly = true),
+    REPLY_JAPANESE(languagePolicy = JAPANESE),
+    TRANSLATE_JAPANESE(languagePolicy = JAPANESE, translationOnly = true),
+    GERMAN("German"),
+    DUTCH("Dutch"),
+    REPLY_GERMAN(languagePolicy = GERMAN),
+    TRANSLATE_GERMAN(languagePolicy = GERMAN, translationOnly = true),
+    REPLY_DUTCH(languagePolicy = DUTCH),
+    TRANSLATE_DUTCH(languagePolicy = DUTCH, translationOnly = true);
+
+    val fixesReplyLanguage: Boolean get() = languagePolicy != null
+
+    /** The accepted fixed target survives queueing and replay; legacy language hints remain unfixed. */
+    val targetLanguageTag: String?
+        get() = when (languagePolicy) {
+            AMERICAN_ENGLISH -> "en-US"
+            BRITISH_ENGLISH -> "en-GB"
+            SPANISH -> "es-ES"
+            FRENCH -> "fr-FR"
+            ITALIAN -> "it-IT"
+            BRAZILIAN_PORTUGUESE -> "pt-BR"
+            HINDI -> "hi"
+            MANDARIN -> "zh"
+            JAPANESE -> "ja"
+            GERMAN -> "de-DE"
+            DUTCH -> "nl-NL"
+            else -> null
+        }
 
     companion object {
-        internal fun forLanguage(tag: String?): VoiceResponsePolicy = when (tag) {
-            "fr" -> FRENCH
-            "es" -> SPANISH
-            "it" -> ITALIAN
-            "pt-BR" -> BRAZILIAN_PORTUGUESE
-            "hi" -> HINDI
-            "zh" -> MANDARIN
-            "ja" -> JAPANESE
-            "en-US" -> AMERICAN_ENGLISH
-            "en-GB" -> BRITISH_ENGLISH
-            else -> RESPONSIVE
+        internal fun forLanguage(tag: String?, translate: Boolean = false): VoiceResponsePolicy = when (Locale.forLanguageTag(tag.orEmpty()).language.takeIf { it == "de" || it == "nl" } ?: tag?.let(SpeechLanguages::forLocale)?.tag) {
+            "en-US" -> if (translate) TRANSLATE_AMERICAN_ENGLISH else REPLY_AMERICAN_ENGLISH
+            "en-GB" -> if (translate) TRANSLATE_BRITISH_ENGLISH else REPLY_BRITISH_ENGLISH
+            "es" -> if (translate) TRANSLATE_SPANISH else REPLY_SPANISH
+            "fr" -> if (translate) TRANSLATE_FRENCH else REPLY_FRENCH
+            "it" -> if (translate) TRANSLATE_ITALIAN else REPLY_ITALIAN
+            "pt-BR" -> if (translate) TRANSLATE_BRAZILIAN_PORTUGUESE else REPLY_BRAZILIAN_PORTUGUESE
+            "hi" -> if (translate) TRANSLATE_HINDI else REPLY_HINDI
+            "zh" -> if (translate) TRANSLATE_MANDARIN else REPLY_MANDARIN
+            "ja" -> if (translate) TRANSLATE_JAPANESE else REPLY_JAPANESE
+            "de" -> if (translate) TRANSLATE_GERMAN else REPLY_GERMAN
+            "nl" -> if (translate) TRANSLATE_DUTCH else REPLY_DUTCH
+            else -> if (translate) TRANSLATE_AMERICAN_ENGLISH else RESPONSIVE
         }
     }
 
-    // Older queued turns and sealed writer plans retain their byte-for-byte system prompt.
-    fun instruction(): String = if (this != CONVERSATIONAL) {
-        """
+    // The legacy conversational mode retains its original prompt; translation always uses the isolated contract.
+    fun instruction(): String {
+        val target = languagePolicy?.replyLanguage
+        if (target != null) {
+            if (translationOnly) {
+                return VoiceTranslationSource.instruction(target)
+            }
+            return RESPONSIVE.instruction() + "\nUse $target for the entire reply, both written and spoken, regardless of the input language or a spoken request to switch languages. Preserve names and necessary quotations."
+        }
+        return if (this != CONVERSATIONAL) {
+            """
             Voice delivery for this turn:
             Answer the user's actual question in the first breath. Start with the result, the specific subject and one useful fact, or one necessary clarification. Use a short complete first sentence when accurate. Skip greetings, praise, promises to help and generic waiting lines.
             For a lookup, start the authorized tool promptly. Speak verified information as it becomes available. The app can announce a running search, so skip a separate search preamble. Never guess a result, claim unfinished work is complete, or speak private reasoning or tool arguments.
             Continue in natural short sentences. Preserve the selected profile, tool permissions, privacy rules, exact names, numbers, units and necessary qualifications. Use conversation context for imperfect recognition and ask if ambiguity changes the answer.
             Give the full answer the user requested. Keep Markdown decoration, tables, source URLs and long code out of spoken prose. Put optional visual material after the answer inside <details>...</details>, with pipe-prefixed table rows. Exact-output requests take precedence.
-        """.trimIndent() + replyLanguage?.let { "\nUse $it for the spoken answer unless the user asks for a different language. Preserve quotations and proper names." }.orEmpty()
-    } else {
-        legacyInstruction()
+            """.trimIndent() + replyLanguage?.let { "\nUse $it for the spoken answer unless the user asks for a different language. Preserve quotations and proper names." }.orEmpty()
+        } else {
+            legacyInstruction()
+        }
     }
 
     private fun legacyInstruction(): String = """

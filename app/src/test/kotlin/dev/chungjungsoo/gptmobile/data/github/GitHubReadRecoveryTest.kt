@@ -25,7 +25,7 @@ class GitHubReadRecoveryTest {
 
     private class Fixture(val session: GitHubRepositorySession, val blobs: AtomicInteger)
 
-    private fun fixture(available: List<String> = paths, truncated: Boolean = false, source: String = "fun needle() = 1\nfun another() = 2", directories: Set<String> = emptySet(), symlinks: Set<String> = emptySet(), store: GitHubRepositoryStateStore = GitHubRepositoryStateStore()): Fixture {
+    private fun fixture(available: List<String> = paths, truncated: Boolean = false, source: String = "fun needle() = 1\nfun another() = 2", directories: Set<String> = emptySet(), symlinks: Set<String> = emptySet(), store: GitHubRepositoryStateStore = GitHubRepositoryStateStore(), scopedTree: ((String) -> JsonObject)? = null): Fixture {
         val blobs = AtomicInteger()
         val session = GitHubRepositorySession("account", "connection", "chat", "task", store, { path ->
             when {
@@ -33,6 +33,7 @@ class GitHubReadRecoveryTest {
                     put("sha", path.substringAfterLast('/'))
                     put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", treeSha) }) })
                 }
+                "/git/trees/" in path && '?' !in path && scopedTree != null -> scopedTree(path.substringAfterLast('/'))
                 "/git/trees/" in path -> buildJsonObject {
                     put("truncated", truncated)
                     put(
@@ -85,6 +86,17 @@ class GitHubReadRecoveryTest {
         put("ref", head)
         put("commit_sha", head)
         put("path", path)
+    }
+
+    private fun directoryTree(identity: String?, name: String, entrySha: String, directory: Boolean = false) = buildJsonObject {
+        if (identity != null) put("sha", identity)
+        val entry = buildJsonObject {
+            put("path", name)
+            put("sha", entrySha)
+            put("type", if (directory) "tree" else "blob")
+            put("mode", if (directory) "040000" else "100644")
+        }
+        put("tree", JsonArray(listOf(entry)))
     }
 
     @Test fun changedSearchParametersRestartAtZeroAndRetainTheOriginalPages() = runBlocking {
@@ -319,6 +331,68 @@ class GitHubReadRecoveryTest {
         assertEquals("GITHUB_TREE_INCOMPLETE", failure.code)
         assertEquals(JsonPrimitive(false), failure.details["tree_complete"])
         assertEquals(0, fixture.blobs.get())
+    }
+
+    @Test fun truncatedTreeReadsOnlyFilesReachedThroughIdentifiedDirectories() = runBlocking {
+        val directorySha = "c".repeat(40)
+        val blobSha = "d".repeat(40)
+        val fixture = fixture(listOf("README.md"), truncated = true) { sha ->
+            when (sha) {
+                treeSha -> directoryTree(treeSha.uppercase(), "docs", directorySha, directory = true)
+                directorySha -> directoryTree(directorySha, "Hidden.kt", blobSha)
+                else -> error("Unexpected directory $sha")
+            }
+        }
+        val result = fixture.session.execute("read_ranges", "owner", "repo", read("docs/Hidden.kt")).jsonObject
+        val item = result.getValue("items").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("docs/Hidden.kt"), item["path"])
+        assertEquals(JsonPrimitive(blobSha), item["expected_blob_sha"])
+        assertEquals(1, fixture.blobs.get())
+    }
+
+    @Test fun unidentifiedOrConflictingDirectoryCannotSupplySourceEvidence() = runBlocking {
+        for ((identity, errorCode) in listOf(null to "GITHUB_TREE_INCOMPLETE", "c".repeat(40) to "EVIDENCE_REVISION_MISMATCH")) {
+            val fixture = fixture(listOf("README.md"), truncated = true) {
+                directoryTree(identity, "Hidden.kt", "d".repeat(40))
+            }
+            val failure = runCatching { fixture.session.execute("read_ranges", "owner", "repo", read("Hidden.kt")) }.exceptionOrNull()
+            assertTrue(failure is GitHubReadValidation)
+            assertEquals(errorCode, (failure as GitHubReadValidation).code)
+            assertEquals(0, fixture.blobs.get())
+            if (identity == null) {
+                val ranges = JsonArray(listOf("README.md", "Hidden.kt").map { buildJsonObject { put("path", it) } })
+                val args = JsonObject(read("README.md") - "path" + ("ranges" to ranges))
+                val mixed = fixture.session.execute("read_ranges", "owner", "repo", args).jsonObject
+                assertEquals(JsonPrimitive("README.md"), mixed.getValue("items").jsonArray.single().jsonObject["path"])
+                assertEquals(JsonPrimitive(errorCode), mixed.getValue("failed_ranges").jsonArray.single().jsonObject["error_code"])
+                assertEquals(1, fixture.blobs.get())
+            }
+        }
+    }
+
+    @Test fun httpIdentityValidationKeepsVerifiedRangesWhenADirectoryIsUnidentified() = runBlocking {
+        val fixture = fixture(listOf("README.md"), truncated = true) { sha ->
+            directoryTree(null, "Hidden.kt", "d".repeat(40)).also {
+                GitHubRepositoryIndex.checkPinnedTreeResponse("/repos/owner/repo/git/trees/$sha", it)
+            }
+        }
+        val ranges = JsonArray(listOf("README.md", "Hidden.kt").map { buildJsonObject { put("path", it) } })
+        val result = fixture.session.execute("read_ranges", "owner", "repo", JsonObject(read("README.md") - "path" + ("ranges" to ranges))).jsonObject
+        assertEquals(JsonPrimitive("README.md"), result.getValue("items").jsonArray.single().jsonObject["path"])
+        assertEquals(JsonPrimitive("GITHUB_TREE_INCOMPLETE"), result.getValue("failed_ranges").jsonArray.single().jsonObject["error_code"])
+        assertEquals(JsonPrimitive(false), result.getValue("active_instructions").jsonObject["complete"])
+        assertEquals(1, fixture.blobs.get())
+
+        val patch = buildJsonObject {
+            put("ref", head)
+            put("commit_sha", head)
+            put("target_file", "README.md")
+            put("search_snippet", "fun needle")
+            put("replacement_snippet", "fun renamed")
+        }
+        val failure = runCatching { fixture.session.execute("stage_patch", "owner", "repo", patch) }.exceptionOrNull()
+        assertTrue(failure.toString(), failure is GitHubReadValidation)
+        assertEquals("EVIDENCE_REVISION_MISMATCH", (failure as GitHubReadValidation).code)
     }
 
     @Test fun batchedAndSubsequentReadsExposeCompleteImmutableRangeCoverage() = runBlocking {

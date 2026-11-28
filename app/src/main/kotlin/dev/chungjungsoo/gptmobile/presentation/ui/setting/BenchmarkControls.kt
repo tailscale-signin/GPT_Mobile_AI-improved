@@ -39,16 +39,18 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 internal const val APP_AUDIT_TAB = 8
+internal const val STANDARD_BENCHMARK_TAB = 10
+internal const val STANDARD_BENCHMARK_RESULTS_TAB = 11
 
 @Composable
 internal fun BenchmarkNavigation(selected: Int, debugMode: Boolean = false, onSelect: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Triple(ENGINEERING_BENCHMARK_TAB, "Engineering", Icons.Rounded.Assessment), Triple(APP_AUDIT_TAB, "App audit", Icons.Rounded.Science), Triple(0, "Queue", Icons.Rounded.PlayArrow), Triple(5, "Results", Icons.Rounded.BarChart), Triple(3, "History", Icons.Rounded.History)).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
+            listOf(Triple(STANDARD_BENCHMARK_TAB, "Overview", Icons.Rounded.PlayArrow), Triple(STANDARD_BENCHMARK_RESULTS_TAB, "Results", Icons.Rounded.BarChart), Triple(3, "History", Icons.Rounded.History), Triple(6, "Export", Icons.Rounded.Science)).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
         }
-        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
+        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection("Advanced") {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(Triple(2, "Scoreboard", Icons.Rounded.BarChart), Triple(4, "Delegation", Icons.Rounded.Hub), Triple(6, "Export", Icons.Rounded.Science))
+                listOf(Triple(0, "Comprehensive campaigns", Icons.Rounded.PlayArrow), Triple(ENGINEERING_BENCHMARK_TAB, "Engineering", Icons.Rounded.Assessment), Triple(APP_AUDIT_TAB, "Developer diagnostics", Icons.Rounded.Science), Triple(5, "Detailed results", Icons.Rounded.BarChart), Triple(2, "Scoreboard", Icons.Rounded.BarChart), Triple(4, "Delegation", Icons.Rounded.Hub))
                     .let { if (debugMode) it + Triple(7, "Debug", Icons.Rounded.Science) else it }
                     .forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
             }

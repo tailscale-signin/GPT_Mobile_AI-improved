@@ -6,7 +6,10 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
@@ -111,8 +114,10 @@ class GitHubMcpRepositoryToolTest {
         val context = GitHubConversationContext("selected-account", "my-org", "project", "main", "a".repeat(40), "profile")
         val backend = Backend()
         var features = AppFeatureSettings(
+            pluginExecution = mapOf(ToolPluginId.GITHUB to PluginExecutionSettings(githubCopilotEnabled = false)),
             conversationGitHub = mapOf(42 to context),
-            conversationIdentities = mapOf(42 to "saved-chat")
+            conversationIdentities = mapOf(42 to "saved-chat"),
+            githubCopilotConversations = mapOf(42 to GitHubCopilotConversationPreference("saved-chat", GitHubChatDecisions.workspaceKey(context), false))
         )
         val tool = GitHubMcpRepositoryTool(
             backend,
@@ -138,6 +143,30 @@ class GitHubMcpRepositoryToolTest {
         features = features.copy(conversationIdentities = mapOf(42 to "replacement-chat"))
         assertEquals("GITHUB_COPILOT_DISABLED", tool.execute("changed-chat", args).errorCode)
         assertEquals(1, backend.executed)
+    }
+
+    @Test fun officialCopilotResponseProducesImmediateNamedProgressWithoutInterpretingOpaqueOutput() = runTest {
+        val context = GitHubConversationContext("selected-account", "my-org", "project", "main", "a".repeat(40), "profile")
+        for (operation in copilotWrites + "get_copilot_job_status") {
+            val backend = Backend()
+            val tool = GitHubMcpRepositoryTool(backend, destination, operation, copilotAllowed = { true })
+            val args = target("my-org", "project")
+            val call = ProviderEvent.ToolCall("call-$operation", backend.definition.name, args)
+            val result = tool.execute(call.callId, args).copy(content = ToolResultContent.Text("opaque provider prose: all tests passed and everything merged"))
+            val receipt = result.executionReceipt?.get("github_copilot_request") as JsonObject
+            assertEquals(JsonPrimitive(true), receipt["dispatch_observed"])
+            assertEquals(JsonPrimitive(operation), receipt["operation"])
+            for (progress in listOf(GitHubChatProgress("Repair the requested issue", context, "scope") { 0L }, GitHubChatProgress { 0L })) {
+                progress.observeResult(call, result)
+                progress.forward(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = call.callId, toolArgs = args)))
+                val text = progress.immediateUpdates().filterIsInstance<ApiState.ActivitySummary>().single().text
+                assertTrue(text.contains("GitHub MCP connection returned a response"))
+                assertTrue(text.contains("Copilot"))
+                assertTrue(text.contains("remain unverified"))
+                assertFalse(text.contains("all tests passed") || text.contains("everything merged"))
+            }
+            assertEquals(1, backend.executed)
+        }
     }
 
     @Test fun genericIssueAssignmentRequiresLiveConsentAndCannotUseAReadGrant() = runTest {

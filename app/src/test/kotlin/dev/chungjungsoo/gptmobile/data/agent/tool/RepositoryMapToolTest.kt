@@ -21,6 +21,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RepositoryMapToolTest {
+    @Test fun automaticGatewaySelectionPreservesExplicitPhoneAndTaskContextPreparation() = runTest {
+        var selections = 0
+        val sources = mutableListOf<JsonPrimitive>()
+        val tool = RepositoryGraphTool("repository_graph", defaultSource = {
+            selections++
+            "gateway"
+        }) { request ->
+            sources += request.getValue("map_source") as JsonPrimitive
+            buildJsonObject { put("map_source", request.getValue("map_source")) }
+        }
+        tool.execute("automatic", buildJsonObject { put("action", "status") })
+        tool.execute(
+            "explicit-phone",
+            buildJsonObject {
+                put("action", "status")
+                put("map_source", "phone")
+            }
+        )
+        tool.execute("task-context", buildJsonObject { put("action", "task_context_bundle") })
+        assertEquals(listOf("gateway", "phone", "phone").map(::JsonPrimitive), sources)
+        assertEquals(1, selections)
+    }
+
     @Test fun statusChecksTheCopiedCommitAgainstTheSelectedMapBeforeRemovingIt() = runTest {
         val sha = "ab".repeat(20)
         val scope = GitHubConversationContext("github", "owner", "repo", "main", sha, "profile")

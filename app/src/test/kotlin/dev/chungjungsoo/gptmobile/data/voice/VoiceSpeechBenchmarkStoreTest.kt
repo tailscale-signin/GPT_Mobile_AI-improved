@@ -105,7 +105,7 @@ class VoiceSpeechBenchmarkStoreTest {
                     protocolVersion = VoiceSpeechPlaybackProtocol.VERSION, scenario = plan.scenario, repeat = plan.repeat,
                     warmup = plan.warmup, expectedResident = plan.expectedResident, engineReused = plan.expectedResident, fixtureHash = plan.manifest.hash,
                     manifestWordsExpected = plan.manifest.spans.size, manifestWordsPrepared = plan.manifest.spans.size,
-                    manifestWordsObserved = plan.manifest.spans.size, unexpectedCaptionWords = 0, chunkRecords = chunks, cancellationTarget = plan.cancellationTarget,
+                    manifestWordsObserved = plan.manifest.spans.size, renderedManifestWords = plan.manifest.spans.size, unexpectedCaptionWords = 0, chunkRecords = chunks, cancellationTarget = plan.cancellationTarget,
                     arrivalIntervalMs = plan.arrivalIntervalMs, cleanupState = "RETIRED",
                     sustainedTargetAudioMs = config.sustainedTargetAudioMs.takeIf { sustained },
                     sustainedObservedAudioMs = sustainedAudioMs.takeIf { sustained },

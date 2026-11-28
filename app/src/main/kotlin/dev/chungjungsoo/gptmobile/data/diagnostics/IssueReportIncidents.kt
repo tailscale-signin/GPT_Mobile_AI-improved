@@ -328,6 +328,8 @@ internal object IssueReportIncidents {
     fun chatFailure(code: String?, rateLimited: Boolean) = chatFailure(code, rateLimited, null)
 
     fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?, fields: Map<String, Any?> = emptyMap(), invocationId: String? = null) {
+        // A durable user choice is an ordinary paused workflow, not an error popup.
+        if (code == "GITHUB_CHOICE_PENDING") return
         val input = IssueReportContext.fromFields("CHAT_FAILURE", fields)
         if (code == "REVIEW_INPUT_REQUIRED" &&
             input.stage == "review_comparison" &&
@@ -346,12 +348,21 @@ internal object IssueReportIncidents {
             input.requiresReconciliation != true &&
             input.remoteAcceptance !in setOf("YES", "UNKNOWN") &&
             !rateLimited
+        val appendCompletionUnknown = code == "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN" &&
+            input.stage == "final_synthesis" &&
+            input.requiresReconciliation == true &&
+            input.retryable == false &&
+            input.resumeAllowed == false &&
+            input.recoveryAction == "REVIEW_SAVED_RECOVERY" &&
+            fields["failure_origin"] in setOf("APPLICATION", JsonPrimitive("APPLICATION")) &&
+            fields["request_replay_allowed"] in setOf(false, JsonPrimitive(false))
         val rejection = when (val category = fields["provider_rejection_category"]) {
             is String -> category
             is kotlinx.serialization.json.JsonPrimitive -> category.takeIf { it.isString }?.content
             else -> null
         }
         val specificCode = when {
+            appendCompletionUnknown -> "REMOTE_OUTCOME_UNKNOWN"
             verificationReserveReached || code == dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.INCOMPLETE_CODE -> "GITHUB_TASK_INCOMPLETE"
             code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
             code == "OUTPUT_CONTINUATION_PENDING_TOOLS" && input.stage == "tool_reconciliation" && input.dispatched == false -> "RECONCILIATION_REQUIRED"
@@ -430,7 +441,13 @@ internal object IssueReportIncidents {
                 else -> "CHAT_FAILED"
             }
         }
-        val diagnosticFields = if (verificationReserveReached && publicCode == "GITHUB_TASK_INCOMPLETE") {
+        val diagnosticFields = if (appendCompletionUnknown) {
+            fields + mapOf(
+                "diagnostic_area" to "INCIDENT",
+                "causal_failure_code" to code,
+                "original_error_code_hash" to IssueReportContext.identifierHash("chat-error-code", code)
+            )
+        } else if (verificationReserveReached && publicCode == "GITHUB_TASK_INCOMPLETE") {
             fields + ("reason_code" to "VERIFICATION_RESERVE_REACHED")
         } else if (publicCode == "GITHUB_TASK_INCOMPLETE" && code == dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.INCOMPLETE_CODE) {
             fields + ("original_error_code_hash" to IssueReportContext.identifierHash("chat-error-code", code))

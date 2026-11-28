@@ -1,0 +1,180 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 2651,
+  "base_branch": "main",
+  "observed_base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head_sha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
+  "intent": "Implement the user's unified intelligence and interface guide by extending existing durable execution, repository intelligence, tool routing and benchmark systems.",
+  "state": "implemented_host_checks_passed_hosted_validation_pending",
+  "workstreams": {
+    "android_lifecycle": [
+      "durable choices",
+      "arrow-only header",
+      "modal dismissal",
+      "themed startup",
+      "interrupted generation recovery",
+      "bottom scroll anchor"
+    ],
+    "repository_index": [
+      "Gateway maintenance and reconnect synchronization",
+      "progressive direct-phone indexing"
+    ],
+    "intelligence_tools": [
+      "general and research intent routing",
+      "persistent authorized capability catalog",
+      "research follow-up reuse"
+    ],
+    "benchmark": [
+      "single-button standard benchmark",
+      "nine weighted categories",
+      "coverage-aware results",
+      "retained advanced campaigns"
+    ]
+  },
+  "concurrency": "Recheck the live branch before publishing; retain incoming commits and use normal fast-forward push only.",
+  "validation": [
+    {
+      "check": "python3 scripts/check_android_regex.py",
+      "status": "passed",
+      "evidence": "2313 literal patterns, 153 dynamic patterns skipped, zero errors"
+    },
+    {
+      "check": "bash scripts/validate.sh resources",
+      "status": "passed",
+      "evidence": "38 XML resources, icon and existing provenance checks"
+    },
+    {
+      "check": "Gateway incremental delivery",
+      "status": "passed",
+      "tests": 9
+    },
+    {
+      "check": "Gateway repository synchronization and maintenance",
+      "status": "passed",
+      "tests": 40,
+      "note": "Includes 15 new cases and inherited graph fixtures"
+    },
+    {
+      "check": "Gateway durable index jobs",
+      "status": "passed",
+      "tests": 32
+    },
+    {
+      "check": "Routing replay host regressions",
+      "status": "passed",
+      "tests": 4
+    },
+    {
+      "check": "Full Gateway regression gate",
+      "status": "passed",
+      "tests": 2312,
+      "skipped": 43,
+      "browser_tests": 7,
+      "evidence": "All 165 Python modules and the 50000-event durable restart stress test passed before concurrent delivery changes. Merged payload is being revalidated."
+    },
+    {
+      "check": "Android Kotlin/Compose/JVM",
+      "status": "awaiting_hosted_ci",
+      "note": "Local Gradle distribution download failed with Network unreachable; Android SDK absent"
+    },
+    {
+      "check": "bash scripts/validate-local.sh fast",
+      "status": "passed",
+      "tests": 848,
+      "skipped": 1,
+      "evidence": "Final saved-choice correction passed generated references, dependency catalog, package hashes, secrets scan, 848 host regressions (one skip), regex, resources and diff whitespace."
+    },
+    {
+      "check": "Gateway initial full-gate environment",
+      "status": "dependency_repaired",
+      "evidence": "A sandboxed child process could not inherit PYTHONPATH for requests. Prepared an isolated interpreter using locally installed dependencies; the canonical full gate passed."
+    },
+    {
+      "check": "Kotlin 2.4.20 repository-index slices",
+      "status": "passed",
+      "tests": 17,
+      "evidence": "Real storage/mirror/tree/priority code; Android Context, Hilt annotations and unused vault entrypoints supplied as JVM ports. Full Android integration still requires hosted CI."
+    },
+    {
+      "check": "Kotlin research artifact slice",
+      "status": "passed",
+      "tests": 4,
+      "evidence": "Actual artifact/evidence/claim code and JUnit test; exact metadata declarations extracted from mixed Android files. Found and repaired named-number follow-up handling."
+    },
+    {
+      "check": "Changed Kotlin formatting",
+      "status": "passed",
+      "evidence": "ktlint 1.3.1 passed all 313 main-relative changed Kotlin files after the final saved-choice correction."
+    },
+    {
+      "check": "Gateway pinned parser dependencies",
+      "status": "repaired",
+      "evidence": "Isolated runtime matches pinned tree-sitter 0.26.0 and four grammars. Affected graph suites and the full canonical gate passed."
+    },
+    {
+      "check": "Authentication and diagnostic report service",
+      "status": "passed",
+      "tests": 245,
+      "evidence": "All 245 tests passed after merging both branches, including both sets of deadline-source and active-clock assertions."
+    },
+    {
+      "check": "Report modal ownership regressions",
+      "status": "awaiting_hosted_ci",
+      "tests": 5,
+      "evidence": "Actual ViewModel and persistent outbox with delayed save/retry and WorkManager delivery updates; formatter and Kotlin parser passed."
+    },
+    {
+      "check": "Merged Gateway regression gate",
+      "status": "passed",
+      "evidence": "All 165 modules passed on the reconciled Gateway payload, including the 50000-event stress test and expanded delivery/message/task-context regressions.",
+      "tests": 2317,
+      "skipped": 43,
+      "browser_tests": 7
+    },
+    {
+      "check": "Saved choice progress regression",
+      "status": "awaiting_hosted_ci",
+      "tests": 2,
+      "evidence": "Actual chat event stream checks pending versus cancelled, dispatched and unrelated errors; pending leaves failure and completion counts unchanged."
+    },
+    {
+      "check": "Pending choice trace and incident classification",
+      "status": "awaiting_hosted_ci",
+      "evidence": "Explicit waiting trace state preserves the bound no-effect receipt, excludes false failure reports/counts, and uses exact-result compare-and-set for resume. Actual recorder, report collector, trace and Room regressions added. Test DAO discard implementation is now aligned with production.",
+      "tests": 4
+    },
+    {
+      "check": "Kotlin 2.4.20 pending-choice receipt guard",
+      "status": "passed",
+      "tests": 3,
+      "evidence": "Actual ToolResultCheckpoint and ToolEvent code with platform/unused-dependency JVM ports; identity binding, no-effect recovery and real-failure contrasts."
+    },
+    {
+      "check": "Waiting-choice DAO SQL",
+      "status": "passed",
+      "assertions": 7,
+      "evidence": "Actual finishToolEvent SQL against the exported Room 54 schema checks identity, expected receipt, duplicate waiting and completed-answer retention."
+    }
+  ],
+  "unmeasured": [
+    "physical Android process-death and gesture behavior",
+    "Snapdragon 8 Elite performance targets",
+    "Windows installer behavior at the final commit",
+    "live paid provider and comparative model scores"
+  ],
+  "release": "No merge or release qualification is claimed by this checkpoint.",
+  "implementation_limits": [
+    "Direct provider recovery uses saved checkpoints; new provider-native stored-response retrieval and event-cursor replay were not added.",
+    "Gateway synchronization transfers bounded structural records and lexical candidates, not raw source or compiler verification.",
+    "Phone discovery is bounded at 20000 paths and mirrored structural records at 25000; excess coverage stays partial.",
+    "The Standard score is custom synthetic/offline evaluation, separate from signed production qualification and official SWE-bench."
+  ],
+  "concurrency_checks": [
+    "Remote branch remained at starting_head_sha through final source implementation. Fetch deepened branch ancestry to verify the observed main base. Recheck before normal push.",
+    "Live branch advanced from 440561e3f71e54ce1058c9edddc0f9416fb7d84f to 6913b7a26cf28798e93e75d1f4fd0c3869202d65. Reconciled incoming retained-evidence, authority, verification, voice and Gateway corrections. Shared deadline vocabulary retains both sets of regression assertions. Publication remains guarded by an expected-head lease without force.",
+    "Live head advanced from 486055ee31d4cb3ba0c5c796e260e82cfb8e4a90 to 7bfaf530b0f66c07940358e0c09d204f5be3d20b with the matching test-double interface correction. Preserve that commit and its task evidence; retain the faithful fake implementation with ownership/fence checks."
+  ],
+  "hosted_candidate": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+  "hosted_status": "Production and instrumentation compilation passed in hosted Android jobs. Unit-test compilation found one missing discardInterrupted override in a fake DAO; it is fixed in this correction. The final trace/incident regression suite and complete Android tests still require the subsequent exact head."
+}

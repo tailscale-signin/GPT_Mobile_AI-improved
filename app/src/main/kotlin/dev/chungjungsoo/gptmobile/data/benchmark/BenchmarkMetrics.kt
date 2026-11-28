@@ -28,7 +28,11 @@ data class BenchmarkMetricResult(
     val lowerQuartile: Double? = null,
     val upperQuartile: Double? = null,
     val sourceCohortIds: List<String> = emptyList(),
-    val plannedKnown: Boolean = true
+    val plannedKnown: Boolean = true,
+    /** Affected cases are not incident counts; legacy failures without causal IDs remain unknown. */
+    val rootIncidentCount: Int? = null,
+    val rootFailureEventIds: List<String> = emptyList(),
+    val affectedCaseCount: Int = 0
 )
 
 internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContexts: Boolean = false): List<BenchmarkMetricResult> {
@@ -37,16 +41,22 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
     val runIds = runs.map { it.id }
     val cohorts = runs.map(DynamicScoreEngine::cohort).distinct()
     val samples = runs.flatMap { it.samples }.filterNot { it.warmup }
-    val planned = runs.sumOf { run -> maxOf(run.plannedTrials, run.samples.size) - run.samples.count { it.warmup } }
+    val plannedCounts = runs.map(::benchmarkPlannedMeasuredTrials)
+    val planned = plannedCounts.filterNotNull().sum()
+    val plannedKnown = plannedCounts.all { it != null }
+    val incidentCounts = benchmarkIncidentCounts(runs)
     fun ratio(id: String, numerator: Int, denominator: Int, source: List<BenchmarkSample>): BenchmarkMetricResult = BenchmarkMetricResult(
         id, if (denominator == 0) null else 100.0 * numerator / denominator, "%", numerator, denominator,
         planned, runIds, source.mapNotNull { it.attemptId },
         samples.filterNot { it in source }.groupingBy { benchmarkMetricExclusion(id, it) }.eachCount(),
-        policyVersion = if (runs.all { it.measurementVersion >= 4 }) "benchmark-metrics-v4" else "benchmark-metrics-v3",
+        policyVersion = if (runs.all { it.measurementVersion >= 4 }) "benchmark-metrics-v5" else "benchmark-metrics-v3",
         comparisonContextId = if (operationalContexts) "operational:" + domains.keys.firstOrNull().orEmpty() else cohorts.singleOrNull().orEmpty(),
         timestamp = runs.maxOfOrNull { it.endedAt ?: it.startedAt } ?: 0,
         uniqueFixtureCount = source.map { it.fixtureContentHash ?: it.testId }.distinct().size,
-        plannedKnown = runs.all { it.plannedTrials > 0 },
+        plannedKnown = plannedKnown,
+        rootIncidentCount = incidentCounts.count,
+        rootFailureEventIds = incidentCounts.eventIds,
+        affectedCaseCount = incidentCounts.affectedCases,
         sourceCohortIds = cohorts,
         population = if (id == "profile_availability") {
             "profiles with known admission outcome; user stops excluded"
@@ -55,11 +65,11 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
         } else if (id == "delivery_completion") {
             "requests that reached the physical dispatch boundary or produced a provider response; not proof of model execution"
         } else {
-            "planned supported trials"
+            "planned supported non-warmup trials; progress is not answer accuracy"
         }
     )
     val graded = samples.filter { it.completed && it.category !in setOf("speed", "performance", IntelligenceBenchmark.CATEGORY) && (it.outputCharacters > 0 || it.preview.isNotBlank()) && it.failureCategory != "FIXTURE_INVALID" }
-    val dispatched = samples.filter { it.requestDispatched == true || it.physicalRequestIds.isNotEmpty() || it.providerHttpStatus != null || it.knownExecuted() }
+    val dispatched = samples.filter { it.requestDispatched == true || it.providerHttpStatus != null || it.knownExecuted() }
     val eligibleProfiles = runs.filter { it.cancellationOrigin !in setOf(BenchmarkStopOrigin.USER_SKIP, BenchmarkStopOrigin.USER_STOP) && it.samples.any { sample -> sample.requestAdmitted != null || sample.requestDispatched == false || sample.knownExecuted() } }
     val admitted = eligibleProfiles.count { run -> run.samples.any { it.requestAdmitted == true || it.knownExecuted() } }
     val qualifiedSamples = runs.filter { benchmarkTimingExecutionExclusion(it) == null }.flatMap { it.samples }.filterNot { it.warmup }
@@ -99,14 +109,20 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
         ratio("answer_correctness", graded.count { it.outcome == BenchmarkOutcome.PASSED }, graded.size, graded),
         ratio("delivery_completion", dispatched.count { it.completed && it.outputCharacters > 0 && it.terminalReceived != false && it.failureCategory != "OUTPUT_PROTOCOL_INVALID" }, dispatched.size, dispatched),
         ratio("profile_availability", admitted, eligibleProfiles.size, eligibleProfiles.flatMap { it.samples }),
-        ratio("planned_task_success", samples.count { it.outcome == BenchmarkOutcome.PASSED }, (planned - samples.count { it.outcome == BenchmarkOutcome.UNSUPPORTED }).coerceAtLeast(0), samples).let { result -> if (result.plannedKnown) result else result.copy(value = null, denominator = 0, population = "planned supported trials; stored plan is unavailable", exclusions = result.exclusions + ("PLANNED_POPULATION_UNKNOWN" to runs.count { it.plannedTrials <= 0 })) },
+        ratio("planned_task_success", samples.count { it.outcome == BenchmarkOutcome.PASSED }, (planned - samples.count { it.outcome == BenchmarkOutcome.UNSUPPORTED }).coerceAtLeast(0), samples).let { result ->
+            when {
+                !result.plannedKnown -> result.copy(value = null, denominator = 0, population = "planned supported trials; non-warmup plan is unavailable", exclusions = result.exclusions + ("PLANNED_POPULATION_UNKNOWN" to plannedCounts.count { it == null }))
+                runs.any { !it.finished || it.canceled || it.stoppedReason != null } -> result.copy(value = null, population = "planned task progress; run incomplete or stopped; numerator and denominator are progress only")
+                else -> result
+            }
+        },
         timing("reference_decode_rate", speed, speed.mapNotNull { it.referenceSpeed }, "reference text units/s").let { it.copy(exclusions = it.exclusions + contextExclusions) },
         timing("first_visible_text", arrivals, arrivals.mapNotNull { it.firstTextMs?.toDouble() }, "ms").let { it.copy(population = "successful timing answers; streaming and buffered delivery", exclusions = it.exclusions + contextExclusions) },
         reasoningMetric,
         formatMetric,
         parseMetric,
         ratio("diagnostic_scenario_quality", graded.count { it.outcome == BenchmarkOutcome.PASSED }, graded.size, graded).copy(population = "non-intelligence evaluable scenarios; not per-question intelligence accuracy"),
-        ratio("operational_delivery_including_warmups", operational.count { it.completed && it.outputCharacters > 0 && it.terminalReceived != false && it.failureCategory != "OUTPUT_PROTOCOL_INVALID" }, operational.size, operational).copy(policyVersion = "benchmark-operational-v1", planned = runs.sumOf { maxOf(it.plannedTrials, it.samples.size) }, population = "logical cases with observed execution, including warmups; complete delivered answer, independent of correctness and native cleanup", exclusions = all.filterNot { it in operational }.groupingBy { it.failure?.code ?: it.failureCategory ?: it.outcome.name }.eachCount()),
+        ratio("operational_delivery_including_warmups", operational.count { it.completed && it.outputCharacters > 0 && it.terminalReceived != false && it.failureCategory != "OUTPUT_PROTOCOL_INVALID" }, operational.size, operational).copy(policyVersion = "benchmark-operational-v2", planned = runs.sumOf { benchmarkCoverage(it).planned }, plannedKnown = runs.all { benchmarkCoverage(it).plannedKnown }, population = "logical cases with observed execution, including warmups; complete delivered answer, independent of correctness and native cleanup", exclusions = all.filterNot { it in operational }.groupingBy { benchmarkMetricExclusion("operational_delivery_including_warmups", it) }.eachCount()),
         ratio("physical_generation_terminal_receipt", nativeExecutions.count { it.hasNativeTerminal }, nativeExecutions.size, all.filter { it.runtimeExecutions.any { receipt -> receipt.knownDispatched } }).copy(policyVersion = "benchmark-native-receipts-v1", population = "distinct native generations with confirmed native entry; all native terminal kinds count as returned, not as correct answers; physical generation count is not planned in advance", planned = 0, plannedKnown = false),
         timing("raw_first_visible_text", rawArrival, rawArrival.mapNotNull { it.firstTextMs?.toDouble() }, "ms").copy(policyVersion = "benchmark-raw-timing-v1", population = "observed non-warmup timing answers, including failed validation and partial delivery; diagnostic only"),
         timing("raw_reference_decode_rate", rawReference, rawReference.mapNotNull { it.rawReferenceSpeed }, "reference text units/s").copy(policyVersion = "benchmark-raw-timing-v1", population = "observed non-warmup streaming intervals, including failed validation and partial delivery; diagnostic only"),
@@ -116,6 +132,18 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
         reportedNativeRate("raw_reported_native_decode_rate", false),
         ratio("raw_native_decode_rate", rawNative.size, rawNative.size, rawNative.map { it.first }.distinct()).copy(policyVersion = "benchmark-raw-timing-v1", value = if (nativeDuration > 0) nativeTokens * 1000.0 / nativeDuration else null, unit = "native tokens/s", aggregation = "sum of segment tokens / sum of measured decode durations", population = "captured non-warmup native timing segments, including failed validation; model tokenizer dependent and not a normalized model score")
     ) + benchmarkEngineeringMetricResults(runs)
+}
+
+private data class BenchmarkIncidentCounts(val count: Int?, val eventIds: List<String>, val affectedCases: Int)
+
+private fun benchmarkIncidentCounts(runs: List<BenchmarkRun>): BenchmarkIncidentCounts {
+    val affected = runs.flatMap { it.samples }.filter { it.failure != null || it.failureCategory != null }
+    val events = (
+        runs.mapNotNull { run -> run.preparation?.takeIf { it.failure != null }?.let { it.failure?.eventId ?: it.eventId } } +
+            affected.mapNotNull { it.causedByEventId ?: it.failure?.eventId }
+        ).distinct().sorted()
+    val unknown = affected.any { it.causedByEventId == null && it.failure?.eventId == null }
+    return BenchmarkIncidentCounts(events.size.takeUnless { unknown }, events, affected.size)
 }
 
 internal fun benchmarkResultId(run: BenchmarkRun): String = benchmarkHash(listOf(run.profileUid, run.configKey, run.model, run.runtimeVersion, run.backend, run.accelerator, DynamicScoreEngine.cohort(run), run.scoringVersion, run.fixtureManifestHash).joinToString("|"))

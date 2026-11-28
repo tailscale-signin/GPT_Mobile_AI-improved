@@ -95,10 +95,13 @@ class ProfileRecoveryControlsTest {
         assertEquals(ProfileRecoveryKind.REASONING, profileRecoveryKind("INCOMPATIBLE_CONFIGURATION", "REASONING_OFF_UNSUPPORTED: saved mode"))
         assertEquals(ProfileRecoveryKind.REASONING, profileRecoveryKind("UNAVAILABLE", "REASONING_CAPABILITY_UNVERIFIED"))
         assertEquals(ProfileRecoveryKind.BILLING, profileRecoveryKind("BILLING_UNAVAILABLE", "provider balance"))
+        assertEquals(ProfileRecoveryKind.BILLING, profileRecoveryKind("SOURCE_PAYMENT_REQUIRED", "provider quota"))
         assertEquals(ProfileRecoveryKind.BILLING, profileRecoveryKind("INCOMPLETE", "BILLING_UNAVAILABLE"))
         assertEquals(ProfileRecoveryKind.SETTINGS, profileRecoveryKind("INCOMPLETE", "GATEWAY_REMOTE_SURFACE_NOT_ADMITTED"))
         assertEquals(ProfileRecoveryKind.NONE, profileRecoveryKind("GATEWAY_OUTCOME_UNKNOWN", "Reconcile the original command"))
         assertEquals(ProfileRecoveryKind.SETTINGS, profileRecoveryKind("REQUEST_REJECTED", "invalid configuration"))
+        assertEquals(ProfileRecoveryKind.SETTINGS, profileRecoveryKind("DISPATCH_POLICY_CHANGED", "selected profile tools changed"))
+        assertEquals(ProfileRecoveryKind.NONE, profileRecoveryKind("DNS_FAILURE", "Unrelated quoted SOURCE_PAYMENT_REQUIRED and DISPATCH_POLICY_CHANGED codes"))
         assertEquals(ProfileRecoveryKind.NONE, profileRecoveryKind("DNS_FAILURE", "DNS could not resolve"))
         assertEquals(ProfileRecoveryKind.NONE, profileRecoveryKind("INCOMPLETE", "ordinary incomplete answer"))
     }

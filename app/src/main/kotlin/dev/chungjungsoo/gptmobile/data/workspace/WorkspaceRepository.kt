@@ -391,7 +391,9 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             read = vault::read,
             omitted = omitted,
             projector = projector,
-            timings = timings
+            timings = timings,
+            compactOnOversize = recordId.startsWith("github-evidence:") &&
+                listOf(":verification_current_", ":checklist_current_", ":answer_current_").any(recordId::contains)
         )
     }
 

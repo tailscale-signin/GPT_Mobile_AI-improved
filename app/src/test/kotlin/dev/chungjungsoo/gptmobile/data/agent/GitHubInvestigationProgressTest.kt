@@ -1,10 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -27,6 +32,68 @@ class GitHubInvestigationProgressTest {
         repeat(20) { assertNull(progress.observe(exchange(it))) }
         repeat(3) { assertNull(progress.observe(exchange(19))) }
         assertNotNull(progress.observe(exchange(19)))
+    }
+
+    @Test fun distinctNativeSavedPagesAdvanceWhileIdenticalPageReplayStillStalls() {
+        val pages = (0 until 6).map { index ->
+            val fixture = GitHubSavedPageCapacityTest.Fixture("source-$index")
+            val call = requireNotNull(fixture.next(tokens = 3000))
+            val result = fixture.read(call)
+            assertFalse(result.isError)
+            assertFalse(result.dispatched)
+            AgentToolExchange(listOf(call), listOf(result))
+        }
+        assertEquals(6, pages.map { requireNotNull(it.results.single().executionReceipt)["saved_view_source_sha256"] }.toSet().size)
+        val progress = GitHubInvestigationProgress()
+        pages.forEach { assertNull("Different immutable pages are useful source progress", progress.observe(it)) }
+        repeat(3) { assertNull(progress.observe(pages.last())) }
+        assertNotNull("The same source and offset still exhaust the stale-read allowance", progress.observe(pages.last()))
+    }
+
+    @Test fun unchangedLiveStatusStillStallsDespiteNewReceiptHashes() {
+        fun status(index: Int): AgentToolExchange {
+            val call = ProviderEvent.ToolCall(
+                "status-$index",
+                "github_context",
+                buildJsonObject {
+                    put("action", "status")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                }
+            )
+            val data = buildJsonObject {
+                put("open_issue_count", 3)
+                put("observed_at_ms", index)
+            }
+            val receipt = buildJsonObject { put("source_result_sha256", index.toString(16).padStart(64, '0')) }
+            return AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Json(data), false, executionReceipt = receipt)))
+        }
+        val progress = GitHubInvestigationProgress()
+        repeat(4) { assertNull(progress.observe(status(it))) }
+        assertNotNull(progress.observe(status(4)))
+    }
+
+    @Test fun independentNativeSavedPagesRemainProgressWithoutRenewingAnUnchangedPage() {
+        val progress = GitHubInvestigationProgress()
+        val pages = (0 until 6).map { index ->
+            val views = GitHubResultViews(pageBytes = 8192)
+            val source = views.present(
+                "scope",
+                "github_context",
+                "github_context",
+                AgentToolResult("source-$index", ToolResultContent.Json(buildJsonObject { put("body", "retained source ".repeat(600) + index) }), false),
+                buildJsonObject { put("action", "status") }
+            )
+            val recipe = (source.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject
+            val call = ProviderEvent.ToolCall("page-$index", "github_context", recipe.getValue("arguments").jsonObject)
+            val result = views.read("scope", "github_context", call.name, call.arguments.getValue("view_cursor").jsonPrimitive.content, call.callId)
+            assertTrue(!result.isError && !result.dispatched)
+            assertTrue(result.executionReceipt?.get("saved_view_source_sha256") != null)
+            AgentToolExchange(listOf(call), listOf(result))
+        }
+        pages.forEach { assertNull("A distinct retained source is new evidence", progress.observe(it)) }
+        repeat(3) { assertNull(progress.observe(pages.last())) }
+        assertNotNull("The same source interval must still reach the no-progress guard", progress.observe(pages.last()))
     }
 
     @Test fun repeatedPageFailureCanReplanOnceWithoutRemovingUntriedCiReads() {

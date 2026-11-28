@@ -115,6 +115,29 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun emptyFinalizationDoesNotDiscardNonEmptyPartialTranscript() {
+        val accepted = CountDownLatch(1)
+        val decoder = FakeDecoder {
+            events(LocalSpeechEvent.Partial("recognized words"))
+            accepted.countDown()
+        }.apply { finalOnFinish = "" }
+        val capture = FakeCapture().apply { chunks.add(FloatArray(1600) { 0.1f }) }
+        val fixture = Fixture(decoder, capture = capture)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(accepted.await(3, TimeUnit.SECONDS))
+            fixture.audio.finishListening()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf("recognized words"), fixture.finals)
+            assertTrue(fixture.codes.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
     @Test fun lateSilencingDrainsCapturedAudioAndDeliversOnlyAnEditableTranscript() {
         val error = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", capturedSamples = 1600)
         val capture = FakeCapture(readFailure = error).apply { chunks.add(FloatArray(1600) { 0.1f }) }
@@ -410,6 +433,76 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun microphoneHandoffWaitsForCleanupAndDoesNotConfuseStopWithRelease() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val decoder = FakeDecoder {
+            entered.countDown()
+            assertTrue(resume.await(3, TimeUnit.SECONDS))
+        }
+        val fixture = Fixture(decoder)
+        val released = mutableListOf<Boolean>()
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(fixture.capture.started.await(3, TimeUnit.SECONDS))
+            fixture.capture.chunks.add(FloatArray(1600))
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            fixture.audio.stopCapture(released::add)
+            assertTrue(released.isEmpty())
+            assertFalse(VoiceMicrophoneLease.acquire("handoff-test"))
+            resume.countDown()
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.deadlines.single { it.first == 100L }.second()
+            assertEquals(listOf(true), released)
+            assertTrue(VoiceMicrophoneLease.acquire("handoff-test"))
+            assertTrue(fixture.capture.closed)
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            resume.countDown()
+            fixture.close()
+            VoiceMicrophoneLease.release("handoff-test")
+        }
+    }
+
+    @Test fun timedOutMicrophoneHandoffDoesNotReleaseUnconfirmedOwnership() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val decoder = FakeDecoder {
+            entered.countDown()
+            assertTrue(resume.await(3, TimeUnit.SECONDS))
+        }
+        val fixture = Fixture(decoder)
+        val released = mutableListOf<Boolean>()
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(fixture.capture.started.await(3, TimeUnit.SECONDS))
+            fixture.capture.chunks.add(FloatArray(1600))
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            assertTrue(fixture.timersReady.await(3, TimeUnit.SECONDS))
+            fixture.deadlines.clear()
+            fixture.audio.stopCapture(released::add)
+            repeat(80) {
+                val timer = requireNotNull(fixture.deadlines.poll())
+                assertEquals(100L, timer.first)
+                timer.second()
+            }
+            assertEquals(listOf(false), released)
+            assertTrue(fixture.deadlines.isEmpty())
+            assertFalse(VoiceMicrophoneLease.acquire("timed-out-handoff-test"))
+            resume.countDown()
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.audio.stopCapture(released::add)
+            assertEquals(listOf(false, true), released)
+            assertTrue(VoiceMicrophoneLease.acquire("timed-out-handoff-test"))
+        } finally {
+            resume.countDown()
+            fixture.close()
+            VoiceMicrophoneLease.release("timed-out-handoff-test")
+        }
+    }
+
     @Test fun missingModelDoesNotCreateDecoderOpenMicrophoneOrDownload() {
         val fixture = Fixture(FakeDecoder(), modelsPresent = false)
         try {
@@ -660,6 +753,330 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun timedPartialSurvivesAnEmptyFinalWithoutResettingTheAudioClock() {
+        val accepted = CountDownLatch(1)
+        val timed = VoiceRecognitionTranscript.fromWords(
+            "  recognized words  ",
+            listOf(VoiceRecognitionWord("recognized", .25, .5), VoiceRecognitionWord("words", .6, .9)),
+            0.0,
+            71,
+            4,
+            false,
+            16_000,
+            16_000
+        )
+        val decoder = FakeDecoder {
+            events(LocalSpeechEvent.Partial(timed.text, timed))
+            accepted.countDown()
+        }.apply { finalOnFinish = "" }
+        val capture = FakeCapture().apply { chunks.add(FloatArray(16_000) { .1f }) }
+        val fixture = Fixture(decoder, capture = capture)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(accepted.await(3, TimeUnit.SECONDS))
+            fixture.audio.finishListening()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf("recognized words"), fixture.finals)
+            val final = fixture.timedFinals.single()
+            assertEquals(timed.trimmed().timings, final.timings)
+            assertEquals(4_000L, final.timings.first().startFrame)
+            assertEquals(timed.streamId, final.streamId)
+            assertTrue(final.revision > timed.revision)
+            assertTrue(final.isFinal)
+            assertTrue(fixture.codes.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun staleAndForeignTypedCallbacksCannotReplaceTheCaptureOwnedFinal() {
+        val accepted = CountDownLatch(1)
+        fun timed(text: String, revision: Long, stream: Long = 71, final: Boolean = false) = VoiceRecognitionTranscript.fromTokens(
+            text, text.split(' '), listOf(.1, .3), 0.0, stream, revision, final, 16_000, 16_000
+        )
+        val current = timed("new words", 4)
+        val decoder = FakeDecoder {
+            events(LocalSpeechEvent.Partial(current.text, current))
+            val older = timed("old words", 3)
+            events(LocalSpeechEvent.Partial(older.text, older))
+            val foreign = timed("other stream", 9, stream = 72)
+            events(LocalSpeechEvent.Partial(foreign.text, foreign))
+            val staleEnd = timed("old ending", 2, final = true)
+            events(LocalSpeechEvent.Final(staleEnd.text, staleEnd))
+            accepted.countDown()
+        }.apply { finalOnFinish = "" }
+        val fixture = Fixture(decoder, capture = FakeCapture().apply { chunks.add(FloatArray(16_000) { .1f }) })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(accepted.await(3, TimeUnit.SECONDS))
+            fixture.audio.finishListening()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf("new words"), fixture.finals)
+            assertEquals(listOf(4L), fixture.timedPartials.map { it.revision })
+            val terminal = fixture.timedFinals.single()
+            assertEquals(71L, terminal.streamId)
+            assertTrue(terminal.isFinal && terminal.revision > current.revision)
+            assertTrue(fixture.codes.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun terminalFlagsOnPartialCallbacksCannotPoisonCaptureAdmission() {
+        val accepted = CountDownLatch(1)
+        val current = VoiceRecognitionTranscript.fromTokens("new words", listOf("new", "words"), listOf(.1, .3), 0.0, 71, 1, false, 16_000, 16_000)
+        val decoder = FakeDecoder {
+            events(LocalSpeechEvent.Partial(current.text, current.copy(revision = 9, isFinal = true)))
+            events(LocalSpeechEvent.Partial(current.text, current))
+            accepted.countDown()
+        }.apply { finalOnFinish = "" }
+        val fixture = Fixture(decoder, capture = FakeCapture().apply { chunks.add(FloatArray(16_000) { .1f }) })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(accepted.await(3, TimeUnit.SECONDS))
+            fixture.audio.finishListening()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf(1L), fixture.timedPartials.map { it.revision })
+            assertEquals(listOf("new words"), fixture.finals)
+            assertEquals(2L, fixture.timedFinals.single().revision)
+            assertTrue(fixture.codes.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun prewarmCoalescesRequestsWithoutMicrophonePermissionAndRetainsOneVerifiedLease() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val decoder = FakeDecoder(reusable = true, beforeStart = {
+            entered.countDown()
+            assertTrue(resume.await(3, TimeUnit.SECONDS))
+        })
+        val fixture = WarmFixture(listOf(decoder), permission = false)
+        try {
+            fixture.audio.prewarm()
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            repeat(3) { fixture.audio.prewarm() }
+            resume.countDown()
+            fixture.quiesce()
+            assertEquals(1, fixture.created.get())
+            assertEquals(1, fixture.leases.get())
+            assertEquals(0, fixture.captures.get())
+            assertEquals(1, decoder.streamReleases.get())
+            assertEquals(0, decoder.closeCount.get())
+            fixture.audio.releaseWarmModel()
+            fixture.quiesce()
+            assertEquals(0, fixture.leases.get())
+            assertEquals(1, decoder.closeCount.get())
+        } finally {
+            resume.countDown()
+            fixture.close()
+        }
+    }
+
+    @Test fun vocabularyChangeDuringPrewarmRetiresTheOldModelBeforePreparingItsReplacement() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val first = FakeDecoder(reusable = true, beforeStart = {
+            entered.countDown()
+            assertTrue(resume.await(3, TimeUnit.SECONDS))
+        })
+        val second = FakeDecoder(reusable = true)
+        val fixture = WarmFixture(listOf(first, second))
+        try {
+            fixture.audio.prewarm()
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            fixture.audio.configureVocabulary(listOf("OpenAI", "OpenAI", " GPT Mobile "))
+            resume.countDown()
+            fixture.quiesce()
+            assertEquals(1, first.closeCount.get())
+            assertEquals(0, fixture.leases.get())
+            fixture.audio.prewarm()
+            fixture.quiesce()
+            assertEquals(2, fixture.created.get())
+            assertEquals(listOf("en-US" to listOf("OpenAI", "GPT Mobile")), second.recognitionConfigurations.toList())
+            assertEquals(1, fixture.leases.get())
+            assertEquals(0, fixture.captures.get())
+        } finally {
+            resume.countDown()
+            fixture.close()
+        }
+    }
+
+    @Test fun languageVocabularyAndStyleChangesRetireIncompatibleWarmModels() {
+        val decoders = List(4) { FakeDecoder(reusable = true) }
+        val fixture = WarmFixture(decoders)
+        try {
+            fixture.audio.prewarm()
+            fixture.quiesce()
+            fixture.audio.configureVocabulary(listOf("Kotlin"))
+            fixture.quiesce()
+            fixture.audio.prewarm()
+            fixture.quiesce()
+            fixture.audio.languageTag = "en-GB"
+            fixture.quiesce()
+            fixture.audio.prewarm()
+            fixture.quiesce()
+            fixture.audio.listeningStyle = VoiceListeningStyle.QUICK
+            fixture.quiesce()
+            fixture.audio.prewarm()
+            fixture.quiesce()
+            assertEquals(4, fixture.created.get())
+            assertEquals(listOf(1, 1, 1, 0), decoders.map { it.closeCount.get() })
+            assertEquals(listOf("en-GB" to listOf("Kotlin")), decoders.last().recognitionConfigurations.toList())
+            assertEquals(listOf(VoiceListeningStyle.QUICK), decoders.last().styles.toList())
+            assertEquals(1, fixture.leases.get())
+            assertEquals(0, fixture.captures.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun unconfirmedNativeRetirementHoldsTheLeaseAndCannotRetryDestructionOrCreateACapture() {
+        for (reusable in listOf(false, true)) {
+            val decoder = FakeDecoder(closeFailure = IllegalStateException("native retirement uncertain"), reusable = reusable)
+            val fixture = WarmFixture(listOf(decoder))
+            try {
+                fixture.audio.prewarm()
+                fixture.quiesce()
+                fixture.audio.releaseWarmModel { fixture.retirementCallbacks.incrementAndGet() }
+                fixture.quiesce()
+                fixture.audio.prewarm()
+                fixture.audio.listen(fixture.listener)
+                fixture.audio.releaseWarmModel { fixture.retirementCallbacks.incrementAndGet() }
+                fixture.quiesce()
+                assertEquals(1, fixture.created.get())
+                assertEquals(1, decoder.closeCount.get())
+                assertEquals(1, fixture.leases.get())
+                assertEquals(0, fixture.captures.get())
+                assertEquals(0, fixture.retirementCallbacks.get())
+            } finally {
+                fixture.close()
+            }
+            assertEquals(1, decoder.closeCount.get())
+            assertEquals(1, fixture.leases.get())
+        }
+    }
+
+    @Test fun terminatedWorkerCannotConfirmAReleaseAfterNativeDestructionFailed() {
+        val decoder = FakeDecoder(closeFailure = IllegalStateException("native retirement uncertain"), reusable = true)
+        val fixture = WarmFixture(listOf(decoder))
+        try {
+            fixture.audio.prewarm()
+            fixture.quiesce()
+            fixture.audio.close()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.audio.releaseWarmModel { fixture.retirementCallbacks.incrementAndGet() }
+            fixture.drain()
+            assertFalse(fixture.audio.awaitClosed(0))
+            assertEquals(0, fixture.retirementCallbacks.get())
+            assertEquals(1, decoder.closeCount.get())
+            assertEquals(1, fixture.leases.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun aNewOwnerSharingAnUnconfirmedRetirementCannotLoadOrCapture() {
+        val retirement = VoiceRecognitionRetirement()
+        val decoder = FakeDecoder(closeFailure = IllegalStateException("native retirement uncertain"), reusable = true)
+        val previous = WarmFixture(listOf(decoder), retirement = retirement)
+        val replacement = WarmFixture(listOf(FakeDecoder(reusable = true)), retirement = retirement)
+        try {
+            previous.audio.prewarm()
+            previous.quiesce()
+            previous.audio.close()
+            assertTrue(previous.worker.awaitTermination(3, TimeUnit.SECONDS))
+            assertTrue(retirement.blocked)
+            replacement.audio.prewarm()
+            replacement.audio.listen(replacement.listener)
+            replacement.quiesce()
+            assertEquals(0, replacement.created.get())
+            assertEquals(0, replacement.leases.get())
+            assertEquals(0, replacement.captures.get())
+            assertEquals(1, previous.leases.get())
+            assertEquals(1, decoder.closeCount.get())
+        } finally {
+            previous.close()
+            replacement.close()
+        }
+    }
+
+    @Test fun retirementFailureWhileQueuedAtTheNativeGateBlocksPrewarmAndCapture() {
+        for (prewarm in listOf(true, false)) {
+            val retirement = VoiceRecognitionRetirement()
+            val fixture = WarmFixture(listOf(FakeDecoder(reusable = true)), retirement = retirement)
+            try {
+                VoiceNativeEngineGate.exclusive {
+                    if (prewarm) fixture.audio.prewarm() else fixture.audio.listen(fixture.listener)
+                    // The request passed its entry check while cleanup was still pending.
+                    // A failure is observed before that request can enter the native gate.
+                    retirement.block()
+                }
+                fixture.quiesce()
+                assertEquals(0, fixture.created.get())
+                assertEquals(0, fixture.leases.get())
+                assertEquals(0, fixture.captures.get())
+            } finally {
+                fixture.close()
+            }
+        }
+    }
+
+    private class WarmFixture(decoders: List<FakeDecoder>, permission: Boolean = true, retirement: VoiceRecognitionRetirement = VoiceRecognitionRetirement()) {
+        val worker = Executors.newSingleThreadExecutor()
+        val callbacks = ConcurrentLinkedQueue<() -> Unit>()
+        val created = AtomicInteger()
+        val leases = AtomicInteger()
+        val captures = AtomicInteger()
+        val retirementCallbacks = AtomicInteger()
+        val audio = MoonshineVoiceRecognizer(
+            modelsReady = {
+                leases.incrementAndGet()
+                true
+            },
+            modelDirectory = { File("verified-model") },
+            releaseModel = { leases.decrementAndGet() },
+            hasPermission = { permission },
+            post = { callbacks.add(it) },
+            schedule = { _, _ -> {} },
+            decoderFactory = { decoders[created.getAndIncrement()] },
+            captureFactory = {
+                captures.incrementAndGet()
+                FakeCapture()
+            },
+            worker = worker,
+            retirement = retirement
+        ).apply { languageTag = "en-US" }
+        val listener = object : VoiceAudio.Listener {
+            override fun ready() = Unit
+            override fun level(value: Float) = Unit
+            override fun partial(text: String) = Unit
+            override fun final(text: String) = Unit
+            override fun error(message: String) = Unit
+        }
+        fun quiesce() {
+            worker.submit {}.get(3, TimeUnit.SECONDS)
+            drain()
+        }
+        fun drain() {
+            while (true) (callbacks.poll() ?: break).invoke()
+        }
+        fun close() {
+            audio.close()
+            assertTrue(worker.awaitTermination(3, TimeUnit.SECONDS))
+        }
+    }
+
     private class Fixture(
         decoder: FakeDecoder,
         modelsPresent: Boolean = true,
@@ -674,6 +1091,8 @@ class MoonshineVoiceRecognizerTest {
         val releases = AtomicInteger()
         val finals = mutableListOf<String>()
         val partials = mutableListOf<String>()
+        val timedPartials = mutableListOf<VoiceRecognitionTranscript>()
+        val timedFinals = mutableListOf<VoiceRecognitionTranscript>()
         val errors = mutableListOf<String>()
         val retryableErrors = mutableListOf<String>()
         val retryDelays = mutableListOf<Long>()
@@ -714,6 +1133,14 @@ class MoonshineVoiceRecognizerTest {
             override fun final(text: String) {
                 finals += text
             }
+            override fun partialTranscript(transcript: VoiceRecognitionTranscript) {
+                timedPartials += transcript
+                partial(transcript.text)
+            }
+            override fun finalTranscript(transcript: VoiceRecognitionTranscript) {
+                timedFinals += transcript
+                final(transcript.text)
+            }
             override fun error(message: String) {
                 errors += message
             }
@@ -740,7 +1167,26 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
-    private class FakeDecoder(private val closeFailure: Throwable? = null, private val accept: FakeDecoder.() -> Unit = {}) : LocalSpeechDecoder {
+    private class FakeDecoder(
+        private val closeFailure: Throwable? = null,
+        private val reusable: Boolean = false,
+        private val beforeStart: () -> Unit = {},
+        private val accept: FakeDecoder.() -> Unit = {}
+    ) : LocalSpeechDecoder {
+        override val supportsReuse: Boolean get() = reusable
+        val closeCount = AtomicInteger()
+        val streamReleases = AtomicInteger()
+        val recognitionConfigurations = ConcurrentLinkedQueue<Pair<String, List<String>>>()
+        val styles = ConcurrentLinkedQueue<VoiceListeningStyle>()
+        override fun configure(style: VoiceListeningStyle) {
+            styles.add(style)
+        }
+        override fun configureRecognition(languageTag: String, vocabulary: List<String>) {
+            recognitionConfigurations.add(languageTag to vocabulary.toList())
+        }
+        override fun releaseStream() {
+            streamReleases.incrementAndGet()
+        }
         var finalOnFinish: String? = null
         lateinit var events: (LocalSpeechEvent) -> Unit
         val threads = ConcurrentLinkedQueue<Thread>()
@@ -748,6 +1194,7 @@ class MoonshineVoiceRecognizerTest {
         override fun start(directory: File, events: (LocalSpeechEvent) -> Unit) {
             threads.add(Thread.currentThread())
             this.events = events
+            beforeStart()
         }
         override fun accept(samples: FloatArray) {
             threads.add(Thread.currentThread())
@@ -759,6 +1206,7 @@ class MoonshineVoiceRecognizerTest {
         }
         override fun close() {
             threads.add(Thread.currentThread())
+            closeCount.incrementAndGet()
             closed.countDown()
             closeFailure?.let { throw it }
         }

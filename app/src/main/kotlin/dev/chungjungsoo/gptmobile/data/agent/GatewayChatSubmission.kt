@@ -42,8 +42,13 @@ class GatewayChatSubmission @Inject constructor(
     /** Null leaves the turn on its selected client inference route, before any engineering submission. */
     suspend fun submitIfSupported(request: AgentRunRequest): GatewayChatHandoff? {
         val tools = request.chatToolConfig
-        if (tools?.github != null && GitHubTaskContinuity.sessionAudit(request.userMessages.lastOrNull()?.content.orEmpty())) return null
+        if (dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(request.userMessages, tools?.voiceResponsePolicy)?.translationOnly == true) return null
         if (!chats.researchPersistenceAllowed(request.chatId)) return null
+        if (GitHubTaskContinuity.localAuditTopic(request.userMessages, tools, request.platform.uid, staged = request.stage != null) != null) {
+            // A resumed run may already belong to the Gateway even if its text now qualifies for a local report.
+            val bound = engineering.bindingHeaders(request.chatId).firstOrNull { it.request.requestId == request.runId || it.localRunId == request.runId }
+            return bound?.let { GatewayChatHandoff(it.job != null) }
+        }
         val repair = tools?.githubDraftRepair
         val context = tools?.github
         // Repair admission must reconcile its retained command before any new work,

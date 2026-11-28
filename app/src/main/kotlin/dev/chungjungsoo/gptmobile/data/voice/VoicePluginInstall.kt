@@ -297,7 +297,7 @@ internal object VoicePluginInstall {
                     .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                     .build()
             )
-            .setEstimatedNetworkBytes(LocalVoiceModelStore.TOTAL_BYTES + variant.downloadBytes + MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).downloadBytes, 0)
+            .setEstimatedNetworkBytes(LocalVoiceModelStore.TOTAL_BYTES + variant.downloadBytes + MediaPipeSpeechCatalog.model(MediaPipeSpeechCatalog.DEFAULT_ENGINE).downloadBytes, 0)
             .setUserInitiated(true)
             .setExtras(
                 PersistableBundle().apply {
@@ -362,7 +362,7 @@ internal object VoicePluginInstall {
         val directory = File(context.noBackupFilesDir, "voice-models")
         val moonshine = LocalVoiceModelStore(directory, sourceFactory)
         val kokoro = KokoroModelPack.store(directory, sourceFactory, variant)
-        val streaming = MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).localStore(directory, sourceFactory)
+        val streaming = MediaPipeSpeechCatalog.model(MediaPipeSpeechCatalog.DEFAULT_ENGINE).localStore(directory, sourceFactory)
         if (!attempt.acquireTransfer(owner)) return@coroutineScope false
         val observer = launch {
             combine(moonshine.state, kokoro.state, streaming.state) { recognition, playback, stream ->
@@ -402,7 +402,7 @@ internal object VoicePluginInstall {
     }
 
     internal fun transferObservation(recognition: LocalVoiceModelState, playback: LocalVoiceModelState, streaming: LocalVoiceModelState): VoiceInstallTransfer? {
-        val models = listOf("MOONSHINE" to recognition, "LITERT_KOKORO" to streaming, "KOKORO" to playback)
+        val models = listOf("MOONSHINE" to recognition, "POCKET" to streaming, "KOKORO" to playback)
         val selected = models.firstOrNull { it.second.status == LocalVoiceModelStatus.FAILED }
             ?: models.firstOrNull { it.second.status == LocalVoiceModelStatus.DOWNLOADING }
             ?: models.firstOrNull { it.second.status == LocalVoiceModelStatus.CHECKING }

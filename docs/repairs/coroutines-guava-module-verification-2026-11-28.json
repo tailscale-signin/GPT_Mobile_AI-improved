@@ -1,0 +1,156 @@
+{
+  "schema": "publisher-verified-dependency-repair-v1",
+  "recorded_at_utc": "2026-11-28T04:51:09.390760+00:00",
+  "failing_head_sha": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+  "observed_pr_merge_sha": "56dd23af513bf914430651f9bbb0206006a6b06c",
+  "root_cause": {
+    "task": ":core-domain:compileKotlinJvm",
+    "configuration": ":core-domain:detachedConfiguration1",
+    "exception": "DependencyVerificationException",
+    "repository": "PublishedDependencyRecovery",
+    "reason": "Missing exact verification entry for a transitive Gradle module descriptor; observed during source-generation stages before application compilation or tests."
+  },
+  "artifact": {
+    "group": "org.jetbrains.kotlinx",
+    "name": "kotlinx-coroutines-guava",
+    "version": "1.8.0",
+    "file": "kotlinx-coroutines-guava-1.8.0.module",
+    "bytes": 3867,
+    "sha256": "da3a1b4f5406c60b2e203ceec0813f1caef1017842d965aeb7f60a35d73a21e5"
+  },
+  "publisher_verification": {
+    "sources": [
+      "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module",
+      "https://maven-central.storage-download.googleapis.com/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module"
+    ],
+    "method": "Fetched both HTTPS publisher/recovery repository URLs independently; parsed component identity and compared byte count and computed SHA-256. Existing Gradle cache bytes matched both.",
+    "publisher_mirror_cache_agree": true
+  },
+  "verified_failure_jobs": [
+    {
+      "workflow": "Marketplace contracts",
+      "run_id": 46108858890,
+      "job_id": 140867674406,
+      "failed_step": "Generate production Room sources in a separate process",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108858890/job/140867674406",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "GenieX preview validation",
+      "run_id": 46108858899,
+      "job_id": 140867719804,
+      "failed_step": "Generate isolated preview sources in a separate process",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108858899/job/140867719804",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "Minified native memory smoke",
+      "run_id": 46108859075,
+      "job_id": 140867712534,
+      "failed_step": "Generate native test app sources in a fresh process",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108859075/job/140867712534",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "Diagnostic audit validation",
+      "run_id": 46108859001,
+      "job_id": 140867677821,
+      "failed_step": "Generate Room sources in a separate process",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108859001/job/140867677821",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "Publish Signed Release",
+      "run_id": 46108859003,
+      "job_id": 140867728169,
+      "failed_step": "Generate debug KSP sources",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108859003/job/140867728169",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "GitHub build downloads",
+      "run_id": 46108858998,
+      "job_id": 140867722550,
+      "failed_step": "Generate APK catalog application sources",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108858998/job/140867722550",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "v0.9.50 Android acceptance / API 34",
+      "run_id": 46108858875,
+      "job_id": 140868012045,
+      "failed_step": "Generate device regression KSP sources",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108858875/job/140868012045",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "v0.9.50 Android acceptance / API 36",
+      "run_id": 46108858875,
+      "job_id": 140868012292,
+      "failed_step": "Generate device regression KSP sources",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108858875/job/140868012292",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "CodeQL Advanced",
+      "run_id": 46108858953,
+      "job_id": 140867749270,
+      "failed_step": "Generate production sources for CodeQL",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108858953/job/140867749270",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    },
+    {
+      "workflow": "UI Review APK",
+      "run_id": 46108858983,
+      "job_id": 140868476688,
+      "failed_step": "Generate review Room sources",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46108858983/job/140868476688",
+      "same_artifact_and_exception_confirmed_in_job_log": true
+    }
+  ],
+  "change": {
+    "file": "gradle/verification-metadata.xml",
+    "added_components": 1,
+    "added_artifacts": 1,
+    "checksum_origin": "Matching Maven Central and Google Central mirror bytes",
+    "new_module_checksum_only": true,
+    "existing_components_unchanged": 1089,
+    "verification_configuration_unchanged": true,
+    "selected_locked_guava_version": "1.11.0",
+    "unchanged_lockfile_sha256": {
+      "app/release.lockfile": "be77ee5f449c1f08bcd7b4683ea0608ca29008347c64edab009e89755da3633c",
+      "app/geniex-release.lockfile": "fc17501432744bea0609d0130a7af423a5ef60a88a82d65ac5fb1e8e0509fcd0"
+    },
+    "resulting_verification_metadata_sha256": "57b1a7777a6abba9a825969a318d1cac424967fa2b386951486be7deb2a1a157"
+  },
+  "validation": [
+    {
+      "check": "XML semantic policy comparison against HEAD",
+      "result": "PASS",
+      "assertions": [
+        "Only the named component/artifact checksum was added",
+        "All 1089 prior components and the complete verification configuration are unchanged",
+        "Both release lockfiles remain byte-identical and select guava 1.11.0"
+      ]
+    },
+    {
+      "command": "git diff --check -- gradle/verification-metadata.xml",
+      "result": "PASS"
+    },
+    {
+      "command": "./gradlew :core-domain:compileKotlinJvm --offline --no-daemon --max-workers=1 --console=plain -Dorg.gradle.jvmargs=\"-Xmx1536m -XX:MaxMetaspaceSize=512m -XX:+UseG1GC -Dfile.encoding=UTF-8\"",
+      "environment": "ANDROID_HOME set to the existing workspace SDK; no repository local.properties edit",
+      "result": "PASS",
+      "elapsed_seconds_reported_by_gradle": 16,
+      "actionable_tasks": 2,
+      "executed_tasks": 2,
+      "additional_unverified_artifacts": 0,
+      "note": "The first invocation stopped at configuration because ANDROID_HOME was unset; the same bounded task passed after selecting the existing SDK."
+    }
+  ],
+  "limits": [
+    "This resolves the observed metadata admission failure; it does not claim successful application Kotlin compilation, unit tests, Android instrumentation, release packaging or publication.",
+    "No verification bypass, wildcard trust, lock change, checksum regeneration, CI cancellation or rerun was performed.",
+    "Required exact-head workflows must qualify the corrective revision after it is pushed."
+  ]
+}

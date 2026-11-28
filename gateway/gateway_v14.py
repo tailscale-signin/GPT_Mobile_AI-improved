@@ -205,6 +205,10 @@ async def chat(request: Request):
         if request_id and len(request_id) <= 256:
             error["request_id"] = request_id
         return JSONResponse({"error": error}, status_code=status)
+
+    async def recorded_rejection(error, status):
+        from v14.generation_outcomes import rejected_generation
+        return await rejected_generation(runtime, admission_context.get() if context_token is not None else None, error, status)
     try:
         payload = await request.json()
         if isinstance(payload, dict) and not payload.get('model') and getattr(runtime, 'gateway_default_model', ''):
@@ -264,11 +268,12 @@ async def chat(request: Request):
         response.headers['Access-Control-Expose-Headers'] = response.headers.get('Access-Control-Expose-Headers', '') + ', X-Gateway-ID, X-Gateway-Principal-ID, X-Gateway-Conversation-ID, X-Gateway-Command-ID, X-Gateway-Detach-Safe'
         return response
     except ExecutionBindingError as error:
-        return rejected(error.code, str(error), error.status)
-    except QueueFull:
-        return JSONResponse({'error': {'code': 'queue_full', 'retryable': True, 'dispatch_state': 'not_dispatched'}}, status_code=429)
+        response = rejected(error.code, str(error), error.status)
+        return await recorded_rejection(json.loads(response.body)['error'], error.status)
+    except QueueFull as error:
+        return await recorded_rejection(dict(error.payload(), dispatch_state='not_dispatched'), 429)
     except ConversationConflict as error:
-        return JSONResponse({'error': error.error_payload()}, status_code=409)
+        return await recorded_rejection(error.error_payload(), 409)
     except DurableCommitError:
         return JSONResponse({"error": {"code": "durable_commit_failed", "failureCode": "persistence_failed",
                                          "message": "The gateway could not durably commit this run.", "retryable": True}}, status_code=503)
@@ -292,7 +297,10 @@ async def chat(request: Request):
             stage = "model_execution"
         elif exc.code.startswith(("client_tool_", "terminal_job_")):
             stage = "tool_continuation"
-        return rejected(exc.code, str(exc), exc.status, details=exc.details)
+        response = rejected(exc.code, str(exc), exc.status, details=exc.details)
+        if exc.status in {400, 403, 409, 412, 422, 429}:
+            return await recorded_rejection(json.loads(response.body)['error'], exc.status)
+        return response
     except ValueError:
         # Unknown exception text may contain prompt content. Preserve location and
         # identifiers without exposing raw input or misclassifying it as verification.

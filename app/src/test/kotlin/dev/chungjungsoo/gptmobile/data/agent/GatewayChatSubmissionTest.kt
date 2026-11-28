@@ -65,6 +65,41 @@ class GatewayChatSubmissionTest {
         coEvery { workspace.defaultBranch(context) } returns "trunk"
     }
 
+    @Test fun dictatedCommandsInTranslationModeStayOnTheInferenceRoute() = runTest {
+        val tools = requireNotNull(request.chatToolConfig).withVoicePolicy(
+            dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.forLanguage("fr", translate = true)
+        )
+        assertNull(service.submitIfSupported(request.copy(chatToolConfig = tools)))
+        coVerify(exactly = 0) { engineering.bindings(any()) }
+    }
+
+    @Test fun persistedTranslationMetadataBlocksEngineeringEvenWithoutTheConfigFlag() = runTest {
+        val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.TRANSLATE_FRENCH
+        val source = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.attach(request.userMessages.single(), policy)
+        assertNull(service.submitIfSupported(request.copy(userMessages = listOf(source))))
+        coVerify(exactly = 0) { engineering.bindings(any()) }
+        coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
+        coVerify(exactly = 0) { chats.researchPersistenceAllowed(any()) }
+    }
+
+    @Test fun auditFollowUpReconcilesOnlyItsOwnSavedCommandBeforeLocalReporting() = runTest {
+        val topic = request.userMessages.single().copy(content = "Audit this GitHub session")
+        val followUp = topic.copy(id = topic.id + 1, content = "Please analyze and report.")
+        val report = request.copy(userMessages = listOf(topic, followUp))
+        coEvery { chats.researchPersistenceAllowed(4) } returns true
+        coEvery { engineering.bindingHeaders(4) } returns emptyList()
+        assertNull(service.submitIfSupported(report))
+        coEvery { engineering.bindingHeaders(4) } returns listOf(binding.copy(localRunId = "another", request = binding.request.copy(requestId = "another")))
+        assertNull(service.submitIfSupported(report))
+        coEvery { engineering.bindingHeaders(4) } returns listOf(binding)
+        assertFalse(requireNotNull(service.submitIfSupported(report)).accepted)
+        val job = GatewayEngineeringJob("job", "owner/repo", "fix/selected", state = "RUNNING", revision = 1, createdAt = 1.0, deadline = 2.0, message = "Working")
+        coEvery { engineering.bindingHeaders(4) } returns listOf(binding.copy(job = job))
+        assertTrue(requireNotNull(service.submitIfSupported(report)).accepted)
+        coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
+        coVerify(exactly = 0) { engineering.submitBoundTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
     @Test
     fun normalSendPreservesSelectedModelDestinationAndOriginalTurnIds() = runTest {
         supported()

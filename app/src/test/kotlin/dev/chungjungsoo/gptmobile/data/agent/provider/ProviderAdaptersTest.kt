@@ -345,19 +345,27 @@ class ProviderAdaptersTest {
     }
 
     @Test fun githubClaimExtractionSendsStrictSchemaAndUsesLowAdvertisedReasoning() = runBlocking {
-        OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem("audit/claim-extraction", supportedParameters = listOf("reasoning"))))
+        val unspecified = OpenRouterModelItem("audit/claim-unspecified", supportedParameters = listOf("reasoning"))
+        val low = unspecified.copy(
+            id = "audit/claim-low",
+            reasoning = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoningCapabilities(supportedEfforts = listOf("high", "low"), defaultEffort = "high")
+        )
+        OpenRouterCatalogLimits.remember(listOf(unspecified, low))
         val schema = """{"type":"json_schema","json_schema":{"name":"github_evidence_claims","strict":true,"schema":{"type":"object","properties":{"claims":{"type":"array","items":{"type":"string"}}},"required":["claims"],"additionalProperties":false}}}"""
-        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
-        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
-            .openSession(
-                turns(),
-                platform(ClientType.OPENROUTER).copy(apiUrl = "https://openrouter.ai/api/v1", model = "audit/claim-extraction", reasoning = true),
-                RequestConstraints(finalResponseSchemaJson = schema, requestRole = "github-claim-extraction")
-            )
-            .streamRound(emptyList(), emptyList()).toList()
-        val request = api.chatRequests.single()
-        assertEquals(NetworkClient.json.parseToJsonElement(schema).jsonObject, request.responseFormat)
-        assertEquals("low", request.reasoning?.effort)
+        for ((model, effort) in listOf(unspecified to null, low to "low")) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(
+                    turns(),
+                    platform(ClientType.OPENROUTER).copy(apiUrl = "https://openrouter.ai/api/v1", model = model.id, reasoning = true),
+                    RequestConstraints(finalResponseSchemaJson = schema, requestRole = "github-claim-extraction")
+                )
+                .streamRound(emptyList(), emptyList()).toList()
+            val request = api.chatRequests.single()
+            assertEquals(NetworkClient.json.parseToJsonElement(schema).jsonObject, request.responseFormat)
+            assertEquals(model.id, request.model)
+            assertEquals(effort, request.reasoning?.effort)
+        }
     }
 
     @Test fun recordedReasoningOnlyRepairUsesSupportedLowEffortWithoutInventingANumericReasoningBudget() = runBlocking {
@@ -761,7 +769,7 @@ class ProviderAdaptersTest {
     }
 
     @Test fun gatewayFinalizationPreservesFailedResultIdsWithoutAdvertisingTools() = runBlocking {
-        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "saved"))), emptyFlow())))
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "saved", transportVerified = true))), emptyFlow())))
         val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA))
         session.streamRound(listOf(definition), emptyList()).toList()
         session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result.copy(isError = true))))).toList()
@@ -2102,7 +2110,7 @@ class ProviderAdaptersTest {
             val api = FakeOpenAIAPI(
                 chatRounds = ArrayDeque(
                     listOf(
-                        flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "job-123"))),
+                        flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "job-123", transportVerified = true))),
                         emptyFlow()
                     )
                 )
@@ -2165,6 +2173,31 @@ class ProviderAdaptersTest {
         assertNull(RequestConstraints(restoredGatewayJob = binding).forRole("github-review").restoredGatewayJob)
     }
 
+    @Test fun unverifiedGatewayFramesCannotReplaceTheRestoredOrAuthenticatedContinuationHeader() = runBlocking {
+        val profile = platform(ClientType.LLAMA)
+        val saved = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobResult(
+            "saved-job",
+            "waiting_for_client_tool",
+            job = dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySavedJob(model = profile.model, jobId = "saved-job", pendingClientToolCallIds = listOf(call.callId)),
+            result = ChatCompletionChunk(model = profile.model, choices = listOf(Choice(message = Delta(toolCalls = listOf(ChatToolCallDelta(id = call.callId, function = ChatFunctionDelta(name = call.name, arguments = call.arguments.toString())))))))
+        )
+        val restored = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayContinuationBinding.verified(profile.uid, profile.apiUrl, profile.model, "saved-job", saved)
+        for (binding in listOf(null, restored)) {
+            val observed = listOfNotNull(
+                if (binding == null) ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "verified-job", transportVerified = true)) else null,
+                ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "unverified-body")),
+                ChatCompletionChunk(gatewayProgress = dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress(jobId = "unverified-progress"))
+            )
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(*observed.toTypedArray()), emptyFlow())))
+            val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile, RequestConstraints(restoredGatewayJob = binding, requestRole = "primary"))
+            val pending = listOf(AgentToolExchange(listOf(call), listOf(result)))
+            session.streamRound(listOf(definition), if (binding == null) emptyList() else pending).toList()
+            session.streamRound(emptyList(), pending).toList()
+            assertEquals(if (binding == null) "verified-job" else "saved-job", api.configs.last().extraHeaders["X-Gateway-Job-ID"])
+        }
+    }
+
     @Test fun gatewayToolImagesKeepTheirBytesBeforeTheExactPendingResultSuffix() = runBlocking {
         val imageUrl = "data:image/png;base64,AAECAw=="
         val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
@@ -2219,7 +2252,7 @@ class ProviderAdaptersTest {
         val original = turns().single().copy(userMessage = MessageV2(content = "Check the repository", platformType = null), isCurrentTurn = false)
         val continuation = turns().single().copy(userMessage = MessageV2(content = "Continue unfinished work", platformType = null))
         for (isError in listOf(false, true)) {
-            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow(), flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "new-job"))), emptyFlow())))
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow(), flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "new-job", transportVerified = true))), emptyFlow())))
             val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
                 .openSession(listOf(original, continuation), platform(ClientType.LLAMA), RequestConstraints(gatewayNewStageAfterTerminal = true, lockSelectedRoute = true))
             val retained = AgentToolExchange(listOf(call), listOf(result.copy(content = ToolResultContent.Text(if (isError) "TOOL_FAILED: retained failure" else "retained success"), isError = isError)))

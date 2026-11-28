@@ -8,6 +8,35 @@ import kotlinx.serialization.json.put
 
 /** Bounded excerpts with an exact continuation, including a line longer than one page. */
 internal object GitHubCiLogPage {
+    private val failureMarkers = listOf(
+        Regex("""(?i)\bHTTP/(?:1\.[01]|2|3)\s+(?:429|5\d\d)\b"""),
+        Regex("""(?i)Each download failed|Could not resolve host|No space left on device|OutOfMemoryError"""),
+        Regex("""(?i)Execution failed for task|Unresolved reference|AssertionError|CMake Error at"""),
+        Regex("""##\[error\]""")
+    )
+
+    /** A few exact redacted lines can identify a failure past the sequential page boundary. */
+    private fun diagnosticExcerpts(lines: List<String>, first: Int, last: Int, budget: Int): List<JsonObject> {
+        if (budget < 256 || first > last) return emptyList()
+        var remaining = minOf(2048, budget / 4)
+        val selected = linkedSetOf<Int>()
+        for (marker in failureMarkers) {
+            val index = (first..last).firstOrNull { marker.containsMatchIn(lines[it - 1]) } ?: continue
+            selected.add(index)
+        }
+        return selected.sorted().mapNotNull { line ->
+            val text = lines[line - 1]
+            val bytes = text.encodeToByteArray().size
+            if (bytes + 1 > remaining) return@mapNotNull null
+            remaining -= bytes + 1
+            buildJsonObject {
+                put("line", line)
+                put("start_offset", 0)
+                put("text", text)
+            }
+        }
+    }
+
     fun render(log: GitHubCiLogReader.Log, args: JsonObject, byteBudget: Int = 24 * 1024): JsonObject {
         fun number(key: String, default: Int) = (args[key] as? JsonPrimitive)?.content?.toIntOrNull() ?: default
         val start = number("start_line", 1)
@@ -19,7 +48,8 @@ internal object GitHubCiLogPage {
         require(offset == 0 || start <= lines.size && offset <= lines[start - 1].length) { "Log offset is outside the requested line." }
         var line = start
         var nextOffset = offset
-        var remaining = byteBudget
+        val highlights = diagnosticExcerpts(lines, if (offset > 0) start + 1 else start, minOf(end, lines.size), byteBudget)
+        var remaining = byteBudget - highlights.sumOf { (it.getValue("text") as JsonPrimitive).content.encodeToByteArray().size + 1 }
         val rows = mutableListOf<JsonObject>()
         while (line <= minOf(end, lines.size)) {
             val source = lines[line - 1]
@@ -48,13 +78,14 @@ internal object GitHubCiLogPage {
             put("truncated", !log.complete)
             put("total_lines", lines.size)
             GitHubCiSizeGate.fromExcerpts(JsonArray(rows))?.let { put("apk_size_failure", it) }
+            if (highlights.isNotEmpty()) put("diagnostic_excerpts", JsonArray(highlights))
             put("excerpts", JsonArray(rows))
             put("has_more", hasMore)
             if (hasMore) {
                 put(
                     "continuation",
                     buildJsonObject {
-                        listOf("owner", "repo", "job_id", "run_id", "expected_head_sha", "end_line").forEach { key -> args[key]?.let { put(key, it) } }
+                        listOf("owner", "repo", "job_id", "run_id", "run_attempt", "expected_head_sha", "end_line").forEach { key -> args[key]?.let { put(key, it) } }
                         put("action", "get_job_logs")
                         put("start_line", line)
                         put("start_offset", nextOffset)

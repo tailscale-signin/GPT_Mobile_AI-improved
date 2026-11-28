@@ -89,6 +89,21 @@ class IssueReportingConfigurationTest(unittest.TestCase):
         readiness["reportDiagnosticFeatures"].append(feature)
         check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
 
+    def test_compiled_pocket_and_its_pack_require_more_than_legacy_streaming_support(self):
+        feature = "VOICE_POCKET_COMPILED_EVIDENCE_V1"
+        self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+        self.assertIn("VOICE_STREAMING_BACKEND_EVIDENCE_V1", readiness["reportDiagnosticFeatures"])
+        self.assertIn("VOICE_STREAMING_INSTALL_EVIDENCE_V1", readiness["reportDiagnosticFeatures"])
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append(feature)
+        body = json.dumps(readiness, separators=(",", ":")).encode()
+        self.assertLessEqual(len(body), MAX_READINESS_BYTES)
+        check_readiness("https://reports.project.org", lambda _: body)
+
     def test_native_route_supports_builds_without_an_invented_service(self):
         self.assertEqual({"nativeGitHub": True, "reportingService": False}, validate("", "true"))
 
@@ -188,7 +203,7 @@ class IssueReportingConfigurationTest(unittest.TestCase):
 
     def test_current_deployment_requires_strict_protocol_two_and_every_required_feature(self):
         self.assertTrue({"TOOL_REPEAT_ADMISSION_EVIDENCE_V1", "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1",
-                         "ACCEPTANCE_OBSERVATION_CAUSES_V1", "ACCEPTANCE_EMPTY_EXPLANATION_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1"} <= REQUIRED_DIAGNOSTIC_FEATURES)
+                         "ACCEPTANCE_OBSERVATION_CAUSES_V1", "ACCEPTANCE_EMPTY_EXPLANATION_V1", "GITHUB_ISSUE_INTAKE_EVIDENCE_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1"} <= REQUIRED_DIAGNOSTIC_FEATURES)
         ready = {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
                  "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)}
         for version in (None, True, False, "2", 2.0, [], {}, -1, 0, 1):

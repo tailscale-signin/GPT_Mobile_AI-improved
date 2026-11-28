@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "startingHead": "3b08292a3e915fb7c43045a3fb5fc810e4184be0",
+  "intent": "Correct the Gateway-backed GitHub failures captured on Android build 152 and verify the repairs on the current PR.",
+  "task": "gateway-github-diagnostics-2026-11-26",
+  "state": "READY_FOR_REVIEW",
+  "capture": {
+    "androidVersion": "0.9.66.18",
+    "androidBuild": 152,
+    "androidSource": "7e119ed1f3e42bbfdb98dd1a531a68d14f98a7fc",
+    "reportedGatewayVersion": "18.1.4",
+    "gatewayRuns": 9,
+    "availabilityProbesOnline": 4,
+    "verifiedRouteContextTokens": 5632
+  },
+  "checkpoints": [
+    {
+      "state": "INTAKE",
+      "sourceSha": "3b08292a3e915fb7c43045a3fb5fc810e4184be0",
+      "details": "Reviewed nine Gateway-backed runs and their corresponding issue reports. The single interrupted capabilities GET completed on its first retry with HTTP 200."
+    },
+    {
+      "state": "RECONCILED",
+      "sourceSha": "b36811f92397bf4a80285aed4ba41cde5fb55c18",
+      "details": "Included the concurrent issue-intake and voice-controls changes on PR 2651. Raw diagnostics and task content are excluded from the repository."
+    }
+  ],
+  "findings": [
+    {
+      "issues": [
+        2681,
+        2683,
+        2685
+      ],
+      "cause": "The chat-created provider adapter could not load the saved Llama reasoning preference. Auto fell through to the legacy disabled Boolean before GitHub preflight.",
+      "change": "Pass the settings repository to the shared adapter. Per-chat overrides and strict explicit-Off capability checks still apply."
+    },
+    {
+      "issues": [
+        2682
+      ],
+      "cause": "A scoped CI status request pinned the entire CI tool definition. Required schemas used 3176 estimated tokens against a 2766-token allowance.",
+      "change": "Present the runs action for this status request. Keep the selected connection and revocation checks, with the full contract available through discovery."
+    },
+    {
+      "issues": [
+        2676,
+        2677,
+        2678
+      ],
+      "cause": "Continue restored the accepted work but applied the Combined frozen-input rule to the full receipt projection.",
+      "change": "Use the actual stage instructions and route allowance to construct the continuation. Keep the exact accepted request and newest instruction, verified ownership, selectors and all stored receipts. Fit complete evidence rows into the prompt. An oversized mandatory request receives a typed capacity error."
+    },
+    {
+      "issues": [
+        2672,
+        2674
+      ],
+      "cause": "A successful directory lookup could displace an authorized read schema, permanently blocking the remaining checklist after three of four criteria passed.",
+      "change": "Allow one exact schema request after a broad lookup or a context exclusion. Reopen a displaced schema after a different successful authorized read. Bind the new discovery ID to that progress and preserve the shared call budget and replay restrictions."
+    }
+  ],
+  "verification": {
+    "privateArchiveReplay": {
+      "retainedReceipts": 38,
+      "oldLedgerEstimatedTextTokens": 6329,
+      "projectedLedgerEstimatedTextTokens": 557,
+      "routeContextTokens": 5632,
+      "trials": [
+        {
+          "outputTokens": 1215,
+          "estimatedWireInputPlusSafetyAndOutput": 5280
+        },
+        {
+          "outputTokens": 1283,
+          "estimatedWireInputPlusSafetyAndOutput": 5348
+        },
+        {
+          "outputTokens": 1292,
+          "estimatedWireInputPlusSafetyAndOutput": 5357
+        }
+      ],
+      "candidateReads": 19,
+      "eligibleForExactSchemaDiscovery": 19,
+      "scope": "Local reconstruction using the archived task, verdict, tool definitions, run-specific settings and receipt identities. No inference, tool dispatch or assertion of completed acceptance criteria."
+    },
+    "gatewayHostSuite": {
+      "pythonTests": 2271,
+      "skipped": 40,
+      "failures": 0,
+      "nodeTestsPassed": 7
+    },
+    "repositoryFastGate": {
+      "hostTests": 848,
+      "skipped": 1,
+      "failures": 0
+    },
+    "androidValidation": "Targeted Kotlin/JVM compilation and regressions use the changed branch sources and retained app dependencies. A full local Android Gradle test run stopped during build preparation when the daemon exited. Physical Android-to-Windows inference remains unverified.",
+    "kotlinJvm": {
+      "testsPassed": 77,
+      "testsFailed": 0,
+      "scope": "75 checked-in tests and one archive replay ran in the focused suite. A separate ChatRepositoryImpl test exercised Auto and the explicit per-chat Off override through the normal chat entry point."
+    }
+  }
+}

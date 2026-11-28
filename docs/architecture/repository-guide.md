@@ -69,7 +69,14 @@ file; Repomix accepts one selected range per path inside its existing sandbox.
 
 ## GitHub engineering intelligence
 
-GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The chat header keeps the branch visible alongside live progress, and its actions open repository files, checks, the map, task details or staged changes as they become available.
+The [out-of-box intelligence design](github-out-of-box-intelligence.md) records
+the first-use contract, default policy, context allocation, recovery behavior and
+measurement boundaries. A sole eligible GitHub connection opens directly. When
+several accounts are available, new chats require an explicit account/host
+selection. A lost or disabled selection cannot fall through to another account;
+saved conversations keep their existing connection binding.
+
+GitHub chat opens on the selected repository and branch. The empty composer offers editable starting questions. The expanded chat header shows the branch and live progress, with actions for repository files, checks, maps, task details and staged changes. Its saved collapse preference removes all header content except a 48 dp expand arrow; hidden controls leave touch and accessibility traversal. Header changes do not refresh the repository or restart generation.
 
 A selected GitHub plugin in ordinary chat and the dedicated GitHub screen use
 the same request-scoped planning policy for repository work. For example,
@@ -95,16 +102,30 @@ executor.
 | Verify and answer | The evidence book records tool results and outstanding acceptance criteria. Its next-action policy guides the next read or recovery. The final answer identifies what ran and which observations or prerequisites are still missing. |
 
 Gateway engineering is selected automatically when the saved private gateway
-confirms support for durable engineering jobs. The host admits new jobs by
-default for verified owners, including owners migrated from the old implicit
-off setting. An explicit host maintenance pause still controls new jobs, and
-revocation still removes access. In an eligible saved GitHub chat, an implementation
+confirms support for durable engineering jobs. Engineering is built into the
+Gateway experience; the old feature toggle and persistent chat control card
+are removed. Verified owner grants, repository scope, revocation and runtime
+readiness still govern admission, and individual jobs remain cancellable.
+In an eligible saved GitHub chat, an implementation
 request starts a host job automatically. Reads and planning use the selected client
 profile, so a direct lookup can finish without creating a job. Either side can reconnect to an accepted job
 using its saved identity. Android checks the selected model before dispatch
 and can wake a sleeping model on that same route.
 
 Fresh profiles use adaptive budgeting and task context, with evidence-based progress and next-action selection enabled. Saved overrides retain their settings. Direct requests for issues, pull requests, branches, commits, workflows, runs, releases and tags start with the matching read. Compound tasks use the broader engineering planner. Source caching and sharing with another model follow the connection and profile settings.
+
+New Gateway API admissions also default to evidence-guided next actions. Retained
+jobs, rejected command identities and continuations keep their accepted policy.
+Copilot is enabled by default for a correctly bound conversation, with a
+versioned one-time migration and persistent later off choices. Its previews name
+the requested purpose and observed phase; enablement alone cannot establish
+task acceptance, account eligibility or remote completion.
+
+The Windows Jobs view exposes scoped pages of retained work, authenticated local
+supervisor cancellation and reversible removal of confirmed terminal entries.
+Pending cancellation remains visible, original evidence stays retained and
+terminal failures do not occupy the open-job count. Scheduler admission failures
+release only their own acquired slot or queued waiter.
 
 Numbered follow-ups use the current workspace and the immediately preceding admitted read to resolve issue or pull-request references. Ambiguous numbers prompt for the record type. Requests for a previous report retain its original evidence scope. Source citations use the selected connection’s web origin, the checked revision, and the quoted line range.
 
@@ -124,6 +145,11 @@ The execution loop uses unresolved requirements and their dependencies to select
 the next authorized tool. It preserves citations when it changes strategy.
 Context selection prioritizes instructions, pending tool results and relevant
 pinned evidence. A resumed task retrieves its canonical checkpoint for that chat.
+Optional engineering memory retains request/decision capture but can render at
+most a quarter of the residual repository allowance. Source preparation receives
+the actual remaining tokens. The bounded projection keeps source identity and
+whole lines, reports omissions and defers a requested line that cannot fit; it
+does not fetch optional source when no useful allowance remains.
 
 To let another model investigate a stalled requirement, choose a recovery
 profile in the primary profile's GitHub settings. It can select one scoped
@@ -245,6 +271,8 @@ require actual content-bound receipts.
 
 ## Voice and captions
 
+The [streaming recognition and input timing guide](streaming-recognition-and-timing-2026-11-28.md) maps Moonshine Streaming, Zipformer and Nemotron model packs, CPU/GPU/NPU execution, installation, retirement, caption timing, translation routing and their behavior regressions. Its source-bound receipts distinguish implementation and host checks from physical-device qualification.
+
 Speech generation, accepted PCM, presented audio and visible captions are separate
 stages. Caption position follows presented audio and the active reply's identity.
 Preserve cancellation, replay ownership, route changes and buffering when changing
@@ -275,7 +303,49 @@ Read `.github/instructions/ai-engineering.md` and `docs/ci-cd/modernization.md`.
 Results belong to their actual source and environment. A passing subset does not
 qualify unexecuted checks. Device and live-provider results stay distinct.
 
+## Unified conversation and intelligence lifecycle
+
+GitHub chat admits repository context according to the actual request. General
+questions and web-only research use their authorized normal capabilities without
+unnecessary repository calls. Mixed research and engineering retain the selected
+repository scope. A later implementation request can reuse verified public-source
+findings from the same persisted research session, with their original capture
+identity and current compatibility checks.
+
+`UniversalToolRegistry` persists the current authorized catalog in the existing
+encrypted state store and restores exact schema-cost estimates during local
+readiness preparation. The resolver still checks live profile, connection and
+privacy policy. The full host catalog remains separate from the model-facing
+progressive tool selection; a cached schema never grants execution permission.
+
+Choice prompts persist their original task/profile/workspace identity before
+presentation. Waiting parks the original invocation and releases its model
+worker. Resume restores that invocation; duplicate taps cannot execute it twice.
+Relative task allowances exclude durable decision-wait intervals, while explicit
+absolute deadlines retain their wall-clock meaning. Interrupted runs expose the
+existing checkpoint/job recovery path even if process death left no error text.
+
+The Gateway maintains registered branch indexes between conversations, while the
+phone reconciles structural manifests on connection and background synchronization.
+Compressed delta pages are staged, bounded and verified before an atomic snapshot
+replacement. Offline and incomplete snapshots retain honest freshness/coverage
+labels. Direct phone indexing discovers the tree and essential files first,
+reuses immutable blobs and continues bounded partial discovery as needed.
+
+Implementation boundaries and qualification evidence are recorded in
+[the unified upgrade record](../repairs/unified-intelligence-interface-2026-11-27.md).
+
 ## Benchmarks
+
+The default Android **AI Profile Benchmark** offers one **Run Benchmark** action
+for the selected profile. Standard combines reasoning, instructions, research,
+tool contracts, offline GitHub engineering and recovery fixtures. Its nine
+weighted categories give speed five percent and correctness the remaining
+weight. A complete matching manifest and executed observations are required for
+an overall comparable score. Missing evidence remains **Not evaluated**. Results,
+history and export are prominent; configurable campaigns and diagnostics remain
+under the collapsed **Advanced** section. Standard is a custom synthetic profile
+evaluation, distinct from executable production qualification and SWE-bench.
 
 Engineering benchmarks separate tool contracts, workflow simulation, executable
 coding and live GitHub evidence. Context comparisons keep model, source, tasks,
@@ -283,12 +353,24 @@ output/tool budgets and environment fixed. Retain context variant and reference
 identities. Unknown tokens, cost and retrieval metrics remain unknown. A context
 comparison does not establish universal model superiority.
 
+The native Windows benchmark workspace embeds a separate **Native products**
+campaign tab. Its desktop controller persists signed matched plans and exact
+native captures under the Gateway state directory, and imports the canonical
+product-trial and external-reference grader contracts. The installed transport
+allows public fixture reads, existing conversation captures, supplied-answer
+evaluation and original-ID reconciliation. It never launches native products.
+Campaigns retain original owner, origin, runtime and public-task bindings; an
+application update permits readback but cannot silently submit or sign with a
+changed grading implementation. Reports preserve unknown outcomes and separate
+synthetic, executable and production GitHub evidence. See
+`gateway/benchmarks/NATIVE_CAMPAIGNS.md` for the native workflow and templates.
+
 ## Generated build facts
 
 <!-- BEGIN GENERATED BUILD FACTS -->
 Generated by `python3 scripts/sync_agent_metadata.py`. Edit build/schema sources first.
 
-- **App version**: 0.9.66.18 (versionCode 152)
+- **App version**: 0.9.66.19 (versionCode 153)
 - **Min SDK**: 31
 - **Compile SDK**: 37
 - **Target SDK**: 37

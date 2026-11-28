@@ -86,6 +86,9 @@ object GitHubOperationPlanner {
                 return@buildJsonArray
             }
             add(step("resolve_context", "Pin this task to repository, connection, ref, commit and tree; reuse the saved snapshot."))
+            if (GitHubIssueRemediation.requested(goal)) {
+                add(step("list_issues", "Read the open issue list on the selected repository and follow its pagination. Repair the reports in the complete intake. If it is empty, close out the issue obligation and continue any separately requested work."))
+            }
             if (GitHubStatusRequest.matches(goal)) {
                 add(step("repository_status", "Read the current branch and exact head, open issue/PR counts and latest workflow observation."))
                 add(step("head_checks", "Read checks for that exact head. Keep skipped, pending, failed and successful checks distinct; retain unknown required-check policy."))

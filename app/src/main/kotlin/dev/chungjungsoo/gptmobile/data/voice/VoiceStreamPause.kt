@@ -21,16 +21,30 @@ internal class VoiceStreamPause(private val raw: VoiceStreamFrames, private val 
         val samples = limiter.filter(chunk.samples, onRemoved = { start, end -> map.remove(rawStart + start, rawStart + end) })
         map.observeThrough(raw.frames.toInt())
         retainedFrames += samples.size
-        pending.addAll(cues)
         val ready = mutableListOf<VoiceStreamCue>()
+        fun drainCompleted() {
+            while (pending.firstOrNull()?.let { it.endFrame <= raw.frames } == true) {
+                val cue = pending.removeFirst()
+                val start = map.retainedAt(cue.startFrame.toInt())
+                val end = map.retainedAt(cue.endFrame.toInt())
+                if (end > start) ready += cue.copy(startFrame = start.toLong(), endFrame = end.toLong())
+            }
+        }
+        drainCompleted()
+        for (cue in cues) {
+            if (cue.revision == 0) {
+                pending.addLast(cue)
+                drainCompleted()
+            } else {
+                // Keep a revision ahead of later words released by its shortened end.
+                // Older future cues may remain pending, but must not delay this revision.
+                val start = map.retainedAt(cue.startFrame.toInt())
+                val end = map.retainedAt(cue.endFrame.toInt())
+                if (end > start) ready += cue.copy(startFrame = start.toLong(), endFrame = end.toLong())
+            }
+        }
         // Gateway can send every cue with its first PCM chunk. Complete cues use known
         // history; the single cue crossing the raw frontier exposes only its retained prefix.
-        while (pending.firstOrNull()?.let { it.endFrame <= raw.frames } == true) {
-            val cue = pending.removeFirst()
-            val start = map.retainedAt(cue.startFrame.toInt())
-            val end = map.retainedAt(cue.endFrame.toInt())
-            if (end > start) ready += cue.copy(startFrame = start.toLong(), endFrame = end.toLong())
-        }
         pending.firstOrNull()?.takeIf { it.startFrame < raw.frames }?.let { cue ->
             val start = map.retainedAt(cue.startFrame.toInt()).toLong()
             if (retainedFrames > start) ready += cue.copy(startFrame = start, endFrame = retainedFrames, finalEnd = false)

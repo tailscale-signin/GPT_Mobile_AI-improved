@@ -87,7 +87,7 @@ class AgentRuns:
         fields = ('run_id', 'backend', 'session_id', 'remote_run_id', 'source_sha', 'state', 'model_id', 'capabilities',
                   'created_at', 'updated_at', 'deadline', 'operation_state', 'candidate_status', 'candidate_check_id',
                   'experiment_id', 'error_code', 'events_ref', 'artifacts_ref', 'usage', 'detached', 'last_operation_id',
-                  'cleanup_state', 'steer_delivery', 'observed_latest_remote_run_id', 'candidate_attribution')
+                  'cleanup_state', 'steer_delivery', 'observed_latest_remote_run_id', 'candidate_attribution', 'copilot_task')
         result = dict({key: run[key] for key in fields if key in run}, comparison_scope='AGENT_SYSTEM',
                     execution_location='PROVIDER_CLOUD' if CATALOG[run['backend']][1] in {'https', 'copilot'} else 'ISOLATED_CONTAINER',
                     automatic_merge=False, candidate_validation='NOT_VALIDATED_BY_AGENT', source_binding=run.get('source_binding'))
@@ -490,6 +490,19 @@ class AgentRuns:
         for key in ('session_id', 'remote_run_id'):
             if result.get(key) is not None:
                 values[key] = identifier(result[key])
+        if run['backend'] == 'github_copilot':
+            response = result.get('response')
+            session = values.get('session_id', run.get('session_id'))
+            if (isinstance(response, dict) and response.get('schema') == 'github.copilot-tasks.v1'
+                    and response.get('gateway_job_id') == session and response.get('request_id') == run['run_id']
+                    and response.get('principal_id') == job['principal']
+                    and response.get('repository', '').lower() == job['request']['repository'].lower()
+                    and response.get('execution_owner') == 'GITHUB_CLOUD' and response.get('orchestration_owner') == 'GATEWAY'):
+                # Forward the existing supervisor's bounded observation. Agent
+                # admission/QUEUED alone does not prove GitHub accepted the task.
+                values['copilot_task'] = {key: response[key] for key in (
+                    'schema', 'gateway_job_id', 'task_id', 'state', 'remote_state', 'progress', 'task_name',
+                    'pull_request_numbers', 'last_checked_at', 'ci_verified', 'merge_authorized') if key in response}
         values['status_ref'] = self.put(job, result, 'agent-status')
         if state == 'COMPLETED':
             values['candidate_status'] = run.get('candidate_status', 'NOT_CAPTURED')
@@ -506,7 +519,9 @@ class AgentRuns:
                     return self.public(run)
                 self.save(job, run, session_id=tasks[0]['id'])
             status = self.service.copilot.status(job['principal'], run['session_id'])
-            state = {'ACCEPTED': 'QUEUED', 'SUBMITTING': 'QUEUED', 'RECONCILE_REQUIRED': 'OUTCOME_UNKNOWN',
+            state = {'ACCEPTED': 'QUEUED', 'SUBMITTING': 'QUEUED', 'DISPATCHING': 'QUEUED',
+                     'IN_PROGRESS': 'RUNNING', 'IDLE': 'WAITING_FOR_INPUT', 'WAITING_FOR_USER': 'WAITING_FOR_INPUT',
+                     'RECONCILE_REQUIRED': 'OUTCOME_UNKNOWN', 'UNKNOWN': 'STATE_UNVERIFIED',
                      'REJECTED': 'FAILED'}.get(status['state'], status['state'])
             result = {'state': state, 'response': status, 'remote_run_id': status.get('upstream_task_id')}
         else:

@@ -1,7 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 internal enum class VoiceRecognitionBackend(val title: String) {
-    LOCAL_MOONSHINE("On this phone · Moonshine"),
+    // Retain the saved key from installations that only offered Moonshine Tiny.
+    LOCAL_MOONSHINE("On this phone"),
     ANDROID_SPEECH_SERVICE("Android speech service");
 
     companion object {

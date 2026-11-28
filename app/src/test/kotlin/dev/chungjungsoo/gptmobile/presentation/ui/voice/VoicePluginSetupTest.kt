@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceInstallState
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionModel
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTransferStage
@@ -48,7 +49,7 @@ class VoicePluginSetupTest {
                 }
             }
         }
-        compose.onNodeWithText("Moonshine").performClick()
+        compose.onNodeWithText(VoiceRecognitionModel.MOONSHINE_TINY.title).performClick()
         compose.onNodeWithText("Android offline recognizer").performClick()
         compose.onNodeWithText("Dora").performClick()
         compose.onNodeWithText("Alex").performClick()

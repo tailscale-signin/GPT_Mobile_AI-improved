@@ -1,0 +1,436 @@
+{
+  "base": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+  "scannerSha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "files": [
+    {
+      "path": ".github/workflows/pr-validation.yml",
+      "sha256": "a6b39ae05c82a3b6a856f1ff7e69a697d78b46ae5d0ec128d5e0535319ffc56c",
+      "bytes": 32458
+    },
+    {
+      "path": "RELEASE_NOTES.md",
+      "sha256": "868713af7001b7d50c7e5da87ddcffd6a781d2ae1171a15171bbc2a59c8efc7a",
+      "bytes": 28455
+    },
+    {
+      "path": "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt",
+      "sha256": "3b01bd2f91ce61f2ac5dd994270187804a5b1cd55d7cef5a7fa676508ed21376",
+      "bytes": 33203
+    },
+    {
+      "path": "app/src/main/assets/diagnostics/app-code-inventory.json",
+      "sha256": "e7064aa3bf566104cf86161dde71d845361e50c9a6be11ec9abdd0added2fada",
+      "bytes": 919321
+    },
+    {
+      "path": "app/src/main/assets/licenses/mediapipe-language-detector-NOTICES.txt",
+      "sha256": "0dc95b158d10103f07a3dbc6708c9d36dff4471973c1cbbb8c3c1fa5a31504be",
+      "bytes": 12460
+    },
+    {
+      "path": "app/src/main/assets/voice/language_detector.tflite",
+      "sha256": "7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417",
+      "bytes": 315294
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ReviewedAppFeatures.kt",
+      "sha256": "d0f5801092f208308bc7a54696047a15f6d855f81feafff0884af10ec24b97eb",
+      "bytes": 19845
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+      "sha256": "2e03ea11a60f29c7a7feb65807b92a769e1e42e11296d987bd4238aea5bbe39e",
+      "bytes": 3373
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt",
+      "sha256": "8c017af1b467dbf63295b630465eb777cd8a4b1fa575ce7f068e464c9bcf3038",
+      "bytes": 6526
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
+      "sha256": "ea2c3efabb80cd1b92936d00e52f93b53d7e973468784cac27ddadcba65a6bac",
+      "bytes": 69343
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMessagePlayback.kt",
+      "sha256": "7c884dd6b44e4076a602c7e73cfb816fc6167ff2532b2a0e51fb38788f9a4825",
+      "bytes": 5993
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt",
+      "sha256": "596193b7a71486abd0d8636b54949e1720a1ee14c8915d225578389de7f7c3e6",
+      "bytes": 8704
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612",
+      "bytes": 60961
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt",
+      "sha256": "51e6da8e1ac5987fd9ead8b7be6b2821c0629172b01a0a72c2e215b19fe36fb6",
+      "bytes": 8920
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt",
+      "sha256": "1df95ede2892959a12918ab19dfd07a4fb319133e592093f20ca31b46343fb03",
+      "bytes": 4171
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicy.kt",
+      "sha256": "8f6b2708f6cd39b33145583fc1a80420d817e8e559f12ec8216c5287cdf00680",
+      "bytes": 758
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModel.kt",
+      "sha256": "b7ee1cf862c6c8fe294da4c9fb5ccbac565e6494c6bd4d7b51db8910b5fdbb2e",
+      "bytes": 33182
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+      "sha256": "47e07aed3cf24c0cfccb3e83e46776323d7d213dcee78a37ec7fce4466171a20",
+      "bytes": 100893
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
+      "sha256": "f93987302aecfaa1d4fc20ce9ae7bcaa4d5c741d3fa0a877e57a762bb49ef70e",
+      "bytes": 24086
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt",
+      "sha256": "e5b23f669d2d0371453300161a6c0f41eab95659ff4b199364e3731e068ce526",
+      "bytes": 13697
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt",
+      "sha256": "7316505da37d6f119f36f44d87878d909239a3c65e61e104eb5369ef96f7719d",
+      "bytes": 11596
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt",
+      "sha256": "2eb057ba588abbc1fe3f7170ceb7d772b94311f0b07d5c28bd9706b02765dfb1",
+      "bytes": 7690
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRuntimeViewModel.kt",
+      "sha256": "e29bcbaab5bf28898f8cf420fe8c1987414f0e39af0d26dab1aa18b921391a37",
+      "bytes": 8285
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidTranslationRecognitionTest.kt",
+      "sha256": "414b5a5ea9a1902b8dad81557f2168b73e253576fa8e30fc785f8f711cb4c5d3",
+      "bytes": 9598
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/TranslationRecognitionQualificationTest.kt",
+      "sha256": "f4d9ca8299c0419d5cf5c6a250f86cfe5c125ad9dfee7e2522e15a7c03a87c01",
+      "bytes": 2470
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDraftPreparationTest.kt",
+      "sha256": "77c29601b90e08c1646ea171a5a4de1da806b64c35c34aea4d48ae5f26f395d2",
+      "bytes": 14024
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMessagePlaybackTest.kt",
+      "sha256": "e381c6c6954284a9a9081f7ffd6f7ca5e87d2e8bf00b74a901dd9602a2031d19",
+      "bytes": 9765
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetectorTest.kt",
+      "sha256": "40cc608e88ff69f39a1eef6ad1f1a508c703a3b9f6343ef05b2552b628de9656",
+      "bytes": 8373
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPairTest.kt",
+      "sha256": "c7b05e37695f11073929d90d452d29b5e854fc48bc40e293771ee7c706a55fb6",
+      "bytes": 6091
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicyTest.kt",
+      "sha256": "23053c11869eb9d7e243d68c58fc99d0ba31e5290c903432309197663ab0a8a5",
+      "bytes": 2054
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt",
+      "sha256": "4f951897a16c516cc073adc67438f01d799c9f777fa3e96c3cda1f1283635117",
+      "bytes": 37109
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt",
+      "sha256": "4fa17bae5d7fd3c514f2a81020bdc9be36a8d2e784c2da61bd10da695d790146",
+      "bytes": 29151
+    },
+    {
+      "path": "docs/architecture/feature-map.json",
+      "sha256": "6616f6eb4b0a480d535f980862b2eee3d77169bb23ef8d3f4858c2f5f0c68c8a",
+      "bytes": 521446
+    },
+    {
+      "path": "docs/architecture/feature-map.source.json",
+      "sha256": "d2a60029b58f5a6f962e3feea97d969ce2e8b28b955d3436a6c7be0e2f36e43d",
+      "bytes": 276150
+    },
+    {
+      "path": "docs/audits/voice-translation-language-model-2026-11-28.json",
+      "sha256": "58cc389cd330b9246f2b6e904f2014df73d1a185ca9dc85239a0d68456cd7343",
+      "bytes": 3876
+    },
+    {
+      "path": "docs/repairs/bidirectional-voice-translation-2026-11-28-task.json",
+      "sha256": "e0aac029d1831162def48599ff59685867b4785f79a6b6a2dfef675798f83b60",
+      "bytes": 6385
+    },
+    {
+      "path": "docs/repairs/bidirectional-voice-translation-2026-11-28.md",
+      "sha256": "0c6271517cc182c04abb395e559baf6ad054dc853ddceeb90d2db0b20c8d8c5f",
+      "bytes": 5314
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/build.py",
+      "sha256": "080e90c74ba2b25f90bb818c336eda489e4209f7ff8dec9b366bef0e31305cda",
+      "bytes": 11430
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/compile-production.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/compile-tests.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/compile.log",
+      "sha256": "a843f868d1d5bda5e3cde118d4fb2112a1b1de21645d77661f2ef80c1ceab3ae",
+      "bytes": 34
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/junit.log",
+      "sha256": "4995efd50ae78c5219107c3450f065c99abe3fd6b69c9ac6792850ea74c396e1",
+      "bytes": 153
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/manifest.json",
+      "sha256": "1d65390bfba2395db4622b4e5e71c15b595647e2d55ad78f813f7417022db56f",
+      "bytes": 9041
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/qualification.json",
+      "sha256": "64c670b6ce98f866885d66ba2edf49c5934e0d596918e1822e4a5cc411290b61",
+      "bytes": 953
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/core/source-readback.json",
+      "sha256": "c3639bb082df6ad29b1b9f289235560ef3c5aaad53d9ac75c1af6ec3a60ed1a9",
+      "bytes": 1471
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/detector/build-policy.py",
+      "sha256": "a8246722cc6062109a6a53d10ea4bebc6ff26d3cfed0b75ad4d46f8bcace8208",
+      "bytes": 3193
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/detector/compile.log",
+      "sha256": "61ff3132869f44f935d8b4028e90f7fffdbafd3c49f24422fcbeae3c19d6dfe1",
+      "bytes": 436
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/detector/delivery-receipt.json",
+      "sha256": "066c649d3117f26112cb8d3291b40ed0ca32de6c62f74786ae60b7bdfe774a7d",
+      "bytes": 3237
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/detector/junit.log",
+      "sha256": "1d8450f30767785e932157aeb7ec2d5f2bf6c2ce78c795e86aca339b38c2efde",
+      "bytes": 61
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/detector/manifest.json",
+      "sha256": "405ed1d2031b87e066590a517f3fbe226a7193f422fd6ac8ffa3d21d68b9aa3b",
+      "bytes": 3089
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/evidence-index.json",
+      "sha256": "533f6cdacd41985cf6eafbac6ff27f97caf5c46f1c846e111d5349d0e228cd39",
+      "bytes": 32503
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/fallback/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/fallback/junit.log",
+      "sha256": "3a8bb33fe32a0bf7dfa18b4da643cb8f2bcce473cedf5c1bb6956dd3211cfbb1",
+      "bytes": 69
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/fallback/manifest.json",
+      "sha256": "a016d8e2b5ea885f4fdf2fc3073cb3be993099acabb3a906e373acbe50101385",
+      "bytes": 8658
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/fallback/qualification.json",
+      "sha256": "5d3e4cc49aa8aab02c47cc76eb2ce10ed2f7659bffc51e98d3f8c86f9930586a",
+      "bytes": 401
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/fallback/source-readback.json",
+      "sha256": "fece8790fc9f97a572cb3c533ed4dc85ceea7257e79485396565b55bb19ca1b6",
+      "bytes": 577
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/native/model-provenance.json",
+      "sha256": "58cc389cd330b9246f2b6e904f2014df73d1a185ca9dc85239a0d68456cd7343",
+      "bytes": 3876
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/native/native-model-fixtures.json",
+      "sha256": "5ea2cc2546d8baf13cbc1f53a7efcec139f1c23b30275a1ad1b39713f6e389bf",
+      "bytes": 5692
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/native/native-model-fixtures.log",
+      "sha256": "04d6393296f7ca8df68c23b02ab0010c857a33ccf68375d50eddf95e5f8dc17f",
+      "bytes": 6210
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/native/native-model-fixtures.py",
+      "sha256": "bfba7979b82b2e2b8ece91047cbf0190dc9b7a5f099faa18337b5699f06aafaf",
+      "bytes": 3897
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/native/python-install.log",
+      "sha256": "0fd4a7559662ad61e2552c826528da9700aefe00a08f1f198ac6ecaf8f1911d6",
+      "bytes": 434
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/native/python-text-dependencies.log",
+      "sha256": "f6d4de9660dcf488a8c5f29f597fb480694b74876bf3602408f6d2c4b44e1e7e",
+      "bytes": 828
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/post-qualification-formatting.json",
+      "sha256": "290b171ef5493e26a22c6e0d6a152a3639dfa36024e5970db2e64669281adb7b",
+      "bytes": 2909
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/build.py",
+      "sha256": "242ef414c5c79c07bd22d171fe47ad9abf7756282288b3e0dbf94adc533c5884",
+      "bytes": 18782
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/compile-ui.py",
+      "sha256": "2b8992eddcdf77df40e74380a79fb56f5d2a57236961699af94568fea39ca6fb",
+      "bytes": 8148
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/compile-wiring.py",
+      "sha256": "e9792777f33d9f13de4e8322e287cafcc72aefc00c25cb51fab1f5caf94f4f33",
+      "bytes": 5859
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/junit.log",
+      "sha256": "da979f693efefb8a40262dfb2ecd67a1e6d6d9ca2fea366e4d0c27590e825ed3",
+      "bytes": 57
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/qualification.json",
+      "sha256": "c3486e882c81d6d3001a55f5a331ae670bce7977ec58aed2d8c2a52f88b14675",
+      "bytes": 675
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/source-manifest.json",
+      "sha256": "a839d93ba0f1df61ea34930e8926d0a3eccdd61b74a6b3fbb3c29b99f05d7c3f",
+      "bytes": 6232
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/ui/before-local-output/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/ui/before-local-output/qualification.json",
+      "sha256": "e2177caec5465b47862a2d20f1f47e4f4fd8aad4ea9a730e96c9b76c3258134b",
+      "bytes": 716
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/ui/before-local-output/source-manifest.json",
+      "sha256": "48c8e8ba2d06ebd4df25bf6796b32afbf6ed56e654b70ed1e473e50532ecefe6",
+      "bytes": 2422
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/ui/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/ui/qualification.json",
+      "sha256": "e2177caec5465b47862a2d20f1f47e4f4fd8aad4ea9a730e96c9b76c3258134b",
+      "bytes": 716
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/ui/source-manifest.json",
+      "sha256": "383913f855b9a04c98a7742cdb37bd4df3eb6ebd10d6400b0393242251f8e882",
+      "bytes": 2422
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/ui/source-readback.json",
+      "sha256": "5b957d810da3f39400b4dd96ae0e280f11f1cb07b4fd21571f0a441e71745f12",
+      "bytes": 824
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/wiring/before-local-output/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/wiring/before-local-output/qualification.json",
+      "sha256": "ad76e98015bffb8b3afe64bc223450cd895f408202eb71192884c3e63b772700",
+      "bytes": 672
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/wiring/before-local-output/source-manifest.json",
+      "sha256": "82b9a9fb6a34c8d3fcb9a0910cf77f03dd49c92f2ca3eac847786a389ee6f4d8",
+      "bytes": 2270
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/wiring/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/wiring/qualification.json",
+      "sha256": "ad76e98015bffb8b3afe64bc223450cd895f408202eb71192884c3e63b772700",
+      "bytes": 672
+    },
+    {
+      "path": "docs/repairs/evidence/bidirectional-voice-translation/settings/wiring/source-manifest.json",
+      "sha256": "78171f52c78c3c7fa7c542a2d96f6c531b1e83aad5aa0b200ca16e107be03e93",
+      "bytes": 2270
+    },
+    {
+      "path": "release-scope.json",
+      "sha256": "91c3e91972e8a67c318d5901d6c551d1881b28bd9c56fd3a4db020d3c80deb47",
+      "bytes": 109782
+    },
+    {
+      "path": "scripts/run_release0950_acceptance.sh",
+      "sha256": "d72e1267e070160153b43479f39eb17c91daf0a6743e818d7502a1d688e917b3",
+      "bytes": 38175
+    },
+    {
+      "path": "scripts/tests/test_ci_modernization.py",
+      "sha256": "f95063e7aa4c9f62a13e1ba740bcba55fa6fc8f445b96ece54fb54e8340abb81",
+      "bytes": 22939
+    }
+  ]
+}

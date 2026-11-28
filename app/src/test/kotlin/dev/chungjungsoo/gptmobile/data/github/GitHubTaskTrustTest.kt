@@ -63,6 +63,7 @@ class GitHubTaskTrustTest {
         assertEquals(600_000L, GitHubExecutionLimits.requestedDurationMillis("Test all authorized GitHub tools. Do not merge. Budget: 10 minutes and 17 tool calls."))
         assertEquals(30_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 10 minutes. Time limit: 30 seconds. Inspect the previous 2 hours."))
         assertEquals(20_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 10 minutes. Finish within 20 seconds."))
+        assertEquals(43_200_000L, GitHubExecutionLimits.requestedDurationMillis("Keep working on this task for 12 hours and preserve checkpoints."))
         assertNull(GitHubExecutionLimits.requestedDurationMillis("The previous budget: 5 minutes. Inspect the failure."))
         assertFalse(GitHubTaskContinuity.reuse("proceed", ""))
         assertTrue(GitHubTaskContinuity.reportOnly("Please show the full report!"))
@@ -257,14 +258,58 @@ class GitHubTaskTrustTest {
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("No provider or tool execution is authorized by report delivery or an expired task")
         }
+        assertNull(book.retainedAnswer(includeEarlierFindings = true))
         for (current in listOf("show the full report", "proceed")) {
             if (current == "proceed") now = 2_000L
-            val session = GitHubVerifiedSession(provider, book, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, currentRequest = current)
+            val published = mutableListOf<JsonObject>()
+            val session = GitHubVerifiedSession(provider, book, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, onPublication = { published += it }, currentRequest = current)
             val events = session.streamRound(listOf(read), emptyList()).toList()
             assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
             assertTrue(events.any { it is ProviderEvent.TextDelta && it.text.isNotBlank() })
-            assertEquals(if (current == "proceed") "BLOCKED" else "PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+            val failure = events.last() as ProviderEvent.Failed
+            assertEquals("BLOCKED", failure.taskOutcome)
+            assertTrue(book.snapshot().first.isEmpty())
+            val verdict = published.single()
+            assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+            assertEquals(JsonPrimitive("BLOCKED"), verdict["task_outcome"])
+            if (current == "show the full report") {
+                assertEquals("GITHUB_EVIDENCE_REQUIRED", failure.errorCode)
+                val observation = verdict[GitHubAcceptancePublicationEvidence.KEY] as JsonObject
+                assertEquals(JsonPrimitive("RETAINED_REPORT_UNAVAILABLE"), observation["acceptance_publication_entry"])
+            } else {
+                assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+            }
         }
+    }
+
+    @Test fun retainedPartialReportSurvivesExpiredTaskWithoutProviderOrToolExecution() = runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        var now = 0L
+        fun book() = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name), { now }, load = { saved[it] }, save = { key, value -> saved[key] = value })
+        val evidence = book()
+        evidence.retainTaskContract("Test all GitHub tools.\nBudget: 1 seconds", 1, listOf(read), 10)
+        val report = "The repository work is incomplete. The saved report records the remaining checks."
+        val verdict = buildJsonObject {
+            put("task_outcome", "PARTIAL")
+            put("completion_verified", false)
+        }
+        val (receipts, epoch) = evidence.snapshot()
+        assertTrue(evidence.retainAnswerIfCurrent(report, verdict, epoch, receipts.keys))
+        now = 2_000L
+        val restored = book()
+        assertEquals(0L, restored.remainingTaskMillis())
+        assertEquals(report, restored.retainedAnswer()?.first)
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Retained report delivery cannot invoke the provider")
+        }
+        val session = GitHubVerifiedSession(provider, restored, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, currentRequest = "show the full report")
+        val events = session.streamRound(listOf(read), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.endsWith(report))
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
+        assertEquals("PARTIAL", failure.taskOutcome)
+        assertTrue(restored.snapshot().first.isEmpty())
     }
 
     @Test fun expiredTaskKeepsItsDeadlineCauseWhenAnOlderApprovalIsStillUnresolved() = runBlocking {
@@ -306,7 +351,8 @@ class GitHubTaskTrustTest {
         assertEquals(JsonPrimitive("task_budget"), failure.failureDetails?.get("failed_stage"))
         assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
         assertEquals(JsonPrimitive("AUTHORIZE_NEW_TIME_WINDOW"), failure.failureDetails?.get("recovery_action"))
-        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("resume_allowed"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("resume_allowed"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("resume_from_checkpoint"))
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
         assertTrue(text.contains("Time limit reached"))
         assertTrue(text.contains("saved approval"))

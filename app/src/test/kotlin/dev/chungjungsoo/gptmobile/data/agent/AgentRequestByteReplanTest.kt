@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.requestPayloadRejection
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +51,78 @@ class AgentRequestByteReplanTest {
             )
         }.toString()
         return requestPayloadRejection(413, payload, config, "model", partial) { if (job && it == "X-Gateway-Job-ID") "durable-job" else null }
+    }
+
+    @Test fun schemaReplanPreservesTheExactDiscoveredActionBeforeOptionalEarlierTools() = runTest {
+        val source = GitHubOperationTool.definition("github_pr", "github_pr__selected")
+        val projected = requireNotNull(GitHubActionSchema.project(source, "list"))
+        val catalog = ProgressiveToolCatalog(listOf(source), "Test all GitHub tools", githubMode = true)
+        catalog.execute(
+            "select-list",
+            buildJsonObject {
+                put("names", JsonArray(listOf(JsonPrimitive(source.name))))
+                put("action", "list")
+            }
+        )
+        var dispatched = 0
+        val selectedTool = object : AgentTool {
+            override val definition = source
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                assertEquals(JsonPrimitive("list"), arguments["action"])
+                dispatched++
+                return AgentToolResult(callId, ToolResultContent.Text("No open pull requests."), false)
+            }
+        }
+        val optional = (1..6).map { index ->
+            object : AgentTool {
+                override val definition = AgentToolDefinition("optional_$index", "Optional operation help ".repeat(80), JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("No optional operation was requested")
+            }
+        }
+        val windows = mutableListOf<List<AgentToolDefinition>>()
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                windows += tools
+                when (windows.size) {
+                    1 -> {
+                        val payload = buildJsonObject {
+                            put(
+                                "tools",
+                                JsonArray(
+                                    tools.map { tool ->
+                                        buildJsonObject {
+                                            put("name", tool.name)
+                                            put("description", tool.description)
+                                            put("parameters", tool.inputSchema)
+                                        }
+                                    }
+                                )
+                            )
+                        }.toString()
+                        val fields = requestPayloadRejection(413, payload, config, "model", false) { null }
+                        emit(ProviderEvent.Failed("Request too large", errorCode = "request_too_large", failureDetails = fields))
+                    }
+                    2 -> {
+                        assertEquals(projected, tools.single { it.name == source.name })
+                        assertTrue(tools.size < windows.first().size)
+                        emit(ProviderEvent.ToolCall("selected-read", source.name, buildJsonObject { put("action", "list") }))
+                        emit(ProviderEvent.Completed)
+                    }
+                    else -> {
+                        emit(ProviderEvent.TextDelta("The selected read completed once."))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            }
+        }
+        val events = AgentRunner(limits.copy(githubTask = true), healthCatalog = catalog).run(
+            session,
+            optional + catalog + selectedTool,
+            selectDefinitions = { definitions -> definitions.map { if (it.name == source.name) requireNotNull(GitHubActionSchema.project(it, "list")) else it } }
+        ).toList()
+        assertEquals(events.toString(), 3, windows.size)
+        assertEquals(1, dispatched)
+        assertFalse(events.toString(), events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
     }
 
     @Test fun schemaHeavyInitialRoundCanDiscoverMoreToolsAfterSizeRejection() = runTest {

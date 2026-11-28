@@ -1,0 +1,1887 @@
+{
+  "schemaVersion": 1,
+  "validationParent": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+  "result": "PASS",
+  "scope": "DIRECT_SCANNER_CONTROLS_AND_ISOLATED_HISTORY_INTEGRITY",
+  "summary": [
+    {
+      "name": "controls",
+      "exit": 0,
+      "passed": true,
+      "cases": 176,
+      "seconds": 20.271,
+      "reportSha256": "686923cbb6c724719b6a0d0cfbb7b7ac36dfec1719854b2affbefa9e5510a349"
+    },
+    {
+      "name": "integrity",
+      "exit": 0,
+      "passed": true,
+      "cases": 3,
+      "seconds": 41.593,
+      "reportSha256": "fc04dc9f8bd9d5b2e1868f23ef6d3bed41364a45f4834bcb9d88076a782149af",
+      "details": [
+        {
+          "case": "intact_history",
+          "exitCode": 0,
+          "gitFatalObserved": false,
+          "pinControls": 176,
+          "pinControlsPassed": true,
+          "scannerCompleted": true,
+          "passed": true
+        },
+        {
+          "case": "missing_historical_blob",
+          "exitCode": 128,
+          "gitFatalObserved": true,
+          "pinControls": 0,
+          "pinControlsPassed": false,
+          "scannerCompleted": false,
+          "passed": true,
+          "filenamePreflightExitCode": 0
+        },
+        {
+          "case": "restored_historical_blob",
+          "exitCode": 0,
+          "gitFatalObserved": false,
+          "pinControls": 176,
+          "pinControlsPassed": true,
+          "scannerCompleted": true,
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "sourceBindings": [
+    {
+      "path": ".gitleaks.toml",
+      "sha256": "de9409b3732dc4c7b19eaa08943da00717ba838e89cbacac9bc808b13ebca692",
+      "bytes": 12125
+    },
+    {
+      "path": ".gitleaksignore",
+      "sha256": "0c416dea2ec20fd56d7bc192c6f06eedb60a95f9e7236ba199fe094784484fd4",
+      "bytes": 3820
+    },
+    {
+      "path": "scripts/scan_secret_history.sh",
+      "sha256": "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074",
+      "bytes": 1828
+    },
+    {
+      "path": "scripts/report_secret_history.py",
+      "sha256": "4bae92d11ea7f1fc7bc86d4eeb0bb344b364a70659f55046702f33c6210e9fb8",
+      "bytes": 4781
+    },
+    {
+      "path": "scripts/scan_secrets.py",
+      "sha256": "7bc36f594e4b12b4f3e26b9aa78e06a6fd3af6c5cfa26f6c987fbd57c63431db",
+      "bytes": 2968
+    },
+    {
+      "path": "scripts/test_gitleaks_model_pin.py",
+      "sha256": "064960114119f0d5481f3a41e42c953bfaf21c37e1fc707885538277729636aa",
+      "bytes": 37473
+    },
+    {
+      "path": "scripts/test_secret_history_integrity.py",
+      "sha256": "323bbed52dd9f1c356e9c8f11aa9b3c4667c8ebeaecef09fa73ae37e860bf833",
+      "bytes": 7035
+    }
+  ],
+  "controls": {
+    "scannerVersion": "8.30.1",
+    "cases": [
+      {
+        "case": "exact_evidence",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "existing_native_harness",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "different_checksum",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_exact_declaration",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_historical_v3",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_unreviewed_version",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "calibration_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_exact_declaration",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "mockk_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_exact_declaration",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "waveform_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_exact_declaration",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "compose_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e855_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_before_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_e406_after_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_ledger_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "wrapper_report_result_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pronunciation_tokens_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_1_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "routing_requirement_2_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_different_value",
+        "expectedFindings": 3,
+        "observedFindings": 3,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_different_path",
+        "expectedFindings": 3,
+        "observedFindings": 3,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_different_field",
+        "expectedFindings": 3,
+        "observedFindings": 3,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_prefix_content",
+        "expectedFindings": 3,
+        "observedFindings": 3,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_trailing_content",
+        "expectedFindings": 3,
+        "observedFindings": 3,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "outer_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_public_revision_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_source_digest_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_test_digest_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_runtime_digest_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_residency_digest_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "pocket_smoke_digest_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_en_public_digest_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_exact",
+        "expectedFindings": 0,
+        "observedFindings": 0,
+        "exitCode": 0,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_different_value",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_different_path",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_different_field",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_prefix_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_trailing_content",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_secret_before",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      },
+      {
+        "case": "zipformer_fr_public_digest_secret_after",
+        "expectedFindings": 1,
+        "observedFindings": 1,
+        "exitCode": 1,
+        "redacted": true,
+        "exactFindingIdentity": true,
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "configSha256": "de9409b3732dc4c7b19eaa08943da00717ba838e89cbacac9bc808b13ebca692",
+    "pocketDependencyArchiveBytesVerified": true,
+    "recognitionArtifactBytesVerified": true
+  },
+  "historyIntegrity": {
+    "scannerVersion": "8.30.1",
+    "cases": [
+      {
+        "case": "intact_history",
+        "exitCode": 0,
+        "gitFatalObserved": false,
+        "pinControls": 176,
+        "pinControlsPassed": true,
+        "scannerCompleted": true,
+        "passed": true
+      },
+      {
+        "case": "missing_historical_blob",
+        "exitCode": 128,
+        "gitFatalObserved": true,
+        "pinControls": 0,
+        "pinControlsPassed": false,
+        "scannerCompleted": false,
+        "passed": true,
+        "filenamePreflightExitCode": 0
+      },
+      {
+        "case": "restored_historical_blob",
+        "exitCode": 0,
+        "gitFatalObserved": false,
+        "pinControls": 176,
+        "pinControlsPassed": true,
+        "scannerCompleted": true,
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "scannerSha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+    "sourceInputs": [
+      {
+        "artifact": ".gitleaks.toml",
+        "sha256": "de9409b3732dc4c7b19eaa08943da00717ba838e89cbacac9bc808b13ebca692"
+      },
+      {
+        "artifact": ".gitleaksignore",
+        "sha256": "0c416dea2ec20fd56d7bc192c6f06eedb60a95f9e7236ba199fe094784484fd4"
+      },
+      {
+        "artifact": "scripts/scan_secret_history.sh",
+        "sha256": "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074"
+      },
+      {
+        "artifact": "scripts/report_secret_history.py",
+        "sha256": "4bae92d11ea7f1fc7bc86d4eeb0bb344b364a70659f55046702f33c6210e9fb8"
+      },
+      {
+        "artifact": "scripts/scan_secrets.py",
+        "sha256": "7bc36f594e4b12b4f3e26b9aa78e06a6fd3af6c5cfa26f6c987fbd57c63431db"
+      },
+      {
+        "artifact": "scripts/test_gitleaks_model_pin.py",
+        "sha256": "064960114119f0d5481f3a41e42c953bfaf21c37e1fc707885538277729636aa"
+      },
+      {
+        "artifact": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+        "sha256": "5e9708bd227d07e4f381cabdbd4eb3c0eb9c6abf2c198771f03f4f7c36af860b"
+      },
+      {
+        "artifact": "scripts/tests/fixtures/github-routing-pr-2568.json",
+        "sha256": "36a6fe51e92d7c7abd82342f3e0f63038d270a336d84608772778c21b54a66d0"
+      },
+      {
+        "artifact": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn.json",
+        "sha256": "c51174fc4a2aee2150c281050c16a7c6434fdbad96561a1a27fcf00ffb28ebdc"
+      },
+      {
+        "artifact": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt",
+        "sha256": "44c938b24ff03487df8c04ad979ceb00b57d326d8e572c7278b1881070d314c1"
+      },
+      {
+        "artifact": "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
+        "sha256": "32ae7dd7c706f871ef4211275c24fb2b75e2fad38b09d3d303f93f5292cab166"
+      },
+      {
+        "artifact": "docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json",
+        "sha256": "249fb575a68b206c8148fdb2c5fdf88ccf5b7d166fbe8653371f54229d55fbca"
+      },
+      {
+        "artifact": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json",
+        "sha256": "165927636314ba54ef6b2a4afc7bede1eb6c5c22df389de0b1061de02dacde14"
+      },
+      {
+        "artifact": "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log",
+        "sha256": "239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6"
+      },
+      {
+        "artifact": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
+        "sha256": "58dbf4b8895485e57b1b198ea634a0c0d572374d43fa76a15b59de658dc3f358"
+      },
+      {
+        "artifact": "gradle/verification-metadata.xml",
+        "sha256": "57b1a7777a6abba9a825969a318d1cac424967fa2b386951486be7deb2a1a157"
+      },
+      {
+        "artifact": "docs/repairs/pocket-history-declaration-provenance-2026-11-28.json",
+        "sha256": "6283c42633f25bd5e52656095622a998f06944bbd16c371c1f09acc5b1831943"
+      },
+      {
+        "artifact": "docs/audits/recognition-history-declaration-provenance.json",
+        "sha256": "1a3ab7cd8184768a7a13e9b499d2956167b42b9516ffd4c997df5ffbc46408dd"
+      },
+      {
+        "artifact": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt",
+        "sha256": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c"
+      },
+      {
+        "artifact": "docs/audits/pocket-caption-alignment.json",
+        "sha256": "e2c6af7743592b89ceabff4b9a4f027b1c5e166987fffca2f9ea00f4f3262d42"
+      },
+      {
+        "artifact": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt",
+        "sha256": "557e169710ab0410c39eb69824a1b7da7d6524187acd9b31b0e5d20f0395f9d4"
+      },
+      {
+        "artifact": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt",
+        "sha256": "cddc4bdbb0bf73528450094fd9947316b5d5f05d20dda9e0a3c5869a288ae695"
+      },
+      {
+        "artifact": "docs/repairs/pocket-diagnostics-ci-review-2026-11-28.json",
+        "sha256": "37af62d5f518dc2bd7d4f794a100128e9d262567c5006ffb9c1924812613935a"
+      },
+      {
+        "artifact": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "sha256": "7b23c949a52c79de608a61cf46591de0477c6b5e20012c5c433ee56c811e3039"
+      },
+      {
+        "artifact": "docs/repairs/pocket-caption-validation-2026-11-28.json",
+        "sha256": "97b9c644d3be5a42774fd404ed21cdc58aa336a2d8cafd0c3a4d742d4c07a7ad"
+      },
+      {
+        "artifact": "scripts/run_mediapipe_android_smoke.sh",
+        "sha256": "83359303d3a9118d2c7490c750081748fd6136742cb3f3cb120fc93d88e8d8c5"
+      },
+      {
+        "artifact": "docs/audits/pocket-compiled-runtime.json",
+        "sha256": "923df981fd745a285f8c876c120a75befe23487de76b0675d516ef9ec1064ece"
+      },
+      {
+        "artifact": "docs/licenses/pocket-compiled.md",
+        "sha256": "11b54c8314e8a4db698c58efdf44e6a9fe433ced770910366ec79aabeea98f66"
+      },
+      {
+        "artifact": "app/src/test/resources/pocket-compiled/tokenizer.model",
+        "sha256": "d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6"
+      },
+      {
+        "artifact": "history-proof/pocket-verification-metadata.xml",
+        "sha256": "392edf3948d2921fea08ac893d3ab13e43a497a3962bec646fdf510f8c7c8e90"
+      },
+      {
+        "artifact": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt",
+        "sha256": "f9528fb751f21f88b1d3550fcdc9c36ad422f40e6a02f41d8d2a8144d629fbce"
+      },
+      {
+        "artifact": "docs/audits/voice-recognition-models.json",
+        "sha256": "1222dcd6bd8704b9e821cedc3d242a09bf0a7ebeffd77c6ddf3f3e7df7e6f172"
+      }
+    ],
+    "identityRepresentation": "The original sourceInputsSha256 path-to-digest mapping is represented as artifact/sha256 records. Every original path and digest is preserved; scanner policy is unchanged."
+  },
+  "evidence": [
+    {
+      "artifact": "controls.log",
+      "bytes": 30159,
+      "sha256": "a00e3cfbb23bcf78215e1ad6cac8e0ea534a0906c82c82b9e020f4e2f2fb78db",
+      "text": "{\"cases\": [{\"case\": \"exact_evidence\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"existing_native_harness\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"different_checksum\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_exact_declaration\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_historical_v3\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_unreviewed_version\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"calibration_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_exact_declaration\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"mockk_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_exact_declaration\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"waveform_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_exact_declaration\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"compose_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e855_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_before_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_e406_after_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_ledger_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"wrapper_report_result_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pronunciation_tokens_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_1_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"routing_requirement_2_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 3, \"observedFindings\": 3, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 3, \"observedFindings\": 3, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 3, \"observedFindings\": 3, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 3, \"observedFindings\": 3, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 3, \"observedFindings\": 3, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"outer_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_public_revision_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_source_digest_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_test_digest_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_runtime_digest_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_residency_digest_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"pocket_smoke_digest_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_en_public_digest_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_exact\", \"exactFindingIdentity\": true, \"exitCode\": 0, \"expectedFindings\": 0, \"observedFindings\": 0, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_different_value\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_different_path\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_different_field\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_prefix_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_trailing_content\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_secret_before\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}, {\"case\": \"zipformer_fr_public_digest_secret_after\", \"exactFindingIdentity\": true, \"exitCode\": 1, \"expectedFindings\": 1, \"observedFindings\": 1, \"passed\": true, \"redacted\": true}], \"configSha256\": \"de9409b3732dc4c7b19eaa08943da00717ba838e89cbacac9bc808b13ebca692\", \"passed\": true, \"pocketDependencyArchiveBytesVerified\": true, \"recognitionArtifactBytesVerified\": true, \"scannerVersion\": \"8.30.1\"}\n"
+    },
+    {
+      "artifact": "integrity.log",
+      "bytes": 4798,
+      "sha256": "b5f4607bb1ea2837a3b5ab5744dad43d08ad7f68973cf91fe591578886d01c12",
+      "text": "{\"cases\": [{\"case\": \"intact_history\", \"exitCode\": 0, \"gitFatalObserved\": false, \"passed\": true, \"pinControls\": 176, \"pinControlsPassed\": true, \"scannerCompleted\": true}, {\"case\": \"missing_historical_blob\", \"exitCode\": 128, \"filenamePreflightExitCode\": 0, \"gitFatalObserved\": true, \"passed\": true, \"pinControls\": 0, \"pinControlsPassed\": false, \"scannerCompleted\": false}, {\"case\": \"restored_historical_blob\", \"exitCode\": 0, \"gitFatalObserved\": false, \"passed\": true, \"pinControls\": 176, \"pinControlsPassed\": true, \"scannerCompleted\": true}], \"passed\": true, \"scannerSha256\": \"88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509\", \"scannerVersion\": \"8.30.1\", \"sourceInputsSha256\": {\".gitleaks.toml\": \"de9409b3732dc4c7b19eaa08943da00717ba838e89cbacac9bc808b13ebca692\", \".gitleaksignore\": \"0c416dea2ec20fd56d7bc192c6f06eedb60a95f9e7236ba199fe094784484fd4\", \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt\": \"58dbf4b8895485e57b1b198ea634a0c0d572374d43fa76a15b59de658dc3f358\", \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt\": \"7b23c949a52c79de608a61cf46591de0477c6b5e20012c5c433ee56c811e3039\", \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt\": \"cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c\", \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt\": \"557e169710ab0410c39eb69824a1b7da7d6524187acd9b31b0e5d20f0395f9d4\", \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt\": \"44c938b24ff03487df8c04ad979ceb00b57d326d8e572c7278b1881070d314c1\", \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt\": \"f9528fb751f21f88b1d3550fcdc9c36ad422f40e6a02f41d8d2a8144d629fbce\", \"app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt\": \"cddc4bdbb0bf73528450094fd9947316b5d5f05d20dda9e0a3c5869a288ae695\", \"app/src/test/resources/pocket-compiled/tokenizer.model\": \"d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6\", \"docs/audits/pocket-caption-alignment.json\": \"e2c6af7743592b89ceabff4b9a4f027b1c5e166987fffca2f9ea00f4f3262d42\", \"docs/audits/pocket-compiled-runtime.json\": \"923df981fd745a285f8c876c120a75befe23487de76b0675d516ef9ec1064ece\", \"docs/audits/recognition-history-declaration-provenance.json\": \"1a3ab7cd8184768a7a13e9b499d2956167b42b9516ffd4c997df5ffbc46408dd\", \"docs/audits/voice-recognition-models.json\": \"1222dcd6bd8704b9e821cedc3d242a09bf0a7ebeffd77c6ddf3f3e7df7e6f172\", \"docs/licenses/pocket-compiled.md\": \"11b54c8314e8a4db698c58efdf44e6a9fe433ced770910366ec79aabeea98f66\", \"docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log\": \"239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6\", \"docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json\": \"32ae7dd7c706f871ef4211275c24fb2b75e2fad38b09d3d303f93f5292cab166\", \"docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn.json\": \"c51174fc4a2aee2150c281050c16a7c6434fdbad96561a1a27fcf00ffb28ebdc\", \"docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json\": \"165927636314ba54ef6b2a4afc7bede1eb6c5c22df389de0b1061de02dacde14\", \"docs/repairs/pocket-caption-validation-2026-11-28.json\": \"97b9c644d3be5a42774fd404ed21cdc58aa336a2d8cafd0c3a4d742d4c07a7ad\", \"docs/repairs/pocket-diagnostics-ci-review-2026-11-28.json\": \"37af62d5f518dc2bd7d4f794a100128e9d262567c5006ffb9c1924812613935a\", \"docs/repairs/pocket-history-declaration-provenance-2026-11-28.json\": \"6283c42633f25bd5e52656095622a998f06944bbd16c371c1f09acc5b1831943\", \"docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json\": \"249fb575a68b206c8148fdb2c5fdf88ccf5b7d166fbe8653371f54229d55fbca\", \"gradle/verification-metadata.xml\": \"57b1a7777a6abba9a825969a318d1cac424967fa2b386951486be7deb2a1a157\", \"history-proof/pocket-verification-metadata.xml\": \"392edf3948d2921fea08ac893d3ab13e43a497a3962bec646fdf510f8c7c8e90\", \"local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py\": \"5e9708bd227d07e4f381cabdbd4eb3c0eb9c6abf2c198771f03f4f7c36af860b\", \"scripts/report_secret_history.py\": \"4bae92d11ea7f1fc7bc86d4eeb0bb344b364a70659f55046702f33c6210e9fb8\", \"scripts/run_mediapipe_android_smoke.sh\": \"83359303d3a9118d2c7490c750081748fd6136742cb3f3cb120fc93d88e8d8c5\", \"scripts/scan_secret_history.sh\": \"d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074\", \"scripts/scan_secrets.py\": \"7bc36f594e4b12b4f3e26b9aa78e06a6fd3af6c5cfa26f6c987fbd57c63431db\", \"scripts/test_gitleaks_model_pin.py\": \"064960114119f0d5481f3a41e42c953bfaf21c37e1fc707885538277729636aa\", \"scripts/tests/fixtures/github-routing-pr-2568.json\": \"36a6fe51e92d7c7abd82342f3e0f63038d270a336d84608772778c21b54a66d0\"}}\n"
+    }
+  ],
+  "limits": "This bounded fixture does not qualify the complete reachable repository history. Hosted full-history scanning remains required on the published candidate. Existing exact declaration allowlists and all prior controls remain; the incoming wrapper timeout is explicitly180 seconds, with unchanged per-case30 seconds, git10 seconds,4 workers and Gitleaks8.30.1.",
+  "laterReconciliation": {
+    "parent": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+    "scannerAndHarnessBytesUnchanged": true,
+    "statement": "Report sourceInputsSha256 remains the historical complete fixture input set. Later unrelated Kotlin changes are not relabeled as covered by that fixture snapshot."
+  },
+  "originalReportIdentities": [
+    {
+      "artifact": "controls.json",
+      "bytes": 39329,
+      "sha256": "686923cbb6c724719b6a0d0cfbb7b7ac36dfec1719854b2affbefa9e5510a349"
+    },
+    {
+      "artifact": "integrity.json",
+      "bytes": 5108,
+      "sha256": "fc04dc9f8bd9d5b2e1868f23ef6d3bed41364a45f4834bcb9d88076a782149af"
+    },
+    {
+      "artifact": "summary.json",
+      "bytes": 1164,
+      "sha256": "d71394f4bba932e1fd71eb2e27621aac0fa2f1d1e6c2e6786dcf86036226231b"
+    }
+  ]
+}

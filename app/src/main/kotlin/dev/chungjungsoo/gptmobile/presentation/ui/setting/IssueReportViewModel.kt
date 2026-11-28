@@ -42,7 +42,9 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     private val mutableRoute = MutableStateFlow<IssueReportRoute?>(null)
     private val mutableDraft = MutableStateFlow(ManualDraft())
     private val setupInProgress = MutableStateFlow(false)
-    private val selectedReportId = MutableStateFlow<String?>(null)
+    private data class ReportSelection(val reportId: String, val generation: Long, val closeWhenSent: Boolean)
+    private var modalGeneration = 0L
+    private val selectedReport = MutableStateFlow<ReportSelection?>(null)
     private val announced = MutableStateFlow<Set<String>>(emptySet())
     private val preferences by lazy { context.getSharedPreferences("issue_report_receipts", Context.MODE_PRIVATE) }
     internal val saving = mutableSaving.asStateFlow()
@@ -53,16 +55,35 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     internal val routes = mutableRoutes.asStateFlow()
     internal val route = mutableRoute.asStateFlow()
     internal val draft = mutableDraft.asStateFlow()
-    internal val submission = combine(mutableReports, selectedReportId) { reports, id -> reports.firstOrNull { it.reportId == id } }
+    internal val submission = combine(mutableReports, selectedReport) { reports, selected ->
+        reports.firstOrNull { it.reportId == selected?.reportId }
+            ?.takeUnless { selected?.closeWhenSent == true && it.state == IssueReportOutbox.State.SENT }
+    }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-    internal val receipts = combine(mutableReports, selectedReportId, announced) { reports, selected, seen ->
-        reports.filter { it.reportId != selected && it.state in setOf(IssueReportOutbox.State.SENT, IssueReportOutbox.State.FAILED) && it.receiptKey !in seen }
+    internal val receipts = combine(mutableReports, selectedReport, announced) { reports, selected, seen ->
+        reports.filter { it.reportId != selected?.reportId && it.state in setOf(IssueReportOutbox.State.SENT, IssueReportOutbox.State.FAILED) && it.receiptKey !in seen }
     }
     internal val currentIncident = combine(IssueReportIncidents.pending, LocalDiagnosticsPolicy.state, IssueReportIncidents.privateSession, setupInProgress) { reports, debug, isPrivate, setup ->
         reports.firstOrNull().takeIf { debug && !isPrivate && !setup }
     }
 
     init {
+        viewModelScope.launch {
+            combine(mutableReports, selectedReport) { reports, selected -> selected to reports.firstOrNull { it.reportId == selected?.reportId } }
+                .collect { (selected, report) ->
+                    if (selected?.closeWhenSent == true &&
+                        report?.state == IssueReportOutbox.State.SENT &&
+                        selected.generation == modalGeneration &&
+                        selectedReport.value == selected
+                    ) {
+                        // Only a delivery this UI was following closes automatically.
+                        // A deliberate inspection of an already-sent receipt stays open.
+                        modalGeneration++
+                        selectedReport.value = null
+                        mutableError.value = null
+                    }
+                }
+        }
         viewModelScope.launch {
             combine(LocalDiagnosticsPolicy.state, IssueReportIncidents.privateSession) { debug, isPrivate -> debug && !isPrivate }
                 .collect { available ->
@@ -80,6 +101,8 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun openManual() {
+        modalGeneration++
+        selectedReport.value = null
         setupInProgress.value = false
         mutableError.value = null
         // This timestamp describes report creation, not an inferred failure time.
@@ -89,17 +112,19 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun closeManual() {
-        if (!mutableSaving.value) {
-            mutableError.value = null
-            mutableManual.value = false
-        }
+        // Dismiss only the UI. An already accepted outbox operation retains its
+        // identity and continues independently of the dialog window.
+        modalGeneration++
+        mutableError.value = null
+        mutableManual.value = false
     }
 
     /** The user selects current download observations; the usual preview and approval remain required. */
     internal fun openVoiceDownloadReport() {
         if (mutableSaving.value) return
+        modalGeneration++
         setupInProgress.value = false
-        selectedReportId.value = null
+        selectedReport.value = null
         mutableError.value = null
         mutableManualPreview.value = IssueReport.manual("", "", emptyList())
         mutableDraft.value = ManualDraft(
@@ -113,10 +138,11 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun selectReport(reportId: String) {
+        modalGeneration++
         mutableManual.value = false
         mutableError.value = null
-        selectedReportId.value = reportId
         val report = mutableReports.value.firstOrNull { it.reportId == reportId }
+        selectedReport.value = ReportSelection(reportId, modalGeneration, report != null && report.state != IssueReportOutbox.State.SENT)
         mutableRoute.value = report?.route ?: defaultRoute(mutableRoutes.value)
         refreshAvailability()
     }
@@ -179,9 +205,10 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun closeForSetup() {
+        modalGeneration++
         setupInProgress.value = true
         mutableManual.value = false
-        selectedReportId.value = null
+        selectedReport.value = null
     }
 
     internal fun completeSetup() {
@@ -189,11 +216,12 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun closeSubmission() {
-        val saved = submission.value
+        val saved = mutableReports.value.firstOrNull { it.reportId == selectedReport.value?.reportId }
+        modalGeneration++
+        selectedReport.value = null
+        mutableError.value = null
         viewModelScope.launch {
             if (saved?.state in setOf(IssueReportOutbox.State.SENT, IssueReportOutbox.State.FAILED)) saved?.let { acknowledge(it) }
-            selectedReportId.value = null
-            mutableError.value = null
         }
     }
 
@@ -243,6 +271,7 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
             original?.feature == "app" -> "APP"
             else -> null
         }
+        modalGeneration++
         mutableManualPreview.value = IssueReport.manual("", "", emptyList())
         mutableDraft.value = ManualDraft(
             title = original?.title?.takeIf(String::isNotBlank) ?: original?.errorCode.orEmpty(),
@@ -250,7 +279,7 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
             diagnosticArea = area,
             relatedIssueNumber = number
         )
-        selectedReportId.value = null
+        selectedReport.value = null
         mutableError.value = null
         mutableManual.value = true
         previewManualDiagnostics(true)
@@ -263,31 +292,35 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun dismissIncident(report: IssueReport) {
-        if (!mutableSaving.value) {
-            mutableError.value = null
-            viewModelScope.launch { IssueReportIncidents.dismiss(report.reportId) }
-        }
+        modalGeneration++
+        mutableError.value = null
+        viewModelScope.launch { IssueReportIncidents.dismiss(report.reportId) }
     }
 
     internal fun retrySubmission(reportId: String, approvedRoute: IssueReportRoute?) {
-        viewModelScope.launch { retry(reportId, approvedRoute) }
+        val owner = modalGeneration
+        viewModelScope.launch { if (owner == modalGeneration) retry(reportId, approvedRoute) }
     }
 
     internal suspend fun retry(reportId: String, approvedRoute: IssueReportRoute?): Boolean {
         if (!mutableSaving.compareAndSet(expect = false, update = true)) return false
+        val owner = modalGeneration
         return try {
             mutableError.value = null
             val saved = mutableReports.value.firstOrNull { it.reportId == reportId } ?: return false
             val destination = approvedRoute ?: return false
             if (saved.mayHaveBeenSubmitted && saved.route != destination) return false
             IssueReportWorker.retry(context, reportId, destination)
-            selectReport(reportId)
+            if (owner == modalGeneration) {
+                mutableManual.value = false
+                selectedReport.value = ReportSelection(reportId, owner, closeWhenSent = true)
+            }
             refresh()
             true
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            mutableError.value = Notice.SaveFailed
+            if (owner == modalGeneration) mutableError.value = Notice.SaveFailed
             false
         } finally {
             mutableSaving.value = false
@@ -295,41 +328,49 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     internal fun removeFailed(reportId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        val owner = modalGeneration
+        viewModelScope.launch {
             try {
-                IssueReportOutbox.forContext(context).removeFailed(reportId)
-                selectedReportId.value = null
+                withContext(Dispatchers.IO) { IssueReportOutbox.forContext(context).removeFailed(reportId) }
+                if (owner == modalGeneration && selectedReport.value?.reportId == reportId) {
+                    modalGeneration++
+                    selectedReport.value = null
+                }
                 refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
-                mutableError.value = Notice.SaveFailed
+                if (owner == modalGeneration) mutableError.value = Notice.SaveFailed
             }
         }
     }
 
     private fun enqueue(approvedRoute: IssueReportRoute?, incidentId: String? = null, buildReport: () -> IssueReport) {
         if (!mutableSaving.compareAndSet(expect = false, update = true)) return
+        val owner = modalGeneration
         viewModelScope.launch {
             try {
-                mutableError.value = null
+                if (owner == modalGeneration) mutableError.value = null
                 val report = buildReport()
                 val saved = IssueReportWorker.enqueue(context, report, approvedRoute)
-                selectedReportId.value = saved.reportId
-                refresh()
-                if (incidentId == null) {
-                    mutableManual.value = false
-                    mutableManualPreview.value = null
-                    mutableDraft.value = ManualDraft()
-                } else {
-                    IssueReportIncidents.dismiss(incidentId)
+                if (owner == modalGeneration) {
+                    if (incidentId == null) {
+                        mutableManual.value = false
+                        mutableManualPreview.value = null
+                        mutableDraft.value = ManualDraft()
+                    }
+                    selectedReport.value = ReportSelection(saved.reportId, owner, closeWhenSent = true)
                 }
+                if (incidentId != null) IssueReportIncidents.dismiss(incidentId)
+                refresh()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: IllegalArgumentException) {
-                mutableError.value = Notice.TooLarge
+                if (owner == modalGeneration) mutableError.value = Notice.TooLarge
             } catch (failure: IllegalStateException) {
-                mutableError.value = if (failure.message == IssueReportOutbox.CAPACITY_MESSAGE) Notice.StorageFull else Notice.SaveFailed
+                if (owner == modalGeneration) mutableError.value = if (failure.message == IssueReportOutbox.CAPACITY_MESSAGE) Notice.StorageFull else Notice.SaveFailed
             } catch (_: Exception) {
-                mutableError.value = Notice.SaveFailed
+                if (owner == modalGeneration) mutableError.value = Notice.SaveFailed
             } finally {
                 mutableSaving.value = false
             }
@@ -343,7 +384,7 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
             val available = routing.get().options()
             mutableRoutes.value = available
             val current = mutableRoute.value
-            val saved = mutableReports.value.firstOrNull { it.reportId == selectedReportId.value }
+            val saved = mutableReports.value.firstOrNull { it.reportId == selectedReport.value?.reportId }
             if (saved?.mayHaveBeenSubmitted == true) {
                 mutableRoute.value = saved.route
             } else if (current !in available) {

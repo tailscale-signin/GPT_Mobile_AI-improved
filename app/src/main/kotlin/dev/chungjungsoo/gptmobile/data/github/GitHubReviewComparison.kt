@@ -184,13 +184,8 @@ internal object GitHubReviewComparison {
             listOfNotNull(file.text("filename").takeIf(String::isNotBlank), file.text("previous_filename").takeIf { it.isNotBlank() && file.text("status") == "renamed" })
         }.toSet()
         if (changed.isEmpty() && comparisons.any { (data(it)["files_total"] as? JsonPrimitive)?.intOrNull == 0 && data(it)["has_more"] != JsonPrimitive(true) }) return null
-        val sourceRead = eligible.any { row ->
-            val args = row["arguments"] as? JsonObject ?: return@any false
-            val pinned = args.text("commit_sha").ifBlank { data(row).text("commit_sha").ifBlank { row.text("resource_sha") } }
-            row.text("tool").githubOperationFamily() == "github_read" &&
-                pinned in setOf(base, head) &&
-                GitHubCriterionAcceptance.observedSourcePaths(row).any { it in changed }
-        }
+        val coverage = checkpoint["comparison_coverage"] as? JsonObject
+        val sourceRead = ((coverage?.get("changed_files_with_source_observation") as? JsonPrimitive)?.intOrNull ?: 0) > 0
         return if (sourceRead) null else "The exact comparison is retained, but no relevant changed-source read at the pinned base/head is recorded. Checks and inventories cannot verify a source review."
     }
 
@@ -278,8 +273,16 @@ internal object GitHubReviewComparison {
                         .flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>()
                     val changed = changedFiles.mapNotNull { it.text("filename").takeIf(String::isNotBlank) }.toSet()
                     val readPaths = eligible.filter { targetReceipt(it) && operation(it) == "github_read" && data(it).text("commit_sha") in setOf(base, head) }
-                        .flatMap { GitHubCriterionAcceptance.observedSourcePaths(it) }.toSet()
-                    val read = changedFiles.filter { it.text("filename") in readPaths || it.text("status") == "renamed" && it.text("previous_filename") in readPaths }.map { it.text("filename") }.toSet()
+                        .groupBy { data(it).text("commit_sha") }
+                        .mapValues { (_, rows) -> rows.flatMapTo(mutableSetOf(), GitHubCriterionAcceptance::observedSourcePaths) }
+                    val headPaths = readPaths[head].orEmpty()
+                    val basePaths = readPaths[base].orEmpty()
+                    val read = changedFiles.filter { file ->
+                        val path = file.text("filename")
+                        val status = file.text("status")
+                        val basePath = if (status == "renamed") file.text("previous_filename") else path
+                        status != "removed" && path in headPaths || status != "added" && basePath in basePaths
+                    }.mapTo(mutableSetOf()) { it.text("filename") }
                     val pending = changed - read
                     put(
                         "comparison_coverage",

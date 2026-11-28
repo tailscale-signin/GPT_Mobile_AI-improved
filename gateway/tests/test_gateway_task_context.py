@@ -278,6 +278,53 @@ class TaskContextTests(unittest.TestCase):
         record_model_exposure(data, {'messages': [{'content': json.dumps({'task_context': bundle})}]})
         self.assertFalse(any('source_exposure' in row for row in data['files'].values()))
 
+    def test_capacity_projection_delivers_exact_lines_and_excludes_unseen_edits(self):
+        path = 'src/capacity.py'
+        source = ''.join(f'value_{index} = "réponse {index} ' + 'x' * 70 + '"\n' for index in range(30))
+        sha = blob_sha(source)
+        row = dict(path=path, blob_sha=sha, start_line=1, end_line=30, content=source,
+                   content_sha256=hashlib.sha256(source.encode()).hexdigest(), reason='task_path')
+        bundle = dict(schema='repository.task_context.v1', repository='owner/repo', source_sha='a' * 40,
+                      source_identity_kind='GIT_COMMIT', variant='TASK', selected_ranges=[row], documents=[])
+        original = copy.deepcopy(bundle)
+        projected = project_bundle(bundle, 1400)
+        self.assertLessEqual(len(json.dumps(projected, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()), 1400)
+        delivered = projected['selected_ranges'][0]
+        self.assertIn('content', delivered)
+        self.assertGreater(delivered['end_line'], 0)
+        self.assertLess(delivered['end_line'], row['end_line'])
+        expected = ''.join(source.splitlines(True)[:delivered['end_line']])
+        self.assertEqual(expected, delivered['content'])
+        self.assertEqual(hashlib.sha256(expected.encode()).hexdigest(), delivered['content_sha256'])
+        self.assertEqual(delivered['end_line'] + 1, delivered['next_line'])
+        self.assertEqual(30, delivered['retained_end_line'])
+        self.assertFalse(projected['view_complete'])
+        self.assertGreater(projected['omitted_ranges'], 0)
+        self.assertEqual(original, bundle)
+        data = dict(head_sha='a' * 40, tree={path: dict(mode='100644', sha=sha)},
+                    files={path: dict(content=source, sha=sha, preview_characters=0)})
+        record_model_exposure(data, {'messages': [{'content': json.dumps({'task_context': projected})}]})
+        def proposal(index):
+            return {'changes': [{'path': path, 'expected_blob_sha': sha,
+                                 'edits': [{'old': f'value_{index} =', 'new': f'fixed_{index} ='}]}]}
+        changed = prepare_changes(proposal(0), data['files'], data['tree'], head_sha=data['head_sha'])
+        self.assertTrue(changed[0]['content'].startswith('fixed_0 ='))
+        with self.assertRaises(ValueError):
+            prepare_changes(proposal(29), data['files'], data['tree'], head_sha=data['head_sha'])
+
+    def test_capacity_projection_keeps_unread_pointer_for_oversize_or_invalid_source(self):
+        for content, digest, end in [('é' * 3000, None, 1), ('small\n' * 1000, 'f' * 64, 1000),
+                                     ('small\n' * 1000, None, 2000)]:
+            with self.subTest(end=end, digest=digest):
+                row = dict(path='source.py', blob_sha='b' * 40, start_line=1, end_line=end,
+                           content=content, content_sha256=digest or hashlib.sha256(content.encode()).hexdigest())
+                bundle = dict(schema='repository.task_context.v1', repository='owner/repo', source_sha='a' * 40,
+                              source_identity_kind='GIT_COMMIT', variant='TASK', selected_ranges=[row], documents=[])
+                projected = project_bundle(bundle, 1400)
+                self.assertFalse(projected['view_complete'])
+                self.assertTrue(projected['selected_ranges'][0]['content_omitted'])
+                self.assertNotIn('content', projected['selected_ranges'][0])
+
 
 class BoundTaskContextTests(unittest.TestCase):
     setUp = selected_fixtures.SelectedExecutionTests.setUp
@@ -315,7 +362,7 @@ class BoundTaskContextTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.apply(proposal)
 
-    def test_compacted_context_does_not_authorize_omitted_source(self):
+    def test_compacted_context_authorizes_only_the_exact_delivered_window(self):
         proposal = self.source()
         source = self.job['data']['files']['source.py']
         source['content'] += ('# large trailing context ' + 'x' * 290 + '\n') * 30
@@ -326,10 +373,16 @@ class BoundTaskContextTests(unittest.TestCase):
             bundle = body.get('task_context', {})
             return (300 if not bundle.get('view_complete', True) else 100000, 'SELECTED_TOKENIZER')
         # A constrained selected-model budget invokes the real exact-range
-        # projection, which keeps the anchor identity and omits this large body.
+        # projection. The matching function fits as a smaller whole-line
+        # window; the unrelated earlier source remains unread.
         with patch.object(self.service.capabilities, 'count', side_effect=count):
             self.backend.model(self.job, 'coding agent', view(self.job['data']))
-        self.assertEqual([], workspace_receipt(self.job['data'])['admission']['selected_ranges'])
+        admitted = workspace_receipt(self.job['data'])['admission']['selected_ranges']
+        self.assertTrue(admitted)
+        self.assertTrue(any(row['start_line'] <= 452 <= 453 <= row['end_line'] for row in admitted))
+        self.assertFalse(any(row['start_line'] <= 201 <= row['end_line'] for row in admitted))
+        self.assertIn('    return 2\n', self.apply(proposal)[0]['content'])
+        proposal['changes'][0]['edits'] = [{'old': 'unseen_anchor = 1', 'new': 'unseen_anchor = 2'}]
         with self.assertRaises(ValueError):
             self.apply(proposal)
 

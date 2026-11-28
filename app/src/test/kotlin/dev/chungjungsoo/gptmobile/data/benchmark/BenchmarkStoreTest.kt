@@ -26,6 +26,42 @@ class BenchmarkStoreTest {
         ApplicationProvider.getApplicationContext<Context>().deleteDatabase("benchmark_v2.db")
     }
 
+    @Test fun recoveredPreparationCannotRemainRunningOrFabricateAnExecution() = runBlocking {
+        val store = BenchmarkStore(ApplicationProvider.getApplicationContext<Context>())
+        try {
+            val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "preparation-profile", name = "Preparation profile", model = "model")
+            val cases = listOf(BenchmarkCase("case", "Case", "task", "Reply READY", "READY"))
+            for (userStopped in listOf(false, true)) {
+                val id = "preparation-$userStopped"
+                val origin = if (userStopped) BenchmarkStopOrigin.USER_STOP else BenchmarkStopOrigin.PROCESS_INTERRUPTION
+                val failure = benchmarkTerminationFailure(kotlinx.coroutines.CancellationException(), "admission", origin, "$id:preparation")
+                val preparation = BenchmarkPreparationReceipt(failure.eventId!!, "admission", if (userStopped) "CANCELED" else "WAITING", 1, elapsedMs = 100, queueWaitMs = 95, failure = failure.takeIf { userStopped })
+                val run = BenchmarkRun(id, profile.uid, profile.name, "OPENAI", profile.model, "config", false, BenchmarkMode.QUICK, 1, finished = false, samples = if (userStopped) cases.map { benchmarkUnattemptedDisposition(it, failure) } else emptyList(), batchId = id, caseManifest = cases, plannedTrials = cases.size, preparation = preparation)
+                val item = BenchmarkQueueItem(0, profile, id, "config", state = BenchmarkQueueState.RUNNING, startedAt = 1)
+                val batch = BenchmarkBatch(id, BenchmarkMode.QUICK, 1, listOf(item), state = BenchmarkBatchState.RUNNING, activeOrdinal = 0, caseManifest = cases, stopOrigin = BenchmarkStopOrigin.USER_STOP.takeIf { userStopped })
+                store.checkpoint(batch, run, event = "PREFLIGHT")
+                store.markInterruptedRuns()
+                store.recoverBatches()
+                val recovered = store.history.value.single { it.id == id }
+                assertEquals("INTERRUPTED", recovered.state)
+                assertEquals(origin, recovered.cancellationOrigin)
+                assertEquals(origin.name, recovered.preparation?.failure?.code)
+                assertEquals(userStopped, recovered.canceled)
+                assertEquals(BenchmarkQueueState.INTERRUPTED, store.batch(id)?.items?.single()?.state)
+                assertEquals(0, benchmarkCoverage(recovered).executed)
+                if (!userStopped) {
+                    assertEquals(null, recovered.preparation?.elapsedMs)
+                    assertEquals(100L, recovered.preparation?.lastObservedElapsedMs)
+                    assertEquals(null, recovered.preparation?.endedAt)
+                }
+                val backup = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson())
+                assertTrue(backup.attempts.none { it.runId == id })
+            }
+        } finally {
+            store.close()
+        }
+    }
+
     @Test fun corruptOptionalMirrorAndFailedRecoveryCommitCannotBlockCanonicalHistory() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Context>()
         val prefs = application.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE)

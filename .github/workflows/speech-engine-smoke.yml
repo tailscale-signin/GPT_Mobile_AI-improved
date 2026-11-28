@@ -102,7 +102,7 @@ jobs:
                   raise SystemExit("Compact CPU output differs from the public fixture")
           PYTHON
           cp "$capture/manifest.json" artifacts/compact-short-cpu.json
-      - name: Execute actual JNI lifecycle and full-model context store/load/recovery
+      - name: Execute Kokoro contexts and streaming ASR JNI lifecycle regressions
         timeout-minutes: 33
         shell: bash
         run: |
@@ -114,6 +114,7 @@ jobs:
             --qnn "$RUNNER_TEMP/kokoro-native-inputs/qnn" --qnn-version 2.8.0 \
             --jdk "$JAVA_HOME" --cmake "$(command -v cmake)" \
             --pack "$RUNNER_TEMP/kokoro-native-inputs/pack" \
+            --asr-packs "$RUNNER_TEMP/kokoro-native-inputs/asr-packs" \
             --build-jobs 2 --output artifacts/native 2>&1 | tee artifacts/native-driver.log
       - name: Retain actual JNI and context qualification evidence
         if: always()
@@ -137,7 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [kokoro, phonon, pocket]
+        engine: [kokoro, phonon, pocket, pocket-multilingual]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

@@ -206,7 +206,7 @@ internal fun safeSpeechDiscoverySummary(value: String?): String? = value?.takeIf
 }
 
 internal fun safeSpeechCacheAdmission(value: String?): String? = value?.takeIf {
-    it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES")
+    it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES", "BOUNDED_FOUR_SHAPES", "BOUNDED_FIVE_SHAPES")
 }
 
 internal fun safeSpeechGraphPreparation(value: String?): String? = value?.takeIf {

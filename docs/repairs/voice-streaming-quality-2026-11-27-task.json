@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-streaming-quality-2026-11-27",
+  "userRequest": "Implement all the features and changes above on the latest PR branch.",
+  "createdAtUtc": "2026-11-27T22:24:07.110004+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2651,
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "sourceParent": "440561e3f71e54ce1058c9edddc0f9416fb7d84f",
+  "status": "IMPLEMENTED_HOST_VERIFIED",
+  "intent": [
+    "Pitch-preserving streaming speed with a shared PCM/caption time transform",
+    "Revisable estimated captions with presentation commit safety",
+    "Expanded pronunciation packs and personal correction import/export",
+    "Verified Pocket bundled voices and multilingual model support",
+    "Capability-honest accelerator/model choices and benchmark coverage",
+    "Strict voice translation: all accepted utterances remain source text, including questions and commands; no conversational or task fallback"
+  ],
+  "qualification": {
+    "physicalHandset": {
+      "status": "NOT_RUN",
+      "scope": "Android audio presentation, JNI inference, real delegate placement, listening quality, route latency and thermal measurements remain unmeasured."
+    },
+    "fullAndroidBuild": {
+      "status": "BLOCKED",
+      "environment": "Official Android SDK 37, build tools 36/37, NDK 29, CMake 3.22.1, verified Temurin JDK 21, Gradle 9.8.0 and pinned dependencies provisioned.",
+      "observed": "core-domain and native bridge Java compilation completed; combined app KSP/KAPT attempt lost its daemon. An isolated retry reported 3 GiB heap exhaustion and was stopped.",
+      "existingCiPolicy": "Repository CI separates KSP,4 GiB KAPT,6 GiB production and4 GiB unit compilation.",
+      "memoryPreflight": "Actual checks returned UNKNOWN because cgroup observations are absent; available RAM was approximately6 GiB, below the 8.75 GiB production and 7 GiB unit admission thresholds. No preflight bypass or repository memory-setting change.",
+      "pending": [
+        "Full app Kotlin/Java compilation",
+        "Repository,AgentRunner,LiteRT adapter,Gateway,ViewModel and deferred-output Android unit regressions",
+        "Android instrumentation and real speech synthesis"
+      ]
+    },
+    "focusedTests": {
+      "status": "PASS",
+      "suites": [
+        {
+          "name": "Combined portable voice sources",
+          "tests": 152,
+          "sourceFilesCheckedAtFinalIntegration": 83,
+          "coverage": "Tempo,pitch/duration,callback partitioning,cue revisions,caption routing,pronunciation transfer,translation source contract,comparisons,exports and playback controls"
+        },
+        {
+          "name": "Actual MediaPipe SDK integration",
+          "tests": 49,
+          "kotlinSourceFilesCheckedAtFinalIntegration": 30,
+          "javaSourceFilesCheckedAtFinalIntegration": 4,
+          "classes": [
+            "MediaPipeVoicePhraseEngineTest",
+            "MediaPipeSpeechModelStoreTest",
+            "MediaPipeIncrementalSpeechTest"
+          ],
+          "coverage": "Actual production engine/factory/store,cache/lease/hash/cancellation/recovery code; injected native streams/tasks at the existing test boundary; real SDK 1.2.3 classes and Android 37 API jar",
+          "excluded": "Two unused diagnostic sinks are fail-fast harness adapters with a zero-invocation assertion; no Android audio or JNI execution"
+        },
+        {
+          "name": "Independent caption and EOF review",
+          "tests": 98,
+          "coverage": "Actual SDK DTOs,current Sonic source,mapped original and revised EOF boundaries,and unchanged previously finalized timing"
+        },
+        {
+          "name": "Pronunciation and preferences",
+          "tests": 32,
+          "coverage": "Regional/shared dictionaries,technical readings,source offsets and preference compatibility"
+        }
+      ],
+      "countsMayOverlap": true
+    },
+    "canonicalHost": {
+      "status": "PASS",
+      "command": "bash scripts/validate-local.sh fast",
+      "pythonTests": 850,
+      "skipped": 1,
+      "includes": [
+        "CI policy",
+        "generated architecture,feature and diagnostic references",
+        "source inventory",
+        "dependency catalog",
+        "Gateway package hashes",
+        "secret scan",
+        "Python host regressions",
+        "Android regex/resources/icon checks",
+        "QNN provenance",
+        "git diff --check"
+      ]
+    },
+    "formatting": {
+      "status": "PASS",
+      "tool": "ktlint 1.3.1",
+      "changedKotlinFiles": 99
+    },
+    "nativeHostSmoke": {
+      "status": "BLOCKED",
+      "reason": "Required /sys/devices/system/cpu/possible,present,online topology files are absent. Real command returned blocked before inference; topology was not fabricated."
+    },
+    "mergeDiagnostics": {
+      "status": "PASS",
+      "tests": 6,
+      "class": "VoiceExecutionDiagnosticsTest",
+      "scope": "Actual merged diagnostics source,including multilingual requested-backend and new failure-stage/cause fields."
+    }
+  },
+  "limitations": [
+    "The packaged Pocket/Phonon runtime remains CPU-only; compatible incremental GPU/NPU integration and smaller replacement checkpoints are not implemented.",
+    "SDK timestamps remain estimates. No acoustic forced aligner is implemented or claimed.",
+    "Pitch/word alignment/pronunciation thresholds are admission targets,not physical-device measurements. Native Auto qualification remains unchanged.",
+    "Strict request routing does not prove every selected model produces a faithful translation; actual recognition/model quality requires provider/device evaluation.",
+    "New high-level Android translation and UI regressions are committed for CI but could not execute locally because the full Android compile memory gate is unavailable."
+  ],
+  "publication": "Implement on the existing PR 2651 branch; commit and push only. No merge or release requested.",
+  "integratedSourceParent": "863c1e4a2c99d1a345d13249ecdf84e956d712c2",
+  "remoteIntegration": "Rebased onto the latest PR head after preserving concurrent intelligence, durable-choice, continuation and voice-failure recovery fixes. Reviewed provider-wrapper and diagnostics conflicts; regenerated combined inventories and scope.",
+  "reviewFindingsFixed": [
+    "Ordinary and corrected final cue endpoints wait for Sonic EOS drainage without moving finalized earlier words.",
+    "Translated first-person action claims and literal control strings remain output data; structured calls are rejected.",
+    "Output-device loss invalidates measurement identity; idle caption edits bind to the next observed device.",
+    "Normal-rate SDK model residency is separate from playback factory callback/rate identity."
+  ],
+  "implemented": [
+    "Per-stream pitch-preserving Sonic tempo with normal-rate SDK synthesis,shared PCM/caption timeline,cancellation isolation and existing output-duration bounds",
+    "Bounded source-identified cue revisions; future captions follow corrections while heard words stay fixed; pause-aware motion and highlights",
+    "Explicit per-device caption calibration,queued idle edits,route-loss invalidation and opaque route comparison identity",
+    "Expanded technical/regional pronunciation,512 entries per profile,staged UTF-8 import/export,correction form and spoken-text preview",
+    "Verified 8-voice English Pocket,14-voice seven-language Pocket multilingual and 5-voice Phonon catalogs with per-pack preferences and explicit installation",
+    "Translation-only current-source routing and literal output,questions/commands preserved,no history/persona/tools/research/task or Combined fallback,translation-only default locale",
+    "Processor/route/provenance-bound streaming comparisons,independent quality evidence requirements,accurate post-tempo measurement scope and extended smoke matrices"
+  ],
+  "sourceIntegrationNotes": [
+    "Generated inventories were regenerated from combined source and exact scoped-release lists retain both concurrent work and this voice change.",
+    "Preserved the incoming compact feature-map serializer and all existing navigation while adding the voice feature references.",
+    "Final rebase source check: all 83 combined-voice and all 34 SDK-integration source hashes still match the passing 152-case and 49-case suites.",
+    "Incoming provider-wrapper metadata ordering and typed voice failure diagnostics were preserved. The diagnostics merge passed all 6 focused tests; the added wrapper-composition regression awaits the full app test runtime.",
+    "Final subsequent rebase preserves the incoming legacy-wait audit and continuation-import repairs; voice implementation and tested source fingerprints remain unchanged."
+  ]
+}

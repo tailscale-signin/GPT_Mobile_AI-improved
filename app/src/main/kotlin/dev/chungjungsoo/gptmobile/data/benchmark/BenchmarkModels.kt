@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), CPU_EXPERIMENT("CPU thread comparison"), PERFORMANCE("Performance diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent"), APP_AUDIT("App audit"), GITHUB_INTEGRATION("GitHub tools & engineering audit") }
+enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), CPU_EXPERIMENT("CPU thread comparison"), PERFORMANCE("Performance diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent"), APP_AUDIT("App audit"), GITHUB_INTEGRATION("GitHub tools & engineering audit"), STANDARD("Standard") }
 
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL, SKIPPED }
@@ -204,7 +204,10 @@ data class BenchmarkSample(
     val engineeringVerification: BenchmarkEngineeringVerification? = null,
     val engineeringAttempts: List<BenchmarkEngineeringAttemptReceipt> = emptyList(),
     val adapterRequestSettings: Map<String, String> = emptyMap(),
-    val contextReceipt: BenchmarkContextReceipt? = null
+    val contextReceipt: BenchmarkContextReceipt? = null,
+    /** An unattempted manifest disposition, not an execution or provider failure. */
+    val dispositionOnly: Boolean = false,
+    val causedByEventId: String? = null
 ) {
     val runtimeExecution: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? get() = runtimeExecutions.lastOrNull()
     val rawReferenceSpeed: Double? get() = firstTextMs?.let { first ->
@@ -324,7 +327,8 @@ data class BenchmarkRun(
     val pricingSnapshot: BenchmarkPricingSnapshot? = null,
     val engineeringPlan: BenchmarkEngineeringPlan? = null,
     val engineeringRepeatIndex: Int? = null,
-    val engineeringContextVariant: String? = null
+    val engineeringContextVariant: String? = null,
+    val preparation: BenchmarkPreparationReceipt? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

@@ -87,7 +87,7 @@ ENUMS = {
         "provider_reported_initial", "provider_reported_interim", "runtime_reported_initial", "runtime_reported_interim", "gateway_reported_initial", "gateway_reported_interim", "mixed_reported_initial", "mixed_reported_interim",
     },
     "acceptance_evidence_scope": {"CURRENT_VERDICT", "RETAINED_VERDICT"},
-    "voice_engine": {"SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE"},
+    "voice_engine": {"SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE", "COMPILED_POCKET"},
     "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"},
     "voice_focus_result": {"GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"},
     "voice_first_audio_basis": {"UTTERANCE_START", "PLAYBACK_HEAD"},
@@ -140,6 +140,10 @@ FIELDS_BY_AREA = {
 FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
 FIELDS_BY_AREA["PROVIDER"].add("privacy_dispatch_outcome")
 ENUMS["provider_failure_code"].add(PRIVACY_FINAL_REQUEST_CODE)
+ENUMS["provider_failure_code"].update({
+    "REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+    "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE",
+})
 ENUMS["provider_failure_code"].update(capsule.CONVERSATION_RECOVERY_CODES | capsule.EXECUTION_COMPLETION_CODES | {"OUTPUT_CONTINUATION_UNAVAILABLE", "GITHUB_TASK_IDENTITY_CHANGED"})
 FIELDS_BY_AREA["PROVIDER"].update({"gateway_model_state", "gateway_model_advertised", "gateway_model_loaded"})
 FLAGS.update({"gateway_model_advertised", "gateway_model_loaded"})
@@ -276,7 +280,7 @@ VOICE_INSTALL_EVIDENCE_FIELDS = {
 }
 ENUMS["voice_install_failure"].add("WORK_NOT_FOUND")
 ENUMS["voice_install_pending_reason"] = {"UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"}
-ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO", "LITERT_KOKORO"}
+ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO", "LITERT_KOKORO", "POCKET"}
 ENUMS["voice_install_transfer_stage"] = {"CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"}
 ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"}
 COUNTS.add("voice_install_elapsed_ms")
@@ -344,14 +348,15 @@ FIELDS_BY_AREA["VOICE"].update(VOICE_CAPTURE_PLAYBACK_FIELDS | VOICE_PACK_STATUS
 ACCEPTANCE_RECOVERY_FIELDS = {
     "acceptance_prerequisite_blockers", "acceptance_acquisition_allowed", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
     "task_deadline_check", "task_deadline_observation", "task_deadline_window_seconds", "task_deadline_overdue_seconds",
-    "task_deadline_clock", "task_deadline_renewed", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds",
+    "task_deadline_clock", "task_deadline_source", "task_deadline_renewed", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds",
     "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count",
     "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
     "status_policy_protection_http_status", "status_policy_rules_http_status",
     "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint", "status_missing_observations",
 }
 ENUMS["task_deadline_check"] = {"ADMISSION", "BEFORE_TOOL_RESTORE", "BEFORE_MODEL_LOOP", "MODEL_LOOP_TIMEOUT", "VERIFIED_SESSION_ENTRY"}
-ENUMS["task_deadline_clock"] = {"WALL_CLOCK"}
+ENUMS["task_deadline_clock"] = {"WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES"}
+ENUMS["task_deadline_source"] = {"ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"}
 FLAGS.add("task_deadline_renewed")
 ENUMS["task_deadline_observation"] = {"CONTRACT_UNAVAILABLE", "NO_ACCEPTED_DEADLINE", "TIMING_UNAVAILABLE", "WINDOW_OPEN", "WINDOW_EXPIRED"}
 ENUM_LISTS["acceptance_prerequisite_blockers"] = {"OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED", "OPERATION_IDENTITY_REQUIRED", "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED", "APPROVAL_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN", "FIXTURE_APPROVAL_MODE_REQUIRED", "LIVE_EVIDENCE_REQUIRED", "CONTINUATION_REQUIRED", "PRECHECK_REJECTED", "OPERATION_FAILED", "USER_DECISION_REQUIRED", "CHECK_SUBSCRIPTION_REQUIRED", "OWNED_FIXTURE_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "REPOSITORY_INPUT_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED", "REPOSITORY_LIFECYCLE_REQUIRED", "EXECUTION_NOT_EXERCISED", "BLOCKER_DETAIL_NOT_RECORDED"}
@@ -484,7 +489,7 @@ def _valid_value(key, value):
     if key == "voice_install_progress_percent":
         return 0 <= value <= 100
     if key in {"voice_install_downloaded_bytes", "voice_install_total_bytes"}:
-        return 0 <= value <= 1_000_000_000
+        return 0 <= value <= 17_179_869_184
     if key == "voice_install_http_status":
         return 100 <= value <= 599
     return key in COUNTS and 0 <= value <= 16_000_000

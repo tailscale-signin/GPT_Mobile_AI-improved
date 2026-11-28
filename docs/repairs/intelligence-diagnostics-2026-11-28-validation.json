@@ -1,0 +1,397 @@
+{
+  "schema": "focused-jvm-validation-v1",
+  "task_date": "2026-11-28",
+  "base_commit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+  "scope": "ProviderFailureReceipt constructor/classification/serialization plus required-tool diagnostic vocabulary. Android transport/session wrapper excluded. Peripheral platform types supplied by local test ports. Not a full app or live provider validation. Supplemental exact public-code and voice admission projection tests use full IssueReportCodes, RepositoryOperationReportContract, and VoiceAdmissionFailureDiagnostics; IssueReportContext is a narrow data port with its actual identifierHash implementation. Follow-up verifies exact Python receiver parity and introduces APPLICATION_FAILURE_CAUSES_V1 extended readiness negotiation; no reporter deployment or live provider action performed. Reconciliation with bcca87ee adds four focused checks of the exact incoming Combined producer and integrated chatFailure normalizer; Android report persistence/capsule remains an explicit sink.",
+  "runtime": {
+    "jdk": 21,
+    "kotlin": "2.4.20",
+    "serialization": "1.11.0",
+    "junit": "4.13.2"
+  },
+  "changed_source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "ff08123c95a83792cc87f029cce53c4d0a512b8ffcb93870c24c4d0c5a0eca30",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": "9f23a2b0ba179172f4abe85897618f52f7483eacd318711fa7aeaefb45dd28ec",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt": "a5b1f10d99a5f60cb724a7aa474ea06694661bc6b8230f110ad7bc5fc6845ba2",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": "bd32dc575010bfded8c40c482b82bc26a0feee7789fcf5f9233c4407eb0f4286",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppOwnedFailureCodesTest.kt": "cef7a96a21eb9b9c062f79b969f8efb0040855d91c89404e0409819b2af5f357",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt": "171b6f307809ef3d084a5399263ac068f5a8f8882a5d4e5dfcb3788715e3b5ad",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": "be26be6fa83b5fa869ca0ede96f10bbe8454249e3c139d609b20decb36c92ca6",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt": "6d7231e5620a92c1ee69f73beebeda0a49b484351c97f26893eb1e1642a4d580",
+    "authentication/issue_reports.py": "03e35372971efaf84b1195cbd0a464a2df32c8bdfdb66a9714b8be6791a1f60d",
+    "authentication/issue_report_diagnostics.py": "14ce87373abcba08aebd5f4f3c6b18260cd3d99a8dcd769211f9aea0f69a67b7",
+    "authentication/incident_report_contract.py": "085722c188de656c19534828184b9f9258b7acb91d3a69c18776b118571e5a44",
+    "authentication/issue_report_app.py": "7f69af31382fbde0100cf041b762a23e796ef6a80c3d723738ff5f87f734dccf",
+    "authentication/test_incident_report_contract.py": "5e6d15cc5f0545d27c19f4a9c37a4f5c297f6d677fa669801b0630cf55cc202d",
+    "authentication/test_app.py": "f37820f3f85b42cba95b835d900445c29e3e6286f4587939deced62e2df0034c",
+    "scripts/check_issue_reporting_configuration.py": "b5ed5bbf643f179afd836d18bcd755d575d30eeefb5a8bf28f71f31b23c6bf04",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt": "9e0c6b67c0b5df97d59a8325efba5658114a1d4d78d92550d70c5f2b3d11bda7"
+  },
+  "current": {
+    "compile_exit": 0,
+    "test_exit": 0,
+    "tests": 6,
+    "failures": 0,
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "ff08123c95a83792cc87f029cce53c4d0a512b8ffcb93870c24c4d0c5a0eca30",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt": "ce8bacb2c760bd26a33f2168e7d068f9ff31148ae37d4f72f05999df993573e9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderContractFailure.kt": "7e4aa85ae41f0ba82ecd7c8890621f02ab8c5f2015cee351770ab381e18242e6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": "b16808ae567e7f776ff5c22b199d61a11a11b000c2be86f5091e472e54947874",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderConfigurationIdentity.kt": "a944ff44a245aed0be74d798091c738013c31ee4ae0cb0763e40e6e3bc6bb6de",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt": "be35b0f92d301c704e51763679c3038f5061f957bb03150c8ee621bd513e58e7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt": "db9bc43cf13acc7bdd7aaa3eff9e6b3fb25f7f30cf85fed89f5770a3af2b5667",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayOutcomeRecovery.kt": "52fca375ca48a6ac82581b6611770160cd1753d9cfd6217dcefdf9553115f5a6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/InferencePreflightRejection.kt": "b31ed7585db1e1313760d5c637538894c6460cc1a09b8f55c3f87735ce216f88",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt": "a5b1f10d99a5f60cb724a7aa474ea06694661bc6b8230f110ad7bc5fc6845ba2"
+    },
+    "test_output": "JUnit version 4.13.2\n......\nTime: 0.159\n\nOK (6 tests)"
+  },
+  "baseline": {
+    "compile_exit": 0,
+    "test_exit": 1,
+    "tests": 5,
+    "failures": 3,
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "1095505e4d3064cd4a94d100f27632a8c1f28a92c178e1a8490ecf06950d0448",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt": "ce8bacb2c760bd26a33f2168e7d068f9ff31148ae37d4f72f05999df993573e9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderContractFailure.kt": "7e4aa85ae41f0ba82ecd7c8890621f02ab8c5f2015cee351770ab381e18242e6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": "b16808ae567e7f776ff5c22b199d61a11a11b000c2be86f5091e472e54947874",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderConfigurationIdentity.kt": "a944ff44a245aed0be74d798091c738013c31ee4ae0cb0763e40e6e3bc6bb6de",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt": "be35b0f92d301c704e51763679c3038f5061f957bb03150c8ee621bd513e58e7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt": "db9bc43cf13acc7bdd7aaa3eff9e6b3fb25f7f30cf85fed89f5770a3af2b5667",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayOutcomeRecovery.kt": "52fca375ca48a6ac82581b6611770160cd1753d9cfd6217dcefdf9553115f5a6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/InferencePreflightRejection.kt": "b31ed7585db1e1313760d5c637538894c6460cc1a09b8f55c3f87735ce216f88",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt": "162cad303a43c0b422b4f6f76696c922ccf30a73d4c4eecdea9c7d3672a20537"
+    },
+    "failed_tests": [
+      "positiveOrUncertainTransportEvidenceDoesNotBecomeALocalAdmissionRefusal",
+      "knownUndispatchedToolAdmissionFailuresRetainTheirExactCauseThroughSerialization",
+      "admissionFailureCannotBorrowUsageEvenFromAnOwningRunInvocation"
+    ],
+    "observed_failures": [
+      "Known required-tool code reduced to UNCLASSIFIED_PROVIDER_FAILURE",
+      "Predispatch tool admission classified GENERATION instead of ADMISSION"
+    ],
+    "qualification_note": "Historical pre-fix control at e28b5df8 with the original five-test fixture. The current fixture additionally checks explicit UNKNOWN/YES acceptance preservation and a sixth test of contradictory positive replay/continuation hints. This historical baseline was not rerun with the expanded fixture."
+  },
+  "behavioral_cases": [
+    "Six explicit required-tool codes across tool_readiness/tool_admission survive serialization as local admission failures",
+    "Typed predispatch failure cannot borrow prior invocation output/reasoning/finish usage",
+    "Positive/uncertain HTTP/inference/remote/reconciliation/dispatch evidence prevents local refusal classification",
+    "Missing typed dispatch and unrelated stages do not invent local evidence",
+    "Arbitrary REQUIRED_TOOL_* text remains outside closed diagnostic vocabulary",
+    "At the exact required-tool readiness/admission boundary, explicit UNKNOWN, UNKNOWN_OUTCOME, or reconciliation evidence retains uncertainty and suppresses contradictory replay/continuation permission hints; known YES remains recorded."
+  ],
+  "pending": [
+    {
+      "test": "publicIssueProjectionPreservesTypedAdmissionCodeAndDomainWithoutPrivateInputs",
+      "status": "NOT_EXECUTED_IN_LOCAL_SLICE",
+      "gate": "Full Android/JVM module integration test remains required for public report projection."
+    },
+    {
+      "test": "IssueReportIncidentsTest.typedApplicationRejectionsRemainActionableWithoutChangingUnknownRemoteOutcome",
+      "status": "NOT_EXECUTED_IN_LOCAL_SLICE",
+      "gate": "Full Robolectric/module integration normalizer test remains required."
+    },
+    {
+      "test": "IssueReportSubmissionTest.applicationFailureCausesWaitForReceiverSupportWithoutRewritingApprovedBytes",
+      "status": "NOT_EXECUTED_IN_LOCAL_SLICE",
+      "gate": "Full JVM/module submission test remains required for extended readiness negotiation across top-level, event, original failure, causal, voice and provider receipt fields; test asserts unchanged approved bytes, no pre-compatibility POST, and preserved legacy direct POST behavior."
+    },
+    {
+      "test": "IssueReportIncidentsTest.applicationOwnedAppendUncertaintyKeepsItsReviewEvidenceAndUnknownTransport",
+      "status": "NOT_EXECUTED_IN_LOCAL_SLICE",
+      "gate": "Four focused exact producer/normalizer host checks pass; full Robolectric persistence/capsule integration and capability assertion remain pending."
+    },
+    {
+      "test": "IssueReportIncidentsTest.anUnownedAppendCodeCannotInventTheApplicationReviewClassification",
+      "status": "NOT_EXECUTED_IN_LOCAL_SLICE",
+      "gate": "Four focused exact producer/normalizer host checks pass; full Robolectric persistence/capsule integration and capability assertion remain pending."
+    }
+  ],
+  "formatting": {
+    "tool": "ktlint 1.3.1",
+    "scope": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolAdmissionFailureReceiptTest.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppOwnedFailureCodesTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt"
+    ],
+    "exit": 0,
+    "git_diff_check_exit": 0
+  },
+  "local_harness_sha256": {
+    "build.py": "bcd967c973e5797c7bf6214dd62ea9afbc0984e707a4244d2b767f052dbff3a8",
+    "cached_kotlin.py": "f85b04ebca764a0a1b5b04fd705ff40e5982756a56cd2de77d20a53a36fb97db",
+    "codes/build.py": "eaff1b27f9900e28fdbec45b12b35e110fe4561f51b268453380079a4d126f9a"
+  },
+  "limits": [
+    "No Android SDK or emulator run in this slice.",
+    "The public projection, full incident normalizer, and JVM submission negotiation integration tests are present but not executed by this focused harness.",
+    "Historical baseline results use the earlier five-test receipt fixture, before explicit UNKNOWN/YES and contradictory permission assertions were added; hashes identify the exact versions.",
+    "The closed-vocabulary and voice projection tests passed locally. Exact app-owned cause preservation does not fabricate provider dispatch or retry authority.",
+    "The receiver is source-ready; no service deployment or live readiness probe occurred. Older receivers block affected approved reports before POST until APPLICATION_FAILURE_CAUSES_V1 is advertised. Existing approved payload bytes and report identity are never downgraded."
+  ],
+  "supplemental_codes": {
+    "codes": [
+      "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN",
+      "GATEWAY_CONVERSATION_READ_ONLY",
+      "TOOL_BATCH_REJECTED",
+      "TOOL_BATCH_OVERSIZE"
+    ],
+    "current": {
+      "compile_exit": 0,
+      "test_exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": "bd32dc575010bfded8c40c482b82bc26a0feee7789fcf5f9233c4407eb0f4286",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt": "c90c699891e3c2770b3fcd29471a2535954543f23f8bda8cbc16ef042ef37d1a",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionFailureDiagnostics.kt": "e668e17938ae70cfd5a58f10cedd550f5033f71faae9d4de4c17290d814d680c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppOwnedFailureCodesTest.kt": "cef7a96a21eb9b9c062f79b969f8efb0040855d91c89404e0409819b2af5f357"
+      },
+      "test_output": "JUnit version 4.13.2\n....\nTime: 0.056\n\nOK (4 tests)"
+    },
+    "baseline": {
+      "compile_exit": 0,
+      "test_exit": 1,
+      "tests": 4,
+      "failures": 2,
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": "710d6e956a4d5b0c8880a76964cc6a5089fee23eb4f35c8a27d05dc3cb90eebd",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt": "c90c699891e3c2770b3fcd29471a2535954543f23f8bda8cbc16ef042ef37d1a",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionFailureDiagnostics.kt": "e668e17938ae70cfd5a58f10cedd550f5033f71faae9d4de4c17290d814d680c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppOwnedFailureCodesTest.kt": "cef7a96a21eb9b9c062f79b969f8efb0040855d91c89404e0409819b2af5f357"
+      },
+      "failed_tests": [
+        "applicationOwnedRejectionsKeepTheirExactPublicIdentity",
+        "voiceReadOnlyAdmissionRetainsCauseWithoutInventingDispatchOrRecoveryFacts"
+      ]
+    },
+    "behavior": "Closed codes only; unknown prefixes/suffixes/prose/case variants are rejected. Known voice admission keeps its exact cause without adding run, dispatch, retry or replay facts."
+  },
+  "totals": {
+    "current_tests": 14,
+    "current_failures": 0,
+    "baseline_tests": 9,
+    "baseline_failures": 5,
+    "integration_tests_pending": 5,
+    "focused_receiver_tests": 6,
+    "focused_receiver_failures": 0,
+    "incoming_append_host_tests": 4
+  },
+  "reconciled_base_commit": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+  "receiver_parity": {
+    "feature": "APPLICATION_FAILURE_CAUSES_V1",
+    "changed_codes": [
+      "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN",
+      "GATEWAY_CONVERSATION_READ_ONLY",
+      "TOOL_BATCH_REJECTED",
+      "TOOL_BATCH_OVERSIZE"
+    ],
+    "provider_receipt_codes": [
+      "REQUIRED_TOOL_ACQUISITION_PENDING",
+      "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+      "REQUIRED_TOOL_ACQUISITION_FAILED",
+      "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE",
+      "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION",
+      "REQUIRED_TOOL_AUTHORIZATION_REQUIRED"
+    ],
+    "current": {
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "-m",
+        "unittest",
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_application_rejection_codes_preserve_approved_uncertain_outcomes",
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_read_only_voice_admission_retains_its_cause_without_dispatch_facts",
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_required_tool_codes_survive_provider_receipt_submission_as_local_admission",
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_application_failure_vocabulary_rejects_private_variants_in_every_field",
+        "authentication.test_app.IssueReportHttpTest.test_android_public_codes_match_service_and_keep_the_failure_identity",
+        "authentication.test_app.IssueReportHttpTest.test_extended_readiness_negotiates_publication_evidence_without_expanding_legacy_body"
+      ],
+      "tests": [
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_application_rejection_codes_preserve_approved_uncertain_outcomes",
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_read_only_voice_admission_retains_its_cause_without_dispatch_facts",
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_required_tool_codes_survive_provider_receipt_submission_as_local_admission",
+        "authentication.test_incident_report_contract.IncidentReportContractTest.test_application_failure_vocabulary_rejects_private_variants_in_every_field",
+        "authentication.test_app.IssueReportHttpTest.test_android_public_codes_match_service_and_keep_the_failure_identity",
+        "authentication.test_app.IssueReportHttpTest.test_extended_readiness_negotiates_publication_evidence_without_expanding_legacy_body"
+      ],
+      "exit_code": 0,
+      "source_sha256": {
+        "authentication/issue_reports.py": "03e35372971efaf84b1195cbd0a464a2df32c8bdfdb66a9714b8be6791a1f60d",
+        "authentication/issue_report_diagnostics.py": "14ce87373abcba08aebd5f4f3c6b18260cd3d99a8dcd769211f9aea0f69a67b7",
+        "authentication/incident_report_contract.py": "085722c188de656c19534828184b9f9258b7acb91d3a69c18776b118571e5a44",
+        "authentication/issue_report_app.py": "7f69af31382fbde0100cf041b762a23e796ef6a80c3d723738ff5f87f734dccf",
+        "authentication/test_incident_report_contract.py": "5e6d15cc5f0545d27c19f4a9c37a4f5c297f6d677fa669801b0630cf55cc202d",
+        "authentication/test_app.py": "f37820f3f85b42cba95b835d900445c29e3e6286f4587939deced62e2df0034c",
+        "scripts/check_issue_reporting_configuration.py": "b5ed5bbf643f179afd836d18bcd755d575d30eeefb5a8bf28f71f31b23c6bf04"
+      },
+      "tests_run": 6,
+      "failures": 0,
+      "errors": 0
+    },
+    "pre_change_control": {
+      "tests_run": 4,
+      "errors": 11,
+      "failures": 0,
+      "details": "Before receiver parity edits, four new application code cases, one read-only voice case, and six provider receipt code cases failed strict receiver validation; arbitrary/private variant rejection continued to pass."
+    },
+    "negotiation": "The new capability is advertised only by extended readiness and is explicitly included in the client extended-feature set. New four application codes need it in every supported public code position. Six preexisting top-level required-tool codes remain legacy-compatible; only their newly retained provider_failure_code projection requires it. Unsupported receivers return REPORT_SERVICE_UPDATE_REQUIRED before durable dispatch or POST, with automaticRetry=false.",
+    "schema_generation": "No generated schema source was edited. Parent owns final generators/index validation.",
+    "full_authentication_suite": "Parent independently reports 253 tests passed with receiver source hashes unchanged; parent records that broader qualification separately.",
+    "independent_review": "batch_recovery verified exact receiver enum parity, extended-readiness path, legacy direct-POST compatibility, and conservative structured uncertainty. No source blocker remains."
+  },
+  "incoming_reconciliation": {
+    "incoming_commit": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+    "behavior": "Incoming owned Combined append guard retains REMOTE_OUTCOME_UNKNOWN as the public report code and unchanged no-dispatch/no-replay producer semantics. The guarded normalization additionally retains the exact COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN in causal_failure_code, which requires APPLICATION_FAILURE_CAUSES_V1. Incomplete ownership tuples keep the exact newly allowlisted code without acquiring the guarded alias, fabricated review facts, or transport evidence.",
+    "pending_test_source_previous_sha256": "8412379e1d6279ce7b4f52db61ba683f174bec9a2c5887f74785c202e7b615f4",
+    "pending_test_source_current_sha256": "171b6f307809ef3d084a5399263ac068f5a8f8882a5d4e5dfcb3788715e3b5ad",
+    "pending_test_source_status": "IssueReportIncidentsTest remains an unexecuted full Robolectric/module integration fixture. Updating its source hash records the reconciliation; it does not relabel that fixture as executed.",
+    "unaffected_qualifications": "All source hashes for the six receipt JVM tests, four exact-code/voice JVM tests, and six receiver Python tests still match after reconciliation.",
+    "incoming_historical_evidence": "The incoming eight-case diagnostic qualification used the older IssueReportCodes hash 710d6e956a4d5b0c8880a76964cc6a5089fee23eb4f35c8a27d05dc3cb90eebd. It remains historical and does not qualify this integrated registry/normalizer.",
+    "current_host": {
+      "source_revision": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+      "baseline": false,
+      "hashes": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentContracts.kt": {
+          "sha256": "408e331d5f7384f54a636e0ef812fc60c9a7c70879b2c4dee930c3673b3feff2",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ResolvedRequestLimits.kt": {
+          "sha256": "f50f74763a0ce58681de479225319aa1d962a8ef8f214439fbe2654026d28ff2",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapacityAdmissionObservation.kt": {
+          "sha256": "51eea57a0eab17ad16dc7f718e0268d7fcff4a02e0dcc140ca868a128343d160",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PromptBudgetReceipt.kt": {
+          "sha256": "58ca6972ba0cfebc0e063ec8a8afc439d99bacf18ee78ba52c9ea7cc8b3b1356",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestDeadlineReceipt.kt": {
+          "sha256": "a3d3ffb1a3084318dba8b85b4f61f72f73625650d1eea22cfa18696a14226d1a",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReasoningPolicy.kt": {
+          "sha256": "c71f55d9831d60c0a7ca89c44d3f4d5cbd950d26125ccccbbe4ec0249c1dfc17",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt": {
+          "sha256": "cb56393312b97965d50c3736c01ec5b261410faa89e5ba7cbfcbbea8f55c3787",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayInputRejectionDetails.kt": {
+          "sha256": "1291c81dc88f155e446ae31ede3f30b55292c4b138d174834610f2d5257f0286",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOperationFamily.kt": {
+          "sha256": "55375edb50971e6713aab7d6b8c17c3a3ff5bb3505d5403d938a0e310f4d3525",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt": {
+          "sha256": "223c577973a2c1ab1af9f05293ce116e8d9b74ab7681c6ed3bbb60848434f959",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordProtocol.kt": {
+          "sha256": "b81bdab9f8219610097ad80d6a0e910fd55073e16f32fc145a2e682a2dd66ec6",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt": {
+          "sha256": "a7a58100d4587b6b58ed9bba873a52712d80bf2078116c1e399899f3ed1735c9",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt": {
+          "sha256": "fcd2ff596c27ae09909013fd3e88c7a199d9bfaa2d6fae15f1ff73efd7a85859",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt": {
+          "sha256": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": {
+          "sha256": "bd32dc575010bfded8c40c482b82bc26a0feee7789fcf5f9233c4407eb0f4286",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayOutcomeRecovery.kt": {
+          "sha256": "52fca375ca48a6ac82581b6611770160cd1753d9cfd6217dcefdf9553115f5a6",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerPolicy.kt": {
+          "sha256": "b972ada9441012e6c9d114dd78f5cf6a765224603cb0a72f8aabb450b92cb198",
+          "source": "worktree"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordContinuationInput.kt": {
+          "sha256": "67750e95400e58a6bf1019d0be2a949882f990db06dc64e3ba13e02318d204ad",
+          "source": "worktree"
+        },
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAppendRecoverySessionTest.kt": {
+          "sha256": "9acc67c190ad27ecf2f7a1c3c3f08c5ea6d498904324ee3533dd8d7e0470eab3",
+          "source": "worktree test"
+        },
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmissionTest.kt": {
+          "sha256": "ac01a633a568f1fd1e3309f5d5447a0b4610c7b936c6ae78eb3600c7aaa81a2f",
+          "source": "worktree test"
+        },
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt": {
+          "sha256": "9e0c6b67c0b5df97d59a8325efba5658114a1d4d78d92550d70c5f2b3d11bda7",
+          "source": "worktree"
+        }
+      },
+      "selected": [
+        [
+          "dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest",
+          "crashOrUncertainTransportNeverGrantsPermissionToRepeat"
+        ],
+        [
+          "dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest",
+          "unknownCompletionKeepsApplicationReviewEvidenceWithoutInventingAProviderReceipt"
+        ],
+        [
+          "dev.chungjungsoo.gptmobile.data.diagnostics.ProjectionHostTest",
+          "actualGuardMapsToExistingReviewCodeAndKeepsUnknownReceiptFields"
+        ],
+        [
+          "dev.chungjungsoo.gptmobile.data.diagnostics.ProjectionHostTest",
+          "incompleteOrProviderOwnedTuplesCannotAcquireApplicationClassification"
+        ]
+      ],
+      "compile_exit": 0,
+      "assertions_enabled": true,
+      "scope": "Full exact CombinedRecordRecoverySession and CombinedRecordProtocol restored-cursor guards, exact full IssueReportIncidents.chatFailure method, full IssueReportContext and RequestAdmission sources. Two exact checked-in append test bodies and their original fixtures extracted; two additional report-boundary probes; unrelated RequestAdmission code compiles only as a retained harness dependency, with no methods selected. Android report persistence/capsule publication is an explicit sink; its checked-in Robolectric regression is not executed here. No transport attempt, billing account, model or device execution.",
+      "ports": "Existing hash-bound provider event/session DTOs; answer-policy parsing and physical usage stream fail loudly if reached; instrumentation trace is a passthrough; final report store and optional incident sensor are explicit ports. Llama props discovery, unrelated GitHub/privacy code-family classification and complete Android incident publication are excluded. Boundary reuse hashes are pinned below.",
+      "boundary_jars_sha256": {
+        "/workspace/scratch/49479c165f4e/recovery-host-tests/tests.jar": "714039044421893bb866c13e9a8b429db735e6a496fdf8f13aa894863b3bb319"
+      },
+      "claim_boundary_classes_sha256": "76d8669e919503d620853b40349ea2e65d6aac698e7f402f8c4b6d4ad277164a",
+      "test_exit": 0,
+      "generated_sha256": {
+        "ProtocolPorts.kt": "e63d96e88dcbc3a3b302aab1d5781ac0d742fda6162d6c5e9b47205692234e59",
+        "TracePort.kt": "1c73f1d028fbefe17f9dd633281080c423782181a7b0779c35b87d096c88c3dd",
+        "ProtocolImports.kt": "4eb1e09cc181691372e35ebf1afdf818287e4ee49ed163534e824b7ab8e2263e",
+        "OutputLimitPort.kt": "1caf164d7106347c7475258936f87d3da104fc9845646958e775cdd82c732648",
+        "NetworkPort.kt": "e31c9fb24c05221c23e16bd8e3b29147315585fb1a4649b42d281da264e54bc0",
+        "LlamaCapacityPort.kt": "8f62a9e5bbd92eac72bc2367aa9d0117715517f54a4399b8d32f2d17d70f4984",
+        "ChatFailureBoundary.kt": "523c52f5bd1cf0a4a9d093a7bf2398571b04992d24672521743d17930e5cece5",
+        "GithubPorts.kt": "8ce3f6f462b06d59c2f06bd03c85c88c46b67d49bdbb4843daec88f92a4cbeab",
+        "ProjectionHostTest.kt": "77a94fda141200c64149f973768a79cbc625f352927ddb9320e3bcc73c2bda6e",
+        "Runner.kt": "ee5129a421ec70b70755cc9481f2642ac9a8949c599f053167c77b6a17462262"
+      },
+      "tests": 4,
+      "failures": 0,
+      "test_output": "crashOrUncertainTransportNeverGrantsPermissionToRepeat: 1 run, 0 failed\nunknownCompletionKeepsApplicationReviewEvidenceWithoutInventingAProviderReceipt: 1 run, 0 failed\nactualGuardMapsToExistingReviewCodeAndKeepsUnknownReceiptFields: 1 run, 0 failed\nincompleteOrProviderOwnedTuplesCannotAcquireApplicationClassification: 1 run, 0 failed\nTotal: 4 tests; 0 failures"
+    },
+    "host_limit": "The exact full current producer and normalizer chatFailure body are executed, with real closed IssueReportContext and IssueReportCodes. The Android final report persistence/capsule is an explicit sink. Full capsule projection and the added capability assertion remain pending in the checked-in module tests; no claim of full IssueReportIncidents or device qualification.",
+    "formatting_exit": 0,
+    "scoped_diff_check_exit": 0,
+    "harness_sha256": "0e4f200cc9e42956d3736fb710e70f4bacbbfba6cf04ba683a0e59313e1dfa96"
+  }
+}

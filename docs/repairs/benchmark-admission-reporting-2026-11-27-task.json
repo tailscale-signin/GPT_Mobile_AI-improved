@@ -1,0 +1,383 @@
+{
+  "task": "Implement all benchmark admission, cancellation, accounting, provenance, UI/export and GitHub audit repairs and publish release",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "start_head": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+  "pull_request": 2651,
+  "source_export": "benchmarks-1795830169556.json",
+  "state": "final_combined_validation_before_guarded_push",
+  "authorization": "Implement all findings, push draft, require green checks, merge to main, require main green, publish. Preserve concurrent commits.",
+  "workstreams": [
+    "bounded resource admission and durable preparation",
+    "typed stop/timeout and causal skip provenance",
+    "manifest metrics, coverage and setup effort",
+    "UI, export privacy and transport evidence",
+    "reconcile existing GitHub scope/catalog repairs",
+    "focused and canonical validation, current-head CI, merge and release"
+  ],
+  "validation": [
+    {
+      "check": "ProtectedDiagnosticProjectionTest + WorkspaceDiagnosticPayloadTest",
+      "result": "passed",
+      "tests": 18,
+      "method": "Exact-source host JVM with coroutine stacktrace recovery enabled; excludes Android Room and vault crypto integration."
+    },
+    {
+      "check": "Gradle 9.8 offline project configuration",
+      "result": "passed",
+      "command": "python3 /workspace/scratch/0f34c62a99bc/run_gradle.py --offline --max-workers=1 help"
+    },
+    {
+      "check": "GitHub request scope JVM slice",
+      "result": "passed",
+      "tests": 16
+    },
+    {
+      "check": "GitHub catalog exact-name and full-inventory visibility JVM slice",
+      "result": "passed",
+      "tests": 2
+    },
+    {
+      "check": "Local Android production compilation",
+      "result": "not_completed",
+      "stage": ":app:kspDebugKotlin",
+      "reason": "Gradle daemon disappeared without a compiler diagnostic. Subsequent memory preflight found roughly 4.9 GB available, below required 8.96 GiB verified headroom. No retry or local full-suite pass claimed; hosted exact-head gates required."
+    },
+    {
+      "check": "Combined benchmark accounting, score, eligibility, presentation, measurement and export JVM slice",
+      "result": "passed",
+      "tests": 77,
+      "method": "Actual-source Kotlin/JUnit with isolated unused platform ports; source hashes verified after final run."
+    },
+    {
+      "check": "InferenceAdmission actual-source JVM suite",
+      "result": "passed",
+      "tests": 11
+    },
+    {
+      "check": "Preparation and typed cancellation actual-source JVM slice",
+      "result": "passed",
+      "tests": 5
+    },
+    {
+      "check": "Canonical host validation",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "passed",
+      "pythonTests": 850,
+      "expectedSkippedTests": 1,
+      "androidRegexErrors": 0,
+      "xmlFilesChecked": 38
+    },
+    {
+      "check": "ktlint1.3.1 and whitespace",
+      "result": "passed",
+      "scope": "Changed production and test sources; generated references validated by canonical fast command."
+    },
+    {
+      "check": "Scoped release manifest against full candidate ancestry",
+      "result": "passed",
+      "qualification": "scoped",
+      "android": "0.9.66.19",
+      "versionCode": 153,
+      "gateway": "18.1.6"
+    },
+    {
+      "check": "First exact-head hosted Android unit-test compilation",
+      "sourceSha": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+      "result": "failed_test_fixture_compilation",
+      "workflowRuns": [
+        46106276846,
+        46106276930
+      ],
+      "jobs": [
+        140859631460,
+        140859631306
+      ],
+      "reason": "Four newly added PlatformV2 test fixtures omitted the required profile display-name argument. Production compilation passed in both jobs.",
+      "correction": "Supply explicit names in BenchmarkAuditBatchIntegrationTest, BenchmarkBatchRunnerTest and BenchmarkStoreTest; rerun hosted gates at the corrected head.",
+      "correctionValidation": {
+        "ktlint": "passed",
+        "canonicalHostTests": 850,
+        "expectedSkippedTests": 1,
+        "generatedReferences": "passed",
+        "hostedAndroid": "pending_corrected_commit"
+      }
+    },
+    {
+      "check": "Incoming dependency verification blocker",
+      "sourceSha": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+      "failedJobs": [
+        140867719804,
+        140867712534,
+        140867677821,
+        140867674406
+      ],
+      "component": "org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.0",
+      "artifact": "kotlinx-coroutines-guava-1.8.0.module",
+      "bytes": 3867,
+      "sha256": "da3a1b4f5406c60b2e203ceec0813f1caef1017842d965aeb7f60a35d73a21e5",
+      "publisherUrl": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module",
+      "publisherChecks": "Downloaded bytes match official SHA256 and SHA1 sidecars. Only one absent module checksum is added; all existing verification settings and components remain unchanged.",
+      "localGradle": "core-domain:compileKotlinJvm BUILD SUCCESSFUL in 11s; compilation output restored from cache. This is dependency-resolution/configuration evidence, not Android compilation or full-suite execution."
+    },
+    {
+      "check": "Caption watermark-revision pipeline",
+      "result": "passed",
+      "tests": 13,
+      "newRegressionTests": 5,
+      "baselineNewFailures": 4,
+      "assertionsEnabled": true,
+      "method": "Actual mapper, stream frames and captions with SDK timestamp DTO/unused engine ports. Retains observed end guards when an unusable queued interval is omitted.",
+      "limits": "No real SDK/native audio or full Android execution."
+    },
+    {
+      "check": "Saved-room presentation policy",
+      "result": "passed",
+      "tests": 7,
+      "method": "Actual presentation helper and extracted actual state/context DTOs, with platform/entity ports.",
+      "limits": "Six added full ViewModel lookup/persistence/retry/cancellation, explicit/implicit refresh and fallback regressions require hosted Android CI."
+    },
+    {
+      "check": "Combined canonical host validation after concurrent runtime repairs",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "passed",
+      "pythonTests": 863,
+      "expectedSkippedTests": 1,
+      "androidRegexErrors": 0,
+      "xmlFilesChecked": 38,
+      "sourceReceipts": "Caption and presentation execution source hashes still match the final working tree. Full Android/ViewModel execution remains a hosted gate."
+    },
+    {
+      "check": "Independent final integration review",
+      "result": "no_additional_actionable_findings",
+      "scope": "Caption end-marker bounds and immutable native cues; saved-room identity, retry, privacy and explicit/implicit refresh pinning."
+    },
+    {
+      "check": "Predecessor full Android compilation and early regressions",
+      "sourceSha": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+      "runId": 46109771948,
+      "jobId": 140872122832,
+      "result": "passed_production_and_test_compilation_and_early_regressions",
+      "limit": "Superseded source; full current-head suite required. Its completed unit suite and lint outcomes are recorded separately below."
+    },
+    {
+      "check": "Incoming committed JUnit receipt whitespace",
+      "sourceSha": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+      "failedJobId": 140876088850,
+      "correction": "Normalize final newline only; retain all JUnit output and results.",
+      "normalizations": [
+        {
+          "path": "docs/repairs/evidence/voice-microphone-turn-cycle/lifecycle-baseline-junit.log",
+          "originalSha256": "ac3c4c50ab39ace81366cd5cf883320e7bd0312e22d5f61a3185469bf1b7c557",
+          "normalizedSha256": "ca566c7d22b94d7666516681c0bf0720e44b42a98974a823a3267d597976d9b5",
+          "change": "Remove one trailing empty line; retain all original JUnit content and results."
+        },
+        {
+          "path": "docs/repairs/evidence/voice-microphone-turn-cycle/lifecycle-junit.log",
+          "originalSha256": "76e1649326e9fea1387a6d6188e22b9d832d90f4d85b394529c8b829d12e0199",
+          "normalizedSha256": "ef5b79488494421ab6af3460f6901ede2b51a5b261f28e49df442410aeec62f5",
+          "change": "Remove one trailing empty line; retain all original JUnit content and results."
+        },
+        {
+          "path": "docs/repairs/evidence/voice-microphone-turn-cycle/presentation-junit.log",
+          "originalSha256": "98f30df99f9037d1e35ed8b40b1fa2daf0a3f8edf3dd0536951daf05717c01ea",
+          "normalizedSha256": "1eb7574b46ce610758807af056a4b1f0f68004ed39f602fd0da0111c14a76da8",
+          "change": "Remove one trailing empty line; retain all original JUnit content and results."
+        }
+      ],
+      "correctionCommit": "5098014b93b75e391cf56cafef8fdaeb148b0df2"
+    },
+    {
+      "check": "Public speech declaration history-scanner controls",
+      "result": "passed",
+      "scannerVersion": "8.30.1",
+      "cases": 160,
+      "newNegativeAndPositiveCases": 48,
+      "configSha256": "5626a9d14e1beea19514d74666261532cff71e75bd9c6f2ce596cd1728836042",
+      "dependencyArchiveBytesVerified": true,
+      "execution": "Independent fixture cases use at most four workers in deterministic result order; original per-case and integrity deadlines and all rejection assertions remain intact.",
+      "historyGate": "Pending full history materialization and exact-source scan."
+    },
+    {
+      "check": "Integrated canonical host gate after voice, Combined diagnostics and scanner corrections",
+      "result": "passed",
+      "pythonTests": 863,
+      "expectedSkippedTests": 1,
+      "androidRegexErrors": 0,
+      "xmlFilesChecked": 38
+    },
+    {
+      "check": "History integrity after bounded scanner-fixture scheduling",
+      "result": "passed",
+      "cases": 3,
+      "intactHistory": {
+        "exitCode": 0,
+        "pinControls": 160
+      },
+      "missingHistoricalBlob": {
+        "exitCode": 128,
+        "pinControls": 0,
+        "scannerCompleted": false
+      },
+      "restoredHistory": {
+        "exitCode": 0,
+        "pinControls": 160
+      },
+      "timeouts": "Original 30-second case and 60-second wrapper deadlines retained."
+    },
+    {
+      "check": "Preserved predecessor complete Android unit suite",
+      "sourceSha": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+      "runId": 46109771948,
+      "jobId": 140872122832,
+      "tests": 15631,
+      "passed": 15623,
+      "skipped": 6,
+      "failed": 2,
+      "failures": [
+        "BenchmarkQueuePolicyTest.dispatchBoundaryAndHttpRejectionDoNotBecomeExecutedModelCases expected delivery denominator1 for an identity-only receipt; corrected to preserve unknown and add observed-delivery positive cases.",
+        "GitHubTaskTrustTest.reportOnlyAndExpiredTaskNeverEnterProviderOrDispatchOperations expected PARTIAL without a retained report; corrected BLOCKED case plus real persisted/restored PARTIAL positive case."
+      ],
+      "scope": "Two existing assertions conflict with the accepted evidence contract. Production behavior retained; current-head hosted tests remain required."
+    },
+    {
+      "check": "Latest actual-source metric regression methods",
+      "result": "passed",
+      "tests": 3,
+      "baselineFailures": 1,
+      "method": "Compile the three selected regression methods against a prior exact-source jar after verifying all 48 production-source hashes. Repeated after af8fe746 reconciliation with additive dispatch-only and HTTP-only controls; all three passed. Full recompilation was killed under low memory and is not claimed as a pass.",
+      "reconciledSourceSha256": "99abaf597397776fe831f4c0f8058a592af52244edcbd0a176805665cd9f2857",
+      "retainedReportTestSha256": "1eb8f6491a24b6d17e7a0e1d96da421f0ca6107130472e76841390ee5cccf8ba"
+    },
+    {
+      "check": "Restored investigation progress state",
+      "result": "passed",
+      "tests": 26,
+      "method": "Verified five production source hashes against compiled classes, then ran24 existing and2 new bounded host checks. Ktlint passed for AgentRunner and three repository runner tests.",
+      "limits": "Actual complete AgentRunner and repository runner test execution remain hosted gates; an initial larger host compile was killed and is not passing evidence.",
+      "reconciliation": "The af8fe746 AgentRunner production blob is byte-for-byte identical to the locally reviewed tracker fix. Retain the additional Continue regression and every incoming assertion.",
+      "agentRunnerSha256": "430c2127e7625b5fabcd0ba22bf6cc6fce56b4fa97e1e091885e02c0260fcb41"
+    },
+    {
+      "check": "Preserved predecessor Android lint",
+      "sourceSha": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+      "jobId": 140872122559,
+      "result": "failed_one_restricted_api",
+      "reason": "PocketCompiledRuntime used LiteRT 2.4.1 disableAutoFallbackToCpu(), annotated for tests only.",
+      "correction": "Adopt the independently reviewed concurrent public-constructor helper from af8fe746, preserving pinned GPU-only and NPU-plus-NONE native requests and Qualcomm policy; actual SDK and both packaged JNI ABIs verify the compatibility behavior. Exact-head Android lint remains required."
+    },
+    {
+      "check": "Reconciled public Pocket options against approved SDK",
+      "result": "passed",
+      "tests": 4,
+      "sourceSha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt": "a225655d8c33e1883bc6e3e7ab6d21903bc96d9cfb3c8038546635bad46a4d0f",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptions.kt": "a1aea09554dc37163547b13b408bdb6716ec4436de638411a6a70471d72124fa",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoder.kt": "4e258ab645ea0fa0d7cfcf38dd62861a4deabdbb64783298a0728afbc28d6be0",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptionsTest.kt": "dc560bf3e1a7ef71e8bc3e6d7a1074309508c0d8bfd547da23db882c7d260faf"
+      },
+      "method": "Full incoming Runtime and public Options helper plus production catalog/decoder/backend sources and original four-test class compiled at a 384 MB heap against the exact approved LiteRT 2.4.1 classes and Android API jar. All incoming assertions retained; added native enum-identity assertion.",
+      "nativeContract": "Independent ARM64 and x86_64 approved JNI disassembly confirms NONE contributes no mask and NPU enum 3 maps to mask 4. Production bytecode has no testing-only setter/getter, reflection or suppression.",
+      "provenance": "docs/repairs/pocket-compiled-public-options-2026-11-28.json",
+      "limits": "BuildConfig and QNN prerequisite preparation are host ports. No native inference or hardware placement qualification. Exact-head full Android compilation and lint remain required."
+    },
+    {
+      "check": "Early regression workflow policy after shared reconciliation",
+      "result": "passed",
+      "tests": 22,
+      "method": "PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p test_ci_modernization.py",
+      "scope": "Four added regression classes; original isolated evidence handling, fail-closed behavior, full-suite rerun and coverage requirements retained."
+    },
+    {
+      "check": "Reconciled full reachable-history scanner and integrity controls",
+      "sourceSha": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+      "result": "passed",
+      "integrityCases": 3,
+      "declarationControls": 160,
+      "findingCount": 0,
+      "identityReportComplete": true,
+      "processedCommits": 6724,
+      "configSha256": "c1fea1550e8879072374376af52734c302ea28202b654b8ed64c092ec2711f95",
+      "controlsSourceSha256": "c2697efd6e1b384788cea575a14ad9f0ecab91820c54f0e9be337c7c27ddcce2",
+      "limits": "Complete selected non-shallow local reachable graph; hosted CI has broader refs and must qualify the final pushed commit. Working-tree files are separately scanned and validated.",
+      "priorAttempt": "The first combined invocation failed its intact fixture before completing controls, while the missing-object and restored-history cases behaved correctly. No deadline, assertion or source was changed; the isolated rerun with compilers idle passed all cases. Cause of the first failure is not established."
+    },
+    {
+      "check": "Final reconciled canonical repository validation",
+      "result": "passed",
+      "command": "bash scripts/validate-local.sh fast",
+      "pythonTests": 863,
+      "expectedSkippedTests": 1,
+      "androidLiteralRegexPatterns": 2350,
+      "dynamicPatternsSkipped": 153,
+      "androidRegexErrors": 0,
+      "xmlFilesChecked": 38,
+      "appInventoryFiles": 3285,
+      "scope": "All functional changes and tests frozen. Subsequent edits record these observed results and refresh generated reference hashes; source proofs remain unchanged. Exact-head hosted Android and release gates remain required."
+    }
+  ],
+  "release": {
+    "merged": false,
+    "published": false
+  },
+  "concurrentHeadObserved": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+  "publicationTransport": "Connected GitHub API with expected-head fast-forward update; shell GitHub push credential unavailable.",
+  "integrationHeads": [
+    {
+      "sha": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+      "parent": "90865091851416a53e1c1c700300dad011bf92a5",
+      "scope": "Saved GitHub conversation restoration, integration finalization, pagination recovery, protected diagnostic limits, isolated early Android regressions",
+      "canonicalFastTests": 851,
+      "expectedSkips": 1
+    },
+    {
+      "sha": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+      "parent": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+      "scope": "Pocket default, compiled GPU/NPU packs, caption alignment, native working-set and voice benchmark repairs",
+      "review": "Runtime/native ownership and authority reviews complete; reproduced screen-restoration and caption pipeline findings corrected with focused regression tests and independent final review."
+    },
+    {
+      "sha": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+      "parent": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+      "scope": "Concurrent worker published the same independently verified coroutine metadata checksum. Preserve their verification entry and evidence record."
+    },
+    {
+      "sha": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+      "parent": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+      "scope": "Neutral microphone states, admitted fresh-entry and completed-reply listening, capture feedback and exact regression/device gates.",
+      "review": "Independent UI and runtime lifecycle, privacy, cancellation and admission review found no further actionable issue. Hosted Android/device verification remains required."
+    },
+    {
+      "sha": "5098014b93b75e391cf56cafef8fdaeb148b0df2",
+      "parent": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+      "scope": "Concurrent worker published the identical JUnit newline normalization; byte equality checked before adoption."
+    },
+    {
+      "sha": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+      "parent": "5098014b93b75e391cf56cafef8fdaeb148b0df2",
+      "scope": "Preserve application-owned unknown Combined append cause and review/no-replay report evidence.",
+      "review": "Independent review found no actionable correctness, provenance or no-replay defect. Exact-head Android gates remain required."
+    },
+    {
+      "sha": "df074e10b52cc6413db894499706e16609ff5a21",
+      "parent": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+      "scope": "Concurrent exact public-declaration scanner correction; parsed configuration proven semantically identical before adoption. Preserve its48 case identities while integrating historical proof and isolated-fixture scheduling/input repairs."
+    },
+    {
+      "sha": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+      "parent": "df074e10b52cc6413db894499706e16609ff5a21",
+      "scope": "Fresh investigation/checklist progress, bounded fair recovery, typed app-owned tool admission diagnostics, child search budget and private index-sync eligibility.",
+      "review": "Diagnostic, privacy, cross-service capability, search-budget and index-sync review found no issue. Core progress review found an out-of-scope tracker reference; pass the same LoopState tracker through batch helpers and retain a Continue regression."
+    },
+    {
+      "sha": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+      "parent": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+      "scope": "Concurrent public LiteRT helper, identical investigation tracker binding, corrected delivery/report assertions, bounded scanner fixtures, and authoritative tool-uncertainty projection.",
+      "review": "Independently reviewed with no further actionable defect. Preserve incoming production implementations and diagnostic tests; add complementary restored-progress, retained-PARTIAL-report, independent delivery-evidence, pinned API identity and immutable scanner-provenance checks. No gate, deadline or release qualification weakened."
+    }
+  ]
+}

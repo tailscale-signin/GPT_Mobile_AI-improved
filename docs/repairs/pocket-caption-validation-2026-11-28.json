@@ -1,0 +1,358 @@
+{
+  "schema": "pocket-caption-host-validation-v1",
+  "recorded_at_utc": "2026-11-28T04:32:31.296955+00:00",
+  "source_head": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+  "worktree_changes_included": true,
+  "scope": "Pocket caption source mapping, presentation-clock cosmetics, provenance/coverage exports, bounded failure reasons, and compiled inference cancellation targets.",
+  "result": "PASS_FOR_HOST_SCOPES_ONLY",
+  "total_host_tests": 116,
+  "working_directory": "repository root; ../ harness paths are transient workspace harnesses",
+  "environment": {
+    "kotlin_compiler": "2.4.20 cached host compiler",
+    "jvm_target": 21,
+    "junit": "4.13.2",
+    "python_numpy": "2.3.5 for controlled PCM consumer regression; no inference executed"
+  },
+  "runs": [
+    {
+      "command": "python3 ../pocket-caption-validation/build.py",
+      "result": "PASS",
+      "tests": 38,
+      "named_tests": {
+        "VoiceCaptionWordCoverageTest": [
+          "firstAndLastCuesCannotHideAMissingMiddleWord",
+          "aGroupedPhraseDoesNotQualifyIndividualWordHighlighting",
+          "truncationAndProvisionalOnlyWordsRemainIncomplete",
+          "unicodePunctuationAndRepeatedRevisionsDoNotInflateCoverage",
+          "normalizedMultiwordPronunciationsMapEveryCueBackToTheOriginalSource",
+          "completeUnicodeWordMappingSurvivesEverySupportedTempoAndTailDrain"
+        ],
+        "VoiceCaptionMotionTest": [
+          "fastSpeechUsesItsRemainingWordTimeForLineMotion",
+          "fastWordColourReachesTheAccentDuringTheWordAndDoesNotTrailSeveralLaterWords",
+          "pausingFreezesTheColourEnvelopeAlongWithTheWordAndScrollPosition",
+          "theFiveSettledRowsRetainTheirTypographyAndOpacity",
+          "everyIntermediateFocusHasAtMostFiveVisibleLinesAndContinuousGeometry",
+          "fractionalMotionKeepsNeighbouringLineBoxesFromOverlappingAtTheOuterEdge",
+          "outerRowsCrossTheScaleBoundaryWithoutChangingTheirVerticalVelocity",
+          "aLineMovesThroughIntermediatePositionsInsteadOfReplacingRows",
+          "retargetingKeepsTheCurrentPositionAndVelocityAtEveryRefreshRate",
+          "aFastForwardRetargetStopsAtTheNextLineWithoutReversing",
+          "forwardRetargetsStayBoundedAcrossCloseTargetsAndLateCallbacks",
+          "aSubNanosecondArrivalKeepsMomentumAtRetargetAndSettlesOnTheNextTick",
+          "aShortenedRetargetCanPauseRetargetWhileHeldAndResumeWithoutAJump",
+          "aReverseTargetPreservesItsIncomingVelocityBeforeBraking",
+          "severalSkippedLinesStillTravelInsteadOfSnapping",
+          "aPlaybackRefillFreezesTheTrajectoryAndResumesWithoutAJump",
+          "manualSeekingAndReducedMotionAreImmediateAndDoNotLeaveMomentum",
+          "widthReflowKeepsTheSameSourceAnchorAndFractionalReadingPosition",
+          "rtlAndEmojiSourceAnchorsSurviveAFontSizeReflow",
+          "layoutReanchoringPreservesTheVisibleLinesRelativePositionAndVelocity",
+          "aWordTakesExactly250MillisecondsToReachTheThemeColour",
+          "aShortWordFinishesItsColourEnvelopeWithoutDelayingTheNextBoldWord",
+          "repeatedTimingUpdatesDoNotRestartAWordFade",
+          "aNewSameWordPresentationClockUpdatesColourWithoutReplayingEmphasis",
+          "repeatedSameWordClockSnapshotsDoNotMoveTheArrivalDeadlineOrRestartColour",
+          "aCorrectedClockCanShortenAnInFlightLineWithoutPositionOrVelocityJump",
+          "repeatedPausedClockObservationsKeepTheSameWordColourFrozen",
+          "silenceReleasesBoldImmediatelyAndBoundsTheCosmeticTrail",
+          "aDenseCallbackBurstCannotAccumulateAnUnboundedTranscript",
+          "reducedMotionUsesOneImmediateHighlightWithoutACosmeticTrail",
+          "wordAgeUsesMeasuredAudioAndCannotAdvancePastBufferedFrames",
+          "invalidOrFutureTimingNeverFabricatesAnEarlierWord"
+        ]
+      },
+      "harness_sha256": "e1eec2dcce2fe513befb9ebfe518fabcb226246f480e94e3988c287d5fabf046",
+      "source_manifest_sha256": "380d432df9d987f0d6c4a618509bf5ef3bb8a973c0dde69af033493775823440",
+      "compile_log_sha256": "a1220f5515a07d0fdc7fb9592186449e5c520a08d97b6b3d595db90bac062fd2",
+      "test_log_sha256": "2075ebe4cb34f162894b9a4c880f887dfe4fc59a6542b1301f36d997c2b771ba",
+      "compiled_jar_sha256": "08d6e5718f7c09394a9a51f17d52b6f42f5f9393d7a0595099980e52d05f920f"
+    },
+    {
+      "command": "python3 ../pocket-caption-report-validation/build.py",
+      "result": "PASS",
+      "tests": 40,
+      "named_tests": {
+        "VoiceStreamingComparisonTest": [
+          "matchedMeasuredLatencyCandidateDoesNotClaimAcousticQualityOrAutomaticQualification",
+          "missingMeasurementsDifferentRoutesAndStallsCannotWinLatencySelection",
+          "independentQualityIsBoundToVoiceModelRateAndActualFixturesAndRoundTrips",
+          "outputRouteIdentityRetainsOnlyOpaqueDeviceIdentityAndMarksChanges",
+          "enginePcmScopeReflectsTheRecordedProcessorAndPreservesLegacyFieldCompatibility",
+          "provenanceCountsDeduplicateWordsAndCountOnlyNewerCorrections",
+          "asrAlignmentCountsStayDistinctAndDoNotQualifyIndependentAcousticAccuracy",
+          "newAsrCountsPreserveLegacyReportsButRejectMissingOrImpossibleCounts",
+          "mixedAsrAndSdkSourcesRemainVisibleRatherThanCollapsingIntoNativeTiming",
+          "captionPackFailuresAreBoundedObservedReasonsAndNeverInventedCueSuccess"
+        ],
+        "VoiceSpeechPlaybackProtocolTest": [
+          "freshRoundVisitsEachProcessorBeforeRepeatsAndKeepsEachResidentCohortIntact",
+          "sdkPlansRecordObservedStreamProbesMatchedPrewarmAndLegacyInference",
+          "sdkExportKeepsUnrunStatesAndOlderHistoryWithoutCreatingSynthesisMeasurements",
+          "compiledPocketCancellationTargetsItsActualInferencePhaseAndExcludesAlignmentPreparation",
+          "interruptedComparisonKeepsMeasuredProcessorsPartialAndUntouchedProcessorsUnrun",
+          "oldFullRunWithoutSchedulerOrWindowFieldsKeepsItsOriginalOrdering",
+          "stabilitySeparatesThreeWarmCohortsFromColdSamplesAndFitsTheBoundedReport",
+          "joinsSeparateRetainedSilenceTextWaitAndTrackRefill",
+          "independentManifestCatchesTheSameWordOmittedByBothProducerAndCaptionObserver",
+          "captionQualificationRequiresObservedRenderingWhileAllowingSkippedDisplayFrames",
+          "restoredReportWithoutRendererObservationCannotQualifyCaptions",
+          "stageBoundariesAndRealChunkEvidenceRemainDistinct",
+          "completionDoesNotHideStallsSlowStartupOrUnmeasuredCounters",
+          "fullSuiteContainsBoundedActualWarmStreamingChangingSustainedAndCancelPlans",
+          "independentManifestMatchesProductionPlannerForEverySelectedSegmentAndFixture",
+          "aReplyPinsItsReceiptBeforeAnyLaterWarmReplyStarts",
+          "qualificationRequiresTheExactDeclaredSuiteAndActualResidentReuse",
+          "stabilityJoinQualificationExcludesWarmupsAndKeepsMeasuredCountAndP95Limits",
+          "playbackRankingRejectsFastShortenedNativeAudioAndUnobservedLegacySignals",
+          "sustainedQualificationDoesNotMixDurationWorkIntoTheFixedWorkloadRanking",
+          "runtimeSetupFailureCannotBeMisclassifiedAsAnInvalidFixedFixture",
+          "wrappedNativeFailureRetainsExactStageCodeLimitsAndDiscovery",
+          "phaseTimeoutHasAnExplicitStageAndBudgetWithoutInventingNativeExecution",
+          "playbackOnlyExportDoesNotPublishZeroCostSynthesisRowsAndRoundTripsActualReceipts",
+          "storedTotalsCannotBeChangedWithoutInvalidatingThePlaybackReceipt",
+          "oldPlaybackCanBeReadButCannotRegainQualificationAfterResaving",
+          "wrapperEntryCannotBeMistakenForAnObservedNativeInferenceStage",
+          "unavailableFreshProgressCannotQualifyAnEarlierNativeStageObservation",
+          "modelOpenAndPresentedPlaybackCancellationDoNotRequireNativeSnapshots",
+          "cancellationNeedsAReachedTargetMeasuredStopAndCompletedRetirement"
+        ]
+      },
+      "harness_sha256": "3ef779f44c3ab2db7bc885c31abc278e23109564217b1e5200137796061298fa",
+      "source_manifest_sha256": "19e64d2d575aa658366eb5cd96c8a751c2d89d83144c7406bd8a1b3cc0b5d0a7",
+      "compile_log_sha256": "92e6e1915723e722bf57e12564d87e238924468b04d0fc9e15e4adc90384ec3e",
+      "test_log_sha256": "caeddd7981b2068b7730b4940b97cb69f5d3c291843745f52b33ac9447565b6d",
+      "compiled_jar_sha256": "ea7c3fb7b29ad6ffc1595c7fce4fddcf659acd1790ca01065d502c03420662a7"
+    },
+    {
+      "command": "python3 -m unittest scripts.tests.test_mediapipe_speech scripts.tests.test_mediapipe_android_smoke -v",
+      "result": "PASS",
+      "tests": 38,
+      "skipped": 0,
+      "named_tests": [
+        [
+          "test_consumer_retains_latest_sdk_revision_and_requires_every_fixed_fixture_word",
+          "scripts.tests.test_mediapipe_speech.CaptionWordCoverageTest.test_consumer_retains_latest_sdk_revision_and_requires_every_fixed_fixture_word"
+        ],
+        [
+          "test_first_and_last_source_words_do_not_hide_missing_middle_words",
+          "scripts.tests.test_mediapipe_speech.CaptionWordCoverageTest.test_first_and_last_source_words_do_not_hide_missing_middle_words"
+        ],
+        [
+          "test_one_grouped_timestamp_cannot_qualify_individual_word_highlighting",
+          "scripts.tests.test_mediapipe_speech.CaptionWordCoverageTest.test_one_grouped_timestamp_cannot_qualify_individual_word_highlighting"
+        ],
+        [
+          "test_truncated_words_and_split_multibyte_codepoints_do_not_qualify",
+          "scripts.tests.test_mediapipe_speech.CaptionWordCoverageTest.test_truncated_words_and_split_multibyte_codepoints_do_not_qualify"
+        ],
+        [
+          "test_unicode_marks_apostrophes_numbers_and_punctuation_keep_exact_utf8_spans",
+          "scripts.tests.test_mediapipe_speech.CaptionWordCoverageTest.test_unicode_marks_apostrophes_numbers_and_punctuation_keep_exact_utf8_spans"
+        ],
+        [
+          "test_gpu_unavailability_is_specific_to_acceleration",
+          "scripts.tests.test_mediapipe_speech.GpuEvidenceTests.test_gpu_unavailability_is_specific_to_acceleration"
+        ],
+        [
+          "test_kernel_events_must_execute_during_the_corpus",
+          "scripts.tests.test_mediapipe_speech.GpuEvidenceTests.test_kernel_events_must_execute_during_the_corpus"
+        ],
+        [
+          "test_numeric_and_cue_mismatches_do_not_qualify",
+          "scripts.tests.test_mediapipe_speech.GpuEvidenceTests.test_numeric_and_cue_mismatches_do_not_qualify"
+        ],
+        [
+          "test_cancellation_leaves_input_open_before_or_after_first_pcm",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_cancellation_leaves_input_open_before_or_after_first_pcm"
+        ],
+        [
+          "test_early_eos_or_final_before_remaining_text_is_a_hard_failure",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_early_eos_or_final_before_remaining_text_is_a_hard_failure"
+        ],
+        [
+          "test_existing_single_input_path_remains_sealed_and_never_pushes",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_existing_single_input_path_remains_sealed_and_never_pushes"
+        ],
+        [
+          "test_french_voice_and_locale_apply_to_only_the_requested_stream",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_french_voice_and_locale_apply_to_only_the_requested_stream"
+        ],
+        [
+          "test_native_push_or_finish_failure_propagates_and_closes",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_native_push_or_finish_failure_propagates_and_closes"
+        ],
+        [
+          "test_only_concrete_native_cancellation_status_is_accepted",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_only_concrete_native_cancellation_status_is_accepted"
+        ],
+        [
+          "test_pcm_validation_failure_can_close_without_feeding_more_text",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_pcm_validation_failure_can_close_without_feeding_more_text"
+        ],
+        [
+          "test_real_probe_withholds_later_text_and_finish_until_first_pcm",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_real_probe_withholds_later_text_and_finish_until_first_pcm"
+        ],
+        [
+          "test_recovery_reopens_a_distinct_unsealed_stream_on_the_same_task",
+          "scripts.tests.test_mediapipe_speech.IncrementalCheckpointProtocolTest.test_recovery_reopens_a_distinct_unsealed_stream_on_the_same_task"
+        ],
+        [
+          "test_pinned_multilingual_pack_and_language_specific_voice_probes_are_complete",
+          "scripts.tests.test_mediapipe_speech.VoiceCatalogCheckpointTest.test_pinned_multilingual_pack_and_language_specific_voice_probes_are_complete"
+        ],
+        [
+          "test_apks_are_bound_to_source_size_and_content_before_installation",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_apks_are_bound_to_source_size_and_content_before_installation"
+        ],
+        [
+          "test_each_engine_requires_its_named_test_and_exact_checkpoint",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_each_engine_requires_its_named_test_and_exact_checkpoint"
+        ],
+        [
+          "test_empty_skipped_aborted_and_incomplete_tests_cannot_pass",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_empty_skipped_aborted_and_incomplete_tests_cannot_pass"
+        ],
+        [
+          "test_failed_process_or_missing_output_replaces_prior_success",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_failed_process_or_missing_output_replaces_prior_success"
+        ],
+        [
+          "test_first_and_last_cues_cannot_qualify_missing_middle_or_grouped_words",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_first_and_last_cues_cannot_qualify_missing_middle_or_grouped_words"
+        ],
+        [
+          "test_incremental_and_recovery_require_real_input_order_full_text_and_retirement",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_incremental_and_recovery_require_real_input_order_full_text_and_retirement"
+        ],
+        [
+          "test_kokoro_requires_playback_head_progress_before_second_text_and_original_caption_ranges",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_kokoro_requires_playback_head_progress_before_second_text_and_original_caption_ranges"
+        ],
+        [
+          "test_missing_duplicate_and_malformed_native_receipts_cannot_pass",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_missing_duplicate_and_malformed_native_receipts_cannot_pass"
+        ],
+        [
+          "test_missing_word_coverage_and_acoustic_claims_fail_the_structural_smoke_gate",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_missing_word_coverage_and_acoustic_claims_fail_the_structural_smoke_gate"
+        ],
+        [
+          "test_multilingual_requires_every_advertised_voice_and_the_actual_french_voice",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_multilingual_requires_every_advertised_voice_and_the_actual_french_voice"
+        ],
+        [
+          "test_open_input_cancellation_requires_unfinished_input_and_both_retired_owners",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_open_input_cancellation_requires_unfinished_input_and_both_retired_owners"
+        ],
+        [
+          "test_provisioning_requires_verified_pinned_model_without_inference_claim",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_provisioning_requires_verified_pinned_model_without_inference_claim"
+        ],
+        [
+          "test_requested_accelerator_requires_matching_app_playback_and_valid_french_pcm",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_requested_accelerator_requires_matching_app_playback_and_valid_french_pcm"
+        ],
+        [
+          "test_wrong_identity_or_missing_pcm_cancellation_recovery_evidence_fails",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidReceiptTest.test_wrong_identity_or_missing_pcm_cancellation_recovery_evidence_fails"
+        ],
+        [
+          "test_actual_runner_selects_each_named_engine_and_collects_bound_evidence",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidRunnerTest.test_actual_runner_selects_each_named_engine_and_collects_bound_evidence"
+        ],
+        [
+          "test_arm64_runner_passes_the_requested_delegate_from_install_through_output_verification",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidRunnerTest.test_arm64_runner_passes_the_requested_delegate_from_install_through_output_verification"
+        ],
+        [
+          "test_ci_reuses_one_minified_build_and_runs_exact_main_and_four_engines",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidRunnerTest.test_ci_reuses_one_minified_build_and_runs_exact_main_and_four_engines"
+        ],
+        [
+          "test_manual_workflow_stages_a_separate_verified_arm64_pair_from_the_same_build",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidRunnerTest.test_manual_workflow_stages_a_separate_verified_arm64_pair_from_the_same_build"
+        ],
+        [
+          "test_skips_and_nonzero_adb_exit_fail_even_with_success_shaped_receipt",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidRunnerTest.test_skips_and_nonzero_adb_exit_fail_even_with_success_shaped_receipt"
+        ],
+        [
+          "test_workflow_sets_runner_paths_before_the_speech_artifact_download",
+          "scripts.tests.test_mediapipe_android_smoke.MediaPipeAndroidRunnerTest.test_workflow_sets_runner_paths_before_the_speech_artifact_download"
+        ]
+      ],
+      "source_manifest_sha256": "960ae8f235d455b8be1755d7a22bec6569bb18d3e8cb1eba637aa6e4fb26783f",
+      "test_log_sha256": "efa9872601e54e3a0bba231383eb44a7877e06a2590553c763fc9f061be768f7"
+    }
+  ],
+  "direct_tested_source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionWordCoverage.kt": "cfe3a324efd8a01a72b4f335afa2096ceb282c2b4b2eafeab8e5f77f399e93eb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt": "56b2d46ae9c8564abccce0f45cc5dff73d6bde560a5aa29fae378bc30f4a0d62",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessor.kt": "f927957c20105c6695ac20ffcb4d201c2b78dccdbef83357b7381564cbf9088f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTimelineTransform.kt": "ad221ac36a0b95c60bfe0e11862b25bf43a6da24574f71a85e81a773e9b06732",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMap.kt": "35db58110b0bde95b2de176518fb0cc6ad7a65f21b3e23b2dfec5b9870dd6cb2",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt": "6130043322f4044753398bcb30c5159a889b2a64d5e141c1c5b5b09cad2c5ed7",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt": "47809f3276df6fd587260e1ead271747dc57f5f7fd56cd5463caef7c7d9036bf",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotion.kt": "cc96f042a5bbfc177497acd57861c1be95ba60faaf9bd5028dde7a50028c65c4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionLine.kt": "540b07dbbb7210049638aee829dfd8c98166b64d7703a1e86d1a5e62f71308cd",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionWordCoverageTest.kt": "b02751b874c049de07f3ebd6d6b50bd03dba087b5dc790cf0f23734f8942d566",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotionTest.kt": "1dcb06237d97bd0b0ff090903c97c46eb5d12f27dfb4c742064d595428bf62a2",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": "75d786523d122becf791cee023653ba0900a282bbc8f2663c8da932c1c8633f9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt": "e5b1a9d28a23de33a802054dbfb501675828b2f52da8c85b467ed55e5fd547e3",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparison.kt": "7f084aa48d8e54868c48caff49ecd90177fa4dcbd309a8806610c6691f3507b8",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparisonExport.kt": "95806c6fb00fa17fdf19b0a6121f1a4921efdbca3ad9cc0996f13c16faac5b30",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "86789e990b409f275000a961c5280370cb77b704b99921a73f3613a335eac030",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocol.kt": "b7071ca319642e03dd54b639df5b28b8784b613da657d13b7361830ffeac2196",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparisonTest.kt": "5969d265e50313fa7cd780579f9802cd8704069fc72b31cd0ba54782cffb055d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt": "8bfe881712638518418c5fa4e20d2f9b384d25ba7cd72f4b4793464e7541bf63",
+    "scripts/smoke_mediapipe_speech.py": "1c324955842cd3c8ba127e75c1678c6632b11784bfdfe11fd008e5eee76024ac",
+    "scripts/check_mediapipe_android_smoke.py": "52c407a75366df34398b210fa58e01b435d19a41b0e8b4f5e2d2bc7571a20f46",
+    "scripts/tests/test_mediapipe_speech.py": "bacd1ebe8eea4a530710f5ad17d7048cec2e412956330569f4077632e6745d8b",
+    "scripts/tests/test_mediapipe_android_smoke.py": "a9231d43bc903a27f5390b8b683b5a47e004b22c9a60f8d1542b4afb557df86a",
+    "scripts/run_mediapipe_android_smoke.sh": "83359303d3a9118d2c7490c750081748fd6136742cb3f3cb120fc93d88e8d8c5",
+    "scripts/check_native_memory_smoke.py": "23f5bd9099654429cc24a335b3780b0adba405264cc5b2eccd4af2f9c80675e2",
+    ".github/workflows/native-memory-smoke.yml": "5a2db63a6a49c493600833a7366c8b0efbb9d939bd349c435ab04047ede2d474",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt": "1d744bd762b5cde10ebcc41e41de0402867e6c7c92b8a0cf8c8974fb3dbab7f3"
+  },
+  "additional_reviewed_source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLiveCaptions.kt": "1c9bb5a7f2229e7e60f2680b7665540809e5ce74a26d67d6926134e8cca93e61",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt": "1d744bd762b5cde10ebcc41e41de0402867e6c7c92b8a0cf8c8974fb3dbab7f3",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt": "f29ef0286cb2c8922895464c48c190bedca968d8c3fde3c6093892a5c50849ed"
+  },
+  "all_inherited_and_direct_source_binding_count": 95,
+  "all_inherited_and_direct_source_binding_sha256": "f3ad2e30b69b66ad5dc09454629af887e774ff36b3c8210c7db47b137020de9d",
+  "source_binding_check": "All inherited production sources checked against current worktree; changed dependencies overridden by current source slices. Test fixtures use controlled PCM, timestamps and numeric receipts.",
+  "lint": {
+    "result": "PASS",
+    "tool": "ktlint 1.3.1",
+    "tool_sha256": "ea7590217143ce897584f067826a2f75bd639f00547f7bd9d0eb8bf4498af061",
+    "git_diff_check": "PASS for changed caption/report/protocol/smoke sources"
+  },
+  "findings_and_changes": [
+    "The uploaded run contains successful Pocket synthesis but no Pocket playback/caption samples; it cannot establish a Pocket caption offset.",
+    "Same-word clock and route snapshots now refresh motion and cosmetic colour without restarting bold ownership, replaying colour attack, extending a settled line, or advancing a paused clock.",
+    "A bounded lexical coverage validator checks every Unicode letter/mark/number word, including internal straight/curly apostrophes; punctuation and unspoken symbols are excluded. Grouped spans, missing middle words, truncation and provisional-only cues cannot claim complete individual-word coverage.",
+    "Actual source/normalized pronunciation projection and all supported tempo rates retain per-word source mapping in controlled PCM regressions.",
+    "Android native smoke v3 requires complete individual source-word coverage for initial/recovered streams, both incremental streams and French preview; all receipts label SDK_ESTIMATED and acoustic alignment NOT_MEASURED.",
+    "The Linux smoke retains the latest timestamp revision and enforces complete lexical coverage on its fixed main/recovery/incremental fixtures.",
+    "ASR_ALIGNMENT counts and mixed provenance remain separate from SDK estimates/native durations. Old saved reports omit the nullable count safely; impossible or incomplete count combinations are rejected.",
+    "Only bounded observed caption statuses are retained, including PACK_UNAVAILABLE, TEXT_MISMATCH and INVALID_TIMING. No raw recognized text or PCM is exported.",
+    "Compiled Pocket cancellation now targets its observed SYNTHESIS/INFERENCE phase, avoiding a wait for the unavailable Tasks SDK_STREAM_CALL phase; preparation, alignment validation and stale/inactive snapshots cannot qualify inference cancellation.",
+    "Playback benchmarks explicitly enable caption alignment before configuring fixed-fixture playback, independent of the saved everyday caption display preference; pure synthesis stages do not enable it."
+  ],
+  "qualification_limits": [
+    "No Android device or emulator was available; Android native smoke and Compose UI rendering were not executed. Native smoke source and Compose wiring were inspected/linted; the tested motion, mapping, protocol, measurement and export implementations are actual production sources.",
+    "Full Gradle build remained blocked by the existing memory preflight; these bounded Kotlin/JVM slices do not replace the required application build or Android instrumentation gate.",
+    "No real Pocket SDK/compiled inference was executed by these tests; PCM and cue fixtures are controlled. This record does not qualify GPU/NPU placement, runtime speech quality or performance.",
+    "SDK estimates and ASR-derived matched-text timestamps do not establish independently measured acoustic word-boundary accuracy. The existing independent-quality gate remains required for automatic selection.",
+    "Native ASR wrapper/model/lease integration is reviewed separately and is not included in the host test counts above; its owners provide separate source-bound receipts."
+  ],
+  "prior_benchmark_validation": "docs/repairs/pocket-benchmark-validation-2026-11-28.json",
+  "revalidated_source_head": "90865091851416a53e1c1c700300dad011bf92a5",
+  "source_bindings_revalidated_at_utc": "2026-11-28T04:34:06.958833+00:00",
+  "source_bindings_unchanged_after_baseline_integration": true
+}

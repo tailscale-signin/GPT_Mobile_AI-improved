@@ -28,7 +28,8 @@ internal object GatewayVoiceProtocol {
 
     fun capabilityModel(json: JSONObject): String {
         envelope(json)
-        check(json.getBoolean("ready") && json.getInt("sample_rate") == 24_000)
+        if (json.opt("ready") == false) throw GatewayVoiceCapabilityUnavailable.from(json.opt("reason") as? String)
+        check(json.opt("ready") == true && json.getInt("sample_rate") == 24_000)
         check(json.getString("execution_provider") == "CUDAExecutionProvider" && json.getInt("executed_cuda_nodes") > 0)
         return json.getString("model_sha256").also { check(digest.matches(it)) }
     }

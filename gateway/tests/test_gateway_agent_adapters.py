@@ -441,6 +441,44 @@ class DurableAgentTests(unittest.TestCase):
         self.config['agents']['codex'] = dict(self.config['agents']['jules'], model_id='model-x', image='agent@sha256:' + 'd' * 64)
         self.qualify('codex')
 
+    def test_copilot_adapter_keeps_actual_supervisor_progress_and_maps_remote_lifecycle(self):
+        self.config['agents']['github_copilot'] = dict(enabled=True, model_id='configured-model',
+                                                      principals=['owner'], repositories=['owner/repo'])
+        retained = {}
+        def submit(principal, request):
+            self.assertEqual('owner', principal)
+            self.assertEqual('configured-model', request['model'])
+            self.assertTrue(request['copilot_enabled'])
+            self.assertTrue(request['conversation_copilot_enabled'])
+            retained.update(schema='github.copilot-tasks.v1', id='cp_' + 'a' * 32, gateway_job_id='cp_' + 'a' * 32,
+                            request_id=request['request_id'], principal_id=principal, repository=request['repository'],
+                            execution_owner='GITHUB_CLOUD', orchestration_owner='GATEWAY', task_id=None,
+                            upstream_task_id=None, state='ACCEPTED', remote_state=None, ci_verified=False, merge_authorized=False,
+                            progress=dict(phase='ACCEPTED', message='Gateway saved the request; GitHub has not confirmed a task.',
+                                          remote_task_confirmed=False))
+            return copy.deepcopy(retained)
+        self.service.copilot = SimpleNamespace(capabilities=lambda principal: {'configured': True, 'actor_id': 7},
+                                               submit=Mock(side_effect=submit), status=lambda principal, identifier: copy.deepcopy(retained))
+        self.qualify('github_copilot')
+        run = self.start('github_copilot')
+        self.assertEqual('QUEUED', run['state'])
+        self.assertEqual('ACCEPTED', run['copilot_task']['progress']['phase'])
+        self.assertFalse(run['copilot_task']['progress']['remote_task_confirmed'])
+        self.assertNotIn('objective', json.dumps(run))
+        for remote, expected in [('IN_PROGRESS', 'RUNNING'), ('WAITING_FOR_USER', 'WAITING_FOR_INPUT'), ('COMPLETED', 'COMPLETED')]:
+            retained.update(state=remote, remote_state=remote.lower(), task_id='remote-task', upstream_task_id='remote-task',
+                            task_name='Repair the fixture', pull_request_numbers=[42],
+                            progress=dict(phase=remote, message='Observed ' + remote, remote_task_confirmed=True))
+            current = self.action('status', run_id=run['run_id'])
+            self.assertEqual(expected, current['state'])
+            self.assertEqual(remote, current['copilot_task']['progress']['phase'])
+            self.assertEqual([42], current['copilot_task']['pull_request_numbers'])
+            self.assertFalse(current['copilot_task']['ci_verified'])
+            self.assertFalse(current['copilot_task']['merge_authorized'])
+        self.assertEqual(1, self.service.copilot.submit.call_count)
+        self.service.copilot.status = Mock(side_effect=AssertionError('Public projection cannot poll Copilot'))
+        self.assertEqual('COMPLETED', self.agents.list(self.job)[0]['copilot_task']['progress']['phase'])
+
     def test_read_projections_do_not_contact_provider_or_expose_configuration(self):
         self.qualify()
         self.transport.qualify = Mock(side_effect=AssertionError('GET must not qualify'))

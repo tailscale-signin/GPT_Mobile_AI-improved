@@ -1,0 +1,4 @@
+{
+  "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+  "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt": "e062cf2b8d071924fa6d1b23cfbc7e9da00658c69b8e5456b040044a2acfb7a4"
+}

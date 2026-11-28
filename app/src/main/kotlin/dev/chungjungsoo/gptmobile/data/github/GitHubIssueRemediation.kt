@@ -21,8 +21,9 @@ internal object GitHubIssueRemediation {
     private val quoted = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"[^\"\\r\\n]*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'|(?m)^\\s*>[^\\r\\n]*")
     private val repairVerb = Regex("(?i)\\b(?:fix|repair|resolve)\\b")
     private val conditionalRepair = Regex("(?i)^\\s*,?\\s*(?:only\\s+)?(?:once|after|when)\\s+(?:(?:(?:they|these(?:\\s+issues?)?|those(?:\\s+issues?)?|the\\s+issues?)\\s+(?:are|is|have\\s+been|has\\s+been)\\s+)?(?:fixed|repaired|resolved)|(?:(?:you|we)\\s+)?(?:fix(?:ing)?|repair(?:ing)?|resolv(?:e|ing))\\s+(?:them(?:\\s+all)?|all\\s+of\\s+them|(?:the\\s+)?(?:issues?|(?:all|every|each|open|remaining)\\s+(?:open\\s+)?issues?)))\\b(?=\\s*(?:$|[.!?,;]|and\\b|then\\b))")
-    private val repositoryQualifier = Regex("(?i)^\\s+in\\s+(?:repository\\s+)?[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-    private val issueClause = Regex("(?i)^\\s*(?:please\\s+)?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|would like) you to )?((?:review|inspect|examine|list|fix|repair|resolve|close)(?:\\s+(?:(?:and|then)\\s+)*(?:review|inspect|examine|list|fix|repair|resolve|close))*)\\s+((?:the\\s+)?(?:(?:all|every|each)(?:\\s+(?:open|remaining))?|open|remaining|repository)\\s+issues?\\b|them(?:\\s+all)?\\b|all(?:\\s+of\\s+them)?\\b)(?:\\s+in\\s+(?:repository\\s+)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?")
+    private const val REPOSITORY_QUALIFIER = "\\s+(?:in|on|for)\\s+(?:(?:repository\\s+)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)|(?:the|this|our|my|current|selected)\\s+(?:github\\s+)?repo(?:sitory)?\\b)"
+    private val repositoryQualifier = Regex("(?i)^$REPOSITORY_QUALIFIER")
+    private val issueClause = Regex("(?i)^\\s*(?:please\\s+)?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|would like) you to )?((?:review|inspect|examine|list|fix|repair|resolve|close)(?:\\s+(?:(?:and|then)\\s+)*(?:review|inspect|examine|list|fix|repair|resolve|close))*)\\s+((?:the\\s+)?(?:(?:all|every|each)(?:\\s+(?:open|remaining))?|open|remaining|repository)\\s+issues?\\b|them(?:\\s+all)?\\b|all(?:\\s+of\\s+them)?\\b)(?:$REPOSITORY_QUALIFIER)?")
     private val issueSeparator = Regex("(?i)^(?:\\s*[,;.]?\\s*(?:and(?:\\s+then)?|then|also)\\s+|\\s*[,;.\\n]\\s*)")
 
     private enum class WorkKind { REPAIR_AND_CLOSE, CLOSURE_ONLY }
@@ -59,7 +60,7 @@ internal object GitHubIssueRemediation {
     }
 
     /** Consume the whole obligation; extra criteria or conditions cannot inherit issue-only acceptance. */
-    private fun issueOnlyObligation(requirement: String, repository: String): Boolean {
+    fun issueOnlyObligation(requirement: String, repository: String): Boolean {
         var remaining = GitHubTaskContinuity.request(requirement).trim().removePrefix("- ").trimEnd('.', '!', '?').trim()
         var issueTarget = false
         var action = false
@@ -84,6 +85,83 @@ internal object GitHubIssueRemediation {
         return false
     }
 
+    /** A fresh, unfiltered, single-page empty inventory can answer an issue-only repair directly. */
+    fun emptyIntakeReport(
+        task: String,
+        context: Context,
+        contract: JsonObject,
+        receipts: Map<String, JsonObject>,
+        now: Long,
+        epoch: Long
+    ): Pair<String, JsonObject>? {
+        val repository = contract.text("repository")
+        if (context.groups.isNotEmpty() || !issueOnlyObligation(task, repository)) return null
+        val id = (context.cohort["inventory_receipt_ids"] as? JsonArray)?.singleOrNull() as? JsonPrimitive ?: return null
+        val receipt = receipts[id.content] ?: return null
+        if (!GitHubStatusEvidence.fresh(receipt, now, epoch)) return null
+        val args = native(receipt) ?: return null
+        val result = receipt["result"] as? JsonObject ?: return null
+        if (receipt["review_projection"] != null || !completeEmptyOpenPage(args, result)) return null
+        val criteria = contract["acceptance_criteria"] as? JsonArray ?: return null
+        val answer = buildJsonObject {
+            put(
+                "claims",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("kind", "fact")
+                            put("receipt_id", id)
+                            put("pointer", if (result["data"] is JsonObject) "/data/returned" else "/returned")
+                            put("value", 0)
+                        }
+                    )
+                )
+            )
+            put(
+                "requirement_claims",
+                buildJsonObject {
+                    for (criterion in criteria) {
+                        val requirement = (criterion as? JsonPrimitive)?.contentOrNull ?: return null
+                        if (requirement != INVENTORY_REQUIREMENT && !issueOnlyObligation(requirement, repository)) return null
+                        put(GitHubRequestCompletion.id(requirement), JsonArray(listOf(JsonPrimitive(0))))
+                    }
+                }
+            )
+        }
+        val report = GitHubEvidencePolicy.render(answer, receipts, now, epoch, task, acceptedContract = contract, issueWork = context).second
+        if (report["completion_verified"] != JsonPrimitive(true)) return null
+        return "The complete issue list for `$repository` contained **0 open issues**. There was nothing to repair in that list.\n\nSource: saved receipt `${id.content}`." to report
+    }
+
+    private val inventoryArguments = setOf("action", "state", "owner", "repo", "per_page", "page", "after", "sort", "direction", "response_detail", "verify_live")
+
+    fun completeEmptyOpenPage(args: JsonObject, result: JsonObject): Boolean {
+        if (args.text("action") !in setOf("list", "list_issues") ||
+            args.text("state") != "open" ||
+            args.keys.any { it !in inventoryArguments } ||
+            "after" in args ||
+            args["page"]?.let { it != JsonPrimitive(1) } == true ||
+            result["observationTruncated"] == JsonPrimitive(true)
+        ) {
+            return false
+        }
+        val data = (result["data"] as? JsonObject) ?: result
+        val progress = data["pagination_progress"] as? JsonObject
+        return data.text("resource_type") == "issue" &&
+            (data["items"] as? JsonArray)?.isEmpty() == true &&
+            data["returned"] == JsonPrimitive(0) &&
+            data["page"] == JsonPrimitive(1) &&
+            data["total_count"]?.let { it != JsonPrimitive(0) } != true &&
+            data["has_more"] == JsonPrimitive(false) &&
+            data.text("traversal_state") == "COMPLETE" &&
+            data["complete"] != JsonPrimitive(false) &&
+            data["upstream_has_more"] != JsonPrimitive(true) &&
+            data["pagination_inconsistent"] != JsonPrimitive(true) &&
+            data["truncated"] != JsonPrimitive(true) &&
+            progress?.get("complete") != JsonPrimitive(false) &&
+            progress?.get("upstream_changed_during_traversal") != JsonPrimitive(true)
+    }
+
     fun valid(cohort: JsonObject, task: String, binding: String, repository: String): Boolean =
         cohort["schema"] == JsonPrimitive(SCHEMA) &&
             cohort["binding"] == JsonPrimitive(binding) &&
@@ -106,8 +184,15 @@ internal object GitHubIssueRemediation {
         for ((id, receipt) in receipts.entries.take(4096)) {
             if (!eligible(receipt, binding, repository) || GitHubEvidenceOrigin.of(receipt) != "LIVE") continue
             val args = native(receipt) ?: continue
-            if (args.text("action") != "list_issues" || args.text("state").ifBlank { "open" } !in setOf("open", "all")) continue
+            if (args.keys.any { it !in inventoryArguments } || args.text("action") != "list_issues" || args.text("state").ifBlank { "open" } !in setOf("open", "all")) continue
             val result = root(receipt) ?: continue
+            if ((receipt["result"] as? JsonObject)?.get("observationTruncated") == JsonPrimitive(true) ||
+                result["truncated"] == JsonPrimitive(true) ||
+                result["pagination_inconsistent"] == JsonPrimitive(true) ||
+                (result["pagination_progress"] as? JsonObject)?.get("upstream_changed_during_traversal") == JsonPrimitive(true)
+            ) {
+                continue
+            }
             if (result["resource_type"] != JsonPrimitive("issue") || result["items"] !is JsonArray) continue
             if ((result["returned"] as? JsonPrimitive)?.intOrNull != (result["items"] as JsonArray).size) continue
             val page = number(result["page"]) ?: continue
@@ -124,7 +209,14 @@ internal object GitHubIssueRemediation {
                 traversal.after = continuation["after"] as? JsonPrimitive
                 continue
             }
-            if (result["has_more"] != JsonPrimitive(false) || result["traversal_state"] != JsonPrimitive("COMPLETE")) continue
+            if (result["has_more"] != JsonPrimitive(false) ||
+                result.text("traversal_state") != "COMPLETE" ||
+                result["complete"] == JsonPrimitive(false) ||
+                result["upstream_has_more"] == JsonPrimitive(true) ||
+                (result["pagination_progress"] as? JsonObject)?.get("complete") == JsonPrimitive(false)
+            ) {
+                continue
+            }
             val rawItems = traversal.pages.flatMap { (_, value) -> value["items"] as JsonArray }
             if (rawItems.any { it !is JsonObject }) continue
             val items = rawItems.map { it as JsonObject }

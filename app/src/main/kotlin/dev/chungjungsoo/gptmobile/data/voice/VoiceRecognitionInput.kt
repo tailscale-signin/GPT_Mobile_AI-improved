@@ -4,7 +4,24 @@ package dev.chungjungsoo.gptmobile.data.voice
 internal interface VoiceRecognitionInput {
     var languageTag: String
     fun listen(listener: VoiceAudio.Listener)
+    fun listenWithFeedback(listener: VoiceAudio.Listener, feedback: (() -> Boolean)?) = listen(listener.withCaptureFeedback(feedback))
     fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) = Unit
+    fun finishListening() = Unit
+    fun configureVocabulary(words: List<String>) = Unit
     fun stop()
+
+    /** Asynchronous recorders must confirm microphone release, or finish false after a bounded wait. */
+    fun stopCapture(released: (Boolean) -> Unit) {
+        stop()
+        released(true)
+    }
     fun close()
+}
+
+/** Shared capture controls for every local decoder; Android keeps its service-owned policy. */
+internal interface LocalVoiceRecognitionInput : VoiceRecognitionInput {
+    var listeningStyle: VoiceListeningStyle
+    var captureBatchMs: Int
+    fun releaseWarmModel(completed: (() -> Unit)? = null)
+    fun prewarm() = Unit
 }

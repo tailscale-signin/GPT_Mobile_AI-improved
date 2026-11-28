@@ -64,6 +64,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -823,9 +824,9 @@ private fun ChatScreenContent(
     }
     val scrollInput = rememberChatScrollInput(
         listState = listState,
-        touchSlop = touchSlop,
+        touchSlop = with(promptDensity) { 48.dp.toPx() },
         roomId = chatRoom.id,
-        bottomTolerancePx = with(promptDensity) { 2.dp.toPx() },
+        bottomTolerancePx = with(promptDensity) { 24.dp.toPx() },
         onDetach = {
             promptAnchor.detach()
             githubScrollMode = promptAnchor.mode
@@ -1170,6 +1171,7 @@ private fun ChatScreenContent(
                             onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
+                            onDiscardInterruptedRun = chatViewModel::discardInterruptedRun,
                             onContinueWithTime = chatViewModel::continueWithTime,
                             reasoningRecoveries = rowReasoningRecoveries,
                             onRecheckReasoning = chatViewModel::recheckReasoningResponse,
@@ -1305,12 +1307,6 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     chatToolConfig.github?.let { github ->
-                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid ?: github.mainProfileUid)
-                        if (ownerTarget != null) {
-                            item(key = "gateway-owner-control") {
-                                dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayControlChatEntry(ownerTarget)
-                            }
-                        }
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
                 }
@@ -1601,7 +1597,7 @@ private fun ChatScreenContent(
             val combinedSaveState by chatViewModel.combinedSettingsSaveState.collectAsStateWithLifecycle()
             val combinedConversationIdentity by chatViewModel.combinedConversationIdentity.collectAsStateWithLifecycle()
             val githubCopilotPluginOn =
-                featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
+                dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.pluginEnabled(featureSettings)
             ChatModelDialog(
                 conversationMode = chatRoom.conversationMode,
                 conversationIdentity = combinedConversationIdentity,
@@ -1942,6 +1938,7 @@ internal fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    onDiscardInterruptedRun: (String) -> Unit = {},
     onContinueWithTime: (Int, String?) -> Unit = { _, _ -> },
     reasoningRecoveries: Map<String, ReasoningRecoveryUiState> = emptyMap(),
     onRecheckReasoning: (Int, Int) -> Unit = { _, _ -> },
@@ -2164,6 +2161,7 @@ internal fun ChatMessagePair(
         assistantTimeline.lastOrNull { it.runError == error }?.profileFailure
             ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(error)
     }
+    val interruptedResponse = showsInterruptedResponseControls(agentRun?.status, responseFailureRecord)
     val gatewayAdmission = gatewayAdmissionPresentation(responseFailureRecord)
     val repairGatewayProfile = debugSettings.githubProfileOverrides[selectedPlatformUid]?.engineeringGatewayProfileUid
         ?.let(enabledPlatformLookup::get)
@@ -2347,6 +2345,8 @@ internal fun ChatMessagePair(
                             "Create revised answer"
                         } else if (isCombinedConversation) {
                             stringResource(if (combinedStatus == CombinedResponseStatus.FAILED) R.string.combined_retry else R.string.combined_regenerate)
+                        } else if (interruptedResponse) {
+                            "Resume"
                         } else {
                             stringResource(R.string.audit_generate_again)
                         },
@@ -2491,7 +2491,13 @@ internal fun ChatMessagePair(
                                     TextButton(onClick = { onContinueWithTime(messageIndex, selectedPlatformUid) }, enabled = isIdle && canUseChat) { Text("Continue for 10 minutes") }
                                 }
                             } else if (gatewayAdmission == null && responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
-                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(if (agentRun?.status in setOf(AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING) && githubTask != null) "Resume saved task" else stringResource(R.string.audit_generate_again)) }
+                                if (interruptedResponse && agentRun != null) {
+                                    Button(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text("Resume") }
+                                    Text(if (agentRun.gatewayJobId != null) "Reconnects to the original remote job." else "Continues from the saved checkpoint. Exact stream recovery depends on provider support.", style = MaterialTheme.typography.bodySmall)
+                                    TextButton(onClick = { onDiscardInterruptedRun(agentRun.runId) }, enabled = isIdle) { Text("Discard task") }
+                                } else {
+                                    TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(if (agentRun?.status in setOf(AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING) && githubTask != null) "Resume saved task" else stringResource(R.string.audit_generate_again)) }
+                                }
                             } else if (gatewayAdmission == null && responseRecoveryKind != ProfileRecoveryKind.NONE) {
                                 ProfileRecoveryActions(
                                     kind = responseRecoveryKind,

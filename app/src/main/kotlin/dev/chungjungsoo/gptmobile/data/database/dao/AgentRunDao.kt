@@ -51,8 +51,8 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     suspend fun rawGetByChatId(chatId: Int): List<AgentRun>
 
-    @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND run_id != :currentRunId ORDER BY created_at DESC, run_id DESC LIMIT 32")
-    suspend fun sessionAuditRuns(chatId: Int, currentRunId: String): List<AgentRun>
+    @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND run_id != :currentRunId AND (:beforeUserMessageId <= 0 OR user_message_id < :beforeUserMessageId) ORDER BY created_at DESC, run_id DESC LIMIT 32")
+    suspend fun sessionAuditRuns(chatId: Int, currentRunId: String, beforeUserMessageId: Int): List<AgentRun>
 
     @Query("SELECT r.* FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence WHERE r.synthesis_snapshot IS NOT NULL AND r.status IN ('COMPLETED','FAILED','CANCELED','INTERRUPTED','PARTIAL','EVIDENCE_MISSING','BLOCKED')")
     suspend fun rawCombinedTerminalOwners(): List<AgentRun>
@@ -133,11 +133,14 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     )
     suspend fun interruptActiveRuns(completedAt: Long): Int
 
-    @Query("UPDATE agent_runs SET gateway_job_id = :jobId, gateway_base_url = :baseUrl WHERE run_id = :runId")
+    @Query("UPDATE agent_runs SET gateway_last_sequence = CASE WHEN gateway_job_id = :jobId THEN gateway_last_sequence ELSE 0 END, gateway_job_id = :jobId, gateway_base_url = :baseUrl WHERE run_id = :runId AND status != 'CANCELED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
     suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Int
 
     @Query("UPDATE agent_runs SET gateway_last_sequence = :sequence WHERE run_id = :runId AND gateway_last_sequence < :sequence")
     suspend fun advanceGatewaySequence(runId: String, sequence: Int): Int
+
+    @Query("UPDATE agent_runs SET gateway_last_sequence = :sequence WHERE run_id = :runId AND gateway_job_id = :jobId AND gateway_last_sequence < :sequence AND status != 'CANCELED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
+    suspend fun advanceGatewayJobSequence(runId: String, jobId: String, sequence: Int): Int
 
     @Query(
         "UPDATE agent_runs SET input_tokens = COALESCE(:inputTokens, input_tokens), " +
@@ -159,6 +162,10 @@ interface AgentRunDao : RunPolicySnapshotAccess {
 
     @Query("UPDATE agent_runs SET status = :status, completed_at = :completedAt, terminal_error = :terminalError WHERE run_id = :runId AND (status = 'INTERRUPTED' OR (status = 'BLOCKED' AND terminal_error GLOB 'GATEWAY_OUTCOME_UNKNOWN: GATEWAY_RECOVERY_EXPIRED*') OR (status IN ('FAILED', 'PARTIAL', 'EVIDENCE_MISSING') AND (instr(upper(terminal_error), 'GATEWAY_OUTCOME_UNKNOWN') > 0 OR instr(upper(terminal_error), 'REMOTE_OUTCOME_UNKNOWN') > 0) AND instr(terminal_error, 'GATEWAY_SAVED_RESULT_') = 0 AND instr(terminal_error, 'GATEWAY_RECOVERED_RESULT_UNVERIFIED') = 0)) AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
     suspend fun finishGatewayRecovery(runId: String, status: String, completedAt: Long, terminalError: String?): Int
+
+    /** Dismiss only the current stopped local attempt. Keep message and tool receipts intact. */
+    @Query("UPDATE agent_runs SET status = 'CANCELED', completed_at = :completedAt, terminal_error = NULL WHERE run_id = :runId AND ownership_fence = :expectedFence AND gateway_job_id IS NULL AND status IN ('INTERRUPTED', 'FAILED', 'PARTIAL', 'EVIDENCE_MISSING', 'BLOCKED') AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
+    suspend fun discardInterrupted(runId: String, expectedFence: Long, completedAt: Long): Int
 
     suspend fun getById(runId: String): AgentRun? = hydratePolicyRun(rawGetById(runId))
     suspend fun getByChatId(chatId: Int): List<AgentRun> = hydratePolicyRuns(rawGetByChatId(chatId))

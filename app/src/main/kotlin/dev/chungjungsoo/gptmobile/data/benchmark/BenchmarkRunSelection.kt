@@ -15,7 +15,11 @@ internal data class BenchmarkRunSelection(
     val snapshotPolicy: String?,
     val selectedAt: Long?,
     val enrollmentProvenance: String,
-    val latestAttemptStatusRowIds: List<String> = emptyList()
+    val latestAttemptStatusRowIds: List<String> = emptyList(),
+    /** The legacy included flags describe stored population membership, not a measured score. */
+    val hasMeasuredCapability: Boolean = false,
+    val rankingEligible: Boolean = false,
+    val selectionSemantics: String = "stored_population_membership_not_score_qualification"
 )
 
 internal fun benchmarkRunSelection(runs: List<BenchmarkRun>, snapshot: BenchmarkScoreSnapshot?, currentEnrollment: Map<String, String>?): List<BenchmarkRunSelection> {
@@ -23,6 +27,24 @@ internal fun benchmarkRunSelection(runs: List<BenchmarkRun>, snapshot: Benchmark
     return runs.map { run ->
         val capabilityRows = snapshot?.rows.orEmpty().filter { run.id in it.sourceRunIds }
         val operationalRows = snapshot?.rows.orEmpty().filter { row -> row.metrics.any { metric -> metric.id in benchmarkOperationalMetricIds && run.id in metric.sourceRunIds } }
+        val unified = if (run.mode == BenchmarkMode.STANDARD) unifiedProfileBenchmarkScore(run) else null
+        val measuredCapability = capabilityRows.isNotEmpty() &&
+            if (run.mode == BenchmarkMode.STANDARD) {
+                (unified?.evaluated ?: 0) > 0
+            } else {
+                benchmarkMetricResults(listOf(run)).any {
+                    it.id !in benchmarkOperationalMetricIds && !it.id.startsWith("raw_") && it.id != "engineering_task_end_to_end" && it.value?.isFinite() == true && it.denominator > 0
+                }
+            }
+        val rankingEligible = capabilityRows.isNotEmpty() &&
+            run.finished &&
+            !run.canceled &&
+            run.stoppedReason == null &&
+            if (run.mode == BenchmarkMode.STANDARD) {
+                unified?.comparable == true
+            } else {
+                capabilityRows.any { it.verified && it.overall?.isFinite() == true }
+            }
         BenchmarkRunSelection(
             run.id, benchmarkResultId(run), DynamicScoreEngine.cohort(run), enrollment?.let { benchmarkEnrolledRevision(it, run) },
             capabilityRows.isNotEmpty(), operationalRows.isNotEmpty(), (capabilityRows + operationalRows).map { it.resultId }.distinct(),
@@ -48,7 +70,9 @@ internal fun benchmarkRunSelection(runs: List<BenchmarkRun>, snapshot: Benchmark
                 currentEnrollment != null -> "CURRENT_MAPPING_LEGACY_SNAPSHOT_MAPPING_UNKNOWN"
                 else -> "UNKNOWN"
             },
-            latestAttemptStatusRowIds = snapshot?.rows.orEmpty().filter { it.latestAttemptRunId == run.id }.map { it.resultId }
+            latestAttemptStatusRowIds = snapshot?.rows.orEmpty().filter { it.latestAttemptRunId == run.id }.map { it.resultId },
+            hasMeasuredCapability = measuredCapability,
+            rankingEligible = rankingEligible
         )
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
@@ -370,6 +371,54 @@ class GitHubProgrammerHomeTest {
             available = false
         }
         compose.onNodeWithText("Repository map").assertDoesNotExist()
+    }
+
+    @Test fun unavailableGatewayRemainsExplicitUntilTheUserReselectsIt() {
+        val primary = PlatformV2(uid = "local", name = "AI profile")
+        val gateway = PlatformV2(uid = "gateway", name = "My Desktop", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, apiUrl = "http://192.168.1.4:8090/v1")
+        var profiles by mutableStateOf(listOf(primary, gateway))
+        var preferences by mutableStateOf(dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile.copy(engineeringGatewayProfileUid = "unavailable"))
+        var saves = 0
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
+                    GitHubProgrammerSettings(
+                        workspace,
+                        GitHubProgrammerState(profiles = profiles, profileUid = primary.uid, profileSettings = preferences),
+                        {},
+                        {},
+                        {},
+                        onSettings = {
+                            preferences = it
+                            saves++
+                        }
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText("Desktop Gateway").performScrollTo().performClick()
+        compose.onAllNodes(hasText("Automatic gateway")).assertCountEquals(0)
+        compose.runOnIdle { assertEquals(0, saves) }
+        compose.onNodeWithTag("github_gateway_selection").performScrollTo().assertTextEquals("Selected Gateway unavailable").performClick()
+        compose.onNodeWithText(gateway.name).performClick()
+        compose.runOnIdle {
+            assertEquals(gateway.uid, preferences.engineeringGatewayProfileUid)
+            assertEquals(1, saves)
+        }
+        compose.onNodeWithTag("github_gateway_selection").assertTextEquals(gateway.name)
+        compose.runOnIdle { profiles = listOf(primary, gateway.copy(enabled = false)) }
+        compose.onNodeWithTag("github_gateway_selection").assertTextEquals("Selected Gateway unavailable")
+        compose.runOnIdle {
+            assertEquals(gateway.uid, preferences.engineeringGatewayProfileUid)
+            assertEquals(1, saves)
+        }
+        compose.onNodeWithTag("github_gateway_selection").performScrollTo().performClick()
+        compose.onNodeWithText("Automatic gateway").performClick()
+        compose.runOnIdle {
+            assertEquals(null, preferences.engineeringGatewayProfileUid)
+            assertEquals(2, saves)
+        }
+        compose.onNodeWithText("Automatic gateway").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun waitingAndFailedRunsNeverClaimACompletedOutcome() {

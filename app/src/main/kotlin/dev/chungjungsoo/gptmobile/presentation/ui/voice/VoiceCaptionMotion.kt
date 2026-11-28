@@ -57,7 +57,7 @@ internal class VoiceCaptionMotion(position: Float) {
         velocity = current.velocity
         target = position
         startedNanos = pausedNanos ?: nowNanos
-        val requestedNanos = durationMs.coerceIn(240, 420) * 1_000_000.0
+        val requestedNanos = durationMs.coerceIn(60, 420) * 1_000_000.0
         val distance = position.toDouble() - current.position
         // With zero arrival velocity, a forward Hermite curve is monotonic when |v| * T <= 3 * |distance|.
         // Shorten the curve instead of changing its inherited velocity. Fractional nanoseconds avoid
@@ -66,6 +66,24 @@ internal class VoiceCaptionMotion(position: Float) {
             minOf(requestedNanos, 3.0 * abs(distance) / abs(current.velocity.toDouble()) * 1_000_000_000.0)
         } else {
             requestedNanos
+        }
+    }
+
+    /** A newer presentation clock can bring arrival forward without restarting a settled line. */
+    fun refreshClock(nowNanos: Long, remainingWordMs: Int) {
+        val now = pausedNanos ?: nowNanos
+        val remaining = durationNanos - (now - startedNanos).coerceAtLeast(0)
+        val requested = remainingWordMs.coerceIn(60, 420) * 1_000_000.0
+        if (durationNanos == 0.0 || remaining <= 0.0 || requested >= remaining) return
+        val current = sample(now)
+        from = current.position
+        velocity = current.velocity
+        startedNanos = now
+        val distance = target.toDouble() - current.position
+        durationNanos = if (distance * current.velocity > 0.0) {
+            minOf(requested, 3.0 * abs(distance) / abs(current.velocity.toDouble()) * 1_000_000_000.0)
+        } else {
+            requested
         }
     }
 
@@ -104,46 +122,83 @@ internal fun captionReflowPosition(previous: List<VoiceCaptionLine>, current: Li
 
 internal data class VoiceCaptionHighlight(val range: IntRange, val active: Boolean, val colour: Float)
 
+/** Fast speech and late UI observations must not spend another quarter second catching up. */
+internal fun captionWordMotionDurationMs(startFrame: Long, endFrame: Long, presentedFrame: Long, sampleRate: Int): Int {
+    if (sampleRate <= 0 || startFrame < 0 || endFrame <= startFrame) return 320
+    val remaining = (endFrame - maxOf(startFrame, presentedFrame)).coerceAtLeast(0)
+    return (remaining * 1_000 / sampleRate).coerceIn(60, 420).toInt()
+}
+
 /** Colour envelopes are cosmetic. Only the exact current speech range owns bold emphasis. */
 internal class VoiceCaptionHighlights {
-    private data class Envelope(val range: IntRange, val onset: Long, var release: Long? = null)
+    private data class Envelope(val range: IntRange, var onset: Long, val attack: Long, val tail: Long, var release: Long? = null)
     private val envelopes = linkedMapOf<IntRange, Envelope>()
     private var active: IntRange? = null
     private var animated = true
+    private var pausedNanos: Long? = null
 
-    fun update(range: IntRange?, onsetNanos: Long, nowNanos: Long, animate: Boolean) {
+    fun update(range: IntRange?, onsetNanos: Long, nowNanos: Long, animate: Boolean, wordDurationNanos: Long? = null) {
+        val now = pausedNanos ?: nowNanos
         val next = range?.takeUnless(IntRange::isEmpty)
         animated = animate
+        val duration = wordDurationNanos?.takeIf { it > 0 }
+        val attack = duration?.let { (it * .45).toLong().coerceIn(16_000_000L, ATTACK_NANOS) } ?: ATTACK_NANOS
+        val tail = duration?.let { (it / 2).coerceIn(16_000_000L, RELEASE_NANOS) } ?: RELEASE_NANOS
         if (!animate) {
             envelopes.clear()
             active = next
-            next?.let { envelopes[it] = Envelope(it, onsetNanos.coerceAtMost(nowNanos)) }
+            next?.let { envelopes[it] = Envelope(it, onsetNanos.coerceAtMost(now), attack, tail) }
             return
         }
         if (next != active) {
             active?.let { previous ->
-                envelopes[previous]?.let { it.release = max(nowNanos, it.onset + ATTACK_NANOS) }
+                envelopes[previous]?.let { it.release = max(now, it.onset + it.attack) }
             }
             active = next
-            next?.let { envelopes[it] = Envelope(it, onsetNanos.coerceAtMost(nowNanos)) }
+            next?.let { envelopes[it] = Envelope(it, onsetNanos.coerceAtMost(now), attack, tail) }
         }
-        prune(nowNanos)
+        prune(now)
+    }
+
+    /** Retain the same bold owner and envelope; an observed clock never replays already shown colour. */
+    fun refreshClock(range: IntRange?, onsetNanos: Long, nowNanos: Long) {
+        if (range == null || range != active) return
+        val envelope = envelopes[range] ?: return
+        val now = pausedNanos ?: nowNanos
+        val observedOnset = (onsetNanos - (nowNanos - now).coerceAtLeast(0)).coerceAtMost(now)
+        envelope.onset = minOf(envelope.onset, observedOnset)
     }
 
     fun visible(nowNanos: Long): List<VoiceCaptionHighlight> = envelopes.values.mapNotNull {
-        val attack = if (animated) ((nowNanos - it.onset).toDouble() / ATTACK_NANOS).coerceIn(0.0, 1.0).toFloat() else 1f
-        val release = it.release?.let { ended -> (1.0 - (nowNanos - ended).coerceAtLeast(0).toDouble() / RELEASE_NANOS).coerceIn(0.0, 1.0).toFloat() } ?: 1f
+        val now = pausedNanos ?: nowNanos
+        val attack = if (animated) ((now - it.onset).toDouble() / it.attack).coerceIn(0.0, 1.0).toFloat() else 1f
+        val release = it.release?.let { ended -> (1.0 - (now - ended).coerceAtLeast(0).toDouble() / it.tail).coerceIn(0.0, 1.0).toFloat() } ?: 1f
         val colour = attack * release
         if (it.range == active || colour > 0f) VoiceCaptionHighlight(it.range, it.range == active, colour) else null
     }
 
     fun animating(nowNanos: Long): Boolean = animated &&
+        pausedNanos == null &&
         envelopes.values.any {
-            nowNanos < it.onset + ATTACK_NANOS || it.release?.let { ended -> nowNanos < ended + RELEASE_NANOS } == true
+            nowNanos < it.onset + it.attack || it.release?.let { ended -> nowNanos < ended + it.tail } == true
         }
 
+    fun playing(playing: Boolean, nowNanos: Long) {
+        if (!playing && pausedNanos == null) pausedNanos = nowNanos
+        if (playing) {
+            pausedNanos?.let { paused ->
+                val elapsed = (nowNanos - paused).coerceAtLeast(0)
+                envelopes.values.forEach {
+                    it.onset += elapsed
+                    it.release = it.release?.plus(elapsed)
+                }
+            }
+            pausedNanos = null
+        }
+    }
+
     private fun prune(nowNanos: Long) {
-        envelopes.entries.removeAll { (_, value) -> value.release?.let { nowNanos >= it + RELEASE_NANOS } == true }
+        envelopes.entries.removeAll { (_, value) -> value.release?.let { nowNanos >= it + value.tail } == true }
         // Even an unusually dense callback burst cannot retain an unbounded transcript.
         while (envelopes.size > 12) envelopes.remove(envelopes.keys.first { it != active })
     }

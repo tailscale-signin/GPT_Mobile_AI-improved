@@ -9,6 +9,47 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RouteCapabilityCacheTest {
+    @Test fun observationsDistinguishMissingExpiredInvalidatedAndExplicitRefreshWithoutChangingResults() = runTest {
+        var now = 0L
+        val cache = RouteCapabilityCache<String>({ now }, positiveTtl = 10)
+        val observed = mutableListOf<RouteCapabilityCache.Observation>()
+        assertEquals("first", cache.getOrLoad("route", observe = observed::add) { "first" })
+        assertEquals("first", cache.getOrLoad("route", observe = observed::add) { error("Cache hit must not probe") })
+        now = 10
+        assertEquals("fresh", cache.getOrLoad("route", observe = observed::add) { "fresh" })
+        assertEquals("current", cache.getOrLoad("route", isCurrent = { it == "current" }, observe = observed::add) { "current" })
+        assertEquals("forced", cache.getOrLoad("route", forceRefresh = true, observe = observed::add) { "forced" })
+        assertEquals(
+            listOf(
+                RouteCapabilityCache.Observation.MISS_ABSENT,
+                RouteCapabilityCache.Observation.CACHE_HIT,
+                RouteCapabilityCache.Observation.MISS_EXPIRED,
+                RouteCapabilityCache.Observation.MISS_INVALIDATED,
+                RouteCapabilityCache.Observation.FORCED_REFRESH
+            ),
+            observed
+        )
+        assertEquals("forced", cache.getOrLoad("route", observe = { error("Diagnostics unavailable") }) { error("Observer must not change cache admission") })
+    }
+
+    @Test fun invalidationDuringRefreshReportsDiscardedObservationAndNeverReturnsTheStaleValue() = runTest {
+        val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
+        val gate = CompletableDeferred<Unit>()
+        val observed = mutableListOf<RouteCapabilityCache.Observation>()
+        val pending = async {
+            cache.getOrLoad("route", observe = observed::add) {
+                gate.await()
+                "stale"
+            }
+        }
+        runCurrent()
+        cache.invalidate()
+        gate.complete(Unit)
+        assertNull(pending.await())
+        assertEquals(listOf(RouteCapabilityCache.Observation.REFRESH_INVALIDATED), observed)
+        assertEquals("current", cache.getOrLoad("route") { "current" })
+    }
+
     @Test fun boundedCacheAndLargeTtlKeepAValidLifetimeWithoutOverflow() = runTest {
         var now = Long.MAX_VALUE - 100
         val cache = RouteCapabilityCache<String>({ now }, positiveTtl = 1_000, maxEntries = 1)

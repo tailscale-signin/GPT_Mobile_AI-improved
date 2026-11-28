@@ -7,6 +7,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceIncrementalTextMapTest {
+    @Test fun onlyFullyRenderedSubmittedSpeechCanStopTheDeliveryClock() {
+        var now = 0L
+        val reply = VoiceReplyStreamText { now }
+        fun append(index: Int, original: String, overrides: Map<String, String> = emptyMap()) {
+            reply.append(index, original, requireNotNull(VoiceStreamingPhrasePlan(original, overrides, 1f).next(8)))
+        }
+        append(0, "GPU ", mapOf("GPU" to "graphics processor"))
+        now = 400
+        reply.observeRenderedText(listOf(VoiceWordCue(0, 8, 0, 10)), 10)
+        assertFalse(reply.allSubmittedTextRendered())
+        val end = VoiceWordCue(9, 18, 10, 20)
+        reply.observeRenderedText(listOf(end.copy(finalEnd = false)), 20)
+        reply.observeRenderedText(listOf(end), 19)
+        assertFalse(reply.allSubmittedTextRendered())
+        reply.observeRenderedText(listOf(end), 20)
+        assertTrue(reply.allSubmittedTextRendered())
+        now = 3_400
+        assertEquals(400L, reply.deliveryClockMs())
+        append(1, "café ! ")
+        assertFalse(reply.allSubmittedTextRendered())
+        reply.observeRenderedText(listOf(end), 20)
+        assertFalse(reply.allSubmittedTextRendered())
+        now += 240
+        assertEquals(640L, reply.deliveryClockMs())
+        reply.observeRenderedText(listOf(VoiceWordCue(19, 24, 20, 30)), 30)
+        assertTrue(reply.allSubmittedTextRendered())
+        append(2, "C++")
+        reply.observeRenderedText(listOf(VoiceWordCue(27, 28, 30, 40)), 40)
+        assertFalse(reply.allSubmittedTextRendered())
+    }
+
     @Test fun utf8BoundariesRemainStableWhenLaterInputArrives() {
         val text = VoiceIncrementalTextMap()
         text.append("Hi 🎤 ")

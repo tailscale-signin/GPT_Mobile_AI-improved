@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import EXTRACTOR_VERSION, SCHEMA_VERSION
-from .engine import Graph, GraphStore, bounded, encoded, scope, import_matches, snapshot_metadata, snapshot_fingerprint
+from .engine import Graph, GraphStore, bounded, encoded, scope, import_matches, snapshot_metadata, snapshot_fingerprint, index_cursor
 from .extract import extract, identity, permitted, MAX_SOURCE_BYTES, metadata_fragment
 from .paging import graph_page
 from .jvm_impact import CompilerEvidence
@@ -23,7 +23,7 @@ from v14.memory import local_model_destination
 
 ACTIONS = frozenset({'index', 'status', 'query', 'node', 'callers', 'callees', 'path', 'impact', 'architecture',
                      'diff', 'diagnose', 'contracts', 'prs', 'note', 'notes', 'requirements', 'wiki', 'metrics',
-                     'federated', 'provider'})
+                     'federated', 'provider', 'sync'})
 PUBLIC_ACTIONS = ACTIONS - {'note', 'federated', 'provider'}
 
 
@@ -53,7 +53,7 @@ def validate(request):
         if key in request and (request['action'] != action or not isinstance(request[key], str)
                                or not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', request[key])):
             raise ValueError('Invalid synchronous index request identity')
-    for name in ('retry_failed', 'background'):
+    for name in ('retry_failed', 'background', 'auto_refresh'):
         if name in request and type(request[name]) is not bool:
             raise ValueError('Invalid graph option')
     if 'paths' in request and (not isinstance(request['paths'], list) or len(request['paths']) > 100 or any(not isinstance(p, str) or len(p) > 400 for p in request['paths'])):
@@ -73,6 +73,7 @@ class GraphService:
         self.cancelled = lambda job: False
         self.authorized = lambda principal: True
         self._index_jobs = None
+        self._maintenance = None
         self._cancellation = threading.local()
 
     @property
@@ -85,7 +86,17 @@ class GraphService:
         return self._index_jobs
 
     def start_jobs(self):
+        self.maintenance
         self.index_jobs.start()
+
+    @property
+    def maintenance(self):
+        if self._maintenance is None:
+            with self.lock:
+                if self._maintenance is None:
+                    from .maintenance import GraphMaintenance
+                    self._maintenance = GraphMaintenance(self)
+        return self._maintenance
 
     def resolved(self, namespace, snapshot):
         key = (namespace, snapshot['sha'], snapshot_fingerprint(snapshot))
@@ -143,21 +154,59 @@ class GraphService:
         head = self.backend.api(root + '/git/ref/heads/' + quote(request['branch'], safe=''))['object']['sha']
         return scope(principal, actor, request['repository'], request['branch']), root, head, actor
 
+    @staticmethod
+    def tree_entry(snapshot, path, item):
+        if (item.get('type') == 'blob' and item.get('mode') in {'100644', '100755'} and permitted(path)
+                and re.fullmatch(r'[a-f0-9]{40}', str(item.get('sha', '')))):
+            snapshot['manifest'][path] = {'sha': item['sha'], 'size': item.get('size', 0)}
+        elif item.get('type') == 'blob':
+            snapshot['excluded_files'] += 1
+
+    def discover(self, snapshot, request, root):
+        frontier = snapshot['tree_frontier']
+        preferred = request.get('paths', [])
+        for _ in range(8):
+            if not frontier:
+                break
+            frontier.sort(key=lambda row: not any(path.startswith(row[0] + '/') for path in preferred))
+            prefix, tree_sha, offset = frontier.pop(0)
+            tree = self.backend.api(root + '/git/trees/' + tree_sha)
+            if tree.get('sha') != tree_sha or tree.get('truncated') is not False or not isinstance(tree.get('tree'), list):
+                raise ValueError('Pinned directory tree is incomplete; resume requires a complete directory listing')
+            entries = tree['tree']
+            limit = min(len(entries), offset + 1024)
+            for item in entries[offset:limit]:
+                name = item.get('path')
+                if not isinstance(name, str) or name in {'', '.', '..'} or '/' in name or chr(92) in name:
+                    raise ValueError('Invalid Git tree component')
+                path = prefix + '/' + name if prefix else name
+                if item.get('type') == 'tree' and item.get('mode') == '040000':
+                    if not re.fullmatch(r'[a-f0-9]{40}', str(item.get('sha', ''))):
+                        raise ValueError('Invalid child tree identity')
+                    if name not in {'.git', 'node_modules', 'build', 'dist', '.gradle', '__pycache__'}:
+                        frontier.append([path, item['sha'], 0])
+                else:
+                    self.tree_entry(snapshot, path, item)
+            if limit < len(entries):
+                frontier.append([prefix, tree_sha, limit])
+                break
+
     def snapshot(self, namespace, request, root):
         previous = self.store.load(namespace, request['commit_sha'])
-        if previous:
+        if previous and previous.get('manifest_extractor') == EXTRACTOR_VERSION:
             return self.reuse_fragments(namespace, previous)
         tree = self.backend.api(root + '/git/trees/' + request['commit_sha'] + '?recursive=1')
-        if tree.get('truncated') is not False:
-            raise ValueError('Repository tree is incomplete; graph indexing did not start')
-        manifest = {item['path']: {'sha': item['sha'], 'size': item.get('size', 0)} for item in tree['tree']
-                    if item.get('type') == 'blob' and item.get('mode') in {'100644', '100755'} and permitted(item['path'])}
-        if len(manifest) > 8000:
-            raise ValueError('Repository exceeds the 8000-file graph limit')
         snapshot = {'schema_version': SCHEMA_VERSION, 'repository': request['repository'], 'branch': request['branch'],
-                    'sha': request['commit_sha'], 'manifest': manifest, 'fragments': {},
-                    'excluded_files': sum(i.get('type') == 'blob' for i in tree['tree']) - len(manifest),
+                    'sha': request['commit_sha'], 'manifest': {}, 'manifest_extractor': EXTRACTOR_VERSION, 'fragments': {},
+                    'excluded_files': 0, 'tree_frontier': [],
                     'index_metrics': {'cache_hits': 0, 'parsed_files': 0, 'read_bytes': 0, 'index_ms': 0.0}}
+        if tree.get('truncated') is False and isinstance(tree.get('tree'), list):
+            for item in tree['tree']:
+                self.tree_entry(snapshot, item['path'], item)
+        elif tree.get('truncated') is True and re.fullmatch(r'[a-f0-9]{40}', str(tree.get('sha', ''))):
+            snapshot['tree_frontier'].append(['', tree['sha'], 0])
+        else:
+            raise ValueError('Repository tree is incomplete; a pinned root tree is required')
         return self.reuse_fragments(namespace, snapshot)
 
     def index(self, namespace, request, root):
@@ -165,17 +214,21 @@ class GraphService:
         snapshot.setdefault('index_metrics', {'cache_hits': len(snapshot['fragments']), 'parsed_files': 0, 'read_bytes': 0, 'index_ms': 0.0})
         if request.get('retry_failed') is True and not request.get('index_cursor'):
             snapshot['fragments'] = {p: f for p, f in snapshot['fragments'].items() if f['status'] != 'failed' and not f.get('retryable')}
-        pending = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
-        expected_cursor = identity(namespace, snapshot['sha'], *pending)
+        expected_cursor = index_cursor(namespace, snapshot)
         if request.get('index_cursor') and request['index_cursor'] != expected_cursor:
             raise ValueError('Index cursor changed; inspect status before continuing')
+        if snapshot.get('tree_frontier'):
+            self.discover(snapshot, request, root)
+        pending = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
         started = time.perf_counter()
         deadline = time.monotonic() + 75
         batch_size = 24
         if self.public and pending and self.backend.prepare_sources(request['repository'], snapshot['sha']):
             batch_size = 1024
         preferred = set(request.get('paths', []))
-        batch = sorted(pending, key=lambda p: (p not in preferred, p))[:batch_size]
+        essential = {'readme.md', 'agents.md', 'build.gradle', 'build.gradle.kts', 'settings.gradle.kts',
+                     'package.json', 'pyproject.toml', 'cargo.toml', 'go.mod', 'androidmanifest.xml', 'mainactivity.kt'}
+        batch = sorted(pending, key=lambda p: (p not in preferred, p.rsplit('/', 1)[-1].lower() not in essential, p))[:batch_size]
         cancelled = getattr(self._cancellation, 'check', lambda: False)
 
         def read(path):
@@ -271,8 +324,8 @@ class GraphService:
             # Successful siblings are durable; throttled files remain pending,
             # never failed parser entries that require a manual retry/reset.
             raise rate_wait
-        remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
-        return snapshot, {'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
+        cursor = index_cursor(namespace, snapshot)
+        return snapshot, {'has_more': bool(cursor), 'index_cursor': cursor,
                           'processed_files': len(snapshot['fragments']), 'expected_files': len(snapshot['manifest'])}
 
     def execute(self, principal, request, *, expected_scope=None):
@@ -298,6 +351,16 @@ class GraphService:
         if expected_scope is not None and namespace != expected_scope:
             raise PermissionError('Repository graph scope changed during the operation')
         action = request['action']
+        if expected_scope is None and action in {'index', 'status', 'sync'}:
+            self.maintenance.observe(principal, namespace, request, head)
+        if action == 'sync':
+            from .sync import synchronize
+            result = synchronize(self.store, namespace, request, head)
+            if not self.public and self.backend.api('/user')['id'] != actor:
+                raise PermissionError('GitHub account changed during graph synchronization')
+            if not self.authorized(principal):
+                raise PermissionError('Repository map access was revoked')
+            return dict(result, maintenance=self.maintenance.status(namespace))
         if action in {'status', 'metrics'}:
             saved = self.store.summary(namespace, request['commit_sha'])
             if saved is None:
@@ -315,7 +378,8 @@ class GraphService:
                           'actual_token_counts': 'Not available', 'measurement_scope': 'This principal, account, repository and branch'}
             elif self._index_jobs is not None:
                 result['index_job'] = self.index_jobs.status(principal, request)
-            result = bounded(dict(result, graph=metadata, stale=head != request['commit_sha'], observed_branch_head=head), request.get('budget_bytes', 16000))
+            result = bounded(dict(result, graph=metadata, stale=head != request['commit_sha'], observed_branch_head=head, access_scope=namespace,
+                                  maintenance=self.maintenance.status(namespace)), request.get('budget_bytes', 16000))
             if not self.public and self.backend.api('/user')['id'] != actor:
                 raise PermissionError('GitHub account changed during graph retrieval')
             self.store.measure(namespace, action, round((time.perf_counter() - started) * 1000, 2), len(encoded(result).encode()))
@@ -337,8 +401,8 @@ class GraphService:
             notes = lambda: self.store.notes(namespace, snapshot, request.get('query', ''))
             symbol = request.get('symbol', '')
             if action == 'status':
-                remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
-                result = {'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
+                cursor = index_cursor(namespace, snapshot)
+                result = {'has_more': bool(cursor), 'index_cursor': cursor,
                           'issues': [{'path': p, 'status': f['status'], 'warnings': f['warnings']} for p, f in snapshot['fragments'].items() if f['status'] != 'indexed'][:50]}
                 if self._index_jobs is not None:
                     result['index_job'] = self.index_jobs.status(principal, request)
@@ -553,7 +617,8 @@ class GraphService:
             sha = job['data']['head_sha']
             with self.lock:
                 snapshot = self.store.load(namespace, sha) or {'schema_version': SCHEMA_VERSION, 'repository': job['request']['repository'],
-                    'branch': job['request']['branch'], 'sha': sha, 'manifest': {p: v for p, v in output['tree'].items() if permitted(p) and v.get('mode', '100644') in {'100644', '100755'}}, 'fragments': {}}
+                    'branch': job['request']['branch'], 'sha': sha, 'manifest_extractor': EXTRACTOR_VERSION,
+                    'manifest': {p: v for p, v in output['tree'].items() if permitted(p) and v.get('mode', '100644') in {'100644', '100755'}}, 'fragments': {}}
                 self.reuse_fragments(namespace, snapshot)
                 for path, value in output['files'].items():
                     if path in snapshot['manifest'] and blob_sha(value['content']) == snapshot['manifest'][path]['sha']:
@@ -591,7 +656,7 @@ class GraphService:
             if cached:
                 pending = set(cached.snapshot['manifest']) - cached.snapshot['fragments'].keys()
                 requested = set(request['paths']) & cached.snapshot['manifest'].keys()
-                if not pending or requested and not requested.intersection(pending):
+                if not cached.snapshot.get('tree_frontier') and (not pending or requested and not requested.intersection(pending)):
                     return namespace, cached.snapshot, provider, 0
             snapshot = self.snapshot(namespace, request, root)
             before = len(snapshot['fragments'])
@@ -615,7 +680,7 @@ class GraphService:
                 self.store.save(namespace, snapshot)
             pending = set(snapshot['manifest']) - snapshot['fragments'].keys()
             requested = set(request['paths']) & snapshot['manifest'].keys()
-            if pending and (not snapshot['fragments'] or not requested or requested.intersection(pending)):
+            if snapshot.get('tree_frontier') or pending and (not snapshot['fragments'] or not requested or requested.intersection(pending)):
                 self._cancellation.check = lambda: self.cancelled(job)
                 try:
                     snapshot, _ = self.index(namespace, request, root)
@@ -623,15 +688,72 @@ class GraphService:
                     self._cancellation.check = lambda: False
         return namespace, snapshot, provider, max(0, len(snapshot['fragments']) - before)
 
+    def session_snapshot(self, job, paths):
+        data, request = job['data'], job['request']
+        principal = job['principal']
+        binding = {'action': 'query', 'repository': request['repository'], 'branch': request['branch'],
+                   'commit_sha': data['head_sha']}
+        validate(binding)
+        if not self.authorized(principal):
+            raise PermissionError('Repository map access was revoked')
+        _, root, _, actor = self.authorize(principal, binding)
+        if actor != data['actor_id']:
+            raise PermissionError('GitHub account changed before session graph retrieval')
+        tree, files = data['tree'], data.get('files', {})
+        snapshot = {'repository': request['repository'], 'branch': request['branch'], 'sha': data['head_sha'],
+                    'manifest': {}, 'fragments': {}, 'session_subset': True}
+        from v14.task_context import regular
+        budget = MAX_SOURCE_BYTES
+        requested = list(paths or [])[:100]
+        ordered = list(dict.fromkeys(requested + list(files)))
+        reads = 0
+        for path in ordered:
+            if self.cancelled(job):
+                raise InterruptedError('Session graph retrieval cancelled')
+            if not regular(tree, path) or not permitted(path):
+                continue
+            item = files.get(path)
+            if item is None and path in requested and reads < 3 and 0 < tree[path].get('size', 0) <= min(budget, 262144):
+                reads += 1
+                blob = self.backend.api(root + '/git/blobs/' + tree[path]['sha'], job=job)
+                if blob.get('encoding') != 'base64' or not 0 <= blob.get('size', budget + 1) <= min(budget, 262144):
+                    continue
+                raw = base64.b64decode(blob['content'].replace('\n', ''), validate=True)
+                if len(raw) != blob['size'] or blob_sha(raw) != tree[path]['sha']:
+                    raise ValueError('Session source differs from its pinned blob')
+                try:
+                    item = {'content': raw.decode('utf-8'), 'sha': tree[path]['sha']}
+                except UnicodeDecodeError:
+                    continue
+            if not isinstance(item, dict):
+                continue
+            content = item.get('content')
+            if not isinstance(content, str) or item.get('sha') != tree[path]['sha'] or len(content) > budget:
+                continue
+            raw = content.encode()
+            if len(raw) > budget or blob_sha(raw) != item['sha'] or chr(0) in content:
+                continue
+            snapshot['manifest'][path] = {'sha': item['sha'], 'size': len(raw)}
+            snapshot['fragments'][path] = extract(path, content)
+            budget -= len(raw)
+            if len(snapshot['fragments']) >= 24:
+                break
+        return snapshot
+
     def recall(self, job, query, *, role=None, paths=None):
         started = time.perf_counter()
-        disabled = ('SESSION_ONLY' if job['request'].get('memory_mode') == 'SESSION_ONLY' else
+        session = job['request'].get('memory_mode') == 'SESSION_ONLY'
+        disabled = ('SESSION_ONLY' if session and not (job['data'].get('actor_id') and job['data'].get('tree') and job['data'].get('head_sha') and job.get('principal')) else
                     'IDENTITY_UNAVAILABLE' if not job['data'].get('actor_id') else
                     'LOCAL_MODEL_REQUIRED' if not local_model_destination(getattr(self.store.store.runtime, 'LLAMA_BASE', '')) else None)
         if disabled:
             return {'status': 'DISABLED', 'retrieval': {'status': 'DISABLED', 'reason': disabled, 'selected_nodes': 0, 'selected_paths': 0}}
-        namespace, snapshot, provider, prepared = self.ensure_recall_index(job, paths)
-        graph, hit = self.resolved(namespace, snapshot)
+        if session:
+            snapshot = self.session_snapshot(job, paths)
+            graph, hit, provider, prepared = Graph(snapshot), False, 'local', len(snapshot['fragments'])
+        else:
+            namespace, snapshot, provider, prepared = self.ensure_recall_index(job, paths)
+            graph, hit = self.resolved(namespace, snapshot)
         if self.cancelled(job):
             raise InterruptedError('Repository context retrieval cancelled')
         if self.backend.api('/user')['id'] != job['data']['actor_id']:
@@ -639,7 +761,7 @@ class GraphService:
         from v14.graph_context import rank_graph
         focus = list(paths or [])
         history = []
-        if role == 'repair planner' or role == 'planner' and job['data'].get('ci'):
+        if not session and (role == 'repair planner' or role == 'planner' and job['data'].get('ci')):
             # Repair history suggests where to look. Only unchanged source blobs
             # become current search seeds, even when the incident signature matches.
             for note in self.store.notes(namespace, snapshot, query, relevant_only=True, kind='repair')[:4]:

@@ -1,0 +1,198 @@
+{
+  "scope": "build_and_host_cpu_jni_integration_only",
+  "physicalDeviceQualified": false,
+  "acousticQualified": false,
+  "gpuExecutionQualified": false,
+  "npuExecutionQualified": false,
+  "sourceInputsSha256": {
+    "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "1d98f454b7d1a1f1d3f8050deaea2de073addbc080cfec2c08ed8a631aed2546",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp": "307f1a288b60760f197d29ad87875549a8a0e6cf9aa8f012ea437ac672019be7",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr.cmake": "90b991413b62baca35a97d94a607f7fe8961b2f14bc0e70c4baf569e8eb4fde6",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_provider.h": "7ee2d804b96952509eda2b5d9eccc8cc70e59956d4906d644b307235296c43f7",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_context.h": "5b24be35df9fde3a5da44b7553cb6ae1e703b122e5a3e7663aeaa1307d3e804d",
+    "local-kokoro-runtime/src/main/cpp/sherpa-streaming-asr.patch": "09e36055f3e18f411f9b23b2e4c53ca7d1a0df40775b84bc897101dff873d75d",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "dae137cf8096aebfec48cae7807aeec356e1603a1179971255965993008323f2",
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrNativeIntegration.java": "91505a098beee1efed2e9f5bfa59b55750d70524708592343441bfc9fd1f64ab",
+    "local-kokoro-runtime/src/testHost/streaming_asr_fixtures.json": "606d1eba894c389b29057f010372ae58ad04f8a771b0ad5f73ba9c32488a0e7d"
+  },
+  "androidArm64": {
+    "status": "passed",
+    "cmakeBuildType": "Release",
+    "optimization": "unchanged -O3",
+    "ndkVersion": "29.0.14206865",
+    "targets": [
+      "timed_kokoro",
+      "kokoro_qnn_adapter"
+    ],
+    "workers": 1,
+    "timedKokoroSha256": "0f88057fd6b69989edd3812acde62a9feec67f6747cb39146de804adcc975259",
+    "qnnAdapterSha256": "0eb28d45f4be1cf620b6d0d021c84355275591e254743d0cf23afe78608dda80",
+    "jniExports": [
+      "Java_dev_melo_kokoro_KokoroFrontend_encodePhrase",
+      "Java_dev_melo_kokoro_KokoroFrontend_open",
+      "Java_dev_melo_kokoro_KokoroFrontend_release",
+      "Java_dev_melo_kokoro_StreamingAsr_nativeAccept",
+      "Java_dev_melo_kokoro_StreamingAsr_nativeCancel",
+      "Java_dev_melo_kokoro_StreamingAsr_nativeCreate",
+      "Java_dev_melo_kokoro_StreamingAsr_nativeDelete",
+      "Java_dev_melo_kokoro_StreamingAsr_nativeEvidence",
+      "Java_dev_melo_kokoro_StreamingAsr_nativeFinish",
+      "Java_dev_melo_kokoro_StreamingAsr_nativeReset",
+      "Java_dev_melo_kokoro_TimedKokoro_cancelGeneration",
+      "Java_dev_melo_kokoro_TimedKokoro_encodeModelPhrase",
+      "Java_dev_melo_kokoro_TimedKokoro_executedAcceleratorNodes",
+      "Java_dev_melo_kokoro_TimedKokoro_executionDiscovery",
+      "Java_dev_melo_kokoro_TimedKokoro_executionEvidence",
+      "Java_dev_melo_kokoro_TimedKokoro_executionProgress",
+      "Java_dev_melo_kokoro_TimedKokoro_generateEncodedPhrase",
+      "Java_dev_melo_kokoro_TimedKokoro_generatePhrase",
+      "Java_dev_melo_kokoro_TimedKokoro_open",
+      "Java_dev_melo_kokoro_TimedKokoro_release",
+      "Java_dev_melo_kokoro_TimedKokoro_resetGeneration"
+    ]
+  },
+  "hostCpuJni": {
+    "scope": "LINUX_X86_64_PRODUCTION_JNI_CPU_ONLY",
+    "physicalDeviceQualified": false,
+    "compiler": "NDK29 Clang targeting host glibc/libstdc++, Release O3; one worker",
+    "results": {
+      "zipformer-en": {
+        "exitCode": 0,
+        "elapsedSeconds": 0.9671014760024264
+      },
+      "zipformer-fr": {
+        "exitCode": 0,
+        "elapsedSeconds": 1.8728475589996378
+      },
+      "nemotron-cpu": {
+        "exitCode": -9,
+        "elapsedSeconds": 2.175041512997268
+      }
+    },
+    "builtJniSha256": "1104ad7510a8e561cf3816cc95641b347b7271f3cc0dbf1c1e197d2520386e5a",
+    "ortSha256": "f5cb4d1819c54707100fe4b6b3df1cde097609d4cd54328423f6cdfc29980647",
+    "elapsedMeasurement": "Whole JVM integration process wall time, including initialization and lifecycle assertions; not isolated inference latency or real-time factor.",
+    "fixtures": {
+      "zipformer-en": {
+        "scope": "CPU_HOST_PRODUCTION_JNI_REGRESSION_ONLY",
+        "physicalDeviceQualified": false,
+        "gpuQualified": false,
+        "npuQualified": false,
+        "runtime": "sherpa-38016c6-ort-1.31-qairt-2.52-asr-1",
+        "text": "THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLELS",
+        "acceptedRealFrames": 106000,
+        "partialUpdates": 13,
+        "tokenOnsetsSeconds": [
+          2.04,
+          2.1599998,
+          2.28,
+          2.36,
+          2.52,
+          2.6399999,
+          2.6799998,
+          2.76,
+          2.9199998,
+          3.08,
+          3.3999999,
+          3.6,
+          3.72,
+          3.8799999,
+          4.12,
+          4.48,
+          4.64,
+          4.68,
+          4.8399997,
+          4.96,
+          5.16,
+          5.2,
+          5.3199997,
+          5.3599997,
+          5.6,
+          5.72,
+          5.92,
+          5.96,
+          6.08,
+          6.24,
+          6.3599997,
+          6.52
+        ],
+        "timingProvenance": "TOKEN_EMISSION",
+        "execution": "requested=cpu;actual=cpu;executed=true;chunks=21;realAudioFrames=106000;sampledGpuKernels=[0, 0, 0];sampledCpuKernels=[0, 0, 0];componentRuns=[0, 0, 0];discovery=cpu;profile=not_requested",
+        "chunkInvariant": true,
+        "residentReuse": true,
+        "cancellationAndClose": true
+      },
+      "zipformer-fr": {
+        "scope": "CPU_HOST_PRODUCTION_JNI_REGRESSION_ONLY",
+        "physicalDeviceQualified": false,
+        "gpuQualified": false,
+        "npuQualified": false,
+        "runtime": "sherpa-38016c6-ort-1.31-qairt-2.52-asr-1",
+        "text": "CE SITE CONTIENT QUATRE TOMBEAUX DE LA DYNASTIE ASHÉMÉNIDE ET SEPT DES SASSANDIDES",
+        "acceptedRealFrames": 114048,
+        "partialUpdates": 18,
+        "tokenOnsetsSeconds": [
+          0.96,
+          1.4399999,
+          1.56,
+          1.76,
+          1.9599999,
+          2.08,
+          2.28,
+          2.56,
+          2.6399999,
+          2.76,
+          2.8,
+          2.96,
+          3.04,
+          3.1999998,
+          3.28,
+          3.3999999,
+          3.56,
+          3.72,
+          3.8,
+          4.0,
+          4.16,
+          4.24,
+          4.3199997,
+          4.44,
+          4.6,
+          4.68,
+          4.92,
+          5.2,
+          5.52,
+          5.8399997,
+          6.08,
+          6.12,
+          6.24,
+          6.6,
+          6.68
+        ],
+        "timingProvenance": "TOKEN_EMISSION",
+        "execution": "requested=cpu;actual=cpu;executed=true;chunks=22;realAudioFrames=114048;sampledGpuKernels=[0, 0, 0];sampledCpuKernels=[0, 0, 0];componentRuns=[0, 0, 0];discovery=cpu;profile=not_requested",
+        "chunkInvariant": true,
+        "residentReuse": true,
+        "cancellationAndClose": true
+      }
+    }
+  },
+  "focusedPythonTests": {
+    "streamingAsrInputs": {
+      "passed": 7,
+      "failed": 0
+    },
+    "existingKokoroNativeHostInputs": {
+      "passed": 8,
+      "failed": 0
+    }
+  },
+  "limitations": [
+    "Nemotron production JNI smoke terminated with OS signal 9 during initialization; no JNI pass or performance result is claimed.",
+    "Real GPU provider/kernel evidence, SM8750 HTP graph execution, microphone acoustics, sustained thermals and battery need supported physical-device runs.",
+    "Host-only CPU public audio fixtures do not qualify mobile end-to-end capture or acoustic accuracy."
+  ],
+  "ciRequirement": "The existing mandatory native_context gate executes all prior Kokoro cases and all three ASR production JNI fixtures. Unknown or insufficient memory fails admission with exit 78; it never produces model qualification or a successful skip.",
+  "schemaVersion": 1,
+  "observedSourceHead": "dfed018cd40e2edb8b5edb1045b6dd967d029445",
+  "sourceInstructions": "Reproduce through scripts/prepare_kokoro_native_host.py and the mandatory local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py gate with prepared --asr-packs. The native gate requires all three packs; this local receipt does not qualify the unresolved Nemotron JNI case."
+}

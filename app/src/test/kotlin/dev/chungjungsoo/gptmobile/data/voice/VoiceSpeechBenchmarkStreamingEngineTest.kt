@@ -104,7 +104,7 @@ class VoiceSpeechBenchmarkStreamingEngineTest {
             VoiceSpeechBackend.PHONON_CPU, VoiceSpeechPlaybackState.COMPLETE,
             chunks = 2, totalAudioMs = 500, firstPresentedAudioMs = 100,
             protocolVersion = VoiceSpeechPlaybackProtocol.VERSION, manifestWordsExpected = 1,
-            manifestWordsPrepared = 1, manifestWordsObserved = 1, unexpectedCaptionWords = 0,
+            manifestWordsPrepared = 1, manifestWordsObserved = 1, renderedManifestWords = 1, unexpectedCaptionWords = 0,
             cleanupState = "RETIRED", activePlaybackUnderruns = 0, thermalBefore = 0, thermalAfter = 0,
             streamedAudioValidated = true, requestedDelegate = "CPU", observedProviderStatus = "NOT_EXPOSED_BY_SDK", engineStreamCalls = 1
         )

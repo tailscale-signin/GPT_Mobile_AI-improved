@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
+import dev.chungjungsoo.gptmobile.data.github.GitHubRepositorySession
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.currentCoroutineContext
@@ -55,6 +56,19 @@ internal class SavedPageDeliveryRound private constructor(private val expectedPr
             }
         }
 
+        /** Only private model notes may be shortened. The source body, delivery proof and completion remain exact. */
+        private fun boundedNote(sample: String, limit: Int): String {
+            if (sample.toByteArray(Charsets.UTF_8).size <= limit) return sample
+            val marker = "…"
+            val prefix = GitHubRepositorySession.utf8Prefix(sample, limit - marker.toByteArray(Charsets.UTF_8).size)
+            val boundary = prefix.indices.lastOrNull { index ->
+                prefix[index] == '\n' || prefix[index] in "。！？" || prefix[index] in ".!?" && sample.getOrNull(index + 1)?.isWhitespace() == true
+            }
+            // A clipped identifier, digest or number cannot serve as a reading note.
+            val excerpt = if (boundary != null) prefix.take(boundary + 1) else prefix.take(prefix.indexOfLast(Char::isWhitespace).coerceAtLeast(0))
+            return excerpt.trimEnd().takeIf { it.isNotBlank() }?.plus(marker).orEmpty()
+        }
+
         fun read(session: AgentProviderSession, exchanges: List<AgentToolExchange>, maxNoteBytes: Int = 1536, retainNotes: (String) -> Unit = {}): Flow<ProviderEvent> = flow {
             require(maxNoteBytes in 1..1536)
             val read = SavedPageDeliveryRound(SavedPageReading.projectionDigest(exchanges))
@@ -73,12 +87,9 @@ internal class SavedPageDeliveryRound private constructor(private val expectedPr
                         if (event.lineage.origin !in setOf(OutputOrigin.MODEL_TEXT, OutputOrigin.UNKNOWN)) {
                             reject("UNSUPPORTED_OUTPUT")
                         } else {
-                            if (notes.length.toLong() + event.text.length <= maxNoteBytes && !failed) {
-                                notes.append(event.text)
-                                if (notes.toString().toByteArray(Charsets.UTF_8).size > maxNoteBytes) reject("NOTE_LIMIT")
-                            } else {
-                                reject("NOTE_LIMIT")
-                            }
+                            // One extra UTF-16 unit detects overflow even if the provider emits one very large delta.
+                            val count = minOf(event.text.length, maxNoteBytes + 1 - notes.length)
+                            if (!failed && count > 0) notes.append(event.text, 0, count)
                         }
                     }
                     is ProviderEvent.Failed -> {
@@ -92,18 +103,26 @@ internal class SavedPageDeliveryRound private constructor(private val expectedPr
                     else -> Unit
                 }
             }
-            if (!failed && completed && read.freshRequestCompleted && notes.isNotBlank()) {
-                retainNotes(notes.toString())
+            val note = boundedNote(notes.toString(), maxNoteBytes)
+            if (!failed && completed && read.freshRequestCompleted && note.isNotBlank()) {
+                retainNotes(note)
                 emit(ProviderEvent.Completed)
             } else if (!reportedFailure) {
                 val reason = when {
-                    failed -> "The saved-page response contained unsupported output or exceeded its note allowance."
+                    failed -> "The saved-page reader returned output other than reading notes."
                     !completed || !read.freshRequestCompleted -> "The saved-page request has no matching fresh completion."
-                    else -> "The saved-page response returned empty reading notes."
+                    else -> "The saved-page reader returned no usable notes within its allowance."
                 }
                 emit(
                     blocked("$reason Its pending pages remain checkpointed.", "response_stream") {
-                        put("replay_missing_record", firstReason ?: if (!completed || !read.freshRequestCompleted) "FRESH_PROVIDER_COMPLETION" else "READING_NOTES")
+                        put(
+                            "replay_missing_record",
+                            firstReason ?: when {
+                                !completed || !read.freshRequestCompleted -> "FRESH_PROVIDER_COMPLETION"
+                                notes.isNotBlank() -> "NOTE_LIMIT"
+                                else -> "READING_NOTES"
+                            }
+                        )
                         val id = exchanges.firstOrNull()?.calls?.firstOrNull()?.callId
                         replaySource(exchanges, id)
                     }

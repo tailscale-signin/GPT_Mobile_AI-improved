@@ -219,9 +219,9 @@
     "workflow_tool_profiles": true
   },
   "gatewayId": "gw_00000000000000000000000000000000",
-  "gatewayVersion": "18.1.5",
+  "gatewayVersion": "18.1.6",
   "gateway_id": "gw_00000000000000000000000000000000",
-  "gateway_version": "18.1.5",
+  "gateway_version": "18.1.6",
   "headers": {
     "command_id": "X-Gateway-Command-ID",
     "conversation_id": "X-Gateway-Conversation-ID",
@@ -286,5 +286,5 @@
     "hide_server_text_field": "gateway_progress.ui.show_server_text",
     "title_field": "gateway_progress.ui.title"
   },
-  "version": "18.1.5"
+  "version": "18.1.6"
 }

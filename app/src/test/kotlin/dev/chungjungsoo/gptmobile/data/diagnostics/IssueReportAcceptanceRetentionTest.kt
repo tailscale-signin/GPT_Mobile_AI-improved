@@ -26,6 +26,37 @@ class IssueReportAcceptanceRetentionTest {
             }
             assertEquals(JsonPrimitive(11), snapshot.values["unmet_criterion_count"])
             assertEquals(JsonPrimitive(10), snapshot.values["unmet_criterion_omitted_count"])
+            val prerequisiteFields = setOf(
+                "acceptance_prerequisite_blockers",
+                "acceptance_blocked_operation_families",
+                "acceptance_additional_blocked_family_count",
+                "acceptance_ready_read_count",
+                "acceptance_additional_ready_read_count",
+                "acceptance_preparation_state",
+                "acceptance_fixture_creation_admissible",
+                "acceptance_acquisition_allowed",
+                "acceptance_cleanup_reserve",
+                "acceptance_fixture_start_minimum",
+                "repository_graph_observation",
+                "graph_input_blocked_count"
+            )
+            prerequisiteFields.forEach { key ->
+                assertNotNull("A compact acceptance report must retain $key", snapshot.values[key])
+                assertFalse("$key must not be compacted away", key in snapshot.omittedFields)
+                assertFalse("$key must not be marked unavailable", key in snapshot.unavailableFields)
+            }
+            assertEquals(
+                JsonArray(listOf(JsonPrimitive("WORKFLOW_RUN_OR_JOB_REQUIRED"), JsonPrimitive("OWNED_FIXTURE_REQUIRED"))),
+                snapshot.values["acceptance_prerequisite_blockers"]
+            )
+            assertEquals(
+                JsonArray(listOf(JsonPrimitive("github_ci"), JsonPrimitive("github_read"))),
+                snapshot.values["acceptance_blocked_operation_families"]
+            )
+            assertEquals(JsonPrimitive(false), snapshot.values["acceptance_fixture_creation_admissible"])
+            assertEquals(JsonPrimitive(true), snapshot.values["acceptance_acquisition_allowed"])
+            assertEquals(JsonPrimitive(8), snapshot.values["acceptance_cleanup_reserve"])
+            assertEquals(JsonPrimitive(12), snapshot.values["acceptance_fixture_start_minimum"])
             assertTrue(snapshot.omittedFields.isNotEmpty())
             assertTrue(snapshot.omittedFields.none { it in snapshot.values })
             assertTrue(snapshot.values.keys.none { it == "raw_failure" })
@@ -33,6 +64,37 @@ class IssueReportAcceptanceRetentionTest {
             assertTrue(encoded.toString().encodeToByteArray().size <= IssueReportDiagnostics.MAX_BYTES)
             assertEquals(snapshot, IssueReportDiagnostics.fromJson(encoded))
         }
+    }
+
+    @Test fun deadlineProvenanceSurvivesSanitizationAndSerializationWithoutAcceptingFreeText() {
+        for (source in dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.deadlineSources) {
+            val report = requireNotNull(
+                IssueReportDiagnostics.fromFields(
+                    "CHAT_FAILURE",
+                    mapOf(
+                        "diagnostic_area" to "ACCEPTANCE",
+                        "task_deadline_source" to source,
+                        "task_deadline_observation" to "WINDOW_EXPIRED"
+                    ),
+                    1_000L
+                )
+            )
+            assertEquals(JsonPrimitive(source), report.values["task_deadline_source"])
+            assertTrue(report.isValid())
+            val encoded = IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), report)
+            assertEquals(report, IssueReportDiagnostics.fromJson(encoded))
+        }
+        val invalid = requireNotNull(
+            IssueReportDiagnostics.fromFields(
+                "CHAT_FAILURE",
+                mapOf(
+                    "diagnostic_area" to "ACCEPTANCE",
+                    "task_deadline_source" to "private task text"
+                ),
+                1_000L
+            )
+        )
+        assertFalse("task_deadline_source" in invalid.values)
     }
 
     @Test fun malformedCriterionAlignmentIsRejectedBeforeRetentionPriorityApplies() {
@@ -81,6 +143,9 @@ class IssueReportAcceptanceRetentionTest {
         "acceptance_prerequisite_blockers" to listOf("WORKFLOW_RUN_OR_JOB_REQUIRED", "OWNED_FIXTURE_REQUIRED"),
         "acceptance_blocked_operation_families" to listOf("github_ci", "github_read"),
         "acceptance_additional_blocked_family_count" to 0,
+        "repository_graph_observation" to "OBSERVED",
+        "graph_input_blocked_count" to 3,
+        "workflow_dependency_observation" to "UNOBSERVED",
         "status_missing_observations" to listOf("COMMIT_CHECKS", "LATEST_WORKFLOW", "REQUIRED_POLICY"),
         "status_policy_protection_http_status" to 200,
         "status_policy_rules_http_status" to 200,

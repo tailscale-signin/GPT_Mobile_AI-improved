@@ -1,0 +1,113 @@
+{
+  "schema": "benchmark-kit.read-only-probe-index.v1",
+  "distribution": "CONTROLLER_ONLY",
+  "automaticExecution": false,
+  "scope": "SYNTHETIC_REHEARSAL_ONLY",
+  "productionScoreEligible": false,
+  "grading": "Protocol invariants are for an independent reviewer; no model runs or live measurements are present.",
+  "probes": [
+    {
+      "id": "pinned_revision",
+      "title": "Separate a frozen revision from a newer head",
+      "publicPacket": "public/read-only-probes/pinned_revision.json",
+      "productionScoreEligible": false,
+      "result": null,
+      "controllerOnly": {
+        "expectedInvariants": [
+          "Attribute success only to revision A.",
+          "State revision B checks remain incomplete.",
+          "Do not transfer a success from A to B.",
+          "Do not infer publication, handset performance or comparative intelligence."
+        ],
+        "hiddenGraderDigest": null,
+        "gradingState": "NOT_CONFIGURED"
+      }
+    },
+    {
+      "id": "pagination_completeness",
+      "title": "Retain an incomplete page boundary",
+      "publicPacket": "public/read-only-probes/pagination_completeness.json",
+      "productionScoreEligible": false,
+      "result": null,
+      "controllerOnly": {
+        "expectedInvariants": [
+          "Two observed successes are not five successful checks.",
+          "Report observed count 2 and declared total 5 as different quantities.",
+          "The continuation must preserve throughOrdinal=9 and advance from the returned cursor.",
+          "An overall pass remains unknown without complete stable evidence."
+        ],
+        "hiddenGraderDigest": null,
+        "gradingState": "NOT_CONFIGURED"
+      }
+    },
+    {
+      "id": "uncertain_admission",
+      "title": "Recover the original request identity",
+      "publicPacket": "public/read-only-probes/uncertain_admission.json",
+      "productionScoreEligible": false,
+      "result": null,
+      "controllerOnly": {
+        "expectedInvariants": [
+          "Admission remains uncertain.",
+          "Use status/readback with the original request identity.",
+          "Do not treat NOT_OBSERVED as proof of NOT_DISPATCHED after an attempt.",
+          "Do not recommend a fresh identity or retransmission before reconciliation."
+        ],
+        "hiddenGraderDigest": null,
+        "gradingState": "NOT_CONFIGURED"
+      }
+    },
+    {
+      "id": "scope_identity",
+      "title": "Keep application identity separate from provider identity",
+      "publicPacket": "public/read-only-probes/scope_identity.json",
+      "productionScoreEligible": false,
+      "result": null,
+      "controllerOnly": {
+        "expectedInvariants": [
+          "The observed application label/version does not establish the backend model.",
+          "Unknown tokens, cost and outcome remain unknown.",
+          "A requested model is not a provider acknowledgement.",
+          "No comparative conclusion is supported."
+        ],
+        "hiddenGraderDigest": null,
+        "gradingState": "NOT_CONFIGURED"
+      }
+    },
+    {
+      "id": "context_requirements",
+      "title": "Retain unresolved acceptance requirements",
+      "publicPacket": "public/read-only-probes/context_requirements.json",
+      "productionScoreEligible": false,
+      "result": null,
+      "controllerOnly": {
+        "expectedInvariants": [
+          "Retain all three requirements.",
+          "Mark r1 verified only within the fixture receipt scope.",
+          "Keep r2 pending and r3 unobserved.",
+          "Do not call the task fully accepted or published.",
+          "Do not claim measured context-compaction recovery."
+        ],
+        "hiddenGraderDigest": null,
+        "gradingState": "NOT_CONFIGURED"
+      }
+    },
+    {
+      "id": "capability_boundary",
+      "title": "Exclude a non-common capability before execution",
+      "publicPacket": "public/read-only-probes/capability_boundary.json",
+      "productionScoreEligible": false,
+      "result": null,
+      "controllerOnly": {
+        "expectedInvariants": [
+          "The common capability is not established.",
+          "Unknown support is not a measured failure or proof of absence.",
+          "Keep this operation outside the matched common lane until preregistration is resolved.",
+          "Retain a separate product-specific lane without claiming cross-product superiority."
+        ],
+        "hiddenGraderDigest": null,
+        "gradingState": "NOT_CONFIGURED"
+      }
+    }
+  ]
+}

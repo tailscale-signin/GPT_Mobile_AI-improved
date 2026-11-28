@@ -9,8 +9,8 @@ internal data class VoicePhraseAudio(val samples: FloatArray, val durations: Lon
 
 internal const val VOICE_PCM_SAMPLE_RATE = 24_000
 
-/** Timing provenance is independent of the measured audio presentation clock. */
-enum class VoiceWordCueProvenance { NATIVE_DURATION, ESTIMATED }
+/** Timing provenance is independent of the measured presentation clock; ASR boundaries remain inferred. */
+enum class VoiceWordCueProvenance { NATIVE_DURATION, ESTIMATED, ASR_ALIGNMENT }
 
 /** UTF-8 byte offsets are end-exclusive in the exact stream input; frames are relative to that call. */
 internal data class VoiceWordCue(
@@ -19,7 +19,9 @@ internal data class VoiceWordCue(
     val startFrame: Long,
     val endFrame: Long,
     val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.ESTIMATED,
-    val finalEnd: Boolean = true
+    val finalEnd: Boolean = true,
+    /** Increasing corrections replace this exact byte span; they never introduce another word. */
+    val revision: Int = 0
 )
 
 /** Mono float PCM. The producer must not mutate samples after handing them to the consumer. */
@@ -76,6 +78,9 @@ internal interface VoicePhraseEngine : AutoCloseable {
     /** Selected only while the previous synthesis owner has retired. */
     fun selectVoice(voiceId: String): Unit = throw UnsupportedOperationException("This engine uses numeric speakers")
 
+    /** The synthesis owner enables optional audio-derived caption alignment for this playback only. */
+    fun setCaptionAlignmentEnabled(enabled: Boolean) = Unit
+
     /** Optional inference of a fixed public phrase. Discard PCM and keep reply evidence untouched. */
     fun warmFirstInference(speaker: Int, speed: Float): Boolean = false
     fun resetCancellation()
@@ -104,6 +109,14 @@ internal interface VoicePhraseEngineFactory {
 
     /** Optional local reads while the microphone owns JNI. Never opens an engine or downloads a model. */
     fun prefetchAssets(current: () -> Boolean) = Unit
+
+    /** Map only the selected local JNI library. The platform owns its pages; model creation still needs the native gate. */
+    fun preloadRuntime() {
+        when {
+            selectedBackend.isStreamingLocal -> System.loadLibrary("mediapipe_tasks_audio_jni")
+            selectedBackend != VoiceSpeechBackend.GATEWAY_CUDA -> System.loadLibrary("timed_kokoro")
+        }
+    }
 
     /** Stops qualification before the engine has been published to the playback owner. */
     fun cancelPending() = Unit

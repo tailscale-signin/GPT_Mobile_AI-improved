@@ -28,7 +28,7 @@ from requests import HTTPError, Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
-    def test_supervisor_can_edit_observed_account_and_network_clients_cannot(self):
+    def test_supervisor_observes_builtin_engineering_and_cannot_disable_it(self):
         app = FastAPI()
         app.add_middleware(Admission, config=Config(mode='open_network', host='0.0.0.0',
             allowed_hosts=('testserver',), allowed_origins=(), remote_engineering=True, management_token='local-control'))
@@ -44,15 +44,18 @@ class EngineeringHTTPTests(unittest.TestCase):
         update = dict(account, enabled=False, gateway_id=seen['gateway_id'])
         self.assertEqual(409, local.post(admin, headers=manager, json=dict(update, gateway_id='other')).status_code)
         self.assertEqual(403, local.post(admin, headers=manager, json=dict(update, principal_id='unknown')).status_code)
-        self.assertEqual(200, local.post(admin, headers=manager, json=update).status_code)
+        rejected = local.post(admin, headers=manager, json=update)
+        self.assertEqual(409, rejected.status_code)
+        self.assertEqual('ENGINEERING_ALWAYS_ON', rejected.json()['error']['code'])
         changed = next(row for row in local.get(admin, headers=manager).json()['accounts']
                        if row['principal_id'] == account['principal_id'])
-        self.assertFalse(changed['enabled'])
+        self.assertTrue(changed['enabled'])
+        self.assertEqual(account['revision'], changed['revision'])
         self.assertEqual(409, local.post(admin, headers=manager, json=update).status_code)
         self.assertTrue(local.post(admin, headers=manager, json=dict(changed, gateway_id=seen['gateway_id'], enabled=True)).json()['enabled'])
         self.assertEqual(403, remote.post('/gateway/engineering/admission-settings', json=update).status_code)
 
-    def test_phone_can_pause_new_jobs_with_owned_revision_and_recover_an_accepted_command(self):
+    def test_phone_cannot_disable_engineering_and_retains_original_accepted_command(self):
         path = '/gateway/engineering/admission-settings'
         initial = self.client.get(path, headers=self.headers).json()
         self.assertTrue(initial['enabled'])
@@ -62,26 +65,26 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.assertEqual(400, self.client.post(path, headers=self.headers, json=edit).status_code)
         headers = dict(self.headers, **{'X-Gateway-Installation-ID': initial['gateway_id'],
                                         'X-Gateway-Principal-ID': initial['principal_id']})
-        paused = self.client.post(path, headers=headers, json=edit)
-        self.assertEqual(200, paused.status_code, paused.text)
-        self.assertFalse(paused.json()['enabled'])
-        self.assertEqual(1, paused.json()['revision'])
-        self.assertEqual(paused.json(), self.client.get(path, headers=headers).json())
+        rejected = self.client.post(path, headers=headers, json=edit)
+        self.assertEqual(409, rejected.status_code, rejected.text)
+        self.assertEqual('ENGINEERING_ALWAYS_ON', rejected.json()['error']['code'])
+        self.assertEqual(initial, self.client.get(path, headers=headers).json())
         self.assertEqual(409, self.client.post(path, headers=headers, json=edit).status_code)
         self.assertEqual(403, self.client.get(path, headers={'Tailscale-User-Login': 'reader@example.test'}).status_code)
         other = dict(headers, **{'Tailscale-User-Login': 'other@example.test'})
         self.assertEqual(409, self.client.post(path, headers=other, json=edit).status_code)
         self.assertTrue(self.client.get(path, headers=other).json()['enabled'])
-        blocked = self.client.post('/gateway/engineering/jobs', headers=self.headers, json=dict(self.request, request_id='paused-job'))
-        self.assertEqual(412, blocked.status_code, blocked.text)
-        self.assertEqual('ENGINEERING_JOBS_PAUSED', blocked.json()['error']['code'])
+        next_job = self.client.post('/gateway/engineering/jobs', headers=self.headers, json=dict(self.request, request_id='new-job'))
+        self.assertEqual(202, next_job.status_code, next_job.text)
         replay = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
         self.assertEqual(accepted.json()['id'], replay.json()['id'])
-        enabled = self.client.post(path, headers=headers, json={'enabled': True, 'revision': 1})
+        enabled = self.client.post(path, headers=headers, json={'enabled': True, 'revision': initial['revision']})
         self.assertTrue(enabled.json()['enabled'])
-        self.assertEqual(2, enabled.json()['revision'])
+        self.assertEqual(initial['revision'], enabled.json()['revision'])
+        stale = self.client.post(path, headers=headers, json={'enabled': True, 'revision': initial['revision'] + 1})
+        self.assertEqual('ENGINEERING_SETTINGS_CHANGED', stale.json()['error']['code'])
 
-    def test_paired_phone_gate_controls_real_job_route_and_preserves_accepted_job(self):
+    def test_paired_owner_has_builtin_engineering_and_preserves_original_job(self):
         import base64
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import ec
@@ -114,17 +117,18 @@ class EngineeringHTTPTests(unittest.TestCase):
             snapshot = controls.snapshot(owner)
             receipt = controls.patch(owner, dict(command_id=uuid4().hex, expected_revision=snapshot['revision'],
                 installation_id=installation, changes={'engineering_enabled': value}))
-            self.assertNotEqual('rejected', receipt['status'])
+            return receipt
         path = '/gateway/engineering/jobs'
         accepted = client.post(path, json=self.request)
         self.assertEqual(202, accepted.status_code, accepted.text)
-        switch(False)
+        refusal = switch(False)
+        self.assertEqual('rejected', refusal['status'])
+        self.assertEqual('engineering_always_on', refusal['error']['code'])
         replay = client.post(path, json=self.request)
         self.assertEqual(accepted.json()['id'], replay.json()['id'])
-        rejected = client.post(path, json=dict(self.request, request_id='new-paired-request'))
-        self.assertNotEqual(202, rejected.status_code)
-        self.assertIn('PAUSED', rejected.text.upper())
-        switch(True)
+        next_job = client.post(path, json=dict(self.request, request_id='new-paired-request'))
+        self.assertEqual(202, next_job.status_code, next_job.text)
+        self.assertNotEqual('rejected', switch(True)['status'])
         resumed = client.post(path, json=dict(self.request, request_id='after-resume'))
         self.assertEqual(202, resumed.status_code, resumed.text)
 

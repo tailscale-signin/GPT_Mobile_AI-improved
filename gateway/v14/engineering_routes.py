@@ -59,9 +59,9 @@ def install_engineering_routes(app, service):
                              'supported': True, 'configured': not missing_connection, 'readiness': readiness},
                             status_code=412 if missing_connection else 503)
 
-    async def body(request):
+    async def body(request, maximum=98304):
         raw = await request.body()
-        if len(raw) > 98304:
+        if len(raw) > maximum:
             raise ValueError('Engineering request exceeds 96 KiB')
         value = json.loads(raw)
         if not isinstance(value, dict):
@@ -80,8 +80,8 @@ def install_engineering_routes(app, service):
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
         except CopilotTaskError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
-        except QueueFull:
-            return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
+        except QueueFull as error:
+            return JSONResponse({'error': error.payload()}, status_code=429)
         except CommandIdentityConflict:
             return JSONResponse({'error': {'code': 'conversation_conflict', 'command_outcome_unknown': True, 'retryable': False}}, status_code=409)
         except ConversationConflict as error:
@@ -207,6 +207,7 @@ def install_engineering_routes(app, service):
                             'code_graph': {'schema_version': 1, 'supported': True, 'configured': connection != 'missing',
                                            'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True,
                                            'durable_index_jobs': True, 'sync_index_receipts': True, 'architecture_pagination': True,
+                                           'repository_sync': 1, 'automatic_branch_maintenance': True,
                                            'access': connection}}
             if public_only:
                 # These callers have access to public maps, with no visibility into
@@ -252,7 +253,7 @@ def install_engineering_routes(app, service):
             owner = principal(request)
             if any(request.headers.get(name) is None for name in MUTATION_IDENTITY_HEADERS):
                 raise ExecutionBindingError('CONTINUITY_IDENTITY_REQUIRED', 'Refresh the gateway identity and supply both installation and account preconditions.', 400)
-            result = await asyncio.to_thread(service.copilot.submit, owner, await body(request))
+            result = await asyncio.to_thread(service.copilot.submit, owner, await body(request, maximum=300_000))
             return JSONResponse(result, status_code=202 if result['state'] == 'ACCEPTED' else 200)
         return await execute(run)
 

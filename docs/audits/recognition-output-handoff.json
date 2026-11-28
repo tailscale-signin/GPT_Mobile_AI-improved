@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "scope": "HOST_JVM_DEFERRED_OUTPUT_HANDOFF_REGRESSION_ONLY",
+  "observedRepositoryHead": "dfed018cd40e2edb8b5edb1045b6dd967d029445",
+  "sourceIdentity": "The tested source hashes below bind this result; observedRepositoryHead is recording context, not a claim of full-head CI qualification.",
+  "sourceInputsSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "06b3478f24b49d5af4b6dacbec5a5bbeb402bd15ab3dce3b6eec957007e63a71",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "fdd2ce69c75c20725387b56092d163c5c24fe07ec888a9246832537ba065858c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt": "479b2edced99998d36fe8453a74db86fc659c1e089f7f9ebf85ae7e196f60bce",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "995897c860b2281ad6959af25b3b0466bcce792e9b38b14ae3e261e0f287eb84",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/DeferredKokoroOutputTest.kt": "ef59d3adc853769172c0248c741cc54d037510a3e8c63ae58d9f50a4900a62fe"
+  },
+  "postRunSourceChanges": {
+    "note": "Repository formatting occurred after the successful test run. Changed whole-file hashes are retained explicitly; this receipt does not claim another compilation of those bytes.",
+    "recordingWorktreeMatchesAllTestedSourceHashes": false,
+    "currentSha256ForChangedFiles": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "f802c746dae7f6558e21dbf702d74d8fadb4a7040d7a3807f4fc399f21592e5c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "ff4a5e2d3e07c135b61bbba1057291325142dd940697a61a86505d8acf5959fd",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/DeferredKokoroOutputTest.kt": "6561c6f5b66f94c4c4992d4e69d3c3eeb1a18bc521b4806b9c3c9693a8f48514"
+    }
+  },
+  "result": {
+    "status": "PASSED",
+    "kotlinCompileExitCode": 0,
+    "javaRunnerCompileExitCode": 0,
+    "testProcessExitCode": 0,
+    "testsRun": 6,
+    "failures": 0,
+    "cases": [
+      {
+        "method": "confirmedReleaseOfAnUnopenedOwnerDoesNotConstructTheBackend",
+        "runs": 1,
+        "failures": 0
+      },
+      {
+        "method": "confirmedReleaseWaitsForTheDelegateAndRejectsLateAcknowledgementAfterClose",
+        "runs": 1,
+        "failures": 0
+      },
+      {
+        "method": "closedAndFailedFactoryOwnersCannotAcknowledgeConfirmedRelease",
+        "runs": 1,
+        "failures": 0
+      },
+      {
+        "method": "legacyReleaseImplementationCannotQualifyConfirmedRetirement",
+        "runs": 1,
+        "failures": 0
+      },
+      {
+        "method": "deferredCloseRetainsTheNativeOwnerUntilItsWorkersActuallyRetire",
+        "runs": 1,
+        "failures": 0
+      },
+      {
+        "method": "failedDelegateCloseNeverAuthorizesReplacementAndUnopenedCloseDoesNotLoadIt",
+        "runs": 1,
+        "failures": 0
+      }
+    ]
+  },
+  "runtime": {
+    "java": "21.0.13.1+2",
+    "kotlinCompiler": "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
+    "jvmTarget": 21,
+    "compilerHeapMiB": 384,
+    "compilerMetaspaceLimitMiB": 192,
+    "testHeapMiB": 256,
+    "assertionsEnabled": true
+  },
+  "sourceExtraction": {
+    "productionDeclarations": [
+      "KokoroOutput interface from VoicePluginAudio.kt",
+      "Complete DeferredKokoroOutput class from KokoroVoiceOutput.kt",
+      "SpokenRangeObserver type alias from VoicePcmCaptions.kt"
+    ],
+    "wholeProductionFiles": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt"
+    ],
+    "productionDeclarationSliceSha256": "3160798cd7c61f4807d99698995728b1bf96c5ba67b26bcc2381c32d0b7e695b",
+    "testDeclarationSliceSha256": "905f42ed71d2fdda0577edbab346f5fa8858ea91105680bd6132bfd768f5825e",
+    "testSelection": "The six named repository test methods and the existing FakeKokoro helper were extracted unchanged. JUnit Request.method selected each method individually.",
+    "supportingTypes": "Cached collaborator JVM jars supplied supporting types. This was not a whole-app compilation or an Android runtime test.",
+    "excludedProductionBodies": [
+      "KokoroVoiceOutput synthesis/playback worker implementation",
+      "VoicePluginAudio body",
+      "Android/native execution and device services"
+    ],
+    "initialHarnessLimitation": "Compiling the entire Deferred test class against the narrow cached classpath failed on unrelated preview/session imports. The successful bounded retry compiled only the six unchanged selected methods; no replacement ownership behavior was introduced."
+  },
+  "artifacts": {
+    "build.py": {
+      "sha256": "bdaaec8168d8e624cb51aa835785635e5e77d2fcc4455c0d1dc27e2f5c7ab55f",
+      "bytes": 5083
+    },
+    "sources.json": {
+      "sha256": "d1d9980f59915f1853e15316d4e47e84a52cea6b1a00912a22998ddc54145a4e",
+      "bytes": 1452
+    },
+    "compile.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "runner-compile.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "tests.log": {
+      "sha256": "4d52cae0b35b7c37cd76e346e34231c3eda6101f6beaf806331566643e39d677",
+      "bytes": 541
+    },
+    "DeferredKokoroOutputSlice.kt": {
+      "sha256": "3160798cd7c61f4807d99698995728b1bf96c5ba67b26bcc2381c32d0b7e695b",
+      "bytes": 12349
+    },
+    "FocusedDeferredTests.kt": {
+      "sha256": "905f42ed71d2fdda0577edbab346f5fa8858ea91105680bd6132bfd768f5825e",
+      "bytes": 4957
+    },
+    "SelectedDeferredTests.java": {
+      "sha256": "733c3ddef6fa8be4fefe022b8b2e01b5a39389c1d9d8011c48f4151bc7735df7",
+      "bytes": 1407
+    },
+    "tests.jar": {
+      "sha256": "893881cf5e194b55373b35a7d966290e675ead0c4475fe89f9383eb173cc8de2",
+      "bytes": 36811
+    }
+  },
+  "testLog": "confirmedReleaseOfAnUnopenedOwnerDoesNotConstructTheBackend: runs=1, failures=0\nconfirmedReleaseWaitsForTheDelegateAndRejectsLateAcknowledgementAfterClose: runs=1, failures=0\nclosedAndFailedFactoryOwnersCannotAcknowledgeConfirmedRelease: runs=1, failures=0\nlegacyReleaseImplementationCannotQualifyConfirmedRetirement: runs=1, failures=0\ndeferredCloseRetainsTheNativeOwnerUntilItsWorkersActuallyRetire: runs=1, failures=0\nfailedDelegateCloseNeverAuthorizesReplacementAndUnopenedCloseDoesNotLoadIt: runs=1, failures=0\nTOTAL runs=6, failures=0\n",
+  "unexecutedRealWorkerRegressions": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
+    "sourceSha256": "465c8952ae20b01213849b4655a27e562d2e652e924c8177f2ffbf0fd7118568",
+    "status": "NOT_EXECUTED_LOCALLY_REQUIRES_ANDROID_ROBOLECTRIC_CI",
+    "addedMethods": [
+      "confirmedWarmReleaseWaitsForNativeDestructionAndDoesNotCloseTheOutputOwner",
+      "interveningWarmupInvalidatesAPendingReleaseAcknowledgement"
+    ],
+    "existingMethodsWithAdditionalAcknowledgementAssertions": [
+      "failedNativeDestructionRetainsTheModelLeaseAndBlocksReplacement",
+      "failedPreparationDestructionAlsoKeepsTheOuterModelLease"
+    ]
+  },
+  "qualification": {
+    "fullAppBuild": false,
+    "realSynthesisAndPlaybackWorkers": false,
+    "physicalDevice": false,
+    "gpuExecution": false,
+    "npuExecution": false,
+    "acoustic": false
+  },
+  "relationshipToNativeReceipt": "See recognition-native-integration.json for separate arm64/native JNI evidence and its unresolved Nemotron/device limitations. These Deferred tests do not extend that evidence to physical or real-worker execution."
+}

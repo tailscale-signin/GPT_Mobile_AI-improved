@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "scope": "Provenance of six immutable public declarations; this receipt makes no device, performance, listening or release qualification claim.",
+  "sourceCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+  "historicalInputs": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt",
+      "gitBlob": "677273c617c0f9ef5fe60644187a24e5220057d9"
+    },
+    {
+      "path": "docs/audits/pocket-caption-alignment.json",
+      "gitBlob": "6cd5905b485eca346b5e36e28d26107ef6b7949b"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt",
+      "gitBlob": "c92cc378243d3dac053b6921f89f44cc817f3199"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt",
+      "gitBlob": "38619ae6c3431a2eef88033a26041cb4c924f54c"
+    },
+    {
+      "path": "docs/repairs/pocket-diagnostics-ci-review-2026-11-28.json",
+      "gitBlob": "acc3edbdf9152ea62290356ec9505e3b9501a620"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+      "gitBlob": "780ce387c6894fff0be87e98e9d4d839342d9091"
+    },
+    {
+      "path": "docs/repairs/pocket-caption-validation-2026-11-28.json",
+      "gitBlob": "af5eb8cc59b76b7e94f69d30096ad610006f5507"
+    },
+    {
+      "path": "scripts/run_mediapipe_android_smoke.sh",
+      "gitBlob": "4906fbd5e2f24d845f95480455ccf5da4ff4952e"
+    },
+    {
+      "path": "docs/audits/pocket-compiled-runtime.json",
+      "gitBlob": "e2ce2232de7ce47ad9ff823c9adb8c643e1a35cd"
+    },
+    {
+      "path": "docs/licenses/pocket-compiled.md",
+      "gitBlob": "a1b33cffae882a4dbe7319653b79c265d127e574"
+    },
+    {
+      "path": "app/src/test/resources/pocket-compiled/tokenizer.model",
+      "gitBlob": "954ca1132324a010ddc71388fc2d527971f61c50"
+    },
+    {
+      "path": "gradle/verification-metadata.xml",
+      "gitBlob": "3a18d0fe5a3be0d7e5f4137b14ac86f40dcc925f"
+    }
+  ],
+  "sourceProof": "Read the fixed Git blobs and recompute the three complete-source SHA-256 declarations. Historical inputs remain valid when live sources later change. Missing or non-blob objects fail closed.",
+  "tokenizer": {
+    "revision": "d29db7978e464fb90cb3359ee0c69a273b9142cc",
+    "publisherCommit": "https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/commit/d29db7978e464fb90cb3359ee0c69a273b9142cc",
+    "publisherFile": "languages/english/tokenizer.model",
+    "sha256": "d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6",
+    "bytes": 59339,
+    "verification": "The public commit identifies this LFS SHA-256 and length; both match the historical catalog, license notice and committed test fixture bytes."
+  },
+  "litertApi": {
+    "coordinate": "com.google.ai.edge.litert:litert-api:2.4.1",
+    "publisher": "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert-api/2.4.1/litert-api-2.4.1.aar",
+    "container": {
+      "sha256": "7579c5566f227643990d7d49e9316ab4a9e2732e36842e76d51e7eb32d1eeeaa",
+      "bytes": 616129
+    },
+    "member": {
+      "name": "classes.jar",
+      "sha256": "c3853a07330b1be8fb62ed880573e08567b827b764d714360d2e1c1c62249088",
+      "bytes": 147011
+    },
+    "verification": "Container bytes match Gradle's approved artifact pin and the publisher audit. Decompressing its classes.jar member reproduces the historical caption receipt's classpath digest. Independently recomputed from the retained publisher AAR on 2026-11-28.",
+    "reproduction": "Run scripts/test_gitleaks_model_pin.py with --scanner PATH and --litert-api-aar PATH to an approved publisher AAR. CI checks committed provenance and approved pins without depending on the old scratch pathname."
+  },
+  "modelKeyExtract": {
+    "bytes": 586,
+    "sha256": "dc6e8f08a052df4f0cd2593187f5843a8d6b140e8cc2ddf23e00e6ab665c0375",
+    "reproduction": "Extract the exact indented internal data class ModelKey block from the historical KokoroVoiceOutput.kt blob. Prefix package dev.chungjungsoo.gptmobile.data.voice plus LF and internal class KokoroVoiceOutput { plus LF; append } plus LF. Recompute the resulting UTF-8 bytes."
+  }
+}

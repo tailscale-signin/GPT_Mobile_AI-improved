@@ -185,7 +185,8 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None, 
             with runtime.durable_job_lock:
                 db = runtime._durable_connect()
                 try:
-                    rows = list(db.execute('SELECT job_id, public_json, status, created_at, updated_at FROM gateway_jobs ORDER BY updated_at DESC LIMIT 100'))
+                    order = ("CASE WHEN LOWER(COALESCE(status,'')) IN ('completed','failed','cancelled','canceled','interrupted') THEN 1 ELSE 0 END," if principal is None else '')
+                    rows = list(db.execute('SELECT job_id, public_json, status, created_at, updated_at FROM gateway_jobs ORDER BY ' + order + 'updated_at DESC LIMIT 100'))
                     owned = ownership.owned_job_ids([row[0] for row in rows], principal) if principal and ownership else set()
                     for row in rows:
                         if principal is not None and row[0] not in owned:
@@ -193,20 +194,24 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None, 
                         public = json.loads(row[1])
                         result['jobs'].append({'id': row[0], 'kind': 'chat', 'title': text(public.get('model') or 'Chat'),
                             'status': text(row[2], 40), 'started': row[3], 'updated': row[4],
-                            'detail': text(public.get('stage')), 'toolCalls': public.get('total_tool_calls', 0)})
+                            'detail': text(public.get('stage')), 'toolCalls': public.get('total_tool_calls', 0),
+                            'job_kind': 'generation', 'principal_id': public.get('principal_id'),
+                            'revision': public.get('last_sequence', 0), 'generation': public.get('generation'),
+                            'cancellation_requested': bool(public.get('cancellation_requested'))})
                     # Count the complete active inventory, never the 100 displayed history rows.
                     active_ids = [row[0] for row in db.execute(
-                        "SELECT job_id FROM gateway_jobs WHERE LOWER(status) NOT IN ('completed','failed','cancelled','canceled') LIMIT 201")]
+                        "SELECT job_id FROM gateway_jobs WHERE LOWER(COALESCE(status,'')) NOT IN ('completed','failed','cancelled','canceled','interrupted') LIMIT 201")]
                     open_chats = None
                     if len(active_ids) <= 200:
                         open_chats = len(ownership.owned_job_ids(active_ids, principal)) if principal and ownership else len(active_ids) if principal is None else None
                     open_engineering = 0
                     exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_jobs'").fetchone()
                     if exists:
-                        active_engineering = list(db.execute("SELECT data FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED') LIMIT 201"))
+                        active_engineering = list(db.execute("SELECT data FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED') LIMIT 201"))
                         open_engineering = (sum(principal is None or json.loads(row[0]).get('principal') == principal for row in active_engineering)
                                             if len(active_engineering) <= 200 else None)
-                        for row in db.execute('SELECT id, state, data FROM engineering_jobs ORDER BY next_at DESC LIMIT 100'):
+                        order = "CASE WHEN state IN ('COMPLETED','CANCELLED','FAILED') THEN 1 ELSE 0 END," if principal is None else ''
+                        for row in db.execute('SELECT id, state, data FROM engineering_jobs ORDER BY ' + order + 'next_at DESC LIMIT 100'):
                             job = json.loads(row[2])
                             if principal is not None and job.get('principal') != principal:
                                 continue
@@ -214,12 +219,14 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None, 
                             result['engineering'].append({'id': row[0], 'kind': 'github', 'title': text(request.get('repository') or 'GitHub job'),
                                 'status': text(row[1], 40), 'started': job.get('created_at'), 'updated': job.get('updated_at'),
                                 'detail': text(job.get('message')), 'branch': text(request.get('branch')), 'pr': job.get('pr'),
+                                'job_kind': 'engineering', 'principal_id': job.get('principal'),
+                                'cancellation_requested': row[1] == 'CANCELLING',
                                 'execution_mode': request.get('execution_mode', 'standard'),
                                 'batch_progress': batch_summary(job.get('data', {}).get('integration_batch'))})
                     copilot_table = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_copilot_tasks'").fetchone()
                     open_copilot = 0
                     if copilot_table:
-                        from v14.copilot_tasks import TERMINAL as COPILOT_TERMINAL
+                        from v14.copilot_tasks import TERMINAL as COPILOT_TERMINAL, CopilotTasks
                         query = 'SELECT COUNT(*) FROM engineering_copilot_tasks WHERE state NOT IN (' + ','.join('?' for _ in COPILOT_TERMINAL) + ')'
                         parameters = list(sorted(COPILOT_TERMINAL))
                         if principal is not None:
@@ -231,10 +238,13 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None, 
                             if principal is not None and task['principal'] != principal:
                                 continue
                             request = task['request']
+                            public = CopilotTasks.public(task)
                             result['engineering'].append({'id': task['id'], 'kind': 'github',
                                 'title': 'Copilot · ' + text(request['repository']), 'status': text(task['state'], 40),
                                 'started': task['accepted_at'], 'updated': task['updated_at'],
-                                'detail': 'GitHub cloud task; Gateway supervises. ' + text(task.get('error_code') or task['state'].replace('_', ' ').lower()),
+                                'detail': public['progress']['message'], 'progress': public['progress'],
+                                'task_name': public.get('task_name'), 'pull_request_numbers': public['pull_request_numbers'],
+                                'job_kind': 'copilot', 'principal_id': task['principal'], 'revision': task['revision'],
                                 'branch': text(request.get('head_ref', request['base_ref'])), 'execution_mode': 'copilot'})
                     if open_chats is not None and open_engineering is not None:
                         result['openJobs'] = open_chats + open_engineering + open_copilot

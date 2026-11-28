@@ -108,6 +108,34 @@ class ResearchTaskStoreTest {
         }
     }
 
+    @Test fun changedRecoveryReportsExactDifferencesAndKeepsTheOriginalActionAcrossRestart() = kotlinx.coroutines.runBlocking {
+        val dir = Files.createTempDirectory("research-recovery-differences").toFile()
+        try {
+            val first = ResearchTaskStore(dir)
+            val accepted = first.accept(task(), true)
+            val original = ResearchResumeRequest("tap", accepted.taskId, accepted.rootWorkId, "checkpoint", "RETRY_FAILED_STAGE", "a", "evidence", "settings", 200)
+            first.resume(original, true)
+            val requested = original.copy(requestedStage = "RETRY_WRITING", policyRevision = "private revoked permissions", checkpointId = "newer checkpoint", evidenceRevision = "newer evidence")
+            val failure = runCatching { ResearchTaskStore(dir).resume(requested, true) }.exceptionOrNull() as dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
+            assertEquals("RESEARCH_RECOVERY_ACTION_CHANGED", failure.code)
+            val event = failure.event()
+            val details = requireNotNull(event.failureDetails)
+            assertEquals(kotlinx.serialization.json.JsonArray(listOf("REQUESTED_STAGE", "POLICY_REVISION", "CHECKPOINT_ID", "EVIDENCE_REVISION").map { kotlinx.serialization.json.JsonPrimitive(it) }), details[ResearchRecoveryEvidence.CHANGED_FIELDS])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("REVIEW_SAVED_RECOVERY"), details["next_action"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["dispatched"])
+            assertFalse(event.message.contains("private revoked permissions"))
+            // Newer available evidence alone never retargets an idempotent accepted action.
+            assertEquals(original, ResearchTaskStore(dir).resume(original.copy(checkpointId = "newer checkpoint", evidenceRevision = "newer evidence", requestedAt = 300), true))
+            // A new explicit action gets its own record after settings were reviewed.
+            val next = requested.copy(actionId = "new-reviewed-tap")
+            assertEquals(next, ResearchTaskStore(dir).resume(next, true))
+            assertEquals(original, ResearchTaskStore(dir).resume(original, true))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun temporaryTasksNeverWriteAndDeletingOneChatPreservesTheOther() = kotlinx.coroutines.runBlocking {
         val dir = Files.createTempDirectory("accepted-research").toFile()
         try {

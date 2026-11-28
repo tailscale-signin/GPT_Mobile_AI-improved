@@ -95,5 +95,13 @@ inline void ValidateMeasuredAudio(const AudioMeasurement &audio, OutputValidatio
   RequireOutput(audio.clipped_samples == 0, OutputValidationReason::ClippedPcm, observation);
 }
 
+// A long sequence collapsed to the minimum duration at every token matched
+// corrupt Adreno output in the device benchmark. Reject it before playback;
+// the caller can use CPU fallback. This does not establish GPU correctness.
+inline void ValidateGpuDurationPattern(OutputValidationObservation &observation) {
+  RequireOutput(observation.timing_count < 16 || observation.duration_min != 1 ||
+      observation.duration_max != 1, OutputValidationReason::TokenDurationInvalid, observation);
+}
+
 }  // namespace kokoro_runtime
 #endif

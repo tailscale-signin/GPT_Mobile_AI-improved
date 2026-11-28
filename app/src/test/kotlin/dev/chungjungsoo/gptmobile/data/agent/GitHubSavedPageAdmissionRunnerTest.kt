@@ -1,12 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.modelText
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -70,10 +71,9 @@ class GitHubSavedPageAdmissionRunnerTest {
                 assertFalse("The native reader does not supply the runner's instruction", "agent_instruction" in nativeBody)
                 val nativeBytes = ToolHandoffReceipt.payload(native.content).encodeToByteArray().size
                 assertTrue(nativeBytes <= cursor.bytes)
-                val wrapped = native.copy(
-                    content = ToolResultContent.Json(JsonObject(nativeBody + ("agent_instruction" to JsonPrimitive(ToolBudgetPolicy.buildWrapUpPrompt(1)))))
-                )
-                val wrappedBytes = ToolHandoffReceipt.payload(wrapped.content).encodeToByteArray().size
+                val wrapped = requireNotNull(SavedPageInstruction.append(native, ToolBudgetPolicy.buildWrapUpPrompt(1)))
+                assertEquals("The persisted native page remains byte-for-byte stable", native.content, wrapped.content)
+                val wrappedBytes = wrapped.modelText().encodeToByteArray().size
                 assertTrue("The real wrap-up must outgrow the cursor-only allowance", wrappedBytes > cursor.bytes)
                 assertTrue(wrappedBytes <= outputLimit)
                 val wrappedTokens = (wrappedBytes + 2) / 3
@@ -103,7 +103,8 @@ class GitHubSavedPageAdmissionRunnerTest {
                     3 -> {
                         val expected = requireNotNull(finalPage)
                         val delivered = exchanges.flatMap { it.results }.single { it.callId == pageCall.callId }
-                        assertEquals("The actual finishBatch body, including its instruction, must arrive intact", expected.content, delivered.content)
+                        assertEquals("The immutable finishBatch body must arrive intact", expected.content, delivered.content)
+                        assertEquals(expected.assistMetadata, delivered.assistMetadata)
                         assertEquals(ToolResultDeliveryProof.digest(expected.content), ToolResultDeliveryProof.digest(delivered.content))
                         assertEquals(2, requireNotNull(delivered.toolCallBudgetUsed))
                         val required = (ToolHandoffReceipt.payload(delivered.content).encodeToByteArray().size + 2) / 3
@@ -220,12 +221,12 @@ class GitHubSavedPageAdmissionRunnerTest {
         val fixtures = List(6) { GitHubSavedPageCapacityTest.Fixture("source-$it") }
         val completePages = mutableMapOf<String, ToolResultContent>()
         val deliveredPages = mutableSetOf<String>()
-        var localReads = 0
+        val localReads = AtomicInteger()
         var providerRounds = 0
         val reader = object : AgentTool {
             override val definition = fixtures.first().tools.single()
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                localReads++
+                localReads.incrementAndGet()
                 val view = arguments.getValue("view_cursor").jsonPrimitive.content.substringBefore(':')
                 val fixture = fixtures.single { it.cursor.substringBefore(':') == view }
                 val result = fixture.read(ProviderEvent.ToolCall(callId, definition.name, arguments))
@@ -253,7 +254,7 @@ class GitHubSavedPageAdmissionRunnerTest {
         val events = AgentRunner(
             AgentRunLimits(githubTask = true, maxRounds = 20, maxToolCalls = 20, maxReplayTokens = 4000, maxReplayResultTokens = 512, maxToolOutputBytes = 8192)
         ).run(provider, listOf(reader)).toList()
-        assertEquals(12, localReads)
+        assertEquals(12, localReads.get())
         assertEquals(7, providerRounds)
         assertEquals(6, deliveredPages.size)
         assertFalse(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
@@ -261,12 +262,12 @@ class GitHubSavedPageAdmissionRunnerTest {
 
     @Test fun blockedDeliveryRoundCannotDispatchTheNextAutomaticPage() = runBlocking {
         val fixtures = List(2) { GitHubSavedPageCapacityTest.Fixture("source-$it") }
-        var localReads = 0
+        val localReads = AtomicInteger()
         var providerRounds = 0
         val reader = object : AgentTool {
             override val definition = fixtures.first().tools.single()
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                localReads++
+                localReads.incrementAndGet()
                 val view = arguments.getValue("view_cursor").jsonPrimitive.content.substringBefore(':')
                 return fixtures.single { it.cursor.substringBefore(':') == view }.read(ProviderEvent.ToolCall(callId, definition.name, arguments))
             }
@@ -292,19 +293,19 @@ class GitHubSavedPageAdmissionRunnerTest {
         val events = AgentRunner(
             AgentRunLimits(githubTask = true, maxRounds = 10, maxToolCalls = 10, maxReplayTokens = 4000, maxReplayResultTokens = 512, maxToolOutputBytes = 8192)
         ).run(provider, listOf(reader)).toList()
-        assertEquals(3, localReads)
+        assertEquals(3, localReads.get())
         assertEquals(2, providerRounds)
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { (it.event as? ProviderEvent.Failed)?.errorCode == "INPUT_CAPACITY_EXCEEDED" })
     }
 
     @Test fun omittedFullPageBlocksBeforeAnotherProviderOrAutomaticRead() = runBlocking {
         val fixtures = List(2) { GitHubSavedPageCapacityTest.Fixture("source-$it") }
-        var localReads = 0
+        val localReads = AtomicInteger()
         var providerRounds = 0
         val reader = object : AgentTool {
             override val definition = fixtures.first().tools.single()
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                localReads++
+                localReads.incrementAndGet()
                 val view = arguments.getValue("view_cursor").jsonPrimitive.content.substringBefore(':')
                 return fixtures.single { it.cursor.substringBefore(':') == view }.read(ProviderEvent.ToolCall(callId, definition.name, arguments))
             }
@@ -320,7 +321,7 @@ class GitHubSavedPageAdmissionRunnerTest {
         val events = AgentRunner(
             AgentRunLimits(githubTask = true, maxRounds = 10, maxToolCalls = 10, maxReplayTokens = 4000, maxReplayResultTokens = 512, maxToolOutputBytes = 8192, maxRetainedEvidenceTokens = 1024)
         ).run(provider, listOf(reader)).toList()
-        assertEquals(3, localReads)
+        assertEquals(3, localReads.get())
         assertEquals(1, providerRounds)
         val failure = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { it.event as? ProviderEvent.Failed }.single()
         assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
@@ -329,13 +330,13 @@ class GitHubSavedPageAdmissionRunnerTest {
 
     @Test fun nativeCapacityRefusalResumesIssuedPageBeforeTheNextProviderRound() = runBlocking {
         val fixture = GitHubSavedPageCapacityTest.Fixture()
-        var localReads = 0
+        val localReads = AtomicInteger()
         var providerRounds = 0
         var completePage: ToolResultContent? = null
         val reader = object : AgentTool {
             override val definition = fixture.tools.single()
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                localReads++
+                localReads.incrementAndGet()
                 val result = fixture.read(ProviderEvent.ToolCall(callId, definition.name, arguments))
                 if (!result.isError) completePage = result.content
                 return result
@@ -365,7 +366,7 @@ class GitHubSavedPageAdmissionRunnerTest {
                 maxToolOutputBytes = 8192
             )
         ).run(provider, listOf(reader)).toList()
-        assertEquals(2, localReads)
+        assertEquals(2, localReads.get())
         assertEquals(2, providerRounds)
         assertFalse(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
     }

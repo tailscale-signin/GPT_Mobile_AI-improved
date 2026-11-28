@@ -46,7 +46,24 @@ internal object GitHubCompactTaskContext {
             put("source_sha", hints.getValue("source_sha"))
             put("tree_reused", tree != null)
             put("source_read_candidates", if (window == null) paths else JsonArray(paths.filter { it != window["path"] }))
-            window?.let { put("source_window", it) }
+            if (window != null) {
+                put("source_window", window)
+            }
+            if (window == null || (window["path"] as? JsonPrimitive)?.contentOrNull != candidates.firstOrNull()) {
+                val first = candidates.firstOrNull()?.let { entries[JsonPrimitive(it)] }
+                if (first != null) {
+                    put(
+                        "next_read",
+                        buildJsonObject {
+                            put("path", first.getValue("path"))
+                            put("blob_sha", first.getValue("sha"))
+                            put("commit_sha", context.commitSha)
+                            val path = (first["path"] as JsonPrimitive).content
+                            GitHubTaskContextBundle.requestedLine(path, query) { false }?.let { put("start_line", it) }
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -74,7 +91,9 @@ internal object GitHubCompactTaskContext {
             put("blob_sha", sha)
             put("start_line", start + 1)
             put("end_line", start + excerpt.size)
-            put("excerpt", excerpt.joinToString("\n"))
+            val content = excerpt.joinToString("\n")
+            put("excerpt", content)
+            put("content_sha256", GitHubRepositoryStateStore.digest(content))
         }
         return window.takeIf { it.toString().toByteArray(Charsets.UTF_8).size <= 896 }
     }

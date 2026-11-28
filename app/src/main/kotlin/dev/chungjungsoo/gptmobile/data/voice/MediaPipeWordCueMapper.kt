@@ -5,12 +5,10 @@ import java.util.TreeMap
 import kotlin.math.roundToLong
 
 /**
- * The 1.2.3 C API reports UTF-8 byte offsets and estimated times. Google's released
- * mediapipe_audio 0.4.1 native wrapper documents times from the stream's start and
- * forwards them unchanged; neither offsets nor times are relative to a PCM chunk.
- *
- * Release each word at its first available PCM, extending the same cue as more
- * audio arrives. Never project a timestamp past the PCM actually received.
+ * The SDK reports UTF-8 offsets and estimated stream-relative times, not acoustic
+ * alignment. Publish only observed PCM, replacing future estimates with newer
+ * packets. Corrections to published intervals carry an explicit bounded revision;
+ * the presentation queue decides whether that word has already been heard.
  */
 internal class MediaPipeWordCueMapper(
     text: String,
@@ -19,32 +17,116 @@ internal class MediaPipeWordCueMapper(
 ) {
     private val boundaries = VoiceIncrementalTextMap().also { it.append(text) }
     private val pending = TreeMap<Int, VoiceWordCue>()
+    private val published = TreeMap<Int, VoiceWordCue>()
+    private val corrections = TreeMap<Int, VoiceWordCue>()
     private var emittedCount = 0
     private var lastEndByte = 0
     private var lastEndFrame = 0L
+    private var retiredEndFrame = 0L
     private var openPrefix: VoiceWordCue? = null
+    private var openCorrection: VoiceWordCue? = null
 
     fun appendText(text: String) = boundaries.append(text)
 
+    /** Validated SDK metadata may precede the PCM released by the caption buffer. */
+    val timestampedThroughFrame: Long
+        get() = maxOf(
+            lastEndFrame,
+            corrections.values.maxOfOrNull { it.endFrame } ?: 0L,
+            pending.values.maxOfOrNull { it.endFrame } ?: 0L
+        )
+
     fun accept(timestamps: List<WordTimestamp>, availableFrames: Long): List<VoiceWordCue> {
+        require(availableFrames in 0..frameLimit)
+        retireHistory(availableFrames)
+        val ready = mutableListOf<VoiceWordCue>()
         for ((index, timestamp) in timestamps.withIndex()) {
             if (index >= cueLimit) break
             val start = timestamp.startChar
             val end = timestamp.endChar
-            if (start < (openPrefix?.endByte ?: lastEndByte) ||
-                end <= start ||
-                !boundaries.contains(start, end)
-            ) {
-                continue
-            }
+            if (end <= start || !boundaries.contains(start, end)) continue
             if (!timestamp.startSec.isFinite() || !timestamp.endSec.isFinite() || timestamp.startSec < 0f || timestamp.endSec <= timestamp.startSec) continue
             val startFrame = (timestamp.startSec.toDouble() * VOICE_PCM_SAMPLE_RATE).roundToLong()
             val endFrame = (timestamp.endSec.toDouble() * VOICE_PCM_SAMPLE_RATE).roundToLong()
-            if (startFrame < lastEndFrame || endFrame <= startFrame || endFrame > frameLimit) continue
-            if (pending.size + emittedCount >= cueLimit) continue
-            pending.putIfAbsent(start, VoiceWordCue(start, end, startFrame, endFrame, VoiceWordCueProvenance.ESTIMATED))
+            if (startFrame < 0 || endFrame <= startFrame || endFrame > frameLimit) continue
+            val next = VoiceWordCue(start, end, startFrame, endFrame, VoiceWordCueProvenance.ESTIMATED)
+            val previous = published[start]
+            if (previous != null) {
+                if (previous.endByte != end) continue
+                if (previous.startFrame == startFrame && previous.endFrame == endFrame) {
+                    corrections.remove(start)
+                    continue
+                }
+                // PCM production is ahead of presentation. A shorter final-word estimate
+                // must reach the caption queue, which owns the actual heard-word watermark.
+                // Updating lastEndFrame below also keeps a corrected tail from hiding the
+                // next word when its SDK timestamp arrives in a later packet.
+                if (previous.revision == Int.MAX_VALUE) continue
+                corrections[start] = next.copy(revision = previous.revision + 1)
+                continue
+            }
+            val open = openPrefix
+            if (open != null && start == open.startByte) {
+                if (end != open.endByte) continue
+                if (startFrame == open.startFrame && endFrame >= open.endFrame) {
+                    pending[start] = next
+                    openCorrection = null
+                } else {
+                    // Metadata can precede its audio. Retain this correction even when
+                    // the SDK does not repeat it with a later PCM packet.
+                    openCorrection = next
+                    pending[start] = open.copy(endFrame = maxOf(open.endFrame, next.endFrame), finalEnd = true)
+                }
+                continue
+            }
+            if (start < (open?.endByte ?: lastEndByte)) continue
+            val queued = pending[start]
+            if (queued != null && queued.endByte != end) continue
+            if (queued == null && pending.size + emittedCount >= cueLimit) continue
+            // Frame order is checked after this packet's corrections are applied: a
+            // shortened preceding estimate may release this newly reported word.
+            // Repeated SDK packets may improve a word which is still ahead of PCM.
+            pending[start] = next
         }
-        val ready = mutableListOf<VoiceWordCue>()
+        val open = openPrefix
+        val correction = openCorrection
+        if (open != null && correction != null && correction.endFrame <= availableFrames) {
+            // Close the prefix already published before revising its estimate. A shorter
+            // end or changed onset must not leave the old estimate open and hide the next
+            // word. Only the presentation queue knows whether the onset has been heard.
+            val completed = open.copy(finalEnd = true)
+            openPrefix = null
+            openCorrection = null
+            pending.remove(open.startByte)
+            emittedCount++
+            lastEndByte = completed.endByte
+            lastEndFrame = completed.endFrame
+            published[open.startByte] = completed
+            ready += completed
+            corrections[open.startByte] = correction.copy(revision = 1)
+        }
+        // Adjacent estimates can move a shared boundary in either direction. Stage
+        // the whole packet, then publish each correction only when its neighbours
+        // permit it. Revisit blocked peers after a neighbour moves; consumers see
+        // valid, non-overlapping intervals at every step, without losing a revision.
+        var revisedAny: Boolean
+        do {
+            revisedAny = false
+            val revised = corrections.entries.iterator()
+            while (revised.hasNext()) {
+                val correction = revised.next().value
+                if (correction.endFrame > availableFrames) continue
+                val before = published.lowerEntry(correction.startByte)?.value?.endFrame ?: retiredEndFrame
+                val following = published.higherEntry(correction.startByte)?.value ?: pending.higherEntry(correction.startByte)?.value
+                if (correction.startFrame >= before && (following == null || correction.endFrame <= following.startFrame)) {
+                    published[correction.startByte] = correction
+                    if (correction.endByte == lastEndByte) lastEndFrame = correction.endFrame
+                    ready += correction
+                    revised.remove()
+                    revisedAny = true
+                }
+            }
+        } while (revisedAny && corrections.isNotEmpty())
         val entries = pending.entries.iterator()
         while (entries.hasNext()) {
             val cue = entries.next().value
@@ -64,14 +146,34 @@ internal class MediaPipeWordCueMapper(
             emittedCount++
             lastEndByte = cue.endByte
             lastEndFrame = cue.endFrame
+            published[cue.startByte] = cue
             ready += cue
         }
+        retireHistory(availableFrames)
         return ready
     }
 
     /** A truncated estimate closes where the audio ended; a wholly unheard word stays unpublished. */
     fun finish(): VoiceWordCue? = openPrefix?.copy(finalEnd = true).also {
         openPrefix = null
+        openCorrection = null
         pending.clear()
+        corrections.clear()
+        published.clear()
+    }
+
+    private fun retireHistory(availableFrames: Long) {
+        val cutoff = availableFrames - REVISION_HISTORY_FRAMES
+        while (published.isNotEmpty() &&
+            (published.size > VoiceStreamFrames.MAX_REVISION_WORDS || published.firstEntry().value.endFrame < cutoff)
+        ) {
+            val retired = published.pollFirstEntry().value
+            retiredEndFrame = retired.endFrame
+            corrections.remove(retired.startByte)
+        }
+    }
+
+    companion object {
+        const val REVISION_HISTORY_FRAMES = VOICE_PCM_SAMPLE_RATE * 60L
     }
 }

@@ -1,0 +1,102 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "2d26e331ad24062a88dd0b2d30e384d9568cbebe",
+  "parent_pr": 2651,
+  "intent": "Require confirmed native retirement before releasing a recognition model lease; preserve responsive cancellation and all mandatory qualification cases.",
+  "authorization": "User requested completion, green checks, merge and verified publication.",
+  "status": "IMPLEMENTED_FOCUSED_AND_CANONICAL_HOST_GATES_PASSED_PENDING_EXACT_HEAD_CI",
+  "observed_defect": "The Java close boundary cleared its handle while registry deletion could leave a native cancellation shared owner alive. QNN free failures and partial initialization also needed explicit retained ownership.",
+  "changes": [
+    "Serialize cancellation holders on a separate monitor. Close cancels first, then drains and excludes cancellation while holding the inference monitor and performing native deletion.",
+    "Register native sessions before initialization, explicitly retire dependent resources, and seal new admission after unconfirmed cleanup while retaining parents, libraries and model mappings.",
+    "Keep failed decoder ownership and model-use leases even when initialization failed before a Java handle was returned. Never retry an uncertain free.",
+    "Exercise production Java scheduling and patched QNN ownership through deterministic host fixtures in the existing required native gate."
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt": "4dddee2dfde57cc976e10abd0013e665a10077700ba647c9930b87fdd0b33158",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoderTest.kt": "d7adea64a6bc822d9219ec3d9d1ee701f3523f0337939b6778c5f8cabf8a5626",
+    "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "64f8bf25ae4f0c3ddc7d87b3f5eb4a639fd30de7426ab6d201fece7035df7c20",
+    "local-kokoro-runtime/src/main/cpp/sherpa-streaming-asr.patch": "3674cbb71d73e66e5d8258a4eed0a18821262aa0a5438f5b11ba6b86465af8c0",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp": "3a06016c7930fd1e9be5e99e2e08dc52b5bd24d9442cd87e64bc77d6748c26cf",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_cancellation_fixture.cpp": "845f8457443e243175992d482d37370ccc343ae74d99e470da4b37d98868c0b9",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_provider.h": "e3ac438cdd42c3ff7aa2ac525cbb7bdef374423e485d8030af262c974fa39e51",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.cpp": "b48208f737c23c577df1ec0c85e84a550b14fd836ffdaf2622858386084b9f70",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.h": "1b7f5d0858cfb242a273465663b54a6c18f8fcd587c188bb191b5e3c8019f472",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_retirement_test.cpp": "4ff8220676f7b804615ce553f68dc787accb2d143a7565a761ed0fce38639f26",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_retirement.h": "a242ce67ced9e356699ef9d1959d6aa041a39fb804a0ef1d14ef9671447eab94",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "3675ffeab3392109fd08f97f7ee496343a6a8c4d318f50efd0b9d92b0407d016",
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java": "3f3103c6ee3eacbf966967dd575768258af482269b0c02a7190fdbe0b8488776",
+    "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "b29684832756f873fe9346a143cd98f870362082dcc5cf98b4a618867965c6db"
+  },
+  "validation": {
+    "cancellation_scope": "Actual production Java class with deterministic host-only JNI scheduling fixture; no model or hardware execution.",
+    "negative_control": "Unfenced production class failed because close entered nativeDelete while a cancellation JNI holder was active.",
+    "fixed_cases_passed": 5,
+    "receipt_sha256": "32821f637dbd8551fe8ec7979176deb6e44aed13ca167e8e7d774df682c13e8b",
+    "other_focused_results": {
+      "java_cancellation": {
+        "unfenced_expected_failure": true,
+        "fenced_passed": 5,
+        "evidence": "cancellation/validation.json",
+        "exact_cmake_target_passed": true
+      },
+      "checked_qnn_retirement": {
+        "cases": 20,
+        "evidence": "scoped-validation.json",
+        "scope": "actual pinned and patched QNN classes with host C API fault fixture"
+      },
+      "decoder": {
+        "passed": 10,
+        "evidence": "scoped-validation.json",
+        "scope": "actual production decoder and actual Java API; injected native boundary, outer capture lease not executed"
+      },
+      "production_android_jni_compile": {
+        "exit": 0,
+        "evidence": "jni-android-compile.json"
+      },
+      "host_preparation_and_memory": {
+        "command": [
+          "python3",
+          "-m",
+          "unittest",
+          "scripts.tests.test_streaming_asr_inputs",
+          "scripts.tests.test_kokoro_native_host_inputs"
+        ],
+        "passed": 25,
+        "exit": 0,
+        "seconds": 0.194,
+        "log": "focused-host-tests.log"
+      },
+      "diff_check": 0
+    },
+    "canonical_host_gate": {
+      "exit_code": 0,
+      "tests_run": 880,
+      "passed": 879,
+      "skipped": 1,
+      "log_sha256": "b4a6bc8dd13709117da338562f724d03c58ab8defb3a0f9722ac3b182aee9253",
+      "scope": "Repository host checks, generated bindings, resources, dependency provenance, regex and whitespace; no full Android or actual model execution claim"
+    },
+    "independent_review": "No actionable source blocker: Java lock ordering, cancellation drainage, native registry lifetime, partial initialization, uncertain cleanup and required driver coverage reviewed.",
+    "handoff_sha256": "878a8a7da362b76ac51f4adc5012f785c5445353870a30073def94af7907187a",
+    "scoped_receipts_sha256": {
+      "scoped-validation.json": "32130869fd873053aceda93d51a99ab0ba1ec3ede8d792804fb202695d8d8f3b",
+      "jni-android-compile.json": "1eaea36251e2be88974f0f7e60dcf524ff35fa231542a37595b5648a1edfddf0",
+      "ktlint.json": "7feec7bc395da049e11be7308b38d0cdab11d483df92f2c3f68f01dddc715077"
+    },
+    "source_frozen_and_independently_reviewed": true,
+    "scoped_ktlint": "ktlint1.3.1 passed both changed Kotlin source/test files"
+  },
+  "preserved": [
+    "All existing JNI/model cases, mandatory Nemotron CPU execution, bounded effective-memory admission, failure codes and final all-zero success condition.",
+    "Every existing workflow gate, release version, protected rule and physical qualification limitation.",
+    "Concurrent playback readiness, output restoration, timed input, translation, microphone behavior and device scrolling corrections."
+  ],
+  "limitations": [
+    "Host scheduling and fake QNN C API fixtures do not qualify actual model inference, physical GPU/NPU placement, acoustics, battery or thermal behavior.",
+    "Exact final PR and merged-main hosted checks remain required before coordinated publication."
+  ]
+}

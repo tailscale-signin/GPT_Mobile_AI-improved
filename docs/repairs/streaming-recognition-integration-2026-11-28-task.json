@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+  "parent_pr": 2651,
+  "intent": "Integrate verified Moonshine Small/Medium, streaming Zipformer and Nemotron 3.5 recognition with real CPU/GPU/NPU runtime routes, model lifecycle, settings, timed transcripts, captions, vocabulary and reproducible recognition benchmarks while preserving concurrent voice and release work.",
+  "authorization": "User requested all recommendations on the latest PR branch, preserving concurrent commits; publication remains conditional on current-head required checks and qualified work.",
+  "status": "IMPLEMENTED_MERGED_SOURCE_HOST_VERIFIED_PENDING_CURRENT_HEAD_CI",
+  "requirements": [
+    "Preserve existing Moonshine Tiny, Pocket/Kokoro playback and independent output-caption alignment",
+    "Pin and verify all downloadable model artifacts and provide cancellable/resumable install, leases and safe removal",
+    "Implement streaming Moonshine Small/Medium, Zipformer English/French and multilingual Nemotron 3.5 selection and lifecycle",
+    "Implement genuine Nemotron CPU, supported Adreno GPU and Qualcomm HTP NPU runtime execution with truthful provider diagnostics and cache identities",
+    "Carry actual recognition timing through session and caption presentation without invented token ends, confidence or forced alignment",
+    "Preserve microphone ownership, capture cancellation, prewarming, buffering, dictionary and model-change retirement",
+    "Benchmark real-time feeding, prepare/partial/final latency, recognition error and timing separately; retain thermal/battery evidence boundaries",
+    "Run meaningful source/native/Android regressions and exact-head CI, preserving every concurrent commit using expected-head non-force publication"
+  ],
+  "validation": [
+    {
+      "scope": "Model catalog/store/archive host regressions",
+      "status": "PASSED",
+      "tests": 15,
+      "evidence": "docs/audits/voice-recognition-models.json"
+    },
+    {
+      "scope": "Actual capture/decoder/store/timing sources with explicit Android diagnostic and session declaration ports",
+      "status": "PASSED",
+      "tests": 61,
+      "evidence": "docs/audits/voice-recognition-models.json"
+    },
+    {
+      "scope": "Current controller, registry, memory policy, Sherpa adapter and pure preference restore component regressions",
+      "status": "PASSED",
+      "tests": 20,
+      "evidence": "docs/audits/voice-recognition-models.json"
+    },
+    {
+      "scope": "Full VoiceSession and VoicePluginAudio host snapshot including six input-timing regressions; later benchmark retirement overload is separate",
+      "status": "PASSED",
+      "tests": 77,
+      "limitations": "Scoped host compilation with explicitly replaced unrelated platform/report ports; no whole-app qualification.",
+      "evidence": "docs/audits/recognition-session-integration.json"
+    },
+    {
+      "scope": "Paced recognition runner, calibration, timing, quick-screening and resume snapshot",
+      "status": "PASSED",
+      "tests": 70,
+      "evidence": "docs/audits/recognition-benchmark-integration.json",
+      "limitations": "Later controller/Sherpa changes are separately tested; two expanded compilation attempts were OS-killed and remain unqualified."
+    },
+    {
+      "scope": "Confirmed ASR/TTS benchmark handoff ownership and cancellation helpers",
+      "status": "PASSED",
+      "tests": 6,
+      "evidence": "docs/audits/recognition-benchmark-integration.json",
+      "limitations": "Two full ViewModel regressions authored for CI; not locally executed."
+    },
+    {
+      "scope": "Actual Deferred output retirement and acknowledgement lifecycle",
+      "status": "PASSED",
+      "tests": 6,
+      "evidence": "docs/audits/recognition-output-handoff.json",
+      "limitations": "Actual Deferred/interface and selected unchanged test methods; real-worker Kokoro cases authored for Android CI, not locally executed."
+    },
+    {
+      "scope": "Actual new settings/language/timing/live-caption components and four Compose tests against pinned Kotlin/Compose APIs",
+      "status": "COMPILE_PASSED",
+      "executed_ui_tests": 0,
+      "evidence": "docs/audits/voice-recognition-models.json",
+      "limitations": "No local Robolectric composition or Android SharedPreferences round-trip execution."
+    },
+    {
+      "scope": "Android arm64 Release native library and retained JNI exports",
+      "status": "PASSED",
+      "evidence": "docs/audits/recognition-native-integration.json"
+    },
+    {
+      "scope": "Production JNI Zipformer English and French with JNI checks, incremental token clocks and lifecycle regressions",
+      "status": "PASSED",
+      "evidence": "docs/audits/recognition-native-integration.json"
+    },
+    {
+      "scope": "Production JNI Nemotron CPU",
+      "status": "UNQUALIFIED",
+      "reason": "OS_SIGNAL_9_DURING_MODEL_INITIALIZATION",
+      "evidence": "docs/audits/recognition-native-integration.json"
+    },
+    {
+      "scope": "Native source preparation and integrity",
+      "status": "PASSED",
+      "tests": 15,
+      "breakdown": {
+        "new_asr": 7,
+        "existing_kokoro": 8
+      }
+    },
+    {
+      "scope": "Report service app and incident contracts after d652558c merge",
+      "status": "PASSED",
+      "tests": 209,
+      "command": "python3 -m unittest authentication.test_incident_report_contract authentication.test_app"
+    },
+    {
+      "scope": "Expanded real secret-scanner controls and intact/missing/restored Git-object fixture",
+      "status": "PASSED",
+      "pin_controls_per_complete_case": 176,
+      "retained_controls": 160,
+      "new_exact_value_boundary_controls": 16,
+      "scanner": "Gitleaks 8.30.1",
+      "source_provenance": "docs/audits/recognition-history-declaration-provenance.json",
+      "artifact_bytes_verified": true,
+      "missing_history_blob_exit_code": 128,
+      "controls_report_sha256": "389e8e779c9f95baff7109767202e05abd268318d2f535e549f0c06452013281",
+      "integrity_report_sha256": "fc04dc9f8bd9d5b2e1868f23ef6d3bed41364a45f4834bcb9d88076a782149af"
+    },
+    {
+      "scope": "Full local Android compilation",
+      "status": "NOT_RUN",
+      "reason": "Required verified 8960 MiB memory/cgroup ancestry gate did not qualify this workspace; unchanged gate retained."
+    },
+    {
+      "scope": "Exact published-head CI",
+      "status": "PENDING_CURRENT_HEAD_CHECKS",
+      "observed_head": "606721dc837f3d0a7342b9150094f97872153957",
+      "note": "Latest concurrent head is preserved. Every applicable workflow must qualify the final correction commit; earlier canceled runs are not passes."
+    },
+    {
+      "scope": "Physical Adreno/SM8750 HTP, microphone/acoustic, sustained thermal and battery qualification",
+      "status": "NOT_MEASURED"
+    },
+    {
+      "scope": "Merged full session/translation sources with current PluginAudio route retirement and 22 plugin tests",
+      "status": "PASSED",
+      "tests": 145,
+      "evidence": "docs/audits/recognition-translation-integration.json",
+      "limitations": "Explicit unrelated host ports and unchanged compiled Deferred dependency are recorded; full Android and physical audio remain separate."
+    },
+    {
+      "scope": "Integrated recognition/translation preference restoration and explicit/automatic language routing",
+      "status": "PASSED",
+      "tests": 17,
+      "evidence": "docs/audits/recognition-translation-preferences.json",
+      "limitations": "Two actual Android SharedPreferences round trips compiled but require Android CI runtime; no full ViewModel or Compose runtime claim."
+    },
+    {
+      "scope": "Canonical host gate on local integrated source preserving a06e5053",
+      "status": "PASSED",
+      "tests": 870,
+      "skipped": 1,
+      "command": "bash scripts/validate-local.sh fast",
+      "source_snapshot": "01d389d5648b8fcbe40f89f3f075d29db9056695",
+      "log_sha256": "65e82d2f76ed1e92802d28f6495977e2b274ae9d9ba53863713dd6e6fcbf8bec",
+      "limitations": "Current scanner provenance additions are checked separately and will receive the final host gate before branch publication."
+    },
+    {
+      "scope": "Changed integrated Kotlin formatting",
+      "status": "PASSED",
+      "files": 74,
+      "tool": "ktlint 1.3.1",
+      "source_snapshot": "01d389d5648b8fcbe40f89f3f075d29db9056695"
+    },
+    {
+      "scope": "Final canonical host gate after scanner provenance integration",
+      "status": "PASSED",
+      "tests": 870,
+      "skipped": 1,
+      "command": "bash scripts/validate-local.sh fast",
+      "log_sha256": "1aba741b8abca1ff50a1bd6c8ddb4c41e3aaf2b6bee62a6234ec0a56a031a924",
+      "limitations": "Full Android compilation and physical accelerator/audio qualification remain separate."
+    },
+    {
+      "scope": "Final changed-file snapshot with strict scanner",
+      "status": "PASSED",
+      "files": 121,
+      "findings": 0,
+      "scanner": "Gitleaks 8.30.1",
+      "source_tree": "0eb6d6843addd2f004196cc5a03bdfc7c03ed334"
+    },
+    {
+      "scope": "Canonical host gate after native CI manifest/whitespace repair",
+      "status": "PASSED",
+      "tests": 874,
+      "skipped": 1,
+      "evidence": "docs/audits/recognition-native-ci-repair.json"
+    },
+    {
+      "scope": "Native ASR memory admission with actual bounded RAM/cgroup parser",
+      "status": "PASSED",
+      "tests": 24,
+      "skipped": 0,
+      "evidence": "docs/audits/recognition-native-memory-admission.json",
+      "limitations": "No native model execution or Android/device qualification. Unknown effective memory remains failed admission."
+    },
+    {
+      "scope": "Merged native input preparation and effective-memory admission",
+      "status": "PASSED",
+      "tests": 25,
+      "skipped": 0,
+      "evidence": "docs/audits/recognition-native-memory-admission.json"
+    },
+    {
+      "scope": "Canonical host gate on combined memory-admission and concurrent readiness source",
+      "status": "PASSED",
+      "tests": 880,
+      "skipped": 1,
+      "command": "bash scripts/validate-local.sh fast",
+      "logSha256": "7de504e26e56a723b552448665b0b74b70792085664e00ef0d740ec9eff7e440",
+      "source_parent": "606721dc837f3d0a7342b9150094f97872153957",
+      "limitations": "Host validation only; full Android and physical accelerator/audio qualification remain separate."
+    },
+    {
+      "scope": "Current full session, translation, PluginAudio and all nine concurrent readiness regressions",
+      "status": "PASSED",
+      "tests": 154,
+      "evidence": "docs/audits/recognition-translation-integration.json",
+      "source_parent": "606721dc837f3d0a7342b9150094f97872153957",
+      "limitations": "Explicit host ports and unchanged Deferred declaration dependency are recorded. No full Android, Compose, native recognition or physical qualification."
+    }
+  ],
+  "limitations": [
+    "No physical-device, acoustic, thermal, battery, Adreno or HTP qualification is established by implementation or host tests.",
+    "The pull request remains draft until the expanded scope and current-head checks are qualified."
+  ],
+  "concurrency": "Root owns app runtime/settings/session and Git publication; separate agents own model packs, native ASR, and portable transcript/benchmark contracts. Reconcile remote head before every publication.",
+  "release": {
+    "requested_android_candidate": "v0.9.66.19 build 153",
+    "state": "BLOCKED_PENDING_CURRENT_HEAD_CHECKS_AND_DEVICE_QUALIFICATION",
+    "scope_must_be_rechecked_live": true,
+    "publish_only_once": true,
+    "live_candidate_confirmed": {
+      "android": "0.9.66.19",
+      "versionCode": 153,
+      "gateway": "18.1.6"
+    },
+    "latest_published_observed": {
+      "android": "v0.9.66.18",
+      "gateway": "gateway-v18.1.5",
+      "commit": "6435462ac6f306d63b720205a9f2aafc33de1e4d"
+    },
+    "automation_enabled": true
+  },
+  "last_observed_remote_head": "606721dc837f3d0a7342b9150094f97872153957",
+  "preserved_concurrent_heads": [
+    "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+    "c31abe1ccf77c8dd254da775cfee6508719ae79e",
+    "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+    "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+    "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+    "606721dc837f3d0a7342b9150094f97872153957"
+  ],
+  "outstanding": [
+    "Publish with expected-head non-force ref update and inspect every applicable workflow at that exact head; repair real failures.",
+    "Run mandatory production Nemotron JNI gate on an adequately provisioned runner.",
+    "Obtain physical Adreno and SM8750 HTP execution, acoustic/timing, sustained thermal and battery evidence before qualifying the full requested scope."
+  ],
+  "implementation_commit": "b446675c505a1264ffecc870e97bc79e46510aff",
+  "publication_parent_sha": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+  "publication_policy": {
+    "expected_head_required": true,
+    "force": false,
+    "verify_live_head_after_update": true
+  },
+  "ci_repairs": [
+    {
+      "failed_head": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "evidence": "docs/audits/recognition-native-ci-repair.json",
+      "preserve_release_gates": true,
+      "status": "SCOPED_CHECKS_PASSED_PENDING_CORRECTIVE_HEAD_CI"
+    },
+    {
+      "observed_head": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+      "evidence": "docs/audits/recognition-native-memory-admission.json",
+      "preserve_release_gates": true,
+      "status": "FOCUSED_CHECKS_PASSED_PENDING_CORRECTIVE_HEAD_CI"
+    }
+  ],
+  "latest_correction_parent_sha": "606721dc837f3d0a7342b9150094f97872153957"
+}

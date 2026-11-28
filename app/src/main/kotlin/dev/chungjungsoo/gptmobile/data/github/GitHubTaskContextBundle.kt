@@ -24,7 +24,7 @@ data class GitHubContextSource(val path: String, val blobSha: String, val text: 
 /** Bounded, source-pinned retrieval. Documents and commands are data; this class never executes them. */
 object GitHubTaskContextBundle {
     const val SCHEMA = "repository.task_context.v1"
-    const val VERSION = 8
+    const val VERSION = 9
     const val FEATURE_MAP = "docs/architecture/feature-map.json"
     internal const val MAX_SYMBOL_CATALOG_BYTES = 1024 * 1024
     private const val MAX_MANIFEST_BYTES = 512 * 1024
@@ -84,9 +84,11 @@ object GitHubTaskContextBundle {
         require(sourceSha.matches(sourcePattern)) { "Repository context requires an immutable identity matching its source kind." }
         val started = System.nanoTime()
         val budget = budgetBytes.coerceIn(4096, 64_000)
-        val accepted = files.take(20_000).filter { validPath(it.path) && it.blobSha.matches(sha) && it.size in 0..MAX_FILE_BYTES.toLong() }
-            .distinctBy { it.path }.associateBy { it.path }
         val boundedQuery = query.take(6000)
+        val explicitlyNamed = if (files.size > 20_000) files.asSequence().filter { it.path.isNotEmpty() && it.path in boundedQuery }.take(20).toList() else emptyList()
+        val accepted = (explicitlyNamed.asSequence() + files.asSequence())
+            .filter { validPath(it.path) && it.blobSha.matches(sha) && it.size in 0..MAX_FILE_BYTES.toLong() }
+            .distinctBy { it.path }.take(20_000).associateBy { it.path }
         val queryTerms = terms(boundedQuery)
         val loaded = linkedMapOf<String, GitHubContextSource>()
         val missing = linkedSetOf<String>()
@@ -288,10 +290,12 @@ object GitHubTaskContextBundle {
                 }
                 )?.filter { (path, score) -> path in candidateSources && score.isFinite() }
             semanticApplied = !semanticScores.isNullOrEmpty()
-            val orderedSources = candidateSources.values.sortedByDescending { value ->
-                (semanticScores?.get(value.path)?.takeIf { it.isFinite() } ?: 0.0) * 10 +
-                    pathTerms(value.path).intersect(queryTerms).size + (if (value.path in featurePaths) 8 else 0)
-            }
+            val orderedSources = candidateSources.values.sortedWith(
+                compareByDescending<GitHubContextSource> { it.path in boundedQuery || candidateRanges[it.path]?.containsKey("matched_line") == true }.thenByDescending { value ->
+                    (semanticScores?.get(value.path)?.takeIf { it.isFinite() } ?: 0.0) * 10 +
+                        pathTerms(value.path).intersect(queryTerms).size + (if (value.path in featurePaths) 8 else 0)
+                }
+            )
             for (value in orderedSources) {
                 selectedRanges += candidateRanges.getValue(value.path)
                 wiring += wiringCandidates(value, queryTerms)
@@ -392,9 +396,9 @@ object GitHubTaskContextBundle {
                     put("indexed_files", indexedFiles?.let(::JsonPrimitive) ?: JsonNull)
                     put("indexed_files_basis", "RETAINED_SYMBOL_CATALOG")
                     put("loaded_files", loaded.size)
-                    put("selected_files", selectedRanges.size)
+                    put("selected_files", selectedRanges.count { it["excerpt"] != null })
                     put("selected_source_bytes", selectedRanges.sumOf { it.text("excerpt").toByteArray(Charsets.UTF_8).size })
-                    put("selected_source_lines", selectedRanges.sumOf { (it.number("end_line") - it.number("start_line") + 1).coerceAtLeast(0) })
+                    put("selected_source_lines", selectedRanges.filter { it["excerpt"] != null }.sumOf { (it.number("end_line") - it.number("start_line") + 1).coerceAtLeast(0) })
                     put("caller_files", selectedRanges.count { it.text("path") in callerCandidates })
                     put("configuration_files", selectedRanges.count { it.text("path") in configurationCandidates })
                     put("tree_complete", treeComplete && files.size <= 20_000)
@@ -426,13 +430,16 @@ object GitHubTaskContextBundle {
                 documents.size > 1 -> documents.removeAt(documents.lastIndex)
                 wiring.isNotEmpty() -> wiring.clear()
                 selectedFeatures.isNotEmpty() -> selectedFeatures.removeAt(selectedFeatures.lastIndex)
-                selectedRanges.isNotEmpty() -> selectedRanges.removeAt(selectedRanges.lastIndex)
                 documents.isNotEmpty() -> documents.clear()
                 knownTests.isNotEmpty() -> knownTests.removeAt(knownTests.lastIndex)
                 sourceCandidates.isNotEmpty() -> sourceCandidates.removeAt(sourceCandidates.lastIndex)
                 progress.isNotEmpty() -> progress.removeAt(progress.lastIndex)
                 missing.isNotEmpty() -> missing.remove(missing.last())
-                else -> staleManifestPaths.remove(staleManifestPaths.last())
+                staleManifestPaths.isNotEmpty() -> staleManifestPaths.remove(staleManifestPaths.last())
+                selectedRanges.size == 1 && selectedRanges[0]["excerpt"] != null -> {
+                    selectedRanges[0] = JsonObject(selectedRanges[0].filterKeys { it in setOf("path", "blob_sha", "start_line", "end_line", "matched_line") } + ("read_required" to JsonPrimitive(true)))
+                }
+                else -> selectedRanges.removeAt(selectedRanges.lastIndex)
             }
             result = packet()
         }
@@ -494,19 +501,33 @@ object GitHubTaskContextBundle {
                 ?.takeIf { terms(it.value.take(1500)).intersect(query).isNotEmpty() }?.index?.plus(1) ?: 1
             end = minOf(lines.size, best?.number("end_line")?.takeIf { it >= start } ?: start + 40, start + 70)
         }
-        val selected = lines.subList(start - 1, end).joinToString("\n")
-        val excerpt = GitHubRepositorySession.utf8Prefix(selected, byteLimit)
+        val exact = mutableListOf<String>()
+        var bytes = 0
+        for (line in lines.subList(start - 1, end)) {
+            val size = line.toByteArray(Charsets.UTF_8).size + if (exact.isEmpty()) 0 else 1
+            if (bytes + size > byteLimit) break
+            exact += line
+            bytes += size
+        }
+        val unread = exact.isEmpty() || location != null && location >= start + exact.size
         return buildJsonObject {
             put("path", value.path)
             put("blob_sha", value.blobSha)
-            put("start_line", start)
-            put("end_line", start + excerpt.count { it == '\n' })
+            put("start_line", if (unread) location ?: start else start)
+            put("end_line", if (unread) location ?: start else start + exact.lastIndex)
             put("total_lines", lines.size)
-            put("excerpt", excerpt)
             put("reason", if (location == null) reason else "TASK_SOURCE_LOCATION")
             location?.let { put("matched_line", it) }
-            put("range_complete", excerpt == selected)
-            put("confidence", "SOURCE_OBSERVED_RELATIONSHIP_CANDIDATE")
+            if (unread) {
+                put("read_required", true)
+                put("range_complete", false)
+            } else {
+                val excerpt = exact.joinToString("\n")
+                put("excerpt", excerpt)
+                put("content_sha256", digest(excerpt))
+                put("range_complete", true)
+                put("confidence", "SOURCE_OBSERVED_RELATIONSHIP_CANDIDATE")
+            }
         }
     }
 

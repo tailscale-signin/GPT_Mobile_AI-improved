@@ -153,18 +153,23 @@ internal object GitHubTestChecklist {
     /** Follow only exact issued read recipes. Local fragments and remote pages are independent. */
     fun pendingPages(receipts: Map<String, JsonObject>): List<JsonObject> {
         val observations = trusted(receipts)
-        val completed = observations.filter { it["success"] == JsonPrimitive(true) }
         val retired = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
-        val recovered = observations.mapIndexedNotNull { index, receipt ->
-            val recovery = savedReadRecovery(receipt) ?: return@mapIndexedNotNull null
-            if (observations.drop(index + 1).none { it["success"] == JsonPrimitive(true) && sameCall(it, recovery, receipt) }) return@mapIndexedNotNull null
-            receipt.text("tool") to receipt["arguments"]
-        }.toSet()
+        // Intermediate gap reads remain incomplete until the last missing page
+        // arrives. Resolve their exact correction chain backwards from a later
+        // success, preserving task/repository identity at every link. A failed
+        // or unrelated final read cannot settle the preceding recipes.
+        val resolved = mutableListOf<JsonObject>()
+        for (receipt in observations.asReversed()) {
+            val recovery = savedReadRecovery(receipt)
+            if (receipt["success"] == JsonPrimitive(true) || recovery != null && resolved.any { sameCall(it, recovery, receipt) }) {
+                resolved += receipt
+            }
+        }
         data class Page(val issuer: JsonObject, val recipe: JsonObject)
         val pages = observations.flatMap { issuer ->
             issuedPages(issuer).filter { recipe ->
                 val local = (recipe["arguments"] as? JsonObject)?.containsKey("view_cursor") == true
-                (local || !retired(issuer)) && completed.none { sameCall(it, recipe, issuer) } && recipe.text("tool") to recipe["arguments"] !in recovered
+                (local || !retired(issuer)) && resolved.none { sameCall(it, recipe, issuer) }
             }.map { Page(issuer, it) }
         }.distinctBy { listOf(it.issuer["binding"], it.issuer["repository"], it.issuer["source_head_sha"], it.recipe) }
         return pages.filter { weak ->
@@ -238,7 +243,7 @@ internal object GitHubTestChecklist {
     /** An argument repair is admissible only for an exact local cursor returned by this facade. */
     private fun savedReadRecovery(receipt: JsonObject): JsonObject? {
         if (receipt["success"] == JsonPrimitive(true)) return null
-        if (receipt.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE") return pullPageCorrection(receipt)
+        if (receipt.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE") return remotePageCorrection(receipt)
         val root = data(receipt) ?: return null
         val recovery = (root["correction_call"] ?: root["recovery_call"] ?: root["source_recovery_call"]) as? JsonObject ?: return null
         val args = recovery["arguments"] as? JsonObject ?: return null
@@ -284,7 +289,10 @@ internal object GitHubTestChecklist {
     }
 
     private fun issuedPages(receipt: JsonObject): List<JsonObject> {
-        if (receipt["success"] != JsonPrimitive(true)) return listOfNotNull(pullPageCorrection(receipt))
+        // Version-bound schema-directory traversal belongs to GitHubAuthorizedCatalog.
+        // It must not consume repository pagination samples or appear as remote reads.
+        if (receipt.text("tool") == GitHubAuthorizedCatalog.TOOL) return emptyList()
+        if (receipt["success"] != JsonPrimitive(true)) return listOfNotNull(remotePageCorrection(receipt))
         val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return emptyList()
         return buildList {
             // Complete original data satisfies display traversal, never remote pagination.
@@ -300,13 +308,14 @@ internal object GitHubTestChecklist {
     }
 
     /** Incomplete coverage can issue one native read for an observed gap without granting another query. */
-    private fun pullPageCorrection(receipt: JsonObject): JsonObject? {
+    private fun remotePageCorrection(receipt: JsonObject): JsonObject? {
         val name = receipt.text("tool")
+        val family = name.githubOperationFamily()
         if (receipt["trusted"] != JsonPrimitive(true) ||
             receipt["success"] != JsonPrimitive(false) ||
             receipt["verification_eligible"] == JsonPrimitive(false) ||
             receipt["repository_role"] == JsonPrimitive("READ_SOURCE") ||
-            name.githubOperationFamily() != "github_pr" ||
+            family !in setOf("github_pr", "github_context") ||
             receipt.text("error_code") != "GITHUB_PAGINATION_INCOMPLETE"
         ) {
             return null
@@ -325,9 +334,18 @@ internal object GitHubTestChecklist {
         ) {
             return null
         }
-        val expected = when (original.text("action")) {
-            "list" -> JsonObject(original + ("page" to gap))
-            "context" -> GitHubPullFileInventory.recoveryArguments(original, body, gap)
+        val expected = when (family to original.text("action")) {
+            "github_pr" to "list" -> JsonObject(original + ("page" to gap))
+            "github_pr" to "context" -> GitHubPullFileInventory.recoveryArguments(original, body, gap)
+            "github_context" to "commits" -> {
+                // The facade resolves a mutable branch before issuing its gap
+                // recipe. Resume that observed immutable history, preserving
+                // the exact connection, repository, page size and other filters.
+                val pinned = body["commit_sha"] ?: return null
+                val normalized = GitHubInventoryQuery.commitSha(pinned) ?: return null
+                if (listOf("commit_sha", "ref", "branch").mapNotNull { GitHubInventoryQuery.commitSha(original[it]) }.any { it != normalized }) return null
+                JsonObject(original + mapOf("page" to gap, "ref" to pinned, "commit_sha" to pinned))
+            }
             else -> null
         } ?: return null
         return repair.takeIf { it["arguments"] == expected }
@@ -337,7 +355,8 @@ internal object GitHubTestChecklist {
         val issued = observations.flatMap { issuer -> issuedPages(issuer).map { issuer to it } }
         return observations.count { receipt ->
             val args = receipt["arguments"] as? JsonObject ?: return@count false
-            "view_cursor" !in args &&
+            receipt.text("tool") != GitHubAuthorizedCatalog.TOOL &&
+                "view_cursor" !in args &&
                 !(receipt.text("tool").githubOperationFamily() == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args) &&
                 ((args["page"] as? JsonPrimitive)?.longOrNull?.let { it > 1 } == true || issued.any { (issuer, recipe) -> sameCall(receipt, recipe, issuer) })
         }
@@ -394,12 +413,12 @@ internal object GitHubTestChecklist {
         for ((index, failed) in observations.withIndex()) {
             if (workflowDependencyOnly) continue
             val recovery = savedReadRecovery(failed) ?: continue
-            val pullGap = failed.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE"
-            if (pullGap && !exhaustive && sampled >= 2) continue
+            val remoteGap = failed.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE"
+            if (remoteGap && !exhaustive && sampled >= 2) continue
             val source = recoverySource(recovery) ?: continue
             if (!considered.add(source)) continue
             val args = recovery["arguments"] as JsonObject
-            if (localOnly && !pullGap && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
+            if (localOnly && !remoteGap && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
             // The durable receipts spend one correction per saved view or exact
             // recovery recipe. A later offset or process restart cannot reset it.
             if ((lastAttempts[source] ?: -1) > index) continue
@@ -1243,9 +1262,20 @@ internal object GitHubTestChecklist {
         }
         data class InventoryKey(val first: String, val second: String?, val third: JsonObject, val repository: String, val binding: String)
         val groups = trusted.filter { receipt ->
+            val family = receipt.text("tool").githubOperationFamily()
+            val action = (receipt["arguments"] as? JsonObject)?.text("action")
+            // Discovery's action selects a future schema; it does not return a
+            // repository collection or establish an outstanding remote page.
+            val repositoryInventory = when (family) {
+                "github_ci" -> action in setOf("workflows", "runs")
+                "github_context" -> action in setOf("branches", "commits")
+                "github_issue", "github_pr" -> action == "list"
+                "github_release" -> action in setOf("list", "tags")
+                else -> false
+            }
             receipt["success"] == JsonPrimitive(true) &&
-                data(receipt)?.text("schema") != "github.repeat.v1" &&
-                (receipt["arguments"] as? JsonObject)?.text("action") in setOf("workflows", "branches", "list", "commits", "runs", "tags")
+                repositoryInventory &&
+                data(receipt)?.text("schema") != "github.repeat.v1"
         }.groupBy {
             val args = it["arguments"] as? JsonObject
             InventoryKey(it.text("tool"), args?.text("action"), filters(it), it.text("repository").lowercase(java.util.Locale.ROOT), it.text("binding"))

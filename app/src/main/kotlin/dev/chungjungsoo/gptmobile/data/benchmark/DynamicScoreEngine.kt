@@ -173,6 +173,8 @@ internal object DynamicScoreEngine {
             run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size,
             if (run.mode == BenchmarkMode.GITHUB_INTEGRATION) {
                 benchmarkGitHubScoreExplanation(run)
+            } else if (run.mode == BenchmarkMode.STANDARD) {
+                "Standard uses the nine-category profile score and retained observation coverage. Full-suite timing bands and cohort anchors do not apply."
             } else if (verified) {
                 "Verified timing for ${run.loadRegime}/${run.cacheRegime}; median of ${timingEligibleBlocks.size} eligible complete blocks. Availability includes all applicable attempts; latest status is shown."
             } else {
@@ -215,7 +217,7 @@ internal object DynamicScoreEngine {
             speedScore = speedScore,
             latencyScore = latencyScore,
             overall = overall,
-            explanation = row.explanation + if (row.cohort.startsWith("GITHUB_INTEGRATION|")) {
+            explanation = row.explanation + if (row.cohort.startsWith("GITHUB_INTEGRATION|") || row.cohort.startsWith("STANDARD|")) {
                 ""
             } else if (anchor != null) {
                 "; speed = equal mean of 100 × band rate / verified band leader; ${anchors?.count ?: 0} eligible profiles"

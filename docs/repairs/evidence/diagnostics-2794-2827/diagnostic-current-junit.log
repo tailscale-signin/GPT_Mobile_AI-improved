@@ -1,0 +1,9 @@
+crashOrUncertainTransportNeverGrantsPermissionToRepeat: 1 run, 0 failed
+unknownCompletionKeepsApplicationReviewEvidenceWithoutInventingAProviderReceipt: 1 run, 0 failed
+actualGuardMapsToExistingReviewCodeAndKeepsUnknownReceiptFields: 1 run, 0 failed
+incompleteOrProviderOwnedTuplesCannotAcquireApplicationClassification: 1 run, 0 failed
+auxiliaryUnknownCapacityUsesAnExplicitConservativeCeiling: 1 run, 0 failed
+ix01ZeroMeansNoExtraCapAndDefaultsKeepTheirProvenance: 1 run, 0 failed
+lcT01BoundaryPassesOneTokenOverflowBlocksAndWireCannotChange: 1 run, 0 failed
+lcT02OverflowAndUnknownCapacityCannotBecomeSuccessfulBudgetChecks: 1 run, 0 failed
+Total: 8 tests; 0 failures

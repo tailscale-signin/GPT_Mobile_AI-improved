@@ -11,10 +11,31 @@ import kotlinx.serialization.json.put
 internal object GitHubActionSchema {
     fun authorized(original: AgentToolDefinition, selected: AgentToolDefinition): AgentToolDefinition {
         if (original == selected) return original
+        if (compactRead(original) == selected) return selected
         val properties = selected.inputSchema["properties"] as? JsonObject
         val selector = properties?.get("action") as? JsonObject
         val action = ((selector?.get("enum") as? JsonArray)?.singleOrNull() as? JsonPrimitive)?.content
         return if (action != null && project(original, action) == selected) selected else original
+    }
+
+    /** Reduce documentation on a tight route while preserving every validation constraint. */
+    fun compactRead(tool: AgentToolDefinition): AgentToolDefinition {
+        val help = when (GitHubOperationTool.operationName(tool.name)) {
+            "github_context" -> "Inspect the selected repository, branch, immutable revision and checks."
+            "github_pr" -> "Use a listed pull request action and its returned pull_number."
+            "github_ci" -> "Inspect workflows, runs, jobs and logs. Use returned run_id, run_attempt, job_id and expected_head_sha. Runs filter by status. Log ranges span at most 2000 lines."
+            else -> return tool
+        }
+        val fields = tool.inputSchema["properties"] as? JsonObject ?: return tool
+        val action = fields["action"] as? JsonObject ?: return tool
+        if ((action["enum"] as? JsonArray).orEmpty().size <= 1) return tool
+        val compact = fields.mapValues { (name, value) ->
+            if (name == "view_cursor" || value !is JsonObject) value else JsonObject(value - "description")
+        }
+        return tool.copy(
+            description = "$help Use an issued view_cursor alone to read a saved page.",
+            inputSchema = JsonObject(tool.inputSchema + ("properties" to JsonObject(compact)))
+        )
     }
 
     private fun fields(operation: String, action: String): String? = when (operation) {

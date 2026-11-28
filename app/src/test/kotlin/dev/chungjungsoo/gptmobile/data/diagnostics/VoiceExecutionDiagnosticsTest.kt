@@ -11,10 +11,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceExecutionDiagnosticsTest {
+    @Test fun fallbackCauseCapabilityAndHashesAreStrictlyBounded() {
+        assertTrue(VoiceExecutionDiagnostics.requiresFallbackCauseSupport(mapOf("voice_playback_failure" to JsonPrimitive("SERVICE_FAILED")), emptyList()))
+        assertFalse(VoiceExecutionDiagnostics.requiresFallbackCauseSupport(mapOf("voice_playback_failure" to JsonPrimitive("SYNTHESIS_FAILED")), emptyList()))
+        assertTrue(VoiceExecutionDiagnostics.requiresFallbackCauseSupport(emptyMap(), listOf("voice_fallback_terminal_failure")))
+        for (field in VoiceExecutionDiagnostics.causeHashes) {
+            assertEquals(JsonPrimitive("a".repeat(64)), VoiceExecutionDiagnostics.validValue(field, JsonPrimitive("a".repeat(64))))
+            assertNull(VoiceExecutionDiagnostics.validValue(field, JsonPrimitive("private exception text")))
+        }
+        for (code in -9..-1) assertEquals(JsonPrimitive(code), VoiceExecutionDiagnostics.validValue("voice_system_error_code", JsonPrimitive(code)))
+        for (invalid in listOf(JsonPrimitive("-4"), JsonPrimitive(-10), JsonPrimitive(0), JsonPrimitive(true))) {
+            assertNull(VoiceExecutionDiagnostics.validValue("voice_system_error_code", invalid))
+        }
+    }
+
     @Test fun streamingCapabilityIsRequiredOnlyForNewClosedValuesInTheirOwnFields() {
         val additions = mapOf(
-            "voice_engine" to setOf("MEDIAPIPE"),
-            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
+            "voice_engine" to setOf("MEDIAPIPE", "COMPILED_POCKET"),
+            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU"),
             "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
         )
         for ((field, choices) in additions) {
@@ -44,10 +58,42 @@ class VoiceExecutionDiagnosticsTest {
         assertEquals(JsonPrimitive("KOKORO_CPU"), VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive("KOKORO_CPU")))
         assertEquals(JsonPrimitive("KOKORO"), VoiceExecutionDiagnostics.validValue("voice_fallback_source", JsonPrimitive("KOKORO")))
         assertNull(VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive("KOKORO")))
-        for (selected in listOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU")) {
+        for (selected in listOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU")) {
             assertEquals(JsonPrimitive(selected), VoiceExecutionDiagnostics.validValue("voice_selected_backend", JsonPrimitive(selected)))
+            assertEquals(JsonPrimitive(selected), VoiceExecutionDiagnostics.validValue("voice_failure_requested_backend", JsonPrimitive(selected)))
             assertNull(VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive(selected)))
         }
+    }
+
+    @Test fun compiledPocketAndItsInstallPackRequireNewReceiverSupportWithoutInventingAProvider() {
+        val additions = mapOf(
+            "voice_engine" to setOf("COMPILED_POCKET"),
+            "voice_selected_backend" to setOf("POCKET_GPU", "POCKET_NPU"),
+            "voice_failure_requested_backend" to setOf("POCKET_GPU", "POCKET_NPU"),
+            "voice_install_pack" to setOf("POCKET")
+        )
+        for ((field, choices) in additions) {
+            for (value in choices) {
+                assertTrue(VoiceExecutionDiagnostics.requiresPocketCompiledSupport(mapOf(field to JsonPrimitive(value))))
+                for (unrelated in listOf("voice_effective_provider", "voice_fallback_target", "private_value")) {
+                    assertFalse(VoiceExecutionDiagnostics.requiresPocketCompiledSupport(mapOf(unrelated to JsonPrimitive(value))))
+                    assertNull(VoiceExecutionDiagnostics.validValue(unrelated, JsonPrimitive(value)))
+                }
+            }
+            for (invalid in listOf(JsonPrimitive("private model path"), JsonPrimitive(1), JsonPrimitive(true), JsonNull, JsonArray(emptyList()), JsonObject(emptyMap()))) {
+                assertFalse(VoiceExecutionDiagnostics.requiresPocketCompiledSupport(mapOf(field to invalid)))
+            }
+        }
+        val legacy = VoiceExecutionDiagnostics.enums + mapOf(
+            "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE"),
+            "voice_install_pack" to setOf("MOONSHINE", "KOKORO", "LITERT_KOKORO")
+        )
+        for ((field, choices) in legacy) {
+            for (value in choices - additions[field].orEmpty()) {
+                assertFalse(VoiceExecutionDiagnostics.requiresPocketCompiledSupport(mapOf(field to JsonPrimitive(value))))
+            }
+        }
+        assertFalse(VoiceExecutionDiagnostics.requiresPocketCompiledSupport(emptyMap()))
     }
 
     @Test fun fallbackFailureAndOutcomeAreIndependentClosedObservations() {

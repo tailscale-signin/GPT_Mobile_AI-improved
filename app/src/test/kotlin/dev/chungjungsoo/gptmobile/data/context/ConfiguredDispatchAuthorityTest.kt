@@ -225,6 +225,44 @@ class ConfiguredDispatchAuthorityTest {
         assertTrue(runCatching { guard.validate() }.exceptionOrNull() is DispatchPolicyChangedException)
     }
 
+    @Test fun restoredWaitKeepsAcceptedIntelligenceButStillRejectsRevokedToolsAndLoweredEffort() = runTest {
+        val profile = PlatformV2(uid = "profile", name = "Selected", model = "model")
+        val accepted = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride.newProfile
+        val raised = accepted.copy(intelligenceLevel = dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.DEEP_ENGINEERING)
+        val initial = selectionFeatures(profile.uid)
+        var features = initial
+        val settings = selectionSettings({ listOf(profile) }, { features })
+        val live = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        val saved = Json.decodeFromString<CapturedProviderAuthority>(Json.encodeToString(requireNotNull(live.authority)))
+        assertEquals(accepted.intelligenceLevel, saved.acceptedGitHubIntelligenceLevel)
+        features = initial.copy(githubProfileOverrides = mapOf(profile.uid to raised))
+        live.validate()
+        saved.validate(settings)
+        val legacy = saved.copy(acceptedGitHubIntelligenceLevel = null)
+        assertTrue(runCatching { legacy.validate(settings) }.exceptionOrNull() is ProviderWaitAuthorityChanged)
+
+        val restoredOwner = withContext(saved.requestGuard(settings)) { ConfiguredDispatchAuthority.capture(settings, profile, 7) }
+        var dispatched = false
+        withContext(restoredOwner + PhysicalAttemptBoundary { dispatched = true }) { PhysicalAttemptBoundary.dispatch() }
+        assertTrue(dispatched)
+
+        for (changed in listOf(
+            raised.copy(githubTools = false),
+            raised.copy(webSearch = false),
+            raised.copy(engineeringGatewayProfileUid = "another-gateway"),
+            accepted.copy(intelligenceLevel = dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.INSTANT)
+        )) {
+            features = initial.copy(githubProfileOverrides = mapOf(profile.uid to changed))
+            assertTrue(runCatching { saved.validate(settings) }.exceptionOrNull() is ProviderWaitAuthorityChanged)
+            dispatched = false
+            val denied = withContext(restoredOwner + PhysicalAttemptBoundary { dispatched = true }) {
+                runCatching { PhysicalAttemptBoundary.dispatch() }.exceptionOrNull()
+            }
+            assertTrue(denied is ProviderWaitAuthorityChanged)
+            assertFalse(dispatched)
+        }
+    }
+
     @Test fun queuedAndRestoredGithubTasksKeepTheirSubmittedPromptAndRevalidateExecutionSettings() = runTest {
         val profile = PlatformV2(uid = "profile", name = "Selected", model = "model")
         val shortcut = dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow("shortcut", "Label", "First prompt")

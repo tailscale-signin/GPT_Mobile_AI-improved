@@ -55,9 +55,10 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
         index == 0 || index == text.length || !(text[index].isLowSurrogate() && text[index - 1].isHighSurrogate())
 
     companion object {
-        fun from(state: VoiceState): VoiceCaption? {
+        fun from(state: VoiceState, replyOnly: Boolean = false): VoiceCaption? {
             val capturing = state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING) || state.hasDraft
-            val response = !capturing && state.reply.isNotBlank()
+            val response = (replyOnly || !capturing) && state.reply.isNotBlank()
+            if (replyOnly && !response) return null
             val text = if (response) {
                 state.playbackCaption ?: VoiceSpeechText.forPlayback(state.reply, final = state.replyComplete || !state.awaitingReply, includeDetails = state.readingDetails)
             } else {

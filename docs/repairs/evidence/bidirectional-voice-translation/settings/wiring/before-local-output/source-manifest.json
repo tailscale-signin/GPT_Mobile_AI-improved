@@ -1,0 +1,20 @@
+{
+  "root_head": "ec72dcbd7f3544650bdcc17a8363c8799935ed2d",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt": "1df95ede2892959a12918ab19dfd07a4fb319133e592093f20ca31b46343fb03",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt": "596193b7a71486abd0d8636b54949e1720a1ee14c8915d225578389de7f7c3e6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "91f650802abaab8b9ed99b81143a2bae5a41b42b0e8a164c232659649ca2ac53",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicy.kt": "8f6b2708f6cd39b33145583fc1a80420d817e8e559f12ec8216c5287cdf00680",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt": "51e6da8e1ac5987fd9ead8b7be6b2821c0629172b01a0a72c2e215b19fe36fb6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt": "8c017af1b467dbf63295b630465eb777cd8a4b1fa575ce7f068e464c9bcf3038",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/MediaPipeJniContract.kt": "8ce2c7e9864085e445910548b30aa17cba12de3ef91995d3e180c09378c4d3fb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "b069180fe44275ed4f0ad9794d6b03dafaeae08f77ac04b178df154aab9f884d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModel.kt": "b7ee1cf862c6c8fe294da4c9fb5ccbac565e6494c6bd4d7b51db8910b5fdbb2e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRuntimeViewModel.kt": "e29bcbaab5bf28898f8cf420fe8c1987414f0e39af0d26dab1aa18b921391a37",
+    "extracted_wiring_sha256": "a90e6c3f0c589f72b977bea74f486585726bdf1e95783a178f13ef651d5d8ca5"
+  },
+  "core_manifest": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/manifest.json",
+  "detector_manifest": "/workspace/scratch/49479c165f4e/translation-detection-host/policy/manifest.json",
+  "settings_manifest": "/workspace/scratch/49479c165f4e/translation-settings-host/source-manifest.json"
+}

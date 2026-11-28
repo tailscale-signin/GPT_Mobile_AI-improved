@@ -583,11 +583,14 @@ class IssueReportHttpTest(unittest.TestCase):
                      "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1", "PRIVACY_ELIGIBILITY_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1", "RUNTIME_INCIDENT_DETAILS_V1", "SELECTED_MODEL_ADMISSION_V1", "REVIEW_CATALOG_OBSERVATION_V1", "ACTION_ONLY_TOOL_PRECHECK_V1", "TOOL_REPEAT_PRIOR_CAUSE_V1", "PROFILE_BEHAVIOR_CHANGE_V1", "APP_SEARCH_READINESS_V1", "VOICE_SILENCED_INPUT_V1", "TASK_AND_TOOL_FAILURE_DETAILS_V1", "READER_AND_RUN_FAILURE_DETAILS_V1", "REPLAY_BUDGET_EVIDENCE_V1", "GRAPH_TRANSPORT_EVIDENCE_V1", "EXECUTION_COMPLETION_EVIDENCE_V1"]
         additions.insert(additions.index("REPLAY_BUDGET_EVIDENCE_V1") + 1, "REPLAY_SOURCE_EVIDENCE_V1")
         additions.insert(additions.index("ACCEPTANCE_OBSERVATION_CAUSES_V1") + 1, "ACCEPTANCE_EMPTY_EXPLANATION_V1")
+        additions.insert(additions.index("ACCEPTANCE_EMPTY_EXPLANATION_V1") + 1, "GITHUB_ISSUE_INTAKE_EVIDENCE_V1")
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
         additions.insert(2, "VOICE_STREAMING_BACKEND_EVIDENCE_V1")
         additions.insert(3, "VOICE_STREAMING_NPU_EVIDENCE_V1")
         additions.insert(4, "VOICE_STREAMING_PACK_EVIDENCE_V1")
         additions.insert(5, "VOICE_STREAMING_INSTALL_EVIDENCE_V1")
+        additions.insert(6, "VOICE_POCKET_COMPILED_EVIDENCE_V1")
+        additions.insert(additions.index("VOICE_STREAMING_INSTALL_EVIDENCE_V1") + 1, "VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1")
         additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "SAVED_PAGE_CAPACITY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
@@ -597,6 +600,11 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.append("PROVIDER_QUOTA_GROUP_V1")
         additions.extend(["GITHUB_POLICY_SELECTION_FIELDS_V1", "VOICE_FOCUS_RETRY_COUNT_V1", "FAILED_EVENT_OUTPUT_FIELDS_V1"])
         additions.append("DEVICE_PRIVACY_POLICY_CHANGE_V1")
+        additions.append("VOICE_FALLBACK_CAUSES_V1")
+        additions.append("STAGED_DISPATCH_EVIDENCE_V1")
+        additions.append("APPLICATION_FAILURE_CAUSES_V1")
+        additions.insert(additions.index("GITHUB_VALIDATION_CONTEXT_V1") + 1, "CAPABILITY_READINESS_EVIDENCE_V1")
+        additions.insert(additions.index("CAPABILITY_READINESS_EVIDENCE_V1") + 1, "RESEARCH_RECOVERY_EVIDENCE_V1")
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
@@ -617,6 +625,21 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_large_voice_install_readiness_requires_the_extended_capability(self):
+        from scripts.check_issue_reporting_configuration import check_readiness
+        feature = "VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1"
+        legacy = self.client.get("/health/ready")
+        extended = self.client.get("/health/ready?capabilities=extended")
+        self.assertNotIn(feature, legacy.json()["reportDiagnosticFeatures"])
+        self.assertIn(feature, extended.json()["reportDiagnosticFeatures"])
+        self.assertEqual(1022, len(legacy.content))
+        self.assertLessEqual(len(extended.content), 4096)
+        check_readiness(self.origin, lambda _: extended.content)
+        older = extended.json()
+        older["reportDiagnosticFeatures"].remove(feature)
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness(self.origin, lambda _: json.dumps(older, separators=(",", ":")).encode())
 
     def test_policy_selection_capability_matches_new_names_and_clipped_cardinality(self):
         from authentication import incident_report_contract as capsule
@@ -695,9 +718,14 @@ class IssueReportHttpTest(unittest.TestCase):
         feature = "VOICE_STREAMING_BACKEND_EVIDENCE_V1"
         self.assertNotIn(feature, self.client.get("/health/ready").json()["reportDiagnosticFeatures"])
         self.assertIn(feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
+        compiled_feature = "VOICE_POCKET_COMPILED_EVIDENCE_V1"
+        self.assertNotIn(compiled_feature, self.client.get("/health/ready").json()["reportDiagnosticFeatures"])
+        self.assertIn(compiled_feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
         additions = {
-            "voice_engine": ("MEDIAPIPE",),
-            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"),
+            "voice_engine": ("MEDIAPIPE", "COMPILED_POCKET"),
+            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU"),
+            "voice_failure_requested_backend": ("POCKET_GPU", "POCKET_NPU"),
+            "voice_install_pack": ("POCKET",),
             "voice_fallback_source": ("LITERT_KOKORO", "PHONON", "POCKET"),
         }
         for field, choices in additions.items():
@@ -958,6 +986,7 @@ class IssueReportHttpTest(unittest.TestCase):
             ("INCIDENT", {"review_comparison_state": "BASE_REF_BLOCKED", "review_comparison_policy": "EXPLICIT_BASE_REF"}),
             ("ACCEPTANCE", {"acceptance_publication_entry": "COMPLETED_DRAFT",
                             "acceptance_claim_trust_failures": ["TARGET_OUTSIDE_ACCEPTED_SCOPE"]}),
+            ("ACCEPTANCE", {"acceptance_publication_source": "ISSUE_INTAKE", "acceptance_publication_entry": "ISSUE_INTAKE"}),
         )
         for area, values in cases:
             with self.subTest(area=area, values=values):

@@ -11,6 +11,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSearchArgumentsTest {
+    @Test fun emptyPathSearchOffersADiscoveryRouteWithoutInventingAQuery() {
+        val args = buildJsonObject {
+            put("mode", "paths")
+            put("query", "  ")
+        }
+        val failure = requireNotNull(GitHubSearchArguments.failure(args))
+        assertEquals(GitHubSearchArgumentFailure.Rule.QUERY_LENGTH, failure.rule)
+        assertTrue(failure.message.orEmpty().contains("filename or star pattern"))
+        assertNull(GitHubSearchArguments.pathQualifierCorrection(args))
+    }
+
     @Test fun filenameQualifierFailsBeforeScanningAndOffersOnlyASinglePathPattern() {
         val arguments = buildJsonObject {
             put("query", "filename:*INSTructions* OR filename:*instructions*")

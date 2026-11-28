@@ -38,12 +38,26 @@ internal object GitHubEffectiveRecovery {
         val currentRecoveryCode = report.text("current_failure_code").ifBlank { recoveryAttempt.text("recovery_code").ifBlank { recoveryAttempt.text("code") } }.ifBlank { report.text("failure_code") }
             .takeIf { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES }
         val layers = listOfNotNull(report, ledger, original, failure, recoveryAttempt)
-        val code = original.text("code").ifBlank { report.text("original_failure_code") }.ifBlank { report.text("failure_code") }.ifBlank { failure.text("code") }
+        val code = original.text("code").ifBlank { report.text("original_failure_code") }.ifBlank { report.text("failure_code") }.ifBlank { report.text("error_code") }.ifBlank { report.text("errorCode") }.ifBlank { report.text("reason_code") }.ifBlank { failure.text("code") }.ifBlank { failure.text("error_code") }
+        val codeCandidates = listOf(
+            original.text("code"),
+            original.text("error_code"),
+            report.text("original_failure_code"),
+            report.text("failure_code"),
+            report.text("error_code"),
+            report.text("errorCode"),
+            report.text("reason_code"),
+            failure.text("code"),
+            failure.text("error_code"),
+            failure.text("reason_code")
+        ).filter(String::isNotBlank)
         val stop = report["stop_reason"] as? JsonObject
         val action = sequenceOf(
             original.text("recovery_action"),
             original.text("next_action"),
             report.text("recovery_action"),
+            report.text("recorded_recovery_action"),
+            original.text("recorded_recovery_action"),
             if (original == null) failure.text("recovery_action") else "",
             stop.text("recovery_action"),
             ledger.text("recovery")
@@ -55,12 +69,26 @@ internal object GitHubEffectiveRecovery {
         val pendingApproval = layers.any { (it["pending_approvals"] as? JsonArray)?.isNotEmpty() == true } ||
             code == "WAITING_FOR_APPROVAL" ||
             action == "WAITING_FOR_APPROVAL"
+        val completedClaimExtractionRepair =
+            codeCandidates.any { it in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "OUTPUT_LIMIT") } &&
+                action in setOf("RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT", "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT") &&
+                layers.any { it.text("stage").equals("claim_extraction", ignoreCase = true) || it.text("failed_stage").equals("claim_extraction", ignoreCase = true) } &&
+                (anyTrue("transport_complete") || anyTrue("generation_completed")) &&
+                layers.any { it.text("remote_acceptance").equals("YES", ignoreCase = true) || it.text("remote_acceptance").equals("ACCEPTED", ignoreCase = true) } &&
+                (anyTrue("evidence_retention_complete") || layers.any { (it["batch"] as? JsonObject)?.isNotEmpty() == true || (it["extraction_batch"] as? JsonObject)?.isNotEmpty() == true }) &&
+                !anyFalse("automatic_retry_allowed")
         val verifiedCompletion = report["completion_verified"] == JsonPrimitive(true) &&
             report["response_delivered"] == JsonPrimitive(true) &&
             !anyFalse("evidence_retention_complete") &&
             !anyTrue("user_input_required") &&
             report.text("task_outcome") !in setOf("PARTIAL", "BLOCKED", "REJECTED", "WAITING_PROVIDER_LIMIT", "WAITING_FOR_CONNECTION") &&
             (ledger == null || ledger.text("requested_task") == "VERIFIED_COMPLETE")
+        val capacityBlocked = report.text("current_failure_code") == "CONTEXT_CAPACITY_EXCEEDED" &&
+            report["resume_allowed"] == JsonPrimitive(false) &&
+            (report["output_checkpoint"] as? JsonObject)?.let { output ->
+                output["state"] == JsonPrimitive("BLOCKED_CONTEXT_CAPACITY") &&
+                    output["task_binding"] == report["binding"]
+            } == true
         return when {
             (ledger?.get("unresolved_remote_outcomes") as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true ||
                 anyTrue("requires_reconciliation") ||
@@ -72,8 +100,9 @@ internal object GitHubEffectiveRecovery {
                 action in setOf("RESTORE_AUTHORIZED_CONFIGURATION", "REFRESH_CHANGED_AUTHORITY") ->
                 Decision(Kind.REFRESH_AUTHORITY, "RESTORE_AUTHORIZED_CONFIGURATION", "Review changed authority")
             pendingApproval -> Decision(Kind.REVIEW_APPROVAL, "WAITING_FOR_APPROVAL", "Review approval")
-            currentRecoveryCode != null ->
+            currentRecoveryCode != null && !completedClaimExtractionRepair ->
                 if (currentRecoveryCode == "PROVIDER_WAIT_OUTCOME_UNKNOWN") Decision(Kind.RECONCILE_REMOTE_OUTCOME, "RECONCILE_REMOTE_OUTCOME", "Review uncertain write") else inspection(recoveryAttempt.text("next_action").ifBlank { "REVIEW_SAVED_RECOVERY" })
+            capacityBlocked -> inspection("CHANGE_CONTEXT_PLAN")
             // Durable completion supersedes a retained provider cooldown. Current
             // authority, approval and uncertain-outcome blockers above still win.
             verifiedCompletion -> Decision(Kind.NONE, "NONE", "Completed")
@@ -83,6 +112,8 @@ internal object GitHubEffectiveRecovery {
                 anyFalse("evidence_retention_complete") ||
                 report["task_outcome"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("REJECTED")) ->
                 inspection(action)
+            completedClaimExtractionRepair ->
+                Decision(Kind.CONTINUE_WORK, action, "Resume claim extraction with a smaller batch without replaying the completed provider request.")
             report["evidence_retention_complete"] == JsonPrimitive(true) &&
                 (original == null || original.text("code") in verificationCodes) &&
                 (code in verificationCodes || action == "RESUME_VERIFICATION") ->
@@ -108,19 +139,30 @@ internal object GitHubEffectiveRecovery {
             current["resume_allowed"]?.let { put("resume_allowed", it) }
             put("task_binding", binding)
         }
-        val refusal = if (current["state"] == JsonPrimitive("BLOCKED_RECOVERY") &&
-            code != null &&
-            (attempt?.get("checkpoint_binding") == null || attempt["checkpoint_binding"] == JsonPrimitive(binding))
-        ) {
-            buildJsonObject {
-                put("current_failure_code", code)
-                attempt?.let { put("latest_recovery_failure", it) }
-                put("task_outcome", "BLOCKED")
-                put("completion_verified", false)
-                put("resume_allowed", false)
+        val refusal = when {
+            current["state"] == JsonPrimitive("BLOCKED_RECOVERY") &&
+                code != null &&
+                (attempt?.get("checkpoint_binding") == null || attempt["checkpoint_binding"] == JsonPrimitive(binding)) -> {
+                buildJsonObject {
+                    put("current_failure_code", code)
+                    attempt?.let { put("latest_recovery_failure", it) }
+                    put("task_outcome", "BLOCKED")
+                    put("completion_verified", false)
+                    put("resume_allowed", false)
+                }
             }
-        } else {
-            JsonObject(emptyMap())
+            current["state"] == JsonPrimitive("BLOCKED_CONTEXT_CAPACITY") &&
+                current["resume_allowed"] == JsonPrimitive(false) &&
+                current["failure_code"] == JsonPrimitive("CONTEXT_CAPACITY_EXCEEDED") -> {
+                buildJsonObject {
+                    put("current_failure_code", "CONTEXT_CAPACITY_EXCEEDED")
+                    put("recovery_action", "CHANGE_CONTEXT_PLAN")
+                    put("task_outcome", "BLOCKED")
+                    put("completion_verified", false)
+                    put("resume_allowed", false)
+                }
+            }
+            else -> JsonObject(emptyMap())
         }
         return attach(JsonObject(report + refusal + ("output_checkpoint" to projection)))
     }
@@ -186,7 +228,12 @@ internal object GitHubEffectiveRecovery {
                     when (original.text("replay_budget_state")) {
                         "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH" -> " Reopen the original read from its saved repository revision and verify the returned page against its receipt."
                         "SAVED_PAGE_EXCEEDS_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE" -> " Reduce the requested range or increase the available context, then continue with the saved receipts."
-                        else -> " Follow the saved-page recovery details from this checkpoint."
+                        else -> when (original.text("replay_missing_record")) {
+                            "AUTHORIZED_REOPEN", "CHECKPOINT_IDENTITY" -> " Reopen the original authorized revision and match its source to the saved checkpoint."
+                            "NOTE_LIMIT", "READING_NOTES" -> " Resume the private read with a short note on the first relevant finding."
+                            "UNSUPPORTED_OUTPUT", "FRESH_PROVIDER_COMPLETION" -> " Resume the private read and wait for the selected model to finish its reading notes."
+                            else -> " Follow the saved-page recovery details from this checkpoint."
+                        }
                     }
                 )
             }

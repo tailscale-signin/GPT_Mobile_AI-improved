@@ -151,6 +151,67 @@ jobs:
           test -f "$JVM_GRAPH_ASM"
           python3 -m unittest discover -s scripts/tests -p test_jvm_call_index.py -v
 
+      - name: Run early Android regression classes
+        id: early_regressions
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          results_dir=build/reports/early-android-regressions
+          mkdir -p "$results_dir"
+          preserve_early_results() {
+            # Keep subset XML separate even on failure. The always-run full-suite
+            # qualification steps must never consume these early-only results.
+            if [[ -d app/build/test-results/testDebugUnitTest ]]; then
+              mv app/build/test-results/testDebugUnitTest "$results_dir/junit"
+            fi
+          }
+          trap preserve_early_results EXIT
+          # Use the normal Android/Room/coroutine test runtime and assertions.
+          # The full suite below still reruns every test and generates coverage.
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:testDebugUnitTest --rerun --no-daemon --console=plain --max-workers=1 \
+            --tests 'dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSourceTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentsTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueuePolicyTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubTaskTrustTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.agent.GitHubFreshProgressRunnerTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.PocketCompiledOptionsTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.workspace.ProtectedDiagnosticProjectionTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubCommitPaginationRecoveryTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionRoutingTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionReadinessTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPairTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetectorTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.TranslationRecognitionQualificationTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.AndroidSpeechQualificationTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.AndroidVoicePrivacyTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.AndroidTranslationRecognitionTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPlaybackPolicyTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlaybackTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceListeningEntryTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneAppearanceTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneCueReadinessTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePreferenceStoreTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceBackendViewModelTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceOutputConfigurationEffectTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePlaybackSelectionTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest' 2>&1 | tee "$results_dir/test.log"
+
+      - name: Preserve early Android regression evidence
+        if: always() && steps.early_regressions.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: early-android-regressions-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: build/reports/early-android-regressions/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Run Unit Tests & JaCoCo Coverage Report
         id: unit_tests
         # Exact-head run 43988347373 exceeded 25m mid-suite without a test verdict.
@@ -347,7 +408,7 @@ jobs:
 
       - name: Collect structured failure diagnostics
         if: always()
-        run: python3 scripts/collect_ci_diagnostics.py unit-ksp.log unit-kapt.log unit-production.log unit-compile.log test.log lint.log heap.log apk.log
+        run: python3 scripts/collect_ci_diagnostics.py unit-ksp.log unit-kapt.log unit-production.log unit-compile.log build/reports/early-android-regressions/test.log test.log lint.log heap.log apk.log
 
       - name: Upload validation logs
         if: always()
@@ -382,6 +443,7 @@ jobs:
       - name: Generate PR Step Summary
         if: always()
         env:
+          EARLY_REGRESSIONS_OUTCOME: ${{ steps.early_regressions.outcome }}
           UNIT_TEST_OUTCOME: ${{ steps.unit_tests.outcome }}
           HEAP_RECOVERY_OUTCOME: ${{ steps.heap_recovery.outcome }}
           REVIEW_APK_OUTCOME: ${{ steps.review_apk.outcome }}
@@ -391,6 +453,7 @@ jobs:
             echo
             echo "| Validation | Result |"
             echo "| --- | --- |"
+            printf '| Early Android regressions (subset) | %s |\n' "${EARLY_REGRESSIONS_OUTCOME:-not run}"
             printf '| Unit tests and coverage | %s |\n' "${UNIT_TEST_OUTCOME:-not run}"
             printf '| 256 MiB recovery and 64 MiB diagnostic export gates | %s |\n' "${HEAP_RECOVERY_OUTCOME:-not run}"
             printf '| APK build and runtime verification | %s |\n' "${REVIEW_APK_OUTCOME:-not run}"

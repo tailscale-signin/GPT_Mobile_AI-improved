@@ -50,11 +50,51 @@ class VoiceResponsePresentationTest {
         assertFalse(policy.instruction().contains("first breath"))
     }
 
+    @Test fun everyVoiceLanguageFreezesADistinctReplyAndTranslationInstruction() {
+        for (language in SpeechLanguages.synthesis) {
+            val reply = VoiceResponsePolicy.forLanguage(language.tag)
+            val translation = VoiceResponsePolicy.forLanguage(language.tag, translate = true)
+            assertTrue(reply.fixesReplyLanguage && !reply.translationOnly)
+            assertTrue(translation.fixesReplyLanguage && translation.translationOnly)
+            assertTrue(reply.instruction().contains("entire reply"))
+            val source = user(10, "What time is it?")
+            val saved = Json.decodeFromString<MessageV2>(Json.encodeToString(VoiceResponsePresentation.attach(source, translation)))
+            assertEquals(translation, VoiceResponsePresentation.resolve(listOf(saved), reply))
+            assertEquals(source.content, saved.content)
+            assertNull(VoiceResponsePresentation.resolve(listOf(saved, user(11, "continue"))))
+            val tools = ChatMcpToolConfig(enabledToolIds = setOf("search"), reasoning = true).withVoicePolicy(translation)
+            assertFalse(tools.isToolEnabled("search"))
+            assertEquals(false, tools.delegation?.enabled)
+            assertEquals(false, tools.research?.researchToggle)
+            assertEquals(translation.instruction(), VoiceResponsePresentation.compose("Answer every question in English", translation))
+        }
+        assertEquals(VoiceResponsePolicy.TRANSLATE_FRENCH, VoiceResponsePolicy.forLanguage("fr-CA", true))
+        assertEquals(VoiceResponsePolicy.REPLY_BRAZILIAN_PORTUGUESE, VoiceResponsePolicy.forLanguage("pt"))
+        assertEquals(VoiceResponsePolicy.REPLY_AMERICAN_ENGLISH, VoiceResponsePolicy.forLanguage("en-US"))
+        assertTrue(Json.decodeFromString<VoiceResponsePolicy>("\"FRENCH\"").instruction().contains("unless the user asks"))
+    }
+
     @Test fun oldTextSnapshotsDoNotAcquireVoicePresentation() {
         val restored = Json.decodeFromString<PendingPromptPayload>("{\"tools\":{},\"profileUids\":[\"selected\"]}")
         assertNull(restored.tools.voiceResponsePolicy)
         assertEquals("Profile instruction", VoiceResponsePresentation.compose("Profile instruction", null))
         assertFalse(Json.encodeToString(ChatMcpToolConfig()).contains("voiceResponsePolicy"))
+    }
+
+    @Test fun aTranslationPolicyCannotRegainToolsThroughSavedOrLaterToggleSettings() {
+        val translation = VoiceResponsePolicy.TRANSLATE_FRENCH
+        val direct = ChatMcpToolConfig(enabledToolIds = setOf("search", "send_email"), allowAllByDefault = true, voiceResponsePolicy = translation)
+        for (tools in listOf(direct, direct.withToolEnabled("search"), direct.copy(allToolsDisabled = false, maxTools = 99, maxToolCalls = 99))) {
+            assertFalse(tools.isToolEnabled("search"))
+            assertFalse(tools.isToolEnabled(listOf("search", "send_email")))
+            assertTrue(tools.limitTools(listOf("search", "send_email")).isEmpty())
+            val delegation = tools.effectiveDelegation(dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(enabled = true, reviewerEnabled = true, researchEnabled = true, automaticResearch = true))
+            assertFalse(delegation.enabled)
+            assertFalse(delegation.reviewerEnabled)
+            assertFalse(delegation.researchEnabled)
+            assertFalse(delegation.automaticResearch)
+        }
+        assertTrue(ChatMcpToolConfig().isToolEnabled("search"))
     }
 
     @Test fun retryUsesItsPersistedUserPolicyAndKeepsTheSelectedProfilePrompt() {

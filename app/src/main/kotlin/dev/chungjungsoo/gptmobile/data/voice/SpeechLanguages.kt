@@ -22,7 +22,7 @@ internal object SpeechLanguages {
     )
     val default = synthesis.first()
 
-    fun forVoice(id: String): SpeechLanguage? = synthesis.firstOrNull { id in it.voices }
+    fun forVoice(id: String): SpeechLanguage? = synthesis.firstOrNull { id in it.voices } ?: MediaPipeSpeechVoices.forVoice(id)
 
     fun forLocale(tag: String): SpeechLanguage? {
         val locale = Locale.forLanguageTag(tag)
@@ -33,17 +33,25 @@ internal object SpeechLanguages {
     fun availableVoice(requested: String, available: Set<String>, sameLanguageFallback: Boolean): String? {
         if (requested in available) return requested
         if (!sameLanguageFallback) return null
-        return synthesis.firstOrNull { requested in it.voices }?.voices?.firstOrNull { it in available }
+        return forVoice(requested)?.voices?.firstOrNull { it in available }
     }
 
     fun recognitionDefault(locale: Locale = Locale.getDefault()): String =
         locale.toLanguageTag().takeIf { locale.language.isNotEmpty() && it != "und" } ?: default.tag
 
-    fun recognitionBackend(tag: String, englishBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE) = if (Locale.forLanguageTag(tag).language == "en") {
+    fun recognitionBackend(
+        tag: String,
+        englishBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
+        model: VoiceRecognitionModel = VoiceRecognitionModel.MOONSHINE_TINY
+    ) = if (model.supportsLanguage(tag)) {
         englishBackend
     } else {
         VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
     }
+
+    /** Automatic pair switching requires Android's confirmed offline languages. */
+    fun translationRecognitionBackend(sourceLanguage: String?, selected: VoiceRecognitionBackend, model: VoiceRecognitionModel): VoiceRecognitionBackend =
+        sourceLanguage?.let { recognitionBackend(it, selected, model) } ?: VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
 }
 
 internal data class VoiceSynthesisPreferences(val language: String = "en-US", val voices: Map<String, String> = emptyMap()) {

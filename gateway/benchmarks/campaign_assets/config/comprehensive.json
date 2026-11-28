@@ -1,0 +1,693 @@
+{
+  "schema": "gpt-mobile-benchkit.campaign.v1",
+  "name": "comprehensive",
+  "description": "Matched supplied-answer native product trial campaign. Generation is manual and is never launched by this kit.",
+  "products": [
+    "GPT Mobile AI",
+    "ChatGPT",
+    "Codex",
+    "Claude Code"
+  ],
+  "upstreamPreset": "deep",
+  "cache": "cold",
+  "repeats": 3,
+  "maxSeconds": 1200,
+  "maxCostUsd": 0,
+  "marginPoints": 5,
+  "tasks": [
+    {
+      "pack": "python",
+      "id": "pagination-1",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "pagination-2",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "pagination-3",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "pagination-4",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "pagination-5",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "pagination-6",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "pagination-7",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "pagination-8",
+      "family": "pagination",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-1",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-2",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-3",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-4",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-5",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-6",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-7",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "idempotency-8",
+      "family": "idempotency",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-1",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-2",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-3",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-4",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-5",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-6",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-7",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "dependencies-8",
+      "family": "dependencies",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-1",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-2",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-3",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-4",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-5",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-6",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-7",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "budget-8",
+      "family": "budget",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-1",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-2",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-3",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-4",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-5",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-6",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-7",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "streaming-8",
+      "family": "streaming",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-1",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-2",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-3",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-4",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-5",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-6",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-7",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "migration-8",
+      "family": "migration",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-1",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-2",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-3",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-4",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-5",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-6",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-7",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "patches-8",
+      "family": "patches",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-1",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-2",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-3",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-4",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-5",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-6",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-7",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "ci-8",
+      "family": "ci",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-1",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-2",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-3",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-4",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-5",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-6",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-7",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "retries-8",
+      "family": "retries",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-1",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-2",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-3",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-4",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-5",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-6",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-7",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "permissions-8",
+      "family": "permissions",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-1",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-2",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-3",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-4",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-5",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-6",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-7",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "evidence-8",
+      "family": "evidence",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-1",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-2",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-3",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-4",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-5",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-6",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-7",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "graph-8",
+      "family": "graph",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "capstone-publication",
+      "family": "capstone",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "capstone-planning",
+      "family": "capstone",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "capstone-transaction",
+      "family": "capstone",
+      "seed": 17
+    },
+    {
+      "pack": "python",
+      "id": "capstone-recovery",
+      "family": "capstone",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-kotlin-stale-generation",
+      "family": "repository-kotlin-stale-generation",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-kotlin-stable-selection",
+      "family": "repository-kotlin-stable-selection",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-kotlin-event-replay",
+      "family": "repository-kotlin-event-replay",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-kotlin-state-restore",
+      "family": "repository-kotlin-state-restore",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-room-add-default",
+      "family": "repository-room-add-default",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-room-rebuild-foreign-key",
+      "family": "repository-room-rebuild-foreign-key",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-room-deduplicate-index",
+      "family": "repository-room-deduplicate-index",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-room-transaction-rollback",
+      "family": "repository-room-transaction-rollback",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-ci-required-needs",
+      "family": "repository-ci-required-needs",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-ci-skipped-gate",
+      "family": "repository-ci-skipped-gate",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-ci-event-ref",
+      "family": "repository-ci-event-ref",
+      "seed": 17
+    },
+    {
+      "pack": "repository",
+      "id": "repository-ci-fork-permissions",
+      "family": "repository-ci-fork-permissions",
+      "seed": 17
+    }
+  ],
+  "githubScenarioPreparation": "comprehensive",
+  "note": "Zero is a budget, not a claim of free usage. Enter actual observed cost or null. Warm cache requires a separately frozen campaign. Related variants/repeats retain their original family."
+}

@@ -189,7 +189,14 @@ internal object GitHubEvidencePolicy {
 
     fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, issueWork: GitHubIssueRemediation.Context? = null, executionPlan: JsonObject? = null): Pair<String, JsonObject> {
         val claims = answer["claims"] as? JsonArray ?: error("Missing claim-level evidence response")
-        require(claims.size in 1..128) { "Claim count exceeds the verification bound" }
+        // A large accepted task can contain more than 128 supported claims. Bound the
+        // combined result by its complete criterion plan, while each extraction still
+        // validates the original eight-claim maximum before entering this renderer.
+        val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.size ?: 0
+        val criterionCount = maxOf(acceptedCriteria, GitHubRequestCompletion.requirements(task, issueWork).distinct().size)
+        val batches = (criterionCount + GitHubClaimBatches.REQUIREMENTS_PER_BATCH - 1) / GitHubClaimBatches.REQUIREMENTS_PER_BATCH
+        val claimBound = maxOf(128, batches * GitHubClaimBatches.MAX_CLAIMS)
+        require(claims.size in 1..claimBound) { "Claim count exceeds the accepted verification plan" }
         val checked = mutableListOf<JsonObject>()
         val excerpts = mutableListOf<String>()
         val observations = mutableMapOf<String, Map<String, JsonElement>>()
@@ -352,6 +359,15 @@ internal object GitHubEvidencePolicy {
             reviewState?.let { put("review_state", it) }
             checklist?.let { put("test_checklist", it) }
             completion.forEach { (key, value) -> put(key, value) }
+            if (checklist != null && GitHubTestChecklist.integration(task)) {
+                val stop = GitHubIntegrationReport.stopReason(task, receipts, tools, remainingToolCalls, checklist)
+                put("stop_reason", stop)
+                if (stop["code"] != JsonPrimitive("ACCEPTANCE_COMPLETE")) {
+                    put("completion_verified", false)
+                    put("partial", true)
+                    put("task_outcome", GitHubIntegrationReport.taskOutcome(stop))
+                }
+            }
         }
         // Baseline selection belongs to the durable review state. An extractor
         // cannot reopen a completed decision because its optional context omitted it.
@@ -367,7 +383,7 @@ internal object GitHubEvidencePolicy {
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {
             "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls, stageBudget, acceptedContract, checklist) +
-                if (facts.isNotEmpty()) "\n## Verified observations\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n" + facts.joinToString("\n") else ""
+                if (facts.isNotEmpty() && !(GitHubTestChecklist.integration(task) && GitHubIntegrationReport.preferCompact(task))) "\n## Verified observations\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n" + facts.joinToString("\n") else ""
         } else {
             GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) }) + reviewState?.let { review ->
                 val coverage = review["comparison_coverage"] as? JsonObject
@@ -384,15 +400,7 @@ internal object GitHubEvidencePolicy {
                 }
             }.orEmpty()
         }
-        val remaining = completion["remaining_requirements"] as? JsonArray
-        val output = if (!GitHubTaskCoverage.matches(task) && !remaining.isNullOrEmpty()) {
-            text + "\n\n## Remaining work\n\n" + remaining.joinToString("\n") { row ->
-                val item = row as JsonObject
-                "- **${item.string("status").lowercase()}:** ${safe(item.string("requirement"))} — ${safe(item.string("acceptance"))}"
-            }
-        } else {
-            text
-        }
+        val output = if (!GitHubTaskCoverage.matches(task)) text + GitHubAnswerPresentation.remainingWork(completion) else text
         return output to report
     }
 
@@ -418,16 +426,6 @@ internal object GitHubEvidencePolicy {
             )
         }
         val (observations, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, acceptedContract = acceptedContract, issueWork = issueWork)
-        val coverage = GitHubTaskCoverage.rows(receipts)
-        val operations = if (coverage.isEmpty()) {
-            ""
-        } else {
-            "\n\n## Recorded operations\n\n" + coverage.joinToString("\n") { row ->
-                "- **${safe(row.string("tool"))} / ${safe(row.string("action"))}:** ${row.string("successful_observations")} successful, ${row.string("failed_observations")} failed observations."
-            }
-        }
-        val established = GitHubPartialReport.fromReceipts(receipts).takeIf(String::isNotBlank)?.let { "$it\n\n" }.orEmpty()
-        val missingComparison = GitHubReviewComparison.incompleteReason(task, receipts)?.let { "\n\n**Branch review incomplete:** $it" }.orEmpty()
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts)
         val waitingForApproval = pendingApprovals.isNotEmpty()
         val fixturePending = pendingApprovals.filterIsInstance<JsonObject>().any { it.string("branch").startsWith("codex-self-test/") }
@@ -439,6 +437,9 @@ internal object GitHubEvidencePolicy {
             result?.get("keep_fixture") == JsonPrimitive(true)
         }
         val action = if (inspectExtractorFailure) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else recoveryAction(failureCode, receipts)
+        val reviewProgress = (report["review_state"] as? JsonObject)?.takeIf {
+            failureCode == "REPLAY_EVIDENCE_REQUIRED" && it["comparison_verified"] == JsonPrimitive(true) && !GitHubWorkflowPreset.implementation(task)
+        }?.let { GitHubPartialReport.reviewProgress(it, receipts, now, epoch) }
         val ending = when {
             waitingForApproval ->
                 "**Waiting for approval.** Resolve the existing approval card for its exact task, branch, expected head and staged patch. Generic Continue and Retry are paused." +
@@ -446,15 +447,30 @@ internal object GitHubEvidencePolicy {
             rejectedApprovals.isNotEmpty() ->
                 "**Change rejected.** The durable approval event confirms no mutation was published. " +
                     if (keepRejectedFixture) "Fixture intentionally retained by the user's Keep fixture choice." else "The fixture is queued for cleanup reconciliation and branch absence verification."
+            reviewProgress != null -> "**Next action:** ${recoveryText(action)}"
             else -> "**Task incomplete.** These observations and retained evidence do not establish unverified changes, tests or merges.\n\n**Next action:** ${recoveryText(action)}"
         }
         val fallbackScope = if (fallback.omitted > 0) "\n\nThis bounded summary inspected ${fallback.inspected} of ${fallback.candidates} successful trusted receipts. Omitted observations remain retained; their absence from this summary does not establish absence from the repository." else ""
-        val text = established + observations + operations + missingComparison + fallbackScope + "\n\n" + ending
+        val body = reviewProgress ?: run {
+            val coverage = GitHubTaskCoverage.rows(receipts)
+            val operations = if (coverage.isEmpty()) {
+                ""
+            } else {
+                "\n\n## Recorded operations\n\n" + coverage.joinToString("\n") { row ->
+                    "- **${safe(row.string("tool"))} / ${safe(row.string("action"))}:** ${row.string("successful_observations")} successful, ${row.string("failed_observations")} failed observations."
+                }
+            }
+            val established = GitHubPartialReport.fromReceipts(receipts).takeIf(String::isNotBlank)?.let { "$it\n\n" }.orEmpty()
+            val missingComparison = GitHubReviewComparison.incompleteReason(task, receipts)?.let { "\n\n**Branch review incomplete:** $it" }.orEmpty()
+            established + observations + operations + missingComparison + fallbackScope
+        }
+        val text = body + "\n\n" + ending
         return text to JsonObject(
             report + mapOf(
                 "partial" to JsonPrimitive(true),
                 "answer_available" to JsonPrimitive(true),
                 "fallback" to JsonPrimitive("receipt_only"),
+                "compact_review_checkpoint" to JsonPrimitive(reviewProgress != null),
                 "fallback_candidate_receipts" to JsonPrimitive(fallback.candidates),
                 "fallback_inspected_receipts" to JsonPrimitive(fallback.inspected),
                 "fallback_omitted_receipts" to JsonPrimitive(fallback.omitted),
@@ -680,7 +696,7 @@ internal object GitHubEvidencePolicy {
             report + buildJsonObject {
                 put("completion_verified", complete)
                 put("partial", !complete)
-                put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
+                put("task_outcome", if (complete) "COMPLETED" else report.string("task_outcome").ifBlank { "PARTIAL" })
                 put("completion_scope", "Authorized API action coverage; device and overall application health are not inferred")
                 put("requirements", requirements)
                 put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))

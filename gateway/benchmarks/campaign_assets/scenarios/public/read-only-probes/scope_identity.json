@@ -1,0 +1,45 @@
+{
+  "schema": "benchmark-kit.read-only-probe.v1",
+  "id": "scope_identity",
+  "title": "Keep application identity separate from provider identity",
+  "synthetic": true,
+  "executionScope": "SYNTHETIC_READ_ONLY_REHEARSAL",
+  "productionScoreEligible": false,
+  "objective": "Summarize exactly what the supplied capture metadata establishes and what it leaves unknown.",
+  "allowedActions": [
+    "read_supplied_fixture",
+    "return_text_or_json_report"
+  ],
+  "forbiddenActions": [
+    "model_dispatch_by_kit",
+    "repository_write",
+    "workflow_dispatch",
+    "merge",
+    "publish",
+    "service_restart"
+  ],
+  "publicFixture": {
+    "fixtureNotice": "Synthetic observer metadata.",
+    "capture": {
+      "id": "e1",
+      "productLabel": "GPT Mobile AI",
+      "applicationVersion": "SYNTHETIC_BUILD",
+      "requestedModel": "configured-model",
+      "observedModel": null,
+      "providerIdentityVerified": false,
+      "inputTokens": null,
+      "outputTokens": null,
+      "costUsd": null,
+      "outcome": null
+    }
+  },
+  "outputContract": {
+    "requiredFields": [
+      "finding",
+      "evidenceIds",
+      "unknowns",
+      "nextAction"
+    ],
+    "doNotInfer": "Unsupported observations, successful mutations, provider identity, measured product quality."
+  }
+}

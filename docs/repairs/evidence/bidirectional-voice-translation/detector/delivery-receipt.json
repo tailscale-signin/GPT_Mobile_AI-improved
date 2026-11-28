@@ -1,0 +1,43 @@
+{
+  "commit": "fb1ed45ef1683985ad47e7a03007d2e3f6fa28b2",
+  "files_sha256": {
+    "app/src/main/assets/licenses/mediapipe-language-detector-NOTICES.txt": "0dc95b158d10103f07a3dbc6708c9d36dff4471973c1cbbb8c3c1fa5a31504be",
+    "app/src/main/assets/voice/language_detector.tflite": "7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt": "8c017af1b467dbf63295b630465eb777cd8a4b1fa575ce7f068e464c9bcf3038",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt": "ea2c3efabb80cd1b92936d00e52f93b53d7e973468784cac27ddadcba65a6bac",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt": "51e6da8e1ac5987fd9ead8b7be6b2821c0629172b01a0a72c2e215b19fe36fb6",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidTranslationRecognitionTest.kt": "414b5a5ea9a1902b8dad81557f2168b73e253576fa8e30fc785f8f711cb4c5d3",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/TranslationRecognitionQualificationTest.kt": "f4d9ca8299c0419d5cf5c6a250f86cfe5c125ad9dfee7e2522e15a7c03a87c01",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetectorTest.kt": "40cc608e88ff69f39a1eef6ad1f1a508c703a3b9f6343ef05b2552b628de9656",
+    "docs/audits/voice-translation-language-model-2026-11-28.json": "58cc389cd330b9246f2b6e904f2014df73d1a185ca9dc85239a0d68456cd7343"
+  },
+  "tests": {
+    "portable_policy_and_lifecycle": {
+      "passed": 13,
+      "manifest": "/workspace/scratch/49479c165f4e/translation-detection-host/policy/manifest.json",
+      "compile_log": "/workspace/scratch/49479c165f4e/translation-detection-host/policy/compile.log",
+      "junit_log": "/workspace/scratch/49479c165f4e/translation-detection-host/policy/junit.log"
+    },
+    "native_model": {
+      "required_passed": 4,
+      "observations": 9,
+      "receipt": "/workspace/scratch/49479c165f4e/translation-detection-host/native-model-fixtures.json",
+      "log": "/workspace/scratch/49479c165f4e/translation-detection-host/native-model-fixtures.log"
+    },
+    "android_robolectric": {
+      "checked_in_cases": 6,
+      "executed_locally": false,
+      "class": "dev.chungjungsoo.gptmobile.data.voice.AndroidTranslationRecognitionTest",
+      "reason": "Robolectric and Mockito runtime dependencies are not installed in the local qualification cache; integrated Android CI owns execution."
+    }
+  },
+  "ktlint": "Passed on all six changed Kotlin source/test files.",
+  "diff_check": "Passed.",
+  "limitations": [
+    "Portable qualification compiles actual AndroidRecognitionService and detector APIs, but does not execute AndroidVoiceAudio.",
+    "Full AndroidVoiceAudio compilation and Robolectric execution remain integrated Android CI gates.",
+    "Native fixture inference uses Linux MediaPipe Python 0.10.21, not the Android JNI runtime or microphone.",
+    "The publisher excludes mixed-language text from guaranteed language identification; an observed mixed fixture shows high-confidence French. Short Hello remains unresolved at 0.5112."
+  ],
+  "root_metadata": "No generated repository reference or feature map edited."
+}

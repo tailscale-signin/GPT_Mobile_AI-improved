@@ -47,6 +47,40 @@ class GitHubTaskContextPreparationTest {
         coVerify(exactly = 0) { maps.executeForMap(any(), any(), any()) }
     }
 
+    @Test fun noResidualPromptAllowanceSkipsSourceAccessAndCacheLookups() = runTest {
+        for (capacity in listOf(4096, 8192, 32_768)) {
+            val result = preparation.prepare(context, "parser task", GitHubContextVariant.TASK, capacity, listOf(source), GitHubEngineeringMemoryMode.HYBRID, availableTokens = 0)
+            assertEquals(RepositoryContextAvailability.WINDOW_TOO_SMALL, result.availability)
+            assertEquals("", result.text)
+        }
+        coVerify(exactly = 0) { connections.getConnection(any()) }
+        coVerify(exactly = 0) { maps.executeForMap(any(), any(), any()) }
+        coVerify(exactly = 0) { semantic.rankEngineering(any(), any(), any()) }
+    }
+
+    @Test fun sourcePreparationFitsResidualSpaceWithoutAnotherFetch() = runTest {
+        val lines = (1..32).map { "    val parserResult$it = decode(input$it) // selected source 🧭" }
+        val range = buildJsonObject {
+            put("path", "src/Parser.kt")
+            put("blob_sha", "b".repeat(40))
+            put("start_line", 21)
+            put("end_line", 52)
+            put("excerpt", lines.joinToString("\n"))
+            put("range_complete", true)
+        }
+        val packet = JsonObject(receipt + ("selected_ranges" to JsonArray(listOf(range))))
+        coEvery { connections.getConnection("selected") } returns connection
+        coEvery { maps.executeForMap(context, any(), true) } returns response().copy(result = packet)
+        val prepared = preparation.prepare(context, "parser task", GitHubContextVariant.TASK, 8192, listOf(source), GitHubEngineeringMemoryMode.HYBRID, availableTokens = 600)
+        assertEquals(RepositoryContextAvailability.SOURCE, prepared.availability)
+        assertTrue(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate("\n${prepared.text}") <= 600)
+        assertTrue(prepared.text.contains("parserResult1"))
+        assertTrue(prepared.text.contains("context_omissions"))
+        assertTrue(prepared.text.contains("\"range_complete\":false"))
+        coVerify(exactly = 1) { maps.executeForMap(context, any(), true) }
+        coVerify(exactly = 2) { connections.getConnection("selected") }
+    }
+
     @Test fun smallProfilesUseOneCompactAttemptAndExplainACacheMissOrTimeout() = runTest {
         coEvery { connections.getConnection("selected") } returns connection
         val cold = buildJsonObject {

@@ -29,6 +29,7 @@ internal class MediaPipeVoicePhraseEngine(
     private var closing = false
     private var closed = false
     private var retirementFailed = false
+    private var captionAlignmentEnabled = false
     private var attemptId = 0L
     private var attemptStarted = 0L
     private var readSequence = 0L
@@ -55,10 +56,18 @@ internal class MediaPipeVoicePhraseEngine(
         VoiceSpeechBackend.LITERT_KOKORO_SM8750, VoiceSpeechBackend.LITERT_KOKORO_NPU -> "mediapipe-kokoro-npu-requested"
         VoiceSpeechBackend.PHONON_CPU -> "mediapipe-phonon-cpu-requested"
         VoiceSpeechBackend.POCKET_CPU -> "mediapipe-pocket-cpu-requested"
+        VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU -> "mediapipe-pocket-multilingual-cpu-requested"
         else -> error("Unsupported MediaPipe speech backend")
     }
 
     override fun selectVoice(voiceId: String) = selectVoice(voiceId, sameLanguageFallback = false)
+
+    override fun setCaptionAlignmentEnabled(enabled: Boolean) = synchronized(operationLock) {
+        synchronized(stateLock) {
+            check(!closing && !closed && !retirementFailed && owner == null) { "Speech engine is not idle." }
+            captionAlignmentEnabled = enabled
+        }
+    }
 
     fun selectVoice(voiceId: String, sameLanguageFallback: Boolean) {
         synchronized(operationLock) {
@@ -88,7 +97,8 @@ internal class MediaPipeVoicePhraseEngine(
     }
 
     private fun produce(text: String, nextText: (() -> String?)?, speed: Float, emit: (VoicePcmChunk) -> Boolean, publishEvidence: Boolean = true) {
-        require(speed.toBits() == speakingRate.toBits()) { "Speech rate changed; prepare a new SDK engine." }
+        require(speed.isFinite() && speed in .5f..2f) { "Invalid speech tempo." }
+        require(speakingRate == 1f) { "Streaming synthesis must stay at normal pitch and rate." }
         synchronized(operationLock) {
             synchronized(stateLock) {
                 check(!closing && !closed && !retirementFailed) { "Speech engine is closed or could not retire a native stream." }
@@ -104,11 +114,22 @@ internal class MediaPipeVoicePhraseEngine(
             val inputFailure = AtomicReference<Throwable?>()
             val inputFinished = AtomicBoolean(nextText == null)
             val frameLimit = if (nextText == null) VoiceStreamFrames.MAX_STREAM_FRAMES else VoiceIncrementalStreamLimits.MAX_FRAMES
+            val sourceFrameLimit = VoiceTempoProcessor.inputFrameLimit(speed, frameLimit)
             val cueLimit = if (nextText == null) VoiceStreamFrames.MAX_CUES else VoiceIncrementalStreamLimits.MAX_CUES
             val packetLimit = if (nextText == null) MAX_NATIVE_PACKETS else MAX_INCREMENTAL_PACKETS
+            var captionBuffer: MediaPipeCaptionBuffer? = null
             var completed = false
             try {
-                val cues = MediaPipeWordCueMapper(text, frameLimit, cueLimit)
+                // Allocation belongs to the retirement guard, including memory-admission failures.
+                // Silent warmup and captions-off playback retain immediate streaming without it.
+                val buffered = if (captionAlignmentEnabled && publishEvidence) MediaPipeCaptionBuffer().also { captionBuffer = it } else null
+                val cues = MediaPipeWordCueMapper(text, sourceFrameLimit, cueLimit)
+                val tempo = VoiceTempoProcessor(speed, frameLimit, cueLimit)
+                fun forward(chunk: VoicePcmChunk) = tempo.accept(chunk) { emitChecked(it, emit) }
+                fun forwardBuffered(samples: FloatArray) {
+                    val readyCues = cues.accept(emptyList(), requireNotNull(buffered).forwardedFrames)
+                    forward(VoicePcmChunk(samples, wordCues = readyCues))
+                }
                 stream = nativeStreamCall { if (nextText == null) task.openStream(text, voiceId) else task.openIncrementalStream(voiceId) }
                 val opened = stream
                 synchronized(stateLock) {
@@ -150,6 +171,8 @@ internal class MediaPipeVoicePhraseEngine(
                 }
                 var frames = 0L
                 var nonSilent = false
+                val checkClipping = configuredBackend.isMediaPipeAccelerator
+                var fullScaleRun = 0
                 var packets = 0
                 var finalSeen = false
                 while (true) {
@@ -175,12 +198,29 @@ internal class MediaPipeVoicePhraseEngine(
                     require(!finalSeen) { "Speech SDK returned audio after its final chunk." }
                     require(++packets <= packetLimit) { "Speech stream packet limit exceeded." }
                     nativeStreamCall { require(chunk.sampleRateHz == VOICE_PCM_SAMPLE_RATE) { "Speech SDK must return 24 kHz mono PCM." } }
-                    require(frames + chunk.samples.size <= frameLimit) { "Speech stream frame limit exceeded." }
-                    nativeStreamCall { require(chunk.samples.all(Float::isFinite)) { "Speech SDK returned invalid PCM." } }
-                    nonSilent = nonSilent || chunk.samples.any { kotlin.math.abs(it) >= 1e-5f }
-                    if (chunk.samples.isEmpty()) {
+                    require(frames + chunk.samples.size <= sourceFrameLimit) { "Speech stream frame limit exceeded." }
+                    nativeStreamCall {
+                        // Inspect the whole SDK packet before forwarding its audio or captions.
+                        for (sample in chunk.samples) {
+                            require(sample.isFinite()) { "Speech SDK returned invalid PCM." }
+                            val magnitude = kotlin.math.abs(sample)
+                            if (checkClipping) {
+                                fullScaleRun = if (magnitude >= 1f) fullScaleRun + 1 else 0
+                                require(magnitude <= 1f && fullScaleRun < FULL_SCALE_RUN_LIMIT) { "Speech accelerator returned clipped PCM." }
+                            }
+                            if (magnitude >= 1e-5f) nonSilent = true
+                        }
+                    }
+                    if (buffered != null) {
+                        // Stage timestamps at the playback-facing watermark. Mapper prefixes and
+                        // revisions are published with the PCM they describe, before it can be heard.
+                        val readyCues = cues.accept(chunk.wordTimestamps, buffered.forwardedFrames)
+                        if (readyCues.isNotEmpty()) forward(VoicePcmChunk(FloatArray(0), wordCues = readyCues))
+                        frames += chunk.samples.size
+                        buffered.accept(chunk.samples, cues.timestampedThroughFrame, ::forwardBuffered)
+                    } else if (chunk.samples.isEmpty()) {
                         val readyCues = cues.accept(chunk.wordTimestamps, frames)
-                        if (readyCues.isNotEmpty()) emitChecked(VoicePcmChunk(FloatArray(0), wordCues = readyCues), emit)
+                        if (readyCues.isNotEmpty()) forward(VoicePcmChunk(FloatArray(0), wordCues = readyCues))
                     } else {
                         var offset = 0
                         while (offset < chunk.samples.size) {
@@ -188,10 +228,7 @@ internal class MediaPipeVoicePhraseEngine(
                             frames += end - offset
                             val readyCues = cues.accept(if (offset == 0) chunk.wordTimestamps else emptyList(), frames)
                             // The native SDK owns its array. Queue slices get independent ownership.
-                            emitChecked(
-                                VoicePcmChunk(chunk.samples.copyOfRange(offset, end), wordCues = readyCues),
-                                emit
-                            )
+                            forward(VoicePcmChunk(chunk.samples.copyOfRange(offset, end), wordCues = readyCues))
                             offset = end
                         }
                     }
@@ -203,7 +240,9 @@ internal class MediaPipeVoicePhraseEngine(
                     require(inputFinished.get()) { "Speech SDK ended before incremental text input finished." }
                     require(frames > 0 && nonSilent) { "Speech SDK returned no audible PCM." }
                 }
-                cues.finish()?.let { end -> emitChecked(VoicePcmChunk(FloatArray(0), wordCues = listOf(end)), emit) }
+                buffered?.finish(::forwardBuffered)
+                cues.finish()?.let { end -> forward(VoicePcmChunk(FloatArray(0), wordCues = listOf(end))) }
+                tempo.finish { emitChecked(it, emit) }
                 completed = true
             } catch (failure: Throwable) {
                 synchronized(stateLock) {
@@ -214,6 +253,7 @@ internal class MediaPipeVoicePhraseEngine(
                 }
                 throw inputFailure.get()?.takeUnless { it is InterruptedException && failure is CancellationException } ?: failure
             } finally {
+                captionBuffer?.close()
                 try {
                     // Both pushText/finishInput and readNext must return before native destruction.
                     // A stuck input callback/native push quarantines the stream and model lease.
@@ -346,6 +386,8 @@ internal class MediaPipeVoicePhraseEngine(
     }
 
     private companion object {
+        // A single normalized full-scale peak is representable. Repeated full scale signals saturation.
+        const val FULL_SCALE_RUN_LIMIT = 4
         const val MAX_NATIVE_PACKETS = 4_096
         const val MAX_INCREMENTAL_PACKETS = 32_768
         const val INPUT_RETIREMENT_MS = 1_000L

@@ -97,7 +97,7 @@ fi
 if [ "$settings_home_restore_status" -ne 0 ]; then
   printf 'Settings Home 320 dp viewport restore failed (exit %s).\n' "$settings_home_restore_status" >&2
 fi
-# The workflow disables animations. These suites measure intermediate navigation/chat frames.
+# These device suites measure intermediate navigation, chat and voice translation frames.
 navigation_setup_status=0
 for navigation_scale in animator_duration_scale window_animation_scale transition_animation_scale; do
   timeout 30s adb shell settings put global "$navigation_scale" 1
@@ -118,6 +118,10 @@ if [ "$navigation_setup_status" -eq 0 ]; then
   timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatBottomAutoScrollerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/chat-bottom-scroll-instrumentation.txt"
   chat_bottom_scroll_status=${PIPESTATUS[0]}
 fi
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-conversation-instrumentation.txt"
+voice_conversation_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneButtonInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-microphone-instrumentation.txt"
+voice_microphone_status=${PIPESTATUS[0]}
 navigation_restore_status=0
 for navigation_scale in animator_duration_scale window_animation_scale transition_animation_scale; do
   timeout 30s adb shell settings put global "$navigation_scale" 0
@@ -140,8 +144,6 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 local_voice_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceEntryInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-entry-instrumentation.txt"
 voice_entry_status=${PIPESTATUS[0]}
-timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-conversation-instrumentation.txt"
-voice_conversation_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMessageControlsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-message-controls-instrumentation.txt"
 voice_message_controls_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTranscriptInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-transcript-instrumentation.txt"
@@ -176,6 +178,7 @@ if [ "$agent_persistence_status" -ne 0 ]; then exit "$agent_persistence_status";
 if [ "$local_voice_status" -ne 0 ]; then exit "$local_voice_status"; fi
 if [ "$voice_entry_status" -ne 0 ]; then exit "$voice_entry_status"; fi
 if [ "$voice_conversation_status" -ne 0 ]; then exit "$voice_conversation_status"; fi
+if [ "$voice_microphone_status" -ne 0 ]; then exit "$voice_microphone_status"; fi
 if [ "$voice_message_controls_status" -ne 0 ]; then exit "$voice_message_controls_status"; fi
 if [ "$voice_transcript_status" -ne 0 ]; then exit "$voice_transcript_status"; fi
 if [ "$voice_artifact_status" -ne 0 ]; then exit "$voice_artifact_status"; fi
@@ -254,9 +257,11 @@ for test in (
     'builtInToolBinding_failedReplacementRollsBackThePreviousGrant',
     'builtInToolBinding_concurrentUiAndImportWritesKeepOneGrant',
     'builtInToolBinding_stagedRestorePreservesUnselectedTools',
+    'retryingAnEarlierSessionReportSeesOnlyItsPrecedingChatTurns',
 ):
     check_instrumentation(folder / 'agent-persistence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest', test)
 for test in (
+    'oneStartAndStopKeepsAReadableExport',
     'selectedStreamingPackCanStartVoiceChatWithoutTheNativeKokoroPack',
     'voiceButtonIsLeftOfNewChatAndReportsItsRevealOrigin',
     'disabledPluginWaitsForExplicitOptIn',
@@ -265,7 +270,10 @@ for test in (
 for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
     'readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh',
-    'captionsWaitForRestoredPreferencesAndExposeCheckedState',
+    'microphoneAndLanguageControlsFollowTheTurnAndPickerState',
+    'translationLanguageChoicesKeepEachVoiceAndOfferSourceRecoveryAndPackInstallation',
+    'translationKeepsTheSourceAboveTheResponseAndControlsAcrossCaptures',
+    'translationSourceFadesWithinOneSecondAndKeepsItsOpacityOnPartialCorrections',
     'theProfilePickerChangesProfileOnlyBetweenTurns',
     'drawnHighlightsKeepGlyphGeometryAndSilenceKeepsItsPlace',
     'accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing',
@@ -275,6 +283,11 @@ for test in (
     'themedVoiceStagesRetainRenderedEvidence',
 ):
     check_instrumentation(folder / 'voice-conversation-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest', test)
+for test in (
+    'pressingTheIdleMicrophoneHighlightsAndPulsesWhileStopRemainsStatic',
+    'reducedMotionKeepsCaptureHighlightedAndReadinessDisablesTheIdleControl',
+):
+    check_instrumentation(folder / 'voice-microphone-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneButtonInstrumentedTest', test)
 for test in (
     'fullDetailsActionKeepsTheOriginalMessageAndUsesTheSingleStopControl',
     'voiceAnswerShowsItsSpeechAndKeepsDetailsCollapsedUntilSelected',

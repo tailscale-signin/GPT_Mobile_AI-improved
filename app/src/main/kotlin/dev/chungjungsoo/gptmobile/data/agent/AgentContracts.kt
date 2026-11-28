@@ -230,6 +230,9 @@ interface AgentProviderSession {
     val allowsControlJsonText: Boolean get() = false
     val hasPreparedSearchEvidence: Boolean get() = false
 
+    /** Set only by the isolated translation route: model text reproduces source data, never tool instructions. */
+    val isSourceTranslation: Boolean get() = false
+
     /** The session chooses recovery reads from durable evidence, including its own cleanup and verification reserve. */
     val handlesToolResultRecovery: Boolean get() = false
     val handlesToolsInternally: Boolean

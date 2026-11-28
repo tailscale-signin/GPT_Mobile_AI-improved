@@ -326,13 +326,13 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                     require(before.id == after.id && before.startedAtEpochMs == after.startedAtEpochMs && before.schemaVersion == after.schemaVersion && before.catalogVersion == after.catalogVersion && before.lineCoverageAvailable == after.lineCoverageAvailable && before.plan == after.plan && before.catalogHash == after.catalogHash && before.options == after.options && before.limits == after.limits && before.sourceInventoryDigest == after.sourceInventoryDigest && before.sourceCommit == after.sourceCommit && before.buildVersion == after.buildVersion && before.buildVariant == after.buildVariant && before.sourceFileCount == after.sourceFileCount && before.sourceLineCount == after.sourceLineCount && before.sourceAreas == after.sourceAreas) { "The accepted app audit manifest cannot change." }
                     require(after.executedProbes >= before.executedProbes && after.networkProbesDispatched >= before.networkProbesDispatched && after.results.take(before.results.size) == before.results) { "Committed app audit evidence and budgets cannot be replaced." }
                 }
-                val effectiveBatch = if (event.startsWith("AUDIT_") || event in setOf("CASE_STARTED", "CASE_FINISHED", "CASE_NOT_ADMITTED", "CASE_INTERRUPTED", "PREFLIGHT", "PREFLIGHT_CLEANUP", "PREFLIGHT_INTERRUPTED", "READINESS_CHECKPOINT", "READINESS_FINISHED")) accepted.copy(stopOrigin = saved?.stopOrigin ?: accepted.stopOrigin) else accepted
+                val effectiveBatch = if (event.startsWith("AUDIT_") || event.startsWith("PREPARATION_") || event in setOf("CASE_STARTED", "CASE_FINISHED", "CASE_NOT_ADMITTED", "CASE_INTERRUPTED", "PREFLIGHT", "PREFLIGHT_CLEANUP", "PREFLIGHT_INTERRUPTED", "READINESS_CHECKPOINT", "READINESS_FINISHED")) accepted.copy(stopOrigin = saved?.stopOrigin ?: accepted.stopOrigin) else accepted
                 // A run records one logical result per case. Repeated physical attempts
                 // have their own retained attempt receipts; duplicate case rows must not
                 // inflate coverage, exports or overwrite one canonical attempt in storage.
                 var effectiveRun = run?.copy(
                     samples = run.samples.distinctBy { it.testId }.map { sample ->
-                        sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0")
+                        if (sample.dispositionOnly) sample else sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0")
                     }
                 )
                 val existing = dao.attempts(batch.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }.associateBy { it.id }.toMutableMap()
@@ -347,9 +347,13 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 }
                 val finalizedRun = effectiveRun
                 effectiveRun?.samples?.forEachIndexed { index, sample ->
+                    if (sample.dispositionOnly) return@forEachIndexed
                     val id = checkNotNull(sample.attemptId)
                     val ownerRun = checkNotNull(finalizedRun)
-                    val started = existing[id] ?: BenchmarkAttempt(id, batch.id, ownerRun.queueOrdinal ?: 0, ownerRun.id, sample.testId, index, ownerRun.startedAt, 0)
+                    val started = existing[id] ?: BenchmarkAttempt(
+                        id, batch.id, ownerRun.queueOrdinal ?: 0, ownerRun.id, sample.testId, index, 0, 0,
+                        recordKind = if (sample.outcome == BenchmarkOutcome.SKIPPED && sample.requestDispatched == false) "SYNTHETIC_DISPOSITION" else "RESULT_WITHOUT_START_RECEIPT"
+                    )
                     val terminal = started.copy(
                         state = when (sample.outcome) {
                             BenchmarkOutcome.SKIPPED -> "SKIPPED"
@@ -461,7 +465,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             }
             val savedAttempts = dao.attempts(old.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }
             val active = old.items.firstOrNull { it.state == BenchmarkQueueState.RUNNING }
-            val savedRun = active?.let { item -> history.value.firstOrNull { it.id == item.runId } }
+            val savedRun = active?.let { item -> history.value.firstOrNull { it.id == item.runId } }?.let { it.withInterruptedPreparation(old.stopOrigin ?: it.cancellationOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION) }
             if (old.engineeringPlan != null) {
                 val retained = savedRun?.let { benchmarkEngineeringInterruptedRun(it, savedAttempts) }
                 val reason = if (retained?.samples?.any { it.engineeringCleanupPending() } == true) ENGINEERING_RECONCILIATION_MESSAGE else "Execution was interrupted. Committed candidates are retained; only unattempted tasks may resume."
@@ -482,6 +486,8 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 savedAttempts.none { it.runId == savedRun.id && it.state == "STARTED" } &&
                 savedRun.samples.none { it.outcome == BenchmarkOutcome.CANCELED }
             val terminal = when {
+                savedRun?.preparation?.failure?.code in setOf("USER_STOP", "SERVICE_INTERRUPTION", "PROCESS_INTERRUPTION") -> BenchmarkQueueState.INTERRUPTED
+                savedRun?.preparation?.failure != null -> if (old.stopOrigin == BenchmarkStopOrigin.USER_SKIP) BenchmarkQueueState.SKIPPED else BenchmarkQueueState.BLOCKED
                 !allCasesCommitted -> BenchmarkQueueState.INTERRUPTED
                 old.stopOrigin == BenchmarkStopOrigin.USER_SKIP -> BenchmarkQueueState.SKIPPED
                 savedRun!!.samples.any { it.recoveryAction(old.recoveryPolicy == "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1") !in setOf(BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES, BenchmarkRecoveryAction.SKIP_DEPENDENTS) } -> BenchmarkQueueState.FAILED
@@ -489,7 +495,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             }
             val now = System.currentTimeMillis()
             val retainedFailure = savedRun?.samples?.firstOrNull { it.outcome in setOf(BenchmarkOutcome.FAILED, BenchmarkOutcome.PARTIAL) || it.executionFailure() || it.runtimeCleanup?.safeForSuccessor == false }
-            val recoveredRun = savedRun?.takeIf { allCasesCommitted }?.copy(finished = true, state = if (terminal == BenchmarkQueueState.COMPLETED && retainedFailure != null) "COMPLETED_WITH_FAILURES" else terminal.name, canceled = false, cancellationOrigin = if (terminal == BenchmarkQueueState.SKIPPED) BenchmarkStopOrigin.USER_SKIP else null, endedAt = now, stoppedReason = if (terminal == BenchmarkQueueState.COMPLETED) null else savedRun.samples.firstOrNull { it.executionFailure() }?.error)
+            val recoveredRun = savedRun?.copy(finished = true, state = if (terminal == BenchmarkQueueState.COMPLETED && retainedFailure != null) "COMPLETED_WITH_FAILURES" else terminal.name, canceled = savedRun.canceled || old.stopOrigin == BenchmarkStopOrigin.USER_STOP, cancellationOrigin = old.stopOrigin ?: savedRun.cancellationOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION.takeUnless { allCasesCommitted }, endedAt = now, stoppedReason = if (terminal == BenchmarkQueueState.COMPLETED) null else savedRun.preparation?.failure?.message ?: savedRun.samples.lastOrNull { it.executionFailure() }?.error ?: "Benchmark interrupted when Android stopped the app.")
             val recovered = old.copy(
                 state = if (old.state == BenchmarkBatchState.STORAGE_PAUSED) {
                     old.state
@@ -501,7 +507,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 activeOrdinal = null,
                 endedAt = now,
                 stopOrigin = old.stopOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION,
-                items = old.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = terminal, endedAt = now, activeCaseId = null, completedCases = savedRun?.samples?.size ?: it.completedCases, failure = if (allCasesCommitted) retainedFailure?.let { sample -> sample.failure ?: BenchmarkFailure(sample.failureCategory ?: "MODEL_QUALITY", sample.runtimeStage ?: "validation", sample.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) } else BenchmarkFailure("PROCESS_INTERRUPTION", "unknown", "Android interrupted this profile; an in-flight request may have reached its provider.")) else it }
+                items = old.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = terminal, endedAt = now, activeCaseId = null, completedCases = savedRun?.let { benchmarkCoverage(it).executed } ?: it.completedCases, failure = savedRun?.preparation?.failure ?: if (allCasesCommitted) retainedFailure?.let { sample -> sample.failure ?: BenchmarkFailure(sample.failureCategory ?: "MODEL_QUALITY", sample.runtimeStage ?: "validation", sample.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) } else BenchmarkFailure("PROCESS_INTERRUPTION", "unknown", "Android interrupted this profile; an in-flight request may have reached its provider.")) else it }
             )
             val interrupted = savedAttempts.filter { it.state == "STARTED" }.map { it.copy(state = "INTERRUPTED", dispatchUncertain = true) }
             checkpoint(recovered.copy(state = recovered.completionState()), recoveredRun, interrupted, "RECOVERED")
@@ -512,17 +518,20 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         mutex.withLock {
             loadLocked()
             val recovered = mutableHistory.value.map { run ->
-                if (run.finished || run.engineeringPlan != null) {
+                val origin = mutableBatches.value.firstOrNull { it.id == run.batchId }?.stopOrigin ?: run.cancellationOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION
+                if (run.engineeringPlan != null) {
                     run
+                } else if (run.finished) {
+                    run.withInterruptedPreparation(origin)
                 } else {
                     run.copy(
                         finished = true,
-                        canceled = false,
+                        canceled = origin == BenchmarkStopOrigin.USER_STOP,
                         state = "INTERRUPTED",
-                        cancellationOrigin = BenchmarkStopOrigin.PROCESS_INTERRUPTION,
+                        cancellationOrigin = origin,
                         endedAt = System.currentTimeMillis(),
                         stoppedReason = run.stoppedReason ?: "Benchmark interrupted when Android stopped the app."
-                    )
+                    ).withInterruptedPreparation(origin)
                 }
             }
             if (recovered != mutableHistory.value) persist(recovered)
@@ -828,17 +837,18 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 return@withLock BenchmarkBackupImportOutcome.RETAINED_PENDING_OWNERSHIP
             }
             val restoredRuns = bundle.runs.distinctBy { it.id }.map { run ->
-                if (run.finished) run else run.copy(finished = true, canceled = false, state = "INTERRUPTED", cancellationOrigin = BenchmarkStopOrigin.PROCESS_INTERRUPTION, stoppedReason = run.stoppedReason ?: "Benchmark was in progress at export; restored without replaying requests.")
+                val origin = bundle.batches.firstOrNull { it.id == run.batchId }?.stopOrigin ?: run.cancellationOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION
+                if (run.finished) run.withInterruptedPreparation(origin) else run.copy(finished = true, canceled = origin == BenchmarkStopOrigin.USER_STOP, state = "INTERRUPTED", cancellationOrigin = origin, stoppedReason = run.stoppedReason ?: "Benchmark was in progress at export; restored without replaying requests.").withInterruptedPreparation(origin)
             }.sortedByDescending { it.startedAt }
             val trials = bundle.runtimeTrials.map { it.copy(historical = true, finished = true, completed = it.finished && it.completed, failure = if (it.finished) it.failure else "Benchmark interrupted at backup time") }
             val qualifications = bundle.runtimeQualifications.map { it.copy(status = QualificationStatus.HISTORICAL, actualBackendConfirmed = false, reason = "Restored evidence requires local verification") }
             val restoredBatches = bundle.batches.map { batch ->
                 if (batch.state in setOf(BenchmarkBatchState.RUNNING, BenchmarkBatchState.QUEUED) || batch.items.any { it.state == BenchmarkQueueState.RUNNING }) {
                     batch.copy(
-                        state = BenchmarkBatchState.INTERRUPTED,
+                        state = if (batch.stopOrigin == BenchmarkStopOrigin.USER_STOP) BenchmarkBatchState.STOPPED else BenchmarkBatchState.INTERRUPTED,
                         activeOrdinal = null,
                         endedAt = System.currentTimeMillis(),
-                        stopOrigin = BenchmarkStopOrigin.PROCESS_INTERRUPTION,
+                        stopOrigin = batch.stopOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION,
                         items = batch.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = BenchmarkQueueState.INTERRUPTED, endedAt = System.currentTimeMillis()) else it }
                     )
                 } else {

@@ -10,6 +10,89 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeferredKokoroOutputTest {
+    @Test fun confirmedReleaseOfAnUnopenedOwnerDoesNotConstructTheBackend() {
+        var completed = false
+        val output = DeferredKokoroOutput { error("Release must not initialize a model") }
+
+        output.releaseWarmModel { completed = true }
+
+        assertTrue(completed)
+        output.close()
+    }
+
+    @Test fun confirmedReleaseWaitsForTheDelegateAndRejectsLateAcknowledgementAfterClose() {
+        var acknowledgement: (() -> Unit)? = null
+        var completions = 0
+        val output = DeferredKokoroOutput {
+            object : KokoroOutput {
+                override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+                override fun releaseWarmModel(completed: () -> Unit) {
+                    acknowledgement = completed
+                }
+                override fun stop() = Unit
+                override fun close() = Unit
+            }
+        }
+        output.prewarm(KokoroVoice.HEART)
+        output.releaseWarmModel { completions++ }
+        assertEquals(0, completions)
+
+        checkNotNull(acknowledgement).invoke()
+        assertEquals(1, completions)
+
+        output.releaseWarmModel { completions++ }
+        output.close()
+        checkNotNull(acknowledgement).invoke()
+        assertEquals(1, completions)
+    }
+
+    @Test fun closedAndFailedFactoryOwnersCannotAcknowledgeConfirmedRelease() {
+        val closed = DeferredKokoroOutput { error("A closed owner cannot initialize") }
+        closed.close()
+        closed.releaseWarmModel { error("A closed owner cannot acknowledge this handoff") }
+
+        val failed = DeferredKokoroOutput { null }
+        failed.prewarm(KokoroVoice.HEART)
+        failed.releaseWarmModel { error("An unsuccessful factory is not confirmed retirement") }
+        failed.close()
+    }
+
+    @Test fun legacyReleaseImplementationCannotQualifyConfirmedRetirement() {
+        val output = DeferredKokoroOutput { FakeKokoro() }
+        output.prewarm(KokoroVoice.HEART)
+        output.releaseWarmModel { error("The delegate did not supply retirement evidence") }
+        output.close()
+    }
+
+    @Test fun explicitCaptionEditSurvivesDeferredInitializationWithoutHydrationBecomingAnEdit() {
+        for (edited in listOf(false, true)) {
+            val configured = mutableListOf<Int>()
+            val requested = mutableListOf<Int>()
+            val output = DeferredKokoroOutput {
+                object : KokoroOutput {
+                    override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+                    override fun configureCaptionOffset(milliseconds: Int) {
+                        configured += milliseconds
+                    }
+                    override fun calibrateCaptionOffset(milliseconds: Int) {
+                        requested += milliseconds
+                    }
+                    override fun stop() = Unit
+                    override fun close() = Unit
+                }
+            }
+            output.configureCaptionOffset(180)
+            if (edited) output.calibrateCaptionOffset(180)
+            output.configureCaptionOffset(180)
+            assertTrue(configured.isEmpty() && requested.isEmpty())
+            output.prewarm(KokoroVoice.HEART)
+            output.prewarm(KokoroVoice.HEART)
+            assertEquals(listOf(180), configured)
+            assertEquals(if (edited) listOf(180) else emptyList<Int>(), requested)
+            output.close()
+        }
+    }
+
     @Test fun deferredCloseRetainsTheNativeOwnerUntilItsWorkersActuallyRetire() {
         var closed = false
         var retired = false

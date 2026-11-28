@@ -12,12 +12,13 @@ class VoiceAdmissionPlaybackTest {
         var listener: VoiceAudio.Listener? = null
         val completions = mutableListOf<() -> Unit>()
         val spoken = mutableListOf<String>()
+        var readyImmediately = true
         var captures = 0
         var stops = 0
         override fun listen(listener: VoiceAudio.Listener) {
             captures++
             this.listener = listener
-            listener.ready()
+            if (readyImmediately) listener.ready()
         }
         override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) {
             spoken += text
@@ -68,6 +69,113 @@ class VoiceAdmissionPlaybackTest {
             }
             session.admission(stage, reason, id)
         }
+    }
+
+    @Test fun translationSourceSurvivesPlaybackAndFailedStartupUntilListeningActuallyBegins() {
+        val f = Fixture()
+        val session = f.session
+        session.translationOnly = true
+        session.access(true, true, true)
+        session.resume()
+        val first = requireNotNull(f.audio.listener)
+        first.partial("Where is the")
+        val capture = requireNotNull(session.state.translationPrompt).captureId
+        first.final("Where is the station?")
+        val expected = VoiceTranslationPrompt(capture, "Where is the station?")
+        assertEquals(expected, session.state.translationPrompt)
+        f.admission(VoiceAdmissionStage.ACCEPTED)
+        assertTrue(session.beginMessage("answer"))
+        session.reply("answer", "Où est la gare ?")
+        assertEquals(expected, session.state.translationPrompt)
+        session.stopTurn()
+        f.audio.readyImmediately = false
+        session.resume()
+        assertEquals(VoicePhase.STARTING, session.state.phase)
+        assertEquals(expected, session.state.translationPrompt)
+        requireNotNull(f.audio.listener).error("Microphone unavailable")
+        assertEquals(expected, session.state.translationPrompt)
+        session.resume()
+        val second = requireNotNull(f.audio.listener)
+        second.ready()
+        assertNull(session.state.translationPrompt)
+        first.partial("Late words")
+        assertNull(session.state.translationPrompt)
+        second.partial("Where is the station?")
+        val next = requireNotNull(session.state.translationPrompt)
+        assertEquals(expected.text, next.text)
+        assertTrue(capture != next.captureId)
+        second.ready()
+        assertEquals(next, session.state.translationPrompt)
+    }
+
+    @Test fun translatedReviewAndTypedSourceStayWithTheirOwnTurn() {
+        val f = Fixture()
+        val session = f.session
+        session.translationOnly = true
+        session.editBeforeSend = true
+        f.capture("I need a tick it")
+        val capture = requireNotNull(session.state.translationPrompt).captureId
+        session.editDraft("I need a ticket")
+        session.sendDraft()
+        assertEquals(VoiceTranslationPrompt(capture, "I need a ticket"), session.state.translationPrompt)
+        f.admission(VoiceAdmissionStage.ACCEPTED)
+        session.stopTurn()
+        val restored = Fixture().session
+        restored.restore("", "J’ai besoin d’un billet.", review = false, pending = false, translationSource = "I need a ticket")
+        restored.translationOnly = true
+        assertEquals("I need a ticket", restored.state.translationPrompt?.text)
+        restored.access(true, true, true)
+        assertTrue(restored.beginMessage("typed", translationSource = "How much?"))
+        assertEquals("How much?", restored.state.translationPrompt?.text)
+        restored.beginMessage("replay", manual = true, translationSource = "An older message")
+        assertEquals("How much?", restored.state.translationPrompt?.text)
+        restored.translationOnly = false
+        assertNull(restored.state.translationPrompt)
+        restored.translationOnly = true
+        assertNull(restored.state.translationPrompt)
+    }
+
+    @Test fun stopDuringFinalizationOrAdmissionFencesLateTextAndWaitsForAnotherTap() {
+        val f = Fixture()
+        f.session.access(true, true, true)
+        assertEquals(0, f.audio.captures)
+        f.session.resume()
+        val listener = requireNotNull(f.audio.listener)
+        assertEquals(VoiceMicrophoneAction.FINISH_CAPTURE, f.session.state.microphoneAction)
+        listener.ending()
+        assertEquals(VoiceMicrophoneAction.STOP, f.session.state.microphoneAction)
+        f.session.stopTurn()
+        listener.final("Arrived after Stop")
+        assertEquals(0, f.submissions)
+        f.capture()
+        assertEquals(VoiceMicrophoneAction.STOP, f.session.state.microphoneAction)
+        f.session.autoContinue = true
+        f.session.stopTurn()
+        f.admission(VoiceAdmissionStage.ACCEPTED)
+        f.session.reply("late", "The stopped answer.")
+        assertEquals(VoiceMicrophoneAction.LISTEN, f.session.state.microphoneAction)
+        assertFalse(f.session.state.awaitingReply)
+        assertFalse(f.session.state.hasDraft)
+        assertFalse(f.session.autoContinue)
+        assertEquals(2, f.audio.captures)
+        assertTrue(f.audio.spoken.isEmpty())
+        f.capture("A fresh utterance")
+        assertEquals(2, f.submissions)
+    }
+
+    @Test fun stopDuringPlaybackKeepsTheMicrophoneIdleAfterTheOldCompletion() {
+        val f = Fixture()
+        f.capture()
+        f.admission(VoiceAdmissionStage.ACCEPTED)
+        assertTrue(f.session.beginMessage("reply"))
+        f.session.reply("reply", "Finished generating, still playing.")
+        val oldCompletion = f.audio.completions.single()
+        assertEquals(VoiceMicrophoneAction.STOP, f.session.state.microphoneAction)
+        f.session.stopTurn()
+        oldCompletion()
+        assertEquals(VoicePhase.PAUSED, f.session.state.phase)
+        assertEquals(VoiceMicrophoneAction.LISTEN, f.session.state.microphoneAction)
+        assertEquals(1, f.audio.captures)
     }
 
     @After fun clearDiagnostics() = VoiceDiagnosticTrace.clearAll()

@@ -7,11 +7,32 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
-/** One initial rejection and one correction per unchanged failed constraint, scoped to this turn. */
+/** One initial rejection and one correction per unchanged constraint in the accepted task. */
 internal class ToolArgumentRepairBudget {
     private val failures = linkedMapOf<String, Int>()
+
+    @Synchronized
+    fun snapshot(): List<JsonObject> = failures.map { (signature, attempt) ->
+        buildJsonObject {
+            put("argument_repair_signature_hash", signature)
+            put("argument_repair_attempt", attempt)
+        }
+    }
+
+    /** Receipts are restored only after the caller validates the durable task/recovery scope. */
+    @Synchronized
+    fun restore(receipts: Iterable<JsonObject>) {
+        for (receipt in receipts) {
+            val signature = (receipt["argument_repair_signature_hash"] as? JsonPrimitive)?.contentOrNull ?: continue
+            val attempt = (receipt["argument_repair_attempt"] as? JsonPrimitive)?.intOrNull ?: continue
+            if (!signature.matches(Regex("[a-f0-9]{64}")) || attempt !in 1..2) continue
+            if (failures.size < 128 || signature in failures) failures[signature] = maxOf(failures[signature] ?: 0, attempt)
+        }
+    }
 
     @Synchronized
     fun rejection(callId: String, definition: AgentToolDefinition, arguments: JsonObject, errors: List<String>, readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null, catalog: ProgressiveToolCatalog? = null): AgentToolResult {

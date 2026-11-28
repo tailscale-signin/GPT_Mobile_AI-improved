@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "audit": "Streaming recognition benchmark integration",
+  "observedAtUtc": "2026-11-28T06:19:29.553551+00:00",
+  "qualification": "SCOPED_HOST_JVM_REGRESSIONS_ONLY",
+  "result": {
+    "status": "PASS",
+    "tests": 70,
+    "failures": 0,
+    "compiler": "Kotlin 2.4.20 / JDK 21",
+    "initialFullScopedCompile": "PASSED before later controller and Sherpa edits",
+    "finalIncrementalCompile": "PASSED at 192 MiB heap / 128 MiB metaspace",
+    "finalRuntime": "JUnit 4.13.2, 192 MiB heap",
+    "logSha256": "b559bf044958a65ba2d3bad37064cc9a2fe4b9a4796bdd1475a9d8cf9513a519",
+    "reportedSummary": "OK (70 tests)"
+  },
+  "baseline": {
+    "commit": "dfed018cd40e2edb8b5edb1045b6dd967d029445",
+    "compiledJarSha256": "f42ffc9c89834e8b4d88bccc0ee3549fe8c20be6aa939b302fd03172ef2b4fdf",
+    "sourceMappingMethod": "The successful full compile used the repository checkpoint before the later uncommitted Configuration and Sherpa cancellation edits. After later killed harness snapshots overwrote temporary source files, the original baseline is mapped to the unchanged Git checkpoint; bytecode field checks confirmed neither later controller fields nor recognitionCancelled are present. The test-only Context mock is the sole override below.",
+    "voiceSourceRoot": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/",
+    "voiceSourceSha256": {
+      "VoiceRecognitionTranscript.kt": "a6c572feca8d549ecdc90c9cc2d07c92260cccd5f0e7bb32b7f6020babd543e7",
+      "VoiceRecognitionBenchmarkProtocol.kt": "7a5842cbc8be530c82df9aa342f365109afa7d150f2f0ce908bbe8b9ac09b934",
+      "VoiceRecognitionBenchmarkCase.kt": "b12b77b2cc9fb3a3a250e12e3c82f12dd40264a002bbe99caa74a19ab3035645",
+      "VoiceRecognitionCpuCalibration.kt": "f1d1fba4be0d9f6c3dfac2ac2fee48947df12f936dd531a0f3281f0267164153",
+      "VoiceRecognitionCpuCalibrationRunner.kt": "b8c91238a395967f3e007ce429dd49b4758e7721e3298c011611eaf6c03a9d82",
+      "VoiceBenchRecognition.kt": "17ad523bc89d30f065ec972420602b55eca2ee9da07c3e53fdb1c2639dd1249d",
+      "VoiceRecognitionConfiguration.kt": "0d81315476f368dc7c55e128043d7117485228411f0846bac1a3ac09638349a4",
+      "VoiceRecognitionMemoryPolicy.kt": "fe13e1d1a9040c232ebee6654e9990a5871adc58acc100c360d8ed425b9a7fda",
+      "VoiceRecognitionRetirement.kt": "91388e6a591cf2aaea0639a6cb74cdf39a8962314a35369c68d802029a1f1966",
+      "SherpaNativeSpeechDecoder.kt": "ef2faaca458cbee97bd26aabfe774c724d348600541cc81ff487ae973c163214",
+      "VoiceBenchmarkSuite.kt": "dac36b55918ec887f3c279e7724435e78d8378578f80b342940a86d92c4330c0",
+      "VoiceBenchmarkCampaign.kt": "6cc80c0f02b5a5a01250f51fa948729e43caecdb980aea38a3dd7da360350d5e",
+      "VoiceBenchmarkSuiteStore.kt": "9295a5c7a1c0c091d6d8452aeeebb4a5e5202605bad9231a67b1fc589948c5c9",
+      "VoiceCpuSchedulingPolicy.kt": "3d772e084f5200f1de730a57a82798095a0b606c14e1d1c145f9429b57d34927",
+      "VoiceListeningPolicy.kt": "4021997d470f894b14ad6efdf257e519aee8bb3b27393cc3eed73f1c3c683b8d",
+      "SpeechLanguages.kt": "378eb01b89f22cf9162db102e5518fe7318a51fb4f4f3bfe562d429ec12082bb",
+      "AndroidRecognitionService.kt": "f271f7f7ccc3d5b71aba7efec37685979209c6aed168db94d9082889778d9195",
+      "VoiceBenchRecognitionSupport.kt": "8efbbb2d03bd7e097abae565cd81deb4524dd515b90d8d6f0dc59c6b0210fe0d",
+      "VoiceSpeechBenchmarkBatterySource.kt": "e104f68e00dfff8596c5ce5968f1ea925e1ccea1805f4c7fb11bc2b0daf2dc8c",
+      "VoicePerformanceHistory.kt": "53a1e4c4dfdea0feb099426bb73f133063983a615765dd140c3ccad3aa900de6",
+      "VoicePerformanceExport.kt": "7e1ecb7b678b537fc3bd1c570dd0b9331806e582a5f0efd37c01b1569e9057b0",
+      "VoiceRecognitionBackend.kt": "6ada878d7fee9614157dc0a78eea2e20f854a90694bb322c6934917d591d4f88",
+      "MediaPipeSpeechVoices.kt": "36cd35cbb3bcff60d50014910685717cdf48446d9dd23b29267a33e0e4d8e113",
+      "MediaPipeSpeechCatalog.kt": "767be5bf9a4ec057012b5870adbb340c1a154fe3522988684aadbacd9b5b92e4",
+      "VoiceSpeechBackend.kt": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800",
+      "VoiceSpeechBenchmarkEngine.kt": "ffa0a2443e2869a3616f13b6c8f60655747a6bba409eb9dc47947da1f447e4c7",
+      "VoiceSpeechEngineBenchmarkResult.kt": "1bacce953543ba8ee3b2499f6f4b8791eb923934e6465ea7ddc18591dead2961",
+      "VoiceSpeechBenchmarkExport.kt": "e5b1a9d28a23de33a802054dbfb501675828b2f52da8c85b467ed55e5fd547e3",
+      "VoiceSpeechExecutionEvidence.kt": "8eccd5ecf6437fa9ddeb0cab9e6c83bffba62903b3d3a315eb8c7b651c005f6c",
+      "PocketCompiledSpeechCatalog.kt": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+      "VoiceSpeechPlaybackProtocol.kt": "b7071ca319642e03dd54b639df5b28b8784b613da657d13b7361830ffeac2196",
+      "VoiceSpeechPlaybackResult.kt": "75d786523d122becf791cee023653ba0900a282bbc8f2663c8da932c1c8633f9",
+      "VoiceCaptionTiming.kt": "479b2edced99998d36fe8453a74db86fc659c1e089f7f9ebf85ae7e196f60bce",
+      "VoicePhraseEngine.kt": "47809f3276df6fd587260e1ead271747dc57f5f7fd56cd5463caef7c7d9036bf",
+      "VoiceBenchProbes.kt": "8d3b63511a86611f811f29e6ba5a048ec0a2e8fc15ddeb28eedad81f2950333b"
+    },
+    "testSourceRoot": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/",
+    "testSourceSha256": {
+      "VoiceRecognitionTranscriptTest.kt": "bed4026812bd938ad23a387aaa036419095c652f1986f8327fc696fd06a3370c",
+      "VoiceRecognitionBenchmarkProtocolTest.kt": "57fada986248237291be3d66d0291d508040b88892276fa2535423da96d61da2",
+      "VoiceRecognitionCpuCalibrationTest.kt": "ca6ce47d1b5257ae7f51d811970900e75364dc61a9ce621710b15bb7336d1d9e",
+      "VoiceRecognitionBenchmarkCaseTest.kt": "37aa8bc8796761cdddf836d8163007bbc79b63d1ab2ca27704138f2118323dbd",
+      "VoiceRecognitionBenchmarkFixtureTest.kt": "4f97c7cee5d2b8d7ddff4944c644852dc0e8e5dba781af9f73e58022ba853591",
+      "VoiceRecognitionBenchmarkResumeTest.kt": "f4fa7583cc6f930e36e108902c0432d453a0c8eb6a54d871775f00785ea124f5",
+      "VoiceRecognitionMemoryPolicyTest.kt": "ad4f0a213cb29219f1b6049b9439a0da676d6b75101f8af01d9000ab0822c17c",
+      "VoiceBenchmarkSuiteTest.kt": "03cc0605f14365c26c54bd2f5cd89d4afb7fe7be1881ee156defefb6cab6e8dd"
+    },
+    "otherSourceSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/QnnEnvironment.kt": "591e6603a2e355fd35bb4d387450a8614b203fb59eb5d9a08dc58b071c4d735a",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/QualcommSocSupport.kt": "8d04f5d5618d2012a3d69398be7442d6fd4255976eda11374eab58ff0d3caf7e",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/PackageDigest.kt": "a698d72766ba90ace013f153963770c6460cc9b16d7af04e1ae0e84b386b35fa",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/StreamingAsr.java": "dae137cf8096aebfec48cae7807aeec356e1603a1179971255965993008323f2",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": "3c02a73463815def49f10b7aa8e6763a527770ebb1afa19e4bdc5bdc36067a13",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/KokoroFrontend.java": "f44c3df7c556cc23488309b1ea276f941dd853903374d0b787e8510e3971b9f5"
+    }
+  },
+  "correctedTestOverride": {
+    "sourceSha256": {
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionBenchmarkCaseTest.kt": "3a2df800d7521634209c5df3a44cbfef8a51562eef2811acd22685ab31e49964"
+    },
+    "change": "The missing-pack regression uses Mockito MockMakers.SUBCLASS for abstract Context; no native engine or Android service is created. The initial test failed only because this host disallowed Mockito self-attachment.",
+    "compiledJarSha256": "b5786b8cf8957cd37ad6b645aaeb9897beb5b0cb3674ad55277585012adb704f",
+    "productionSourcesChangedByOverride": false
+  },
+  "executedTestClasses": {
+    "VoiceRecognitionTranscriptTest": 11,
+    "VoiceRecognitionBenchmarkProtocolTest": 10,
+    "VoiceRecognitionCpuCalibrationTest": 8,
+    "VoiceRecognitionBenchmarkCaseTest": 11,
+    "VoiceRecognitionBenchmarkFixtureTest": 6,
+    "VoiceRecognitionBenchmarkResumeTest": 1,
+    "VoiceRecognitionMemoryPolicyTest": 4,
+    "VoiceBenchmarkSuiteTest": 19
+  },
+  "scope": [
+    "Validated UTF-16 transcript spans, real token-start versus word-end provenance, input-frame limits, source corrections, stream revisions, stale callbacks and blank-terminal retention.",
+    "Real-time paced input scheduling, separate preparation/decode/flush clocks, terminal versus endpoint latency, cancellation, and no fabricated token durations.",
+    "Complete production ASR fixture runner with injected native decoder and monotonic clock. Scripted transcripts test control flow; they are not measured model accuracy.",
+    "Exact requested model/runtime/protocol/fixture/reference identities; GPU/NPU rows require observed matching provider, runtime, model identity and native execution before remaining measured.",
+    "Native retirement before installation-lease release; uncertain close retains both owners and production failure marks process quarantine.",
+    "CPU candidate cohorts use one unscored warmup followed by identical verified fixtures for 1/2/4 bounded workers. Only complete matching CPU execution, zero fixture word errors and known cool thermal samples can persist a recommendation; failed/partial cohorts cannot replace it.",
+    "Raw whole-device battery and thermal counters remain separate from recognizer energy, battery ranking, acoustic accuracy and sustained physical-device qualification.",
+    "Complete campaign/store and resumable interrupted-cohort behavior. Any interrupted observation keeps the stage interrupted; thermal interruption preserves pending stages and reruns the complete CPU cohort on continuation.",
+    "Existing quick Pocket/LiteRT screening, CPU thread configuration, playback/rate plan, stage persistence, continuation and export regressions remain in the executed suite."
+  ],
+  "quickAndFullCampaignRules": {
+    "largeRecognizerCases": "Full recognition campaign only, after early output screening; not added to default quick synthesis screens.",
+    "downloads": "No model download starts from a benchmark. Missing or unverified packs produce explicit unavailable rows.",
+    "languageFixtures": "The fixed English fixtures cannot qualify the French-only Zipformer pack; its benchmark remains unavailable until a matching fixture is supplied.",
+    "resumeBinding": "Frozen stage identity includes model/runtime/compute/thread candidates, native chunk size, protocol version, audio digests and reference-text digests. Campaign continuation also retains the existing exact build/commit/device-plan binding.",
+    "automaticThreads": "Automatic reads an identity-bound completed CPU recommendation at the next cold decoder start, with a safe up-to-two-thread fallback. This does not claim background calibration or automatic accelerator selection."
+  },
+  "explicitHostBoundaries": [
+    "Android APIs compile against SDK 37 and the real Moonshine Voice 0.1.6 AAR; they are not exercised as Android hardware APIs.",
+    "Native inference, fixture time and transcript callbacks are injected in the runner regressions; no model acoustic or accelerator result is invented.",
+    "Observation DTO, summary and measurement-scope functions are copied exactly from VoiceBenchProbes. Its unrelated TTS/microphone/gateway dispatch class is excluded from this host compilation.",
+    "Capture/model dependencies reuse their separately compiled complete host sources. Unrelated diagnostic log/report projection ports are explicit; this receipt does not qualify the production diagnostics sanitizer.",
+    "QnnEnvironment and PackageDigest compile as complete sources with unused diagnostic sink ports. No QNN library preparation, GPU kernel, HTP graph or physical device runs here.",
+    "Existing TTS benchmark types are supplied by a separately hashed host dependency. Current plan/playback-result/phrase/caption types are compiled where their APIs are exercised; unrelated TTS runtime behavior remains outside this receipt."
+  ],
+  "excludedExistingSuiteTests": [
+    "languageDictionaryAndThinkingFixturesExerciseProductionMappings",
+    "platformSynthesisOnlyReportsDurationForCompleteValidWaveData"
+  ],
+  "laterAttempts": [
+    {
+      "scope": "Latest complete scoped benchmark harness",
+      "heapMiB": 384,
+      "metaspaceMiB": 192,
+      "status": "OS_KILLED",
+      "exitCode": -9,
+      "qualified": false
+    },
+    {
+      "scope": "Latest complete scoped benchmark harness including later controller/Sherpa deltas",
+      "heapMiB": 256,
+      "metaspaceMiB": 160,
+      "status": "OS_KILLED",
+      "exitCode": -9,
+      "qualified": false
+    }
+  ],
+  "currentControllerAndSherpaDeltas": {
+    "status": "NOT_COVERED_BY_THIS_EARLIER_BINARY",
+    "separateOwner": "recognition_model_packs scoped current-source controller/adapter/memory/preference harness and required CI",
+    "changes": [
+      "Generation-fenced warm-release completion and prewarm suppression",
+      "Later Sherpa cancellation/evidence guards"
+    ],
+    "instruction": "Use the separate current-source results; do not infer their success from this 70-test receipt."
+  },
+  "releaseLimitations": [
+    "This is not a full Android app compile, APK install, physical microphone/acoustic test, GPU/NPU device qualification, thermal soak or battery-life comparison.",
+    "Later scoped compiler processes were OS-killed. The production full-app memory gate remains unqualified and is not relaxed.",
+    "Required CI for the exact current PR head and the separately requested signed release checks remain mandatory; this receipt does not authorize merge or publication."
+  ],
+  "confirmedRetirementHandoff": {
+    "observedAtUtc": "2026-11-28T06:31:16.820279+00:00",
+    "status": "PASS_SCOPED_HOST_JVM",
+    "tests": 6,
+    "failures": 0,
+    "compiler": "Kotlin 2.4.20 / JDK 21; 192 MiB heap / 128 MiB metaspace",
+    "runtime": "JUnit 4.13.2; kotlinx-coroutines-test 1.11.0; 160 MiB heap",
+    "sourceSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnership.kt": "91741c3b7e2a7fa345292b29688041fbd6ab9d1e4b5c2ea236329662a839ee7f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBenchmarkHandoff.kt": "238824f354c419815317a9b32483b083dad2d7aa574b541643a302bd4295caa7",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBenchmarkHandoffTest.kt": "4254278fed54607c4a9e0eb265cc484090814d17409fadc88c83409d4ec8bf47"
+    },
+    "compiledJarSha256": "2d4715a16af833498e3a22235f473eb1ae54e12848c6b578127a949a3ded192f",
+    "logSha256": "2f2decbdf5f61bc9bd679dbb1203dc47da8c0f39b1724846c19d227924e6b6b6",
+    "scope": "Actual complete benchmark ownership and NonCancellable bounded handoff helper with real coroutine scheduler and six regressions. No Android, ViewModel, Compose, native speech, device or acoustic qualification. Two actual ViewModel regressions are separately authored for required CI and are not executed here.",
+    "verifiedBehavior": [
+      "Both ASR and synthesis release requests register before any wait, and both confirmations are required before a campaign starts.",
+      "Repeated or late callbacks cannot resume the campaign twice.",
+      "User cancellation before or during handoff keeps the lease until confirmed cleanup and prevents the campaign.",
+      "Lifecycle cancellation cannot release ownership while callbacks are outstanding.",
+      "The 30-second timeout quarantines the lease and retains captured owners; late callbacks cannot release the quarantine.",
+      "Registration failure requests every owner, including when a callback fires before the registration throws, and fails closed.",
+      "Synchronous confirmed callbacks start exactly one campaign."
+    ],
+    "integrationSourceSha256NotCompiledByThisReceipt": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt": "23bdf78c8ebc2c0175e9bdf7dca973f9a9a42d322cb4b338638ba997df446da4",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt": "6482f53c3f0ddd411160b890f8bb2f1b623043c09b95ce63291c34005bd88d2b",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceFullBenchmarkViewModelTest.kt": "1d8f3bbf808bc229903acf4e08d534e5924af252993ad9b8b0ffbab22ca93dca"
+    },
+    "integration": "ViewModel/settings now accept suspend beforeStart. The ViewModel acquires ownership and sets running before the bounded NonCancellable barrier, retains the owner callback closure on unconfirmed cleanup, and checks cancellation before runFull. The screen awaits actual ASR/Kokoro callbacks separately; current callback implementations and the full app require their own verification.",
+    "viewModelRegressions": "Two actual ViewModel regressions for stopped/lifecycle-cancelled handoff are authored for CI; they are not claimed executed by this helper receipt."
+  }
+}

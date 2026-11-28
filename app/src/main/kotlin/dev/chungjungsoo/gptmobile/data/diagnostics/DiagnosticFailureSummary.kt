@@ -32,11 +32,12 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
         put("failure_code", category)
         text("phase", Regex("[a-z][a-z0-9_]{1,63}"))?.let { put("failed_stage", it) }
         text("invocationId", Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}"))?.let { put("invocation_id", it) }
-        for ((stored, projected) in listOf("dispatched" to "dispatched", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed", "generationCompleted" to "generation_completed")) {
+        for ((stored, projected) in listOf("dispatched" to "dispatched", "httpRequestDispatched" to "http_request_dispatched", "upstreamInferenceDispatched" to "upstream_inference_dispatched", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed", "generationCompleted" to "generation_completed")) {
             (failure[stored] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put(projected, it) }
         }
         text("remoteAcceptance", Regex("YES|NO|UNKNOWN"))?.let { put("remote_acceptance", it) }
         text("dispatchState", Regex("NOT_DISPATCHED|PRECHECK_REJECTED|DISPATCHED|FAILED|COMPLETED|UNKNOWN"))?.let { put("dispatch_state", it) }
+        text("dispatchScope", Regex("HTTP_REQUEST|UPSTREAM_INFERENCE"))?.let { put("dispatch_scope", it) }
         val recovery = (failure["recoveryActions"] as? JsonArray)?.singleOrNull() as? JsonPrimitive
         recovery?.takeIf { it.isString && it.content.matches(Regex("[A-Z][A-Z0-9_]{2,95}")) }?.let { put("recovery_action", it) }
         if (category == "ENGINEERING_STATE_OR_INPUT_CHANGED") {
@@ -65,7 +66,7 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
                         put("code", category)
                         put("failed_stage", "lifecycle")
                         put("task_outcome", "BLOCKED")
-                        for ((stored, projected) in listOf("dispatched" to "dispatched", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed", "remoteAcceptance" to "remote_acceptance", "dispatchState" to "dispatch_state")) failure[stored]?.let { put(projected, it) }
+                        for ((stored, projected) in listOf("dispatched" to "dispatched", "httpRequestDispatched" to "http_request_dispatched", "upstreamInferenceDispatched" to "upstream_inference_dispatched", "dispatchScope" to "dispatch_scope", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed", "remoteAcceptance" to "remote_acceptance", "dispatchState" to "dispatch_state")) failure[stored]?.let { put(projected, it) }
                     }
                 )
             )
@@ -313,7 +314,21 @@ internal fun diagnosticFailureSummary(
                 }
             }
         }
-        for (key in listOf("dispatched", "retryable", "request_replay_allowed", "remote_acceptance", "dispatch_state", "generation_completed")) {
+        // Keep the dispatch tuple from one observation; a transport receipt from
+        // another stage must not turn an admission refusal into inference work.
+        val dispatchFields = listOf("dispatched", "remote_acceptance", "dispatch_state") + DispatchStageDiagnostics.fields
+        causal.firstOrNull { item -> dispatchFields.any { item.payload[it] != null && item.payload[it] != JsonNull } }?.let { item ->
+            for (key in dispatchFields) {
+                item.payload[key]?.takeUnless { it == JsonNull }?.let { value ->
+                    val retained = if (key in DispatchStageDiagnostics.fields) DispatchStageDiagnostics.validValue(key, value) else value
+                    if (retained != null) {
+                        put(key, retained)
+                        sources[key] = JsonPrimitive(item.source)
+                    }
+                }
+            }
+        }
+        for (key in listOf("retryable", "request_replay_allowed", "generation_completed")) {
             causal.firstOrNull { (key != "generation_completed" || it.recordId == failure?.recordId) && it.payload[key] != null && it.payload[key] != JsonNull }?.let { item ->
                 put(key, item.payload.getValue(key))
                 sources[key] = JsonPrimitive(item.source)

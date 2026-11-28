@@ -9,6 +9,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import org.gradle.api.artifacts.transform.CacheableTransform
@@ -197,8 +198,8 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 152
-        versionName = "0.9.66.18"
+        versionCode = 153
+        versionName = "0.9.66.19"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -353,6 +354,7 @@ extensions.configure<ApplicationExtension> {
                 "**/libLiteRtClGlAccelerator.so",
                 "**/libLiteRtDispatch_Qualcomm.so",
                 "**/libLiteRtCompilerPlugin_Qualcomm.so",
+                "**/liblitert_jni.so",
                 "**/liblitertlm_jni.so",
                 "**/liblitertlm_apple_framework.so",
                 "**/libYnnpack*.so",
@@ -657,6 +659,8 @@ dependencies {
     // Avoid parallel JetBrains Compose wrappers selecting a second platform dependency graph.
     implementation(libs.haze) { isTransitive = false }
     implementation(libs.litertlm)
+    implementation(libs.litert.compiled.core)
+    implementation(libs.litert.compiled.gpu)
 
     // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.
     if (geniexRuntime) {
@@ -737,3 +741,56 @@ extensions.configure<ApplicationExtension> {
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/qnnAuditAssets").get().asFile)
 }
 tasks.named("preBuild").configure { dependsOn(qnnAuditAssets) }
+
+// Pocket CompiledModel has its own matching compiler and dispatch. Package them as verified
+// private assets, preserving LiteRT-LM's separately audited dispatch in the normal JNI directory.
+val pocketCompiledQualcomm = configurations.create("pocketCompiledQualcomm") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies {
+    add(pocketCompiledQualcomm.name, libs.litert.compiled.qualcomm)
+}
+
+@CacheableTask
+abstract class PreparePocketCompiledNpu : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val libraries: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun prepare() {
+        fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val archive = libraries.singleFile
+        check(digest(archive.readBytes()) == "bcdb085afef54baea3624fa6effc98c0535a06aad97e969f7e87b25303e8599d") {
+            "The Pocket Qualcomm runtime differs from the reviewed Google Maven artifact."
+        }
+        val hashes = mapOf(
+            "libLiteRtCompilerPlugin_Qualcomm.so" to "745fe1a13e173950ad2520980728d138085b3c1cc945c7d729f527fc1e7abfab",
+            "libLiteRtDispatch_Qualcomm.so" to "a5cdbc8da207eae2f9822fe6b19c61a8d26a584dbc71bb7a986b82195887a74e"
+        )
+        val destination = outputDirectory.dir("pocket-compiled-npu-2.4.1").get().asFile
+        destination.mkdirs()
+        ZipFile(archive).use { zip ->
+            hashes.forEach { (name, expected) ->
+                val entry = requireNotNull(zip.getEntry("jni/arm64-v8a/$name"))
+                val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                check(digest(bytes) == expected) { "The Pocket Qualcomm library has changed: $name" }
+                File(destination, name).writeBytes(bytes)
+            }
+        }
+    }
+}
+
+val preparePocketCompiledNpu = tasks.register<PreparePocketCompiledNpu>("preparePocketCompiledNpu") {
+    libraries.from(pocketCompiledQualcomm)
+    outputDirectory.set(layout.buildDirectory.dir("generated/pocketCompiledAssets"))
+}
+extensions.configure<ApplicationAndroidComponentsExtension> {
+    onVariants { variant ->
+        if (!geniexRuntime) variant.sources.assets?.addGeneratedSourceDirectory(preparePocketCompiledNpu, PreparePocketCompiledNpu::outputDirectory)
+    }
+}

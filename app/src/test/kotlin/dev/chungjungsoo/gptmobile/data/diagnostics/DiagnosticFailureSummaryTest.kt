@@ -16,6 +16,18 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticFailureSummaryTest {
+    @Test fun dispatchTupleDoesNotCombineAnAdmissionRefusalWithAnotherTransportObservation() {
+        val refusal = DiagnosticFailureEvidence("current", "VERIFICATION_CURRENT", Json.parseToJsonElement("""{"failure_code":"CONVERSATION_CONFLICT","dispatch_state":"NOT_DISPATCHED","dispatched":false,"http_request_dispatched":true,"upstream_inference_dispatched":false,"dispatch_scope":"UPSTREAM_INFERENCE"}""").jsonObject)
+        val older = DiagnosticFailureEvidence("older", "MESSAGE_PROFILE_FAILURE", Json.parseToJsonElement("""{"dispatched":true,"remote_acceptance":"YES","dispatch_state":"DISPATCHED","dispatch_scope":"HTTP_REQUEST"}""").jsonObject)
+        val result = summary(null, listOf(refusal, older))
+        assertEquals(JsonPrimitive(false), result["dispatched"])
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), result["dispatch_state"])
+        assertEquals(JsonPrimitive(true), result["http_request_dispatched"])
+        assertEquals(JsonPrimitive(false), result["upstream_inference_dispatched"])
+        assertEquals(JsonPrimitive("UPSTREAM_INFERENCE"), result["dispatch_scope"])
+        assertFalse(result.containsKey("remote_acceptance"))
+    }
+
     @Test fun compactSummaryRetainsVerificationFaultFingerprintAndPhaseWithoutExceptionText() {
         val partial = dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.partial(
             ClassCastException("private formatter payload"),

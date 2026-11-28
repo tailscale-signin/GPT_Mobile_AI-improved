@@ -59,6 +59,7 @@ internal class InvocationRoundAccounting(
     private var savedResultJobId: String? = null
     private fun recoveryEvidence() = GatewayRecoveryEvidence.combine(recoveryAttemptEvidence, savedJobAttemptEvidence)
     private fun observedRecoveryExecution() = recoveryAttempts.isNotEmpty() || recoveryAttemptEvidence.values.any(GatewayRecoveryEvidence::observedBackendExecution)
+    private fun observedInferenceDispatch() = observedRecoveryExecution() || generatedBytes > 0 || toolCallCount > 0 || providerGenerationCompleted
     private fun recordRecoveryEvidence(evidence: kotlinx.serialization.json.JsonObject) {
         val savedJob = savedResultJobId
         if (savedJob != null) {
@@ -181,6 +182,9 @@ internal class InvocationRoundAccounting(
                 put("failed_stage", kotlinx.serialization.json.JsonPrimitive(rejection.failedStage))
                 put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("NOT_DISPATCHED"))
                 put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                put("http_request_dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                put("upstream_inference_dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                put("dispatch_scope", kotlinx.serialization.json.JsonPrimitive("UPSTREAM_INFERENCE"))
                 put("retryable", kotlinx.serialization.json.JsonPrimitive(false))
             }
         )
@@ -303,10 +307,20 @@ internal class InvocationRoundAccounting(
                     val observedAcceptance = observedRemoteAcceptance()
                     val provenUnsent = hasNoExecutionEvidence() && dispatch.provenEntirelyUnsent()
                     failure.copy(
-                        dispatched = if (provenUnsent) false else true.takeIf { observedRecoveryExecution() } ?: failure.dispatched,
+                        dispatched = if (provenUnsent) false else true.takeIf { observedInferenceDispatch() } ?: failure.dispatched,
+                        httpRequestDispatched = if (provenUnsent) false else failure.httpRequestDispatched,
+                        upstreamInferenceDispatched = if (provenUnsent) false else true.takeIf { observedInferenceDispatch() } ?: failure.upstreamInferenceDispatched,
+                        dispatchScope = if (provenUnsent || observedInferenceDispatch()) "UPSTREAM_INFERENCE" else failure.dispatchScope,
+                        dispatchState = if (provenUnsent) {
+                            "NOT_DISPATCHED"
+                        } else if (observedInferenceDispatch()) {
+                            "DISPATCHED"
+                        } else {
+                            failure.dispatchState
+                        },
                         remoteAcceptance = when {
                             provenUnsent -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO
-                            observedRecoveryExecution() -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES
+                            observedInferenceDispatch() -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES
                             failure.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN ->
                                 dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.entries.firstOrNull { it.name == observedAcceptance } ?: failure.remoteAcceptance
                             else -> failure.remoteAcceptance
@@ -327,6 +341,9 @@ internal class InvocationRoundAccounting(
                         "failureMessage" to event.message,
                         "failedStage" to diagnosticFailure?.phase,
                         "dispatched" to diagnosticFailure?.dispatched,
+                        "httpRequestDispatched" to diagnosticFailure?.httpRequestDispatched,
+                        "upstreamInferenceDispatched" to diagnosticFailure?.upstreamInferenceDispatched,
+                        "dispatchScope" to diagnosticFailure?.dispatchScope,
                         "remoteAcceptance" to diagnosticFailure?.remoteAcceptance?.name,
                         "retryable" to diagnosticFailure?.retryAllowed
                     ),
@@ -403,6 +420,19 @@ internal class InvocationRoundAccounting(
             toolCallCount > 0 -> "TOOL_CALLS_PRODUCED"
             else -> "ANSWER_CANDIDATE_PRODUCED"
         }
+        val httpDispatched = if (entirelyUnsent) {
+            false
+        } else {
+            diagnosticFailure?.httpRequestDispatched
+                ?: true.takeIf { (responseParsing?.get("http_status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() != null }
+        }
+        val inferenceDispatched = when {
+            entirelyUnsent -> false
+            observedInferenceDispatch() -> true
+            else -> diagnosticFailure?.upstreamInferenceDispatched
+        }
+        val receiptScope = if (inferenceDispatched != null) "UPSTREAM_INFERENCE" else diagnosticFailure?.dispatchScope ?: "HTTP_REQUEST".takeIf { httpDispatched != null }
+        val scopedDispatched = if (receiptScope == "UPSTREAM_INFERENCE") inferenceDispatched else httpDispatched
         val providerReceipt = ProviderCallReceipt(
             clientRequestId = record.id,
             serverRequestId = serverRequestId,
@@ -425,13 +455,14 @@ internal class InvocationRoundAccounting(
             visibleBytes = visibleBytes,
             reasoningBytes = reasoningBytes,
             reasoningTokens = providerReasoningTokens,
-            dispatchEvidence = if (entirelyUnsent) {
-                "NOT_DISPATCHED"
-            } else if (diagnosticFailure?.dispatched == true || (responseParsing?.get("http_status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() != null) {
-                "DISPATCHED"
-            } else {
-                "UNKNOWN"
+            dispatchEvidence = when (scopedDispatched) {
+                true -> "DISPATCHED"
+                false -> "NOT_DISPATCHED"
+                null -> "UNKNOWN"
             },
+            httpRequestDispatched = httpDispatched,
+            upstreamInferenceDispatched = inferenceDispatched,
+            dispatchScope = receiptScope,
             failurePhase = dispatch.preflightRejection?.phase ?: diagnosticFailure?.phase,
             reasonCode = dispatch.preflightRejection?.reason?.name ?: diagnosticFailure?.category,
             remoteAcceptance = if (entirelyUnsent) "NO" else diagnosticFailure?.remoteAcceptance?.name?.takeUnless { it == "UNKNOWN" } ?: observedRemoteAcceptance() ?: "UNKNOWN",

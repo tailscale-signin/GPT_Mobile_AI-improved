@@ -50,8 +50,30 @@ class GatewayJobClient internal constructor(
     private val commandObservations = RouteCapabilityCache<CommandObservation>(now, valueTtl = { it.interval })
     private data class IdentityObservation(val identity: GatewayScopeIdentity, val runtime: String)
     private val identityReads = RouteCapabilityCache<IdentityObservation>(now, positiveTtl = 1_000)
+    private data class CapabilityObservation(val document: JsonObject, val runtime: String)
+    private val capabilityReads = RouteCapabilityCache<CapabilityObservation>(now, positiveTtl = 1_000)
 
     internal suspend fun pairedIdentity(config: ProviderRequestConfig): String? = pairedRequests?.identity(config)
+
+    private suspend fun metadataReadKey(config: ProviderRequestConfig): String =
+        "${gatewayJobObservationIdentity(config)}|${dev.chungjungsoo.gptmobile.data.research.researchHash(pairedIdentity(config).orEmpty())}|${dev.chungjungsoo.gptmobile.data.research.researchHash(config.profileRevision.orEmpty())}|${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch}"
+
+    /** Share overlapping authenticated reads; each later admission still obtains a live observation. */
+    private suspend fun capabilities(config: ProviderRequestConfig): JsonObject {
+        val key = metadataReadKey(config)
+        val owned = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityReadContext]?.requireOwnedFreshRead == true
+        val observed = requireNotNull(
+            capabilityReads.getOrLoad(key, forceRefresh = true, isCurrent = { it?.runtime == GatewaySurfacePolicy.identity(config) }, shareConcurrentRefresh = !owned) {
+                val payload = read(config, "capabilities", 256 * 1024)
+                val document = decode(GatewayAdmissionSurface.CAPABILITIES) { json.parseToJsonElement(payload) as? JsonObject ?: error("Invalid capability") }
+                CapabilityObservation(document, GatewaySurfacePolicy.identity(config))
+            }
+        )
+        if (metadataReadKey(config) != key || observed.runtime != GatewaySurfacePolicy.identity(config)) {
+            throw GatewayAdmissionException(GatewayAdmissionReason.IDENTITY_MISMATCH, null, null, GatewayAdmissionSurface.CAPABILITIES)
+        }
+        return observed.document
+    }
 
     private suspend fun read(config: ProviderRequestConfig, path: String, maxBytes: Int = 2_000_000): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
@@ -182,10 +204,10 @@ class GatewayJobClient internal constructor(
 
     /** Canonical journal identity; the inference installation identifier may be different. */
     internal suspend fun identity(config: ProviderRequestConfig): GatewayScopeIdentity {
-        val key = "${gatewayJobObservationIdentity(config)}|${pairedRequests?.identity(config).orEmpty()}"
+        val key = metadataReadKey(config)
         // Each sequential admission still observes the server. Only overlapping
         // reads of the same authenticated route share their in-flight response.
-        return requireNotNull(
+        val observed = requireNotNull(
             identityReads.getOrLoad(key, forceRefresh = true, isCurrent = { it?.runtime == GatewaySurfacePolicy.identity(config) }) {
                 val body = read(config, "identity")
                 val identity = decode(GatewayAdmissionSurface.IDENTITY) {
@@ -195,7 +217,11 @@ class GatewayJobClient internal constructor(
                 }
                 IdentityObservation(identity, GatewaySurfacePolicy.identity(config))
             }
-        ).identity
+        )
+        if (metadataReadKey(config) != key || observed.runtime != GatewaySurfacePolicy.identity(config)) {
+            throw GatewayAdmissionException(GatewayAdmissionReason.IDENTITY_MISMATCH, null, null, GatewayAdmissionSurface.IDENTITY)
+        }
+        return observed.identity
     }
 
     /** Explicit reconciliation always reads live; a prior missing receipt never authorizes a write. */
@@ -300,8 +326,7 @@ class GatewayJobClient internal constructor(
         var source: GatewayAdmissionSource? = null
         return try {
             withTimeout(30_000) {
-                val payload = read(config, "capabilities", 256 * 1024)
-                val document = decode(checkedSurface) { json.parseToJsonElement(payload) as? JsonObject ?: error("Invalid capability") }
+                val document = capabilities(config)
                 val build = document["build"] as? JsonObject
                 val observedSource = GatewayAdmissionSource(
                     document.text("gatewayVersion")?.takeIf { it.matches(Regex("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}")) },

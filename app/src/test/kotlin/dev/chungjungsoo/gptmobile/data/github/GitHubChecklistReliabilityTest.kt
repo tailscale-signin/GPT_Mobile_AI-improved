@@ -5,6 +5,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -37,6 +39,28 @@ class GitHubChecklistReliabilityTest {
         val historical = mapOf("call" to json("""{"tool_budget":{"used":98,"limit":100,"configured":102,"final_response_reserved":2}}"""))
         assertEquals(2, GitHubChecklistBudget.remaining(historical))
         assertEquals(0, GitHubChecklistBudget.remaining(historical, current = 0))
+    }
+
+    @Test fun proofReservationScalesWithUnverifiedCriteriaInsideTheAcceptedCeiling() {
+        for (count in listOf(33, 64, 169)) {
+            assertEquals(8, GitHubChecklistBudget.ordinaryVerificationReserve(32, count))
+        }
+        val accepted = buildJsonObject { put("acceptance_criteria", kotlinx.serialization.json.JsonArray((1..169).map { JsonPrimitive("criterion-$it") })) }
+        assertEquals(169, GitHubChecklistBudget.pendingCriteria(accepted, null))
+        assertEquals(8, GitHubChecklistBudget.ordinaryVerificationReserve(32, GitHubChecklistBudget.pendingCriteria(accepted, null)))
+        assertEquals(1, GitHubChecklistBudget.pendingCriteria(accepted, json("""{"remaining_requirements":[{"id":"last","state":"NOT_TESTED"}]}""")))
+        assertEquals(0, GitHubChecklistBudget.ordinaryVerificationReserve(2, 169))
+        assertEquals(2, GitHubChecklistBudget.ordinaryVerificationReserve(8, 169))
+        val contract = json("""{"tool_call_limit":32,"acceptance_criteria":["one","two","three"]}""")
+        val budget = GitHubChecklistBudget.checkpoint(emptyMap(), current = 1, acceptedContract = contract)
+        assertEquals(JsonPrimitive(32), budget["effective_call_limit"])
+        assertEquals(JsonPrimitive(31), budget["used_calls"])
+        assertEquals(JsonPrimitive(1), budget["verification_reserve"])
+        assertEquals(JsonPrimitive(false), budget["acquisition_allowed"])
+        assertEquals(JsonPrimitive(true), budget["verification_acquisition_allowed"])
+        assertEquals(JsonPrimitive(false), GitHubChecklistBudget.afterDeadline(budget)["verification_acquisition_allowed"])
+        assertEquals(JsonPrimitive(false), GitHubChecklistBudget.checkpoint(emptyMap(), current = 0, acceptedContract = contract)["verification_acquisition_allowed"])
+        assertEquals(JsonPrimitive(false), GitHubChecklistBudget.checkpoint(emptyMap(), acceptedContract = contract)["verification_acquisition_allowed"])
     }
 
     @Test fun acceptedBudgetSurvivesAbsentTransportCountersAndReachesTheFinalReport() {

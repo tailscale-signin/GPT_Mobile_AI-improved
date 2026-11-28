@@ -16,7 +16,7 @@ class GitHubAcceptanceRecoveryEvidenceTest {
     @Test fun retainedDeadlineReportsRelativeTimeOnlyWhenObserved() {
         val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000}""")
         val expired = GitHubExecutionLimits.deadlineTiming(contract, 66000)
-        assertEquals(json("""{"task_deadline_observation":"WINDOW_EXPIRED","task_deadline_clock":"WALL_CLOCK","task_deadline_renewed":false,"task_deadline_window_seconds":60,"task_deadline_elapsed_seconds":65,"task_deadline_remaining_seconds":0,"task_deadline_overdue_seconds":5}"""), expired)
+        assertEquals(json("""{"task_deadline_observation":"WINDOW_EXPIRED","task_deadline_clock":"WALL_CLOCK","task_deadline_source":"ACCEPTED_TASK_CONTRACT","task_deadline_renewed":false,"task_deadline_window_seconds":60,"task_deadline_elapsed_seconds":65,"task_deadline_remaining_seconds":0,"task_deadline_overdue_seconds":5}"""), expired)
         val open = GitHubExecutionLimits.deadlineTiming(contract, 60000)
         assertEquals(JsonPrimitive("WINDOW_OPEN"), open["task_deadline_observation"])
         assertNull(open["task_deadline_overdue_seconds"])
@@ -25,6 +25,22 @@ class GitHubAcceptanceRecoveryEvidenceTest {
         val retained = GitHubAcceptanceRecoveryEvidence.fields(JsonObject(mapOf("original_failure" to JsonObject(expired + json("""{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_check":"BEFORE_TOOL_RESTORE","deadline_at_ms":61000}""")))))
         assertEquals(JsonObject(expired + ("task_deadline_check" to JsonPrimitive("BEFORE_TOOL_RESTORE"))), retained)
         assertTrue(GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"OTHER","task_deadline_check":"BEFORE_TOOL_RESTORE"}}""")).isEmpty())
+    }
+
+    @Test fun deadlineProvenanceSurvivesRetentionOnlyForAcceptedSources() {
+        for (source in GitHubExecutionLimits.deadlineSources) {
+            val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000,"deadline_source":"$source"}""")
+            val timing = GitHubExecutionLimits.deadlineTiming(contract, 66000)
+            assertEquals(JsonPrimitive(source), timing["task_deadline_source"])
+            val retained = GitHubAcceptanceRecoveryEvidence.fields(JsonObject(mapOf("original_failure" to JsonObject(timing + ("stop_reason" to JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"))))))
+            assertEquals(JsonPrimitive(source), retained["task_deadline_source"])
+        }
+        for (source in listOf("\"private task text\"", "false", "42", "null", "{}")) {
+            val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000,"deadline_source":$source}""")
+            assertNull(GitHubExecutionLimits.deadlineTiming(contract, 66000)["task_deadline_source"])
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":$source}}""")
+            assertNull(GitHubAcceptanceRecoveryEvidence.fields(verdict)["task_deadline_source"])
+        }
     }
 
     @Test fun missingProtectionIsNotInferredFromUnprotectedBranchAndObservedRules() {
@@ -38,6 +54,31 @@ class GitHubAcceptanceRecoveryEvidenceTest {
         assertEquals(JsonPrimitive("CHECK_PROTECTION_READ_PERMISSION"), evidence["status_policy_recovery_hint"])
         assertFalse("VERIFIED_NONE" in evidence.toString())
         assertEquals(JsonPrimitive(false), (policy["policy"] as JsonObject)["required_checks_complete"])
+    }
+
+    @Test fun deadlineProvenanceKeepsOnlyClosedObservedSources() {
+        for (source in GitHubAcceptanceRecoveryEvidence.deadlineSources) {
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":"$source"}}""")
+            val retained = GitHubAcceptanceRecoveryEvidence.fields(verdict)
+            assertEquals(JsonPrimitive(source), retained["task_deadline_source"])
+            assertTrue(retained.keys.all { it in GitHubAcceptanceRecoveryEvidence.fields })
+        }
+        for (source in listOf("null", "42", "true", "\"\"", "\"true\"", "\"private free-form source\"", "\"private task text\"")) {
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_source":$source}}""")
+            assertTrue(GitHubAcceptanceRecoveryEvidence.fields(verdict).isEmpty())
+        }
+        assertTrue(GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED"}}""")).isEmpty())
+    }
+
+    @Test fun retainedDeadlineClockPreservesUserChoiceWaitAccountingWithoutAcceptingUnknownValues() {
+        for (clock in listOf("WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES")) {
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_clock":"$clock"}}""")
+            assertEquals(JsonPrimitive(clock), GitHubAcceptanceRecoveryEvidence.fields(verdict)["task_deadline_clock"])
+        }
+        for (clock in listOf("null", "42", "true", "\"private clock detail\"")) {
+            val verdict = json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_clock":$clock}}""")
+            assertTrue(GitHubAcceptanceRecoveryEvidence.fields(verdict).isEmpty())
+        }
     }
 
     @Test fun recoveryNamesTheActualPolicyEndpointAndAuthenticationFailure() {

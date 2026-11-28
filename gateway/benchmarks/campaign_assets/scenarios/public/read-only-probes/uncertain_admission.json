@@ -1,0 +1,47 @@
+{
+  "schema": "benchmark-kit.read-only-probe.v1",
+  "id": "uncertain_admission",
+  "title": "Recover the original request identity",
+  "synthetic": true,
+  "executionScope": "SYNTHETIC_READ_ONLY_REHEARSAL",
+  "productionScoreEligible": false,
+  "objective": "Explain the safe next step from the retained trial journal and lost-response readback. No POST, cancellation, new trial or model request is authorized.",
+  "allowedActions": [
+    "read_supplied_fixture",
+    "return_text_or_json_report"
+  ],
+  "forbiddenActions": [
+    "model_dispatch_by_kit",
+    "repository_write",
+    "workflow_dispatch",
+    "merge",
+    "publish",
+    "service_restart"
+  ],
+  "publicFixture": {
+    "fixtureNotice": "Synthetic journal and readback; not a real Gateway admission.",
+    "journal": {
+      "request_id": "synthetic-original-request",
+      "attempted": true,
+      "proposalDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "event": {
+      "id": "e1",
+      "kind": "transport_response_lost"
+    },
+    "readback": {
+      "id": "e2",
+      "submissionState": "NOT_OBSERVED",
+      "request_id": "synthetic-original-request"
+    }
+  },
+  "outputContract": {
+    "requiredFields": [
+      "finding",
+      "evidenceIds",
+      "unknowns",
+      "nextAction"
+    ],
+    "doNotInfer": "Unsupported observations, successful mutations, provider identity, measured product quality."
+  }
+}

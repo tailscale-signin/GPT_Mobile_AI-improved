@@ -7,6 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceStreamingPhrasePlanTest {
+    @Test fun aNearbySentenceEndingUsesTheSameSdkInputAndKeepsItsCaptionOffsets() {
+        for (sentence in listOf("The soft light fills the whole room. ", "The soft light fills the whole room today! ")) {
+            val input = sentence + "More follows."
+            val plan = VoiceStreamingPhrasePlan(input, emptyMap(), 1f)
+            val first = requireNotNull(plan.next(6))
+            assertEquals(sentence, first.text)
+            assertEquals(sentence.indices.map { it..it }, first.sourceCharacters)
+            assertEquals("More follows.", plan.next(6)?.text)
+            assertEquals(null, plan.next(6))
+        }
+        val longer = VoiceStreamingPhrasePlan("The soft light fills the whole room every single day.", emptyMap(), 1f)
+        assertEquals("The soft light fills the whole ", longer.next(6)?.text)
+    }
+
     @Test fun aLongSavedReplyIsSplitBeforeInferenceWithoutLosingItsText() {
         val text = "A complete sentence with useful details. ".repeat(120).trimEnd()
         val plan = VoiceStreamingPhrasePlan(text, emptyMap(), .5f)

@@ -785,8 +785,8 @@ class ConversationHTTPTests(unittest.TestCase):
             followup['gateway']['command_id'] = 'tool-result-stage'
             followup['messages'].extend([handoff, {'role': 'tool', 'tool_call_id': call['id'], 'content': 'Private client receipt'}])
             # Continuation commands respect the same bounded admission queue.
-            # A rejection rolls back its receipt/publication and remains safe to
-            # retry with the original exact command once capacity is available.
+            # A rejection rolls back its publication and durably fences this
+            # command. A repaired request uses a new segment command identity.
             projection = self.runtime.gateway_conversations
             projection.tx(lambda db: db.executemany('INSERT INTO gateway_generation_admissions VALUES(?,?,?,?,?,?,?)',
                 [('occupied-' + str(index), 'local:single-user', '{}', 'queued', time.time(), time.time() + 60, '') for index in range(64)]))
@@ -794,12 +794,18 @@ class ConversationHTTPTests(unittest.TestCase):
             self.assertEqual(429, blocked.status_code, blocked.text)
             self.assertEqual(1, model.call_count)
             self.assertEqual(404, client.get('/gateway/commands/tool-result-stage').status_code)
+            rejected = client.get('/gateway/commands/tool-result-stage?include_outcome=true').json()
+            self.assertEqual('rejected', rejected['admission_state'])
+            self.assertFalse(rejected['inference_attempted'])
             self.assertEqual(before, client.get('/gateway/conversations/' + conversation_id + '/messages').json()['messages'])
             self.assertNotIn('client_tool_acknowledgement', self.runtime.job_registry[job_id])
             projection.tx(lambda db: db.execute("DELETE FROM gateway_generation_admissions WHERE job_id LIKE 'occupied-%'"))
+            self.assertEqual(409, client.post('/v1/chat/completions', json=followup, headers={'X-Gateway-Job-ID': job_id}).status_code)
+            self.assertEqual(1, model.call_count)
+            followup['gateway']['command_id'] = 'tool-result-after-capacity'
             second = client.post('/v1/chat/completions', json=followup, headers={'X-Gateway-Job-ID': job_id})
             self.assertEqual(200, second.status_code, second.text)
-            receipt = client.get('/gateway/commands/tool-result-stage').json()
+            receipt = client.get('/gateway/commands/tool-result-after-capacity').json()
             self.assertEqual(job_id, receipt['job_id'])
             self.assertEqual(conversation_id, receipt['conversation_id'])
             after = client.get('/gateway/conversations/' + conversation_id + '/messages').json()['messages']
@@ -848,18 +854,19 @@ class EngineeringConversationTests(unittest.TestCase):
         self.runtime._durable_connect = connect
 
     def test_next_action_mode_is_frozen_for_followup_and_legacy_jobs(self):
-        for mode in ('SHADOW', 'ACTIVE', None):
+        for mode in ('LEGACY', 'SHADOW', 'ACTIVE', None):
             req = dict(self.request, request_id='policy-' + str(mode), client_conversation_id='policy-chat-' + str(mode))
             if mode:
                 req['next_action_policy'] = mode
             job = self.store.create('owner', req)
             snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
-            self.assertEqual(mode or 'LEGACY', snapshot['next_action_policy'])
+            expected_mode = mode or 'ACTIVE'
+            self.assertEqual(expected_mode, snapshot['next_action_policy'])
             claimed, lease, _ = self.store.claim(job['id'])
             self.assertTrue(self.store.complete(claimed, lease, 'COMPLETED', {}))
             snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
             followup = dict(req, request_id='wrong-policy-' + str(mode), conversation_id=job['conversation_id'],
-                            expected_revision=snapshot['revision'], next_action_policy='ACTIVE' if mode != 'ACTIVE' else 'SHADOW')
+                            expected_revision=snapshot['revision'], next_action_policy='ACTIVE' if expected_mode != 'ACTIVE' else 'SHADOW')
             with self.assertRaisesRegex(ConversationConflict, 'next action policy'):
                 self.store.create('owner', followup)
 

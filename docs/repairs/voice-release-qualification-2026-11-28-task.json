@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "observed_head": "761117344d8ad242044160c2c55fac9ef8b3fe73",
+  "intent": "Retain narrowly identified shared APIs required by the separately compiled nativeSmoke test APK, preserve normal production R8 optimization, and require fresh branch and merged-main checks before the requested paired Android/Gateway publication.",
+  "status": "The original release-size, packaged-method and voice-acceptance repairs are verified on 7611173. The nativeSmoke shared-API repair passed the canonical host gate and independent source/DEX review. Its optional local R8 probe is unavailable after execution-environment loss; fresh hosted optimized Android, changed-head and merged-main qualification remain required.",
+  "observed_failures": [
+    {
+      "workflow_run": 46127231416,
+      "job": 140926714746,
+      "failure": "VoiceChatSessionScreen is18,425 DEX code units, above the exclusive 16,383 limit. The remaining screen method checks passed."
+    },
+    {
+      "workflow_run": 46127231365,
+      "jobs": [
+        140926886573,
+        140926886389
+      ],
+      "failure": "The plugin test scrolls to an obsolete installed label; production now correctly says Installed · Model files verified."
+    },
+    {
+      "workflow_run": 46127231227,
+      "jobs": [
+        140933607417,
+        140933607402,
+        140933607380,
+        140933607354
+      ],
+      "failure": "JUnit reflection cannot resolve the caption coverage result type omitted from the already-shrunk nativeSmoke application. Real speech tests do not begin."
+    },
+    {
+      "workflow_run": 46127231343,
+      "job": 140927983451,
+      "failure": "Universal release APK 242,953,303 bytes exceeds unchanged 241,172,480-byte budget by 1,780,823 bytes. Both split APKs pass."
+    },
+    {
+      "workflow_run": 46133522722,
+      "job": 140943685152,
+      "source_head": "761117344d8ad242044160c2c55fac9ef8b3fe73",
+      "failure": "AndroidJUnitRunner crashes in onCreate because androidx.tracing.Trace is absent from both optimized APKs. No selected native test executes, so the dependent speech matrix is skipped. The job completes in 49m52s with ordinary failure and artifact upload; this is not a timeout.",
+      "artifact": 15259728920,
+      "artifact_sha256": "de95e8a9f973fb081cf2b6e1d56cc1449466c6af6af1cd6f486eaa3f1f24ecc0"
+    }
+  ],
+  "changes": [
+    "Move 34 saved and 20 transient voice-session state initializers into two private composables in the same source file. Preserve all initial values, saveable keys, State handles and callback/effect bodies.",
+    "Retain exactly the two caption-verification types referenced across the separately compiled nativeSmoke test-APK boundary. Production keep rules and real model assertions remain intact.",
+    "Update only the plugin test expected label, preserving scrolling, visibility and distinct download/cancel/remove assertions.",
+    "Remove the global R8 optimization opt-out while retaining every native/reflection keep rule. The historical workaround came from AGP9.2.1/Kotlin2.3.21; current pins are AGP9.4.1/Kotlin2.4.20. Hosted 7611173 release builds now pass the unchanged APK budgets; the optimized Android runtime gate remains required.",
+    "Retain 14 explicitly named shared runner/database/speech classes and the directly read GitHub preparation companion field in nativeSmoke only. This preserves erased constructors/default bridges, accessors and an instance method that app optimization staticized; release rules and full runtime assertions are unchanged."
+  ],
+  "validation": {
+    "voice_state_extraction": {
+      "compiler": "Kotlin2.4.20/Compose compiler with Compose runtime1.12.1 and D8 API31 debug",
+      "initializer_probe_dex_units": {
+        "original": 4026,
+        "extracted_caller": 1252,
+        "saved_helper": 1851,
+        "transient_helper": 1212
+      },
+      "behavior": "Three actual Compose runtime cases pass: state-handle identity and live callbacks, keyed replacement, and all34 saved values restored while transient state resets. Missing-runtime-key control has the expected failure.",
+      "evidence_sha256": "0e4819381740892ef86291a9ce993554877929dd33c86d7607d99372eaa17703",
+      "limit": "Initializer probe is not a full packaged-screen measurement or Android process-death proof. The actual APK method gate remains required."
+    },
+    "caption_boundary": {
+      "compiler": "Kotlin2.4.20 and actual R8 9.4.14, Java21 classfile mode",
+      "behavior": "A separately compiled test reproduces NoClassDefFoundError with old nativeSmoke rules; the precise new roots retain both types and permit reflection plus missing-middle, complete-word and grouped-word coverage logic.",
+      "evidence_sha256": "1a6972f7c03c8504a6b05fd71bafc3e652c4931304fec75634673a12ea0c7a3b",
+      "limit": "The full minified Android application and actual model/device suites must pass on the new revision."
+    },
+    "historical_8b_device_evidence": {
+      "apis": [
+        34,
+        36
+      ],
+      "behavior": "The required microphone and voice-conversation cases executed successfully on both APIs, with all five PNGs reviewed per API. The overall jobs failed only on the obsolete plugin label.",
+      "evidence_sha256": "ab453bd239361e66f9e8a54f7ce3fa631640582a765b01d6126d7f6ab460c20f",
+      "limit": "Historical8b evidence is not approval of the changed revision."
+    },
+    "size_investigation": {
+      "behavior": "Extra compression on the available exact-current and byte-pinned native members saved no bytes; no safe duplicate model/native payload was found. Historical safe native folding without address-significance metadata was byte-identical, and a metadata-enabled rebuild was killed before a linked result.",
+      "decision": "Use normal R8 optimization as the next measured candidate. Do not integrate unmeasured native flag changes or alter download budgets.",
+      "candidate_status": "Hosted 7611173 release passes every unchanged APK budget with actual R8 9.4.24. The separate optimized Android runtime gate fails before test execution and still blocks merge.",
+      "current_release_toolchain": "AGP9.4.1 embeds R8 9.4.24; the isolated caption rule probe uses separately identified command-line R8 9.4.14."
+    },
+    "canonical_host_gate": {
+      "command": "KOKORO_TEST_CMAKE=/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake bash scripts/validate-local.sh fast",
+      "exit": 0,
+      "tests_run": 890,
+      "tests_passed": 889,
+      "tests_skipped": 1,
+      "log_sha256": "cfcf48096c278b1a46383afde030abf3127f552f63c28bc038dc49f7386c6938",
+      "scope": "Canonical host checks of the integrated shared-API repair; six actual CMake configuration cases enabled. Full optimized APK, device, exact-head and merged-main checks remain required."
+    },
+    "hosted_gate": {
+      "status": "PENDING fresh qualification of the shared-API repair, then exact merged-main validation and paired publication."
+    },
+    "hosted_761": {
+      "head": "761117344d8ad242044160c2c55fac9ef8b3fe73",
+      "tree": "5753b96c53455f5ab0f2d93a9bd75cbc969d5398",
+      "tested_merge": "5c5ca41082095fdf6d12e62a2eb4f232a9130ccd",
+      "release": {
+        "workflow_run": 46133522740,
+        "status": "passed",
+        "r8_version": "9.4.24",
+        "effective_dontoptimize": false,
+        "apk_bytes": {
+          "arm64-v8a": 174584386,
+          "universal": 237564887,
+          "x86_64": 100455262
+        },
+        "unchanged_universal_limit_bytes": 241172480,
+        "universal_saving_bytes": 5388416,
+        "evidence_sha256": "fdc9c75bfec643cd2f294a2d3f08289c40b2f90d60f1c0791951f5ae2b1ab934"
+      },
+      "packaged_method_size": {
+        "workflow_run": 46133522838,
+        "status": "passed_all_three_apks",
+        "voice_session_code_units": 15777,
+        "previous_code_units": 18425,
+        "unchanged_exclusive_limit": 16383,
+        "evidence_sha256": "b75479675c918f272f7f71d64fd8e9e43a86b56141c0cf246fe8f229a7b1c383"
+      },
+      "android_acceptance": {
+        "workflow_run": 46133522724,
+        "status": "passed",
+        "api34": {
+          "passed": 29,
+          "exact_allowed_assumptions": 1,
+          "assumption": "The Android device has no available English TTS voice"
+        },
+        "api36": {
+          "passed": 30,
+          "skipped": 0
+        },
+        "corrected_plugin_label_case": "passed on both APIs",
+        "evidence_sha256": "073a76b2b5b5773fe3c29853da9eae12ec353f90a67eeea3fcc6ab891fab598c"
+      },
+      "host_native_speech": {
+        "workflow_run": 46133522825,
+        "status": "passed",
+        "required_ctests_executed": 9,
+        "qnn_retirement_fixture_cases": 20,
+        "java_cancellation_cases": 5,
+        "actual_cpu_models": [
+          "zipformer-en",
+          "zipformer-fr",
+          "nemotron-cpu"
+        ],
+        "evidence_sha256": "de7cd8c1e7829af9a0b94a2775ec1de1b8627197b6772ccc279539e0fba3f791"
+      },
+      "jvm_tests": {
+        "workflow_run": 46133653942,
+        "actual_cases": 15948,
+        "passed": 15942,
+        "failed": 0,
+        "expected_heavy_cases_deferred": 6,
+        "targeted_voice_cases_passed": 59,
+        "artifact_sha256": "9563f69ea3382556fd3d39663764992201b2063b1cf15a01f20126844c509ea7"
+      },
+      "minified_android_native": {
+        "workflow_run": 46133522722,
+        "status": "failed_before_test_execution",
+        "reason": "Missing shared test-runner dependency after app optimization",
+        "staged_apk_artifact": 15260540512,
+        "staged_apk_artifact_sha256": "38667f870b54038f9a4b463dc4d9ee2c22323e98144a63607233ef96679d42e6",
+        "app_sha256": "94d3d1edea176f6aa344b8bacf4abb7351dae8fd426b4c8dbe7d4f9be08ac2c3",
+        "test_apk_sha256": "7746a57ee4504e7de10b6827117150bcf9053cc0afcd6164797b1d97f7e2f286"
+      },
+      "limit": "This source-specific evidence does not approve any later revision or establish physical GPU/NPU, acoustic, thermal or battery qualification."
+    },
+    "native_smoke_shared_api_boundary": {
+      "status": "Canonical host gate and independent source/DEX review passed; full hosted optimized runtime qualification remains pending.",
+      "source_head": "761117344d8ad242044160c2c55fac9ef8b3fe73",
+      "candidate_rules_sha256": "6bbfecad2240d6ca2ac428b40f48911af8cfb3f714c784e11219581f8e5b7392",
+      "patch_sha256": "345394e8df7f188b28e714bda7ac80ae6d1cc1cbc4efa70b9394501285b6295c",
+      "named_class_roots_added": 14,
+      "exact_companion_field_added": true,
+      "audit": {
+        "selected_runner_and_test_helper_classes": 236,
+        "decoded_member_instructions": 7694,
+        "resolved_shared_app_member_references": 835,
+        "missing_member_signatures": 25,
+        "instance_to_static_mismatches": 1,
+        "platform_scoped_inherited_instrumentation_overloads": 5,
+        "report_sha256": "dbb291ac8a6d3a8ca2bf1a7904adf256e1492cca0f27714b3977f5e52f578ca4",
+        "decoder_sha256": "4ff7c22148f766bb90f19848a29d05aff931dd4e55b2d0544644a1ba20c4815b"
+      },
+      "independent_review": {
+        "decision": "No actionable blocker; approved for hosted qualification.",
+        "helper_closure_report_sha256": "65cb97c7fc8cd9cfec3f46afbf09d53939cb8da51afc1101d481f159de750df4",
+        "scope": "Reviewed the 25 missing member signatures, instance/static invocation shape, and additional runner utility/event/storage/JUnit helpers. No further demonstrated startup API required a root. Dormant UI screenshot/Compose branches reached through shared synthetics are not treated as selected-test roots.",
+        "receipt_file": "Not created: execution environment disconnected before the final receipt-writing process started; review recorded in the task handoff."
+      },
+      "optional_local_r8_probe": {
+        "status": "UNAVAILABLE_NO_VERIFIED_RESULT",
+        "compiler": "Pinned AGP9.4.1 embeds R8 9.4.24",
+        "observations": [
+          "A small Kotlin compilation was externally killed with signal9 and no compiler diagnostic.",
+          "A subsequent serialized probe using genuine precompiled library/app classes lost its execution-server transport before verified completion.",
+          "The execution environment became unavailable; no local R8 probe pass or semantic failure is inferred."
+        ],
+        "remaining_gate": "The full fresh Android nativeSmoke run must start the runner, pass actual memory/ObjectBox/GGUF tests and all four real speech/cancellation checkpoints."
+      },
+      "source_recovery": "After execution-environment loss, the reviewed rules were reconstructed from immutable761 source and the frozen patch. Their SHA256 exactly matched the reviewed candidate before GitHub publication.",
+      "scope": "nativeSmoke-only shared test API roots; no production optimizer, package budget, deadline, ABI, model payload or test assertion change."
+    }
+  },
+  "raw_caption_packet_shared_api_followup": {
+    "source_head": "8abb1340f4b23942c32a00b62b44a6db652f25ce",
+    "workflow_run": 46154017214,
+    "passing_memory_job": 141006676737,
+    "failed_speech_jobs": {
+      "phonon": 141018994105,
+      "pocket-multilingual": 141018994114,
+      "pocket": 141018994122,
+      "kokoro": 141018994187
+    },
+    "failure": "All four real checkpoint tests enter the native streaming callback, then fail with NoSuchMethodError getRevision()I on the raw cue in the app APK, from CaptionPublication.observe.",
+    "source_contract": "VoicePcmChunk.wordCues is List<VoiceWordCue>; the observer directly calls revision, startByte, endByte and startFrame. VoicePcmChunk and VoiceStreamCue were retained, but the distinct raw VoiceWordCue was not.",
+    "repair": "Retain the single VoiceWordCue class and members in app-native-smoke-rules.pro, matching the existing shared data-contract roots. The Gradle file applies this rule only to nativeSmoke. No test assertion, production release rule, model or timeout changes.",
+    "status": "SOURCE_REVIEWED_PENDING_FRESH_HOSTED_NATIVE_SMOKE",
+    "limitations": "No local R8 or runtime qualification claimed. Existing failed run must not be treated as passed. All four real speech/cancellation cases and memory gate must pass at the new head."
+  },
+  "source_sha256": {
+    "app/proguard-rules.pro": "2e5df0831f0e2e238fc7be31ab62dccb901b3654e691559bbab010454f28cfd4",
+    "app/app-native-smoke-rules.pro": "6bbfecad2240d6ca2ac428b40f48911af8cfb3f714c784e11219581f8e5b7392",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "590f8befc2ee7315368f47fbcf749a94f7bd50c148f0a040595cd06a065edfcb",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/LocalVoicePluginInstrumentedTest.kt": "02dc93b662dd14cf7549abb0bd2ce43bbb2fded071e3e58297e4e69e8110c6f2"
+  },
+  "references": [
+    "https://developer.android.com/topic/performance/app-optimization/global-options",
+    "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/commit/ce76e10e7e8fe7a81ba52a510b72bfa5922f1b10"
+  ],
+  "preserved": [
+    "All APK size, packaged method-size, Gradle memory, native input identity, signing, alignment and current-head/main publication gates remain unchanged.",
+    "Supported model and plugin payloads, licences, microphone listening behavior, translation ownership and online consent boundaries remain intact.",
+    "No physical GPU/NPU, acoustic, thermal or battery qualification is inferred from host/emulator checks."
+  ]
+}

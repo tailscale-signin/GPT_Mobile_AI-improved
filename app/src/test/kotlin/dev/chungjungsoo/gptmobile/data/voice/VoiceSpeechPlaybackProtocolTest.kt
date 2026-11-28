@@ -66,6 +66,32 @@ class VoiceSpeechPlaybackProtocolTest {
         assertNull(shared.recommendation())
     }
 
+    @Test fun compiledPocketCancellationTargetsItsActualInferencePhaseAndExcludesAlignmentPreparation() {
+        val config = configuration(full = true).copy(
+            engine = VoiceSpeechBenchmarkEngine.POCKET_COMPILED,
+            backends = listOf(VoiceSpeechBackend.POCKET_GPU, VoiceSpeechBackend.POCKET_NPU),
+            engineVoiceId = "alba",
+            playbackScenarios = listOf(VoiceSpeechPlaybackScenario.CANCELLATION)
+        )
+        val plans = VoiceSpeechPlaybackProtocol.plans(config)
+        assertEquals(
+            setOf(VoiceSpeechCancellationTarget.PREPARATION, VoiceSpeechCancellationTarget.INFERENCE, VoiceSpeechCancellationTarget.PLAYBACK),
+            plans.mapNotNull { it.cancellationTarget }.toSet()
+        )
+        assertEquals(plans.mapNotNull { it.cancellationTarget }, plans.mapNotNull { it.recoveryAfter })
+        val plan = plans.first { it.cancellationTarget == VoiceSpeechCancellationTarget.INFERENCE }
+        val measurement = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.POCKET_GPU, 0, plan)
+        measurement.preparationStarted()
+        measurement.engineReady(false)
+        for (stage in listOf(VoiceSpeechStage.PREPARING, VoiceSpeechStage.VALIDATING)) {
+            assertFalse(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, VoiceSpeechProgress(stage, 1, 1, 1, 1, false)))
+        }
+        val inference = VoiceSpeechProgress(VoiceSpeechStage.SYNTHESIS, 1, 2, 1, 2, false)
+        assertTrue(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, inference))
+        assertFalse(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, inference.copy(active = false)))
+        assertFalse(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, null))
+    }
+
     @Test fun interruptedComparisonKeepsMeasuredProcessorsPartialAndUntouchedProcessorsUnrun() {
         val config = configuration(full = true).copy(backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS)
         val plan = VoiceSpeechPlaybackProtocol.plans(config).first()
@@ -190,6 +216,41 @@ class VoiceSpeechPlaybackProtocolTest {
         assertEquals(VoiceSpeechPlaybackQuality.INCOMPLETE, incomplete.quality)
         assertTrue(observed(plan).captionManifestValid)
         assertEquals(VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED, observed(plan).quality)
+    }
+
+    @Test fun captionQualificationRequiresObservedRenderingWhileAllowingSkippedDisplayFrames() {
+        val result = observed(VoiceSpeechPlaybackPlan(VoiceSpeechPlaybackScenario.COLD_START, 0, listOf("the voice is ready.")))
+        assertEquals(4, result.renderedManifestWords)
+        for (rendered in listOf(null, 0, -1)) {
+            val unobserved = result.copy(renderedManifestWords = rendered)
+            assertFalse(unobserved.captionManifestValid)
+            assertEquals(VoiceSpeechPlaybackQuality.INCOMPLETE, unobserved.quality)
+        }
+        // Actual playback may cross brief words between display callbacks.
+        val skippedDisplayFrames = result.copy(renderedManifestWords = 1)
+        assertTrue(skippedDisplayFrames.captionManifestValid)
+        assertEquals(VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED, skippedDisplayFrames.quality)
+    }
+
+    @Test fun restoredReportWithoutRendererObservationCannotQualifyCaptions() {
+        val config = configuration()
+        val report = VoiceSpeechBenchmarkReport(
+            1L,
+            config,
+            state = VoiceSpeechBenchmarkRunState.COMPLETE,
+            playbackResults = listOf(observed(VoiceSpeechPlaybackProtocol.plans(config).first()))
+        )
+        val json = speechBenchmarkJson(report, local = true)
+        val row = json.getValue("playbackResults").jsonArray.single().jsonObject
+        assertEquals(report, speechBenchmarkReportFromJson(json))
+        for (missing in listOf(row - "renderedManifestWords", row + ("renderedManifestWords" to kotlinx.serialization.json.JsonNull))) {
+            val restored = requireNotNull(speechBenchmarkReportFromJson(JsonObject(json + ("playbackResults" to JsonArray(listOf(JsonObject(missing)))))))
+            val playback = restored.playbackResults.single()
+            assertNull(playback.renderedManifestWords)
+            assertFalse(playback.captionManifestValid)
+            assertEquals(VoiceSpeechPlaybackQuality.INCOMPLETE, playback.quality)
+            assertNull(restored.recommendation())
+        }
     }
 
     @Test fun stageBoundariesAndRealChunkEvidenceRemainDistinct() {

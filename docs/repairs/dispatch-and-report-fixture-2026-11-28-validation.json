@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-28T06:04:20.598000+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "currentHead": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+  "ciBaseline": {
+    "headSha": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "runId": 46109771948,
+    "jobId": 140872122832,
+    "tests": 15631,
+    "passed": 15623,
+    "failed": 2,
+    "skipped": 6,
+    "artifactId": 15251051318,
+    "artifactName": "statistics-schema-and-tests",
+    "artifactSha256": "b4a23b25f73b9fe7266f4f7e518835f315b87d38b1312e1ae2ddd8e5481a3fdb",
+    "digestVerified": true
+  },
+  "corrections": [
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt",
+      "failure": "delivery_completion denominator expected 1 but actual 0 for physicalRequestIds only.",
+      "contract": "Admission identity alone proves no physical dispatch; actual dispatched HTTP rejection counts an attempted delivery but no model execution.",
+      "baselineFocusedResult": {
+        "tests": 1,
+        "failures": 1,
+        "logSha256": "2862f54585b77d5047a5b14e54cb62ff63ffd47f482e9a140c169f6b4d02978a",
+        "testOutput": "JUnit version 4.13.2\n.E\nTime: 0.078\nThere was 1 failure:\n1) dispatchBoundaryAndHttpRejectionDoNotBecomeExecutedModelCases(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueuePolicyTest)\njava.lang.AssertionError: expected:<1> but was:<0>\n\tat org.junit.Assert.fail(Assert.java:89)\n\tat org.junit.Assert.failNotEquals(Assert.java:835)\n\tat org.junit.Assert.assertEquals(Assert.java:120)\n\tat org.junit.Assert.assertEquals(Assert.java:146)\n\tat dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueuePolicyTest.dispatchBoundaryAndHttpRejectionDoNotBecomeExecutedModelCases(BenchmarkQueuePolicyTest.kt:23)\n\nFAILURES!!!\nTests run: 1,  Failures: 1"
+      },
+      "currentFocusedResult": {
+        "tests": 1,
+        "failures": 0,
+        "logSha256": "852fba1fbdbc727be72f619e47d3792506058c246550119fb06405c36a597232",
+        "testOutput": "JUnit version 4.13.2\n.\nTime: 0.072\n\nOK (1 test)"
+      },
+      "scope": "Exact repository test method against actual metrics, coverage, and model declarations; unrelated platform/native/engineering projections use host ports."
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskTrustTest.kt",
+      "failure": "No retained report and no operation evidence: expected PARTIAL but actual BLOCKED.",
+      "contract": "Missing saved report uses RETAINED_REPORT_UNAVAILABLE publication; unmet required capabilities remain BLOCKED. No provider, extraction or tool operation is authorized by report delivery or expiry.",
+      "baseline": "Full e28 CI repository test failed at line267; relevant production files are unchanged since that commit.",
+      "currentSourceBoundBoundaryResult": {
+        "tests": 2,
+        "failures": 0,
+        "logSha256": "ab869b61e45816b0f73eed661766f26beae3b0a4da374201ae515449cdd481cf",
+        "scope": "Actual GitHubIntegrationReport.stopReason/taskOutcome with explicit empty-evidence prerequisite checkpoints; separate control preserves PARTIAL for unverified evidence without required capability blockers.",
+        "testOutput": "JUnit version 4.13.2\n..\nTime: 0.11\n\nOK (2 tests)"
+      },
+      "correctedFullSessionFixtureExecutedLocally": false,
+      "limitations": "Full GitHubVerifiedSession/EvidenceBook/Android integration graph is not available in a focused local harness; corrected repository fixture awaits CI. No surrogate session implementation was used."
+    }
+  ],
+  "currentTestSourceSha256": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt": "68a612a94e8b79e56ca0c2bc1f2575782b2f26e79d43775c50e2d53e43a23a13",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskTrustTest.kt": "e96117344d20f68c9729b9fbedc02a1d6d481ac5dbc9e4f2c313783fd26209c2"
+  },
+  "productionUnchangedSinceBaseline": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMetrics.kt": true,
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCoverage.kt": true,
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": true,
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt": true
+  },
+  "sourceBindings": {
+    "benchmark": {
+      "sources": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMetrics.kt": "e6128fc68edc879daef221fdad26ac3a511cce4643eb0c55da6a15c9bc79a845",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCoverage.kt": "6f796960aa3b9d335ae0f2feaac7205ce979e43f20e3364382cc3717df1b0a58",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkTaskEfficiency.kt": "fc04b61c98fb7e41ac6c7b80a6feb87084485ea77ba18a43ea761fff3880bf82",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunSelection.kt": "62c65e065b3f58756502e88d56a1a0e17e526df427c45aab799b76ae30812302",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/DynamicScoreEngine.kt": "b3d1f033a85893fb0520fd1aea9c4b40964448e684393f656d798c83df0c456b",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkIntelligenceEvidence.kt": "5d8dd110ac43380136297037cd3817c9025a1189652b74eec995d0b5c2685d12",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/IntelligenceBenchmark.kt": "e44ffed8031be758795c84f93927f4350e06f9b001fc23109df530222676367f",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkIntelligenceFixtures.kt": "abf92eabf681f1b57ffc89a972c789f2a5e00405ebc6536c61785138468e5422",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkSuite7.kt": "d53863d0d7e5dc3ff4cc8fb94319c82d7eaafe5dc850dde2e1170d086db8edae",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkSuite8.kt": "deb3d454ab3049ed80167da08ecf81a0a71f7d6c2a86235d6abc26cfeda84bba",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkSuite9.kt": "9db06bde19e9bcf04d975c864b55411b0ca9c4c3f0aa4321c3bfbfbff55e6c89",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCapabilitySuite.kt": "cd90dbea32a6fee1b74e4a5f234ba36deed5eae35bd55e218f385b7c21c714ab",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCapabilitySuiteV2.kt": "ae8b5b7ec8d0775566c52144d4873a53d81dbc7f643366ac7d3f991b3a593b46",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkSuite.kt": "c87928044407f00ec84426eebf4960374f4f4344a835976da8f371594a06a0ea",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkScore.kt": "f6e5b941e63744c298e264a58b9f7eff9b6ff082132e7ba4f235dfffa3699e55",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/ReferenceTextTokenizer.kt": "ce499044f9ac9adf2d19b6dd96aca0061b05d2c2a55ed5ff78f1b89b75217729",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkProfileEligibility.kt": "bfe317590ba03553a7767554ddba28bcfa703a60b258b937f0365b9558526c3c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkSuiteRegistry.kt": "f333a0528e9f504fba38efa4d38ba7eff95d983e7c3d6a78814227fe8622171a",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCpuExperiment.kt": "74ecc613ea3877856b1d4292988f8945d6350048fb06a815742826f4806c49d5",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkResourceRecorder.kt": "b2733ad6f0f512a4255d69953ab01aaf020ef8ef9cbdf54c949cc6e411da874d",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkWorkloadPlanner.kt": "a89f740c61bd20d64c94568f6a3e8d8c92e73ce6d40273cc0d4b62d4eef2a0d5",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExport.kt": "a576ae63a83f35c4027d5041ee2df8754b33861992b415aad84bdf9f60b309e3",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStreamingExport.kt": "5fa5198ad887d7fee161f934c47cfca07858daf6db1d49c2f53d43124387a992",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPricingExport.kt": "3d24300d4f20891cd4ea1178da35d6b4591e4d9331f88605966b75d0429d24f1",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkScoreboard.kt": "773acd3e5db8df2e5e8bbc5864de9545df7ed503df33b54b5d88582d5e5fa42b",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkAcceleratorEvidence.kt": "0db9380cd28fc179a765ba630d18f3c8c9c2899a364e9f2ff00fa4c26ecda602",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBackendEvidence.kt": "2cb5955a8644ab7b78198e8fc83a74be2fa5835b8388e9613b71e29450a03fb9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkColdExport.kt": "902e6e5bc64f82892d59ac398456eed41b1d2bbaa8061c37f2395d57619d3927",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/LocalRuntimeBackend.kt": "f5072ab2f81ce14f6ab6bb1a94161b853778ca7bf411c851b4c1a579034ebfe1",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pricing/ModelPrice.kt": "18da0b4f90ccb71e2acace697d5b81d64b9e2f4b9a1bbd9fcaafa710f1f1ee23",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pricing/ProfilePriceResolver.kt": "7b5ba9b24bb4e131ed301c279ded98b735eb47c09bd2e9d9a977e011a4e073d2",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkEvidencePresentation.kt": "e5175a0d38df864be96cf5cb9ac3c580eb6b9f7ab0598dff08febe85dd066220",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkModels.kt": "ec354382a7a99f94dcf3987660af86691cc465f57c87124230780efffa6bb6cf",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt": "a7a58100d4587b6b58ed9bba873a52712d80bf2078116c1e399899f3ed1735c9",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt": "42f8aea108d51b6a8c95b6caf9558e17f93b02d45fc74ca24565ca0e262ee630",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecrets.kt": "8ca68b139def70e468d43c2fe4b7707b22f8c461c624035432525e8ccedc760c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/DelegationBenchmarkRating.kt": "0755fe222a380634c8183e3cb3bc8398fb08ce60b7d1f0505c3f784bfc147345",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchModels.kt": "d20da5a68ab2674f94282b5b6c6cb805b7d6d34020cbbe73d753435b2677567d",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunner.kt": "e128d8238f1ff65ba8ad6c55754ffb406c94a98eadf3ccbe8b4092da34dc2c9e",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuite.kt": "b937e164eaa3c6eb4cd18a3159e46c67d83a6257693b67a0f8bee8f4b0256b30",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionPolicy.kt": "734a92e62f26cd5baf03d89adc773308e6e3fe86c2538b41c7d68635afc51653",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMeasurement.kt": "5fb07e30aca63ad9ae8b2df1677ccf89a3ff6f78e6c90c67a2fe28cff136f70b",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkValidation.kt": "0062092ad15523c0f6376bb830690d7447498015b2aecf60d5da5db7f8650379",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkToolAssessment.kt": "60e950103dd634357f155b9ab233964dd2b8fd6e253d71834085198123a04446",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringMetrics.kt": "55ed616660fa7ef9e69de7ce8eb9aad81b011f1e511f1a0adccc650021de1920",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/LocalRuntime.kt": "4a9b09d3535ec87879ecc94a883bb92994f34292c771a2c44d7f5f3b63f504f5",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRuntimeObservation.kt": "e46ee4b5f122095b27c60c2217f834f528956ea4a4dcb13df043da12a82623af",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/RuntimeReceipts.kt": "3d0fe25bc0dd59e77283b5c886d6259095064732f0f3932105fc719043eebccd",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt": "68a612a94e8b79e56ca0c2bc1f2575782b2f26e79d43775c50e2d53e43a23a13"
+      },
+      "testClasses": [
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueuePolicyTest"
+      ],
+      "exitCode": 0,
+      "limitations": "Android/platform and unused engineering/audit/comparison/performance projections use ports; tested metrics, scoring, runtime observation, export writer/redaction, scoreboard, models, pricing and versioned fixtures are actual source. Does not replace Android build or full integration tests."
+    },
+    "githubReport": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt": "66f927ea6b8713be47924b0d64edf35b3ce536c8dc5b543e8d81776eabdfe254",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskCoverage.kt": "cf1ed6c5af15ef0cb53c340d77d1fd586cce64429294733a25ee52194d541e48",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistScope.kt": "c80030f452edfa758071b0e2f9c82931540dd6fbf97edccec75c3df52c19f60e",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQualificationSummary.kt": "f74bfdee7c0443de808fca2e836b435e5a52bfb774068f738d02682e2bb2f601",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceOrigin.kt": "e9e5ad860e77163224d3a81378a8e93d97d80ba20a91bcee8062421aa09f643b",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryQuery.kt": "c67fefd7952f27a3b223e36ea915c73742e16f7536a0f370e3c23e1237494344",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservation.kt": "ce11f490392dda365ef50be330e490c06c32851bc07a19ab4c1c187b9249254f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPrerequisites.kt": "12b7ad71273923b03ec02df11c4e3650733a2ed2efcccfc68e2dab42997d45f9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubActionIdentity.kt": "d2508288da7207a085e812ab6c105d505d907275d1b3616d7939cf2a13258b6c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryInput.kt": "2b3e63c70b649c77ccd7be4670e78ec0d8c92d1df28bf49f963d749892570218",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubComparisonPage.kt": "da1aacc671f2ce71375838b5ac878c41e742cc1f04113130d4cadfd6ac59c891",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOperationOutcome.kt": "ffa781cbcd02a411fdd5e89a6e179b510b43ad6cb253b231ab722f33bc9d617e",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt": "d769932468be729629c8e46191d04a68d2f855e227d32c8e851c543fcfdc3c81",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPendingApproval.kt": "4e0bc9d41ae7114f890ae45690dba572d3cd898c852493597554dee863815087",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApprovalBinding.kt": "88e56e4b209f5a17c0b2f6f2951ec26d12a4ccbb0c42221e4d09a330cacd2686",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSemanticSummary.kt": "82b64f6b8f45b6b0df097541ceb6973970a6226da0a492908e210c40a062cf6c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt": "5d73edabc1e681e5f550853787b2a230c1405f0e99f1f8eb23c16be744ec5d70",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuthorizedCatalog.kt": "ad36482362f351b2ef65e0b036df49751802427653f4af890a75ab27ecdc86a7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistBudget.kt": "ded73abe945d1ef4b3d4dbd3db7f7cfa53de01039697a18a43a45d25e1d392dc",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt": "2265e7aabc96a3751d2537da9cf6adf03c94ffdf1ac55818dafd4099b1aff4b0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPullRequestQuery.kt": "4a4fd64245e3b1b4e7abdd84b7a82c919a65446da408b48effcf173208cad947",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAgentWorkspace.kt": "8eb04a320163f956849ac837c06e323dfd30da746e7a53a8407411f2a2dcf329"
+    }
+  },
+  "historicalVoiceIntegrationEvidence": {
+    "suites": 18,
+    "tests": 160,
+    "failures": 0,
+    "skipped": 0,
+    "details": [
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.KokoroStreamingOutputTest",
+        "tests": "22",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": [
+          "cancelledQueuedWarmupCannotBorrowTheNextRequestsIdenticalModelKeyOrPrivacy",
+          "answerHandoffReusesAnOpeningGraphAndUserStopStillCancelsIt",
+          "cancellationRetiresAStreamBlockedByTheFullPlaybackQueue",
+          "captionAlignmentPreferenceIsCapturedPerPlaybackWithBoundObserversAndAWarmEngine"
+        ]
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeWordCueMapperTest",
+        "tests": "12",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.PocketCaptionAlignerTest",
+        "tests": "3",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": [
+          "cancellationAfterNativeReturnSuppressesTimingsAndRetiresOnlyOnOwnerClose"
+        ]
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.PocketCaptionModelStoreTest",
+        "tests": "3",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": [
+          "corruptAttentionDownloadDoesNotPublishPackOrRemoveRecognitionModel",
+          "derivedPackCopiesVerifiedAssetsUnderLeaseAndRemainsIndependentAfterRemoval"
+        ]
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.PocketCaptionSynchronizationTest",
+        "tests": "6",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.PocketCaptionTimingTest",
+        "tests": "4",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.PocketCaptionVoicePhraseEngineTest",
+        "tests": "6",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": [
+          "cancellationDuringAlignmentSuppressesPcmAndCloseWaitsForNativeReturn"
+        ]
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionAlignmentPreferenceTest",
+        "tests": "2",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": [
+          "defaultCaptionPolicyRemainsAvailableToPlaybackBenchmarksAndClosedOwnersIgnoreEdits"
+        ]
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionRouteCalibrationTest",
+        "tests": "3",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionRouteIdentityTest",
+        "tests": "3",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTimingTest",
+        "tests": "7",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionWordCoverageTest",
+        "tests": "6",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.VoicePcmCaptionsTest",
+        "tests": "14",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceTempoCaptionRegressionTest",
+        "tests": "6",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceBackendViewModelTest",
+        "tests": "13",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": [
+          "compiledPocketRemovalRetiresTheCombinedInstallBeforeEitherPackIsDeleted",
+          "npuPreparationWaitsForTheSharedPackAndCancelsOnlyItsOwnRequest",
+          "compiledPocketSharesItsVerifiedPackAndKeepsItsOwnVoiceAcrossBackendChanges",
+          "pocketDefaultDoesNotReplaceAnExplicitSavedEngine"
+        ]
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceCaptionLayoutCacheTest",
+        "tests": "6",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceCaptionMotionTest",
+        "tests": "32",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      },
+      {
+        "name": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceCaptionTest",
+        "tests": "12",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "keyTests": []
+      }
+    ],
+    "scope": "e28 Robolectric/JVM suites, including caption gate and compiled install-removal ViewModel regressions. Does not cover later watermark/session changes or physical acoustic/device qualification."
+  },
+  "diffCheckExit": 0,
+  "productionBehaviorModified": false,
+  "limits": [
+    "No full local Gradle build/test was run and the mandatory memory gate was not bypassed.",
+    "No commit, push, workflow mutation, provider call or external report submission was performed."
+  ]
+}

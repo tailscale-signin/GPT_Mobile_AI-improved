@@ -114,6 +114,7 @@ internal object ToolArgumentValidator {
         val jobRead = if (selector?.field == "job_id") ciJobDiscovery(arguments) else null
         val selectJobRead = jobRead != null && errors(jobRead, schema).isNotEmpty()
         val correction = when {
+            selectors.isNotEmpty() -> null
             selectJobRead -> buildJsonObject {
                 put("names", JsonArray(listOf(JsonPrimitive(toolName))))
                 put("action", requireNotNull(jobRead).getValue("action"))
@@ -196,7 +197,10 @@ internal object ToolArgumentValidator {
                     } else {
                         emptySet()
                     }
-                    val effectiveReadRules = if (nestedUnknown.isEmpty()) readRules else readRules + GitHubOperationArguments.ReadRule.RANGE_FIELDS
+                    val missingSourceSelector = operation == "github_read" && listOf("ranges", "evidence_id", "view_cursor").none(arguments::containsKey)
+                    val effectiveReadRules = readRules +
+                        (if (nestedUnknown.isEmpty()) emptySet() else setOf(GitHubOperationArguments.ReadRule.RANGE_FIELDS)) +
+                        (if (missingSourceSelector) setOf(GitHubOperationArguments.ReadRule.SOURCE_REQUIRED) else emptySet())
                     if (operation == "github_read") {
                         (arguments["ranges"] as? JsonArray)?.let { ranges ->
                             put("read_range_count", ranges.size)
@@ -322,6 +326,25 @@ internal object ToolArgumentValidator {
     }
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
+        if (toolName == ProgressiveToolCatalog.NAME &&
+            arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
+            arguments["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() && it.content.length <= 160 }
+            val names = arguments["names"] as? JsonArray
+            if (action != null &&
+                names != null &&
+                names.size in 2..12 &&
+                names.distinct().size == names.size &&
+                names.all { it is JsonPrimitive && it.isString && it.content.isNotBlank() && it.content.length <= 160 }
+            ) {
+                // Mixed tool families need their own declared actions. Offer an
+                // explicit contract lookup that preserves every requested name;
+                // never silently select one name or execute the requested action.
+                val discovery = JsonObject(arguments - "action" + ("catalog_only" to JsonPrimitive(true)))
+                return discovery.takeIf { errors(it, schema).isEmpty() }
+            }
+        }
         if (toolName == ProgressiveToolCatalog.NAME &&
             arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
             arguments["catalog_only"] in setOf(null, JsonPrimitive(true)) &&
@@ -534,7 +557,9 @@ internal object ToolArgumentValidator {
     private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String?, val source: String, val discoveryAction: String = "list")
 
     internal fun ciJobDiscovery(arguments: JsonObject): JsonObject? {
-        if (arguments["action"] !in setOf(JsonPrimitive("logs"), JsonPrimitive("job"))) return null
+        val action = arguments["action"]
+        if (action !in setOf(JsonPrimitive("logs"), JsonPrimitive("job"), JsonPrimitive("jobs"))) return null
+        if (action == JsonPrimitive("jobs") && "job_id" !in arguments) return null
         val suppliedJob = arguments["job_id"] as? JsonPrimitive
         if (suppliedJob != null && !suppliedJob.isString && (suppliedJob.longOrNull ?: 0L) > 0) return null
         val repositoryFields = setOf("owner", "repo")
@@ -546,6 +571,13 @@ internal object ToolArgumentValidator {
         }
         val run = arguments["run_id"]
         if (run != null && (run !is JsonPrimitive || run.isString || (run.longOrNull ?: 0L) <= 0L)) return null
+        val fullSchema = GitHubOperationTool.definition("github_ci", "github_ci").inputSchema
+        if (action == JsonPrimitive("jobs")) {
+            // A known run can supply its actual jobs. Preserve its attempt, head,
+            // repository and paging constraints in this explicit new proposal.
+            val discovery = JsonObject(arguments - "job_id")
+            return discovery.takeIf { run != null && errors(it, fullSchema).isEmpty() && GitHubOperationArguments.errors("github_ci", it).isEmpty() }
+        }
         val filters = if (run == null) setOf("head_sha", "branch", "workflow_id") else setOf("run_id", "run_attempt")
         val preserved = filters + repositoryFields
         val supported = preserved + setOf("action", "job_id", "start_line", "end_line", "start_offset")
@@ -554,14 +586,15 @@ internal object ToolArgumentValidator {
             put("action", if (run == null) "runs" else "jobs")
             arguments.filterKeys { it in preserved }.forEach { (field, value) -> put(field, value) }
         }
-        val fullSchema = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_ci", "github_ci").inputSchema
         return discovery.takeIf { errors(it, fullSchema).isEmpty() && GitHubOperationArguments.errors("github_ci", it).isEmpty() }
     }
 
     /** Missing and malformed read selectors need a typed discovery path, not prose parsing. */
     private fun selectorProblem(operation: String, arguments: JsonObject, schema: JsonObject): SelectorProblem? {
         if ("view_cursor" in arguments) return null
-        if (operation == "github_ci" && arguments["action"] in setOf(JsonPrimitive("logs"), JsonPrimitive("job"))) {
+        if (operation == "github_ci" &&
+            (arguments["action"] in setOf(JsonPrimitive("logs"), JsonPrimitive("job")) || arguments["action"] == JsonPrimitive("jobs") && "job_id" in arguments)
+        ) {
             val field = (schema["properties"] as? JsonObject)?.get("job_id") as? JsonObject
             if (field?.get("type") != JsonPrimitive("integer")) return null
             val job = arguments["job_id"]

@@ -2,11 +2,12 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** A short synthetic check uses only the selected route. No user prompt or GitHub write is sent. */
-internal class GitHubReviewCompatibility(now: () -> Long = { System.nanoTime() / 1_000_000L }) {
+internal class GitHubReviewCompatibility(private val now: () -> Long = { System.nanoTime() / 1_000_000L }) {
     private val cache = RouteCapabilityCache<Boolean>(now, positiveTtl = 300_000, negativeTtl = 30_000)
 
     sealed interface Result {
@@ -17,18 +18,35 @@ internal class GitHubReviewCompatibility(now: () -> Long = { System.nanoTime() /
 
     private class Unavailable(val failure: ProviderEvent.Failed) : Exception()
 
+    enum class Outcome { SUPPORTED, UNSUPPORTED_FORMAT, UNAVAILABLE, CANCELLED, FAILED }
+    data class Observation(val cache: RouteCapabilityCache.Observation?, val probeStarted: Boolean, val elapsedMillis: Long, val outcome: Outcome)
+
     /** Only a complete, observed format verdict may populate the negative cache. */
-    suspend fun check(revision: String, probe: suspend () -> Result): Result = try {
-        val supported = cache.getOrLoad("${GitHubReviewSchema.VERSION}:$revision") {
-            when (val result = probe()) {
-                Result.Supported -> true
-                Result.UnsupportedFormat -> null
-                is Result.Unavailable -> throw Unavailable(result.failure)
+    suspend fun check(revision: String, observe: (Observation) -> Unit = {}, probe: suspend () -> Result): Result {
+        val startedAt = now()
+        var disposition: RouteCapabilityCache.Observation? = null
+        var probeStarted = false
+        var outcome = Outcome.FAILED
+        return try {
+            val supported = cache.getOrLoad("${GitHubReviewSchema.VERSION}:$revision", observe = { disposition = it }) {
+                probeStarted = true
+                when (val result = probe()) {
+                    Result.Supported -> true
+                    Result.UnsupportedFormat -> null
+                    is Result.Unavailable -> throw Unavailable(result.failure)
+                }
             }
+            outcome = if (supported == true) Outcome.SUPPORTED else Outcome.UNSUPPORTED_FORMAT
+            if (supported == true) Result.Supported else Result.UnsupportedFormat
+        } catch (unavailable: Unavailable) {
+            outcome = Outcome.UNAVAILABLE
+            Result.Unavailable(unavailable.failure)
+        } catch (cancelled: CancellationException) {
+            outcome = Outcome.CANCELLED
+            throw cancelled
+        } finally {
+            runCatching { observe(Observation(disposition, probeStarted, (now() - startedAt).coerceAtLeast(0), outcome)) }
         }
-        if (supported == true) Result.Supported else Result.UnsupportedFormat
-    } catch (unavailable: Unavailable) {
-        Result.Unavailable(unavailable.failure)
     }
 
     suspend fun supports(revision: String, probe: suspend () -> Boolean): Boolean =

@@ -176,6 +176,28 @@ class GitHubStatusCatalogTest {
         }
     }
 
+    @Test fun gatewayHealthFitsTheCaptured5632TokenRouteWithFailedRunsAndDiscovery() = runTest {
+        val task = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
+        val catalog = ProgressiveToolCatalog(definitions, task, githubMode = true)
+        val tools = definitions.map { source ->
+            val tool = object : AgentTool {
+                override val definition = source
+                override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult = error("Planning only")
+            }
+            ResolvedAgentTool(tool, null, "GitHub", source.name, source.name)
+        } + ResolvedAgentTool(catalog, null, "GitHub", catalog.definition.name, catalog.definition.name, progressiveCatalog = catalog)
+        val turn = ConversationTurn(MessageV2(content = task, platformType = null), null, true)
+        val plan = planAuthorizedToolContext(listOf(turn), "s".repeat(727 * 3), tools, TokenBudgetSettings(contextTokens = 5632, outputTokens = 1400), externalTools = true, githubMode = true, allowOutputReduction = true)
+        val ci = definitions.single { it.name == "github_ci__github_api" }
+        val runs = plan.tools.single { it.name == ci.name }
+        assertEquals(GitHubActionSchema.project(ci, "runs"), runs)
+        assertEquals(runs, GitHubActionSchema.authorized(ci, runs))
+        assertEquals(setOf("github_context_inspect__github_api", "github_pr_inspect__github_api", ci.name, ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
+        assertTrue(ci in plan.authorizedTools)
+        assertFalse(catalog.execute("full-ci", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(ci.name)))) }).isError)
+        assertEquals(ci, catalog.selected(definitions + catalog.definition).single { it.name == ci.name })
+    }
+
     @Test fun optionalRoundSchemasCannotEvictRequiredHealthCiReads() {
         val task = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
         val required = definitions.filter { GitHubOperationTool.operationName(it.name) in setOf("github_context", "github_pr", "github_ci") }

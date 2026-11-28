@@ -138,10 +138,17 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 ) { enabled -> onSettings(state.profileSettings.copy(engineeringTeamConsent = key.takeIf { enabled })) }
             }
         }
-        GitHubSettingsSection("Desktop Gateway", state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Automatic for connected gateways") {
+        val gatewayUid = state.profileSettings.engineeringGatewayProfileUid
+        val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, gatewayUid)
+        val gatewayLabel = when {
+            gatewayUid == null -> "Automatic gateway"
+            gateway != null -> gateway.name
+            else -> "Selected Gateway unavailable"
+        }
+        GitHubSettingsSection("Desktop Gateway", if (gatewayUid == null) "Automatic for connected gateways" else gatewayLabel) {
             var gatewayMenu by remember { mutableStateOf(false) }
-            OutlinedButton(onClick = { gatewayMenu = true }, enabled = state.profileUid != null) {
-                Text(state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Automatic gateway")
+            OutlinedButton(onClick = { gatewayMenu = true }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_gateway_selection")) {
+                Text(gatewayLabel)
             }
             DropdownMenu(gatewayMenu, { gatewayMenu = false }) {
                 DropdownMenuItem(text = { Text("Automatic gateway") }, onClick = {
@@ -155,8 +162,14 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     })
                 }
             }
-            Text("GitHub uses the selected profile’s verified local gateway automatically. Choose a different connection here if needed.", style = MaterialTheme.typography.bodySmall)
-            val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
+            Text(
+                when {
+                    gatewayUid == null -> "GitHub uses the selected profile’s verified local gateway automatically. Choose a different connection here if needed."
+                    gateway == null -> "The saved Gateway is disabled or unavailable. Choose a connection or Automatic gateway to continue."
+                    else -> "Gateway jobs use ${gateway.name}. Choose a different connection here if needed."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
             val inference = state.profiles.singleOrNull { it.enabled && it.uid == state.profileUid }
             val account = workspace.connection?.connectionUid
             val repository = workspace.selection?.fullName
@@ -238,7 +251,14 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 }
             }
         }
-        GitHubSettingsSection("GitHub Copilot", if (state.copilotEnabled) "Allowed for this conversation" else "Cloud tasks and reviews · Off") {
+        GitHubSettingsSection(
+            "GitHub Copilot",
+            when {
+                state.copilotEnabled -> "Enabled for this conversation"
+                state.copilotPluginEnabled && state.chatId == null -> "On by default for GitHub chats"
+                else -> "Cloud tasks and reviews · Off"
+            }
+        ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Allow Copilot for this chat", Modifier.weight(1f))
                 Switch(
@@ -252,9 +272,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 if (!state.copilotPluginEnabled) {
                     "Enable Copilot in GitHub plugin settings to use it here."
                 } else if (state.chatId == null) {
-                    "Start or open a GitHub conversation to configure its consent."
+                    "Copilot is on by default when you start a saved GitHub conversation. Its account and repository permissions are checked before any work starts."
                 } else {
-                    "Turning this off blocks new calls. Accepted cloud tasks continue on GitHub."
+                    "Progress shows what is being delegated to Copilot and the state GitHub reports. Turning this off blocks new Copilot work. Accepted cloud tasks continue on GitHub."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -281,7 +301,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
             }
             Text(
                 if (state.profileSettings.copilotExecutionOwner == GitHubCopilotExecutionOwner.GATEWAY) {
-                    "The selected engineering gateway saves and monitors cloud tasks while this app is closed. Enable Copilot in the Gateway's GitHub settings and connect its own GitHub account. An unavailable Gateway pauses this route."
+                    "The selected engineering gateway saves and monitors cloud tasks while this app is closed. Copilot is on by default in the Gateway; connect its own eligible GitHub account. An unavailable Gateway pauses this route."
                 } else {
                     "No Gateway is required. The app submits directly to GitHub and saves the task ID. GitHub continues accepted tasks while the app is closed; reopen this chat to check progress."
                 },
@@ -542,6 +562,7 @@ private fun engineeringLabel(mode: EngineeringMode): String = when (mode) {
     EngineeringMode.QUICK -> "Fast"
     EngineeringMode.STANDARD -> "Balanced"
     EngineeringMode.DEEP -> "Thorough"
+    EngineeringMode.OFF -> "Use AI profile limits"
     else -> mode.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
@@ -557,18 +578,18 @@ private fun GitHubOverrideSwitch(title: String, description: String, checked: Bo
 }
 
 @Composable
-private fun GatewayAdmissionControl(loadOrToggle: suspend (GatewayAdmissionSetting?) -> GatewayAdmissionSetting) {
+internal fun GatewayAdmissionControl(loadReadiness: suspend (GatewayAdmissionSetting?) -> GatewayAdmissionSetting) {
     val scope = rememberCoroutineScope()
     var observed by remember { mutableStateOf<GatewayAdmissionSetting?>(null) }
     var busy by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
-    fun request(previous: GatewayAdmissionSetting?) {
+    fun request() {
         if (busy) return
         busy = true
         failed = false
         scope.launch {
             try {
-                observed = loadOrToggle(previous)
+                observed = loadReadiness(null)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -581,23 +602,29 @@ private fun GatewayAdmissionControl(loadOrToggle: suspend (GatewayAdmissionSetti
     }
     val current = observed
     if (current != null) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Allow new saved engineering jobs")
-                Text(
-                    if (current.principalId == "network:shared") "Read-only on a shared network. Change admission in Windows Gateway Settings." else "Applies to your account on this Gateway.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+        Text(if (current.enabled && current.principalId != "network:shared") "Ready for engineering jobs" else "Gateway setup needed")
+        Text(
+            when {
+                current.principalId == "network:shared" -> "Connect this phone to the PC’s owner account in Gateway settings."
+                !current.enabled -> "Update Gateway or complete setup on the PC, then refresh readiness."
+                else -> "Engineering runs automatically for this account. You can stop individual jobs from their task controls."
+            },
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+    OutlinedButton(onClick = { request() }, enabled = !busy) {
+        Text(
+            if (busy) {
+                "Checking readiness…"
+            } else if (current == null) {
+                "Check engineering readiness"
+            } else {
+                "Refresh readiness"
             }
-            Switch(checked = current.enabled, enabled = !busy && current.principalId != "network:shared", onCheckedChange = { request(current) })
-        }
-    } else {
-        OutlinedButton(onClick = { request(null) }, enabled = !busy) {
-            Text(if (busy) "Reading Gateway setting…" else "Check saved-job setting")
-        }
-        if (failed) {
-            Text("Current setting unknown. Check the connection, host version and engineering access, then read it again.", style = MaterialTheme.typography.bodySmall)
-        }
+        )
+    }
+    if (failed) {
+        Text("Readiness is unknown. Check the connection, host version and engineering access, then try again.", style = MaterialTheme.typography.bodySmall)
     }
 }
 

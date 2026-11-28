@@ -170,6 +170,9 @@ class GraphIndexJobs:
             if self._draining():
                 raise TimeoutError('Repository indexing admission is draining')
             job = self._transaction(mutate)
+            maintenance = getattr(self.service, '_maintenance', None)
+            if maintenance is not None and action == 'start' and not request.get('maintenance_request'):
+                maintenance.observe(principal, namespace, request, request['commit_sha'])
             self.start()
             self.wake.set()
         # The receipt is sufficient to reconcile acceptance even before the first
@@ -397,6 +400,18 @@ class GraphIndexJobs:
     def _run(self):
         while not self.stop.is_set():
             try:
+                maintenance = getattr(self.service, '_maintenance', None)
+                if maintenance is not None:
+                    with self._admission_lock():
+                        maintain = not self._draining()
+                        if maintain:
+                            self.active_batches += 1
+                    if maintain:
+                        try:
+                            maintenance.tick()
+                        finally:
+                            with self._admission_lock():
+                                self.active_batches -= 1
                 with self._admission_lock():
                     job = None if self._draining() else self._take()
                     if job:

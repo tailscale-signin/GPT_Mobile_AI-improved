@@ -12,6 +12,76 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_application_rejection_codes_preserve_approved_uncertain_outcomes(self):
+        for code in ("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", "GATEWAY_CONVERSATION_READ_ONLY",
+                     "TOOL_BATCH_REJECTED", "TOOL_BATCH_OVERSIZE"):
+            with self.subTest(code=code):
+                capture = self.capture("INCIDENT", {"causal_failure_code": code})
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code, events=["-1ms E chat " + code])
+                report["context"].update(source="CHAT_FAILURE", requiresReconciliation=True, remoteAcceptance="UNKNOWN")
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["title"])
+                self.assertIn(code, issue["body"])
+                self.assertTrue(report["context"]["requiresReconciliation"])
+                self.assertEqual("UNKNOWN", report["context"]["remoteAcceptance"])
+                self.assertNotIn("retryable", report["context"])
+                self.assertNotIn("dispatched", report["context"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
+    def test_read_only_voice_admission_retains_its_cause_without_dispatch_facts(self):
+        capture = self.capture("VOICE", {"incident_phase": "message_admission", "causal_failure_code": "VOICE_SESSION_FAILED",
+                                        "voice_chat_failure_code": "GATEWAY_CONVERSATION_READ_ONLY",
+                                        "voice_chat_failure_phase": "message_admission", "incident_origin": "APPLICATION"})
+        report = self.report(capture)
+        report.update(feature="voice", errorCode="VOICE_SESSION_FAILED")
+        report["context"].update(source="VOICE_STATE", stage="message_admission")
+        report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("GATEWAY_CONVERSATION_READ_ONLY", issue["body"])
+        self.assertNotIn("dispatched", report["context"])
+        self.assertNotIn("retryable", report["context"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
+    def test_required_tool_codes_survive_provider_receipt_submission_as_local_admission(self):
+        codes = ("REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+                 "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE")
+        for code in codes:
+            with self.subTest(code=code):
+                capture = self.capture("PROVIDER", {"provider_failure_code": code, "causal_failure_code": code,
+                                                    "provider_failure_stage": "ADMISSION", "provider_failure_domain": "APPLICATION_VERIFICATION"})
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code)
+                report["context"].update(source="CHAT_FAILURE", stage="tool_admission", dispatched=False)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["body"])
+                self.assertIn("APPLICATION_VERIFICATION", issue["body"])
+                self.assertFalse(report["context"]["dispatched"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
+    def test_application_failure_vocabulary_rejects_private_variants_in_every_field(self):
+        app_codes = ("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", "GATEWAY_CONVERSATION_READ_ONLY",
+                     "TOOL_BATCH_REJECTED", "TOOL_BATCH_OVERSIZE")
+        required_codes = ("REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT",
+                          "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE")
+        fields = [("INCIDENT", "causal_failure_code", app_codes), ("VOICE", "voice_chat_failure_code", app_codes),
+                  ("PROVIDER", "provider_failure_code", required_codes)]
+        for area, field, codes in fields:
+            for code in codes:
+                for private in (code + "_PRIVATE_TOKEN", code + ": private provider body", code.lower()):
+                    with self.subTest(field=field, value=private), self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture(area, {field: private}))
+        for code in app_codes:
+            with self.subTest(top_level=code), self.assertRaises(ReportError):
+                report = self.report(self.capture("INCIDENT"))
+                report["errorCode"] = code + "_PRIVATE_TOKEN"
+                issue_from_report(report)
+
     def test_provider_quota_group_retains_bounded_hashed_occurrences(self):
         fields = {"provider_configuration_hash": "c" * 64, "provider_quota_occurrences": 3, "provider_quota_span_ms": 500,
                   "provider_quota_invocation_hashes": ["a" * 64, "b" * 64]}
@@ -135,8 +205,10 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_streaming_voice_values_roundtrip_only_in_voice_without_claiming_an_observed_delegate(self):
         additions = {
-            "voice_engine": {"MEDIAPIPE"},
-            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU"},
+            "voice_engine": {"MEDIAPIPE", "COMPILED_POCKET"},
+            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU"},
+            "voice_failure_requested_backend": {"POCKET_GPU", "POCKET_NPU"},
+            "voice_install_pack": {"POCKET"},
             "voice_fallback_source": {"LITERT_KOKORO", "PHONON", "POCKET"},
         }
         for field, choices in additions.items():
@@ -176,7 +248,7 @@ class IncidentReportContractTest(unittest.TestCase):
             for invalid in (0, 1, "true", None):
                 with self.subTest(field=field, value=invalid), self.assertRaises(ValueError):
                     validate_diagnostics(self.capture("PROVIDER", {**values, field: invalid}))
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         for field in ("tls_last_observed_phase", "tls_version", "tls_http_protocol"):
             match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
             self.assertIsNotNone(match, field)
@@ -257,6 +329,26 @@ class IncidentReportContractTest(unittest.TestCase):
             capture = self.capture("ACCEPTANCE", {"unmet_criterion_blockers": [blocker]})
             self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
 
+    def test_voice_fallback_causes_keep_both_stages_without_arbitrary_exception_text(self):
+        values = {
+            "voice_failure_requested_backend": "GATEWAY_CUDA",
+            "voice_fallback_source_observation": "NOT_INITIALIZED",
+            "voice_primary_failure_stage": "PREPARATION",
+            "voice_fallback_failure_stage": "PLAYBACK",
+            "voice_fallback_terminal_failure": "SERVICE_FAILED",
+            "voice_primary_cause_fingerprint": "a" * 64,
+            "voice_fallback_cause_fingerprint": "b" * 64,
+            "voice_system_error_code": -4,
+        }
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for field in values:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, field: "private service detail"}))
+        for code in (-10, 0, "-4", True):
+            with self.subTest(code=code), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, "voice_system_error_code": code}))
+
     def test_voice_execution_and_original_fallback_failure_survive_system_engine_change(self):
         values = {
             "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
@@ -274,7 +366,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertIn("| voice_fallback_failure | `SYNTHESIS_FAILED` |", issue["body"])
         self.assertIn("| voice_fallback_outcome | `SUCCEEDED` |", issue["body"])
         self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
-        for field in capsule.VOICE_EXECUTION_FIELDS:
+        for field in values.keys() & capsule.VOICE_EXECUTION_FIELDS:
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {**values, field: "private speech or request-id"}))
             with self.subTest(field=field), self.assertRaises(ValueError):
@@ -302,7 +394,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 validate_diagnostics(self.capture("VOICE", {"voice_engine": invalid}))
             with self.subTest(invalid=invalid), self.assertRaises(ReportError):
                 issue_from_report(self.report(self.capture("VOICE", {"voice_engine": invalid})))
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt").read_text(encoding="utf-8")
         match = re.search(r'"voice_engine" to setOf\(([^)]+)\)', source)
         self.assertIsNotNone(match)
         self.assertEqual(diagnostics.ENUMS["voice_engine"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -314,6 +406,8 @@ class IncidentReportContractTest(unittest.TestCase):
             ("LITERT_KOKORO_NPU", "LITERT_KOKORO"),
             ("PHONON_CPU", "PHONON"),
             ("POCKET_CPU", "POCKET"),
+            ("POCKET_GPU", "POCKET"),
+            ("POCKET_NPU", "POCKET"),
         ):
             with self.subTest(backend=backend):
                 values = {
@@ -343,7 +437,10 @@ class IncidentReportContractTest(unittest.TestCase):
         for field, invalid in (
             ("voice_effective_provider", "LITERT_KOKORO_NPU"),
             ("voice_selected_backend", "PHONON_GPU"),
-            ("voice_selected_backend", "POCKET_GPU"),
+            ("voice_selected_backend", "POCKET_GPU_OPTIMIZED"),
+            ("voice_effective_provider", "POCKET_GPU"),
+            ("voice_effective_provider", "POCKET_NPU"),
+            ("voice_effective_provider", "COMPILED_POCKET"),
             ("voice_selected_backend", "private speech or model path"),
             ("voice_fallback_source", "PHONON_CPU"),
             ("voice_fallback_source", "POCKET_CPU"),
@@ -369,14 +466,23 @@ class IncidentReportContractTest(unittest.TestCase):
             self.assertFalse(capsule.valid_value("voice_fallback_count", invalid))
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {"voice_fallback_count": invalid}))
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt").read_text(encoding="utf-8")
+        def constant_choices(name):
+            match = re.search(r"val " + name + r" = setOf\((.*?)\)", source, re.S)
+            self.assertIsNotNone(match, name)
+            return set(re.findall(r'"([^"\n]+)"', match.group(1)))
+
         for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():
-            if field == "voice_fallback_failure":
-                match = re.search(r"val playbackFailures = setOf\((.*?)\n    \)", source, re.S)
-            else:
-                match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
+            match = re.search(r'"' + field + r'" to (setOf\([^)]*\)|[A-Za-z]+)', source)
             self.assertIsNotNone(match, field)
-            self.assertEqual(choices, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+            expression = match.group(1)
+            if expression.startswith("setOf("):
+                observed = set(re.findall(r'"([^"\n]+)"', expression))
+            else:
+                observed = constant_choices(expression)
+                if expression == "playbackFailures":
+                    observed |= constant_choices("systemFailures")
+            self.assertEqual(choices, observed, field)
 
     def test_gateway_fallback_preserves_remote_source_after_system_recovery(self):
         values = {
@@ -512,7 +618,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 issue_from_report(self.report(capture))
 
     def test_checkpoint_mismatch_reasons_match_the_closed_native_contract(self):
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt").read_text(encoding="utf-8")
         match = re.search(r"val CHECKPOINT_MISMATCH_REASONS = setOf\(([^)]+)\)", source)
         self.assertIsNotNone(match)
         self.assertEqual(capsule.ENUMS["checkpoint_mismatch_reason"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -719,6 +825,39 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture(area, {key: invalid}))
 
+    def test_research_recovery_changes_survive_receiver_without_private_values_or_replay(self):
+        values = {"research_recovery_changed_fields": ["REQUESTED_STAGE", "POLICY_REVISION", "CHECKPOINT_ID", "EVIDENCE_REVISION"],
+                  "research_recovery_resolution": "REVIEW_CURRENT_SETTINGS_AND_START_NEW_ACTION",
+                  "research_recovery_saved_action_preserved": True}
+        for area in ("INCIDENT", "PROVIDER"):
+            capture = self.capture(area, values)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("ACCEPTANCE", values))
+        for key, value in (("research_recovery_changed_fields", []),
+                           ("research_recovery_changed_fields", ["POLICY_REVISION"] * 2),
+                           ("research_recovery_changed_fields", ["private setting value"]),
+                           ("research_recovery_changed_fields", "POLICY_REVISION"),
+                           ("research_recovery_resolution", "REPLAY_WITH_NEW_AUTHORITY"),
+                           ("research_recovery_saved_action_preserved", False),
+                           ("research_recovery_saved_action_preserved", 1)):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: value}))
+
+    def test_capability_readiness_preserves_closed_cause_and_inventory_counts(self):
+        for reason in ("CATALOG_NO_GITHUB_CAPABILITIES", "CATALOG_CAPABILITIES_NOT_ADVERTISED"):
+            values = {"github_prerequisite_observation": reason, "github_authorized_tool_count": 3, "github_advertised_tool_count": 0}
+            for area in ("INCIDENT", "ACCEPTANCE"):
+                capture = self.capture(area, values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", values))
+        for key, value in (("github_authorized_tool_count", -1), ("github_advertised_tool_count", True),
+                           ("github_advertised_tool_count", "private tool name"), ("github_authorized_tool_count", 16_000_001),
+                           ("github_prerequisite_observation", "CATALOG_PRIVATE_CONNECTION")):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: value}))
+
     def test_selected_model_and_review_prerequisites_survive_submission(self):
         model = {"provider_failure_code": "SELECTED_MODEL_LOADING", "gateway_model_state": "LOADING",
                  "gateway_model_advertised": True, "gateway_model_loaded": False}
@@ -799,7 +938,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_privacy_reason_contract_matches_the_app_closed_eligibility_enum(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt").read_text(encoding="utf-8")
         enum = source.split("enum class Reason(", 1)[1].split("fun decision(", 1)[0]
         reasons = set(re.findall(r'^\s*([A-Z][A-Z_]+)\(', enum, re.MULTILINE))
         self.assertEqual(reasons, PRIVACY_ELIGIBILITY_REASONS)
@@ -1519,7 +1658,18 @@ class IncidentReportContractTest(unittest.TestCase):
         omitted["omittedFields"] = sorted(capsule.TOOL_EVENT_PERSISTENCE_FIELDS)
         self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
 
+    def test_acceptance_publication_source_and_entry_match_android(self):
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt").read_text(encoding="utf-8")
+        for enum, field in (("Source", "acceptance_publication_source"), ("Entry", "acceptance_publication_entry")):
+            with self.subTest(field=field):
+                declaration = re.search(r"enum class " + enum + r"\s*\{([^}]+)\}", source)
+                self.assertIsNotNone(declaration)
+                self.assertEqual({name.strip() for name in declaration.group(1).split(",") if name.strip()}, capsule.ENUMS[field])
+
     def test_acceptance_observation_causes_keep_closed_entries_and_comparison_policy(self):
+        intake = self.capture("ACCEPTANCE", {"acceptance_publication_source": "ISSUE_INTAKE",
+                                              "acceptance_publication_entry": "ISSUE_INTAKE"})
+        self.assertEqual(intake, validate_diagnostics(copy.deepcopy(intake)))
         reasons = ["TOOL_NOT_IN_AUTHORIZED_CATALOG", "UNRECOGNIZED_EVIDENCE_OPERATION", "TARGET_OUTSIDE_ACCEPTED_SCOPE"]
         for entry in capsule.ENUMS["acceptance_publication_entry"]:
             for observed in ([reason] for reason in reasons):
@@ -1739,7 +1889,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_handoff_reconciliation_vocabulary_matches_android_contract(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         for name, expected in (("handoffReconciliationCounts", capsule.HANDOFF_RECONCILIATION_COUNTS),
                                ("handoffReconciliationHashes", capsule.HANDOFF_RECONCILIATION_HASHES)):
             match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
@@ -1810,7 +1960,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_chat_delivery_vocabulary_matches_android_contract(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         match = re.search(r"val chatDeliveryCounts = setOf\(([^\n]*)\)", source)
         self.assertIsNotNone(match)
         self.assertEqual(capsule.CHAT_DELIVERY_COUNTS, set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -1868,7 +2018,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_claim_freshness_vocabulary_matches_android_contract(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         match = re.search(r"val claimFreshnessFields = setOf\(([^\n]*)\)", source)
         self.assertIsNotNone(match)
         self.assertEqual(capsule.CLAIM_FRESHNESS_FIELDS, set(re.findall(r'"([^"\n]+)"', match.group(1))))
@@ -1890,12 +2040,22 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_deadline_and_acquisition_evidence_are_bounded_and_acceptance_scoped(self):
         values = {"task_deadline_check": "BEFORE_TOOL_RESTORE", "task_deadline_observation": "WINDOW_EXPIRED",
+                  "task_deadline_source": "EXPLICIT_USER_REQUEST", "task_deadline_clock": "WALL_CLOCK",
                   "task_deadline_window_seconds": 60, "task_deadline_overdue_seconds": 0,
                   "acceptance_acquisition_allowed": False, "acceptance_cleanup_reserve": 0,
                   "acceptance_fixture_start_minimum": 6, "acceptance_prerequisite_blockers": ["OWNED_FIXTURE_REQUIRED"]}
         validate_diagnostics(self.capture("ACCEPTANCE", values))
         validate_diagnostics(self.capture("ACCEPTANCE", {**values, "task_deadline_check": "ADMISSION"}))
+        for source in ("ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"):
+            capture = self.capture("ACCEPTANCE", {**values, "task_deadline_source": source})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for clock in ("WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES"):
+            capture = self.capture("ACCEPTANCE", {**values, "task_deadline_clock": clock})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
         for field, bad in (("task_deadline_check", "private text"), ("task_deadline_observation", "unknown clock"),
+                           ("task_deadline_source", "private task instructions"),
+                           ("task_deadline_clock", "private clock detail"), ("task_deadline_clock", None),
+                           ("task_deadline_clock", 42), ("task_deadline_clock", True),
                            ("task_deadline_window_seconds", -1), ("task_deadline_overdue_seconds", 16000001),
                            ("acceptance_acquisition_allowed", "false"), ("acceptance_cleanup_reserve", -1),
                            ("acceptance_fixture_start_minimum", "6"), ("acceptance_prerequisite_blockers", ["private-id"])):
@@ -1903,6 +2063,23 @@ class IncidentReportContractTest(unittest.TestCase):
                 validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
             with self.subTest(wrong_area=field), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
+
+    def test_deadline_provenance_is_closed_and_matches_android_producer(self):
+        sources = {"ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"}
+        for source in sources:
+            capture = self.capture("ACCEPTANCE", {"task_deadline_source": source})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for source in ("private task text", "accepted_task_contract", True, 0, None, [], {}):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {"task_deadline_source": source}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"task_deadline_source": "ACCEPTED_TASK_CONTRACT"}))
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt").read_text(encoding="utf-8")
+        match = re.search(r"val deadlineSources = setOf\(([^\n]*)\)", source)
+        self.assertIsNotNone(match)
+        self.assertEqual(sources, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+        self.assertEqual(sources, diagnostics.ENUMS["task_deadline_source"])
 
     def test_empty_acceptance_explanation_is_closed_and_cannot_expose_contract_text(self):
         fields = {
@@ -1962,9 +2139,10 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("VOICE", values))
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text(encoding="utf-8")
         from authentication import issue_report_diagnostics as contract
         for name, expected in (("preparationStates", contract.ENUMS["acceptance_preparation_state"]),
+                               ("deadlineSources", contract.ENUMS["task_deadline_source"]),
                                ("operationFamilies", contract.ENUM_LISTS["acceptance_blocked_operation_families"]),
                                ("policyRecoveryHints", contract.ENUMS["status_policy_recovery_hint"]),
                                ("fields", contract.ACCEPTANCE_RECOVERY_FIELDS)):
@@ -1973,6 +2151,20 @@ class IncidentReportContractTest(unittest.TestCase):
                 match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
             self.assertIsNotNone(match, name)
             self.assertEqual(expected, set(re.findall(r'"([^"\n]+)"', match.group(1))), name)
+
+    def test_deadline_provenance_and_user_wait_clock_are_closed_acceptance_evidence(self):
+        for source in ("ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION"):
+            for clock in ("WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES"):
+                values = {"task_deadline_source": source, "task_deadline_clock": clock,
+                          "task_deadline_elapsed_seconds": 12, "task_deadline_remaining_seconds": 48}
+                capture = self.capture("ACCEPTANCE", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", values))
+        for field in ("task_deadline_source", "task_deadline_clock"):
+            for bad in ("private task text", "", None, True, 1, ["WALL_CLOCK"]):
+                with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
 
     def test_admission_diagnostics_preserve_typed_capacity_queue_and_preflight(self):
         samples = {
@@ -2417,10 +2609,18 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertNotIn("voice_install_total_bytes", unknown["values"])
         self.assertNotIn("voice_install_http_status", unknown["values"])
 
+    def test_voice_install_large_recognition_graph_transfer_preserves_exact_bytes(self):
+        values = {"voice_install_downloaded_bytes": 2_454_405_120, "voice_install_total_bytes": 2_594_373_279}
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        self.assertEqual(values, {key: capture["values"][key] for key in values})
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("VOICE", {"voice_install_downloaded_bytes": 17_179_869_185}))
+
     def test_voice_install_evidence_rejects_private_values_bad_types_and_excessive_bounds(self):
         for key, value in (
             ("voice_install_elapsed_ms", 16_000_001), ("voice_install_downloaded_bytes", -1),
-            ("voice_install_total_bytes", 1_000_000_001), ("voice_install_total_bytes", "177000000"),
+            ("voice_install_total_bytes", 17_179_869_185), ("voice_install_total_bytes", "177000000"),
             ("voice_install_http_status", 600), ("voice_install_http_status", True),
             ("voice_install_pack", "private model URL"), ("voice_install_transfer_stage", "private path"),
             ("voice_install_failure_kind", "raw exception"), ("voice_install_pending_reason", "private network"),
@@ -2428,7 +2628,7 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.subTest(key=key, value=value):
                 with self.assertRaises(ValueError):
                     validate_diagnostics(self.capture("VOICE", {key: value}))
-        validate_diagnostics(self.capture("VOICE", {"voice_install_total_bytes": 1_000_000_000, "voice_install_http_status": 599}))
+        validate_diagnostics(self.capture("VOICE", {"voice_install_total_bytes": 17_179_869_184, "voice_install_http_status": 599}))
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("PROVIDER", {"voice_install_pack": "KOKORO"}))
 
@@ -2692,26 +2892,26 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_policy_field_vocabulary_matches_native_and_actual_production_producers(self):
         root = Path(__file__).resolve().parents[1]
         base = root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile"
-        source = (base / "data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (base / "data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         names = re.search(r"val policyFieldNames = setOf\((.*?)\n    \)", source, re.DOTALL)
         self.assertIsNotNone(names)
         self.assertEqual(set(re.findall(r'"([^"\n]+)"', names.group(1))), capsule.POLICY_FIELD_NAMES)
-        authority = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text().split("internal fun policyFields", 1)[1].split("\n}", 1)[0]
+        authority = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text(encoding="utf-8").split("internal fun policyFields", 1)[1].split("\n}", 1)[0]
         policy_keys = set(re.findall(r'put\("([^"\n]+)"', authority))
-        profile = (base / "data/database/entity/PlatformV2.kt").read_text().split("data class PlatformV2(", 1)[1].split(") : Parcelable", 1)[0]
+        profile = (base / "data/database/entity/PlatformV2.kt").read_text(encoding="utf-8").split("data class PlatformV2(", 1)[1].split(") : Parcelable", 1)[0]
         profile_keys = {"profile." + name for name in re.findall(r"\bval (\w+):", profile)}
-        resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text()
+        resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text(encoding="utf-8")
         self.assertIn('"tool_inventory"', resolver)
-        authority_source = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text()
+        authority_source = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text(encoding="utf-8")
         override_helper = authority_source.split("internal fun githubOverrideChanges", 1)[1].split("\n    }", 1)[0]
         reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
         self.assertEqual(19, len(override_keys))
-        behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
+        behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text(encoding="utf-8").split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
-        private_turn = (base / "data/privacy/PrivateTurn.kt").read_text()
+        private_turn = (base / "data/privacy/PrivateTurn.kt").read_text(encoding="utf-8")
         privacy_keys = set(re.findall(r'DispatchPolicyChangedException\(listOf\("([A-Za-z]+)"\)\)', private_turn))
         self.assertEqual({"devicePrivacy"}, privacy_keys)
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | privacy_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
@@ -2873,7 +3073,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 issue_from_report(invalid)
 
     def test_exception_capture_vocabulary_matches_native_contract(self):
-        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text(encoding="utf-8")
         sites = re.search(r"enum class ExceptionCaptureSite\s*\{([^}]+)\}", source)
         self.assertIsNotNone(sites)
         self.assertEqual(set(re.findall(r"[A-Z][A-Z_]+", sites.group(1))), capsule.ENUMS["incident_capture_site"])

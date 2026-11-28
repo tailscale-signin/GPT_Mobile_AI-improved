@@ -13,21 +13,24 @@ public partial class MainWindow
     {
         int viewEpoch = epoch;
         var body = Ui.Column(Ui.Text("Engineering benchmark workspace", 22, bold: true),
-            Ui.Text("Tool contracts · Simulated workflows · Executable coding · Live GitHub", 13, "PrimaryBrush"));
+            Ui.Text("Tool contracts · Simulated workflows · Executable coding · Native products · Live GitHub", 13, "PrimaryBrush"));
         var pages = new Dictionary<string, StackPanel>();
         var navigation = new WrapPanel();
+        Action? openNativeProducts = null;
         body.Children.Add(navigation);
         void Destination(string name)
         {
             foreach (var item in pages) item.Value.Visibility = item.Key == name ? Visibility.Visible : Visibility.Collapsed;
+            if (name == "Native products") openNativeProducts?.Invoke();
         }
-        foreach (string name in new[] { "Overview", "Compare", "Tasks", "Evidence", "History" })
+        foreach (string name in new[] { "Overview", "Compare", "Native products", "Tasks", "Evidence", "History" })
         {
             var content = new StackPanel { Visibility = name == "Overview" ? Visibility.Visible : Visibility.Collapsed };
             pages[name] = content;
             navigation.Children.Add(Ui.Button(name, () => Destination(name)));
             body.Children.Add(content);
         }
+        openNativeProducts = BuildNativeProductCampaigns(pages["Native products"], viewEpoch);
         var overview = pages["Overview"];
         var model = Ui.Select(overview, "Exact Gateway model", models);
         var suite = Ui.Select(overview, "Suite", ["Quick check", "HTTP scheduling comparison", "Executable coding", "Repository native"]);

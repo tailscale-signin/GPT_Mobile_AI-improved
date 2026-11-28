@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
 import dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 
@@ -62,13 +63,16 @@ internal object ProviderStreamFailure {
         fields.putIfAbsent("failed_stage", JsonPrimitive(applicationFailure?.phase?.takeUnless { it == "stage_not_recorded" } ?: "response_stream"))
         fields["provider_failure_kind"] = JsonPrimitive(failure.kind.name)
         fields["generation_completed"] = JsonPrimitive(false)
-        fields.putIfAbsent("dispatched", JsonPrimitive(true))
+        val dispatchEvidence = ProviderDispatchEvidence.responseFields(details, responsePayloadObserved, knownNotAccepted, unknownOutcomeCode != null)
+        fields.remove("upstream_inference_dispatched")
+        fields.putAll(dispatchEvidence)
+        val inferenceDispatched = (dispatchEvidence["upstream_inference_dispatched"] as? JsonPrimitive)?.booleanOrNull
         fields.putIfAbsent(
             "remote_acceptance",
             JsonPrimitive(
                 if (responsePayloadObserved) {
                     "YES"
-                } else if (knownNotAccepted) {
+                } else if (knownNotAccepted || inferenceDispatched == false) {
                     "NO"
                 } else {
                     "UNKNOWN"
@@ -76,6 +80,7 @@ internal object ProviderStreamFailure {
             )
         )
         fields.putIfAbsent("dispatch_state", JsonPrimitive("FAILED"))
+        if (responsePayloadObserved) fields["remote_acceptance"] = JsonPrimitive("YES")
         fields["retryable"] = JsonPrimitive(retryable)
         fields["request_replay_allowed"] = JsonPrimitive(retryable && !responsePayloadObserved && fields["request_replay_allowed"] != JsonPrimitive(false) && fields["requires_reconciliation"] != JsonPrimitive(true))
         fields.putIfAbsent("next_action", JsonPrimitive(if (retryable) "RESUME_UNFINISHED_WORK" else "RETRY_AFTER_CONFIGURATION_CHANGE"))
@@ -100,6 +105,7 @@ internal object ProviderStreamFailure {
         if (unknownOutcomeCode != null) {
             fields["requires_reconciliation"] = JsonPrimitive(true)
             fields["dispatched"] = JsonPrimitive(true)
+            fields["dispatch_scope"] = JsonPrimitive(if (inferenceDispatched == true) "UPSTREAM_INFERENCE" else "HTTP_REQUEST")
             fields["dispatch_state"] = JsonPrimitive("UNKNOWN")
             if (fields["remote_acceptance"] !in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED"))) fields["remote_acceptance"] = JsonPrimitive("UNKNOWN")
             fields["next_action"] = JsonPrimitive("RECONCILE_REMOTE_OUTCOME")

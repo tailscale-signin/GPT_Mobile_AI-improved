@@ -163,17 +163,89 @@ class CopilotTaskTests(unittest.TestCase):
         self.assertEqual([], self.backend.calls)
         self.assertEqual([], self.tasks.list('owner')['tasks'])
 
-    def test_default_host_setting_is_off_and_desktop_cannot_inherit_enablement(self):
-        with patch.dict(os.environ, {'GATEWAY_COPILOT_ENABLED': 'true'}):
+    def test_default_host_setting_is_on_and_explicit_environment_or_migrated_off_survives(self):
+        with patch.dict(os.environ, {'GATEWAY_COPILOT_ENABLED': 'false'}):
             env = environment(self.temp.name, validate({}))
-        self.assertEqual('false', env['GATEWAY_COPILOT_ENABLED'])
-        self.assertFalse(copilot_enabled(self.temp.name))
-        save_copilot_enabled(self.temp.name, True)
+            self.assertFalse(CopilotTasks(self.service).enabled())
+        self.assertEqual('true', env['GATEWAY_COPILOT_ENABLED'])
+        self.assertTrue(copilot_enabled(self.temp.name))
+        path = Path(self.temp.name) / 'data' / 'copilot-settings.json'
+        path.parent.mkdir(exist_ok=True)
+        path.write_text('{"enabled":false}')
+        self.assertTrue(copilot_enabled(self.temp.name))
+        self.assertEqual({'enabled': True, 'defaults_version': 1}, json.loads(path.read_text()))
         self.assertEqual('true', environment(self.temp.name, validate({}))['GATEWAY_COPILOT_ENABLED'])
-        (Path(self.temp.name) / 'data' / 'copilot-settings.json').write_text('{"enabled":"true"}')
+        save_copilot_enabled(self.temp.name, False)
+        self.assertFalse(copilot_enabled(self.temp.name))
+        self.assertFalse(copilot_enabled(self.temp.name))
+        self.assertEqual('false', environment(self.temp.name, validate({}))['GATEWAY_COPILOT_ENABLED'])
+        path.write_text('{"enabled":"true"}')
         self.assertFalse(copilot_enabled(self.temp.name))
         with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(CopilotTasks(self.service).enabled())
+            self.assertTrue(CopilotTasks(self.service).enabled())
+        self.assertEqual([], self.backend.calls)
+
+    def test_progress_distinguishes_saved_request_and_verified_cloud_states_without_prompt_leak(self):
+        created = self.tasks.submit('owner', dict(self.payload, prompt='private task instructions must stay private'))
+        self.assertEqual('ACCEPTED', created['progress']['phase'])
+        self.assertFalse(created['progress']['remote_task_confirmed'])
+        self.assertIn('not yet confirmed', created['progress']['message'])
+        self.assertNotIn('private task instructions', json.dumps(created))
+        self.assertNotIn('task_name', created)
+        self.assertEqual([], self.backend.calls)
+
+        self.backend.remote['name'] = 'Repair the fixture regression'
+        self.tasks.tick(created['id'])
+        queued = self.tasks.status('owner', created['id'])
+        self.assertEqual('QUEUED', queued['progress']['phase'])
+        self.assertTrue(queued['progress']['remote_task_confirmed'])
+        self.assertEqual('Repair the fixture regression', queued['task_name'])
+        for state in ('in_progress', 'waiting_for_user', 'completed'):
+            self.backend.remote['state'] = state
+            self.backend.remote['artifacts'] = [dict(provider='github', type='pull', data={'id': 42}),
+                                               dict(provider='github', type='pull', data={'id': True}),
+                                               dict(provider='other', type='pull', data={'id': 19}),
+                                               dict(provider='github', type='log', data={'private': 'not public'})]
+            self.tasks.tick(created['id'])
+            observed = self.tasks.status('owner', created['id'])
+            self.assertEqual(state.upper(), observed['progress']['phase'])
+            self.assertEqual([42], observed['pull_request_numbers'])
+            self.assertFalse(observed['ci_verified'])
+            self.assertFalse(observed['merge_authorized'])
+            self.assertNotIn('not public', json.dumps(observed))
+        self.assertIn('Review the returned changes', observed['progress']['message'])
+        self.assertEqual(1, len(self.backend.posts()))
+
+    def test_progress_never_reports_cloud_execution_for_uncertain_or_rejected_submission(self):
+        created = self.tasks.submit('owner', self.payload)
+        self.backend.on_post = lambda: (_ for _ in ()).throw(requests.Timeout('synthetic lost response'))
+        self.tasks.tick(created['id'])
+        unknown = self.tasks.status('owner', created['id'])
+        self.assertEqual('RECONCILE_REQUIRED', unknown['progress']['phase'])
+        self.assertFalse(unknown['progress']['remote_task_confirmed'])
+        self.assertIn('unconfirmed', unknown['progress']['message'])
+        self.tasks.tick(created['id'])
+        self.assertEqual(1, len(self.backend.posts()))
+        self.backend.on_post = None
+        stopped = self.tasks.submit('owner', dict(self.payload, request_id='revoked-before-dispatch'))
+        self.enabled = False
+        self.tasks.tick(stopped['id'])
+        rejected = self.tasks.status('owner', stopped['id'])
+        self.assertEqual('REJECTED', rejected['progress']['phase'])
+        self.assertFalse(rejected['progress']['remote_task_confirmed'])
+        self.assertEqual(1, len(self.backend.posts()))
+
+    def test_progress_reports_stale_observation_when_host_access_is_revoked(self):
+        created = self.tasks.submit('owner', self.payload)
+        self.tasks.tick(created['id'])
+        self.service.authorized = lambda task: False
+        before = len(self.backend.calls)
+        self.tasks.tick(created['id'])
+        blocked = self.tasks.status('owner', created['id'])
+        self.assertEqual('BLOCKED', blocked['progress']['phase'])
+        self.assertTrue(blocked['progress']['remote_task_confirmed'])
+        self.assertIn('last observed cloud state is queued', blocked['progress']['message'])
+        self.assertEqual(before, len(self.backend.calls))
 
     def test_concurrent_duplicate_submission_dispatches_once_and_payload_is_real_api(self):
         with ThreadPoolExecutor(max_workers=6) as pool:
@@ -290,7 +362,7 @@ class CopilotTaskTests(unittest.TestCase):
         self.assertEqual([], self.backend.posts())
 
     def test_head_branch_sha_is_checked_and_never_sent_as_an_invented_precondition(self):
-        created = self.tasks.submit('owner', dict(self.payload, head_ref='feature/work', expected_head_sha='a' * 40))
+        created = self.tasks.submit('owner', dict(self.payload, head_ref='feature/work', expected_head_sha='a' * 40, create_pull_request=False))
         self.tasks.tick(created['id'])
         self.assertIn(('GET', '/repos/owner/repo/git/ref/heads/feature%2Fwork'), [(call[0], call[1]) for call in self.backend.calls])
         body = self.backend.posts()[0][2]

@@ -17,6 +17,18 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportContextTest {
+    @Test fun exhaustedMinimumClaimBatchRetainsTheManualAllowanceRecoveryAction() {
+        val context = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf("failed_stage" to "claim_extraction", "reason_code" to "GITHUB_EXTRACTION_OUTPUT_LIMIT", "recovery_action" to "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST")
+        )
+        assertEquals("UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", context.recoveryAction)
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", context.reasonCode)
+        assertNull(context.retryable)
+        assertNull(context.resumeAllowed)
+        assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context)))
+    }
+
     @Test fun inspectionToolsUseTheirPublicOperationFamily() {
         for ((tool, expected) in listOf("github_context_inspect__selected" to "github_context", "github_pr_inspect__selected" to "github_pr")) {
             val context = IssueReportContext.fromFields("TOOL_RESULT", mapOf("tool" to tool))

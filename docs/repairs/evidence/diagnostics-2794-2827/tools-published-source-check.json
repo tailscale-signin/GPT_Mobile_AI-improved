@@ -1,0 +1,79 @@
+{
+  "published_revision": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+  "qualification_revision": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "checks": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+      "published_sha256": "f5e0084eccde7b186ac55bebcb782c77c9cff515f331aa1932746f81dfe9adb0",
+      "qualified_sha256": "f5e0084eccde7b186ac55bebcb782c77c9cff515f331aa1932746f81dfe9adb0",
+      "matches": true
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt",
+      "published_sha256": "223d2f4894c38463c7940b44b28faee146b4db0f172479c85955ae3cea7cf75e",
+      "qualified_sha256": "223d2f4894c38463c7940b44b28faee146b4db0f172479c85955ae3cea7cf75e",
+      "matches": true
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+      "published_sha256": "4075c1222404339b9c8051cc8a1ceba2b00ab45404e164bddfadce4d627c1515",
+      "qualified_sha256": "4075c1222404339b9c8051cc8a1ceba2b00ab45404e164bddfadce4d627c1515",
+      "matches": true
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchServiceHealth.kt",
+      "published_sha256": "24e336880425b47526d5a443d7709a03135441ee86ddd8dedd9431150d2a02cf",
+      "qualified_sha256": "24e336880425b47526d5a443d7709a03135441ee86ddd8dedd9431150d2a02cf",
+      "matches": true
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceiptTest.kt",
+      "published_sha256": "c53378e09efccc2462ecabe7d05079177a857bd89647125c473c5b7b55ac040e",
+      "qualified_sha256": "c53378e09efccc2462ecabe7d05079177a857bd89647125c473c5b7b55ac040e",
+      "matches": true
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalServiceHealth.kt",
+      "published_sha256": "277dc59c78293bb0b2df71fd252b9d863ac910e7e8454395ee4908ccef82cc01",
+      "qualified_sha256": "277dc59c78293bb0b2df71fd252b9d863ac910e7e8454395ee4908ccef82cc01",
+      "matches": true
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalConnectionPreflight.kt",
+      "published_sha256": "d46c6d2e15062a70173aba9d9c35978bc50c76c511a9aa562b1ad5fc39ac600a",
+      "qualified_sha256": "d46c6d2e15062a70173aba9d9c35978bc50c76c511a9aa562b1ad5fc39ac600a",
+      "matches": true
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt",
+      "published_sha256": "4e62bcfa5965a2f9ee83ede3f83dd8e926f7f555199058f5f36a0518a21f2d66",
+      "qualified_sha256": "4e62bcfa5965a2f9ee83ede3f83dd8e926f7f555199058f5f36a0518a21f2d66",
+      "matches": true
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/ApiState.kt",
+      "published_sha256": "8616379b78db3649c5c5a1ca7af3e23dcd782f0bdb3b16895f3bbf50f4fc3bed",
+      "qualified_sha256": "8616379b78db3649c5c5a1ca7af3e23dcd782f0bdb3b16895f3bbf50f4fc3bed",
+      "matches": true
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchTest.kt",
+      "published_sha256": "d71f6b6c28c90d6fbd71eda27e21e613a5aea702f4065bde2d32a5ecb8572d30",
+      "qualified_sha256": "d71f6b6c28c90d6fbd71eda27e21e613a5aea702f4065bde2d32a5ecb8572d30",
+      "matches": true
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+      "published_sha256": "10ba21bf63aba1d1dc64e62cecae1c1aef910e6e0714902209a008275bb6092d",
+      "qualified_sha256": "10ba21bf63aba1d1dc64e62cecae1c1aef910e6e0714902209a008275bb6092d",
+      "matches": true
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlToolTest.kt",
+      "published_sha256": "587112797dd51579bf9699a793ec6bc50744074b7328bc2db987f94917b2b34a",
+      "qualified_sha256": "587112797dd51579bf9699a793ec6bc50744074b7328bc2db987f94917b2b34a",
+      "matches": true
+    }
+  ],
+  "result": "PASS"
+}

@@ -12,6 +12,31 @@ import org.junit.Test
 class VoiceDiagnosticTraceTest {
     @After fun clear() = VoiceDiagnosticTrace.clearAll()
 
+    @Test fun failedInitializationKeepsRequestedBackendAndBothFallbackCausesWithoutPrivateText() {
+        val trace = VoiceDiagnosticTrace({ 100 }, { 1_000 }, { true }, {})
+        val probe = trace.beginReply(1)
+        probe.selectedSpeechBackend("GATEWAY_CUDA")
+        val primary = VoicePlaybackFailure("private gateway text", IllegalStateException("private-url"), "SYNTHESIS_FAILED", requestedBackend = "GATEWAY_CUDA", stage = VoicePlaybackFailureStage.PREPARATION)
+        val fallback = VoicePlaybackFailure("private Android text", IllegalArgumentException("private voice"), "SERVICE_FAILED", "system", stage = VoicePlaybackFailureStage.PLAYBACK, platformErrorCode = -4)
+        probe.playbackFallback(primary, "STARTED")
+        probe.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        probe.playbackFallback(primary.afterFallback(fallback), "FAILED")
+        probe.playbackFailure(primary.afterFallback(fallback))
+        val fields = trace.incidentFields()
+        assertEquals("GATEWAY_CUDA", fields["voice_failure_requested_backend"])
+        assertEquals("NOT_INITIALIZED", fields["voice_fallback_source_observation"])
+        assertEquals("SYSTEM", fields["voice_effective_provider"])
+        assertEquals("SYNTHESIS_FAILED", fields["voice_fallback_failure"])
+        assertEquals("SERVICE_FAILED", fields["voice_fallback_terminal_failure"])
+        assertEquals("PREPARATION", fields["voice_primary_failure_stage"])
+        assertEquals("PLAYBACK", fields["voice_fallback_failure_stage"])
+        assertEquals(-4, fields["voice_system_error_code"])
+        assertTrue(fields["voice_primary_cause_fingerprint"].toString().matches(Regex("[a-f0-9]{64}")))
+        assertTrue(fields["voice_fallback_cause_fingerprint"].toString().matches(Regex("[a-f0-9]{64}")))
+        assertFalse(fields.toString().contains("private"))
+        assertTrue("VOICE_FALLBACK_CAUSES_V1" in requireNotNull(VoiceDiagnosticTrace.manualSnapshot()).requiredServiceFeatures())
+    }
+
     @Test fun streamingDelegateRequestCannotInheritObservedNativeExecution() {
         var time = 100L
         val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
@@ -132,6 +157,59 @@ class VoiceDiagnosticTraceTest {
         assertEquals(400L, rows.getValue("queue_to_pcm").p50Ms)
         assertEquals(200L, rows.getValue("pcm_to_audio").p50Ms)
         assertEquals("KOKORO_CPU", rows.getValue("pcm_to_audio").engine)
+    }
+
+    @Test fun completeTurnRequiresCaptureAcceptanceAndPresentedAnswerAndCannotBeReplayed() {
+        var time = 100L
+        val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
+        val capture = trace.advance(1, reset = true)
+        capture.acousticSpeechEnded(elapsedAgoMs = 50)
+        time = 200
+        capture.finalTranscript()
+        val reply = trace.beginReply(2, fromCapture = true)
+        reply.engine(VoiceDiagnosticTrace.Engine.COMPILED_POCKET)
+        reply.speechProvider("litert-compiled-pocket-gpu-requested")
+        time = 250
+        reply.requestAccepted()
+        time = 400
+        reply.openingAudioStarted(lookup = true)
+        assertFalse(trace.performance.snapshots.value.rows.any { it.metric == "speech_end_to_answer_audio" })
+        time = 950
+        reply.firstAudio(VoiceDiagnosticTrace.FirstAudio.AUDIO_TIMESTAMP)
+        time = 1_000
+        reply.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+        val measured = trace.performance.snapshots.value.rows.single { it.metric == "speech_end_to_answer_audio" }
+        assertEquals(900L, measured.p50Ms)
+        assertEquals("COMPILED_POCKET", measured.engine)
+        assertEquals(1, measured.count)
+        assertNull(trace.incidentFields()["voice_effective_provider"])
+        // Even a retry that asks for the capture again cannot consume its old boundary twice.
+        val replay = trace.beginReply(3, fromCapture = true)
+        replay.requestAccepted()
+        time = 1_200
+        replay.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+        capture.acousticSpeechEnded()
+        capture.finalTranscript()
+        assertEquals(listOf(measured), trace.performance.snapshots.value.rows.filter { it.metric == "speech_end_to_answer_audio" })
+    }
+
+    @Test fun incompleteOrUnpresentedTurnNeverInventsEndToEndLatency() {
+        for (scenario in listOf("no_boundary", "not_accepted", "utterance_callback", "manual_replay", "new_capture", "privacy_reset")) {
+            var time = 100L
+            val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
+            val capture = trace.advance(1, reset = true)
+            if (scenario != "no_boundary") capture.acousticSpeechEnded()
+            time = 200
+            capture.finalTranscript()
+            if (scenario == "new_capture") trace.advance(2, reset = true)
+            if (scenario == "privacy_reset") VoiceDiagnosticTrace.clearAll()
+            val reply = trace.beginReply(3, fromCapture = scenario != "manual_replay")
+            if (scenario != "not_accepted") reply.requestAccepted()
+            time = 400
+            reply.firstAudio(if (scenario == "utterance_callback") VoiceDiagnosticTrace.FirstAudio.UTTERANCE_START else VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+            assertFalse(scenario, trace.performance.snapshots.value.rows.any { it.metric == "speech_end_to_answer_audio" })
+            trace.close()
+        }
     }
 
     @Test fun explicitlySelectedGatewayRecoveryRetainsTheFailedRemoteProvider() {
@@ -357,6 +435,31 @@ class VoiceDiagnosticTraceTest {
         assertNull(VoiceDiagnosticTrace.manualSnapshot())
     }
 
+    @Test fun sessionCarriesTheCapturedBoundaryThroughSubmissionAndFencesManualReplay() {
+        var time = 100L
+        val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
+        val audio = Audio()
+        val session = VoiceSession(audio, { true }, {}, { time }, diagnosticTrace = trace)
+        session.access(true, true, true)
+        session.resume()
+        audio.acousticEnd()
+        time = 250
+        requireNotNull(audio.listener).final("Please reply")
+        time = 400
+        session.reply("run", "Here is the answer.")
+        time = 700
+        requireNotNull(audio.playback).firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+        val measured = trace.performance.snapshots.value.rows.single { it.metric == "speech_end_to_answer_audio" }
+        assertEquals(600L, measured.p50Ms)
+        requireNotNull(audio.complete).invoke()
+        time = 900
+        session.replay()
+        time = 1_000
+        requireNotNull(audio.playback).firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+        assertEquals(listOf(measured), trace.performance.snapshots.value.rows.filter { it.metric == "speech_end_to_answer_audio" })
+        session.close()
+    }
+
     @Test fun explicitReplayMeasuresANewPlaybackWithoutReusingThePreviousDelay() {
         var time = 10L
         val trace = VoiceDiagnosticTrace({ time }, { 1000 + time }, { true }, {})
@@ -434,6 +537,9 @@ class VoiceDiagnosticTraceTest {
         var playback: VoiceDiagnosticTrace.Probe? = null
         var complete: (() -> Unit)? = null
         val spoken = mutableListOf<String>()
+        fun acousticEnd() {
+            probe?.acousticSpeechEnded()
+        }
         override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
             this.probe = probe
         }

@@ -79,6 +79,10 @@ def validate_request(value):
             raise CopilotTaskError('COPILOT_REQUEST_INVALID', 'Use a supported model or custom agent identifier.', 400)
     if type(result.get('create_pull_request', False)) is not bool:
         raise CopilotTaskError('COPILOT_REQUEST_INVALID', 'Choose whether Copilot may create a pull request.', 400)
+    if result.get('create_pull_request') and 'head_ref' in result:
+        raise CopilotTaskError('COPILOT_REF_INVALID', 'An existing head branch cannot request a new pull request.', 400)
+    if any(0xD800 <= ord(char) <= 0xDFFF for char in result['prompt']):
+        raise CopilotTaskError('COPILOT_REQUEST_INVALID', 'The prompt must contain valid Unicode text.', 400)
     result['create_pull_request'] = result.get('create_pull_request', False)
     return result
 
@@ -86,7 +90,7 @@ def validate_request(value):
 class CopilotTasks:
     def __init__(self, service, *, enabled=None, request=None):
         self.service, self.store, self.backend = service, service.store, service.backend
-        self.enabled = enabled or (lambda: os.getenv('GATEWAY_COPILOT_ENABLED', 'false').lower() == 'true')
+        self.enabled = enabled or (lambda: os.getenv('GATEWAY_COPILOT_ENABLED', 'true').lower() == 'true')
         self.request = request or requests.request
         self.stop, self.wake = threading.Event(), threading.Event()
         self.thread = None
@@ -166,6 +170,7 @@ class CopilotTasks:
                       gateway_id=self.store.conversations.gateway_id() if durable else None, principal_id=principal,
                       api_version=API_VERSION, execution_owner='GITHUB_CLOUD', orchestration_owner='GATEWAY',
                       requires_explicit_consent=True, remote_cancel_supported=False, automatic_merge=False,
+                      task_entitlement='UNVERIFIED_UNTIL_UPSTREAM_RESPONSE',
                       sha_verification='PREFLIGHT_ONLY')
         if not enabled:
             return dict(result, reason='COPILOT_DISABLED' if durable else 'DURABLE_STORAGE_REQUIRED')
@@ -253,7 +258,7 @@ class CopilotTasks:
                       gateway_id=task['gateway_id'], principal_id=task['principal'], github_actor_id=request['expected_actor_id'],
                       execution_owner='GITHUB_CLOUD', orchestration_owner='GATEWAY', detached=True,
                       accepted_at=task['accepted_at'], updated_at=task['updated_at'], last_checked_at=task['last_checked_at'],
-                      base_ref=request['base_ref'], expected_base_sha=request['expected_base_sha'],
+                      purpose='Implement the submitted repository task', base_ref=request['base_ref'], expected_base_sha=request['expected_base_sha'],
                       create_pull_request=request['create_pull_request'], error_code=task['error_code'],
                       merge_authorized=False, ci_verified=False, head_sha_verified=False,
                       sha_verification='PREFLIGHT_ONLY', remote_cancel_supported=False)
@@ -263,7 +268,39 @@ class CopilotTasks:
         if task['upstream_task_id']:
             result['task_url'] = ('https://github.com/' + request['repository'] + '/copilot/tasks/' +
                                   quote(task['upstream_task_id'], safe=''))
+        if task.get('task_name'):
+            result['task_name'] = task['task_name']
+        result['pull_request_numbers'] = task.get('pull_request_numbers', [])
+        result['progress'] = CopilotTasks.progress(task)
         return result
+
+    @staticmethod
+    def progress(task):
+        state = task['state']
+        confirmed = task['upstream_task_id'] is not None
+        if state.lower() in REMOTE_STATES and not confirmed:
+            state = 'UNKNOWN'
+        if task.get('error_code') and state not in {'REJECTED', 'RECONCILE_REQUIRED', 'UNKNOWN'}:
+            message = ('The saved GitHub Copilot task could not be refreshed. Restore the original account and access; '
+                       'the last observed cloud state is ' + str(task.get('remote_state') or 'unconfirmed') + '.') if confirmed else (
+                       'Gateway cannot submit the GitHub Copilot request with its current account and access. No cloud task is confirmed.')
+            return dict(phase='BLOCKED', message=message, remote_task_confirmed=confirmed)
+        messages = {
+            'ACCEPTED': 'Gateway saved the Copilot request. GitHub has not yet confirmed a cloud task.',
+            'DISPATCHING': 'Gateway began submitting the Copilot request. GitHub acceptance is not yet confirmed; reconcile this request before retrying.',
+            'QUEUED': 'GitHub accepted the Copilot task and reports it queued. Execution has not been observed yet.',
+            'IN_PROGRESS': 'GitHub reports Copilot working on the task. Changes and validation results remain pending.',
+            'COMPLETED': 'GitHub reports the Copilot task completed. Review the returned changes and exact-head checks before accepting or merging.',
+            'IDLE': 'GitHub reports the Copilot task waiting for input. Open the saved task to inspect the request.',
+            'WAITING_FOR_USER': 'GitHub reports the Copilot task waiting for your input. Open the saved task to inspect the request.',
+            'FAILED': 'GitHub reports the Copilot task failed. The requested result has not been verified.',
+            'TIMED_OUT': 'GitHub reports the Copilot task timed out. The requested result has not been verified.',
+            'CANCELLED': 'GitHub reports the Copilot task cancelled. The requested result has not been verified.',
+            'REJECTED': 'The Copilot request was rejected before a cloud task was confirmed. Inspect the saved access or request error.',
+            'RECONCILE_REQUIRED': 'Copilot submission is unconfirmed. Inspect the original saved request before retrying; an uncertain submission must not be repeated.',
+            'UNKNOWN': 'GitHub returned an unknown Copilot task state. Inspect the saved task before continuing.'
+        }
+        return dict(phase=state, message=messages.get(state, messages['UNKNOWN']), remote_task_confirmed=confirmed)
 
     def _checkpoint(self, task, **changes):
         def save(db):
@@ -307,9 +344,21 @@ class CopilotTasks:
         remote_state = remote.get('state')
         known_state = isinstance(remote_state, str) and remote_state in REMOTE_STATES
         state = remote_state.upper() if known_state else 'UNKNOWN'
+        name = remote.get('name')
+        # Only a bounded upstream title is public. Never copy the task prompt,
+        # session transcript or arbitrary artifact payload into host previews.
+        name = ' '.join(name.split())[:180] if isinstance(name, str) else None
+        if name and any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+            name = None
+        artifacts = remote.get('artifacts', [])
+        pulls = sorted({artifact['data']['id'] for artifact in artifacts[:100]
+                        if isinstance(artifact, dict) and artifact.get('provider') == 'github'
+                        and artifact.get('type') == 'pull' and isinstance(artifact.get('data'), dict)
+                        and type(artifact['data'].get('id')) is int and 0 < artifact['data']['id'] < 2**63})[:4] if isinstance(artifacts, list) else []
         self._checkpoint(task, upstream_task_id=identifier, remote_state=remote_state if known_state else None,
                          state=state, last_checked_at=self.store.now(), next_at=self.store.now() + 30,
-                         error_code=None if state != 'UNKNOWN' else 'COPILOT_REMOTE_STATE_UNKNOWN')
+                         error_code=None if state != 'UNKNOWN' else 'COPILOT_REMOTE_STATE_UNKNOWN',
+                         task_name=name, pull_request_numbers=pulls)
 
     def tick(self, task_id):
         if not self._tick_lock.acquire(blocking=False):

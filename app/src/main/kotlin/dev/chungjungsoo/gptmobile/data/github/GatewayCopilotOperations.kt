@@ -175,8 +175,8 @@ class GatewayCopilotOperations @Inject constructor(
         val payload = buildJsonObject {
             put("repository", repository)
             put("request_id", requestId)
-            listOf("prompt", "base_ref", "expected_base_sha", "head_ref", "expected_head_sha", "model", "custom_agent", "create_pull_request").forEach { name -> arguments[name]?.let { put(name, it) } }
-            if (arguments["create_pull_request"] == null) put("create_pull_request", false)
+            GitHubCopilotTasks.creationBody(arguments).forEach { (key, value) -> put(key, value) }
+            listOf("expected_base_sha", "expected_head_sha").forEach { name -> arguments[name]?.let { put(name, it) } }
             put("expected_actor_id", actor)
             put("execution_owner", "GATEWAY")
             put("copilot_enabled", true)

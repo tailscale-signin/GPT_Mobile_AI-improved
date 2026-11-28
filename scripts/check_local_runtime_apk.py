@@ -131,6 +131,33 @@ def check_kokoro_dependencies(apk, abis):
         assert not missing, f"Kokoro QNN adapter for {abi} has missing dependencies: {sorted(missing)}"
 
 
+def check_pocket_compiled_runtime(apk, abis, geniex=False, manifest=None):
+    """Permit only the reviewed private Pocket plugin pair; all other compiler payloads stay banned."""
+    if manifest is None:
+        path = Path(__file__).resolve().parent.parent / "docs/audits/pocket-compiled-runtime.json"
+        manifest = json.loads(path.read_text())
+    names = set(apk.namelist())
+    for name, expected in manifest["libraries"].items():
+        if name.split("/")[1] not in abis:
+            continue
+        assert name in names, f"Missing compiled Pocket runtime {name}"
+        binary = apk.read(name)
+        assert len(binary) == expected["bytes"], f"{name}: compiled Pocket library size mismatch"
+        assert hashlib.sha256(binary).hexdigest() == expected["sha256"], f"{name}: compiled Pocket library digest mismatch"
+    expected_assets = manifest["privateNpuAssets"]
+    if geniex:
+        assert not any(name.startswith("assets/pocket-compiled-npu-") for name in names), "Do not combine Pocket QNN plugins with GenieX QAIRT"
+        return set()
+    private_assets = {name for name in names if name.startswith("assets/pocket-compiled-npu-") and name.endswith(".so")}
+    assert private_assets == set(expected_assets), "Unexpected or missing private Pocket NPU payload"
+    for name, expected in expected_assets.items():
+        assert name in names, f"Missing private compiled Pocket NPU library {name}"
+        binary = apk.read(name)
+        assert len(binary) == expected["bytes"] and hashlib.sha256(binary).hexdigest() == expected["sha256"], f"{name}: unreviewed Pocket NPU library"
+        check_host_alignment(name, binary)
+    return set(expected_assets)
+
+
 def check_apk(apk_path, manifest):
     with ZipFile(apk_path) as apk:
         names = apk.namelist()
@@ -162,11 +189,12 @@ def check_apk(apk_path, manifest):
             for name in names if name.startswith("lib/") and name.endswith(".so")
         )
         forbidden = {"libLiteRtCompilerPlugin_Qualcomm.so", "libqnn_delegate_jni.so", "libQnnTFLiteDelegate.so", "libQnnIr.so", "libQnnSaver.so"}
+        private_pocket_assets = check_pocket_compiled_runtime(apk, abis, bool(manifest.get("geniexVersion")))
         if manifest.get("geniexVersion"):
             assert abis == {"arm64-v8a"}, "GenieX preview is arm64 only"
             assert "lib/arm64-v8a/libLiteRtDispatch_Qualcomm.so" not in names, "Do not combine LiteRT dispatch and GenieX QAIRT"
         else:
-            assert not any(Path(name).name in forbidden for name in names), "Unexpected second QNN integration/compiler payload"
+            assert not any(Path(name).name in forbidden and name not in private_pocket_assets for name in names), "Unexpected second QNN integration/compiler payload"
         check_bindings(apk, apk_path.name)
         check_objectbox_bindings(apk, apk_path.name)
         print(f"{apk_path.name}: Kokoro timing/adapter libraries, ABI and adapter dependencies verified for {', '.join(sorted(abis))}")

@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Provider attempts finish before a malformed or length-limited claim batch can be retried. */
@@ -54,6 +55,14 @@ internal object GitHubClaimExtraction {
 
     fun rejectedDecision(failure: Failure): ProviderLimitDecision? = failure.providerFailure?.providerLimit?.takeIf { failure.rejectionRecoveryAllowed }
 
+    /** One claim is the minimum batch; repeating a smaller-batch instruction cannot repair it. */
+    fun outputLimitRecovery(observations: JsonObject?): String =
+        if ((observations?.get("claim_extraction_max_claims") as? JsonPrimitive)?.intOrNull == 1) {
+            "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST"
+        } else {
+            "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+        }
+
     /** A deadline may interrupt a provider attempt or later local checkpoint/rendering work. */
     class Attempt {
         var awaitingTerminal = false
@@ -77,14 +86,15 @@ internal object GitHubClaimExtraction {
         var failure: ProviderEvent.Failed? = null
         var repairProhibited = false
         var rejectionProhibited = false
+        fun observations() = buildJsonObject {
+            put("claim_extraction_response_characters", response.length.coerceAtMost(MAX_OUTPUT_CHARACTERS))
+            put("claim_extraction_max_claims", request.maxClaims)
+            put("claim_extraction_completed", complete)
+        }
         fun interrupted(event: ProviderEvent.Failed, allowRejection: Boolean = true, code: String = event.errorCode ?: "GITHUB_EXTRACTION_FAILED") = Failure(
             code,
             event,
-            observations = buildJsonObject {
-                put("claim_extraction_response_characters", response.length)
-                put("claim_extraction_max_claims", request.maxClaims)
-                put("claim_extraction_completed", complete)
-            },
+            observations = observations(),
             rejectionRecoveryAllowed = allowRejection && !receivedProviderOutput && !unexpectedOperation && !rejectionProhibited && rejectedLimit(event) != null
         )
         try {
@@ -175,7 +185,7 @@ internal object GitHubClaimExtraction {
             throw Failure(observed.errorCode ?: "GITHUB_EXTRACTION_FAILED", observed)
         }
         val outputLimited = oversized || completedLimit || finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")
-        if (oversized) throw Failure("GITHUB_EXTRACTION_OUTPUT_LIMIT", terminalFailure, repairAllowed = true)
+        if (oversized) throw Failure("GITHUB_EXTRACTION_OUTPUT_LIMIT", terminalFailure, repairAllowed = true, observations = observations())
         var invalidKind = "INVALID_JSON"
         var validationStage: String? = null
         return try {
@@ -216,7 +226,7 @@ internal object GitHubClaimExtraction {
                     put("claim_extraction_completed", complete)
                 }
             )
-            throw Failure(code, observed, repairAllowed = true)
+            throw Failure(code, observed, repairAllowed = true, observations = observations())
         }
     }
 
@@ -245,14 +255,26 @@ internal object GitHubClaimExtraction {
         }
     )
 
-    private fun completedLimitAllowsRepair(failure: ProviderEvent.Failed): Boolean =
-        !outcomeUnknown(failure) &&
-            failure.failureDetails?.get("retryable") != JsonPrimitive(false) &&
-            failure.failureDetails?.get("request_replay_allowed") != JsonPrimitive(false) &&
-            failure.failureDetails?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
-            failure.failureDetails?.get("automatic_retry_allowed") != JsonPrimitive(false) &&
-            (failure.transportComplete || failure.failureDetails?.get("generation_completed") == JsonPrimitive(true)) &&
+    // A smaller claim batch is a new, read-only extraction over retained evidence.
+    // It is not a replay of the original request, but explicit no-retry or
+    // reconciliation facts still prohibit automatic repair.
+    private fun completedLimitAllowsRepair(failure: ProviderEvent.Failed): Boolean {
+        val details = failure.failureDetails
+        if (outcomeUnknown(failure) || details?.get("automatic_retry_allowed") == JsonPrimitive(false)) return false
+
+        // A smaller batch is a new, read-only extraction over retained evidence. It never
+        // replays the original request or continues its logical invocation. If the provider
+        // explicitly denied those operations, require proof that the original generation
+        // was accepted/completed before allowing this distinct extraction.
+        val explicitNoReplay = listOf("retryable", "request_replay_allowed", "logical_continuation_allowed")
+            .any { details?.get(it) == JsonPrimitive(false) }
+        val acceptedOrCompleted = details?.get("remote_acceptance") in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED")) ||
+            details?.get("generation_completed") == JsonPrimitive(true)
+        if (explicitNoReplay && !acceptedOrCompleted) return false
+
+        return (failure.transportComplete || details?.get("generation_completed") == JsonPrimitive(true)) &&
             failure.errorCode in setOf("OUTPUT_LIMIT", "COMPLETION_REPAIR_BUDGET_EXHAUSTED", "GITHUB_EXTRACTION_OUTPUT_LIMIT")
+    }
 
     private fun rejectedLimit(failure: ProviderEvent.Failed): ProviderLimitDecision? = failure.providerLimit?.takeIf { limit ->
         limit.knownNotAccepted &&

@@ -105,6 +105,7 @@ ENV GRADLE_USER_HOME=/opt/gradle-seed GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY=1
 RUN if [ -f scripts/install_android_native_dependencies.sh ]; then GITHUB_ENV=/tmp/gateway-android-env bash scripts/install_android_native_dependencies.sh && mkdir -p /opt/gateway-native && cp -R "$(sed -n 's/^VULKAN_SDK=//p' /tmp/gateway-android-env)/." /opt/gateway-native/; fi
 ENV VULKAN_SDK=/opt/gateway-native CMAKE_PREFIX_PATH=/opt/gateway-native
 RUN if [ -f scripts/provision_memory_model.py ]; then python3 scripts/provision_memory_model.py; fi && if [ -f scripts/provision_robolectric_sdks.py ]; then python3 scripts/provision_robolectric_sdks.py; fi
+RUN if [ -f local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py ]; then python3 local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py --output /opt/gateway-kokoro-deps --qnn-manifest docs/audits/qnn-runtime-candidate.json; fi
 RUN gateway-gradle-build prepare :app:assembleDebug :app:gatewayPrepareAndroidDependencies :app:testDebugUnitTest --init-script /opt/gateway-prepare-android.gradle --no-configuration-cache && chmod -R a+rX /opt/gradle-seed
 RUN mkdir -p /opt/robolectric && if [ -d /root/.m2/repository ]; then cp -R /root/.m2/repository/. /opt/robolectric/; fi
 """

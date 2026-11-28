@@ -24,6 +24,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolCatalogAdmissionTest {
+    @Test fun compactReadContractsFitTheReportedAllowanceAndKeepEveryArgumentConstraint() {
+        val definitions = GitHubTool().operations().map { it.definition }
+        val originals = listOf("github_context_inspect", "github_pr_inspect", "github_ci").map { name -> definitions.single { it.name == name } }
+        val compact = originals.map(GitHubActionSchema::compactRead)
+        val catalog = ProgressiveToolCatalog(definitions, "Inspect the selected project status", githubMode = true)
+        val cost = (compact + catalog.definition).sumOf { providerSchemaTokens(it, githubMode = true) }
+        assertTrue("Compact schemas cost $cost tokens", cost <= 2766)
+        for ((source, presented) in originals.zip(compact)) {
+            assertEquals(presented, GitHubActionSchema.authorized(source, presented))
+            val originalFields = source.inputSchema.getValue("properties").jsonObject
+            val fields = presented.inputSchema.getValue("properties").jsonObject
+            assertEquals(source.inputSchema - "properties", presented.inputSchema - "properties")
+            assertEquals(originalFields.keys, fields.keys)
+            for (key in fields.keys) assertEquals(originalFields.getValue(key).jsonObject - "description", fields.getValue(key).jsonObject - "description")
+            assertEquals(source, GitHubActionSchema.authorized(source, presented.copy(inputSchema = JsonObject(emptyMap()))))
+        }
+    }
+
     @Test fun compactLocalGitHubPreparationFitsTheVerifiedRouteWithReplayAndTargetIntact() {
         val capacity = 5632
         val task = "Review the selected branch. Preserve the user's requested constraints and report only inspected evidence."

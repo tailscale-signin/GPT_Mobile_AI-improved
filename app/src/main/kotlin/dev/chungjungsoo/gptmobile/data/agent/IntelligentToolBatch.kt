@@ -58,15 +58,15 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
             action(call) in setOf("resolve", "default")
         barrier?.let(dependencies::add)
         if (!read) dependencies += nodes.map { it.call.callId }
-        // Registering a watch changes its subscription, not the workspace used by a
-        // separate GitHub read. Keep serial order and any earlier workspace barrier.
-        val independentOfWatch = read &&
+        // Watches and local catalog selection do not change the workspace used by
+        // an already-admitted read. Keep ordering and any earlier workspace barrier.
+        val independentOfSelection = read &&
             barrier != lastWorkspaceBarrier &&
-            GitHubOperationTool.operationName(call.name) != null &&
+            (GitHubOperationTool.operationName(call.name) != null || GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)) &&
             "view_cursor" !in call.arguments &&
             "evidence_id" !in call.arguments
-        val readBarrier = if (independentOfWatch) lastWorkspaceBarrier else barrier
-        if (independentOfWatch) readBarrier?.let(dependencies::add)
+        val readBarrier = if (independentOfSelection) lastWorkspaceBarrier else barrier
+        if (independentOfSelection) readBarrier?.let(dependencies::add)
         val required = when {
             discovery || initialContext -> mutableSetOf()
             read &&
@@ -74,7 +74,7 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
                 readBarrier == firstContextBarrier &&
                 GitHubOperationTool.immutableRead(call.name, call.arguments) &&
                 "evidence_id" !in call.arguments -> mutableSetOf()
-            independentOfWatch -> listOfNotNull(readBarrier).toMutableSet()
+            independentOfSelection -> listOfNotNull(readBarrier).toMutableSet()
             else -> dependencies.toMutableSet()
         }
         tool?.definition?.workflowLinks.orEmpty().filter { it.action == action(call) }.forEach { link ->
@@ -89,7 +89,7 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
         if (initialContext) firstContextBarrier = call.callId
         if (!read) {
             barrier = call.callId
-            if (tool == null || GitHubOperationTool.operationName(call.name) != "github_watch_checks") lastWorkspaceBarrier = call.callId
+            if (tool == null || !discovery && GitHubOperationTool.operationName(call.name) != "github_watch_checks") lastWorkspaceBarrier = call.callId
         }
     }
     return nodes

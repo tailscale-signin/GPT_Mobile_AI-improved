@@ -22,16 +22,33 @@ import base64
 import csv
 import difflib
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[3]
 QAIRT_VERSIONS = {"2.7.0": "2.51.0", "2.8.0": "2.52.0"}
 HOST_MANIFESTS = {"2.8.0": ROOT / "docs/audits/qnn-host-probe-publisher-2.8.json"}
+MEMORY_PROBE = ROOT / "scripts/check_android_compile_memory.py"
+_memory_spec = importlib.util.spec_from_file_location("asr_host_memory", MEMORY_PROBE)
+host_memory = importlib.util.module_from_spec(_memory_spec)
+_memory_spec.loader.exec_module(host_memory)
+REQUIRED_NATIVE_TESTS = frozenset({
+    "english_dictionary_misses",
+    "speech_provider_execution_evidence",
+    "speech_cache_audio_and_device_discovery",
+    "speech_compiled_context_cache",
+    "speech_finalization_cancellation",
+    "speech_live_native_progress",
+    "speech_convex_graph_partitions",
+    "speech_provider_abi_ownership",
+    "speech_asr_checked_qnn_retirement",
+})
 
 
 def digest(path):
@@ -43,6 +60,26 @@ def replace_once(text, before, after):
     if text.count(before) != 1:
         raise AssertionError("Host boundary port no longer matches the production source")
     return text.replace(before, after, 1)
+
+
+def checked_native_ctest(report):
+    """Require execution of every native control, including checked QNN cleanup."""
+    try:
+        root = ET.parse(report).getroot()
+    except ET.ParseError as error:
+        raise ValueError("Malformed native CTest result") from error
+    executed = set()
+    for case in root.iter("testcase"):
+        name = case.get("name")
+        if not name or name in executed or case.get("status") != "run" or any(
+                case.find(outcome) is not None for outcome in ("failure", "error", "skipped")):
+            raise ValueError("Native CTest case failed, skipped or duplicated: " + str(name))
+        executed.add(name)
+    missing = REQUIRED_NATIVE_TESTS - executed
+    if missing:
+        raise ValueError("Required native tests did not execute: " + ", ".join(sorted(missing)))
+    return {"required_tests": sorted(REQUIRED_NATIVE_TESTS), "executed_tests": sorted(executed),
+            "junit_sha256": digest(report)}
 
 
 def checked_provider_inputs(qnn, version, application_java):
@@ -140,6 +177,35 @@ def checked_provider_inputs(qnn, version, application_java):
     return identity, libraries, runtime_directories
 
 
+def asr_memory_admission(fixture, reader=host_memory.read_text):
+    """An explicit host admission estimate, never measured model RSS or device qualification."""
+    model_bytes = sum(record["bytes"] for record in fixture["files"] if not record["file"].startswith("test_wavs/"))
+    # Embedded ONNX protobufs can coexist with initialized/prepacked weights.
+    # Keep this distinct from GPU external weights and mapped HTP contexts.
+    required = 3 * model_bytes + 512 * 1024**2
+    # Reuse bounded RAM and complete visible cgroup ancestry observations.
+    # The compiler's budget is unrelated to this model estimate: a known
+    # compiler shortfall can fit ASR, but unknown ancestry cannot be admitted.
+    observation = host_memory.observe(reader)
+    known = observation["status"] in ("SUFFICIENT", "INSUFFICIENT")
+    available = observation["availableBytes"] if known else None
+    status = ("SUFFICIENT" if available >= required else "INSUFFICIENT") if known else "UNKNOWN"
+    return {"estimatedRequiredBytes": required,
+            "availableHostBytes": observation["ram"]["MemAvailable"] if observation["ram"] is not None else None,
+            "availableEffectiveBytes": available,
+            "status": status, "admitted": status == "SUFFICIENT",
+            "ram": observation["ram"], "cgroups": observation["cgroups"],
+            "swapCountsAsHeadroom": observation["swapCountsAsHeadroom"],
+            "isMeasuredModelRss": False, "physicalDeviceQualified": False}
+
+
+def native_ctest_command(cmake, build, report=None):
+    command = [cmake.parent / "ctest", "--test-dir", build, "--output-on-failure", "--no-tests=error"]
+    if report is not None:
+        command += ["--output-junit", report]
+    return command
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native-source", type=Path, required=True)
@@ -150,9 +216,12 @@ def main():
     parser.add_argument("--jdk", type=Path, required=True)
     parser.add_argument("--cmake", type=Path, required=True)
     parser.add_argument("--pack", type=Path, required=True)
+    parser.add_argument("--asr-packs", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--build-jobs", type=int, choices=(1, 2), default=2)
     args = parser.parse_args()
+    if args.asr_packs is None:
+        args.asr_packs = args.pack.parent / "asr-packs"
     for key, value in vars(args).items():
         if isinstance(value, Path):
             setattr(args, key, value.resolve())
@@ -163,6 +232,21 @@ def main():
     context_java = test_host.parent / "test/java/dev/melo/kokoro/KokoroNativeContextIntegration.java"
     prepared_java = context_java.with_name("KokoroPreparedPhraseIntegration.java")
     main_java = test_host.parent / "main/java/dev/melo/kokoro/TimedKokoro.java"
+    asr_java = main_java.with_name("StreamingAsr.java")
+    asr_test_java = test_java.with_name("StreamingAsrNativeIntegration.java")
+    asr_cancellation_java = test_java.with_name("StreamingAsrCancellationIntegration.java")
+    asr_fixture_manifest = test_host / "streaming_asr_fixtures.json"
+    asr_fixtures = json.loads(asr_fixture_manifest.read_text())["fixtures"]
+    asr_input_pins = {}
+    for fixture in asr_fixtures:
+        for record in fixture["files"]:
+            relative = Path(fixture["id"]) / record["file"]
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("Unsafe ASR fixture path")
+            source = args.asr_packs / relative
+            if source.stat().st_size != record["bytes"] or digest(source) != record["sha256"]:
+                raise ValueError("Pinned ASR model/audio fixture differs: " + relative.as_posix())
+            asr_input_pins[relative.as_posix()] = record["sha256"]
     provider_identity, provider_files, runtime_directories = checked_provider_inputs(args.qnn, args.qnn_version, main_java)
     provider_inputs = {name: digest(path) for name, path in provider_files.items()}
     args.output.mkdir(parents=True)
@@ -233,7 +317,8 @@ def main():
 
     assert run("configure", [args.cmake, "-S", native, "-B", build, "-DCMAKE_BUILD_TYPE=Release",
                              "-DBUILD_TESTING=ON", "-DORT_INCLUDE_DIR=" + str(args.ort / "include"),
-                             "-DORT_LIBRARY=" + str(args.ort / "lib/libonnxruntime.so")]) == 0
+                             "-DORT_LIBRARY=" + str(args.ort / "lib/libonnxruntime.so"),
+                             "-DASR_QNN_MANIFEST=" + str(args.native_source.parents[3] / "docs/audits/qnn-runtime-candidate.json")]) == 0
     sherpa = build / "_deps/sherpa-src/sherpa-onnx/csrc/offline-tts-kokoro-model.cc"
     sherpa_before = digest(sherpa)
 
@@ -246,8 +331,13 @@ def main():
 
     port(sherpa, fault_port)
     (args.output / "host-port.diff").write_text("".join(changes))
-    assert run("build", [args.cmake, "--build", build, "--parallel", str(args.build_jobs)]) == 0
-    assert run("ctest", [args.cmake.parent / "ctest", "--test-dir", build, "--output-on-failure"]) == 0
+    # The same library now also contains the streaming frontend and decoders.
+    # Retain all native tests while allowing their additional compilation work.
+    assert run("build", [args.cmake, "--build", build, "--parallel", str(args.build_jobs)], timeout=1800) == 0
+    ctest_report = args.output / "ctest-results.xml"
+    assert run("ctest", native_ctest_command(args.cmake, build, ctest_report)) == 0
+    native_tests = checked_native_ctest(ctest_report)
+    (args.output / "ctest.json").write_text(json.dumps(native_tests, indent=2) + "\n")
     for name, library in provider_files.items():
         if digest(library) != provider_inputs[name]:
             raise ValueError("QNN package input changed during the native build: " + name)
@@ -256,8 +346,12 @@ def main():
         shutil.copy2(library, build / library.name)
     classes = args.output / "classes"
     classes.mkdir()
-    assert run("javac", [args.jdk / "bin/javac", "-d", classes, main_java, main_java.with_name("KokoroFrontend.java"), test_java, context_java, prepared_java]) == 0
+    assert run("javac", [args.jdk / "bin/javac", "-d", classes, main_java, main_java.with_name("KokoroFrontend.java"), test_java, context_java, prepared_java,
+                        asr_java, asr_test_java, asr_cancellation_java]) == 0
     results = {}
+    results["asr_cancellation_monitor"] = run("asr_cancellation_monitor", [args.jdk / "bin/java", "-Xcheck:jni",
+        "-Djava.library.path=" + str(build / "asr-cancellation"), "-cp", classes,
+        "dev.melo.kokoro.StreamingAsrCancellationIntegration", args.output / "asr_cancellation_monitor.json"], timeout=30)
     for case in ["unqualified_cancel", "unqualified_failure", "qualified_cancel"]:
         results[case] = run(case, [args.jdk / "bin/java", "-Xcheck:jni", "-Djava.library.path=" + str(build),
                                   "-cp", classes, "dev.melo.kokoro.KokoroNativeProfileLifecycleIntegration",
@@ -268,14 +362,36 @@ def main():
     results["context_roundtrip"] = run("context_roundtrip", [args.jdk / "bin/java", "-Xcheck:jni",
         "-Djava.library.path=" + str(build), "-cp", classes, "dev.melo.kokoro.KokoroNativeContextIntegration",
         args.pack, build, args.output / "context_roundtrip.json"])
+    asr_memory = {}
+    for fixture in asr_fixtures:
+        label = "asr_" + fixture["id"]
+        admission = asr_memory_admission(fixture)
+        asr_memory[fixture["id"]] = admission
+        if not admission["admitted"]:
+            # Resource refusal fails the required job; it never becomes a
+            # successful skipped model or an inferred CPU execution result.
+            results[label] = 78
+            (args.output / (label + ".json")).write_text(json.dumps({
+                "scope": "CPU_HOST_ADMISSION_FAILURE_MODEL_NOT_EXECUTED",
+                "error": "Insufficient or unknown host memory for mandatory ASR JNI regression",
+                **admission,
+            }, indent=2) + "\n")
+            print(label + " failed: insufficient or unknown host memory", flush=True)
+            continue
+        results[label] = run(label, [args.jdk / "bin/java", "-Xcheck:jni", "-Xmx256m", "-Djava.library.path=" + str(build),
+            "-cp", classes, "dev.melo.kokoro.StreamingAsrNativeIntegration", args.asr_packs / fixture["id"],
+            fixture["encoder"], fixture["decoder"], fixture["joiner"], fixture["tokens"], fixture["modelType"],
+            fixture["language"], str(fixture["chunkMillis"]), fixture["wav"], fixture["expectedPrefix"], args.output / (label + ".json")])
     source_inputs = {str(p): digest(p) for p in sorted(args.native_source.rglob("*")) if p.is_file()}
-    source_inputs.update({str(p): digest(p) for p in [Path(__file__), test_java, context_java, prepared_java, main_java, main_java.with_name("KokoroFrontend.java"),
-                                                    test_host / "kokoro_profile_fault.h", test_host / "kokoro_profile_fault.cpp"]})
+    source_inputs.update({str(p): digest(p) for p in [Path(__file__), MEMORY_PROBE, test_java, context_java, prepared_java, main_java, main_java.with_name("KokoroFrontend.java"),
+                                                    test_host / "kokoro_profile_fault.h", test_host / "kokoro_profile_fault.cpp",
+                                                    asr_java, asr_test_java, asr_cancellation_java, asr_fixture_manifest]})
     receipt = {
         "scope": "actual_native_model_sherpa_jni_with_explicit_host_emulator_and_fault_ports",
         "physical_device_qualified": False,
         "provider_identity": provider_identity,
         "results": results,
+        "native_ctest": native_tests,
         "source_sha256": source_inputs,
         "host_port_sha256": digest(args.output / "host-port.diff"),
         "sherpa_before_fault_port_sha256": sherpa_before,
@@ -283,8 +399,12 @@ def main():
         "provider_libraries_sha256": provider_inputs,
         "ort_shared_library_sha256": digest(args.ort / "lib/libonnxruntime.so"),
         "model_sha256": model_pins,
+        "asr_fixture_sha256": asr_input_pins,
+        "asr_host_memory_admission": asr_memory,
+        "asr_execution_scope": "CPU_HOST_PRODUCTION_JNI_ONLY_NO_GPU_NPU_OR_PHYSICAL_QUALIFICATION",
         "built_jni_sha256": digest(build / "libtimed_kokoro.so"),
         "built_adapter_sha256": digest(build / "libkokoro_qnn_adapter.so"),
+        "asr_cancellation_fixture_sha256": digest(build / "asr-cancellation/libtimed_kokoro.so"),
     }
     (args.output / "verification.json").write_text(json.dumps(receipt, indent=2) + "\n")
     raise SystemExit(0 if all(code == 0 for code in results.values()) else 1)

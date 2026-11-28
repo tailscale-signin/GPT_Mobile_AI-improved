@@ -1,0 +1,17 @@
+{
+  "planDigest": null,
+  "controlsDigest": null,
+  "product": null,
+  "version": null,
+  "taskDigest": null,
+  "repeat": null,
+  "scheduleIndex": null,
+  "cache": null,
+  "seconds": null,
+  "costUsd": null,
+  "interventions": null,
+  "state": "DELIVERED",
+  "runId": null,
+  "originEvidence": null,
+  "actualControlsConfirmed": false
+}

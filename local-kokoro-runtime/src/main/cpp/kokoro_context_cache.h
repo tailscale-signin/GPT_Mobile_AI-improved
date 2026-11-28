@@ -22,7 +22,10 @@ enum class ContextCacheStatus : int64_t {
 };
 struct ContextCacheLimits {
   size_t entries = 6;
-  int64_t bytes = 512LL * 1024 * 1024;
+  // Five measured compact HTP shapes occupy about 572 MiB together. The old
+  // 512 MiB bound evicted the next needed context on every phrase even when
+  // the entry-count limit allowed it. Keep a bounded complete working set.
+  int64_t bytes = 1024LL * 1024 * 1024;
   int64_t entry_bytes = 256LL * 1024 * 1024;
   int64_t free_reserve_bytes = 64LL * 1024 * 1024;
 };

@@ -32,6 +32,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 
@@ -45,6 +46,7 @@ FIXTURE = "Café is ready. The quick brown fox jumps over the lazy dog."
 INCREMENTAL_PARTS = ("Café is ready. ", "The quick brown fox jumps over the lazy dog.")
 PRONUNCIATION_CORPUS = "Dr. Chen read the report yesterday. The lead pipe weighs 3.5 kilograms. The U.S. team met J. R. Tolkien. Café is ready."
 FRENCH_CORPUS = "Émilie arrive à Montréal. L’équipe prépare le café."
+FRENCH_PREVIEW = "Bonjour. Voici la voix que vous avez choisie."
 CANCEL_FIXTURE = "This next sentence checks cancellation before the entire request finishes. " * 12
 
 # Keep these immutable publisher identities in sync with MediaPipeSpeechCatalog.kt.
@@ -74,7 +76,7 @@ MODELS = {
         "bytes": 87_205_888,
         "sha256": "b33a9a0d65acec36762db38a2bff6d899f4aab34b196bb56d89fab5665eabebe",
         "voice": "freya",
-        "required_voices": ["freya"],
+        "required_voices": ["freya", "claire", "lukas", "sofia", "lucas"],
     },
     "pocket": {
         "repository": "litert-community/pocket-tts",
@@ -83,8 +85,26 @@ MODELS = {
         "bytes": 162_766_856,
         "sha256": "465e0083cd61188772aed76160b07af0dcf59057497d7659f43f3f2b13a174a1",
         "voice": "alba",
-        "required_voices": ["alba"],
+        "required_voices": ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma"],
     },
+    "pocket-multilingual": {
+        "repository": "litert-community/pocket-tts",
+        "revision": "00c866f2397788f514ab6bbcb931be22afc3b58f",
+        "file_name": "pocket_tts_int8.litertlm",
+        "bytes": 760_061_960,
+        "sha256": "9c5427cf3fe2d6680f8268e1c06537496be52d818ef12233a461bf193f314b3c",
+        "voice": "alba",
+        "required_voices": ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma", "estelle", "juergen", "lola", "giovanni", "rafael", "daan"],
+    },
+}
+
+VOICE_PROBES = {
+    "estelle": ("fr", FRENCH_CORPUS),
+    "juergen": ("de", "Der Kaffee ist fertig. Die Stimme ist bereit für deine nächste Frage."),
+    "lola": ("es", "El café está listo. La voz está preparada para tu próxima pregunta."),
+    "giovanni": ("it", "Il caffè è pronto. La voce è pronta per la tua prossima domanda."),
+    "rafael": ("pt", "O café está pronto. A voz está pronta para a sua próxima pergunta."),
+    "daan": ("nl", "De koffie is klaar. De stem is klaar voor je volgende vraag."),
 }
 
 
@@ -188,7 +208,63 @@ def input_chunks(task, text: str, *, incremental: bool, evidence: dict, voice_id
         require(evidence["first_pcm_before_finish_input"] and evidence["text_delta_count"] == 2 and evidence["finish_input_calls"] == 1, "Incremental input never completed after its first PCM")
 
 
-def consume(task, text: str, np, *, incremental: bool = False, include_word_cues: bool = False, voice_id=None, locale=None) -> dict:
+def lexical_word_spans(text: str) -> list[tuple[int, int]]:
+    """Full UTF-8 lexical spans, including marks and internal straight/curly apostrophes."""
+    require(0 < len(text) <= 4000, "Caption fixture text exceeds its bound")
+    is_word = lambda character: unicodedata.category(character)[0] in "LMN"
+    byte_offsets = [0]
+    for character in text:
+        byte_offsets.append(byte_offsets[-1] + len(character.encode("utf-8")))
+    result = []
+    index = 0
+    while index < len(text):
+        if not is_word(text[index]):
+            index += 1
+            continue
+        start = index
+        index += 1
+        while index < len(text):
+            if is_word(text[index]):
+                index += 1
+            elif text[index] in "'’" and index + 1 < len(text) and is_word(text[index + 1]):
+                index += 2
+            else:
+                break
+        result.append((byte_offsets[start], byte_offsets[index]))
+    require(len(result) <= 1024, "Caption fixture word count exceeds its bound")
+    return result
+
+
+def caption_word_coverage(text: str, spans) -> dict:
+    """Completed source-span coverage only; estimated SDK times are not acoustic alignment."""
+    words = lexical_word_spans(text)
+    covered, individual = set(), set()
+    grouped = partial = 0
+    unique = set(spans)
+    require(len(unique) <= 2048, "Caption word span count exceeds its bound")
+    encoded = text.encode("utf-8")
+    for start, end in unique:
+        require(type(start) is int and type(end) is int and 0 <= start < end <= len(encoded) and
+                (start == 0 or encoded[start] & 0xC0 != 0x80) and (end == len(encoded) or encoded[end] & 0xC0 != 0x80),
+                "Caption word span splits its UTF-8 source")
+        intersected = [(begin, stop) for begin, stop in words if begin < end and start < stop]
+        whole = [word for word in intersected if start <= word[0] and end >= word[1]]
+        grouped += len(intersected) > 1
+        partial += len(whole) != len(intersected)
+        covered.update(whole)
+        if len(intersected) == len(whole) == 1:
+            individual.update(whole)
+    return {
+        "measurement_scope": "SOURCE_WORD_SPANS_ONLY", "timing_provenance": "SDK_ESTIMATED",
+        "acoustic_alignment": "NOT_MEASURED", "expected_words": len(words),
+        "covered_words": len(covered), "individually_timed_words": len(individual),
+        "grouped_word_spans": grouped, "partial_word_spans": partial, "provisional_word_spans": 0,
+        "complete": bool(words) and len(individual) == len(words) and grouped == partial == 0,
+    }
+
+
+def consume(task, text: str, np, *, incremental: bool = False, include_word_cues: bool = False,
+            require_complete_words: bool = False, voice_id=None, locale=None) -> dict:
     start = time.monotonic()
     first_pcm = None
     frames = 0
@@ -228,7 +304,8 @@ def consume(task, text: str, np, *, incremental: bool = False, include_word_cues
             for word in chunk.word_timestamps:
                 require(word.start_char in boundaries and word.end_char in boundaries and word.end_char > word.start_char, "SDK timestamp is not a valid full-input UTF-8 span")
                 require(math.isfinite(word.start_sec) and math.isfinite(word.end_sec) and 0 <= word.start_sec <= word.end_sec <= 30, "Invalid estimated word time")
-                words.setdefault((word.start_char, word.end_char), (word.start_sec, word.end_sec))
+                # Final SDK estimates can revise earlier chunks; retain the latest observation.
+                words[(word.start_char, word.end_char)] = (word.start_sec, word.end_sec)
             require(len(words) <= 2048, "Word timestamp limit exceeded")
             final_seen = chunk.is_final
     require(frames >= SAMPLE_RATE // 5 and nonzero > 0 and first_pcm is not None, "No audible PCM reached end-of-stream")
@@ -240,6 +317,9 @@ def consume(task, text: str, np, *, incremental: bool = False, include_word_cues
     # Python's released wrapper rounds seconds to four decimal places (up to 2.4 frames).
     require(all(end * SAMPLE_RATE <= frames + 3 for _, end in words.values()), "Estimated word time exceeds the complete waveform")
     ordered = [value for _, value in sorted(words.items())]
+    coverage = caption_word_coverage(text, words)
+    if require_complete_words:
+        require(coverage["complete"], f"Every lexical source word needs its own SDK cue: {coverage}")
     overlaps = sum(start < previous_end for (_, previous_end), (start, _) in zip(ordered, ordered[1:]))
     ties = sum(start == end for start, end in ordered)
     return {
@@ -256,9 +336,21 @@ def consume(task, text: str, np, *, incremental: bool = False, include_word_cues
         "input_mode": "incremental" if incremental else "single_input",
         "input_utf8_bytes": len(text.encode("utf-8")),
         "input_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        "full_input_cues_observed": bool(incremental),
+        "full_input_cues_observed": coverage["complete"],
+        "caption_word_coverage": coverage,
         **input_evidence,
     }
+
+
+def consume_selectable_voices(task, model: dict, np) -> list[dict]:
+    """PCM readiness for each advertised voice; no acoustic pronunciation verdict."""
+    results = []
+    for voice in model["required_voices"]:
+        locale, text = VOICE_PROBES.get(voice, ("en", FIXTURE))
+        stream = consume(task, text, np, voice_id=voice, locale=locale, include_word_cues=True)
+        require(stream["word_cues"], "Selectable voice produced no source word cues")
+        results.append({"voice_id": voice, "locale": locale, "stream": stream})
+    return results
 
 
 def cancellation_probe(task, after_first_chunk: bool, *, incremental: bool = False) -> dict:
@@ -374,14 +466,16 @@ def worker(args, model: dict, model_file: Path, base: dict) -> int:
                 french_reference = reference["french"]
                 require(french_reference["voice_id"] == "ff_siwis" and french_reference["locale"] == "fr", "French reference voice differs")
                 corpus_result["french"]["cpu_reference"] = compare_corpus(french_reference["stream"], french)
-        initial = consume(task, FIXTURE, np)
+        if args.engine in ("phonon", "pocket", "pocket-multilingual"):
+            corpus_result["selectable_voice_streams"] = consume_selectable_voices(task, model, np)
+        initial = consume(task, FIXTURE, np, require_complete_words=True)
         before = cancellation_probe(task, False)
         after = cancellation_probe(task, True)
-        recovered = consume(task, FIXTURE, np)
-        incremental = consume(task, FIXTURE, np, incremental=True)
+        recovered = consume(task, FIXTURE, np, require_complete_words=True)
+        incremental = consume(task, FIXTURE, np, incremental=True, require_complete_words=True)
         incremental_before = cancellation_probe(task, False, incremental=True)
         incremental_after = cancellation_probe(task, True, incremental=True)
-        incremental_recovered = consume(task, FIXTURE, np, incremental=True)
+        incremental_recovered = consume(task, FIXTURE, np, incremental=True, require_complete_words=True)
     write_json(args.output, base | {"status": "passed", "host": host, **corpus_result, "requested_delegate": delegate.name, "speaking_rate": 1.0, "prepare_ms": opened_ms, "available_voice_ids": sorted(voices), "stream": initial, "cancellation": [before, after], "stream_after_cancellation": recovered, "incremental_stream": incremental, "incremental_cancellation": [incremental_before, incremental_after], "incremental_stream_after_cancellation": incremental_recovered})
     return 0
 

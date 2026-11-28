@@ -53,8 +53,10 @@ internal class GatewayVoicePhraseEngineFactory(
         } catch (error: Throwable) {
             runCatching { engine.close() }
             if (error is CancellationException || error is Error) throw error
-            report("Gateway CUDA speech is unavailable. Check CUDA speech setup and the selected PC connection.")
-            throw IllegalStateException("Gateway CUDA speech is unavailable. Select CPU speech or check the selected PC.", error)
+            val message = GatewayVoiceCapabilityUnavailable.find(error)?.userMessage
+                ?: "Gateway CUDA speech is unavailable. Select CPU speech or check the selected PC."
+            report(message)
+            throw IllegalStateException(message, error)
         } finally {
             pending.compareAndSet(engine, null)
         }

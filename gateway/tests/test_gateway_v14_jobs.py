@@ -139,6 +139,71 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(first_updated_at, self.runtime.job_registry[job_id]['updated_at'])
         self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
 
+    def test_orphan_cancel_keeps_physical_worker_owned_until_it_settles(self):
+        from v14.conversations import admission_context
+        for ephemeral in (False, True):
+            with self.subTest(ephemeral=ephemeral):
+                release, started = threading.Event(), threading.Event()
+                dispatched = []
+                job_id = 'orphan-physical-worker-' + str(ephemeral)
+                payload = {'model': 'local', 'messages': [{'role': 'user', 'content': 'Hello'}]}
+                if ephemeral:
+                    payload['gateway'] = {'store_conversation': False}
+
+                def held_backend(body, cancel, progress, hard_cancel):
+                    dispatched.append(job_id)
+                    started.set()
+                    if not release.wait(10):
+                        raise AssertionError('The test did not release the physical worker')
+                    self.assertTrue(cancel.is_set())
+                    return 499, {'error': {'code': 'cancelled', 'message': 'Cancellation observed'}}
+
+                async def scenario():
+                    context = admission_context.set({'principal': 'local:single-user', 'command_id': job_id,
+                                                     'retention': 'none', 'payload': payload}) if ephemeral else None
+                    first = self.runtime.stream_chat_with_keepalive(payload, job_id, 'first-request')
+                    second = None
+                    workers = []
+                    try:
+                        await anext(first)
+                        self.assertTrue(await asyncio.to_thread(started.wait, 5))
+                        original = self.runtime.singleflight_workers[job_id]['task']
+                        workers.append(original)
+                        self.assertFalse(self.runtime.gateway_continue_disconnected(job_id))
+                        self.runtime.detach_singleflight_client(job_id)
+                        cancel = self.runtime.singleflight_workers[job_id]['cancel_event']
+                        await self.runtime.cancel_orphaned_singleflight_after_grace(job_id, original, cancel)
+                        await asyncio.sleep(0)
+                        self.assertTrue(cancel.is_set())
+                        self.assertFalse(release.is_set())
+                        second = self.runtime.stream_chat_with_keepalive(payload, job_id, 'reconnected-request', True)
+                        await anext(second)
+                        workers.append(self.runtime.singleflight_workers[job_id]['task'])
+                        self.assertIs(original, workers[-1], 'A reconnect replaced a physical worker that has not exited')
+                        self.assertFalse(original.done())
+                        self.assertIsNone(self.runtime.singleflight_workers[job_id]['finished_at'])
+                        release.set()
+                        self.assertEqual(499, (await asyncio.shield(original))[0])
+                        await asyncio.sleep(0)
+                        self.assertEqual([job_id], dispatched)
+                        self.assertEqual('cancelled', self.runtime.job_registry[job_id]['status'])
+                        self.assertIsNotNone(self.runtime.singleflight_workers[job_id]['finished_at'])
+                        with self.assertRaises(self.runtime.GatewayContractError):
+                            self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())
+                    finally:
+                        release.set()
+                        await asyncio.gather(*workers, return_exceptions=True)
+                        await first.aclose()
+                        if second is not None:
+                            await second.aclose()
+                        if context is not None:
+                            admission_context.reset(context)
+
+                with patch.object(self.runtime, 'GATEWAY_DURABLE_JOBS', ephemeral), \
+                        patch.object(self.runtime, 'process_chat_payload', side_effect=held_backend), \
+                        patch.object(self.runtime, 'SINGLEFLIGHT_ORPHAN_GRACE_SECONDS', 0):
+                    asyncio.run(scenario())
+
     def test_failed_disconnect_commit_remains_retryable_and_recovers_journal_health(self):
         job_id = 'durable-disconnect-commit-retry'
         soft, hard = threading.Event(), threading.Event()
@@ -367,6 +432,26 @@ class JournalTests(unittest.TestCase):
                     self.assertTrue(missing.json()['error']['request_id'])
                     self.assertEqual('not_dispatched', missing.json()['error']['dispatch_state'])
                     self.assertEqual([call['id']], missing.json()['error']['pending_client_tool_call_ids'])
+                    recovery = missing.json()['error']
+                    self.assertEqual(job_id, recovery['active_job_id'])
+                    self.assertEqual('generation', recovery['active_job_kind'])
+                    self.assertEqual('WAITING_FOR_CLIENT_TOOL', recovery['active_job_state'])
+                    self.assertEqual('return_client_tool_results', recovery['recovery_action'])
+                    self.assertEqual(['open_active_job', 'return_client_tool_results'], recovery['allowed_recovery_actions'])
+                    self.assertEqual('IDENTIFIED', recovery['pending_client_tool_state'])
+                    self.assertEqual(1, recovery['pending_client_tool_count'])
+                    self.assertEqual(1, recovery['client_tool_handoff_sequence'])
+                    self.assertRegex(recovery['pending_client_tool_ids_hash'], r'^[a-f0-9]{64}$')
+                    self.assertEqual('NO', recovery['remote_acceptance'])
+                    self.assertTrue(recovery['requires_reconciliation'])
+                    self.assertFalse(recovery['retryable'])
+                    self.assertFalse(recovery['retryable_without_new_input'])
+                    self.assertFalse(recovery['request_replay_allowed'])
+                    # This is an observed saved-job binding, not proof of a
+                    # new conversation admission or permission to replay tools.
+                    self.assertNotIn('active_job_provenance', recovery)
+                    self.assertNotIn('conversation_id', recovery)
+                    self.assertNotIn('arguments', json.dumps(recovery))
                     tool_result = {'role': 'tool', 'tool_call_id': call['id'],
                                    'content': '{"error":{"code":"NOT_FOUND","retryable":false}}' if restart else 'Two workflows found'}
                     changed_call = dict(call, function=dict(call['function'], arguments='{"action":"different"}'))
@@ -526,6 +611,23 @@ class JournalTests(unittest.TestCase):
                 self.assertEqual('not_dispatched', error['dispatch_state'])
             model.assert_not_called()
             self.assertFalse(self.runtime.job_registry)
+
+    def test_foreign_pending_job_never_discloses_handoff_recovery_evidence(self):
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
+            job_id = 'foreign-pending-job'
+            self.store.claim(job_id, 'another-device')
+            job = self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())
+            job.update(status='waiting_for_client_tool', pending_client_tool_call_ids=['private-client-call'],
+                       client_tool_handoff_sequence=3, principal_id='another-device')
+            response = client.post('/v1/chat/completions', headers={'X-Gateway-Job-ID': job_id},
+                                   json={'model': 'local', 'stream': False,
+                                         'messages': [{'role': 'user', 'content': 'Resume'}]})
+            self.assertEqual(404, response.status_code, response.text)
+            for private_value in ('private-client-call', 'pending_client_tool', 'client_tool_handoff_sequence',
+                                  'active_job_id', 'return_client_tool_results'):
+                self.assertNotIn(private_value, response.text)
+            self.assertEqual('waiting_for_client_tool', job['status'])
+            model.assert_not_called()
 
     def test_original_backend_template_failure_survives_stream_sqlite_restart_and_reconnect(self):
         from gateway_v13_runtime import backend_template_error

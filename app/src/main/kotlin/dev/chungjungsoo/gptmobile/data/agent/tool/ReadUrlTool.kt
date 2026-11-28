@@ -581,7 +581,7 @@ class ReadUrlTool(
         isError = true,
         errorCode = code,
         dispatched = dispatched,
-        executionReceipt = searchOperationReceipt(callId, "read_url", if (dispatched) "RETRIEVAL" else "PRECHECK", requestSent, false, code, status = status),
+        executionReceipt = searchOperationReceipt(callId, "read_url", if (dispatched) "RETRIEVAL" else "PRECHECK", requestSent, readUrlPrecheckRetryable(code), code, status = status),
         retainedContent = ToolResultContent.Json(
             dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
                 url = "",
@@ -718,6 +718,8 @@ internal object SpecialUseAddress {
 }
 
 private enum class RedirectRefusal { DOMAIN_SCOPE, HOP_LIMIT, LOCATION_MISSING, LOOP, LOCATION_INVALID }
+
+internal fun readUrlPrecheckRetryable(code: String?): Boolean = code in setOf("JAVA_HEAP_PRESSURE", "DNS_RECOVERY")
 
 private class ReadUrlException(message: String, val dispatched: Boolean = false, val httpStatus: Int? = null, val redirectRefusal: RedirectRefusal? = null) : Exception(message)
 

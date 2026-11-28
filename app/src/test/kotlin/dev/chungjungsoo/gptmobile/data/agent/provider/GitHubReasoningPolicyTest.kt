@@ -10,6 +10,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @Test fun claimFormattingUsesOnlyAdvertisedLightweightControlsAtEveryEngineeringLevel() {
+        val advertised = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.Limits(
+            context = 32768,
+            output = 8192,
+            reasoningControlAdvertised = true,
+            reasoningMandatory = false,
+            reasoningEfforts = setOf("high", "low", "none")
+        )
+        for (level in dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel.entries) {
+            val primary = RequestConstraints(
+                maxOutputTokens = 2048,
+                reasoningModeOverride = ReasoningMode.AUTO,
+                maximizeReasoning = true,
+                gitHubIntelligenceLevel = level,
+                gitHubEffort = dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM
+            )
+            val claims = primary.withoutTools().forRole("github-claim-extraction")
+            assertEquals("none", GitHubReasoningPolicy.visibleOutputEffort(claims, advertised))
+            assertEquals("low", GitHubReasoningPolicy.visibleOutputEffort(claims, advertised.copy(reasoningMandatory = true)))
+            assertNull(GitHubReasoningPolicy.visibleOutputEffort(claims, advertised.copy(reasoningEfforts = setOf("high"))))
+            assertNull(GitHubReasoningPolicy.visibleOutputEffort(claims.copy(reasoningModeOverride = ReasoningMode.ON), advertised))
+            assertEquals(2048, claims.outputLimit(8192))
+            assertFalse(claims.allowTools)
+            assertEquals(dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM, primary.gitHubEffort)
+            assertTrue(primary.maximizeReasoning)
+        }
+    }
+
     @Test fun automaticIntelligentRepairChangesEffortWithoutChangingPolicyOrOutputCeiling() {
         val role = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
         val original = RequestConstraints(
@@ -78,6 +106,10 @@ class GitHubReasoningPolicyTest {
             assertNull(GitHubReasoningPolicy.visibleOutputEffort(explicit.forRole("github-final-summary"), advertised))
         }
         assertNull(GitHubReasoningPolicy.visibleOutputEffort(repair.copy(gitHubEffort = dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM), advertised))
+        val claims = repair.forRole("github-claim-extraction")
+        assertEquals("none", GitHubReasoningPolicy.visibleOutputEffort(claims, advertised.copy(reasoningMandatory = false)))
+        assertEquals("low", GitHubReasoningPolicy.visibleOutputEffort(claims, advertised))
+        assertNull(GitHubReasoningPolicy.visibleOutputEffort(claims.copy(reasoningModeOverride = ReasoningMode.ON), advertised))
         assertEquals(4096, repair.maxOutputTokens)
     }
 

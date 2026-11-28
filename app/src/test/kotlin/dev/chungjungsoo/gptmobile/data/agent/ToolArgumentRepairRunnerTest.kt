@@ -24,6 +24,33 @@ class ToolArgumentRepairRunnerTest {
         }
     )
 
+    @Test fun explicitContinueRestoresTheSameConstraintBudgetInsideBoundNativeTools() = runBlocking {
+        val arguments = buildJsonObject { put("number", 1) }
+        val rejected = ToolArgumentRepairBudget().rejection("original", definition, arguments, ToolArgumentValidator.errors(arguments, definition.inputSchema))
+        val tool = ToolExecutionBudget(AgentRunLimits(githubTask = true)).bind(object : AgentTool {
+            override val definition = this@ToolArgumentRepairRunnerTest.definition
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Invalid arguments must never dispatch")
+        })
+        var rounds = 0
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (++rounds == 1) {
+                    emit(ProviderEvent.ToolCall("continued", definition.name, arguments))
+                } else {
+                    assertTrue(tools.isEmpty())
+                    emit(ProviderEvent.TextDelta("The read is still missing its declared selector; saved evidence is retained."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true, maxRounds = 5), recoveredArgumentRepairReceipts = listOf(requireNotNull(rejected.executionReceipt))).run(provider, listOf(tool)).toList()
+        val receipt = events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result
+        assertEquals(JsonPrimitive(2), receipt.executionReceipt?.get("argument_repair_attempt"))
+        assertEquals(JsonPrimitive(true), receipt.executionReceipt?.get("argument_repair_exhausted"))
+        assertFalse(receipt.dispatched)
+        assertEquals(2, rounds)
+    }
+
     @Test fun unchangedValidationFailuresFinishAfterOneCorrectionWithoutExecutingOrPoisoningOtherTurns() = runBlocking {
         val runner = AgentRunner(AgentRunLimits(githubTask = true, maxRounds = 12))
         val tool = object : AgentTool {

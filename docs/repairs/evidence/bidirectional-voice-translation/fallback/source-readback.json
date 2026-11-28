@@ -1,0 +1,10 @@
+{
+  "head": "06dfc0785c1e2f2eb0725c4b015f2903335316b2",
+  "checked_source_count": 42,
+  "fallback_source_mismatches": [],
+  "integrated103_source_mismatches": [],
+  "integrated103_manifest_sha256": "1d65390bfba2395db4622b4e5e71c15b595647e2d55ad78f813f7417022db56f",
+  "passed_test_count": 20,
+  "test_class": "VoicePluginAudioTest",
+  "screen_policy_assignments_reviewed": "VoiceChatScreen sets requireLocalOutput for applied translation output and clears it for ordinary speech. Screen API/source wiring is checked separately by its owner; no Compose execution is claimed."
+}

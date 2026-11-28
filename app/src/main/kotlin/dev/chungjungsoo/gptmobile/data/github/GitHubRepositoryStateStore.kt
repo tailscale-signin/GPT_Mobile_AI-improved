@@ -86,17 +86,16 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
     }
 
     /** Inventory checks share one dispatcher hop and lock; no source body is decoded. */
-    internal suspend fun presentKeys(scope: String, keys: Collection<String>): Set<String> = withContext(Dispatchers.IO) {
+    internal suspend fun presentKeys(scope: String, keys: Collection<String>, requireRetained: Boolean = false): Set<String> = withContext(Dispatchers.IO) {
         val active = kotlinx.coroutines.currentCoroutineContext()
         mutex.withLock {
             keys.filterTo(linkedSetOf()) { key ->
                 active.ensureActive()
                 val identity = "$scope:$key"
-                values.containsKey(identity) ||
-                    protectedValues.containsKey(identity) ||
-                    protectedFile(identity)?.isFile == true ||
-                    savedViewFile(identity, key)?.isFile == true ||
-                    sourceFile(identity, key)?.isFile == true ||
+                ((!requireRetained || directory == null) && (values.containsKey(identity) || protectedValues.containsKey(identity))) ||
+                    protectedFile(identity)?.let { it.isFile && (!requireRetained || it.length() in 1..MAX_PROTECTED_RECORD_BYTES.toLong()) } == true ||
+                    savedViewFile(identity, key)?.let { it.isFile && (!requireRetained || it.length() in 1..MAX_RECORD_BYTES.toLong()) } == true ||
+                    sourceFile(identity, key)?.let { it.isFile && (!requireRetained || it.length() in 1..MAX_RECORD_BYTES.toLong()) } == true ||
                     directory?.let { File(it, digest(identity) + ".record").let { file -> file.isFile && file.length() in 1..MAX_RECORD_BYTES.toLong() } } == true ||
                     claimCheckpoint(identity, key) != null
             }

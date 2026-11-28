@@ -40,12 +40,29 @@ data class ChatMcpToolConfig(
     @kotlinx.serialization.Transient val githubRecoveryExecutionAllowed: Boolean = false,
     @kotlinx.serialization.Transient val githubPatchReviewAllowed: Boolean = false
 ) {
+    fun withVoicePolicy(policy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy?): ChatMcpToolConfig =
+        if (policy?.translationOnly == true) {
+            ChatMcpToolConfig(
+                allowAllByDefault = false,
+                allToolsDisabled = true,
+                maxTools = 0,
+                maxToolCalls = 0,
+                reasoning = reasoning,
+                delegation = ConversationDelegationSettings(enabled = false),
+                research = MultiSearchResearchSelection(),
+                voiceResponsePolicy = policy
+            )
+        } else {
+            copy(voiceResponsePolicy = policy)
+        }
+
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =
         (delegation?.applyTo(defaults) ?: defaults.normalized()).let { research?.applyTo(it) ?: it }
             .let { DelegationPolicyResolver.suppressForCombined(it, combined) }
+            .let { if (voiceResponsePolicy?.translationOnly == true) it.copy(enabled = false, automaticResearch = false, researchEnabled = false, reviewerEnabled = false, processingOwnership = 100) else it }
 
     fun isToolEnabled(toolId: String): Boolean {
-        if (allToolsDisabled) return false
+        if (allToolsDisabled || voiceResponsePolicy?.translationOnly == true) return false
         return if (allowAllByDefault) {
             !disabledToolIds.contains(toolId)
         } else {
@@ -55,7 +72,8 @@ data class ChatMcpToolConfig(
 
     /** A connection, model alias or original tool name may identify the same tool. */
     fun isToolEnabled(candidateIds: Collection<String>): Boolean =
-        !allToolsDisabled &&
+        voiceResponsePolicy?.translationOnly != true &&
+            !allToolsDisabled &&
             candidateIds.none { it in disabledToolIds } &&
             (allowAllByDefault || candidateIds.any { it in enabledToolIds })
 
@@ -85,6 +103,7 @@ data class ChatMcpToolConfig(
      * If maxTools is configured (non-null), the list is truncated to at most maxTools items.
      */
     fun <T> limitTools(tools: List<T>): List<T> {
+        if (voiceResponsePolicy?.translationOnly == true) return emptyList()
         val limit = maxTools ?: return tools
         return tools.take(limit)
     }

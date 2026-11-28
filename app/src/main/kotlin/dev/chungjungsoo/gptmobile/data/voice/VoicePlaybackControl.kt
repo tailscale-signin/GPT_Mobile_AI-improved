@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 /** A fixed benchmark offset never reads or changes the user's saved route calibration. */
 internal class VoiceCaptionCalibration {
     @Volatile private var fixedOffsetMs: Int? = null
+    val usesSavedRoutes: Boolean get() = fixedOffsetMs == null
 
     fun fixed(milliseconds: Int) {
         fixedOffsetMs = milliseconds.coerceIn(-500, 500)

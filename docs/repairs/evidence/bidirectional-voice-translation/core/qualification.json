@@ -1,0 +1,20 @@
+{
+  "compile_exit": 0,
+  "junit_exit": 0,
+  "test_classes": [
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceContinuousListeningTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPairTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPlaybackPolicyTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlaybackTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationSourceTest"
+  ],
+  "passed_test_count": 103,
+  "assertions_enabled": true,
+  "manifest": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/manifest.json",
+  "full_android_qualification": false,
+  "device_audio_qualification": false
+}

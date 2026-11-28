@@ -13,20 +13,32 @@ internal class VoiceButtonFeedback(context: Context) {
         .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
         .build()
     private val loaded = mutableSetOf<Int>()
+    private val loadResults = mutableMapOf<Int, Boolean>()
+    private val startReadiness = VoiceMicrophoneCueReadiness()
     private var closed = false
-    private val start: Int
+    private var start = 0
     private val stop: Int
     private val click: Int
 
     init {
         pool.setOnLoadCompleteListener { _, sample, status ->
-            if (status == 0) synchronized(this) { loaded.add(sample) }
+            synchronized(this) {
+                if (!closed) {
+                    loadResults[sample] = status == 0
+                    if (status == 0) loaded.add(sample)
+                    if (sample == start) startReadiness.loaded(status == 0)
+                }
+            }
         }
         start = pool.load(context, R.raw.voice_mic_start, 1)
+        synchronized(this) {
+            if (start == 0) startReadiness.loaded(false) else loadResults[start]?.let(startReadiness::loaded)
+        }
         stop = pool.load(context, R.raw.voice_mic_stop, 1)
         click = pool.load(context, R.raw.voice_button_click, 1)
     }
 
+    suspend fun prepareStart(): Boolean = startReadiness.prepare()
     fun start(): Boolean = play(start)
     fun stop() {
         play(stop)
@@ -46,6 +58,7 @@ internal class VoiceButtonFeedback(context: Context) {
     fun close() {
         if (closed) return
         closed = true
+        startReadiness.loaded(false)
         pool.release()
     }
 }

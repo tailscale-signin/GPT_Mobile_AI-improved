@@ -47,8 +47,12 @@ internal class MoonshineVoiceRecognizer internal constructor(
     private val schedule: (Long, () -> Unit) -> (() -> Unit),
     private val decoderFactory: () -> LocalSpeechDecoder,
     private val captureFactory: () -> LocalVoiceCapture,
-    private val worker: ExecutorService
-) : VoiceRecognitionInput,
+    private val worker: ExecutorService,
+    private val supportsLanguage: (String) -> Boolean = LocalVoiceModelStore::supportsLanguage,
+    private val modelName: String = LocalVoiceModelStore.MODEL_NAME,
+    private val observeExecution: (Map<String, String>) -> Unit = {},
+    private val retirement: VoiceRecognitionRetirement = VoiceRecognitionRetirement()
+) : LocalVoiceRecognitionInput,
     VoiceInterruptionInput {
     constructor(context: Context, modelStore: LocalVoiceModelStore) : this(
         modelsReady = modelStore::acquireUse,
@@ -64,7 +68,32 @@ internal class MoonshineVoiceRecognizer internal constructor(
         },
         decoderFactory = ::MoonshineStreamDecoder,
         captureFactory = { AndroidVoiceCapture(context.applicationContext) },
-        worker = Executors.newSingleThreadExecutor { task -> Thread(task, "LocalVoiceDecoder").apply { isDaemon = true } }
+        worker = Executors.newSingleThreadExecutor { task -> Thread(task, "LocalVoiceDecoder").apply { isDaemon = true } },
+        retirement = VoiceRecognitionRetirement.process
+    ) {
+        observeMemoryPressure(context.applicationContext)
+        interruptionMonitor = VoiceInterruptionMonitor(context.applicationContext)
+    }
+
+    constructor(context: Context, modelStore: RecognitionModelStore, observeExecution: (Map<String, String>) -> Unit = {}, decoderFactory: () -> LocalSpeechDecoder) : this(
+        modelsReady = modelStore::acquireUse,
+        modelDirectory = modelStore::modelDirectory,
+        releaseModel = modelStore::releaseUse,
+        hasPermission = { ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED },
+        post = { action -> main.post { action() } },
+        schedule = { delay, action ->
+            val task = Runnable { action() }
+            main.postDelayed(task, delay)
+            val cancel: () -> Unit = { main.removeCallbacks(task) }
+            cancel
+        },
+        decoderFactory = decoderFactory,
+        captureFactory = { AndroidVoiceCapture(context.applicationContext) },
+        worker = Executors.newSingleThreadExecutor { task -> Thread(task, "LocalVoiceDecoder").apply { isDaemon = true } },
+        supportsLanguage = modelStore.model::supportsLanguage,
+        modelName = modelStore.model.title,
+        observeExecution = observeExecution,
+        retirement = VoiceRecognitionRetirement.process
     ) {
         observeMemoryPressure(context.applicationContext)
         interruptionMonitor = VoiceInterruptionMonitor(context.applicationContext)
@@ -75,7 +104,14 @@ internal class MoonshineVoiceRecognizer internal constructor(
     @Volatile private var active: CaptureRun? = null
     private var retainedDecoder: LocalSpeechDecoder? = null
     private var retainedStyle: VoiceListeningStyle? = null
+
+    @Volatile private var retirementFailure: Throwable? = null
     private val modelEpoch = AtomicLong()
+    private val prewarmQueued = AtomicBoolean()
+    private val pendingCaptureReleases = AtomicInteger()
+    val retirementUnconfirmed: Boolean get() = retirementFailure != null
+    val isRetired: Boolean get() = closed && worker.isTerminated && retirementFailure == null && retainedDecoder == null
+    fun awaitClosed(timeoutMs: Long): Boolean = closed && worker.awaitTermination(timeoutMs.coerceAtLeast(0), TimeUnit.MILLISECONDS) && isRetired
     private var memoryContext: Context? = null
     private var memoryCallbacks: ComponentCallbacks2? = null
     private var interruptionMonitor: VoiceInterruptionMonitor? = null
@@ -84,14 +120,14 @@ internal class MoonshineVoiceRecognizer internal constructor(
     override val interruptionState: StateFlow<VoiceInterruptionStatus>
         get() = interruptionMonitor?.state ?: unavailableInterruption
 
-    @Volatile var listeningStyle: VoiceListeningStyle = VoiceListeningStyle.NATURAL
+    @Volatile override var listeningStyle: VoiceListeningStyle = VoiceListeningStyle.NATURAL
         set(value) {
             if (field == value) return
             field = value
             releaseWarmModel()
         }
 
-    @Volatile var captureBatchMs: Int = 40
+    @Volatile override var captureBatchMs: Int = 40
         set(value) {
             require(value in setOf(20, 40, 80, 100))
             field = value
@@ -102,9 +138,21 @@ internal class MoonshineVoiceRecognizer internal constructor(
     }
     override var languageTag: String = Locale.getDefault().toLanguageTag()
         set(value) {
-            if (field != value) stop()
+            if (field != value) {
+                stop()
+                releaseWarmModel()
+            }
             field = value
         }
+
+    @Volatile private var vocabulary: List<String> = emptyList()
+    override fun configureVocabulary(words: List<String>) {
+        val cleaned = words.map(String::trim).filter { it.isNotEmpty() && it.length <= 100 && it.none(Char::isISOControl) }.distinct().take(128)
+        if (cleaned == vocabulary) return
+        stop()
+        vocabulary = cleaned
+        releaseWarmModel()
+    }
 
     private data class RecognitionFailure(val code: String, val message: String, val cause: Throwable? = null) {
         val priority: Int get() = when (code) {
@@ -122,7 +170,9 @@ internal class MoonshineVoiceRecognizer internal constructor(
         val style: VoiceListeningStyle,
         val batchMs: Int,
         val modelEpoch: Long,
-        val preRoll: List<VoicePreRoll>
+        val preRoll: List<VoicePreRoll>,
+        val languageTag: String,
+        val vocabulary: List<String>
     ) {
         val lease = "local-voice:${UUID.randomUUID()}"
         val startedNanos = System.nanoTime()
@@ -145,11 +195,16 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
         @Volatile var captureThread: Thread? = null
 
+        @Volatile var decoder: LocalSpeechDecoder? = null
+
         @Volatile var cancelSilenceDeadline: (() -> Unit)? = null
 
         @Volatile var cancelTurnDeadline: (() -> Unit)? = null
 
         @Volatile var transcript = ""
+
+        @Volatile var timedTranscript: VoiceRecognitionTranscript? = null
+        var revisions: VoiceRecognitionRevisions? = null
 
         fun offerAudio(chunk: CapturedAudio): Boolean {
             if (!audio.offer(chunk)) return false
@@ -167,15 +222,21 @@ internal class MoonshineVoiceRecognizer internal constructor(
         }
     }
 
-    override fun listen(listener: VoiceAudio.Listener) {
+    override fun listen(listener: VoiceAudio.Listener) =
+        listenWithFeedback(listener, if (manualFeedback.getAndSet(false)) onManualCaptureReady else null)
+
+    override fun listenWithFeedback(listener: VoiceAudio.Listener, feedback: (() -> Boolean)?) {
         if (closed) return
-        val feedback = if (manualFeedback.getAndSet(false)) onManualCaptureReady else null
+        if (retirementFailure != null || retirement.blocked) {
+            listener.failure("Local speech could not confirm that its previous native model was released. Restart the app before changing or removing this model.", "VOICE_RECOGNIZER_RETIREMENT_UNCONFIRMED", recoveryAction = VoiceRecoveryAction.LOCAL_MODEL)
+            return
+        }
         val diagnostics = diagnosticProbe
         diagnostics?.captureRequested()
         diagnostics?.engine(VoiceDiagnosticTrace.Engine.LOCAL)
-        if (!LocalVoiceModelStore.supportsLanguage(languageTag)) {
+        if (!supportsLanguage(languageTag)) {
             listener.failure(
-                "The installed local speech model supports English. Choose your region in Voice settings.",
+                "$modelName does not support the selected recognition language. Choose a compatible model or language in Voice settings.",
                 "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE",
                 recoveryAction = VoiceRecoveryAction.LOCAL_MODEL
             )
@@ -191,18 +252,21 @@ internal class MoonshineVoiceRecognizer internal constructor(
         val preRoll = pendingPreRoll.getAndSet(emptyList()).takeIf { samples ->
             samples.lastOrNull()?.let { elapsedMillis(it.capturedNanos) < 2000 } == true
         }.orEmpty()
-        val run = CaptureRun(listener, diagnostics, feedback, listeningStyle, captureBatchMs, modelEpoch.get(), preRoll)
+        val run = CaptureRun(listener, diagnostics, feedback, listeningStyle, captureBatchMs, modelEpoch.get(), preRoll, languageTag, vocabulary)
         if (!VoiceMicrophoneLease.acquire(run.lease)) {
             listener.failure("The previous voice session is releasing the microphone. Try again shortly.", "VOICE_MICROPHONE_BUSY", retryMillis = 500, retryable = true)
             return
         }
+        pendingCaptureReleases.incrementAndGet()
         active = run
+        observeExecution(emptyMap())
         engineEvent(run, "queued")
         try {
             worker.execute { recognize(run) }
         } catch (failure: java.util.concurrent.RejectedExecutionException) {
             active = null
             VoiceMicrophoneLease.release(run.lease)
+            pendingCaptureReleases.decrementAndGet()
             listener.failure("Local speech has closed. Reopen Voice to continue.", "VOICE_RECOGNIZER_UNAVAILABLE", cause = failure)
         }
     }
@@ -235,6 +299,12 @@ internal class MoonshineVoiceRecognizer internal constructor(
         var modelAcquired = false
         try {
             if (run.cancelled.get() || run.ending.get()) return
+            if (retirementFailure != null || retirement.blocked) {
+                throw VoiceRecognitionRuntimeException(
+                    "ASR_RETIREMENT_UNCONFIRMED",
+                    "Local speech could not confirm that its previous native model was released. Restart the app before changing or removing this model."
+                )
+            }
             val verificationStarted = System.nanoTime()
             val ready = modelsReady()
             run.diagnostics?.preparation("VERIFICATION", elapsedMillis(verificationStarted))
@@ -249,14 +319,17 @@ internal class MoonshineVoiceRecognizer internal constructor(
             if (retainedStyle != run.style) releaseRetainedDecoder()
             val warm = retainedDecoder != null
             decoder = retainedDecoder ?: decoderFactory()
+            run.decoder = decoder
             // A retained decoder already owns an installation lease; this acquisition
             // validates the unchanged generation and is released after this turn.
             if (!warm) engineEvent(run, "decoder_create")
             decoder.configure(run.style)
+            decoder.configureRecognition(run.languageTag, run.vocabulary)
             engineEvent(run, "model_load_start", mapOf("warm" to warm))
             val loadStarted = System.nanoTime()
             run.diagnostics?.warmupStarted()
-            decoder.start(modelDirectory()) { event ->
+            decoder.start(modelDirectory()) captureEvent@{ supplied ->
+                val event = admitEvent(run, supplied) ?: return@captureEvent
                 if (!run.cancelled.get()) {
                     when (event) {
                         LocalSpeechEvent.Speech -> {
@@ -264,13 +337,31 @@ internal class MoonshineVoiceRecognizer internal constructor(
                             run.cancelSilenceDeadline?.invoke()
                         }
                         is LocalSpeechEvent.Partial -> {
-                            run.transcript = event.text.take(8000)
+                            run.timedTranscript = event.transcript?.takeIf { it.text == event.text }?.trimmed()
+                            run.transcript = run.timedTranscript?.text ?: event.text.take(8000)
                             if (run.partialDetected.compareAndSet(false, true)) engineEvent(run, "first_partial")
-                            deliver(run) { run.listener.partial(event.text.take(8000)) }
+                            val observed = run.timedTranscript
+                            deliver(run) {
+                                if (observed == null) run.listener.partial(event.text.take(8000)) else run.listener.partialTranscript(observed)
+                            }
                         }
                         is LocalSpeechEvent.Final -> {
-                            run.transcript = event.text.take(8000)
-                            engineEvent(run, "final_transcript")
+                            val finalized = event.text.take(8000)
+                            // Some native decoders emit a blank final flush after useful partials.
+                            // Preserve the last recognized text rather than converting speech into VOICE_NO_SPEECH.
+                            if (finalized.isNotBlank()) {
+                                run.timedTranscript = event.transcript?.takeIf { it.text == event.text }?.trimmed()
+                                run.transcript = run.timedTranscript?.text ?: finalized
+                            }
+                            engineEvent(
+                                run,
+                                "final_transcript",
+                                mapOf(
+                                    "finalTranscriptChars" to finalized.length,
+                                    "retainedTranscriptChars" to run.transcript.length,
+                                    "emptyFinalPreservedPartial" to (finalized.isBlank() && run.transcript.isNotBlank())
+                                )
+                            )
                             requestEnd(run)
                         }
                         is LocalSpeechEvent.SpeechEnd -> {
@@ -316,6 +407,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 }
                 engineEvent(run, "decoder_finish_start")
                 decoder.finish()
+                observeExecution(decoder.executionEvidence().toMap())
                 engineEvent(run, "decoder_finish_complete")
                 // Only finalized text may start the AI request. Microphone ownership
                 // ends first; native stream cleanup remains serialized behind this gate.
@@ -324,7 +416,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                     run.finalQueued.set(true)
                     deliver(run) {
                         active = null
-                        run.listener.final(run.transcript)
+                        deliverFinal(run)
                     }
                 }
             }
@@ -337,11 +429,16 @@ internal class MoonshineVoiceRecognizer internal constructor(
         } catch (failure: Exception) {
             recordFailure(
                 run,
-                if (failure is LocalVoiceCaptureException) "MICROPHONE_CAPTURE_FAILED" else "LOCAL_DECODER_FAILED",
-                failure.message?.takeIf { failure is LocalVoiceCaptureException } ?: "Local speech stopped unexpectedly. Your captured text is retained; tap to try again.",
+                when (failure) {
+                    is LocalVoiceCaptureException -> "MICROPHONE_CAPTURE_FAILED"
+                    is VoiceRecognitionRuntimeException -> failure.code
+                    else -> "LOCAL_DECODER_FAILED"
+                },
+                failure.message?.takeIf { failure is LocalVoiceCaptureException || failure is VoiceRecognitionRuntimeException } ?: "Local speech stopped unexpectedly. Your captured text is retained; tap to try again.",
                 failure
             )
         } finally {
+            run.decoder = null
             run.ending.set(true)
             run.captureEnding.countDown()
             run.capture?.stop()
@@ -364,9 +461,15 @@ internal class MoonshineVoiceRecognizer internal constructor(
                     if (retainedDecoder === decoder) releaseRetainedDecoder() else decoder.close()
                     engineEvent(run, "decoder_close_complete")
                 }
-            } catch (failure: Exception) {
+            } catch (failure: Throwable) {
                 recordFailure(run, "DECODER_CLOSE_FAILED", "Local speech could not finish releasing its model. Reopen Voice or select the Android speech service.", failure)
-                if (retainedDecoder === decoder) runCatching { releaseRetainedDecoder() } else runCatching { decoder?.close() }
+                retirementFailure = failure
+                retirement.block()
+                if (retainedDecoder !== decoder && modelAcquired) {
+                    retainedDecoder = decoder
+                    retainedStyle = run.style
+                    modelAcquired = false // Native retirement is unconfirmed; keep its installation pinned.
+                }
             }
             if (modelAcquired) releaseModel()
             if (run.failure.get() != null) engineEvent(run, "failure")
@@ -376,11 +479,12 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 queued.recycle(queued.samples)
             }
             VoiceMicrophoneLease.release(run.lease)
+            pendingCaptureReleases.decrementAndGet()
             if (!run.finalQueued.get()) {
                 deliver(run) {
                     active = null
                     when {
-                        missingModel -> run.listener.failure("Install the English local speech model in Voice settings to use offline voice chat.", "VOICE_MODEL_REQUIRED", recoveryAction = VoiceRecoveryAction.LOCAL_MODEL)
+                        missingModel -> run.listener.failure("Install $modelName in Voice settings to use this offline recognizer.", "VOICE_MODEL_REQUIRED", recoveryAction = VoiceRecoveryAction.LOCAL_MODEL)
                         run.failure.get() != null -> {
                             if (run.failure.get()?.code == "MICROPHONE_CAPTURE_SILENCED" && run.transcript.isNotBlank()) {
                                 run.listener.partial(run.transcript)
@@ -388,11 +492,38 @@ internal class MoonshineVoiceRecognizer internal constructor(
                             deliverFailure(run)
                         }
                         run.transcript.isBlank() -> run.listener.failure("No speech was detected. Tap the microphone and try again.", "VOICE_NO_SPEECH", retryMillis = 500, retryable = true)
-                        else -> run.listener.final(run.transcript)
+                        else -> deliverFinal(run)
                     }
                 }
             }
         }
+    }
+
+    /** Admission precedes retained-text mutation; rejected callbacks cannot become a later final. */
+    private fun admitEvent(run: CaptureRun, event: LocalSpeechEvent): LocalSpeechEvent? {
+        val supplied = when (event) {
+            is LocalSpeechEvent.Partial -> event.transcript
+            is LocalSpeechEvent.Final -> event.transcript
+            else -> return event
+        } ?: return event
+        if (event is LocalSpeechEvent.Partial && supplied.isFinal) return null
+        val text = when (event) {
+            is LocalSpeechEvent.Partial -> event.text
+            is LocalSpeechEvent.Final -> event.text
+            else -> return event
+        }
+        val ledger = run.revisions ?: VoiceRecognitionRevisions(supplied.streamId).also { run.revisions = it }
+        val admitted = ledger.accept(supplied.withText(text.take(8000)).trimmed()) ?: return null
+        return when (event) {
+            is LocalSpeechEvent.Partial -> event.copy(text = admitted.text, transcript = admitted)
+            is LocalSpeechEvent.Final -> event.copy(text = admitted.text, transcript = admitted)
+            else -> event
+        }
+    }
+
+    private fun deliverFinal(run: CaptureRun) {
+        val timed = run.timedTranscript?.takeIf { it.text == run.transcript }
+        if (timed == null) run.listener.final(run.transcript) else run.listener.finalTranscript(timed.copy(isFinal = true, revision = timed.revision + 1))
     }
 
     private fun acceptAudio(run: CaptureRun, decoder: LocalSpeechDecoder, chunk: CapturedAudio) {
@@ -400,6 +531,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         run.diagnostics?.captureQueue(elapsedMillis(chunk.capturedNanos))
         try {
             decoder.accept(chunk.samples)
+            observeExecution(decoder.executionEvidence().toMap())
             run.acceptedChunks.incrementAndGet()
         } finally {
             chunk.recycle(chunk.samples)
@@ -419,7 +551,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         val repair = when (failureCode) {
             "MICROPHONE_PERMISSION_CHANGED" -> VoiceRecoveryAction.MICROPHONE_PERMISSION
             "NATIVE_RUNTIME_LINKAGE", "NATIVE_MEMORY_PRESSURE" -> VoiceRecoveryAction.LOCAL_MODEL
-            else -> null
+            else -> if (failure.cause is VoiceRecognitionRuntimeException) VoiceRecoveryAction.LOCAL_MODEL else null
         }
         val code = when (failureCode) {
             "MICROPHONE_PERMISSION_CHANGED" -> "VOICE_MICROPHONE_PERMISSION_REQUIRED"
@@ -450,7 +582,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         val durationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - run.startedNanos)
         val failure = run.failure.get()
         val fields = mapOf(
-            "stage" to stage, "nativeOperationId" to run.lease, "engineId" to run.lease,
+            "stage" to stage, "nativeOperationId" to run.lease, "engineId" to run.lease, "recognitionModel" to modelName,
             "incidentId" to run.lease, "durationMs" to durationMillis, "cancelled" to run.cancelled.get(),
             "ending" to run.ending.get(), "acceptedChunks" to run.acceptedChunks.get(),
             "capturedChunks" to run.capturedChunks.get(), "captureAttempts" to run.captureAttempts.get(),
@@ -461,10 +593,10 @@ internal class MoonshineVoiceRecognizer internal constructor(
             // Persist before entering the native call; a SIGABRT cannot drain the async queue.
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint(
                 "VoiceEngine",
-                dev.chungjungsoo.gptmobile.data.diagnostics.structuredDiagnosticEventMessage("moonshine_$stage", fields)
+                dev.chungjungsoo.gptmobile.data.diagnostics.structuredDiagnosticEventMessage("recognition_$stage", fields)
             )
         } else {
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent("VoiceEngine", "moonshine_$stage", fields)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent("VoiceEngine", "recognition_$stage", fields)
         }
     }
 
@@ -606,33 +738,103 @@ internal class MoonshineVoiceRecognizer internal constructor(
         run.captureEnding.countDown()
         run.audioOrEnd.release()
         active = null
+        runCatching { run.decoder?.cancel() }
         run.capture?.stop()
         run.cancelSilenceDeadline?.invoke()
         run.cancelTurnDeadline?.invoke()
         // The lease remains held until the worker finishes native cleanup; no overlapping mic starts.
     }
 
-    fun finishListening() {
+    override fun stopCapture(released: (Boolean) -> Unit) {
+        stop()
+        // stop() is only a cancellation request. Keep the next backend out until
+        // the recording thread and native worker have actually returned its lease.
+        // A stalled worker produces an explicit failure after eight seconds.
+        fun check(remainingChecks: Int) {
+            when {
+                pendingCaptureReleases.get() == 0 -> released(true)
+                remainingChecks == 0 -> released(false)
+                else -> schedule(100) { check(remainingChecks - 1) }
+            }
+        }
+        check(80)
+    }
+
+    override fun finishListening() {
         val run = active ?: return
         if (!run.cancelled.get()) requestEnd(run)
     }
 
-    fun releaseWarmModel(completed: (() -> Unit)? = null) {
+    override fun releaseWarmModel(completed: (() -> Unit)?) {
         modelEpoch.incrementAndGet()
         try {
             if (!worker.isShutdown) {
                 worker.execute {
-                    try {
-                        VoiceNativeEngineGate.exclusive { releaseRetainedDecoder() }
-                    } finally {
-                        completed?.let { post(it) }
-                    }
+                    val released = runCatching { VoiceNativeEngineGate.exclusive { releaseRetainedDecoder() } }.isSuccess
+                    if (released && retirementFailure == null && !retirement.blocked) completed?.let { post(it) }
                 }
-            } else if (worker.isTerminated) {
+            } else if (worker.isTerminated && retirementFailure == null && retainedDecoder == null && !retirement.blocked) {
                 completed?.let { post(it) }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // A concurrent close already schedules release before shutting the worker.
+        }
+    }
+
+    /** Loads a verified model without requesting microphone access or retaining captured audio. */
+    override fun prewarm() {
+        if (closed || active != null || retirementFailure != null || retirement.blocked || !supportsLanguage(languageTag) || !prewarmQueued.compareAndSet(false, true)) return
+        val epoch = modelEpoch.get()
+        val style = listeningStyle
+        val language = languageTag
+        val words = vocabulary
+        try {
+            worker.execute {
+                try {
+                    VoiceNativeEngineGate.exclusive {
+                        if (closed || active != null || retirementFailure != null || retirement.blocked || epoch != modelEpoch.get() || retainedDecoder != null || !modelsReady()) return@exclusive
+                        var prepared: LocalSpeechDecoder? = null
+                        var transferred = false
+                        try {
+                            prepared = decoderFactory()
+                            prepared.configure(style)
+                            prepared.configureRecognition(language, words)
+                            prepared.start(modelDirectory()) {}
+                            prepared.releaseStream()
+                            if (prepared.supportsReuse && !closed && epoch == modelEpoch.get()) {
+                                retainedDecoder = prepared
+                                retainedStyle = style
+                                transferred = true
+                            }
+                        } finally {
+                            if (!transferred) {
+                                try {
+                                    prepared?.close()
+                                    releaseModel()
+                                } catch (failure: Throwable) {
+                                    retainedDecoder = prepared
+                                    retainedStyle = style
+                                    retirementFailure = failure
+                                    retirement.block()
+                                    // The native call may have only partially retired. Do not retry
+                                    // destruction or permit its mapped files to be removed.
+                                    throw failure
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Listen owns the actionable error; speculative warmup never marks a route qualified.
+                } catch (_: LinkageError) {
+                    // Unsupported native binaries are reported by the explicitly requested capture.
+                } catch (_: OutOfMemoryError) {
+                    // No background warmup failure may take down an otherwise usable chat.
+                } finally {
+                    prewarmQueued.set(false)
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            prewarmQueued.set(false)
         }
     }
 
@@ -655,14 +857,18 @@ internal class MoonshineVoiceRecognizer internal constructor(
     }
 
     private fun releaseRetainedDecoder() {
+        retirementFailure?.let { throw IllegalStateException("Native model retirement is unconfirmed; restart the app before replacing it.", it) }
         val previous = retainedDecoder ?: return
-        retainedDecoder = null
-        retainedStyle = null
         try {
             previous.close()
-        } finally {
-            releaseModel()
+        } catch (failure: Throwable) {
+            retirementFailure = failure
+            retirement.block()
+            throw failure
         }
+        retainedDecoder = null
+        retainedStyle = null
+        releaseModel()
     }
 
     private fun observeMemoryPressure(context: Context) {
@@ -699,19 +905,25 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
 internal sealed interface LocalSpeechEvent {
     data object Speech : LocalSpeechEvent
-    data class Partial(val text: String) : LocalSpeechEvent
-    data class Final(val text: String) : LocalSpeechEvent
+    data class Partial(val text: String, val transcript: VoiceRecognitionTranscript? = null) : LocalSpeechEvent
+    data class Final(val text: String, val transcript: VoiceRecognitionTranscript? = null) : LocalSpeechEvent
     data class SpeechEnd(val elapsedAgoMs: Long) : LocalSpeechEvent
     data class Failure(val code: String) : LocalSpeechEvent
 }
 
 internal interface LocalSpeechDecoder {
     val supportsReuse: Boolean get() = false
+    val runtimeEvidence: String? get() = null
+    fun executionEvidence(): Map<String, String> = emptyMap()
     fun configure(style: VoiceListeningStyle) = Unit
+    fun configureRecognition(languageTag: String, vocabulary: List<String>) = Unit
     fun releaseStream() = Unit
     fun start(directory: File, events: (LocalSpeechEvent) -> Unit)
     fun accept(samples: FloatArray)
     fun finish()
+
+    /** May request interruption from another thread; destruction still belongs to the worker. */
+    fun cancel() = Unit
     fun close()
 }
 
@@ -756,6 +968,7 @@ internal class AndroidVoiceCapture(
     override fun recycle(samples: FloatArray) = pool.release(samples)
     private var filled = 0
     private var capturedSamples = 0L
+    private var waitedForInputRoute = false
 
     @Volatile private var stopped = false
 
@@ -836,14 +1049,14 @@ internal class AndroidVoiceCapture(
         }
         if (stopped) return@synchronized
         if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw captureFailure(record, "MICROPHONE_NOT_RECORDING", "capture_start", "The microphone did not start recording. Check microphone access.", retryable = true)
-        requireCaptureNotSilenced(record, "capture_start")
+        requireCaptureNotSilenced(record, "capture_start", beforeRead = true)
     }
 
     override fun read(): FloatArray {
         if (focusLost) throw focusLostFailure()
         if (stopped) return FloatArray(0)
         val record = synchronized(lock) { recorder } ?: return FloatArray(0)
-        requireCaptureNotSilenced(record, "capture_read")
+        requireCaptureNotSilenced(record, "capture_read", beforeRead = true)
         if (stopped) return FloatArray(0)
         val count = record.read(buffer, filled, buffer.size - filled, AudioRecord.READ_NON_BLOCKING)
         val observedCount = count.coerceIn(0, buffer.size - filled)
@@ -879,11 +1092,30 @@ internal class AndroidVoiceCapture(
         return FloatArray(count) { index -> buffer[index] / 32768f }
     }
 
-    private fun requireCaptureNotSilenced(record: AudioRecord, phase: String) {
+    private fun requireCaptureNotSilenced(record: AudioRecord, phase: String, beforeRead: Boolean = false) {
         // A missing configuration is unknown, not evidence of permission or silencing.
         val silenced = record.activeRecordingConfiguration?.isClientSilenced
         if (!stopped && silenced != null) diagnosticProbe?.inputSilenced(silenced)
         if (silenced != true || stopped) return
+        // Android can briefly silence a newly opened input while it transfers the normal
+        // recording route. Keep the same recorder and wait once, before reading any PCM.
+        if (beforeRead &&
+            !waitedForInputRoute &&
+            capturedSamples == 0L &&
+            manager?.mode == AudioManager.MODE_NORMAL &&
+            !manager.isMicrophoneMute
+        ) {
+            waitedForInputRoute = true
+            repeat(8) {
+                if (stopped) return
+                Thread.sleep(25)
+                if (stopped) return
+                if (record.activeRecordingConfiguration?.isClientSilenced == false) {
+                    diagnosticProbe?.inputSilenced(false)
+                    return
+                }
+            }
+        }
         diagnosticProbe?.captureSilenced(
             phase.uppercase(java.util.Locale.ROOT),
             runCatching { manager?.isMicrophoneMute }.getOrNull(),

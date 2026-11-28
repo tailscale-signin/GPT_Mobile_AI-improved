@@ -20,6 +20,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubStageBudgetTest {
+    @Test fun claimJsonHasVisibleRoomInsideTheCapturedTwoThousandTokenCeiling() {
+        val allowance = GitHubStageBudget.resolve(32768, 2048, "github-claim-extraction")
+        assertEquals(2048, allowance.output)
+        assertEquals(1024, allowance.visibleOutput)
+        val reasoning = dev.chungjungsoo.gptmobile.data.agent.provider.GitHubReasoningPolicy.manualThinkingBudget(allowance.output, "github-claim-extraction")
+        assertEquals(1024, reasoning)
+        assertTrue(reasoning + allowance.visibleOutput <= allowance.output)
+    }
+
     @Test fun visibleRecoveryReservesOutputWithinCapsAndRetainsUsefulEvidenceCapacity() {
         val normal = GitHubStageBudget.resolve(65536, 16384, GitHubStageBudget.CONTINUATION_ROLE)
         val repair = GitHubStageBudget.resolve(65536, 16384, GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE)

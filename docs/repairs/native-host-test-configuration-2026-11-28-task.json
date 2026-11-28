@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2651,
+  "branch": "feature/windows-native-benchmark-kit",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "startingHead": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+  "authorization": "Complete the reviewed changes, preserve concurrent commits, require green PR and main checks, and verify Android and Gateway publication.",
+  "intent": "Ensure required host regression targets survive third-party CMake configuration, and never accept an empty mandatory CTest run.",
+  "status": "IMPLEMENTED_FOCUSED_AND_CANONICAL_HOST_GATES_PASSED_PENDING_EXACT_HEAD_CI",
+  "observedFailure": {
+    "head": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "workflowRun": 46122818374,
+    "job": 140910873882,
+    "artifact": 15254274305,
+    "artifactSha256": "647495a7d4eba66e54839cc0cede54a69135a3dc3ae03a9a4a73d62685595671",
+    "cause": "Pinned Eigen dependency configuration forces the global BUILD_TESTING cache OFF before root CTest inclusion. Hosted job140910873882 registered zero tests and omitted the cancellation fixture.",
+    "ctest": "No tests were found; CTest returned0.",
+    "cancellation": "Fixture library was not built; Java returned1 and the final receipt could not hash the missing library.",
+    "modelResults": "Existing real CPU model cases returned0, but the failed workflow did not qualify its complete required gate."
+  },
+  "changes": [
+    "Capture the host caller testing choice before dependency setup and restore both the cache and normal CMake value before including CTest and defining host targets.",
+    "Preserve explicit host opt-out and Android exclusion.",
+    "Require --no-tests=error in the mandatory native driver.",
+    "Exercise the actual caller configuration and complete host-target block under the observed dependency cache mutation, including cached reconfiguration."
+  ],
+  "preserved": [
+    "All nine required CTests, the separate Java cancellation fixture, and all existing actual-model cases.",
+    "Effective-memory admission, nonzero failure results, all-zero final success, timeouts and source-bound receipts.",
+    "All current release versions, required workflows and physical qualification limitations."
+  ],
+  "focusedEvidence": {
+    "sourceHead": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "sourceSha256": {
+      "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "7721da301141efabbc42164602bc4fc12ea924128a979e10a841b1bea3e9098c",
+      "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "7558f56afd5d7165571aeae5bb67c44ca5ba75f0f98bc407c0384902216c7b0c",
+      "scripts/tests/test_kokoro_host_test_configuration.py": "98edf1fdd2e59c1031380f562e069894bd88d080df02d886b809fac38458ecc3"
+    },
+    "cause": "Pinned Eigen dependency configuration forces the global BUILD_TESTING cache OFF before root CTest inclusion. Hosted job140910873882 registered zero tests and omitted the cancellation fixture.",
+    "negativeControl": {
+      "status": "EXPECTED_FAILURE",
+      "sourceHead": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+      "case": "test_dependency_cache_override_preserves_all_required_host_tests_and_reconfiguration",
+      "result": "All nine mandatory CTest names absent on initial configure and cached reconfigure.",
+      "logSha256": "5aa7264bc35608f0e1360d5687c0d8c4ea128e2505588364e373f5850008c9a3"
+    },
+    "validation": {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "scripts.tests.test_kokoro_host_test_configuration",
+        "scripts.tests.test_streaming_asr_inputs",
+        "scripts.tests.test_kokoro_native_host_inputs",
+        "-v"
+      ],
+      "environment": {
+        "KOKORO_TEST_CMAKE": "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake"
+      },
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0,
+      "logSha256": "9a91187e0f37b22e9b32aaa3bbb3aef5732df9f346e47b610afbeded5f629a33",
+      "diffCheckExit": 0
+    },
+    "scope": "Actual CMake caller testing configuration and complete host-test target block. Dependency/model construction is replaced only by the observed FORCE OFF cache mutation plus interface link targets. Verifies all nine CTest names and three fixture targets persist, explicit host opt-out and Android exclude them, and the actual driver command rejects zero tests. No native model or Android build/execution.",
+    "requiredFollowup": "Exact-head hosted native gate must build and run all nine CTests, five Java cancellation cases and all existing real-model cases."
+  },
+  "focusedEvidenceSha256": "d709c4940822a4698ef94b55c5b960bbcb47b48e432afafe4303af2ea0345464",
+  "limitations": [
+    "Actual CMake caller testing configuration and complete host-test target block. Dependency/model construction is replaced only by the observed FORCE OFF cache mutation plus interface link targets. Verifies all nine CTest names and three fixture targets persist, explicit host opt-out and Android exclude them, and the actual driver command rejects zero tests. No native model or Android build/execution.",
+    "Exact-head hosted validation must build and execute the actual native targets, cancellation cases and real-model cases before merge."
+  ],
+  "canonicalValidation": {
+    "command": "bash scripts/validate-local.sh fast",
+    "environment": {
+      "KOKORO_TEST_CMAKE": "/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake"
+    },
+    "testsRun": 884,
+    "passed": 883,
+    "skipped": 1,
+    "exitCode": 0,
+    "logSha256": "2134d17eae408949cb4dfa522f41544009c66b616bb5e43494c25176e88b199e",
+    "scope": "Repository contracts and real CMake configuration regressions; no full native model or Android execution claim."
+  },
+  "independentReview": "No actionable findings; caller ON/OFF and cached regeneration preserved, Android fixtures excluded, empty mandatory test inventories rejected, all existing regression controls retained."
+}

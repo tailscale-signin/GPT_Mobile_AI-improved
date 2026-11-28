@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -23,11 +24,16 @@ internal interface KokoroOutput {
     fun configurePacing(pause: VoicePauseDuration, performance: VoicePerformanceMode) = Unit
     fun configurePronunciation(overrides: Map<String, String>, language: String = "en") = Unit
     fun configureCaptionOffset(milliseconds: Int) = Unit
+    fun configureCaptionAlignment(enabled: Boolean) = Unit
+    fun calibrateCaptionOffset(milliseconds: Int) = configureCaptionOffset(milliseconds)
     fun configureEngine(factory: VoicePhraseEngineFactory) = Unit
     fun benchmark(voice: KokoroVoice, completed: (String) -> Unit) = completed("This speech engine does not support calibration.")
     fun prewarm(voice: KokoroVoice, assetsOnly: Boolean = false) = Unit
     fun cancelPrewarm() = Unit
     fun releaseWarmModel() = Unit
+
+    /** Acknowledgement requires confirmed model and playback retirement from an open owner. */
+    fun releaseWarmModel(completed: () -> Unit) = releaseWarmModel()
     fun stop()
     fun stop(reason: String) = stop()
     fun bindReply(id: String) = Unit
@@ -38,7 +44,7 @@ internal interface KokoroOutput {
     fun awaitClosed(timeoutMs: Long): Boolean = true
 }
 
-internal typealias VoiceOfflineSpeech = (String, () -> Unit, (String) -> Unit) -> Unit
+internal typealias VoiceOfflineSpeech = (String, () -> Unit, (VoicePlaybackFailure) -> Unit) -> Unit
 
 /** Owns the microphone and playback backend for the visible voice session. */
 internal class VoicePluginAudio(
@@ -52,7 +58,9 @@ internal class VoicePluginAudio(
         system: VoiceAudio,
         local: VoiceRecognitionInput,
         kokoro: KokoroOutput? = null,
-        offlineSpeech: VoiceOfflineSpeech = { _, _, error -> error("No offline Android voice is available.") },
+        offlineSpeech: VoiceOfflineSpeech = { _, _, error ->
+            error(VoicePlaybackFailure("No offline Android voice is available.", code = "OFFLINE_VOICE_UNAVAILABLE", sourceProvider = "system", stage = VoicePlaybackFailureStage.CATALOG))
+        },
         releaseSystemRecognition: () -> Unit
     ) : this(system, local, kokoro, captureOfflineSpeech = { offlineSpeech }, releaseSystemRecognition)
 
@@ -72,14 +80,14 @@ internal class VoicePluginAudio(
     private var playingTicket: Long? = null
     private var playbackLevel: () -> Float? = { null }
     var listeningStyle: VoiceListeningStyle
-        get() = (local as? MoonshineVoiceRecognizer)?.listeningStyle ?: VoiceListeningStyle.NATURAL
+        get() = (local as? LocalVoiceRecognitionInput)?.listeningStyle ?: VoiceListeningStyle.NATURAL
         set(value) {
-            (local as? MoonshineVoiceRecognizer)?.listeningStyle = value
+            (local as? LocalVoiceRecognitionInput)?.listeningStyle = value
         }
     var captureBatchMs: Int
-        get() = (local as? MoonshineVoiceRecognizer)?.captureBatchMs ?: 40
+        get() = (local as? LocalVoiceRecognitionInput)?.captureBatchMs ?: 40
         set(value) {
-            (local as? MoonshineVoiceRecognizer)?.captureBatchMs = value
+            (local as? LocalVoiceRecognitionInput)?.captureBatchMs = value
         }
 
     override fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) {
@@ -137,6 +145,9 @@ internal class VoicePluginAudio(
         kokoro?.configurePronunciation(cleaned, language)
     }
 
+    /** Recognition receives the written forms, not output phonetic substitutions. */
+    fun configureRecognitionVocabulary(words: List<String>) = local.configureVocabulary(words)
+
     override fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) {
         kokoro?.bindTimedSpokenRange(spoken)
     }
@@ -156,6 +167,11 @@ internal class VoicePluginAudio(
         set(value) {
             if (closed || field == value) return
             stop()
+            if (field == VoiceRecognitionBackend.LOCAL_MOONSHINE && value == VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE) {
+                // The Android route no longer needs the resident local model. Its owner
+                // queues native retirement; changing routes does not confirm completion.
+                (local as? LocalVoiceRecognitionInput)?.releaseWarmModel()
+            }
             releaseSystemRecognition()
             field = value
         }
@@ -194,8 +210,9 @@ internal class VoicePluginAudio(
                 if (current()) origin?.playbackFallback(original, "SUCCEEDED")
                 playbackFinished(ticket, complete)
             }, {
-                if (current()) origin?.playbackFallback(original, "FAILED")
-                playbackFinished(ticket) { error(VoicePlaybackFailure(it, original.cause, original.code, original.sourceProvider)) }
+                val chain = original.afterFallback(it)
+                if (current()) origin?.playbackFallback(chain, "FAILED")
+                playbackFinished(ticket) { error(chain) }
             })
         }
         val reply = output.openReplyWithFailure(voice, complete = {
@@ -228,7 +245,9 @@ internal class VoicePluginAudio(
         }
     }
 
-    override fun listen(listener: VoiceAudio.Listener) {
+    override fun listen(listener: VoiceAudio.Listener) = listenWithFeedback(listener, null)
+
+    override fun listenWithFeedback(listener: VoiceAudio.Listener, feedback: (() -> Boolean)?) {
         if (closed) return
         stopMonitoring()
         val ticket = ++playbackGeneration
@@ -239,21 +258,36 @@ internal class VoicePluginAudio(
                 VoiceRecognitionBackend.LOCAL_MOONSHINE -> {
                     system.stop()
                     releaseSystemRecognition()
-                    local.listen(listener)
+                    local.listenWithFeedback(listener, feedback)
                 }
                 VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> {
-                    local.stop()
-                    system.listen(listener)
+                    system.listenWithFeedback(listener, feedback)
                 }
             }
         }
-        if (interruption == null) startRecognition() else interruption.afterInterruptionStopped(::startRecognition)
+        fun releaseCapture() {
+            if (closed || playbackGeneration != ticket) return
+            val completed = AtomicBoolean()
+            local.stopCapture { released ->
+                if (closed || playbackGeneration != ticket || !completed.compareAndSet(false, true)) return@stopCapture
+                if (released) {
+                    startRecognition()
+                } else {
+                    listener.failure(
+                        "The previous microphone session has not finished releasing. Your words are kept; wait before retrying or reopen Voice.",
+                        "VOICE_MICROPHONE_BUSY",
+                        cause = LocalVoiceCaptureException("Microphone release was not confirmed", "MICROPHONE_RELEASE_TIMEOUT", "capture_release")
+                    )
+                }
+            }
+        }
+        if (interruption == null) releaseCapture() else interruption.afterInterruptionStopped(::releaseCapture)
     }
 
     override fun finishListening() {
         if (closed) return
         when (recognitionBackend) {
-            VoiceRecognitionBackend.LOCAL_MOONSHINE -> (local as? MoonshineVoiceRecognizer)?.finishListening()
+            VoiceRecognitionBackend.LOCAL_MOONSHINE -> local.finishListening()
             VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> system.finishListening()
         }
     }
@@ -284,7 +318,7 @@ internal class VoicePluginAudio(
                 error(VoicePlaybackFailure("Local voice playback is unavailable. Check Kokoro in Voice settings; your response is kept in chat."))
                 return
             }
-            offlineSpeech(text, { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(VoicePlaybackFailure(it)) } })
+            offlineSpeech(text, { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(it) } })
             return
         }
         system.stop()
@@ -307,8 +341,9 @@ internal class VoicePluginAudio(
                         if (fallbackCurrent()) origin?.playbackFallback(failure, "SUCCEEDED")
                         playbackFinished(fallbackTicket, complete)
                     }, {
-                        if (fallbackCurrent()) origin?.playbackFallback(failure, "FAILED")
-                        playbackFinished(fallbackTicket) { error(VoicePlaybackFailure(it, failure.cause, failure.code, failure.sourceProvider)) }
+                        val chain = failure.afterFallback(it)
+                        if (fallbackCurrent()) origin?.playbackFallback(chain, "FAILED")
+                        playbackFinished(fallbackTicket) { error(chain) }
                     })
                 } else {
                     error(failure)

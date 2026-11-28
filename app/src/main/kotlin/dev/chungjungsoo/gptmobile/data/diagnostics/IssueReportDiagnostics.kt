@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanation
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceRecoveryEvidence
+import dev.chungjungsoo.gptmobile.data.github.GitHubCapabilityReadiness
 import dev.chungjungsoo.gptmobile.data.github.GitHubCriterionBlocker
 import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
@@ -59,6 +60,11 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if (listOf("causal_failure_code", "voice_chat_failure_code").any { (values[it] as? JsonPrimitive)?.contentOrNull in IssueReportCodes.applicationFailureCauses } ||
+            (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in ProviderFailureReceipt.REQUIRED_TOOL_CODES
+        ) {
+            add(IssueReportCodes.APPLICATION_FAILURE_CAUSES_FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in ExecutionCompletionDiagnostics.providerBudgetFields } ||
             (values["provider_wait_no_wait_reason"] as? JsonPrimitive)?.contentOrNull in ExecutionCompletionDiagnostics.providerLimitRefusals
         ) {
@@ -139,6 +145,11 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.toolEventPersistenceFields }) add(IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE)
         if ("sqlite_constraint_kind" in values || "sqlite_constraint_kind" in omittedFields) add(IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE)
         if ((values.keys + omittedFields).any { it in GitHubAcceptancePublicationEvidence.observationFields || it in IssueReportIncidentCapsule.reviewComparisonFields }) add(GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE)
+        if (values["acceptance_publication_source"] == JsonPrimitive(GitHubAcceptancePublicationEvidence.Source.ISSUE_INTAKE.name) ||
+            values["acceptance_publication_entry"] == JsonPrimitive(GitHubAcceptancePublicationEvidence.Entry.ISSUE_INTAKE.name)
+        ) {
+            add(GitHubAcceptancePublicationEvidence.ISSUE_INTAKE_FEATURE)
+        }
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.handoffReconciliationFields }) add("HANDOFF_RECONCILIATION_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.chatDeliveryFields } || values["incident_capture_site"] == JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER")) add("CHAT_DELIVERY_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.claimFreshnessFields }) add("CLAIM_FRESHNESS_EVIDENCE_V1")
@@ -175,13 +186,23 @@ internal data class IssueReportDiagnostics(
         ) {
             add("GITHUB_GRAPH_POLICY_EVIDENCE_V1")
         }
-        if ("voice_install_streaming_status" in values || "voice_install_streaming_status" in omittedFields || values["voice_install_pack"] == JsonPrimitive("LITERT_KOKORO")) add(VOICE_STREAMING_INSTALL_FEATURE)
+        if ("voice_install_streaming_status" in values || "voice_install_streaming_status" in omittedFields || values["voice_install_pack"] in setOf(JsonPrimitive("LITERT_KOKORO"), JsonPrimitive("POCKET"))) add(VOICE_STREAMING_INSTALL_FEATURE)
         if ((values.keys + omittedFields).any { it in voiceInstallEvidenceFields } || values["voice_install_failure"] == JsonPrimitive("WORK_NOT_FOUND")) add("VOICE_INSTALL_EVIDENCE_V1")
+        if (listOf("voice_install_downloaded_bytes", "voice_install_total_bytes").any { ((values[it] as? JsonPrimitive)?.longOrNull ?: 0L) > 1_000_000_000L }) add(VOICE_LARGE_MODEL_INSTALL_FEATURE)
         if ((values.keys + omittedFields).any { it in VoiceExecutionDiagnostics.fields }) add(VoiceExecutionDiagnostics.FEATURE)
+        if ((values.keys + omittedFields).any { it in DispatchStageDiagnostics.fields }) add(DispatchStageDiagnostics.FEATURE)
+        if (VoiceExecutionDiagnostics.requiresFallbackCauseSupport(values, omittedFields)) add(VoiceExecutionDiagnostics.FALLBACK_CAUSES_FEATURE)
         if (VoiceExecutionDiagnostics.requiresStreamingBackendSupport(values)) add(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE)
+        if (VoiceExecutionDiagnostics.requiresPocketCompiledSupport(values)) add(VoiceExecutionDiagnostics.POCKET_COMPILED_FEATURE)
         if (values["voice_selected_backend"] in setOf(JsonPrimitive("LITERT_KOKORO_GPU_OPTIMIZED"), JsonPrimitive("LITERT_KOKORO_SM8750"))) add(VoiceExecutionDiagnostics.STREAMING_PACK_FEATURE)
         if (values["voice_selected_backend"] == JsonPrimitive("LITERT_KOKORO_NPU")) add(VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
+        if ((values.keys + omittedFields + unavailableFields).any { it in GitHubCapabilityReadiness.countFields } ||
+            (values["github_prerequisite_observation"] as? JsonPrimitive)?.contentOrNull in GitHubCapabilityReadiness.observations
+        ) {
+            add(GitHubCapabilityReadiness.FEATURE)
+        }
+        if ((values.keys + omittedFields + unavailableFields).any { it in dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.fields }) add(dev.chungjungsoo.gptmobile.data.research.ResearchRecoveryEvidence.FEATURE)
         if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.failedEventOutputFields }) add(IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE)
         if (values["voice_playback_focus_attempts"] == JsonPrimitive(3)) add(VOICE_FOCUS_RETRIES_FEATURE)
@@ -264,6 +285,7 @@ internal data class IssueReportDiagnostics(
         const val DEVICE_PRIVACY_POLICY_FEATURE = "DEVICE_PRIVACY_POLICY_CHANGE_V1"
         const val POLICY_SELECTION_FEATURE = "GITHUB_POLICY_SELECTION_FIELDS_V1"
         const val VOICE_STREAMING_INSTALL_FEATURE = "VOICE_STREAMING_INSTALL_EVIDENCE_V1"
+        const val VOICE_LARGE_MODEL_INSTALL_FEATURE = "VOICE_LARGE_MODEL_INSTALL_EVIDENCE_V1"
         const val VOICE_FOCUS_RETRIES_FEATURE = "VOICE_FOCUS_RETRY_COUNT_V1"
         private const val LEGACY_POLICY_FIELD_LIMIT = 81
         private const val PRE_DEVICE_PRIVACY_POLICY_FIELD_LIMIT = 84
@@ -307,7 +329,7 @@ internal data class IssueReportDiagnostics(
 
         // A single retained criterion must not hide the other observed blocker categories.
         private val acceptanceBlockerTotals = setOf("acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total")
-        private val githubPrerequisiteFields = setOf("repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation")
+        private val githubPrerequisiteFields = setOf("repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation", "acceptance_prerequisite_blockers", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count", "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_preparation_state", "acceptance_fixture_creation_admissible", "acceptance_acquisition_allowed", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum")
         private val graphPolicyFields = setOf("branch_protection_http_status", "branch_rules_http_status")
         private val graphPolicyBlockers = setOf("GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED")
         private val conflictEvidenceFields = setOf(
@@ -357,7 +379,7 @@ internal data class IssueReportDiagnostics(
         internal val composerSlotFields = composerEventFields + composerAgeFields
         internal val composerTimelineFields = composerSlotFields + setOf("composer_generation", "composer_events_dropped", "composer_enabled", "composer_window_focused", "composer_lifecycle", "composer_input_mode")
         private val composerEvidenceFields = composerTimelineFields + setOf("composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible")
-        private val protocolTwoFields = reasoningProbeFields + composerTimelineFields + VoiceExecutionDiagnostics.fields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash")
+        private val protocolTwoFields = reasoningProbeFields + composerTimelineFields + VoiceExecutionDiagnostics.fields + DispatchStageDiagnostics.fields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash")
         private val composerEvents = setOf("ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE")
         private val completionEvidenceFields = setOf("empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts")
         private val voicePackStateFields = setOf("voice_install_recognition_status", "voice_install_playback_status", "voice_install_streaming_status")
@@ -499,7 +521,8 @@ internal data class IssueReportDiagnostics(
             "catalog_selector_state" to setOf("MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY", "NAMES_NULL", "NAMES_CONTAIN_NON_STRING", "ACTION_REQUIRES_ONE_NAME", "OTHER_SCHEMA_CONSTRAINT"),
             "task_deadline_check" to GitHubExecutionLimits.DeadlineCheck.entries.map { it.name }.toSet(),
             "task_deadline_observation" to GitHubAcceptanceRecoveryEvidence.deadlineObservations,
-            "task_deadline_clock" to setOf("WALL_CLOCK"),
+            "task_deadline_source" to GitHubAcceptanceRecoveryEvidence.deadlineSources,
+            "task_deadline_clock" to setOf("WALL_CLOCK", "ACTIVE_EXCLUDING_USER_CHOICES"),
             "acceptance_preparation_state" to GitHubAcceptanceRecoveryEvidence.preparationStates,
             "status_policy_recovery_hint" to GitHubAcceptanceRecoveryEvidence.policyRecoveryHints,
             "acceptance_pagination_mode" to setOf("COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE"),
@@ -522,7 +545,7 @@ internal data class IssueReportDiagnostics(
             "voice_install_scheduler" to setOf("JOB_SCHEDULER", "WORK_MANAGER"),
             "voice_install_failure" to setOf("SCHEDULE_REJECTED", "SCHEDULE_EXCEPTION", "ASSET_FAILURE", "WORKER_EXCEPTION", "WORK_NOT_FOUND"),
             "voice_install_pending_reason" to setOf("UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"),
-            "voice_install_pack" to setOf("MOONSHINE", "KOKORO", "LITERT_KOKORO"),
+            "voice_install_pack" to setOf("MOONSHINE", "KOKORO", "LITERT_KOKORO", "POCKET"),
             "voice_install_transfer_stage" to setOf("CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"),
             "voice_install_failure_kind" to setOf("DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"),
             "conflict_active_job_kind" to setOf("generation", "engineering"),
@@ -533,7 +556,7 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to setOf("GITHUB_TASK_IDENTITY_CHANGED", "PRIVACY_SERVICE_UNVERIFIED") + ExecutionCompletionDiagnostics.codes + GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "REQUEST_BYTES_EXCEEDED", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE, PrivacyFinalRequestFailureEvidence.CODE),
+            "provider_failure_code" to setOf("GITHUB_TASK_IDENTITY_CHANGED", "PRIVACY_SERVICE_UNVERIFIED") + ProviderFailureReceipt.REQUIRED_TOOL_CODES + ExecutionCompletionDiagnostics.codes + GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "REQUEST_BYTES_EXCEEDED", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE, PrivacyFinalRequestFailureEvidence.CODE),
             GatewayCapabilityFailureEvidence.KIND to GatewayCapabilityFailureEvidence.kinds,
             GatewayCapabilityFailureEvidence.DECODE_REASON to GatewayCapabilityFailureEvidence.decodeReasons,
             "privacy_reason_code" to PrivacyFailureEvidence.reasonCodes,
@@ -568,7 +591,7 @@ internal data class IssueReportDiagnostics(
                 "provider_reported_initial", "provider_reported_interim", "runtime_reported_initial", "runtime_reported_interim", "gateway_reported_initial", "gateway_reported_interim", "mixed_reported_initial", "mixed_reported_interim"
             ),
             "acceptance_evidence_scope" to setOf("CURRENT_VERDICT", "RETAINED_VERDICT"),
-            "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE"),
+            "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE", "COMPILED_POCKET"),
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"),
             "voice_playback_failure" to VoiceExecutionDiagnostics.playbackFailures,
             "voice_install_recognition_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
@@ -727,7 +750,12 @@ internal data class IssueReportDiagnostics(
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
                 val retainedCriteria = criterionFields.firstNotNullOfOrNull { (values[it] as? JsonArray)?.size } ?: 0
-                val criterionFloor = if (version == 3 && retainedCriteria > 0) {
+                val acceptancePrerequisiteFloor = if (version == 3 && area == "ACCEPTANCE") {
+                    githubPrerequisiteFields.filter { it in values }.toSet()
+                } else {
+                    emptySet()
+                }
+                val criterionFloor = acceptancePrerequisiteFloor + if (version == 3 && retainedCriteria > 0) {
                     setOf("unmet_criterion_count", "unmet_criterion_omitted_count") + if (retainedCriteria == 1) criterionFields else emptySet()
                 } else {
                     emptySet()
@@ -838,7 +866,7 @@ internal data class IssueReportDiagnostics(
                 "voice_playback_focus_attempts" -> 1L..3L
                 "voice_generation" -> 0..Long.MAX_VALUE
                 "voice_install_progress_percent" -> 0L..100L
-                "voice_install_downloaded_bytes", "voice_install_total_bytes" -> 0L..1_000_000_000L
+                "voice_install_downloaded_bytes", "voice_install_total_bytes" -> 0L..17_179_869_184L
                 "voice_install_http_status", "status_policy_protection_http_status", "status_policy_rules_http_status" -> 100L..599L
                 "task_deadline_window_seconds", "task_deadline_overdue_seconds", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
                 "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_additional_blocked_family_count" -> 0L..16_000_000L

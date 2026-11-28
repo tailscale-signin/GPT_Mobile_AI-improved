@@ -711,6 +711,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
     }
 
+    /** Reuse the most recent completed public findings within this conversation only. */
+    internal suspend fun implementationArtifact(chatId: Int, request: String, sourceMessageId: Int, expectedRunId: String? = null): ResearchImplementationArtifact? = withContext(Dispatchers.IO) {
+        if (!ResearchImplementationArtifact.requested(request)) return@withContext null
+        lock.withReadLock {
+            if (chatId in deletedChats) return@withReadLock null
+            val stored = sessionIndex.entries(chatId).filter { it.complete && (expectedRunId == null || it.runId == expectedRunId) }.take(8).mapNotNull { read(it.file) }
+            val current = mutable.value.values.filter { it.chatId == chatId && it.snapshot.complete && (expectedRunId == null || it.runId == expectedRunId) }
+            (current + stored).distinctBy { it.runId to it.snapshot.updatedAt }.sortedByDescending { it.snapshot.updatedAt }
+                .firstNotNullOfOrNull { ResearchImplementationArtifact.from(it, chatId, sourceMessageId) }
+        }
+    }
+
     /** Scope-bound immutable references survive retries without embedding previous recovery bundles. */
     internal suspend fun retainRecoveryCorpus(chatId: Int, rootWorkId: String, authority: String, corpus: dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpus): Pair<String, dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpus> = withContext(Dispatchers.IO) {
         lock.withReadLock {

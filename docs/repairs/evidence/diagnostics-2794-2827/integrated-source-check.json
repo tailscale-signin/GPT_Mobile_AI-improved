@@ -1,0 +1,203 @@
+{
+  "checked_at_utc": "2026-11-28T05:26:39.108962+00:00",
+  "integrated_implementation_commit": "db5fae14a76681e616bafa203d2beed2ccdc2572",
+  "published_parent": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+  "groups": {
+    "diagnostic_current": [
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentContracts.kt",
+        "sha256": "408e331d5f7384f54a636e0ef812fc60c9a7c70879b2c4dee930c3673b3feff2"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ResolvedRequestLimits.kt",
+        "sha256": "f50f74763a0ce58681de479225319aa1d962a8ef8f214439fbe2654026d28ff2"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapacityAdmissionObservation.kt",
+        "sha256": "51eea57a0eab17ad16dc7f718e0268d7fcff4a02e0dcc140ca868a128343d160"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PromptBudgetReceipt.kt",
+        "sha256": "58ca6972ba0cfebc0e063ec8a8afc439d99bacf18ee78ba52c9ea7cc8b3b1356"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestDeadlineReceipt.kt",
+        "sha256": "a3d3ffb1a3084318dba8b85b4f61f72f73625650d1eea22cfa18696a14226d1a"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReasoningPolicy.kt",
+        "sha256": "c71f55d9831d60c0a7ca89c44d3f4d5cbd950d26125ccccbbe4ec0249c1dfc17"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt",
+        "sha256": "cb56393312b97965d50c3736c01ec5b261410faa89e5ba7cbfcbbea8f55c3787"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayInputRejectionDetails.kt",
+        "sha256": "1291c81dc88f155e446ae31ede3f30b55292c4b138d174834610f2d5257f0286"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOperationFamily.kt",
+        "sha256": "55375edb50971e6713aab7d6b8c17c3a3ff5bb3505d5403d938a0e310f4d3525"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt",
+        "sha256": "223c577973a2c1ab1af9f05293ce116e8d9b74ab7681c6ed3bbb60848434f959"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordProtocol.kt",
+        "sha256": "b81bdab9f8219610097ad80d6a0e910fd55073e16f32fc145a2e682a2dd66ec6"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "sha256": "a7a58100d4587b6b58ed9bba873a52712d80bf2078116c1e399899f3ed1735c9"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "sha256": "fcd2ff596c27ae09909013fd3e88c7a199d9bfaa2d6fae15f1ff73efd7a85859"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
+        "sha256": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
+        "sha256": "710d6e956a4d5b0c8880a76964cc6a5089fee23eb4f35c8a27d05dc3cb90eebd"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayOutcomeRecovery.kt",
+        "sha256": "52fca375ca48a6ac82581b6611770160cd1753d9cfd6217dcefdf9553115f5a6"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerPolicy.kt",
+        "sha256": "b972ada9441012e6c9d114dd78f5cf6a765224603cb0a72f8aabb450b92cb198"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordContinuationInput.kt",
+        "sha256": "67750e95400e58a6bf1019d0be2a949882f990db06dc64e3ba13e02318d204ad"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAppendRecoverySessionTest.kt",
+        "sha256": "9acc67c190ad27ecf2f7a1c3c3f08c5ea6d498904324ee3533dd8d7e0470eab3"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmissionTest.kt",
+        "sha256": "ac01a633a568f1fd1e3309f5d5447a0b4610c7b936c6ae78eb3600c7aaa81a2f"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "sha256": "20d6e4c4cebc7f2bcbfe049cb72edcb4e6171c529508012364c9ace21fba7fad"
+      }
+    ],
+    "tools": [
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt",
+        "sha256": "f5e0084eccde7b186ac55bebcb782c77c9cff515f331aa1932746f81dfe9adb0"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt",
+        "sha256": "223d2f4894c38463c7940b44b28faee146b4db0f172479c85955ae3cea7cf75e"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt",
+        "sha256": "4075c1222404339b9c8051cc8a1ceba2b00ab45404e164bddfadce4d627c1515"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchServiceHealth.kt",
+        "sha256": "24e336880425b47526d5a443d7709a03135441ee86ddd8dedd9431150d2a02cf"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceiptTest.kt",
+        "sha256": "c53378e09efccc2462ecabe7d05079177a857bd89647125c473c5b7b55ac040e"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalServiceHealth.kt",
+        "sha256": "277dc59c78293bb0b2df71fd252b9d863ac910e7e8454395ee4908ccef82cc01"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalConnectionPreflight.kt",
+        "sha256": "d46c6d2e15062a70173aba9d9c35978bc50c76c511a9aa562b1ad5fc39ac600a"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt",
+        "sha256": "4e62bcfa5965a2f9ee83ede3f83dd8e926f7f555199058f5f36a0518a21f2d66"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/ApiState.kt",
+        "sha256": "8616379b78db3649c5c5a1ca7af3e23dcd782f0bdb3b16895f3bbf50f4fc3bed"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchTest.kt",
+        "sha256": "d71f6b6c28c90d6fbd71eda27e21e613a5aea702f4065bde2d32a5ecb8572d30"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+        "sha256": "10ba21bf63aba1d1dc64e62cecae1c1aef910e6e0714902209a008275bb6092d"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlToolTest.kt",
+        "sha256": "587112797dd51579bf9699a793ec6bc50744074b7328bc2db987f94917b2b34a"
+      }
+    ],
+    "combined": [
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt",
+        "sha256": "c9ec9e4148c4e3f70cacedbae35cbf97315751e87765dbd3642bcf223b3a657c"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetStore.kt",
+        "sha256": "1c38800e3a821a37e9b1d488fbb5b9e9196d05742c7d6f7625373b203a8d8511"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWorkPlan.kt",
+        "sha256": "131982da133850484313eb2d273f92cb5253f97604f28937028e36a5683c6b8e"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWorkInventory.kt",
+        "sha256": "417dea1b071362f5525fc19e5a0c3db1d4a6d49044eaca7fba10dbbd723d632a"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedProgressSnapshot.kt",
+        "sha256": "01417b62f16721a83213c2879a8288a76f7ac69efa43dc701df272022c618015"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliveryPhase.kt",
+        "sha256": "b0409a873077f0dc3a94d83b5c86f6bbc3d853c08e47c9093fa6febeb9129b87"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedPolicyResolver.kt",
+        "sha256": "4b151ea1392c35f36c9c5f0a1a4d8a574aa06d906d54e5ef881992e622ac06d7"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedSynthesisPreferences.kt",
+        "sha256": "37ac09ee6238b850719d2d8bc5a4cf13322d59d011b1ab311d0f8659e42548c2"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRequestScope.kt",
+        "sha256": "adc5d8dab2dc921e55ed7e790a55eb37d111a2afe14fea2809f399958b5efad2"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedContributorAllowance.kt",
+        "sha256": "edbdea004f952d8e74eeea66b4a5192e3885dbb4aaee837e76c14cd313dac753"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/RoutineTaskPolicy.kt",
+        "sha256": "3d4bc1e18102faefb7188d35ca941baddc11b2334342bd0e53fb4f23af319b98"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ConversationCombinedSettings.kt",
+        "sha256": "50e6c893fb262f3324e7e40fb0e22c938ea3ac6d8508209335a6e7b7417c3ebf"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt",
+        "sha256": "a102dc2d1a13ad92b9d78b87b6ffc3d80c1c02452f11a977f3cbd2afcfe0c529"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedSinglePassTest.kt",
+        "sha256": "c2f75a542b88794cb230da012aac7f1cef93a7e87ebf1a8e5cf07cc4bb2361a1"
+      }
+    ]
+  },
+  "all_match": true,
+  "scope": "Source identity recheck, not reexecution or Android qualification."
+}

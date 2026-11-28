@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
+import dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason
+import dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPolicy
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 
 /** The repair replaces only the unfinished suffix; completed text and tool effects stay committed. */
@@ -35,22 +37,24 @@ internal fun planResponseContinuation(
     preserveFullInput: Boolean = false,
     advertisedTools: List<AgentToolDefinition> = emptyList(),
     fitProviderBudget: Boolean = false,
-    retainedTaskContext: String = ""
+    retainedTaskContext: String = "",
+    protocolExchanges: List<AgentToolExchange> = emptyList(),
+    adaptToolSchemas: Boolean = false
 ): ContextPlan {
     val limits = settings.normalized().let {
         it.copy(outputTokens = responseOutputAllowance(it, it.outputTokens.takeIf { output -> output > 0 } ?: 4096))
     }
     val reserve = limits.outputTokens
-    val toolResultReserve = if (advertisedTools.isEmpty()) 0 else (limits.contextTokens / 8).coerceAtMost(8192)
-    val safety = minOf(256, limits.contextTokens / 16)
-    val promptCeiling = when {
-        limits.contextTokens == Int.MAX_VALUE -> Int.MAX_VALUE.toLong()
-        fitProviderBudget -> RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - reserve - toolResultReserve) - 256
-        else -> limits.contextTokens.toLong() - reserve - toolResultReserve - safety
+    val protocolTokens = ToolExchangeCompactor.estimateTokens(protocolExchanges)
+    val protocolIds = protocolExchanges.flatMap { it.calls }.mapTo(hashSetOf()) { it.callId }
+    val historyExchanges = exchanges.mapNotNull { exchange ->
+        val calls = exchange.calls.filterNot { it.callId in protocolIds }
+        if (calls.isEmpty()) null else AgentToolExchange(calls, exchange.results.filterNot { it.callId in protocolIds })
     }
+    val controlMemory = if (fitProviderBudget && !preserveFullInput) GitHubContinuationMemory.retain(exchanges + protocolExchanges) else ""
     // Capture carry before optional replay can evict its completed saved-page pair.
     val reading = exchanges.flatMap { it.results }.mapNotNull { it.savedPageReading }
-    val mandatoryReading = if (reading.isEmpty()) {
+    val mandatoryReading = (if (controlMemory.isBlank()) "" else "\n\nMandatory task choices and corrections:\n$controlMemory") + if (reading.isEmpty()) {
         ""
     } else {
         PrivacyModeStore.requireUnprotectedTransport()
@@ -65,26 +69,67 @@ internal fun planResponseContinuation(
         }
     }
     fun required(source: List<ConversationTurn>) = if (preserveFullInput) source else source.filter { it.isCurrentTurn }
-    fun cost(source: List<ConversationTurn>) = ContextBudgetService.breakdown(source, system, advertisedTools).total
-    val bare = appendResponseContinuationContext(turns, instruction, "", emptyList(), retainedTaskContext, mandatoryReading)
-    require(mandatoryReading.isEmpty() || cost(required(bare)) <= promptCeiling) {
-        "CONTINUATION_CONTEXT_CAPACITY: The accepted task and mandatory saved-page reading context do not fit the continuation budget. No request was dispatched; the full partial answer is retained."
-    }
-    val replayBudget = (promptCeiling - cost(required(bare)) - if (draft.isBlank()) 80 else 160)
-        .coerceIn(0, 8192).toInt()
-    val replayExchanges = if (fitProviderBudget && !preserveFullInput && exchanges.isNotEmpty() && ToolExchangeCompactor.estimateTokens(exchanges) > replayBudget) {
-        ToolExchangeCompactor.compact(exchanges, replayBudget, (replayBudget / 3).coerceAtLeast(1), taskRequest = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content?.takeIf { retainedTaskContext.isNotBlank() })
+    val minimumBrief = GitHubEngineeringMemoryPolicy.minimumWorkingBrief(retainedTaskContext)
+    val selectedTools = if (adaptToolSchemas && fitProviderBudget && !preserveFullInput && limits.contextTokens != Int.MAX_VALUE) {
+        GitHubContinuationTools.select(advertisedTools, exchanges + protocolExchanges) { candidate ->
+            val input = appendResponseContinuationContext(turns, instruction, "", emptyList(), minimumBrief, mandatoryReading)
+            val inputCost = ContextBudgetService.breakdown(required(input), system, candidate).total.toLong() + protocolTokens
+            val resultReserve = if (candidate.isEmpty()) 0 else minOf(512, limits.contextTokens / 8)
+            inputCost + (if (draft.isBlank()) 80 else 160) <= RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - reserve - resultReserve) - 256
+        }
     } else {
-        exchanges
+        advertisedTools
     }
-    val base = appendResponseContinuationContext(turns, instruction, "", replayExchanges, retainedTaskContext, mandatoryReading)
+    val defaultResultReserve = if (selectedTools.isEmpty()) 0 else (limits.contextTokens / 8).coerceAtMost(8192)
+    fun cost(source: List<ConversationTurn>) = ContextBudgetService.breakdown(source, system, selectedTools).total.toLong() + protocolTokens
+    // A future tool result is only a planning reserve. Fit it around the exact
+    // current request and schemas before rejecting a continuation locally.
+    val replayMargin = if (draft.isBlank()) 80 else 160
+    val toolResultReserve = if (fitProviderBudget && !preserveFullInput && defaultResultReserve > 0 && limits.contextTokens != Int.MAX_VALUE) {
+        val input = appendResponseContinuationContext(turns, instruction, "", emptyList(), minimumBrief, mandatoryReading)
+        val requiredPrompt = cost(required(input)) + 256 + replayMargin
+        (limits.contextTokens - reserve - requiredPrompt - RequestAdmission.estimateSafety(requiredPrompt))
+            .coerceIn(minOf(512, defaultResultReserve).toLong(), defaultResultReserve.toLong()).toInt()
+    } else {
+        defaultResultReserve
+    }
+    val promptCeiling = when {
+        limits.contextTokens == Int.MAX_VALUE -> Int.MAX_VALUE.toLong()
+        fitProviderBudget -> RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - reserve - toolResultReserve) - 256
+        else -> limits.contextTokens.toLong() - reserve - toolResultReserve - minOf(256, limits.contextTokens / 16)
+    }
+    val brief = if (fitProviderBudget && !preserveFullInput) {
+        GitHubEngineeringMemoryPolicy.fitWorkingBrief(retainedTaskContext) { candidate ->
+            val mandatory = appendResponseContinuationContext(turns, instruction, "", emptyList(), candidate, mandatoryReading)
+            cost(required(mandatory)) + replayMargin <= promptCeiling
+        }
+    } else {
+        retainedTaskContext
+    }
+    val bare = appendResponseContinuationContext(turns, instruction, "", emptyList(), brief, mandatoryReading)
+    // Saved reading notes are mandatory even when the caller uses the legacy
+    // planner. Refuse here so continuation recovery sees the same no-dispatch cause.
+    require((!fitProviderBudget && mandatoryReading.isEmpty()) || cost(required(bare)) + replayMargin <= promptCeiling) {
+        "CONTINUATION_CONTEXT_CAPACITY: The accepted task, mandatory decisions, correction constraints, retained finding and exact pending tool protocol do not fit the continuation budget. No request was dispatched; saved work remains retained."
+    }
+    val replayBudget = (promptCeiling - cost(required(bare)) - replayMargin)
+        .coerceIn(0, 8192).toInt()
+    val replayExchanges = if (fitProviderBudget && !preserveFullInput && historyExchanges.isNotEmpty() && ToolExchangeCompactor.estimateTokens(historyExchanges) > replayBudget) {
+        // This is optional prose, not the exact pending assistant/tool suffix.
+        // If even its call metadata cannot fit, retain mandatory working state.
+        ToolExchangeCompactor.compact(historyExchanges, replayBudget, (replayBudget / 3).coerceAtLeast(1), taskRequest = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content?.takeIf { retainedTaskContext.isNotBlank() })
+            .takeIf { ToolExchangeCompactor.estimateTokens(it) <= replayBudget }.orEmpty()
+    } else {
+        historyExchanges
+    }
+    val base = appendResponseContinuationContext(turns, instruction, "", replayExchanges, brief, mandatoryReading)
     val tailBudget = (promptCeiling - cost(required(base)) - 40).coerceIn(0, 4096).toInt()
     require(draft.isBlank() || tailBudget >= 48) {
         "CONTINUATION_CONTEXT_CAPACITY: The original request, completed evidence, selected tool schemas and output allowance leave no room for a saved answer tail. The full partial answer is retained."
     }
     val repetitionAllowance = LongResponsePolicy.requestedRepetitionCharacters(turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty())
     val replay = LongResponsePolicy.continuationContext(draft, tailBudget.coerceAtLeast(0), repetitionAllowance)
-    var continued = appendResponseContinuationContext(turns, instruction, replay, replayExchanges, retainedTaskContext, mandatoryReading)
+    var continued = appendResponseContinuationContext(turns, instruction, replay, replayExchanges, brief, mandatoryReading)
     if (fitProviderBudget) {
         require(cost(required(continued)) <= promptCeiling) {
             "CONTINUATION_CONTEXT_CAPACITY: The accepted task and its retained evidence do not fit the current provider budget."
@@ -93,24 +138,28 @@ internal fun planResponseContinuation(
             val remaining = (promptCeiling - cost(required(continued))).coerceAtLeast(0)
             val history = continued.filterNot { it.isCurrentTurn }
             val retained = dev.chungjungsoo.gptmobile.data.context.MemoryTokenWindow.select(history, remaining.toInt()) { turn ->
-                cost(listOf(turn)) - cost(emptyList())
+                (cost(listOf(turn)) - cost(emptyList())).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             }
             continued = retained + continued.filter { it.isCurrentTurn }
         }
     }
-    val plan = if (preserveFullInput && advertisedTools.isEmpty()) {
+    val plan = if (preserveFullInput && selectedTools.isEmpty() && protocolTokens == 0) {
         ContextBudgetService.planFullInput(continued, system, limits)
     } else {
-        ContextBudgetService.plan(continued, system, advertisedTools, limits)
+        ContextBudgetService.plan(continued, system, selectedTools, limits, toolResultReserveCap = toolResultReserve, safetyReserveTokens = (minOf(256, limits.contextTokens / 16).toLong() + protocolTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
     }
     require(
-        plan.tools == advertisedTools &&
+        plan.tools == selectedTools &&
             (!preserveFullInput || plan.turns == continued) &&
             (mandatoryReading.isEmpty() || plan.turns.filter { it.isCurrentTurn } == continued.filter { it.isCurrentTurn })
     ) {
         "CONTINUATION_CONTEXT_CAPACITY: The selected tool schemas and required input do not fit the continuation budget. No request was dispatched; the full partial answer is retained."
     }
-    return plan
+    return plan.copy(
+        promptTokens = (plan.promptTokens.toLong() + protocolTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        authorizedTools = advertisedTools,
+        toolOmissions = plan.toolOmissions + advertisedTools.filterNot { original -> selectedTools.any { it.name == original.name } }.associate { it.name to ToolOmissionReason.CONTEXT_BUDGET }
+    )
 }
 
 private fun appendResponseContinuationContext(

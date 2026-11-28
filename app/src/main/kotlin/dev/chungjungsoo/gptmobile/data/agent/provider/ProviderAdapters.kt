@@ -458,7 +458,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         }
         var restoredGatewayJob = constraints.restoredGatewayJob
         val restoredProviderInvocations = mutableMapOf<String, ProviderToolInvocation>()
-        var capturedGatewayJobId: String? = restoredGatewayJob?.jobId
+        val gatewayJobIdentity = GatewaySessionJobIdentity(restoredGatewayJob?.jobId)
         var clientToolsAdvertised = false
         val gatewayPerformanceHeaders = if (platform.compatibleType == ClientType.LLAMA) {
             attachmentEncoder.gatewayPerformanceHeaders()
@@ -551,12 +551,6 @@ class OpenAICompatibleAdapter @Inject constructor(
         val effectiveRepetitionPenalty = if (isOpenRouter) parsedOpenRouterOptions?.repetitionPenalty else null
         val effectiveSeed = if (isOpenRouter) parsedOpenRouterOptions?.seed else null
         val effectiveStop = if (isOllama && parsedOllamaOptions != null) parsedOllamaOptions.stop else null
-        val lowExtractionReasoning = isOpenRouter &&
-            constraints.requestRole == "github-claim-extraction" &&
-            (constraints.reasoningModeOverride == null || constraints.reasoningModeOverride == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) &&
-            dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
-                .forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true
-
         val automaticVisibleDelivery = isOpenRouter && GitHubReasoningPolicy.automaticVisibleDelivery(constraints)
         val visibleOutputEffort = if (automaticVisibleDelivery) {
             GitHubReasoningPolicy.visibleOutputEffort(
@@ -591,9 +585,9 @@ class OpenAICompatibleAdapter @Inject constructor(
             gatewayConversationKey = constraints.gatewayConversationKey,
             gatewayConversationId = constraints.gatewayConversationId,
             requireGatewayConversation = constraints.requireGatewayConversation,
-            onGatewayCommandPrepared = constraints.onGatewayCommandPrepared.takeIf { (constraints.requestRole ?: "primary") in setOf("primary", "synthesis") },
-            onGatewayCommandNotDispatched = constraints.onGatewayCommandNotDispatched.takeIf { (constraints.requestRole ?: "primary") in setOf("primary", "synthesis") },
-            onGatewayCommandDispatching = constraints.onGatewayCommandDispatching.takeIf { (constraints.requestRole ?: "primary") in setOf("primary", "synthesis") },
+            onGatewayCommandPrepared = constraints.onGatewayCommandPrepared.takeIf { gatewayTaskRole(constraints.requestRole ?: "primary") || constraints.requestRole == "synthesis" },
+            onGatewayCommandNotDispatched = constraints.onGatewayCommandNotDispatched.takeIf { gatewayTaskRole(constraints.requestRole ?: "primary") || constraints.requestRole == "synthesis" },
+            onGatewayCommandDispatching = constraints.onGatewayCommandDispatching.takeIf { gatewayTaskRole(constraints.requestRole ?: "primary") || constraints.requestRole == "synthesis" },
             continuationPrefixDigest = constraints.continuationPrefixDigest,
             freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
             extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
@@ -647,7 +641,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     } else {
                         OpenRouterReasoning(
                             effort = when {
-                                lowExtractionReasoning || mechanicalReasoning -> "low"
+                                mechanicalReasoning -> "low"
                                 constraints.gitHubEffort != null &&
                                     isOpenRouter &&
                                     dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true -> constraints.gitHubEffort.wire
@@ -766,16 +760,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 }
                                 chunk.gatewayMetadata?.let { metadata ->
-                                    if (metadata.jobId != null) {
-                                        capturedGatewayJobId = metadata.jobId
-                                    }
+                                    gatewayJobIdentity.observe(chunk)
                                     publishOllama(ProviderEvent.GatewayMetadataCaptured(metadata))
                                 }
 
                                 chunk.gatewayProgress?.let { progress ->
-                                    if (progress.jobId != null) {
-                                        capturedGatewayJobId = progress.jobId
-                                    }
                                     publishOllama(ProviderEvent.GatewayProgressUpdate(progress))
                                 }
 
@@ -947,7 +936,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 // assistant/tool suffix. Native image wrappers are tool evidence,
                 // so keep their user-role blocks before that suffix.
                 val retainedHistory = if (isLlama) toolImageMessages + replay else replay + toolImageMessages
-                val baseMessages = if (isLlama && constraints.gatewayNewStageAfterTerminal && capturedGatewayJobId == null) {
+                val baseMessages = if (isLlama && constraints.gatewayNewStageAfterTerminal && gatewayJobIdentity.jobId == null) {
                     dev.chungjungsoo.gptmobile.data.network.gateway.gatewayNewStageBoundary(roundMessages, retainedHistory)
                 } else {
                     roundMessages + retainedHistory
@@ -969,7 +958,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 // Gateway job affinity changes as metadata arrives, so this remains round-scoped.
                 val llamaGatewayHeaders = if (isLlama) {
                     gatewayPerformanceHeaders +
-                        capturedGatewayJobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty() +
+                        gatewayJobIdentity.jobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty() +
                         mapOf("X-Gateway-Allow-Local-Tools" to gatewayToolsAllowed.toString())
                 } else {
                     emptyMap()
@@ -1174,9 +1163,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 }
                                 // A saved-result binding must precede historical observations and failures.
                                 chunk.gatewayMetadata?.let { metadata ->
-                                    if (metadata.jobId != null && (constraints.requestRole?.startsWith("benchmark") != true || metadata.transportVerified)) {
-                                        capturedGatewayJobId = metadata.jobId
-                                    }
+                                    gatewayJobIdentity.observe(chunk)
                                     emit(ProviderEvent.GatewayMetadataCaptured(metadata))
                                 }
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
@@ -1217,9 +1204,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 }
                                 chunk.gatewayProgress?.let { progress ->
-                                    if (progress.jobId != null && constraints.requestRole?.startsWith("benchmark") != true) {
-                                        capturedGatewayJobId = progress.jobId
-                                    }
                                     emit(ProviderEvent.GatewayProgressUpdate(progress))
                                 }
 

@@ -109,7 +109,7 @@ def build_github_settings(frame, root, config, public_maps, network_engineering,
     if copilot_jobs is not None:
         ttk.Checkbutton(frame, text='Allow Gateway to supervise Copilot cloud tasks',
                         variable=copilot_jobs).grid(row=12, column=0, columnspan=3, sticky='w', pady=(18, 3))
-        ttk.Label(frame, text='Off by default. Accepted tasks continue while your phone is disconnected. Each conversation must also enable Copilot and select Gateway. Requires a Copilot Business or Enterprise account and a fine-grained token or GitHub App user token with Agent tasks read/write access. Save settings and restart to apply.',
+        ttk.Label(frame, text='On by default. A GitHub conversation must allow Copilot and select this Gateway to delegate a task. Connect an eligible Copilot account with Agent tasks access. Progress distinguishes a saved request from an accepted or running cloud task. Accepted tasks continue while your phone is disconnected. Turning this off blocks new tasks; it does not cancel work already accepted by GitHub. Save settings and restart to apply.',
                   style='Muted.TLabel', wraplength=570).grid(row=13, column=0, columnspan=3, sticky='w', pady=(3, 12))
     results = queue.Queue()
     pending_token = None

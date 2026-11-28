@@ -11,6 +11,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatDecisionsTest {
+    @Test fun parkedQuestionAndDuplicateAnswerSurviveRestartWithoutAWaitingWorker() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("parked-github-choice").toFile()
+        try {
+            val first = GitHubChatDecisions(GitHubRepositoryStateStore(directory))
+            val offered = first.request(question(persistent = true).copy(expectedHeadSha = "a".repeat(40)), waitForAnswer = false)
+            assertTrue(first.waiting.value.isEmpty())
+            val restored = GitHubChatDecisions(GitHubRepositoryStateStore(directory))
+            restored.load()
+            assertEquals(offered.id, restored.decisions.value.single().id)
+            assertTrue(restored.respond(offered.id, 1, "workspace", 1).accepted)
+            assertFalse(restored.respond(offered.id, 1, "workspace", 0).accepted)
+            val replay = restored.request(question(persistent = true).copy(expectedHeadSha = "b".repeat(40)), waitForAnswer = false)
+            assertEquals("Spacious", replay.answer)
+            assertEquals(1, replay.selectedOption)
+            assertEquals("a".repeat(40), replay.expectedHeadSha)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun decisionPreferenceDoesNotFollowAnotherConversationOrWorkspace() {
         val workspace = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "profile")
         val preference = GitHubDecisionPreference("original", GitHubChatDecisions.workspaceKey(workspace), GitHubDecisionMode.AUTO_APPROVE)

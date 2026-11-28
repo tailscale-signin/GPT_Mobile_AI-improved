@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "failure_head": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+  "failures": [
+    {
+      "run": 46119554486,
+      "job": 140900824345,
+      "cause": "Host library manifest incorrectly supplied to SDK header preparation; dispatchBuild missing."
+    },
+    {
+      "run": 46119554376,
+      "job": 140900865759,
+      "cause": "Two notice trailing spaces and 42 blank patch-context markers violated committed-change whitespace validation."
+    }
+  ],
+  "fix": "Keep host-library and SDK manifests distinct; validate SDK provenance before downloads or cache acceptance. Normalize only the patch representation and notice trailing whitespace.",
+  "preparer_tests": {
+    "passed": 19,
+    "log_sha256": "0326e8a32166ba281543a6b64c03c74de4a25ac57ceb3d025bd37d12bb22e275"
+  },
+  "cached_preparation": {
+    "passed": true,
+    "scope": "Actual native_preparer().prepare with the corrected SDK manifest and independently pinned cached archives/header bytes; no full host-model preparation or native rebuild.",
+    "sdkManifest": "docs/audits/qnn-runtime-candidate.json",
+    "sdkManifestSha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05",
+    "hostLibraryManifest": "docs/audits/qnn-host-probe-publisher-2.8.json",
+    "hostLibraryManifestSha256": "63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a",
+    "sdkVersion": "2.52.0.261104",
+    "qnnHeadersSha256": "ba0553991309e51262cc9398442ad406331ed7f2708dc78d11c55c1a843491c5",
+    "headerFiles": 222,
+    "dependencyArchivesVerified": 9,
+    "networkDisabled": true,
+    "dependencies": [
+      {
+        "file": "kaldi-native-fbank-1.23.1.tar.gz",
+        "bytes": 855263,
+        "sha256": "c9722d55bf791d591baf6f79c8db8c66b7eeacf3bec59a4ac37864eacf2e8f37"
+      },
+      {
+        "file": "kaldi_native_io-1.23.2.tar.gz",
+        "bytes": 153989,
+        "sha256": "8c0eadd3aa2d9cafe62e82c2e3075a57bc41cac7e83f9553671413f07b070426"
+      },
+      {
+        "file": "kissfft-febd4caeed32e33ad8b2e0bb5ea77542c40f18ec.zip",
+        "bytes": 74252,
+        "sha256": "497103e664168ebe39580b757adbe616f6cf85a16572af581ca7bc42d0ab13fd"
+      },
+      {
+        "file": "openfst-1.8.5-2026-07-09.tar.gz",
+        "bytes": 1501685,
+        "sha256": "2ff712a32952fcb01d351121a6bc8ccf4fdc6b2aa06ce8df2b3095dedd518c0e"
+      },
+      {
+        "file": "kaldifst-1.9.0.tar.gz",
+        "bytes": 181053,
+        "sha256": "225d8377d1d262e3aedab23558fead106b4cbc83462fb29f1c5e7d9e3b0c14dd"
+      },
+      {
+        "file": "kaldi-decoder-0.4.0.tar.gz",
+        "bytes": 147985,
+        "sha256": "078f2ebb9927c19445096549f880b4ac6db14b7eeb263062f50697873901c955"
+      },
+      {
+        "file": "simple-sentencepiece-0.7.tar.gz",
+        "bytes": 355335,
+        "sha256": "1748a822060a35baa9f6609f84efc8eb54dc0e74b9ece3d82367b7119fdc75af"
+      },
+      {
+        "file": "json-3.12.0.tar.gz",
+        "bytes": 9678593,
+        "sha256": "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187"
+      },
+      {
+        "file": "eigen-5.0.1.tar.gz",
+        "bytes": 2967272,
+        "sha256": "e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec"
+      }
+    ]
+  },
+  "patch_equivalence": {
+    "passed": true,
+    "archiveSha256": "39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086",
+    "comparedFiles": 7228,
+    "sameResultForAllSourceFiles": true,
+    "patchedFilesSha256": {
+      "sherpa-onnx/csrc/macros.h": "2251fd0d793045facd62dab7d34c089fd0c2c1b485f617467cce1e22653ac099",
+      "sherpa-onnx/csrc/online-transducer-nemo-model.cc": "5af52213ed51efdfec1d5e00d297a630b1b24c921a75391cb087400f8291fdc1",
+      "sherpa-onnx/csrc/online-recognizer-impl.cc": "a56bdd3e5831793fddbe0f0aa58a236b94dbb700e5ce3c4ec6dcbbed95c58427",
+      "sherpa-onnx/csrc/session.cc": "2b7b30b88d2f93459fd8ebbc7c34b4ce9299559467cc29007c0c2e8dc212b516",
+      "sherpa-onnx/csrc/qnn/qnn-backend.cc": "98770135fedd19730537882a0c61a4055ffcb6086291e5b4a934750a4afffad0",
+      "sherpa-onnx/csrc/qnn/qnn-model.cc": "209a4056b90c8d50eb04739cb591f4037c0081408f9a498d2c46b58ec662aa9d",
+      "sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc": "cabdc6cd1e8f0a72c6ae33d55442386a03ab41040e01a68ae17ec43a77a0be8d",
+      "sherpa-onnx/csrc/qnn/online-recognizer-nemo-transducer-qnn-impl.h": "8e263a434927758acade2e6a8ed35a9c19c087d1a956d76dbed99db30ae7d4a8"
+    },
+    "scope": "Exact CMake patch command against the pinned Sherpa archive; no native rebuild."
+  },
+  "whitespace": {
+    "patch": {
+      "before": "09e36055f3e18f411f9b23b2e4c53ca7d1a0df40775b84bc897101dff873d75d",
+      "after": "b565871920b34573dff87990dc92caffe48f82d907ba9326e5d14d70d252501d",
+      "normalizedEmptyContextLines": 42
+    },
+    "notice": {
+      "before": "8bdb6013201d6a2bf584c05255806f8dd55ff8d426af9e283039d3d9f9b7746e",
+      "after": "1f6a5660ddcfc0334fa97d2fa042f3a1e26b93a40694c20361b8e561cc28d830",
+      "removedTrailingSpaces": 2
+    }
+  },
+  "qualification": {
+    "full_native_rebuild": false,
+    "current_head_ci": "PENDING_CORRECTIVE_PUSH",
+    "physical_device": false
+  },
+  "canonical_host": {
+    "passed": true,
+    "tests": 874,
+    "skipped": 1,
+    "command": "bash scripts/validate-local.sh fast",
+    "log_sha256": "43237193206b8fc022c6675682f53140c19f240cad022b9219868f65423ad31e"
+  }
+}

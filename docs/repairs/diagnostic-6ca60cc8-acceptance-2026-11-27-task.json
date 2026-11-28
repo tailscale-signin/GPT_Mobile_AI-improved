@@ -1,0 +1,146 @@
+{
+  "schema": "engineering.task-checkpoint.v1",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "feature/windows-native-benchmark-kit",
+  "baseSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65",
+  "workingBranch": "codex/diagnostic-acceptance-20261127",
+  "intent": "Implement acceptance verification windows, deadline provenance, bounded recovery presentation, readiness diagnosis and research recovery from diagnostic 6ca60cc8 and all 49 current reports.",
+  "scope": [
+    "generic durable verification windows preserving every accepted criterion and exact evidence",
+    "verification reservation and evidence-guided next action",
+    "closed deadline provenance across app/report receiver",
+    "concise incomplete acceptance with complete expandable ledger",
+    "capability readiness diagnosis",
+    "research recovery action reconciliation"
+  ],
+  "state": "OWNED_SCOPE_IMPLEMENTED_PENDING_INTEGRATION_VALIDATION",
+  "changes": [
+    {
+      "area": "deadline provenance",
+      "status": "implemented",
+      "details": "Closed accepted/request/continuation source vocabulary retained through timing producer, acceptance projection, app sanitizer and receiver."
+    },
+    {
+      "area": "durable verification windows",
+      "status": "implemented",
+      "details": "All generic accepted criteria are planned; immutable eight-batch pages are committed before a cursor manifest. Resume reuses validated batches, checks binding and authorization, and retains task-sized combined claim coverage. Existing v1 checkpoints remain readable."
+    },
+    {
+      "area": "dynamic verification reserve",
+      "status": "implemented",
+      "details": "Scales proof reservation with outstanding criteria within original allowance; selected read-only proof work can spend reserve above cleanup. Deterministic exact-revision CI discovery/job reads and retained local search pages use it without renewing counters or authorizing writes."
+    },
+    {
+      "area": "concise acceptance presentation",
+      "status": "implemented",
+      "details": "Blocked chat output previews at most three unverified claims and three remaining criteria with exact counts. Full JSON acceptance ledger is preserved for existing Activity Details."
+    },
+    {
+      "area": "capability readiness diagnosis",
+      "status": "implemented",
+      "details": "Missing integration capability records closed catalog reason plus authorized/advertised counts. Explicitly disabled search exits before tool binding and optional assist preparation with the existing configuration-scoped guidance; no tool or permission is enabled. Decision deferral diagnosis belongs to runtime agent."
+    },
+    {
+      "area": "research recovery action reconciliation",
+      "status": "implemented",
+      "details": "Typed local refusal identifies changed immutable action fields and observed checkpoint/evidence revision differences, preserves the accepted record, and instructs review plus a new explicit recovery action. Existing REVIEW_SAVED_RECOVERY, permission checks, proof-backed legacy migration and observational-only idempotence remain. Closed facts survive stored failure, report sanitization and receiver."
+    },
+    {
+      "area": "combined reserve integration follow-up",
+      "status": "implemented",
+      "details": "Initial runs derive pending criteria from the accepted contract before any verifier report exists. A callback refreshes the shared ToolExecutionBudget atomic source reserve before each round and selected correction so parallel admissions and changing pending counts match the planner without renewing durable counters."
+    },
+    {
+      "area": "parallel verification cleanup boundary",
+      "status": "implemented",
+      "details": "The shared verification callback atomically carries proof and owned-fixture cleanup allocations. Ordinary source admission protects both, while live proof and valid retained-page reads cannot consume cleanup. Exact cleanup recipes still spend the unchanged durable total ceiling under ordinary authorization."
+    }
+  ],
+  "validation": [
+    {
+      "suite": "GitHubAcceptanceRecoveryEvidenceTest portable production-source harness",
+      "result": "12 passed"
+    },
+    {
+      "suite": "Python incident report deadline/provenance/recovery receiver tests",
+      "result": "3 passed"
+    },
+    {
+      "suite": "IssueReportAcceptanceRetentionTest sender round trip",
+      "result": "added; full Gradle pending root"
+    },
+    {
+      "suite": "GitHubClaimWindowsTest portable production-source harness",
+      "result": "3 passed covering 33/64/169 criteria, crash before cursor commit, missing/corrupt/rebound windows"
+    },
+    {
+      "suite": "GitHubVerifiedSessionTest large plan / interrupted extraction",
+      "result": "2 new behavior tests added; full Gradle pending root"
+    },
+    {
+      "suite": "Portable deterministic reserve/read-budget/gate harness",
+      "result": "9 passed using production source functions, durable budget restart/auth, pinned run/job selectors and refusal paths"
+    },
+    {
+      "suite": "Next-action, dynamic reserve and VerifiedSession read-only proof tests",
+      "result": "added; full Gradle pending root"
+    },
+    {
+      "suite": "Reconciled portable harnesses at 6913b7a26 plus current work",
+      "result": "deadline 14 passed, windows 3 passed, reserve 9 passed"
+    },
+    {
+      "suite": "GitHubAnswerPresentationTest 169-criterion/64-claim preview",
+      "result": "2 behavior tests added; full Gradle pending root"
+    },
+    {
+      "suite": "Readiness receiver and extended capability HTTP boundary",
+      "result": "2 passed; Android producer/report and disabled-search behavior tests added for full Gradle"
+    },
+    {
+      "suite": "ResearchRecoveryEvidenceTest and ResearchResumePolicyTest production-source JVM harness",
+      "result": "6 passed; exact production request data type extracted, no Android store substitution"
+    },
+    {
+      "suite": "Python incident report contract and complete HTTP boundaries",
+      "result": "201 passed"
+    },
+    {
+      "suite": "ResearchTaskStore restart/refusal + stored ProfileFailureRecord/report round trip",
+      "result": "2 behavior tests added; full Gradle pending integration owner"
+    },
+    {
+      "suite": "Changed Kotlin formatting and git diff whitespace",
+      "result": "ktlint 1.3.1 and git diff --check passed"
+    },
+    {
+      "suite": "Expanded production-slice reserve/budget harness",
+      "result": "11 passed including initial accepted169-criterion gate and large-plan parallel source admission, restart, reserve reduction and unchanged total ceiling; boundary task parser is a fixture double, full production parser covered by added project test"
+    },
+    {
+      "suite": "Combined root authentication discovery after rebase to486055 (root3714bedd1)",
+      "result": "249 passed; legacy readiness1022bytes/30features; extended3314bytes/100distinctfeatures within4096 including readiness/research/voice/dispatch additions"
+    },
+    {
+      "suite": "Independent remote486 overlap audit",
+      "result": "Overlapping EvidenceBook deadline and ProfileFailureRecord changes are formatting-only; pending-choice progress changes complement runtime decision diagnostics; no criterion-loss/deadline conflict found"
+    },
+    {
+      "suite": "Final portable reserve/budget/gate harness",
+      "result": "12 passed including parallel proof reads with5remaining/4cleanup, retained-page refusal, durable restart and cleanup consumption without renewal; ktlint1.3.1 and diff check pass"
+    }
+  ],
+  "excludedOwnership": [
+    "AgentRunner and context projection owned by runtime agent",
+    "Gateway handshake/server streaming owned by root",
+    "Voice and provider dispatch evidence owned by app agent"
+  ],
+  "remoteMutations": false,
+  "handoff": {
+    "integrationOwner": "root",
+    "remoteBaseAdvancedTo": "486055ee31d4cb3ba0c5c796e260e82cfb8e4a90",
+    "integrationInstructions": "Root will rebase the combined tree after cherry-picking these 6913-based logical commits. Do not push this isolated branch.",
+    "savedPageReopenAndDecisionDeferrals": "runtime agent owns #2706/#2727 and completed-decision #2720 behavior",
+    "generatedNavigation": "root regenerates feature-map/release metadata"
+  }
+}

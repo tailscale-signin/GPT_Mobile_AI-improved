@@ -1,6 +1,8 @@
 """Full-model CI preparation rejects ambiguous, incomplete and unpinned inputs."""
 import hashlib
+import importlib.util
 import io
+import json
 from pathlib import Path
 import stat
 import sys
@@ -100,6 +102,87 @@ class NativeHostInputsTest(unittest.TestCase):
                 host.prepare(destination)
         self.assertFalse(destination.exists())
         self.assertFalse(list(self.root.glob(".kokoro-native-*")))
+
+    def test_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest(self):
+        class SdkReached(Exception):
+            pass
+
+        approved = json.loads((host.ROOT / "docs/audits/qualcomm-dispatch-inputs.json").read_text())
+        publisher = json.loads(host.QNN_HOST_MANIFEST.read_text())
+        self.assertNotIn("dispatchBuild", publisher)
+        self.assertEqual(publisher["publisherSha256"], publisher["downloadedSha256"])
+
+        def inspect_manifest(output, manifest):
+            self.assertEqual(host.QNN_SDK_MANIFEST, manifest)
+            self.assertNotEqual(host.QNN_HOST_MANIFEST, manifest)
+            sdk = json.loads(manifest.read_text())
+            self.assertEqual(approved["qairtSdkVersion"], sdk["dispatchBuild"]["qairtSdkVersion"])
+            self.assertEqual(approved["qnnHeadersSha256"], sdk["qairtSdk"]["qnnHeadersSha256"])
+            raise SdkReached()
+
+        destination = self.root / "prepared"
+        with patch.object(host, "checked_download"), patch.object(host, "native_preparer") as native:
+            native.return_value.prepare.side_effect = inspect_manifest
+            with self.assertRaises(SdkReached):
+                host.prepare(destination)
+        self.assertFalse(destination.exists())
+        self.assertFalse(list(self.root.glob(".kokoro-native-*")))
+
+    def test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests(self):
+        native = host.native_preparer()
+        actual_header_spec = importlib.util.spec_from_file_location(
+            "actual_asr_qnn_headers", native.HERE / "prepare_asr_qnn_headers.py")
+        actual_headers = importlib.util.module_from_spec(actual_header_spec)
+        actual_header_spec.loader.exec_module(actual_headers)
+        sdk_manifest = host.ROOT / "docs/audits/qnn-runtime-candidate.json"
+        sdk = json.loads(sdk_manifest.read_text())
+        observed_headers, observed_libraries = [], []
+
+        def prepare_headers(manifest, output):
+            record = json.loads(manifest.read_text())
+            self.assertEqual(record["dispatchBuild"]["qnnHeadersSha256"], record["qairtSdk"]["qnnHeadersSha256"])
+            observed_headers.append((manifest, output.name))
+
+        class HeaderBoundary:
+            def create_module(self, spec):
+                return None
+
+            def exec_module(self, module):
+                module.sdk_manifest = actual_headers.sdk_manifest
+                module.prepare = prepare_headers
+
+        header_spec = importlib.util.spec_from_loader("asr_qnn_headers", HeaderBoundary())
+
+        def download(record, target):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"archive boundary fixture")
+            return target
+
+        def prepare_libraries(manifest, output):
+            record = json.loads(manifest.read_text())
+            self.assertEqual(record["publisherSha256"], record["downloadedSha256"])
+            observed_libraries.append(manifest)
+
+        destination = self.root / "prepared"
+        # Exercise the actual host orchestrator and ASR dependency preparer.
+        # Only archive/network and SDK extraction boundaries are replaced.
+        with patch.object(host, "native_preparer", return_value=native), \
+                patch.object(host, "checked_download", side_effect=download), \
+                patch.object(native, "checked_download", side_effect=download), \
+                patch.object(native.importlib.util, "spec_from_file_location", return_value=header_spec), \
+                patch.object(host, "prepare_asr"), \
+                patch.object(host, "extract_ort"), \
+                patch.object(host, "extract_model"), \
+                patch.object(host, "prepare_qnn", side_effect=prepare_libraries):
+            host.prepare(destination)
+        self.assertEqual([(sdk_manifest, "asr-qairt-" + sdk["dispatchBuild"]["qairtSdkVersion"])], observed_headers)
+        self.assertEqual([host.QNN_HOST_MANIFEST], observed_libraries)
+        self.assertNotEqual(sdk_manifest, host.QNN_HOST_MANIFEST)
+        receipt = json.loads((destination / "inputs.json").read_text())
+        self.assertEqual(host.digest(host.QNN_HOST_MANIFEST), receipt["qnnPublisherManifestSha256"])
+        self.assertEqual(host.digest(sdk_manifest), receipt["qnnSdkManifestSha256"])
+        self.assertFalse(receipt["modelExecuted"])
+        self.assertFalse(receipt["physicalDeviceQualified"])
 
     def test_host_pins_remain_the_actual_production_native_and_model_inputs(self):
         cmake = (host.ROOT / "local-kokoro-runtime/src/main/cpp/CMakeLists.txt").read_text()

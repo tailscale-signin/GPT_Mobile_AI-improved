@@ -47,10 +47,11 @@ def lines(*events, done=True):
 
 
 class Response:
-    def __init__(self, data=None, stream=None, stall=False):
+    def __init__(self, data=None, stream=None, stall=False, close_error=requests.ConnectionError):
         self.status_code = 200
         self.headers = {"content-type": "text/event-stream" if stream is not None else "application/json"}
         self.data, self.stream, self.stall = data, stream, stall
+        self.close_error = close_error
         self.closed = threading.Event()
         self.content = b""
 
@@ -62,7 +63,7 @@ class Response:
         if self.stall:
             if not self.closed.wait(2):
                 raise AssertionError("Transport failed to close completed/stalled stream")
-            raise requests.ConnectionError("Stream closed")
+            raise self.close_error("Stream closed")
 
     def close(self):
         self.closed.set()
@@ -207,15 +208,29 @@ class CompletionRecoveryTests(unittest.TestCase):
         self.assertEqual(1, len(session.calls))
 
     def test_finish_marker_closes_open_socket_but_keeps_usage(self):
-        response = Response(stream=lines(
-            {"choices": [{"delta": {"content": "answer"}, "finish_reason": "stop"}]},
-            {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}}, done=False), stall=True)
-        started = time.monotonic()
-        result = self.run_chat(Session(response)).json()
-        self.assertLess(time.monotonic() - started, 1)
-        self.assertEqual("answer", result["choices"][0]["message"]["content"])
-        self.assertEqual(2, result["usage"]["completion_tokens"])
-        self.assertTrue(response.closed.is_set())
+        for close_error in (requests.ConnectionError, AttributeError, ValueError):
+            with self.subTest(close_error=close_error):
+                response = Response(stream=lines(
+                    {"choices": [{"delta": {"content": "answer"}, "finish_reason": "stop"}]},
+                    {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}}, done=False),
+                    stall=True, close_error=close_error)
+                started = time.monotonic()
+                session = Session(response)
+                result = self.run_chat(session).json()
+                self.assertLess(time.monotonic() - started, 1)
+                self.assertEqual("answer", result["choices"][0]["message"]["content"])
+                self.assertEqual(2, result["usage"]["completion_tokens"])
+                self.assertEqual(1, len(session.calls))
+                self.assertTrue(response.closed.is_set())
+
+    def test_live_stream_read_errors_after_finish_propagate(self):
+        for read_error in (AttributeError, ValueError):
+            with self.subTest(read_error=read_error):
+                def broken_stream():
+                    yield from lines({"choices": [{"delta": {"content": "answer"}, "finish_reason": "stop"}]}, done=False)
+                    raise read_error("unexpected reader failure")
+                with self.assertRaisesRegex(read_error, "unexpected reader failure"):
+                    self.run_chat(Session(Response(stream=broken_stream())), finish_grace_seconds=2)
 
     def test_cancel_before_post_sends_nothing(self):
         session = Session()
@@ -224,23 +239,27 @@ class CompletionRecoveryTests(unittest.TestCase):
         self.assertFalse(session.calls)
 
     def test_deadline_closes_stream_without_finish_marker(self):
-        response = Response(stream=lines({"choices": [{"delta": {"content": "partial"}}]}, done=False), stall=True)
-        with self.assertRaises(GatewayContractError) as error:
-            self.run_chat(Session(response), deadline_seconds=0.08)
-        self.assertEqual("backend_deadline_exceeded", error.exception.code)
-        self.assertTrue(response.closed.is_set())
+        for close_error in (requests.ConnectionError, ValueError):
+            with self.subTest(close_error=close_error):
+                response = Response(stream=lines({"choices": [{"delta": {"content": "partial"}}]}, done=False), stall=True, close_error=close_error)
+                with self.assertRaises(GatewayContractError) as error:
+                    self.run_chat(Session(response), deadline_seconds=0.08)
+                self.assertEqual("backend_deadline_exceeded", error.exception.code)
+                self.assertTrue(response.closed.is_set())
 
     def test_cancel_mid_stream_closes_transport(self):
-        cancelled = threading.Event()
-        response = Response(stream=lines({"choices": [{"delta": {"content": "partial"}}]}, done=False), stall=True)
-        timer = threading.Timer(0.05, cancelled.set)
-        timer.start()
-        try:
-            with self.assertRaises(InterruptedError):
-                self.run_chat(Session(response), cancelled=cancelled.is_set)
-            self.assertTrue(response.closed.is_set())
-        finally:
-            timer.join()
+        for close_error in (requests.ConnectionError, AttributeError):
+            with self.subTest(close_error=close_error):
+                cancelled = threading.Event()
+                response = Response(stream=lines({"choices": [{"delta": {"content": "partial"}}]}, done=False), stall=True, close_error=close_error)
+                timer = threading.Timer(0.05, cancelled.set)
+                timer.start()
+                try:
+                    with self.assertRaises(InterruptedError):
+                        self.run_chat(Session(response), cancelled=cancelled.is_set)
+                    self.assertTrue(response.closed.is_set())
+                finally:
+                    timer.join()
 
     def test_bare_done_terminates_without_requesting_another_line(self):
         def stream():

@@ -55,16 +55,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTiming
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionTranscript
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import kotlin.math.floor
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier, cursor: StateFlow<VoiceCaptionCursor>? = null) {
+    VoiceLiveCaptions(state, compact, modifier, cursor, replyOnly = false)
+}
+
+@Composable
+internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier, cursor: StateFlow<VoiceCaptionCursor>?, replyOnly: Boolean) {
     val liveCursor = cursor?.collectAsStateWithLifecycle()?.value?.takeIf { it.belongsTo(state.captionPresentationId) }
     val observed = if (liveCursor == null) state else state.copy(spokenRange = liveCursor.range, playbackCaption = liveCursor.projectedText)
-    val caption = remember(observed.phase, observed.transcript, observed.reply, observed.playbackCaption, observed.hasDraft, observed.awaitingReply, observed.readingDetails, observed.replyComplete) {
-        VoiceCaption.from(observed)
+    val caption = remember(observed.phase, observed.transcript, observed.reply, observed.playbackCaption, observed.hasDraft, observed.awaitingReply, observed.readingDetails, observed.replyComplete, replyOnly) {
+        VoiceCaption.from(observed, replyOnly)
     }
     if (caption == null) return
     val speaking = state.phase == VoicePhase.SPEAKING
@@ -86,18 +92,19 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
             speaking,
             compact,
             liveCursor?.timing,
+            state.recognitionTranscript?.takeIf { caption.speaker == "You" && it.text == caption.text },
             modifier.graphicsLayer { alpha = opacity.value }.testTag("voice_live_captions").padding(horizontal = 12.dp)
         )
     }
 }
 
 @Composable
-private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, speaking: Boolean, compact: Boolean, timing: VoiceCaptionTiming?, modifier: Modifier) {
+private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, speaking: Boolean, compact: Boolean, timing: VoiceCaptionTiming?, recognition: VoiceRecognitionTranscript?, modifier: Modifier) {
     val wordCache = remember(caption.speaker) { VoiceCaptionWordCache() }
     val words = remember(caption.text) { wordCache.update(caption) }
     val active = when {
         speaking -> caption.highlightRange(spokenRange, words)
-        caption.live && caption.speaker == "You" -> words.lastOrNull()
+        caption.live && caption.speaker == "You" -> recognition?.timings?.lastOrNull()?.range ?: words.lastOrNull()
         else -> null
     }
     var lastSpoken by remember { mutableIntStateOf(-1) }
@@ -115,6 +122,8 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
     val ink = MaterialTheme.colorScheme.onSurface
     val accessibleText = remember(caption.text) { AnnotatedString(caption.text) }
     val animate = voiceMotionEnabled()
+    var timingSnapshot by remember { mutableStateOf<VoiceRecognitionTranscript?>(null) }
+    timingSnapshot?.let { VoiceRecognitionTimingsDialog(it) { timingSnapshot = null } }
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val width = constraints.maxWidth.coerceAtLeast(1)
         val layoutCache = remember(caption.speaker, focusStyle, measurer, width, normalTypeface, boldTypeface) { VoiceCaptionLayoutCache() }
@@ -152,7 +161,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
         }
 
         val scrolling = rememberScrollableState(::move)
-        LaunchedEffect(lines, target, active, speaking, animate, reader.following, returningToLive, timing?.playing) {
+        LaunchedEffect(lines, target, active, speaking, animate, reader.following, returningToLive, timing) {
             var now = withFrameNanos { it }
             if (previousLines !== lines) {
                 val current = motion.sample(now).position
@@ -167,13 +176,17 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                 else -> timing?.playing != false
             }
             motion.playing(playbackMoving, now)
-            val wordMs = timing?.takeIf { it.sampleRate > 0 && it.wordEndFrame > it.wordStartFrame }
-                ?.let { ((it.wordEndFrame - it.wordStartFrame) * 1000 / it.sampleRate).coerceIn(240, 420).toInt() } ?: 320
+            val wordMs = timing?.let { captionWordMotionDurationMs(it.wordStartFrame, it.wordEndFrame, it.frameAt(now), it.sampleRate) } ?: 320
             motion.retarget(reader.position(liveLine, lastLine), now, animate && reader.following, wordMs)
+            if (timing != null && reader.following && animate) motion.refreshClock(now, wordMs)
             val onset = timing?.let {
                 captionWordOnsetNanos(it.wordStartFrame, it.wordEndFrame, it.presentedFrame, it.bufferedEndFrame, it.sampleRate, it.observedAtNanos, now, it.playing)
             } ?: now
-            highlights.update(active, onset, now, animate)
+            val wordNanos = timing?.takeIf { it.sampleRate > 0 && it.wordEndFrame > it.wordStartFrame }
+                ?.let { (it.wordEndFrame - it.wordStartFrame) * 1_000_000_000L / it.sampleRate }
+            highlights.playing(timing?.playing != false, now)
+            highlights.update(active, onset, now, animate, wordNanos)
+            if (timing != null) highlights.refreshClock(active, onset, now)
             do {
                 frameNanos.longValue = now
                 drawnPosition.floatValue = motion.sample(now).position.coerceIn(0f, lastLine.toFloat())
@@ -245,6 +258,10 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text("Return to live", color = accent, style = MaterialTheme.typography.labelLarge)
+                    }
+                } else if (!recognition?.timings.isNullOrEmpty()) {
+                    TextButton(onClick = { timingSnapshot = recognition }, modifier = Modifier.testTag("voice_recognition_show_timing")) {
+                        Text("Timing", color = accent, style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

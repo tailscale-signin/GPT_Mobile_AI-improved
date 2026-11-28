@@ -66,7 +66,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
-/** The same owner controls open from GitHub chat and from Settings > Gateway. */
+/** Gateway setup and owner controls stay in Settings; engineering runs automatically when ready. */
 @Composable
 internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileUid: String? = null, initialPairingLink: String? = null, model: GatewayControlViewModel = hiltViewModel()) {
     val profiles by model.profiles.collectAsStateWithLifecycle()
@@ -173,11 +173,12 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
                             Text("Settings are view-only on this connection. For editing and Engineering, use the PC’s Tailscale IP or the same saved GitHub personal access token on both devices.", style = MaterialTheme.typography.bodyMedium)
                             TextButton(onClick = { model.refresh(it, forceNetwork = true) }, enabled = !busy) { Text("Refresh settings") }
                         } else if (admission != null) {
-                            Text("Connected", style = MaterialTheme.typography.titleMedium)
-                            Text(if (admission.enabled) "Accept new engineering jobs" else "New engineering jobs paused")
-                            if (admission.principalId.startsWith("tailnet:")) {
-                                Switch(admission.enabled, onCheckedChange = { _ -> model.toggleDirect(it) }, enabled = !busy)
+                            Text("Gateway engineering", style = MaterialTheme.typography.titleMedium)
+                            Text(if (admission.enabled) "Ready for engineering jobs" else "Gateway setup needed")
+                            if (!admission.enabled) {
+                                Text("Update Gateway or complete setup on the PC, then refresh readiness. You can reconnect by address above.", style = MaterialTheme.typography.bodySmall)
                             }
+                            TextButton(onClick = { model.refresh(it, forceNetwork = true) }, enabled = !busy) { Text("Refresh readiness") }
                         } else {
                             GatewayControlSettingsContent(it, states[it.uid] ?: GatewayControlState(targetName = it.name), busy, model, initialPairingLink)
                         }
@@ -325,22 +326,30 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         val effectiveEngineering = snapshot.effective["engineering_enabled"] == JsonPrimitive(true)
         OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Accept new engineering jobs", style = MaterialTheme.typography.titleMedium)
-                        Text("On by default for connected repositories. Owners can pause new jobs here.", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(desiredEngineering, onCheckedChange = { on ->
-                        if (on && !state.engineeringBindingConfirmed) {
-                            engineeringConfirmation = true
-                        } else {
-                            model.apply(profile, snapshot.revision, JsonObject(mapOf("engineering_enabled" to JsonPrimitive(on))))
-                        }
-                    }, enabled = live && "engineering_enabled" in snapshot.writableFields, modifier = Modifier.testTag("gateway_owner_engineering"))
-                }
-                Text("Requested: ${if (desiredEngineering) "On" else "Off"} · Effective: ${if (effectiveEngineering) "On" else "Off"}", style = MaterialTheme.typography.bodySmall)
-                if (desiredEngineering && !state.engineeringBindingConfirmed && live) {
-                    TextButton(onClick = { engineeringConfirmation = true }) { Text("Apply Engineering to this phone") }
+                Text("Gateway engineering", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    when {
+                        state.phase == GatewayControlPhase.REVOKED || state.revocationPending || snapshot.role != "owner" -> "Owner access required"
+                        state.phase != GatewayControlPhase.LIVE -> "Readiness awaiting confirmation"
+                        !state.engineeringBindingConfirmed -> "Confirm this phone’s owner access"
+                        effectiveEngineering -> "Ready for engineering jobs"
+                        else -> "Gateway setup needed"
+                    },
+                    modifier = Modifier.testTag("gateway_engineering_readiness")
+                )
+                Text(
+                    when {
+                        state.phase != GatewayControlPhase.LIVE || state.revocationPending -> "Refresh this connection to check the PC’s current readiness and access."
+                        snapshot.role != "owner" -> "Connect this phone to the PC’s owner account in Gateway settings."
+                        !desiredEngineering -> "Update Gateway on the PC, then refresh readiness. Engineering is available automatically after setup."
+                        !state.engineeringBindingConfirmed -> "Review the selected PC before this phone submits new jobs."
+                        !effectiveEngineering -> "Complete the PC prerequisites below, then refresh confirmed state."
+                        else -> "Engineering runs automatically for connected repositories. You can stop individual jobs from their task controls."
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (!state.engineeringBindingConfirmed && state.writable && "engineering_enabled" in snapshot.writableFields) {
+                    TextButton(onClick = { engineeringConfirmation = true }, enabled = !busy) { Text("Confirm this phone") }
                 }
             }
         }
@@ -468,13 +477,13 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
     if (engineeringConfirmation && snapshot != null) {
         AlertDialog(
             onDismissRequest = { engineeringConfirmation = false },
-            title = { Text("Apply Engineering to ${profile.name.take(80)}?") },
+            title = { Text("Confirm owner for ${profile.name.take(80)}?") },
             text = { Text("This links new engineering work to your paired owner on ${state.targetEndpoint ?: profile.name} (installation ${snapshot.installationId.takeLast(12)}). Your inference model stays selected. Repository permissions, host prerequisites and job approvals still apply. Other unpaired devices receive no grant.") },
             confirmButton = {
                 TextButton(onClick = {
                     engineeringConfirmation = false
                     model.apply(profile, snapshot.revision, JsonObject(mapOf("engineering_enabled" to JsonPrimitive(true))), confirmEngineering = true)
-                }, enabled = live) { Text("Apply Engineering") }
+                }, enabled = live) { Text("Confirm owner") }
             },
             dismissButton = { TextButton(onClick = { engineeringConfirmation = false }) { Text("Cancel") } }
         )

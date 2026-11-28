@@ -22,9 +22,17 @@ internal object GitHubReadRetry {
 
         var attempt: Int = 0
             private set
+        private var circuitFailureRecorded = false
 
         fun nextAttempt() {
             attempt++
+        }
+
+        /** Physical retries belong to one logical read and trip a circuit at most once. */
+        @Synchronized fun claimCircuitFailure(): Boolean {
+            if (circuitFailureRecorded) return false
+            circuitFailureRecorded = true
+            return true
         }
     }
 

@@ -18,6 +18,8 @@ internal const val GITHUB_TREE_CACHE_VERSION = 2
  * trees never need to be sent to the model.
  */
 object GitHubRepositoryIndex {
+    internal const val MISSING_TREE_IDENTITY = "TREE_IDENTITY_MISSING"
+
     private val sourceExtensions = setOf(
         "kt", "kts", "java", "xml", "gradle", "md", "json", "yml", "yaml",
         "toml", "properties", "py", "js", "ts", "tsx", "jsx", "c", "cc",
@@ -30,11 +32,21 @@ object GitHubRepositoryIndex {
     internal fun checkPinnedTreeResponse(path: String, body: JsonElement) {
         if ("/git/trees/" !in path) return
         val expected = pinnedTreeEndpoint.matchEntire(path)?.groupValues?.get(1) ?: return
+        checkedPinnedTree(body, expected)
+    }
+
+    internal fun checkedPinnedTree(body: JsonElement, expectedTreeSha: String): JsonObject {
         val response = body as? JsonObject
         if (response == null || "sha" !in response) {
-            throw GitHubReadValidation("EVIDENCE_REVISION_MISMATCH", buildJsonObject { put("message", "GitHub did not identify the requested tree.") })
+            throw GitHubReadValidation(
+                "EVIDENCE_REVISION_MISMATCH",
+                buildJsonObject {
+                    put("message", "GitHub did not identify the requested tree.")
+                    if (response?.get("tree") is JsonArray) put("reason", MISSING_TREE_IDENTITY)
+                }
+            )
         }
-        checkedTree(response, expected)
+        return checkedTree(response, expectedTreeSha)
     }
 
     /** A failed or misdirected tree response must never become an empty inventory at the requested SHA. */

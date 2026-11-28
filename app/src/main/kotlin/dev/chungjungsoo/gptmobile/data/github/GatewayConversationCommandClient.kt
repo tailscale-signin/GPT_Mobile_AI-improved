@@ -24,6 +24,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 
 @Serializable
 internal data class GatewayInstructionCommand(
@@ -63,7 +67,7 @@ class GatewayConversationCommandClient internal constructor(private val http: Ht
                 }
             }.execute { response ->
                 GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                if (response.status.value == 409) throw GatewayConversationConflict()
+                if (response.status.value == 409) throw GatewayConversationConflict.fromBody(response.boundedMetadata(128 * 1024), conversationId)
                 check(response.status.isSuccess()) {
                     when (response.status.value) {
                         401, 403 -> "The original gateway account cannot accept this instruction. The saved command is retained."
@@ -79,4 +83,29 @@ class GatewayConversationCommandClient internal constructor(private val http: Ht
     }
 }
 
-class GatewayConversationConflict : IllegalStateException("The conversation changed or its job finished. Refresh it and review the instruction before sending again.")
+class GatewayConversationConflict(
+    val recoveryAction: String? = null,
+    val activeJobId: String? = null,
+    val conversationRevision: Long? = null
+) : IllegalStateException(
+    when (recoveryAction) {
+        "return_client_tool_results" -> "The existing job is waiting for saved tool results. Open that job and return its original results before continuing; completed tools must not run again."
+        "wait_for_active_job" -> "The existing job is still running. Keep this instruction queued and refresh that job's saved result."
+        "queue_instruction" -> "An engineering job is active. Review its refreshed state and queue this instruction for that job."
+        "resolve_active_job" -> "The existing job needs attention. Open it and resolve the pending state before sending this instruction."
+        else -> "The conversation changed or its job finished. Refresh it and review the instruction before sending again."
+    }
+) {
+    companion object {
+        internal fun fromBody(body: String, conversationId: String): GatewayConversationConflict {
+            val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+            val error = root?.get("error") as? JsonObject ?: return GatewayConversationConflict()
+            fun text(key: String) = (error[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            if (text("conversation_id")?.let { it != conversationId } == true) return GatewayConversationConflict()
+            val action = text("recovery_action")?.takeIf { it in setOf("open_active_job", "return_client_tool_results", "wait_for_active_job", "queue_instruction", "resolve_active_job") }
+            val job = text("active_job_id")?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,128}")) }
+            val revision = (error["conversation_revision"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it >= 0 }
+            return GatewayConversationConflict(action, job, revision)
+        }
+    }
+}

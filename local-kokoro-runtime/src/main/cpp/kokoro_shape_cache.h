@@ -13,7 +13,7 @@ constexpr int64_t kShapeCacheSingleBudgetBytes = 640LL * 1024 * 1024;
 constexpr int64_t kShapeCacheMaximumBudgetBytes = 2 * kShapeCacheSingleBudgetBytes;
 constexpr int64_t kShapeCacheHeadroomBytes = 512LL * 1024 * 1024;
 
-enum class ShapeCacheAdmission : int64_t { CpuSingle, MemoryUnknown, MemoryPressure, BoundedTwoShapes, BoundedThreeShapes };
+enum class ShapeCacheAdmission : int64_t { CpuSingle, MemoryUnknown, MemoryPressure, BoundedTwoShapes, BoundedThreeShapes, BoundedFourShapes, BoundedFiveShapes };
 struct ShapeCacheAllowance {
   size_t limit;
   int64_t budget;
@@ -25,19 +25,29 @@ struct ShapeCacheAllowance {
 // memory never enables an idle accelerator session. These are residency
 // estimates, not a native allocator limit or a promise that three shapes fit.
 inline ShapeCacheAllowance AdmitShapeCache(bool accelerator, int64_t available,
-    int64_t retained, int64_t prospective, bool large_weights = false) {
+    int64_t retained, int64_t prospective, bool large_weights = false, bool compact_htp = false) {
   if (!accelerator) return {1, kShapeCacheSingleBudgetBytes, ShapeCacheAdmission::CpuSingle};
   if (available <= 0) return {1, kShapeCacheSingleBudgetBytes, ShapeCacheAdmission::MemoryUnknown};
   const auto spare = std::max<int64_t>(0, available - kShapeCacheHeadroomBytes);
   // Measured original-weight sessions can individually exceed the compact-pack ceiling.
   // Allow two such exact shapes only when the OS reports sufficient unused memory.
-  const auto ceiling = large_weights && available >= 3LL * 1024 * 1024 * 1024 ?
-      2 * kShapeCacheMaximumBudgetBytes : kShapeCacheMaximumBudgetBytes;
-  const auto bounded_retained = std::clamp<int64_t>(retained, 0, ceiling);
-  const auto budget = bounded_retained + std::min(spare, ceiling - bounded_retained);
   const bool room = spare > 0 && spare >= std::max<int64_t>(0, prospective);
-  return {room ? size_t{3} : size_t{1}, budget,
-      room ? ShapeCacheAdmission::BoundedThreeShapes : ShapeCacheAdmission::MemoryPressure};
+  // A measured utterance cycles through five exact HTP shapes. Four slots
+  // still recompile every chunk on its next repetition. Admit a fifth only
+  // with 4 GiB currently available, retaining the same 2 GiB estimate ceiling.
+  // Never pad tokens to obtain a cache hit, and shrink again under pressure.
+  const bool five = compact_htp && !large_weights && room &&
+      available >= 4LL * 1024 * 1024 * 1024;
+  const bool four = compact_htp && !large_weights && room &&
+      available >= 3LL * 1024 * 1024 * 1024;
+  const auto ceiling = four ? 2LL * 1024 * 1024 * 1024 :
+      (large_weights && available >= 3LL * 1024 * 1024 * 1024 ?
+      2 * kShapeCacheMaximumBudgetBytes : kShapeCacheMaximumBudgetBytes);
+  const auto bounded_retained = std::clamp<int64_t>(retained, 0, ceiling);
+  const auto budget = bounded_retained + std::min<int64_t>(spare, ceiling - bounded_retained);
+  return {five ? size_t{5} : (four ? size_t{4} : (room ? size_t{3} : size_t{1})), budget,
+      five ? ShapeCacheAdmission::BoundedFiveShapes : (four ? ShapeCacheAdmission::BoundedFourShapes :
+      (room ? ShapeCacheAdmission::BoundedThreeShapes : ShapeCacheAdmission::MemoryPressure))};
 }
 
 inline int64_t AddResidentGrowth(int64_t estimate, int64_t before, int64_t after) {

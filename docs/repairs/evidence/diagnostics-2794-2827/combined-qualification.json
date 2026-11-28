@@ -1,0 +1,28 @@
+{
+  "head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "source_manifest": "source-manifest.json",
+  "compile_exit": 0,
+  "test_exit": 0,
+  "selected_existing_cases": {
+    "CombinedTurnBudgetTest": [
+      "concurrentWorkersShareOneAtomicToolCeilingAndDuplicateIdsDoNotExecute",
+      "unknownAttemptRemainsReservedAcrossSerializationAndCancellationBlocksFinalization",
+      "fullScaleRenewsOnlyForFiniteUnfinishedWorkAndMeasuredProgress",
+      "baselineAndFinalCapacityCannotBeConsumedByOptionalCallsOrContextEstimateExpansion"
+    ],
+    "CombinedSinglePassTest": [
+      "consumedSinglePassRequiresANewRevisionAndRestorationCannotAdvertiseAnImpossibleRetry",
+      "knownNotDispatchedFailureCanRetryAndClearsTheStaleFailureWhileWriting"
+    ]
+  },
+  "case_count": 6,
+  "scope": "Actual complete Combined budget/store/policy/work-plan source classes; six unchanged test method bodies and original fixtures extracted from the two checked-in classes. No tests or production files changed in the repository.",
+  "ports": [
+    "BuildConfigPort.kt",
+    "InjectionPort.kt",
+    "ApplicationContextPort.kt",
+    "AcceptedTaskPort.kt",
+    "PricingPort.kt"
+  ],
+  "limits": "No Android app execution, physical URL reads, device budget journal recovery, pricing, AgentRunner event loop or CombinedDeliverySession rendering was exercised. The pricing port fails loudly if reached. In-memory store, real serialization, quota admission/protection and recovery policy were exercised."
+}

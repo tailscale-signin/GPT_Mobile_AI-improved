@@ -16,12 +16,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.isSm8750SpeechDevice
 
 @Composable
@@ -38,9 +40,12 @@ internal fun StreamingVoiceModelCard(
     standardPack: LocalVoiceModelState? = null,
     preparingNpuBase: Boolean = false,
     npuBaseError: String? = null,
-    setup: Boolean = false
+    setup: Boolean = false,
+    voiceId: String? = null,
+    selectVoice: (String) -> Unit = {}
 ) {
     val model = MediaPipeSpeechCatalog.model(engine)
+    val uriHandler = LocalUriHandler.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importCompiled(uri)
     }
@@ -56,6 +61,18 @@ internal fun StreamingVoiceModelCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("${model.title} · Offline speech", style = MaterialTheme.typography.titleMedium)
             Text("Starts playing audio as the engine produces it. Word highlighting uses estimated timing.", style = MaterialTheme.typography.bodySmall)
+            if (!engine.isKokoro) {
+                VoiceChoice(
+                    "Streaming voice",
+                    MediaPipeSpeechVoices.selected(engine, voiceId),
+                    MediaPipeSpeechVoices.choices(engine),
+                    selectVoice,
+                    enabled = enabled
+                )
+                Text("${MediaPipeSpeechVoices.ids(engine).size} bundled voices · ${MediaPipeSpeechVoices.profiles(engine).size} language profiles. The selected voice is checked against the installed pack before playback.", style = MaterialTheme.typography.bodySmall)
+                MediaPipeSpeechVoices.attribution(MediaPipeSpeechVoices.selected(engine, voiceId))?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                MediaPipeSpeechVoices.processorAvailability(engine)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
             when {
                 model.requiresSm8750 && !isSm8750SpeechDevice() -> Text("This vocoder requires a Snapdragon 8 Elite (SM8750).")
                 current.status == LocalVoiceModelStatus.READY -> Text("Installed and verified", color = MaterialTheme.colorScheme.primary)
@@ -98,9 +115,6 @@ internal fun StreamingVoiceModelCard(
             }
             current.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (current.status == LocalVoiceModelStatus.READY && !setup) {
-                if (!engine.isKokoro) {
-                    Text("Voice · ${model.defaultVoice.replaceFirstChar { it.uppercase() }}", style = MaterialTheme.typography.bodySmall)
-                }
                 Row {
                     TextButton(onClick = preview, enabled = enabled) { Text("Preview streaming voice") }
                     TextButton(onClick = remove, enabled = enabled) { Text("Remove pack") }
@@ -108,6 +122,8 @@ internal fun StreamingVoiceModelCard(
             }
             Text("The engine manages its CPU threads. The native Kokoro thread setting does not apply.", style = MaterialTheme.typography.bodySmall)
             Text("${model.title} model · ${model.license}", style = MaterialTheme.typography.bodySmall)
+            Text(model.attribution, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { uriHandler.openUri(model.sourceUrl) }) { Text("Model source and voice terms") }
             previewError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
     }

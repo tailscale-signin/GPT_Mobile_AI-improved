@@ -22,6 +22,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCopilotTasksTest {
+    @Test fun directAndSupervisedCopilotUseTheSharedUnicodeBoundary() {
+        val path = "gateway/contracts/github-intelligence-client-cases-v1.json"
+        val file = listOf(java.io.File(path), java.io.File("../$path")).first { it.isFile }
+        val fixtures = kotlinx.serialization.json.Json.parseToJsonElement(file.readText()).jsonObject
+        for (row in fixtures["promptCases"] as kotlinx.serialization.json.JsonArray) {
+            val case = row.jsonObject
+            val prompt = (case.getValue("character") as JsonPrimitive).content.repeat((case.getValue("count") as JsonPrimitive).content.toInt())
+            val args = JsonObject(request + ("prompt" to JsonPrimitive(prompt)))
+            assertEquals(case["accepted"] == JsonPrimitive(true), runCatching { GitHubCopilotTasks.creationBody(args) }.isSuccess)
+        }
+    }
+
     private val sha = "a".repeat(40)
     private val request = buildJsonObject {
         put("owner", "owner")

@@ -3,6 +3,15 @@ package dev.chungjungsoo.gptmobile.data.agent.provider
 import dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel
 import dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort
 
+/** Only these stages continue the accepted task; review and formatting helpers own no job. */
+internal fun gatewayTaskRole(role: String): Boolean = role in setOf(
+    "primary",
+    "github-task-resume",
+    "github-execution-continuation",
+    dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.CONTINUATION_ROLE,
+    dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
+)
+
 /** Per-request hard constraints take precedence over saved provider preferences. */
 data class RequestConstraints(
     val maxOutputTokens: Int? = null,
@@ -43,9 +52,12 @@ data class RequestConstraints(
     /** Identity of the complete retained answer, even when the wire sends only its tail. */
     val continuationPrefixDigest: String? = null,
     val gitHubIntelligenceLevel: GitHubIntelligenceLevel? = null,
-    val gitHubEffort: GitHubReasoningEffort? = null
+    val gitHubEffort: GitHubReasoningEffort? = null,
+    /** A selected translation turn treats generated text as source data, never as prompt-tool syntax. */
+    val sourceTranslation: Boolean = false
 ) {
     init {
+        require(!sourceTranslation || !allowTools && !allowGatewayLocalTools && combined == null) { "Source translation cannot enable tools or Combined execution." }
         finalResponseSchemaJson?.let { schema ->
             require(schema.toByteArray().size <= 32 * 1024) { "Final-response schema exceeds 32 KiB" }
             require(kotlinx.serialization.json.Json.parseToJsonElement(schema) is kotlinx.serialization.json.JsonObject) { "Final-response schema must be an object" }
@@ -57,6 +69,8 @@ data class RequestConstraints(
 
     /** Extraction is bounded formatting; engineering reasoning must leave room for visible JSON. */
     fun forRole(role: String): RequestConstraints {
+        val taskRole = gatewayTaskRole(role)
+        val conversationRole = taskRole || role == "synthesis"
         val visibleRepair = role == dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE &&
             reasoningModeOverride in setOf(null, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) &&
             gitHubIntelligenceLevel in setOf(GitHubIntelligenceLevel.INSTANT, GitHubIntelligenceLevel.INTELLIGENT) &&
@@ -65,14 +79,14 @@ data class RequestConstraints(
         val briefHelper = visibleRepair || role in setOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary") || role.startsWith("github-review") && !role.endsWith("repair")
         return copy(
             requestRole = role,
-            restoredGatewayJob = restoredGatewayJob.takeIf { role == "primary" },
-            gatewayNewStageAfterTerminal = gatewayNewStageAfterTerminal && role == "primary",
-            gatewayConversationKey = gatewayConversationKey.takeIf { role == "primary" || role == "synthesis" },
-            gatewayConversationId = gatewayConversationId.takeIf { role == "primary" || role == "synthesis" },
-            onGatewayCommandPrepared = onGatewayCommandPrepared.takeIf { role == "primary" || role == "synthesis" },
-            onGatewayCommandNotDispatched = onGatewayCommandNotDispatched.takeIf { role == "primary" || role == "synthesis" },
-            onGatewayCommandDispatching = onGatewayCommandDispatching.takeIf { role == "primary" || role == "synthesis" },
-            requireGatewayConversation = requireGatewayConversation && role in setOf("primary", "synthesis"),
+            restoredGatewayJob = restoredGatewayJob.takeIf { taskRole },
+            gatewayNewStageAfterTerminal = gatewayNewStageAfterTerminal && taskRole,
+            gatewayConversationKey = gatewayConversationKey.takeIf { conversationRole },
+            gatewayConversationId = gatewayConversationId.takeIf { conversationRole },
+            onGatewayCommandPrepared = onGatewayCommandPrepared.takeIf { conversationRole },
+            onGatewayCommandNotDispatched = onGatewayCommandNotDispatched.takeIf { conversationRole },
+            onGatewayCommandDispatching = onGatewayCommandDispatching.takeIf { conversationRole },
+            requireGatewayConversation = requireGatewayConversation && conversationRole,
             maxOutputTokens = when (role) {
                 dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.PREFLIGHT_ROLE -> minOf(maxOutputTokens ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.OUTPUT_TOKENS)
                 dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.OUTPUT_RETRY_ROLE -> minOf(maxOutputTokens ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.OUTPUT_RETRY_TOKENS)

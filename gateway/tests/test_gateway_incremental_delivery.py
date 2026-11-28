@@ -168,6 +168,19 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await asyncio.to_thread(prefix.wait, self.READINESS_SECONDS),
                         f'Backend not ready: requests={len(received)}, worker_done={worker.done()}')
 
+    async def visible_prefix(self, visible, worker):
+        # This is an ordering contract, not a latency benchmark. A fixture
+        # cannot finish until the test releases it after the visible prefix.
+        observed = asyncio.create_task(visible.wait())
+        try:
+            await asyncio.wait({observed, worker}, timeout=self.READINESS_SECONDS,
+                               return_when=asyncio.FIRST_COMPLETED)
+            self.assertTrue(visible.is_set(), f'No incremental prefix: worker_done={worker.done()}')
+            self.assertFalse(worker.done(), 'The answer completed before the held backend was released')
+        finally:
+            observed.cancel()
+            await asyncio.gather(observed, return_exceptions=True)
+
     async def asyncTearDown(self):
         for release in self._backend_releases:
             release.set()
@@ -299,7 +312,7 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         worker = asyncio.create_task(self.observe(self.body(job_id, role='github-primary'), job_id, packets, first_visible))
         try:
             await self.backend_ready(backend_prefix, received, worker)
-            await asyncio.wait_for(first_visible.wait(), 3)
+            await self.visible_prefix(first_visible, worker)
         finally:
             await self.finish_streams(release, worker)
         self.assertEqual('First', content(packets))
@@ -311,6 +324,70 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(error['automatic_replay'])
         self.assertEqual('failed', self.runtime.job_registry[job_id]['status'])
         self.assertFalse(self.runtime.android_job_result_shape(job_id, 'failed', {'error': error})['continuation_allowed'])
+
+    async def test_received_answer_reaches_asgi_while_diagnostic_progress_persistence_is_blocked(self):
+        release, backend_prefix, received, errors = self.backend()
+        progress_blocked, progress_release = threading.Event(), threading.Event()
+        self._backend_releases.append(progress_release)
+        progress_errors = []
+        update_job = self.runtime.update_gateway_job
+
+        def slow_diagnostic_update(job_id, event):
+            if event.get('event') == 'backend_first_output':
+                progress_blocked.set()
+                if not progress_release.wait(self.READINESS_SECONDS + self.SETTLEMENT_SECONDS):
+                    progress_errors.append('The observing test did not release diagnostic persistence')
+            return update_job(job_id, event)
+
+        self.stack.enter_context(patch.object(self.runtime, 'update_gateway_job', slow_diagnostic_update))
+        packets, first_visible = [], asyncio.Event()
+        job_id = 'blocked-diagnostic-progress'
+        worker = asyncio.create_task(self.observe(self.body(job_id), job_id, packets, first_visible))
+        try:
+            await self.backend_ready(backend_prefix, received, worker)
+            self.assertTrue(await asyncio.to_thread(progress_blocked.wait, self.READINESS_SECONDS))
+            # The backend terminal marker and diagnostic journal are both held.
+            # Already-validated answer text must still reach the live ASGI client.
+            await asyncio.wait_for(first_visible.wait(), 3)
+            self.assertEqual('First', content(packets))
+            self.assertFalse(worker.done())
+            self.assertFalse(progress_release.is_set())
+            self.assertNotEqual('completed', self.runtime.job_registry[job_id]['status'])
+        finally:
+            progress_release.set()
+            await self.finish_streams(release, worker)
+        self.assertFalse(errors + progress_errors)
+        self.assertEqual(1, len(received))
+        self.assertEqual('First answer', content(packets))
+        self.assertEqual('completed', self.runtime.job_registry[job_id]['status'])
+
+    async def test_terminal_commit_runs_off_event_loop_and_precedes_shared_completion(self):
+        release, _, received, _ = self.backend()
+        release.set()
+        commit_entered, commit_release = threading.Event(), threading.Event()
+        loop_thread = threading.get_ident()
+        finish = self.runtime.finish_gateway_job
+        def held_commit(*args, **kwargs):
+            self.assertNotEqual(loop_thread, threading.get_ident(), 'Terminal persistence blocked the event loop')
+            commit_entered.set()
+            if not commit_release.wait(self.READINESS_SECONDS):
+                raise AssertionError('The test never released the terminal commit')
+            return finish(*args, **kwargs)
+        packets = []
+        with patch.object(self.runtime, 'finish_gateway_job', side_effect=held_commit):
+            worker = asyncio.create_task(self.observe(self.body('held-commit'), 'held-commit', packets, asyncio.Event()))
+            try:
+                self.assertTrue(await asyncio.to_thread(commit_entered.wait, self.READINESS_SECONDS))
+                await asyncio.sleep(0)
+                self.assertFalse(worker.done())
+                self.assertFalse(self.runtime.singleflight_workers['held-commit']['task'].done())
+                self.assertNotIn('data: [DONE]', ''.join(packet.decode() if isinstance(packet, bytes) else packet for packet in packets))
+            finally:
+                commit_release.set()
+                await self.finish_streams(release, worker)
+        self.assertEqual(1, len(received))
+        self.assertEqual('completed', self.runtime.job_registry['held-commit']['status'])
+        self.assertEqual('First answer', content(packets))
 
     async def test_layout_is_identical_for_incremental_buffered_fast_and_saved_completion(self):
         prefix, tail = '    def example():\n', '\treturn "🌸"\n\n'
@@ -326,7 +403,10 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 body = self.body(job_id, role=role)
                 if mode == 'fast':
                     release.set()
-                poll_seconds = 5 if mode == 'fast' else self.runtime.PROGRESS_POLL_SECONDS
+                # Exercise a completion that wakes the subscriber before another
+                # progress poll, regardless of how long CI takes to persist it.
+                # finish_streams still bounds the observer and physical worker.
+                poll_seconds = None if mode == 'fast' else self.runtime.PROGRESS_POLL_SECONDS
                 mode_scope = self.stack.enter_context(ExitStack())
                 mode_scope.enter_context(patch.object(self.runtime, 'PROGRESS_POLL_SECONDS', poll_seconds))
                 worker = asyncio.create_task(self.observe(body, job_id, packets, first_visible))

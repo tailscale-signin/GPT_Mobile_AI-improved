@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditSourceInventory
 import dev.chungjungsoo.gptmobile.data.audit.appAuditModelBenchmarkIssue
 import dev.chungjungsoo.gptmobile.data.audit.interrupted
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.localruntime.AdmissionOutcome
 import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -75,6 +76,11 @@ class BenchmarkBatchRunner @Inject constructor(
     @Volatile private var requestedStop: BenchmarkStopOrigin? = null
 
     @Volatile private var localCleanupBlocked = false
+
+    private suspend fun terminationFailure(error: Throwable, stage: String, eventId: String): BenchmarkFailure {
+        val origin = requestedStop ?: BenchmarkStopOrigin.SERVICE_INTERRUPTION.takeIf { error is CancellationException && !currentCoroutineContext().isActive }
+        return benchmarkTerminationFailure(error, stage, origin, eventId)
+    }
 
     internal suspend fun requestStop(id: String, origin: BenchmarkStopOrigin): Boolean {
         if (activeId != id) return false
@@ -146,7 +152,7 @@ class BenchmarkBatchRunner @Inject constructor(
                     return
                 }
                 val skipped = requestedStop == BenchmarkStopOrigin.USER_SKIP
-                val failure = result.samples.firstOrNull { it.outcome in setOf(BenchmarkOutcome.FAILED, BenchmarkOutcome.PARTIAL) || it.outcome == BenchmarkOutcome.UNSUPPORTED && it.failure != null || it.executionFailure() || it.cleanupReceipt == "cleanup_unconfirmed_local_blocked" }?.let { it.failure ?: BenchmarkFailure(it.failureCategory ?: "MODEL_QUALITY", it.runtimeStage ?: "validation", it.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) }
+                val failure = result.preparation?.failure ?: result.samples.firstOrNull { it.outcome in setOf(BenchmarkOutcome.FAILED, BenchmarkOutcome.PARTIAL) || it.outcome == BenchmarkOutcome.UNSUPPORTED && it.failure != null || it.executionFailure() || it.cleanupReceipt == "cleanup_unconfirmed_local_blocked" }?.let { it.failure ?: BenchmarkFailure(it.failureCategory ?: "MODEL_QUALITY", it.runtimeStage ?: "validation", it.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) }
                     ?: result.readiness?.takeIf { !it.ready }?.let { readiness -> readiness.probes.firstNotNullOfOrNull { it.sample?.failure } ?: BenchmarkFailure("READINESS_NOT_VERIFIED", "readiness", result.stoppedReason ?: "Readiness did not complete.") }
                 val state = when {
                     skipped -> BenchmarkQueueState.SKIPPED
@@ -243,6 +249,7 @@ class BenchmarkBatchRunner @Inject constructor(
     private suspend fun prepareEngineeringBatch(batch: BenchmarkBatch, progress: (BenchmarkProgress) -> Unit): BenchmarkBatch? {
         val plan = requireNotNull(batch.engineeringPlan)
         var observedBatch = batch
+        val preparationStartedAt = System.currentTimeMillis()
         try {
             val cases = requireNotNull(batch.caseManifest) { "Frozen engineering task manifest is missing." }
             check(plan.sourceCommit == dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT && plan.matches(cases)) { "ENGINEERING_PLAN_INVALID: Frozen task identity does not match its accepted plan." }
@@ -276,25 +283,24 @@ class BenchmarkBatchRunner @Inject constructor(
             throw failure
         } catch (failure: Exception) {
             val message = dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.message ?: "Engineering benchmark prerequisites are unavailable.").take(500)
-            val reason = BenchmarkFailure("ENGINEERING_PREREQUISITE_UNAVAILABLE", "preflight", message, owner = "configuration", scope = "batch", failureScope = BenchmarkFailureScope.BATCH)
+            val reason = BenchmarkFailure("ENGINEERING_PREREQUISITE_UNAVAILABLE", "engineering_prerequisites", message, owner = "configuration", scope = "batch", failureScope = BenchmarkFailureScope.BATCH, eventId = "${batch.id}:engineering-preparation")
             var retained = observedBatch
             val cases = batch.caseManifest.orEmpty()
             for (item in observedBatch.pending) {
                 val now = System.currentTimeMillis()
-                val run = newRun(retained, item, item.profile, cases.size).copy(
-                    caseManifest = cases,
-                    fixtureManifestHash = plan.fixtureManifestHash,
-                    finished = true,
-                    endedAt = now,
-                    state = "BLOCKED",
-                    stoppedReason = message,
-                    samples = cases.map { test ->
-                        BenchmarkSample(
-                            test.id, test.label, test.category, BenchmarkOutcome.POLICY_BLOCKED,
-                            error = message, workload = test.workload, requestDispatched = false, requestAdmitted = false,
-                            failure = reason, failureCategory = reason.code, runtimeStage = reason.stage, evidenceScope = plan.lane.evidenceClass
-                        )
-                    }
+                val existing = store.history.value.firstOrNull { it.id == item.runId } ?: newRun(retained, item, item.profile, cases.size)
+                val run = appendDependentSkips(
+                    existing.copy(
+                        caseManifest = cases,
+                        fixtureManifestHash = plan.fixtureManifestHash,
+                        finished = true,
+                        endedAt = now,
+                        state = "BLOCKED",
+                        stoppedReason = message,
+                        preparation = BenchmarkPreparationReceipt(requireNotNull(reason.eventId), reason.stage, "FAILED", preparationStartedAt, endedAt = now, failure = reason)
+                    ),
+                    cases,
+                    reason
                 )
                 retained = retained.copy(items = retained.items.map { if (it.ordinal == item.ordinal) it.copy(state = BenchmarkQueueState.BLOCKED, endedAt = now, failure = reason) else it })
                 checkpoint(retained, run, event = "ENGINEERING_PREREQUISITE_BLOCKED")
@@ -348,14 +354,43 @@ class BenchmarkBatchRunner @Inject constructor(
             engineeringPlan = engineering,
             fixtureManifestHash = engineering?.fixtureManifestHash ?: benchmarkHash(plan.joinToString("\n") { it.id + it.prompt + it.expected })
         )
-        checkpoint(batch, run, event = "PREFLIGHT")
         var stage = "preflight"
+        var currentCaseFailureEventId: String? = null
         val preflightStarted = android.os.SystemClock.elapsedRealtime()
+        val previousPreparationMs = previous?.let { it.preparation?.elapsedMs ?: it.preflightDurationMs }
+        fun preparationElapsedMs(): Long? {
+            val current = (android.os.SystemClock.elapsedRealtime() - preflightStarted).coerceAtLeast(0)
+            return if (previous == null) current else previousPreparationMs?.plus(current)
+        }
+        var preparationQueueStarted: Long? = null
+        run = run.copy(preparation = BenchmarkPreparationReceipt("${run.id}:preparation", "configuration", "RUNNING", previous?.preparation?.startedAt ?: System.currentTimeMillis(), elapsedMs = preparationElapsedMs(), queueDeadlineMs = BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS))
+        checkpoint(batch, run, event = "PREFLIGHT")
         try {
+            listOfNotNull(primary, target, reviewer).distinctBy { it.uid }.forEach { profile ->
+                benchmarkProfileConfigurationIssue(profile, checkCredentials = true)?.let { throw BenchmarkProviderFailureException(it, "PROFILE_CONFIGURATION_INVALID") }
+            }
+            run = run.copy(preparation = requireNotNull(run.preparation).copy(stage = "admission", status = "WAITING", elapsedMs = preparationElapsedMs(), queueWaitMs = 0))
+            checkpointAfterCleanup(batch.id, run, event = "PREPARATION_WAITING")
             progress(BenchmarkProgress(item.profile.name, "Waiting for resources", item.ordinal * plan.size, batch.items.size * plan.size))
-            val contextTokens = InferenceAdmission.benchmark {
+            preparationQueueStarted = android.os.SystemClock.elapsedRealtime()
+            val contextTokens = InferenceAdmission.benchmark(
+                ownerId = "benchmark:${run.id}:preparation",
+                queueTimeoutMillis = BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS,
+                onState = { observation ->
+                    val receipt = requireNotNull(run.preparation)
+                    val updated = when (observation) {
+                        is AdmissionOutcome.Waiting -> receipt.copy(stage = "admission", status = "WAITING", elapsedMs = preparationElapsedMs(), queueWaitMs = observation.queueMillis, blockerLabels = benchmarkAdmissionBlockerLabels(observation.blockingOwners, observation.benchmarkBlocker))
+                        is AdmissionOutcome.Acquired -> receipt.copy(stage = "preflight", status = "RUNNING", elapsedMs = preparationElapsedMs(), queueWaitMs = observation.lease.queueMillis)
+                        is AdmissionOutcome.Released -> null
+                    }
+                    if (updated != null) {
+                        run = run.copy(preparation = updated)
+                        checkpointAfterCleanup(batch.id, run, event = "PREPARATION_PHASE")
+                    }
+                }
+            ) {
                 try {
-                    withTimeout(60_000) {
+                    benchmarkWithinDeadline("preflight", 60_000) {
                         verifyAuditModelBinding(item)
                         check(batch.mode !in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE) || target.compatibleType == ClientType.LITERT_LM) { "UNSUPPORTED_CAPABILITY: Native performance diagnostics require an on-device profile." }
                         if (usesLocal) {
@@ -370,10 +405,13 @@ class BenchmarkBatchRunner @Inject constructor(
                     }
                 } finally {
                     val cleanup = cleanupLocal(usesLocal, "benchmark:${run.id}:preflight")
-                    run = run.copy(cleanupReceipt = benchmarkCleanupLabel(cleanup), runtimeCleanup = cleanup, preflightDurationMs = (previous?.preflightDurationMs ?: 0L) + (android.os.SystemClock.elapsedRealtime() - preflightStarted).coerceAtLeast(0), runtimeSnapshot = if (usesLocal) runtime.state.value else null)
+                    run = run.copy(cleanupReceipt = benchmarkCleanupLabel(cleanup), runtimeCleanup = cleanup, preflightDurationMs = preparationElapsedMs(), runtimeSnapshot = if (usesLocal) runtime.state.value else null)
                     checkpointAfterCleanup(batch.id, run, event = "PREFLIGHT_CLEANUP")
                 }
             }
+            val preparationElapsed = preparationElapsedMs()
+            run = run.copy(preflightDurationMs = preparationElapsed, preparation = requireNotNull(run.preparation).copy(status = "COMPLETED", endedAt = System.currentTimeMillis(), elapsedMs = preparationElapsed))
+            checkpointAfterCleanup(batch.id, run, event = "PREPARATION_FINISHED")
             val suite = if (engineering != null) {
                 plan
             } else {
@@ -424,6 +462,7 @@ class BenchmarkBatchRunner @Inject constructor(
                 if (engineering != null && run.samples.any { it.testId == test.id }) continue
                 stage = "request"
                 val attemptId = "${run.id}:${test.id}:0"
+                currentCaseFailureEventId = "$attemptId:failure"
                 val requestId = "benchmark-${run.id}-${test.id}"
                 val invocations = java.util.concurrent.CopyOnWriteArrayList<String>()
                 val physicalRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -433,13 +472,14 @@ class BenchmarkBatchRunner @Inject constructor(
                 val queuedAt = System.currentTimeMillis()
                 var enteredAdmission = false
                 try {
-                    InferenceAdmission.benchmark {
+                    InferenceAdmission.benchmark(ownerId = requestId, queueTimeoutMillis = BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS) {
                         enteredAdmission = true
                         val admissionWaitMs = (android.os.SystemClock.elapsedRealtime() - admissionStarted).coerceAtLeast(0)
                         val measurementLease = InferenceAdmission.currentLease()
                         val attemptStartedAt = System.currentTimeMillis()
                         val attemptStartedElapsed = android.os.SystemClock.elapsedRealtime()
-                        val attempt = BenchmarkAttempt(attemptId, batch.id, item.ordinal, run.id, test.id, index, attemptStartedAt, attemptStartedAt + benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion), logicalRequestId = requestId, queuedAt = queuedAt)
+                        val attemptDeadlineAt = attemptStartedAt + benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion)
+                        val attempt = BenchmarkAttempt(attemptId, batch.id, item.ordinal, run.id, test.id, index, attemptStartedAt, attemptDeadlineAt, logicalRequestId = requestId, queuedAt = queuedAt, recordKind = "EXECUTION", observedStartedAt = attemptStartedAt, observedDeadlineAt = attemptDeadlineAt)
                         val currentBatch = checkNotNull(store.batch(batch.id))
                         val caseCheckpoint = currentBatch.copy(items = currentBatch.items.map { if (it.ordinal == item.ordinal) it.copy(activeCaseId = test.id, completedCases = benchmarkCoverage(run).executed) else it })
                         checkpoint(caseCheckpoint, run, listOf(attempt), "CASE_STARTED")
@@ -471,7 +511,7 @@ class BenchmarkBatchRunner @Inject constructor(
                                     validateEnvironment(batch)
                                 }
                                 if (usesLocal && test.performanceTrial?.requestedLoadRegime == "cold") {
-                                    withTimeout(30_000) { runtime.unloadEngine() }
+                                    benchmarkWithinDeadline("cold_reset", 30_000) { runtime.unloadEngine() }
                                     check(runtime.loadedEngineSpec() == null) { "COLD_ENGINE_RESET_UNCONFIRMED: The previous engine is still resident." }
                                     before = observeBenchmarkRuntime(runtime)
                                 }
@@ -482,7 +522,7 @@ class BenchmarkBatchRunner @Inject constructor(
                                 } else if (test.workload in unsupportedBands) {
                                     BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.UNSUPPORTED, error = "Unsupported input band established by an earlier case; no request sent.", workload = test.workload, warmup = test.warmup, requestDispatched = false, failureCategory = "UNSUPPORTED_INPUT_BAND")
                                 } else if (externalEngineering) {
-                                    withTimeout(benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion)) {
+                                    benchmarkWithinDeadline("request", benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion)) {
                                         requireNotNull(engineeringExecutor).execute(
                                             primary,
                                             test,
@@ -589,25 +629,13 @@ class BenchmarkBatchRunner @Inject constructor(
                             checkpoint(caseCheckpoint.copy(items = caseCheckpoint.items.map { if (it.ordinal == item.ordinal) it.copy(completedCases = benchmarkCoverage(run).executed, activeCaseId = null) else it }), run, listOf(attempt.copy(state = "TERMINAL", requestDispatched = retained.requestDispatched, dispatchUncertain = retained.requestDispatched == null, sample = retained, physicalRequestIds = retained.physicalRequestIds, logicalRequestId = requestId, invocationIds = retained.invocationIds)), "CASE_FINISHED")
                         } catch (failure: Exception) {
                             if (failure is BenchmarkStorageFailure) throw failure
-                            val reason = when (requestedStop) {
-                                BenchmarkStopOrigin.USER_SKIP -> BenchmarkFailure("USER_SKIP", "request", "Skipped by user.", owner = "user")
-                                BenchmarkStopOrigin.USER_STOP -> BenchmarkFailure("USER_STOP", "request", "Stopped by user.", owner = "user", scope = "batch")
-                                else -> benchmarkFailure(failure, "request")
-                            }
-                            val childAborted = failure is CancellationException && currentCoroutineContext().isActive && requestedStop == null
+                            val reason = terminationFailure(failure, "request", "$attemptId:failure")
+                            val childAborted = reason.code == "CHILD_OPERATION_ABORTED" && currentCoroutineContext().isActive && requestedStop == null
                             interruptedSample?.physicalRequestIds?.forEach { physicalRequests.addIfAbsent(it) }
                             interruptedSample?.invocationIds?.forEach { invocations.addIfAbsent(it) }
                             val executions = benchmarkExecutionReceipts(interruptedSample, executionReceipt, physicalRequests.toSet())
                             var retained = (interruptedSample ?: BenchmarkSample(test.id, test.label, test.category, reason.outcome(), workload = test.workload, warmup = test.warmup)).copy(
-                                outcome = if (reason.code == "USER_SKIP") {
-                                    BenchmarkOutcome.SKIPPED
-                                } else if (childAborted) {
-                                    BenchmarkOutcome.ERROR
-                                } else if (failure is CancellationException) {
-                                    BenchmarkOutcome.CANCELED
-                                } else {
-                                    reason.outcome()
-                                },
+                                outcome = reason.outcome(),
                                 failure = reason, failureCategory = reason.code, runtimeStage = reason.stage, error = reason.message,
                                 attemptId = attemptId, cleanupReceipt = benchmarkEngineeringCleanupReceipt(externalEngineering, interruptedSample, cleanup), runtimeCleanup = cleanupDetails, cleanupDurationMs = cleanupDurationMs, admissionWaitMs = admissionWaitMs, nativeIdentity = nativeIdentity, physicalRequestIds = physicalRequests.toList(), logicalRequestId = requestId, invocationIds = invocations.toList(),
                                 runtimeExecutions = executions,
@@ -624,17 +652,17 @@ class BenchmarkBatchRunner @Inject constructor(
                             retained = retained.copy(deadlineReceipt = benchmarkDeadlineReceipt(batch.mode, test, batch.suiteVersion), settingsReceipt = benchmarkSettingsReceipt(primary, test, policy, retained, requestContext(run, test, policy)))
                             run = run.copy(samples = run.samples.filterNot { it.testId == retained.testId } + retained, resources = run.resources + resources.snapshots(), peakClientPssKb = listOfNotNull(run.peakClientPssKb, resources.peakClientPssKb).maxOrNull(), peakExecutionWorkerPssBytes = listOfNotNull(run.peakExecutionWorkerPssBytes, resources.peakExecutionWorkerPssBytes).maxOrNull(), peakExecutionClientPssKb = listOfNotNull(run.peakExecutionClientPssKb, resources.peakExecutionClientPssKb).maxOrNull(), runtimeCleanup = cleanupDetails, cleanupReceipt = cleanup)
                             // The receipt is committed before releasing measurement/native ownership.
-                            checkpointAfterCleanup(batch.id, run, listOf(attempt.copy(state = if (failure is CancellationException && !childAborted) "INTERRUPTED" else "TERMINAL", dispatchUncertain = retained.requestDispatched == null, requestDispatched = retained.requestDispatched, physicalRequestIds = retained.physicalRequestIds, logicalRequestId = requestId, invocationIds = retained.invocationIds, sample = retained)), "CASE_INTERRUPTED")
+                            checkpointAfterCleanup(batch.id, run, listOf(attempt.copy(state = if (reason.outcome() == BenchmarkOutcome.CANCELED) "INTERRUPTED" else "TERMINAL", dispatchUncertain = retained.requestDispatched == null, requestDispatched = retained.requestDispatched, physicalRequestIds = retained.physicalRequestIds, logicalRequestId = requestId, invocationIds = retained.invocationIds, sample = retained)), "CASE_INTERRUPTED")
                             if (!childAborted || retained.recoveryAction(batch.recoveryPolicy == "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1") != BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES) throw failure
                         }
                     }
                 } catch (failure: Exception) {
                     if (!enteredAdmission && failure !is BenchmarkStorageFailure) {
                         val elapsed = (android.os.SystemClock.elapsedRealtime() - admissionStarted).coerceAtLeast(0)
-                        val reason = benchmarkFailure(failure, "admission")
-                        val waiting = benchmarkAdmissionOnlySample(test, reason, elapsed, failure is CancellationException).copy(attemptId = attemptId, logicalRequestId = requestId)
+                        val reason = terminationFailure(failure, "admission", "$attemptId:failure")
+                        val waiting = benchmarkAdmissionOnlySample(test, reason, elapsed).copy(attemptId = attemptId, logicalRequestId = requestId)
                         run = run.copy(samples = run.samples + waiting)
-                        val receipt = BenchmarkAttempt(attemptId, batch.id, item.ordinal, run.id, test.id, index, queuedAt, queuedAt + benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion), state = "NOT_ADMITTED", requestDispatched = false, sample = waiting, logicalRequestId = requestId, queuedAt = queuedAt)
+                        val receipt = BenchmarkAttempt(attemptId, batch.id, item.ordinal, run.id, test.id, index, queuedAt, queuedAt + BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS, state = "NOT_ADMITTED", requestDispatched = false, sample = waiting, logicalRequestId = requestId, queuedAt = queuedAt, recordKind = "ADMISSION")
                         checkpointAfterCleanup(batch.id, run, listOf(receipt), "CASE_NOT_ADMITTED")
                     }
                     throw failure
@@ -653,7 +681,13 @@ class BenchmarkBatchRunner @Inject constructor(
                 if (error is CancellationException) throw error
                 return run.awaitingEngineeringReconciliation()
             }
-            val failure = benchmarkFailure(error, if (stage == "preflight") "preflight_admission" else stage)
+            val failureStage = if (stage == "preflight") run.preparation?.stage ?: "preflight" else stage
+            val eventId = when (stage) {
+                "preflight" -> requireNotNull(run.preparation).eventId
+                "readiness" -> run.readiness?.probes?.lastOrNull()?.sample?.failure?.eventId ?: "${run.id}:readiness:failure"
+                else -> currentCaseFailureEventId ?: "${run.id}:profile-failure"
+            }
+            val failure = terminationFailure(error, failureStage, eventId)
             if (stage == "preflight" && failure.stage == "admission" && primary.compatibleType == ClientType.LLAMA) {
                 val checkId = if (failure.code.startsWith("SELECTED_MODEL_")) "initialization" else "reasoning_control"
                 val finishedAt = System.currentTimeMillis()
@@ -667,15 +701,23 @@ class BenchmarkBatchRunner @Inject constructor(
                     )
                 )
             }
-            val failed = if (stage == "readiness" || run.samples.lastOrNull()?.executionFailure() == true) appendDependentSkips(run.copy(stoppedReason = failure.message), benchmarkSuiteForRun(run), failure) else appendFailure(run, benchmarkSuiteForRun(run), failure)
-            val retained = if (stage == "preflight" && run.samples.isEmpty()) {
-                val elapsed = (android.os.SystemClock.elapsedRealtime() - preflightStarted).coerceAtLeast(0)
-                failed.copy(preflightDurationMs = elapsed, samples = failed.samples.mapIndexed { index, sample -> if (index == 0) benchmarkAdmissionOnlySample(plan.first(), failure, elapsed, error is CancellationException) else sample })
+            val retained = if (stage == "preflight") {
+                val elapsed = preparationElapsedMs()
+                val preparation = requireNotNull(run.preparation).let { receipt ->
+                    receipt.copy(
+                        status = benchmarkPreparationStatus(failure),
+                        endedAt = System.currentTimeMillis(),
+                        elapsedMs = elapsed,
+                        queueWaitMs = if (receipt.stage == "admission") preparationQueueStarted?.let { (android.os.SystemClock.elapsedRealtime() - it).coerceAtLeast(0) } else receipt.queueWaitMs,
+                        failure = failure
+                    )
+                }
+                appendDependentSkips(run.copy(preflightDurationMs = elapsed, preparation = preparation, stoppedReason = failure.message), plan, failure)
             } else {
-                failed
+                if (stage == "readiness" || run.samples.lastOrNull()?.executionFailure() == true) appendDependentSkips(run.copy(stoppedReason = failure.message), benchmarkSuiteForRun(run), failure) else appendFailure(run, benchmarkSuiteForRun(run), failure)
             }
             if (error is CancellationException) {
-                if (stage == "preflight" && run.samples.isEmpty()) checkpointAfterCleanup(batch.id, retained, event = "PREFLIGHT_INTERRUPTED")
+                checkpointAfterCleanup(batch.id, retained, event = if (stage == "request") "CASE_INTERRUPTED" else "PREPARATION_INTERRUPTED")
                 throw error
             }
             return retained
@@ -704,7 +746,35 @@ class BenchmarkBatchRunner @Inject constructor(
         supportsTools: Boolean,
         usesLocal: Boolean,
         retained: suspend (BenchmarkSample) -> Unit
-    ): BenchmarkSample = InferenceAdmission.benchmark {
+    ): BenchmarkSample {
+        val queued = android.os.SystemClock.elapsedRealtime()
+        var admitted = false
+        try {
+            return InferenceAdmission.benchmark(ownerId = "benchmark:$runId:${test.id}", queueTimeoutMillis = BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS) {
+                admitted = true
+                executeAdmittedReadinessProbe(batch, item, runId, profile, test, request, supportsTools, usesLocal, retained)
+            }
+        } catch (error: Exception) {
+            if (admitted || error is BenchmarkStorageFailure) throw error
+            val reason = terminationFailure(error, "readiness_admission", "$runId:${test.id}:failure")
+            val sample = benchmarkAdmissionOnlySample(test, reason, (android.os.SystemClock.elapsedRealtime() - queued).coerceAtLeast(0))
+            withContext(NonCancellable) { retained(sample) }
+            if (error is CancellationException) throw error
+            return sample
+        }
+    }
+
+    private suspend fun executeAdmittedReadinessProbe(
+        batch: BenchmarkBatch,
+        item: BenchmarkQueueItem,
+        runId: String,
+        profile: PlatformV2,
+        test: BenchmarkCase,
+        request: BenchmarkRequestContext,
+        supportsTools: Boolean,
+        usesLocal: Boolean,
+        retained: suspend (BenchmarkSample) -> Unit
+    ): BenchmarkSample {
         val started = android.os.SystemClock.elapsedRealtime()
         val physical = java.util.concurrent.CopyOnWriteArrayList<String>()
         val invocations = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -767,8 +837,9 @@ class BenchmarkBatchRunner @Inject constructor(
             cleanupMs = (android.os.SystemClock.elapsedRealtime() - cleanupStarted).coerceAtLeast(0)
             runCatching { resources.observe("after_cleanup") }
         }
-        val reason = failure?.let { benchmarkFailure(it, "readiness") }
-        var result = sample ?: interrupted ?: BenchmarkSample(test.id, test.label, test.category, if (failure is CancellationException) BenchmarkOutcome.CANCELED else reason?.outcome() ?: BenchmarkOutcome.ERROR, error = reason?.message, failure = reason, failureCategory = reason?.code, requestDispatched = if (physical.isEmpty()) false else null)
+        val reason = failure?.let { terminationFailure(it, "readiness", "$runId:${test.id}:failure") }
+        var result = sample ?: interrupted ?: BenchmarkSample(test.id, test.label, test.category, reason?.outcome() ?: BenchmarkOutcome.ERROR, requestDispatched = if (physical.isEmpty()) false else null)
+        if (reason != null) result = result.copy(outcome = reason.outcome(), error = reason.message, failure = reason, failureCategory = reason.code, runtimeStage = reason.stage)
         val executions = benchmarkExecutionReceipts(result, latestExecution, physical.toSet())
         val resident = if (before != null && after != null) benchmarkResidentMatch(before, requireNotNull(after), executions.lastOrNull()) else null
         result = result.copy(
@@ -787,7 +858,7 @@ class BenchmarkBatchRunner @Inject constructor(
         result = result.copy(deadlineReceipt = benchmarkDeadlineReceipt(batch.mode, test, batch.suiteVersion, readiness = true), settingsReceipt = benchmarkSettingsReceipt(profile, test, request.executionPolicy, result, request), cacheRegime = benchmarkObservedCache(result))
         withContext(NonCancellable) { retained(result) }
         failure?.takeIf { it is CancellationException }?.let { throw it }
-        result
+        return result
     }
 
     private suspend fun verifyAuditModelBinding(item: BenchmarkQueueItem) {
@@ -826,8 +897,9 @@ class BenchmarkBatchRunner @Inject constructor(
             fixtureManifestHash = benchmarkHash(acceptedPlan.joinToString("\n") { it.id + it.prompt + it.expected })
         )
         if (run.samples.any { it.engineeringCleanupPending() }) return run.awaitingEngineeringReconciliation().copy(cancellationOrigin = if (skip) BenchmarkStopOrigin.USER_SKIP else run.cancellationOrigin)
-        val failure = if (skip) BenchmarkFailure("USER_SKIP", "request", "Skipped by user.", owner = "user") else benchmarkFailure(error, if (run.samples.isEmpty()) "preflight" else "request")
-        val childAborted = !skip && error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException
+        val recorded = run.preparation?.failure ?: run.samples.lastOrNull { it.executionFailure() && it.failure?.message == run.stoppedReason }?.failure
+        val failure = benchmarkTerminationFailure(error, recorded?.stage ?: if (run.samples.isEmpty()) "configuration" else "request", if (skip) BenchmarkStopOrigin.USER_SKIP else requestedStop, recorded?.eventId ?: "${run.id}:profile-failure")
+        val childAborted = failure.code == "CHILD_OPERATION_ABORTED"
         val retained = run.copy(
             samples = when {
                 skip -> run.samples.map { sample ->
@@ -857,13 +929,15 @@ class BenchmarkBatchRunner @Inject constructor(
             },
             cancellationOrigin = if (skip) {
                 BenchmarkStopOrigin.USER_SKIP
-            } else if (error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException) {
+            } else if (childAborted) {
                 BenchmarkStopOrigin.CHILD_OPERATION_ABORTED
             } else {
-                null
+                requestedStop
             },
-            stoppedReason = failure.message
+            stoppedReason = failure.message,
+            preparation = run.preparation ?: if (run.samples.isEmpty()) BenchmarkPreparationReceipt(failure.eventId ?: "${run.id}:preparation", failure.stage, benchmarkPreparationStatus(failure), run.startedAt, endedAt = System.currentTimeMillis(), failure = failure) else null
         )
+        if (retained.preparation?.failure != null && retained.samples.all { it.dispositionOnly }) return appendDependentSkips(retained, benchmarkSuiteForRun(run), failure)
         return if (run.readiness != null && run.samples.isEmpty() || run.samples.lastOrNull()?.let { it.executionFailure() || it.failure?.code == "USER_SKIP" } == true) appendDependentSkips(retained, benchmarkSuiteForRun(run), failure) else appendFailure(retained, benchmarkSuiteForRun(run), failure)
     }
 
@@ -874,7 +948,7 @@ class BenchmarkBatchRunner @Inject constructor(
         return appendDependentSkips(failed.copy(stoppedReason = failure.message), suite, failure)
     }
 
-    private fun appendDependentSkips(run: BenchmarkRun, suite: List<BenchmarkCase>, failure: BenchmarkFailure): BenchmarkRun = run.copy(samples = run.samples + suite.filter { test -> run.samples.none { it.testId == test.id } }.map { test -> BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.SKIPPED, error = failure.message, failureCategory = "SKIPPED_DEPENDENCY", failure = failure, requestDispatched = false, workload = test.workload, warmup = test.warmup, tokenBasis = ReferenceTextTokenizer.VERSION) })
+    private fun appendDependentSkips(run: BenchmarkRun, suite: List<BenchmarkCase>, failure: BenchmarkFailure): BenchmarkRun = run.copy(samples = run.samples + suite.filter { test -> run.samples.none { it.testId == test.id } }.map { test -> benchmarkUnattemptedDisposition(test, failure) })
 
     private suspend fun newRun(batch: BenchmarkBatch, item: BenchmarkQueueItem, profile: PlatformV2, planned: Int): BenchmarkRun {
         val startedAt = System.currentTimeMillis()

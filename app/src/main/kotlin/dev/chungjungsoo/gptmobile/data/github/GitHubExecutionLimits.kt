@@ -9,6 +9,8 @@ import kotlinx.serialization.json.put
 
 /** One policy is applied before binding tools and again before opening the model loop. */
 internal object GitHubExecutionLimits {
+    val deadlineSources = setOf("ACCEPTED_TASK_CONTRACT", "EXPLICIT_USER_REQUEST", "EXPLICIT_USER_CONTINUATION")
+
     enum class DeadlineCheck { ADMISSION, BEFORE_TOOL_RESTORE, BEFORE_MODEL_LOOP, MODEL_LOOP_TIMEOUT, VERIFIED_SESSION_ENTRY }
 
     data class Admission(val observation: String, val remainingMillis: Long?, val timing: JsonObject, val contractRequired: Boolean) {
@@ -67,6 +69,12 @@ internal object GitHubExecutionLimits {
         put("task_deadline_observation", state)
         if (start != null && end != null && end >= start && start >= 0) {
             put("task_deadline_clock", "WALL_CLOCK")
+            val source = if (contract?.containsKey("deadline_source") == true) {
+                (contract["deadline_source"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            } else {
+                "ACCEPTED_TASK_CONTRACT"
+            }
+            source?.takeIf { it in deadlineSources }?.let { put("task_deadline_source", it) }
             put("task_deadline_renewed", (contract?.get("grant_message_id") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.let { it > 0 } == true)
             ((end - start) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_window_seconds", it) }
             if (observedAt >= start) {
@@ -91,7 +99,7 @@ internal object GitHubExecutionLimits {
         ("ACCEPTED_TASK_DEADLINE_REACHED" in details || "The task's time limit has been reached" in details)
 
     fun expiredTaskFailure(check: DeadlineCheck? = null) = ProviderEvent.Failed(
-        "The task's time limit has been reached. Your results are saved. Send “$RENEWAL_EXAMPLE” to continue this task with a new time allowance.",
+        "The accepted task time window ended before every criterion was verified. The exact checkpoint, receipts and unused tool-call allowance are saved. Send “$RENEWAL_EXAMPLE” to resume this same task; completed or uncertain operations will not be replayed.",
         errorCode = "GITHUB_TASK_INCOMPLETE",
         taskOutcome = "BLOCKED",
         failureDetails = buildJsonObject {
@@ -102,9 +110,13 @@ internal object GitHubExecutionLimits {
             put("failure_origin", "APPLICATION")
             put("failure_domain", "APPLICATION_VERIFICATION")
             put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
+            put("task_state", "PAUSED")
             put("recovery_action", "AUTHORIZE_NEW_TIME_WINDOW")
             put("time_window_counts_waits", true)
-            put("resume_allowed", false)
+            put("resume_allowed", true)
+            put("resume_requires_time_grant", true)
+            put("resume_from_checkpoint", true)
+            put("remaining_tool_calls_preserved", true)
             put("dispatched", false)
             put("retryable", false)
         }
@@ -113,7 +125,9 @@ internal object GitHubExecutionLimits {
     /** An explicit task duration survives continuations; an ordinary run timeout does not grant a new task. */
     fun requestedDurationMillis(task: String): Long? = task.lineSequence()
         .flatMap { line ->
-            budgetClause.findAll(line).flatMap { duration.findAll(it.groupValues[1]) } + constrainedDuration.findAll(line)
+            budgetClause.findAll(line).flatMap { duration.findAll(it.groupValues[1]) } +
+                constrainedDuration.findAll(line) +
+                persistentDuration.findAll(line)
         }
         .mapNotNull { match ->
             val amount = match.groupValues[1].toLongOrNull() ?: return@mapNotNull null
@@ -164,4 +178,5 @@ internal object GitHubExecutionLimits {
     private val toolCallCount = Regex("(?i)\\b(\\d{1,10})\\s+tool[ -]calls?\\b")
     private val budgetClause = Regex("(?i)(?:^\\s*|[.!?;]\\s+)(?:budget|time limit|deadline)\\s*:\\s*([^.!?;\\r\\n]+)")
     private val constrainedDuration = Regex("(?i)\\b(?:at most|no more than|within)\\s+(?:\\d{1,10}\\s+tool[ -]calls?\\s*(?:and|,)\\s*)?(\\d{1,10})\\s*(seconds?|minutes?|hours?)\\b")
+    private val persistentDuration = Regex("(?i)\\b(?:work|run|execute|continue|keep working)(?:\\s+[a-z]+){0,3}\\s+for\\s+(\\d{1,10})\\s*(seconds?|minutes?|hours?)\\b")
 }

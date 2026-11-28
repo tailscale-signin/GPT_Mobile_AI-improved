@@ -1,0 +1,48 @@
+{
+  "parent_sha": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+  "scope": "Microphone presentation only; lifecycle, audio, and auto-listening are separate changes.",
+  "host_cases": 4,
+  "host_failures": 0,
+  "compose_compile": "Actual VoiceMicrophoneButton.kt compiled with Kotlin/Compose compiler 2.4.20, cached Compose Android 1.12.1, Material3 1.4.0, and Android 37 API jar. Exact VoiceSession state/action declarations extracted; device motion gate is an explicit compile port, not exercised by host tests.",
+  "host_coverage": [
+    "Idle/review/error/closed remain neutral",
+    "Starting/listening begin highlighted and fade while remaining distinct from idle",
+    "Queued/awaiting/finalizing/thinking/preparing/speaking Stop stays static",
+    "Default light/dark themes retain opaque background and at least 3:1 icon contrast through the fade"
+  ],
+  "instrumentation": {
+    "added_cases": 2,
+    "executed": false,
+    "scope": "Actual button click, semantic labels, clock-driven rendered highlight changes, static Stop, reduced-motion rendering, disabled readiness semantics"
+  },
+  "ktlint": "1.3.1 passed all five changed/new Kotlin files",
+  "diff_check": "passed",
+  "independent_review": "tool_admission_audit read labels, sizes, enabled predicate, phase ownership, motion gate, and contrast assertions; no blocker.",
+  "changed_file_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButton.kt": "ab048a111e53ee49bf818c957bc7906b860571c9fe9d154cc6a0c0ef8259176c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt": "bdad870a4b5e61346aaaa3e526cd7b9e7b034daab254538ba44b54c49d30a500",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptScreen.kt": "8bceea21b65dd7bf97e4915f46b0a6403e259b33a1b22c4adccdec4a8c382407",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneAppearanceTest.kt": "c42f922e1b7f4c4063e42b744d02b78a295b6bdbc037580f866f29bf88f91aff",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceMicrophoneButtonInstrumentedTest.kt": "e062cf2b8d071924fa6d1b23cfbc7e9da00658c69b8e5456b040044a2acfb7a4"
+  },
+  "host_source_manifest": "source-manifest.json",
+  "host_logs": [
+    "compile.log",
+    "junit.log"
+  ],
+  "full_android_build": "Not run locally; integration and canonical metadata/gates owned by root.",
+  "commit": "b3a7ad9d0f1f6a2894524c4b649d84fb71a79c1f",
+  "integrated_validation": {
+    "head": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+    "command": "python3 /workspace/scratch/49479c165f4e/voice-presentation-host-tests/build.py /workspace/scratch/49479c165f4e/repo",
+    "compile_exit": 0,
+    "host_exit": 0,
+    "host_cases": 4,
+    "host_failures": 0,
+    "host_source_manifest": "source-manifest.json",
+    "extracted_declarations_sha256": "00c9d08c36d4d0f1dd4bb3f9e07c88709d04d0b17196e32bb8d004be77b8a2b3",
+    "source_binding": "integrated-source-binding.json",
+    "instrumentation_compile_binding": "Actual shared component/test hashes and exact extracted declarations are unchanged from the successful prior instrumentation compile; device execution was not performed.",
+    "feedback_compile_binding": "Both actual feedback production source hashes match the successful Android37 API compile; no sound/device execution."
+  }
+}

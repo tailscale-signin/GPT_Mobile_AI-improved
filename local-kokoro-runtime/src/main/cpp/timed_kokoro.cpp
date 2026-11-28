@@ -420,7 +420,7 @@ struct Model : Frontend {
   void ConfigureCache(int64_t retained, int64_t prospective) const {
     available_memory_bytes = config.provider == "cpu" ? 0 : AvailableMemoryBytes();
     const auto allowance = kokoro_runtime::AdmitShapeCache(config.provider != "cpu",
-        available_memory_bytes, retained, prospective, large_weights);
+        available_memory_bytes, retained, prospective, large_weights, config.provider == "qnn-htp");
     cache_admission = allowance.reason;
     sessions.Configure(allowance);
   }
@@ -576,6 +576,8 @@ struct Model : Frontend {
     const auto *pcm = out[0].GetTensorData<float>();
     audio_measurement = kokoro_runtime::MeasureAudio(pcm, frames);
     kokoro_runtime::ValidateMeasuredAudio(audio_measurement, output_validation);
+    if (config.provider == "qnn-gpu")
+      kokoro_runtime::ValidateGpuDurationPattern(output_validation);
 
     auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Audio");
     if (!cls) return nullptr;

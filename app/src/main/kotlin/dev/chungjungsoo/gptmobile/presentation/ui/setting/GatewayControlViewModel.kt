@@ -318,15 +318,6 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         settings.selectVerifiedEngineeringGateway(profile)
     }
 
-    fun toggleDirect(profile: PlatformV2) = run(profile) {
-        val previous = requireNotNull(directStates.value[it.uid to it.apiUrl])
-        require(previous.principalId.startsWith("tailnet:"))
-        val config = ProviderRequestConfig(it.apiUrl, it.token, profileUid = it.uid)
-        val confirmed = engineering.admissionSetting(config, previous)
-        directStates.value = directStates.value + ((it.uid to it.apiUrl) to confirmed)
-        if (confirmed.enabled) settings.selectVerifiedEngineeringGateway(it)
-    }
-
     fun finishPairing(profile: PlatformV2) = run(profile) {
         repository.finishPairing(it)
         selectConnectedGateway(it)

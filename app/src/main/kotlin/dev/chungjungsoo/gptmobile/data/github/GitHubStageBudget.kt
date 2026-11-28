@@ -14,7 +14,7 @@ internal object GitHubStageBudget {
 
     fun visibleOutputReserve(output: Int, role: String?): Int = when (role) {
         CONTINUATION_ROLE -> minOf(2048, output.coerceAtLeast(0) / 2)
-        VISIBLE_OUTPUT_REPAIR_ROLE -> minOf(4096, output.coerceAtLeast(0) / 2)
+        VISIBLE_OUTPUT_REPAIR_ROLE, "github-claim-extraction" -> minOf(4096, output.coerceAtLeast(0) / 2)
         else -> 0
     }
 

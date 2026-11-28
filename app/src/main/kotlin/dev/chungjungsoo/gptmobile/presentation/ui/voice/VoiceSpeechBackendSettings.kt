@@ -6,6 +6,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 
 @Composable
@@ -30,7 +31,10 @@ internal fun VoiceSpeechBackendSettings(
         if (value.gateways.isEmpty()) Text("Add a Gateway connection in Settings to use PC speech.", style = MaterialTheme.typography.bodySmall)
     } else if (value.backend.isStreamingLocal) {
         Text("These engines stream audio locally. Each model has its own voice quality and speed; try a preview on this phone.", style = MaterialTheme.typography.bodySmall)
+        value.backend.streamingEngine()?.let(MediaPipeSpeechVoices::processorAvailability)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         when (value.backend) {
+            VoiceSpeechBackend.POCKET_GPU, VoiceSpeechBackend.POCKET_NPU ->
+                Text("Install the compiled Pocket pack below. Pocket GPU is available in both app builds. Pocket NPU requires the standard Android build and supported Qualcomm drivers; the GenieX build does not include this NPU runtime. An unavailable accelerator reports an error. Pocket CPU remains available in the engine selector.", style = MaterialTheme.typography.bodySmall)
             VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED ->
                 Text("Prepare the GPU vocoder offline from installed standard Kokoro, or download the publisher’s GPU pack.", style = MaterialTheme.typography.bodySmall)
             VoiceSpeechBackend.LITERT_KOKORO_SM8750 ->

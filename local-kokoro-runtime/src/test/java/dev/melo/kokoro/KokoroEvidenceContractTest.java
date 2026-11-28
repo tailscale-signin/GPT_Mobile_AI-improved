@@ -100,6 +100,14 @@ public final class KokoroEvidenceContractTest {
         long[] badTiming = complete.clone(); badTiming[43] = Long.MAX_VALUE; rejected(badTiming);
         long[] wrongDtype = complete.clone(); wrongDtype[40] = 1; rejected(wrongDtype);
         long[] badCache = complete.clone(); badCache[16] = 4; rejected(badCache);
+        long[] fiveShapes = complete.clone(); fiveShapes[16] = 5; fiveShapes[17] = 5; fiveShapes[32] = 6;
+        TimedKokoro.Evidence fiveShapeEvidence = parse(fiveShapes);
+        require(fiveShapeEvidence.cachedShapeCount == 5 && fiveShapeEvidence.cacheLimit == 5 &&
+                "BOUNDED_FIVE_SHAPES".equals(fiveShapeEvidence.cacheAdmission), "Five-shape admission lost native evidence");
+        long[] missingFiveAdmission = fiveShapes.clone(); missingFiveAdmission[32] = 5; rejected(missingFiveAdmission);
+        long[] excessiveShapes = fiveShapes.clone(); excessiveShapes[16] = 6; rejected(excessiveShapes);
+        long[] excessiveLimit = fiveShapes.clone(); excessiveLimit[17] = 6; rejected(excessiveLimit);
+        long[] wrongFiveLimit = fiveShapes.clone(); wrongFiveLimit[16] = 3; wrongFiveLimit[17] = 3; rejected(wrongFiveLimit);
         long[] badCount = complete.clone(); badCount[39] = 512; rejected(badCount);
 
         long[] pendingContext = Arrays.copyOf(empty(), 56);

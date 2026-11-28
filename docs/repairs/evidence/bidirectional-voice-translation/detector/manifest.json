@@ -1,0 +1,26 @@
+{
+  "repository_head": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+  "scope": "Exact complete detector, JNI contract, recognition service and portable tests; actual MediaPipe Tasks text/core APIs and Android SDK 37 used for compilation. Policy, lifecycle, cancellation and dual-locale qualification execute on host with explicitly injected fake prediction backend. No native inference, Android speech service, microphone or device claim.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt": "51e6da8e1ac5987fd9ead8b7be6b2821c0629172b01a0a72c2e215b19fe36fb6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt": "8c017af1b467dbf63295b630465eb777cd8a4b1fa575ce7f068e464c9bcf3038",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/MediaPipeJniContract.kt": "8ce2c7e9864085e445910548b30aa17cba12de3ef91995d3e180c09378c4d3fb",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetectorTest.kt": "40cc608e88ff69f39a1eef6ad1f1a508c703a3b9f6343ef05b2552b628de9656",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/TranslationRecognitionQualificationTest.kt": "f4d9ca8299c0419d5cf5c6a250f86cfe5c125ad9dfee7e2522e15a7c03a87c01"
+  },
+  "compile_dependencies_sha256": {
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar": "2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar": "7b0f19724082cbfcbc66e5abea2b9bc92cf08a1ea11e191933ed43801eb3cd05",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9",
+    "/workspace/scratch/49479c165f4e/translation-detection-host/tasks-core.jar": "06e395cd0586fbb42a806a4770be86ddb2dfd71f32bce37e0ce2f44b99d89aa3",
+    "/workspace/scratch/49479c165f4e/translation-detection-host/tasks-text.jar": "62cbc067ac66b8c80986a02da5ac78fa314a3fe3ce40a00b88be4b1a60ea1965",
+    "/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+    "/home/agent/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/33.7.2-jre/e70def5b06cfb109ea050de99870e79c8ce80dbc/guava-33.7.2-jre.jar": "b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c",
+    "/home/agent/.gradle/caches/modules-2/files-2.1/com.google.protobuf/protobuf-javalite/4.28.2/dc2b52b6cb328c6e63233ad900aad2ad7a5c2221/protobuf-javalite-4.28.2.jar": "dcbac0ae7a6ff7a751ca426bc49008f80c7a5d4ecde9d84750ca86dd2f614db3"
+  },
+  "production_stubs": [],
+  "qualified_commit": "fb1ed45ef1683985ad47e7a03007d2e3f6fa28b2",
+  "committed_source_hashes_match": true
+}

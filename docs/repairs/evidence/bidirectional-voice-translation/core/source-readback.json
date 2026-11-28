@@ -1,0 +1,19 @@
+{
+  "manifest_repository_head": "ec72dcbd7f3544650bdcc17a8363c8799935ed2d",
+  "readback_repository_head": "ec72dcbd7f3544650bdcc17a8363c8799935ed2d",
+  "source_file_count": 46,
+  "source_mismatches": [],
+  "passed_test_count": 103,
+  "tests_classes": [
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceContinuousListeningTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPairTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPlaybackPolicyTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlaybackTest",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationSourceTest"
+  ],
+  "scope": "Full exact VoiceSession, VoiceTranslationPair, VoiceResponsePolicy, VoiceMessagePlayback, VoiceTranslationPlaybackPolicy and supporting text/audio policies plus complete selected test classes on the host JVM. Kotlin serialization plugin exercises persisted pair and policy round trips; fake audio drives real lifecycle transitions. No language detector/model or Pocket runtime is executed. No Compose composition, Android permission dialog, SoundPool/device audio, microphone hardware, native recognizer or complete Android build qualification."
+}

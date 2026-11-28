@@ -40,7 +40,7 @@ internal class GitHubRequestCircuit(
         probing = false
     }
 
-    @Synchronized fun failed(permit: Permit, failure: Throwable) {
+    @Synchronized fun failed(permit: Permit, failure: Throwable, countFailure: Boolean = true) {
         if (permit.generation != generation) return
         if (failure is CancellationException) {
             if (permit.probe) probing = false
@@ -60,6 +60,10 @@ internal class GitHubRequestCircuit(
             }
             return
         }
+        // A retry loop may make several physical attempts for one immutable read.
+        // Count that logical read once. A failed half-open probe always reopens the
+        // circuit because it is the circuit's dedicated recovery observation.
+        if (!countFailure && !permit.probe) return
         failures++
         if (permit.probe || failures >= threshold) {
             openUntil = now() + cooldownMillis

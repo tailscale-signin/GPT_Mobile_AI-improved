@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-28T06:49:43.530642+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "reviewed_parent_head": "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+  "validated_checkout_head": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+  "working_tree_changes_included": true,
+  "scope": "VoiceTranslationLanguageDetector direct-buffer and native retirement ownership only; no network, recognition confidence, language-pair or playback policy change.",
+  "fix": {
+    "ownership": "Process-owned registry admits independent healthy owners. Each verified direct ByteBuffer is registered before SDK task creation and retained with its backend until successful close.",
+    "failure": "Uncertain SDK create or close retains all still-admitted owners and seals future admission before any later model allocation. A failed close is never retried; healthy existing owners may continue and release normally.",
+    "concurrency": "No single-owner limit or arbitrary active-owner cap. SDK task creation, inference and close stay on the existing per-detector workers outside the registry lock.",
+    "verification_lock": "The bounded local asset read/digest/direct-buffer allocation and MediaPipeJniContract.verify occur under admission lock; verify performs Java reflection with initialize=false and does not call JNI.",
+    "privacy": "No source text, predictions or model contents are logged or sent to a network."
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt": "7a2dc7c874994241d85e55f60c5d6ca63b4451478b1d8e27cf94fcaa6d618ebb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt": "8c017af1b467dbf63295b630465eb777cd8a4b1fa575ce7f068e464c9bcf3038",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/MediaPipeJniContract.kt": "8ce2c7e9864085e445910548b30aa17cba12de3ef91995d3e180c09378c4d3fb",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetectorTest.kt": "5a4342710e9322482d9241ccc9073ecea6327c91b68e65d274b51b8cad420dbc",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/TranslationRecognitionQualificationTest.kt": "f4d9ca8299c0419d5cf5c6a250f86cfe5c125ad9dfee7e2522e15a7c03a87c01"
+  },
+  "source_git_blob": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt": "fad609b1dc53e2218145fff8785ce17771c97661",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt": "77a4dc0442cbf1ff17a24cc62430150aa15911cb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/MediaPipeJniContract.kt": "e6a348a49711ef3ca6dd6ec96bc5090d1a6179b0",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetectorTest.kt": "a5c732b3d93810e652d47f867a6eaf044fdbcaad",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/TranslationRecognitionQualificationTest.kt": "a1c3341fc3fc6abd6f4e6b0667bd8fb66c196cd1"
+  },
+  "compiled_dependencies_sha256": {
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar": "2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar": "7b0f19724082cbfcbc66e5abea2b9bc92cf08a1ea11e191933ed43801eb3cd05",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3",
+    "/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9",
+    "/workspace/scratch/49479c165f4e/translation-detection-host/tasks-core.jar": "06e395cd0586fbb42a806a4770be86ddb2dfd71f32bce37e0ce2f44b99d89aa3",
+    "/workspace/scratch/49479c165f4e/translation-detection-host/tasks-text.jar": "62cbc067ac66b8c80986a02da5ac78fa314a3fe3ce40a00b88be4b1a60ea1965",
+    "/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+    "/home/agent/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/33.7.2-jre/e70def5b06cfb109ea050de99870e79c8ce80dbc/guava-33.7.2-jre.jar": "b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c",
+    "/home/agent/.gradle/caches/modules-2/files-2.1/com.google.protobuf/protobuf-javalite/4.28.2/dc2b52b6cb328c6e63233ad900aad2ad7a5c2221/protobuf-javalite-4.28.2.jar": "dcbac0ae7a6ff7a751ca426bc49008f80c7a5d4ecde9d84750ca86dd2f614db3"
+  },
+  "pinned_ownership_evidence": {
+    "artifacts": [
+      {
+        "artifact": "com.google.mediapipe:tasks-core:1.2.3",
+        "aar_sha256": "39dafa4a851b520839cea7cf1a80e873082bd2eb3a136990dfd89061569638d7",
+        "classes_jar_sha256": "06e395cd0586fbb42a806a4770be86ddb2dfd71f32bce37e0ce2f44b99d89aa3",
+        "matches_repository_verification_pin": true,
+        "jni_x86_64_sha256": "d2f8a1daa3805ddd5a002e16ed0373c29e5b810b4382e5d0d8b9ff0be8120108"
+      },
+      {
+        "artifact": "com.google.mediapipe:tasks-text:1.0.0",
+        "aar_sha256": "300c3ed4669ef76d48633b8a5f236b71f26c94a4f5717b79d3f999af95f0b3a6",
+        "classes_jar_sha256": "62cbc067ac66b8c80986a02da5ac78fa314a3fe3ce40a00b88be4b1a60ea1965",
+        "matches_repository_verification_pin": true
+      }
+    ],
+    "primary_source": [
+      {
+        "path": "mediapipe/tasks/cc/core/external_file_handler.cc",
+        "git_blob": "a5ab0ea3d18ffeaf5e72deb36a449668f9d7b90e",
+        "source": "https://api.github.com/repos/google-ai-edge/mediapipe/git/blobs/a5ab0ea3d18ffeaf5e72deb36a449668f9d7b90e",
+        "sha256": "ea223c721393788f16a9062c2fd14bcc7293875b72f0fcd97963f4dac4af59fe",
+        "qualification": "Official current source corroboration; not represented as the exact Maven native build source revision."
+      },
+      {
+        "path": "mediapipe/tasks/cc/core/external_file_handler.h",
+        "git_blob": "d752c521cbbd6190ed7bce6eaf48787752f9da75",
+        "source": "https://api.github.com/repos/google-ai-edge/mediapipe/git/blobs/d752c521cbbd6190ed7bce6eaf48787752f9da75",
+        "sha256": "f096476e0babf575f4e1bb73110f4aa63e41685197f353d62fe2e160fc4f1d6f",
+        "qualification": "Official current source corroboration; not represented as the exact Maven native build source revision."
+      },
+      {
+        "path": "mediapipe/tasks/cc/core/model_resources.cc",
+        "git_blob": "2aab2e7099602b34d417c3c78a157bf4e388d409",
+        "source": "https://api.github.com/repos/google-ai-edge/mediapipe/git/blobs/2aab2e7099602b34d417c3c78a157bf4e388d409",
+        "sha256": "7701d2e5d608e96031f3c53c7474a03c0c0547845d9973d439856d1907c6c270",
+        "qualification": "Official current source corroboration; not represented as the exact Maven native build source revision."
+      }
+    ],
+    "model": {
+      "bytes": 315294,
+      "sha256": "7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417",
+      "publisher_url": "https://storage.googleapis.com/mediapipe-models/language_detector/language_detector/float32/1/language_detector.tflite",
+      "model_card_url": "https://storage.googleapis.com/mediapipe-assets/LanguageDetector%20Model%20Card.pdf",
+      "model_card_review": "Page 1 declares Apache License 2.0 and authors; page 2 expressly excludes multilingual-text accuracy guarantees."
+    },
+    "pinned_boundary_findings": [
+      "BaseOptions.Builder requires a direct or mapped ByteBuffer.",
+      "BaseOptionsUtils.createExternalFileFromBuffer serializes direct address plus position and remaining length.",
+      "Exact x86_64 JNI nativeGetDirectBufferAddress tail-calls JNIEnv entry 230 (GetDirectBufferAddress); no copied model or JNI global owner is created at this boundary.",
+      "LanguageDetector retains TaskRunner; TaskRunner fields retain no BaseOptions, TaskInfo, or ByteBuffer owner.",
+      "TaskRunner.close marks graphStarted=false before closing/waiting on native graph; a later retry can return without proving cleanup."
+    ],
+    "native_source_corroboration": [
+      "ExternalFileHandler returns pointer metadata as an absl::string_view without copying or owning the original allocation.",
+      "ModelResources passes that same data pointer to FlatBufferModel::VerifyAndBuildFromBuffer."
+    ],
+    "limits": [
+      "Static bytecode and JNI disassembly, not Android JNI inference or physical hardware execution.",
+      "No mapping from current native-source blob to the Maven native build is asserted."
+    ]
+  },
+  "validation": {
+    "baseline": {
+      "actual_source_compile_exit": 0,
+      "host_tests_passed": 13
+    },
+    "final": {
+      "actual_source_compile_exit": 0,
+      "host_tests_passed": 18,
+      "test_classes": [
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetectorTest",
+        "dev.chungjungsoo.gptmobile.data.voice.TranslationRecognitionQualificationTest"
+      ],
+      "new_regressions": [
+        "Two healthy owners coexist and retire independently; repeated successful close is harmless.",
+        "Model verification failure before JNI does not seal future admission.",
+        "Native creation exception or linkage failure retains the borrowed model and blocks later model/native allocation.",
+        "Native close exception or linkage failure retains buffer/backend, prevents close retry, seals new admission, and lets already-admitted healthy owners retire.",
+        "In-flight native close retains its buffer without holding the registry lock or blocking another healthy owner."
+      ],
+      "retention_test_note": "Weak-reference tests assert positive retention after a GC request; none depend on a collector reclaiming a released object. Deterministic registry counts and callback counters verify retirement/admission ordering.",
+      "native_backend": "Explicit injected fake backend for lifecycle and policy behavior. Actual Android SDK/MediaPipe artifacts used for compilation; production_stubs=[]",
+      "ktlint_version": "1.3.1",
+      "ktlint_exit": 0,
+      "git_diff_check_exit": 0,
+      "compiler_heap_mib": 384,
+      "junit_heap_mib": 192,
+      "ktlint_heap_mib": 192,
+      "known_warning": "Existing MediaPipeJniContract java.util.List reflection warning; no new compile warnings."
+    }
+  },
+  "evidence_files_sha256": {
+    "build-policy.py": "a3a18d7262a23a94ffbca49d3ce74a3c62ec550bbcec10f7e053b8821a632de2",
+    "policy/manifest.json": "e1ea5ac8daad29d7f953a3746d93810bc116005f3f0b085cbeb3780c7fc3a565",
+    "policy/compile.log": "f3b1faf00435df0e73d696ebd9614a5cdb642cd80c92e3f3aa21fff9605937e4",
+    "policy/junit.log": "4827b865c4b1d1b27a6961cacd06c8afd250360c7c647f6e76f2c4246437528d",
+    "policy/tests.jar": "95e119c40a4830ba47cbc3d259ee5871b7a3b50d7e651f8d79104e02a64048bf",
+    "ktlint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ownership-proof.json": "4a70e094c8c7eac16f290ef44c9deeed91c981ea2e2f35d69558953414ae132f",
+    "pinned-api/direct-buffer-address-jni.txt": "1a2e2da65f138b60398283f4474428a2ea76930e7979f8aa964675545aeb0a2e",
+    "pinned-api/direct-buffer-proto.txt": "a18ad8f505522e80236f9952db7633ab746be4d7c55f9e0b86c1fe0871dadb11",
+    "pinned-api/taskrunner-close.txt": "efe2ecf5afebc700cfaa9f4ce3926431f4be464391e6c16c9ce93607b15a45dc",
+    "pinned-api/LanguageDetector.javap.txt": "d9e123753cb197ae7b03b2abe31b04e644ec2396120de359490ca965995789f4",
+    "pinned-api/TaskRunner.javap.txt": "fcf5de27ad847fa0fa0eebe4c331b9e4a6c598ec53d3979c61bc800919248ef3"
+  },
+  "limitations": [
+    "This is actual-source host compilation and fake-backend lifecycle testing, plus static pinned API/JNI inspection. It is not Android JNI inference, an APK test, or physical GPU/NPU qualification.",
+    "The existing real Linux language-model fixture receipt uses a different host MediaPipe version and is not upgraded into Android runtime proof by this change.",
+    "Official current C++ source corroborates pointer-backed model borrowing; no exact source revision mapping to the Maven native build is asserted.",
+    "The canonical fast gate, full Android lint/compilation, source metadata refresh and publication remain owned by the root integration task. No gates were bypassed."
+  ],
+  "inlineEvidence": [
+    {
+      "artifact": "ownership-proof.json",
+      "bytes": 3815,
+      "sha256": "4a70e094c8c7eac16f290ef44c9deeed91c981ea2e2f35d69558953414ae132f",
+      "text": "{\n  \"artifacts\": [\n    {\n      \"artifact\": \"com.google.mediapipe:tasks-core:1.2.3\",\n      \"aar_sha256\": \"39dafa4a851b520839cea7cf1a80e873082bd2eb3a136990dfd89061569638d7\",\n      \"classes_jar_sha256\": \"06e395cd0586fbb42a806a4770be86ddb2dfd71f32bce37e0ce2f44b99d89aa3\",\n      \"matches_repository_verification_pin\": true,\n      \"jni_x86_64_sha256\": \"d2f8a1daa3805ddd5a002e16ed0373c29e5b810b4382e5d0d8b9ff0be8120108\"\n    },\n    {\n      \"artifact\": \"com.google.mediapipe:tasks-text:1.0.0\",\n      \"aar_sha256\": \"300c3ed4669ef76d48633b8a5f236b71f26c94a4f5717b79d3f999af95f0b3a6\",\n      \"classes_jar_sha256\": \"62cbc067ac66b8c80986a02da5ac78fa314a3fe3ce40a00b88be4b1a60ea1965\",\n      \"matches_repository_verification_pin\": true\n    }\n  ],\n  \"primary_source\": [\n    {\n      \"path\": \"mediapipe/tasks/cc/core/external_file_handler.cc\",\n      \"git_blob\": \"a5ab0ea3d18ffeaf5e72deb36a449668f9d7b90e\",\n      \"source\": \"https://api.github.com/repos/google-ai-edge/mediapipe/git/blobs/a5ab0ea3d18ffeaf5e72deb36a449668f9d7b90e\",\n      \"sha256\": \"ea223c721393788f16a9062c2fd14bcc7293875b72f0fcd97963f4dac4af59fe\",\n      \"qualification\": \"Official current source corroboration; not represented as the exact Maven native build source revision.\"\n    },\n    {\n      \"path\": \"mediapipe/tasks/cc/core/external_file_handler.h\",\n      \"git_blob\": \"d752c521cbbd6190ed7bce6eaf48787752f9da75\",\n      \"source\": \"https://api.github.com/repos/google-ai-edge/mediapipe/git/blobs/d752c521cbbd6190ed7bce6eaf48787752f9da75\",\n      \"sha256\": \"f096476e0babf575f4e1bb73110f4aa63e41685197f353d62fe2e160fc4f1d6f\",\n      \"qualification\": \"Official current source corroboration; not represented as the exact Maven native build source revision.\"\n    },\n    {\n      \"path\": \"mediapipe/tasks/cc/core/model_resources.cc\",\n      \"git_blob\": \"2aab2e7099602b34d417c3c78a157bf4e388d409\",\n      \"source\": \"https://api.github.com/repos/google-ai-edge/mediapipe/git/blobs/2aab2e7099602b34d417c3c78a157bf4e388d409\",\n      \"sha256\": \"7701d2e5d608e96031f3c53c7474a03c0c0547845d9973d439856d1907c6c270\",\n      \"qualification\": \"Official current source corroboration; not represented as the exact Maven native build source revision.\"\n    }\n  ],\n  \"model\": {\n    \"bytes\": 315294,\n    \"sha256\": \"7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417\",\n    \"publisher_url\": \"https://storage.googleapis.com/mediapipe-models/language_detector/language_detector/float32/1/language_detector.tflite\",\n    \"model_card_url\": \"https://storage.googleapis.com/mediapipe-assets/LanguageDetector%20Model%20Card.pdf\",\n    \"model_card_review\": \"Page 1 declares Apache License 2.0 and authors; page 2 expressly excludes multilingual-text accuracy guarantees.\"\n  },\n  \"pinned_boundary_findings\": [\n    \"BaseOptions.Builder requires a direct or mapped ByteBuffer.\",\n    \"BaseOptionsUtils.createExternalFileFromBuffer serializes direct address plus position and remaining length.\",\n    \"Exact x86_64 JNI nativeGetDirectBufferAddress tail-calls JNIEnv entry 230 (GetDirectBufferAddress); no copied model or JNI global owner is created at this boundary.\",\n    \"LanguageDetector retains TaskRunner; TaskRunner fields retain no BaseOptions, TaskInfo, or ByteBuffer owner.\",\n    \"TaskRunner.close marks graphStarted=false before closing/waiting on native graph; a later retry can return without proving cleanup.\"\n  ],\n  \"native_source_corroboration\": [\n    \"ExternalFileHandler returns pointer metadata as an absl::string_view without copying or owning the original allocation.\",\n    \"ModelResources passes that same data pointer to FlatBufferModel::VerifyAndBuildFromBuffer.\"\n  ],\n  \"limits\": [\n    \"Static bytecode and JNI disassembly, not Android JNI inference or physical hardware execution.\",\n    \"No mapping from current native-source blob to the Maven native build is asserted.\"\n  ]\n}\n"
+    },
+    {
+      "artifact": "pinned-api/direct-buffer-address-jni.txt",
+      "bytes": 425,
+      "sha256": "1a2e2da65f138b60398283f4474428a2ea76930e7979f8aa964675545aeb0a2e",
+      "text": "\n/workspace/scratch/d6788699ebc6/translation-model-lifetime/pinned-api/libmediapipe_tasks_jni.so:     file format elf64-x86-64\n\n\nDisassembly of section .text:\n\n000000000057848d <Java_com_google_mediapipe_tasks_core_BaseOptionsUtils_nativeGetDirectBufferAddress@@VERS_1.0>:\n  57848d:\t48 8b 07             \tmov    (%rdi),%rax\n  578490:\t48 89 d6             \tmov    %rdx,%rsi\n  578493:\tff a0 30 07 00 00    \tjmp    *0x730(%rax)\n"
+    },
+    {
+      "artifact": "pinned-api/direct-buffer-proto.txt",
+      "bytes": 3240,
+      "sha256": "a18ad8f505522e80236f9952db7633ab746be4d7c55f9e0b86c1fe0871dadb11",
+      "text": "createExternalFileFromBuffer(java.nio.ByteBuffer);\n    Code:\n       0: invokestatic  #45                 // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile.newBuilder:()Lcom/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile$Builder;\n       3: astore_1\n       4: aload_0\n       5: invokevirtual #330                // Method java/nio/ByteBuffer.isDirect:()Z\n       8: ifeq          49\n      11: aload_1\n      12: invokestatic  #335                // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta.newBuilder:()Lcom/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta$Builder;\n      15: aload_0\n      16: invokestatic  #340                // Method nativeGetDirectBufferAddress:(Ljava/nio/ByteBuffer;)J\n      19: aload_0\n      20: invokevirtual #344                // Method java/nio/ByteBuffer.position:()I\n      23: i2l\n      24: ladd\n      25: invokevirtual #347                // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta$Builder.setPointer:(J)Lcom/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta$Builder;\n      28: aload_0\n      29: invokevirtual #353                // Method java/nio/ByteBuffer.remaining:()I\n      32: i2l\n      33: invokevirtual #356                // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta$Builder.setLength:(J)Lcom/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta$Builder;\n      36: invokevirtual #359                // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta$Builder.build:()Lcom/google/protobuf/GeneratedMessageLite;\n      39: checkcast     #336                // class com/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta\n      42: invokevirtual #360                // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile$Builder.setFilePointerMeta:(Lcom/google/mediapipe/tasks/core/proto/ExternalFileProto$FilePointerMeta;)Lcom/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile$Builder;\n      45: pop\n      46: goto          68\n      49: aload_0\n      50: invokevirtual #364                // Method java/nio/ByteBuffer.duplicate:()Ljava/nio/ByteBuffer;\n      53: astore_2\n      54: aload_2\n      55: invokevirtual #368                // Method java/nio/ByteBuffer.rewind:()Ljava/nio/Buffer;\n      58: pop\n      59: aload_1\n      60: aload_2\n      61: invokestatic  #372                // Method com/google/protobuf/ByteString.copyFrom:(Ljava/nio/ByteBuffer;)Lcom/google/protobuf/ByteString;\n      64: invokevirtual #378                // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile$Builder.setFileContent:(Lcom/google/protobuf/ByteString;)Lcom/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile$Builder;\n      67: pop\n      68: aload_1\n      69: invokevirtual #186                // Method com/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile$Builder.build:()Lcom/google/protobuf/GeneratedMessageLite;\n      72: checkcast     #46                 // class com/google/mediapipe/tasks/core/proto/ExternalFileProto$ExternalFile\n      75: areturn\n\n  "
+    },
+    {
+      "artifact": "pinned-api/taskrunner-close.txt",
+      "bytes": 2601,
+      "sha256": "efe2ecf5afebc700cfaa9f4ce3926431f4be464391e6c16c9ce93607b15a45dc",
+      "text": "public void close();\n    Code:\n       0: aload_0\n       1: getfield      #138                // Field graphStarted:Ljava/util/concurrent/atomic/AtomicBoolean;\n       4: invokevirtual #142                // Method java/util/concurrent/atomic/AtomicBoolean.get:()Z\n       7: ifne          11\n      10: return\n      11: aload_0\n      12: getfield      #138                // Field graphStarted:Ljava/util/concurrent/atomic/AtomicBoolean;\n      15: iconst_0\n      16: invokevirtual #147                // Method java/util/concurrent/atomic/AtomicBoolean.set:(Z)V\n      19: aload_0\n      20: getfield      #113                // Field graph:Lcom/google/mediapipe/framework/Graph;\n      23: invokevirtual #135                // Method com/google/mediapipe/framework/Graph.closeAllPacketSources:()V\n      26: aload_0\n      27: getfield      #113                // Field graph:Lcom/google/mediapipe/framework/Graph;\n      30: invokevirtual #151                // Method com/google/mediapipe/framework/Graph.waitUntilGraphDone:()V\n      33: aload_0\n      34: getfield      #99                 // Field statsLogger:Lcom/google/mediapipe/tasks/core/logging/TasksStatsLogger;\n      37: invokeinterface #154,  1          // InterfaceMethod com/google/mediapipe/tasks/core/logging/TasksStatsLogger.logSessionEnd:()V\n      42: aload_0\n      43: getfield      #173                // Field modelResourcesCache:Lcom/google/mediapipe/tasks/core/ModelResourcesCache;\n      46: ifnull        56\n      49: aload_0\n      50: getfield      #173                // Field modelResourcesCache:Lcom/google/mediapipe/tasks/core/ModelResourcesCache;\n      53: invokevirtual #177                // Method com/google/mediapipe/tasks/core/ModelResourcesCache.release:()V\n      56: goto          65\n      59: astore_1\n      60: aload_0\n      61: aload_1\n      62: invokespecial #159                // Method reportError:(Lcom/google/mediapipe/framework/MediaPipeException;)V\n      65: aload_0\n      66: getfield      #113                // Field graph:Lcom/google/mediapipe/framework/Graph;\n      69: invokevirtual #180                // Method com/google/mediapipe/framework/Graph.tearDown:()V\n      72: goto          81\n      75: astore_1\n      76: aload_0\n      77: aload_1\n      78: invokespecial #159                // Method reportError:(Lcom/google/mediapipe/framework/MediaPipeException;)V\n      81: return\n    Exception table:\n       from    to  target type\n          11    56    59   Class com/google/mediapipe/framework/MediaPipeException\n          65    72    75   Class com/google/mediapipe/framework/MediaPipeException\n\n  "
+    },
+    {
+      "artifact": "policy/manifest.json",
+      "bytes": 2982,
+      "sha256": "e1ea5ac8daad29d7f953a3746d93810bc116005f3f0b085cbeb3780c7fc3a565",
+      "text": "{\n  \"repository_head\": \"a06e5053c11cb5d9107d785c23443effcdd59ea6\",\n  \"scope\": \"Exact complete detector, JNI contract, recognition service and portable tests; actual MediaPipe Tasks text/core APIs and Android SDK 37 used for compilation. Policy, lifecycle, cancellation and dual-locale qualification execute on host with explicitly injected fake prediction backend. No native inference, Android speech service, microphone or device claim.\",\n  \"source_sha256\": {\n    \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt\": \"7a2dc7c874994241d85e55f60c5d6ca63b4451478b1d8e27cf94fcaa6d618ebb\",\n    \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt\": \"8c017af1b467dbf63295b630465eb777cd8a4b1fa575ce7f068e464c9bcf3038\",\n    \"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/MediaPipeJniContract.kt\": \"8ce2c7e9864085e445910548b30aa17cba12de3ef91995d3e180c09378c4d3fb\",\n    \"app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetectorTest.kt\": \"5a4342710e9322482d9241ccc9073ecea6327c91b68e65d274b51b8cad420dbc\",\n    \"app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/TranslationRecognitionQualificationTest.kt\": \"f4d9ca8299c0419d5cf5c6a250f86cfe5c125ad9dfee7e2522e15a7c03a87c01\"\n  },\n  \"compile_dependencies_sha256\": {\n    \"/workspace/scratch/4ae19a99b59d/jvm-deps/kotlin-stdlib-2.4.20.jar\": \"2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f\",\n    \"/workspace/scratch/4ae19a99b59d/jvm-deps/kotlinx-coroutines-core-jvm-1.11.0.jar\": \"d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa\",\n    \"/workspace/scratch/4ae19a99b59d/jvm-deps/annotations-23.0.0.jar\": \"7b0f19724082cbfcbc66e5abea2b9bc92cf08a1ea11e191933ed43801eb3cd05\",\n    \"/workspace/scratch/4ae19a99b59d/jvm-deps/junit-4.13.2.jar\": \"8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3\",\n    \"/workspace/scratch/4ae19a99b59d/jvm-deps/hamcrest-core-1.3.jar\": \"66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9\",\n    \"/workspace/scratch/49479c165f4e/translation-detection-host/tasks-core.jar\": \"06e395cd0586fbb42a806a4770be86ddb2dfd71f32bce37e0ce2f44b99d89aa3\",\n    \"/workspace/scratch/49479c165f4e/translation-detection-host/tasks-text.jar\": \"62cbc067ac66b8c80986a02da5ac78fa314a3fe3ce40a00b88be4b1a60ea1965\",\n    \"/workspace/scratch/0f34c62a99bc/android-sdk/platforms/android-37.0/android.jar\": \"bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177\",\n    \"/home/agent/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/33.7.2-jre/e70def5b06cfb109ea050de99870e79c8ce80dbc/guava-33.7.2-jre.jar\": \"b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c\",\n    \"/home/agent/.gradle/caches/modules-2/files-2.1/com.google.protobuf/protobuf-javalite/4.28.2/dc2b52b6cb328c6e63233ad900aad2ad7a5c2221/protobuf-javalite-4.28.2.jar\": \"dcbac0ae7a6ff7a751ca426bc49008f80c7a5d4ecde9d84750ca86dd2f614db3\"\n  },\n  \"production_stubs\": []\n}\n"
+    },
+    {
+      "artifact": "policy/compile.log",
+      "bytes": 420,
+      "sha256": "f3b1faf00435df0e73d696ebd9614a5cdb642cd80c92e3f3aa21fff9605937e4",
+      "text": "gpt-mobile/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/MediaPipeJniContract.kt:21:106: warning: this class is not recommended for use in Kotlin. Use 'kotlin.collections.List' instead.\n            val callback = type(\"PacketListCallback\").getDeclaredMethod(\"process\", java.util.List::class.java)\n                                                                                                         ^^^^\n"
+    },
+    {
+      "artifact": "policy/junit.log",
+      "bytes": 68,
+      "sha256": "4827b865c4b1d1b27a6961cacd06c8afd250360c7c647f6e76f2c4246437528d",
+      "text": "JUnit version 4.13.2\n..................\nTime: 0.141\n\nOK (18 tests)\n\n"
+    },
+    {
+      "artifact": "ktlint.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "text": ""
+    }
+  ]
+}

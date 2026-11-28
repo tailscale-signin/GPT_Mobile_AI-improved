@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "scope": "ASR_HOST_MEMORY_ADMISSION_ONLY",
+  "observedSourceHead": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+  "problem": "RAM MemAvailable alone can overstate usable model headroom when container limits are tighter or their ancestry is unknown.",
+  "correction": "Reuse the existing bounded RAM/cgroup probe, compare known effective headroom to the unchanged ASR 3x model bytes plus 512 MiB estimate, and reject UNKNOWN observations.",
+  "evidenceFields": {
+    "availableHostBytes": "Observed RAM MemAvailable only.",
+    "availableEffectiveBytes": "Known minimum RAM/cgroup allowance; null when unknown."
+  },
+  "preservedGates": {
+    "mandatoryNemotron": true,
+    "failedAdmissionResult": 78,
+    "failedAdmissionScope": "CPU_HOST_ADMISSION_FAILURE_MODEL_NOT_EXECUTED",
+    "compilerBudgetBytes": 9395240960,
+    "sharedMemoryProbeChanged": false
+  },
+  "sourceInputsSha256": {
+    "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "944130509d1ae3d1ec23d313c9372e9d8a07b4b779926b051a63a6f98cc368fc",
+    "scripts/tests/test_streaming_asr_inputs.py": "fcd06b084aaf211c331327f70fd6c0130ac8ae3b10a2c7f713523ad70afddb63",
+    "scripts/check_android_compile_memory.py": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b",
+    "local-kokoro-runtime/src/testHost/streaming_asr_fixtures.json": "606d1eba894c389b29057f010372ae58ad04f8a771b0ad5f73ba9c32488a0e7d"
+  },
+  "focusedTests": {
+    "commands": [
+      {
+        "argv": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts/tests",
+          "-p",
+          "test_streaming_asr_inputs.py",
+          "-v"
+        ],
+        "exitCode": 0,
+        "logSha256": "5a3c07eb5a221978c9ef6b41bfbbd8c947b3de8541b8bfa7f6ea5cda5a71a03b"
+      },
+      {
+        "argv": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts/tests",
+          "-p",
+          "test_kokoro_native_host_inputs.py",
+          "-v"
+        ],
+        "exitCode": 0,
+        "logSha256": "90063d2b8f6363133a089b52558dd4fe1742098bb3f965e1567c348279aaa29e"
+      },
+      {
+        "argv": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exitCode": 0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "counts": {
+      "streamingAsrInputs": 15,
+      "kokoroNativeHostInputs": 9,
+      "total": 24,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "liveObservation": {
+    "observedAt": "2026-11-28T07:30:18.827414+00:00",
+    "scope": "LIVE_HOST_ASR_ADMISSION_OBSERVATION_ONLY",
+    "modelExecuted": false,
+    "nativeBuildExecuted": false,
+    "physicalDeviceQualified": false,
+    "modelFixture": "nemotron-cpu",
+    "admission": {
+      "estimatedRequiredBytes": 2583516980,
+      "availableHostBytes": 2180194304,
+      "availableEffectiveBytes": null,
+      "status": "UNKNOWN",
+      "admitted": false,
+      "ram": {
+        "MemTotal": 10451427328,
+        "MemAvailable": 2180194304,
+        "SwapTotal": 0,
+        "SwapFree": 0
+      },
+      "cgroups": null,
+      "swapCountsAsHeadroom": false,
+      "isMeasuredModelRss": false,
+      "physicalDeviceQualified": false
+    }
+  },
+  "priorNemotronTermination": {
+    "observedExitCode": -9,
+    "observedElapsedSeconds": 2.175041512997268,
+    "provenCause": "SIGKILL",
+    "oomCauseProven": false
+  },
+  "physicalDeviceQualified": false,
+  "nativeBuildExecuted": false,
+  "androidBuildExecuted": false,
+  "qualification": "This proves memory-admission behavior only. It neither qualifies Nemotron inference nor establishes the cause of the earlier SIGKILL.",
+  "canonicalHostValidation": {
+    "scope": "Memory repair before concurrent readiness merge",
+    "status": "PASSED",
+    "tests": 879,
+    "skipped": 1,
+    "command": "bash scripts/validate-local.sh fast",
+    "logSha256": "db8d9b7cd8102866192b6d266f1a9f259a35ba692da79345a96569b0d2279e69",
+    "sourceParent": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+    "limitations": "Host validation only."
+  },
+  "mergedValidation": {
+    "preservedRemoteHead": "606721dc837f3d0a7342b9150094f97872153957",
+    "sourceInputsSha256": {
+      "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "944130509d1ae3d1ec23d313c9372e9d8a07b4b779926b051a63a6f98cc368fc",
+      "scripts/tests/test_streaming_asr_inputs.py": "31dc170b522396d17915a0babbed7c73c4c79da85853b8e44d57ebbcb8a258f9",
+      "scripts/check_android_compile_memory.py": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b",
+      "local-kokoro-runtime/src/testHost/streaming_asr_fixtures.json": "606d1eba894c389b29057f010372ae58ad04f8a771b0ad5f73ba9c32488a0e7d"
+    },
+    "tests": {
+      "streamingAsrInputs": 16,
+      "kokoroNativeHostInputs": 9,
+      "total": 25,
+      "failed": 0,
+      "skipped": 0
+    },
+    "commands": [
+      {
+        "command": "python3 -B -m unittest discover -s scripts/tests -p test_streaming_asr_inputs.py -v",
+        "exitCode": 0,
+        "logSha256": "3ecd1e66f5b2d1c6eb19f9ff91454cff448e6d2389294c1b9a243f5667cddbe7"
+      },
+      {
+        "command": "python3 -B -m unittest discover -s scripts/tests -p test_kokoro_native_host_inputs.py -v",
+        "exitCode": 0,
+        "logSha256": "054ed43ef0e4621cb851cee1771501a1ce5fd4601cdea3a9e45f5b1addd14f6b"
+      }
+    ],
+    "canonicalHostValidation": {
+      "scope": "Canonical host gate on combined memory-admission and concurrent readiness source",
+      "status": "PASSED",
+      "tests": 880,
+      "skipped": 1,
+      "command": "bash scripts/validate-local.sh fast",
+      "logSha256": "7de504e26e56a723b552448665b0b74b70792085664e00ef0d740ec9eff7e440",
+      "source_parent": "606721dc837f3d0a7342b9150094f97872153957",
+      "limitations": "Host validation only; full Android and physical accelerator/audio qualification remain separate."
+    },
+    "nativeBuildExecuted": false,
+    "modelExecuted": false
+  }
+}

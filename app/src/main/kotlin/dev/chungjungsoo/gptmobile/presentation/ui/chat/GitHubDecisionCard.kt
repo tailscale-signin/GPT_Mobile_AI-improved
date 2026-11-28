@@ -139,7 +139,7 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                     observedWorkMs?.let { duration ->
                         Text("Recorded model and tool time before this choice · ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(0, duration)}", style = MaterialTheme.typography.bodySmall)
                     }
-                    if (decision.answer == null) Text("Work on this choice is paused. An explicit task deadline keeps running while you decide.", style = MaterialTheme.typography.bodySmall)
+                    if (decision.answer == null) Text("This choice remains saved after restart. Waiting does not use model requests, worker capacity or active task time.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (decision.answer == null && title != decision.question.trim()) Text(decision.question, style = MaterialTheme.typography.bodyMedium)
                 if (decision.context.isNotBlank()) Text(decision.context, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)

@@ -438,6 +438,47 @@ public partial class MainWindow : Window
                 if (pageScroll.ActualWidth < 300 || pageScroll.ActualHeight < 200) throw new InvalidOperationException("Native page is not usable at minimum size: " + name);
                 Ui.Capture(this, System.IO.Path.Combine(root, "native-" + name.ToLowerInvariant().Replace(' ', '-') + ".png"));
             }
+            // Exercise the actual native-product navigation at minimum size.
+            // Only local history reads run; execution controls are inspected, not invoked.
+            phase = "native product campaign setup";
+            Navigate("Diagnostics/Benchmarks");
+            await SettleSmokeReads(); await Task.Delay(250); UpdateLayout();
+            Button CampaignButton(string title) => Ui.Descendants<Button>(page).SingleOrDefault(button => button.IsVisible &&
+                System.Windows.Automation.AutomationProperties.GetName(button) == title)
+                ?? throw new InvalidOperationException("Native campaign control is unavailable: " + title);
+            TextBlock CampaignText(Func<TextBlock, bool> matches, string title) => Ui.Descendants<TextBlock>(page)
+                .SingleOrDefault(text => text.IsVisible && matches(text))
+                ?? throw new InvalidOperationException("Native campaign text is unavailable: " + title);
+            async Task RequireCampaignRender(FrameworkElement control, string title)
+            {
+                control.BringIntoView(); UpdateLayout();
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+                UpdateLayout();
+                if (!Ui.FullyWithinRenderBounds(control, pageScroll, out string rejection))
+                    throw new InvalidOperationException("Native campaign control is clipped at 900x600: " + title + ". " + rejection);
+            }
+            var nativeProducts = CampaignButton("Native products");
+            await RequireCampaignRender(nativeProducts, "Native products");
+            nativeProducts.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await SettleSmokeReads(); UpdateLayout();
+            var campaignHistoryState = Ui.Descendants<TextBlock>(page).SingleOrDefault(text => text.IsVisible &&
+                System.Windows.Automation.AutomationProperties.GetLiveSetting(text) == System.Windows.Automation.AutomationLiveSetting.Polite)
+                ?? throw new InvalidOperationException("Native campaign history has no visible operation status.");
+            if (campaignHistoryState.Text != "Choose a saved campaign or prepare a new matched campaign.")
+                throw new InvalidOperationException("Packaged native campaign history did not complete. Operation state: " + campaignHistoryState.Text);
+            await RequireCampaignRender(CampaignText(text => text.Text == "Compare native products", "Compare native products"), "Compare native products");
+            await RequireCampaignRender(CampaignButton("Choose campaign definition"), "Choose campaign definition");
+            await RequireCampaignRender(CampaignButton("Freeze matched campaign"), "Freeze matched campaign");
+            await RequireCampaignRender(CampaignText(text => text.Text.Contains("64 scheduled trials") &&
+                text.Text.Contains("cost ceiling: USD 0"), "Quick budget preview"), "Quick budget preview");
+            Ui.Capture(this, System.IO.Path.Combine(root, "native-native-products.png"));
+            phase = "native product campaign scoreboard";
+            var campaignScoreboard = CampaignButton("Scoreboard");
+            await RequireCampaignRender(campaignScoreboard, "Scoreboard");
+            campaignScoreboard.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await SettleSmokeReads(); UpdateLayout();
+            await RequireCampaignRender(CampaignText(text => text.Text == "Comparative product quality · Unknown", "Unknown product quality"), "Unknown product quality");
+            Ui.Capture(this, System.IO.Path.Combine(root, "native-native-products-scoreboard.png"));
             // Reference screen with room reserved for the taskbar and non-client chrome.
             phase = "reference layout and catalog";
             var referenceSize = new Size(1904, 1000);
@@ -515,7 +556,8 @@ public partial class MainWindow : Window
             { pages = Pages, width = ActualWidth, height = ActualHeight, highContrast = SystemParameters.HighContrast, animations = SystemParameters.ClientAreaAnimation,
                 visibleCompactRows = visible.Length, catalogReceipts = receiptCount, selectionAndPinsPreserved = observed,
                 referenceCapture = new { width = (int)referenceSize.Width, height = (int)referenceSize.Height, dpi = 96, mode = "offscreenWpf" },
-                simulatedScales = scales, highContrastPaletteExercised = true, simulatedLayoutScale = 1.5, reducedMotionExercised = true, focusAndScrollPreserved = true, runtime = "WPF", passed = true }));
+                simulatedScales = scales, highContrastPaletteExercised = true, simulatedLayoutScale = 1.5, reducedMotionExercised = true,
+                focusAndScrollPreserved = true, nativeProductCampaignsExercised = true, runtime = "WPF", passed = true }));
             allowWindowExit=true;Close();
         }
         catch (Exception error) { File.WriteAllText(System.IO.Path.Combine(root, "native-ui-failure.txt"), $"Phase: {phase}{Environment.NewLine}{error}"); Application.Current.Shutdown(1); }

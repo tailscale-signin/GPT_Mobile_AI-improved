@@ -41,8 +41,8 @@ class VoiceStreamPauseTest {
         assertSame(first, initial.samples)
         assertEquals(
             listOf(
-                VoiceStreamCue(0..3, 0, 2, VoiceWordCueProvenance.NATIVE_DURATION),
-                VoiceStreamCue(5..6, 2, 8, VoiceWordCueProvenance.ESTIMATED)
+                VoiceStreamCue(0..3, 0, 2, VoiceWordCueProvenance.NATIVE_DURATION, startByte = 0, endByte = 5),
+                VoiceStreamCue(5..6, 2, 8, VoiceWordCueProvenance.ESTIMATED, startByte = 6, endByte = 10)
             ),
             initial.cues
         )
@@ -62,22 +62,22 @@ class VoiceStreamPauseTest {
                 wordCues = listOf(VoiceWordCue(0, 3, 0, 4), VoiceWordCue(4, 7, 4, 9))
             )
         )
-        assertEquals(listOf(VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)), first.cues)
+        assertEquals(listOf(VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED, finalEnd = false, startByte = 0, endByte = 3)), first.cues)
         captions.appendStream(1, "one two", 0, first.cues, first.samples.size)
         assertEquals(0..2, captions.consumed(2, true)?.range)
         val second = stream.accept(VoicePcmChunk(floatArrayOf(0f, .5f)))
         assertArrayEquals(floatArrayOf(.5f), second.samples, 0f)
         assertEquals(
             listOf(
-                VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED),
-                VoiceStreamCue(4..6, 3, 4, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)
+                VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED, startByte = 0, endByte = 3),
+                VoiceStreamCue(4..6, 3, 4, VoiceWordCueProvenance.ESTIMATED, finalEnd = false, startByte = 4, endByte = 7)
             ),
             second.cues
         )
         captions.appendStream(1, "one two", 0, second.cues, second.samples.size)
         assertEquals(4..6, captions.consumed(3, true)?.range)
         val third = stream.accept(VoicePcmChunk(FloatArray(4)))
-        assertEquals(listOf(VoiceStreamCue(4..6, 3, 6, VoiceWordCueProvenance.ESTIMATED)), third.cues)
+        assertEquals(listOf(VoiceStreamCue(4..6, 3, 6, VoiceWordCueProvenance.ESTIMATED, startByte = 4, endByte = 7)), third.cues)
         captions.appendStream(1, "one two", 0, third.cues, third.samples.size)
         assertEquals(4..6, captions.consumed(4, true)?.range)
         assertEquals(IntRange.EMPTY, captions.consumed(6, true)?.range)
@@ -94,7 +94,7 @@ class VoiceStreamPauseTest {
         assertEquals(0..2, captions.consumed(3)?.range)
         val final = stream.accept(VoicePcmChunk(FloatArray(2)))
         assertTrue(final.samples.isEmpty())
-        assertEquals(listOf(VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED)), final.cues)
+        assertEquals(listOf(VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED, startByte = 0, endByte = 3)), final.cues)
         captions.appendStream(1, "one", 0, final.cues, 0)
         assertEquals(IntRange.EMPTY, captions.consumed(3)?.range)
         assertNull(captions.consumed(3))
@@ -106,12 +106,12 @@ class VoiceStreamPauseTest {
         assertEquals(6, stream.accept(VoicePcmChunk(floatArrayOf(.1f, 0f, 0f, 0f, .2f, 0f, 0f))).samples.size)
         val trimmed = stream.accept(VoicePcmChunk(FloatArray(3), wordCues = listOf(VoiceWordCue(0, 3, 0, 4))))
         assertTrue(trimmed.samples.isEmpty())
-        assertEquals(listOf(VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED)), trimmed.cues)
+        assertEquals(listOf(VoiceStreamCue(0..2, 0, 3, VoiceWordCueProvenance.ESTIMATED, startByte = 0, endByte = 3)), trimmed.cues)
         val metadata = stream.accept(
             VoicePcmChunk(FloatArray(0), wordCues = listOf(VoiceWordCue(4, 7, 4, 7, VoiceWordCueProvenance.NATIVE_DURATION)))
         )
         assertTrue(metadata.samples.isEmpty())
-        assertEquals(listOf(VoiceStreamCue(4..6, 3, 6, VoiceWordCueProvenance.NATIVE_DURATION)), metadata.cues)
+        assertEquals(listOf(VoiceStreamCue(4..6, 3, 6, VoiceWordCueProvenance.NATIVE_DURATION, startByte = 4, endByte = 7)), metadata.cues)
         assertEquals(6L, stream.retainedFrames)
         stream.finish()
     }
@@ -141,7 +141,7 @@ class VoiceStreamPauseTest {
         assertTrue(opening.cues.isEmpty())
         val ending = second.accept(VoicePcmChunk(floatArrayOf(.5f, 0f, 0f, 0f), wordCues = listOf(VoiceWordCue(4, 7, 2, 6))))
         assertArrayEquals(floatArrayOf(.5f, 0f, 0f), ending.samples, 0f)
-        assertEquals(listOf(VoiceStreamCue(4..6, 0, 3, VoiceWordCueProvenance.ESTIMATED)), ending.cues)
+        assertEquals(listOf(VoiceStreamCue(4..6, 0, 3, VoiceWordCueProvenance.ESTIMATED, startByte = 4, endByte = 7)), ending.cues)
         assertEquals(3L, second.retainedFrames)
         second.finish()
         // Raw near-quiet PCM satisfies the existing signal validator but can be entirely
@@ -206,9 +206,9 @@ class VoiceStreamPauseTest {
         )
         assertEquals(
             listOf(
-                VoiceStreamCue(0..0, 0, 1, VoiceWordCueProvenance.ESTIMATED),
-                VoiceStreamCue(2..2, 1, 2, VoiceWordCueProvenance.ESTIMATED),
-                VoiceStreamCue(6..6, 2, 4, VoiceWordCueProvenance.ESTIMATED)
+                VoiceStreamCue(0..0, 0, 1, VoiceWordCueProvenance.ESTIMATED, startByte = 0, endByte = 1),
+                VoiceStreamCue(2..2, 1, 2, VoiceWordCueProvenance.ESTIMATED, startByte = 2, endByte = 3),
+                VoiceStreamCue(6..6, 2, 4, VoiceWordCueProvenance.ESTIMATED, startByte = 6, endByte = 7)
             ),
             late.cues
         )
@@ -223,7 +223,7 @@ class VoiceStreamPauseTest {
         val first = quiet.copyOf().also { it[0] = .1f }
         val opening = stream.accept(VoicePcmChunk(first, wordCues = listOf(VoiceWordCue(0, 3, 0, VoiceStreamFrames.MAX_STREAM_FRAMES))))
         assertEquals(1_681, opening.samples.size)
-        assertEquals(listOf(VoiceStreamCue(0..2, 0, 1_681, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)), opening.cues)
+        assertEquals(listOf(VoiceStreamCue(0..2, 0, 1_681, VoiceWordCueProvenance.ESTIMATED, finalEnd = false, startByte = 0, endByte = 3)), opening.cues)
         repeat(3) {
             val middle = stream.accept(VoicePcmChunk(quiet))
             assertTrue(middle.samples.isEmpty())
@@ -231,7 +231,7 @@ class VoiceStreamPauseTest {
         }
         val last = stream.accept(VoicePcmChunk(quiet))
         assertTrue(last.samples.isEmpty())
-        assertEquals(listOf(VoiceStreamCue(0..2, 0, 1_681, VoiceWordCueProvenance.ESTIMATED)), last.cues)
+        assertEquals(listOf(VoiceStreamCue(0..2, 0, 1_681, VoiceWordCueProvenance.ESTIMATED, startByte = 0, endByte = 3)), last.cues)
         assertEquals(VoiceStreamFrames.MAX_STREAM_FRAMES, raw.frames)
         assertEquals(1_681L, stream.retainedFrames)
         stream.finish()

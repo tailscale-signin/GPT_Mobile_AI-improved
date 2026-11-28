@@ -268,6 +268,29 @@ internal fun RepositoryGraphStatusContent(
                 Text(listOfNotNull(jobMessage, jobError).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = if (jobState == "FAILED") colors.error else colors.onSurfaceVariant, modifier = Modifier.testTag("github_repository_map_job_state"))
             }
             if (metadata != null) {
+                val maintenance = state.indexStatus?.get("maintenance") as? JsonObject
+                val synchronized = state.indexStatus?.get("phone_index_sync") as? JsonObject
+                if (!state.onPhone && maintenance?.get("enabled") == JsonPrimitive(true)) {
+                    Text(
+                        when (maintenance.graphText("state")) {
+                            "UP_TO_DATE" -> "Gateway repository map is up to date"
+                            "PARTIAL_INDEX" -> "Gateway repository map has partial source coverage"
+                            "OFFLINE_SNAPSHOT" -> "Gateway is retaining its last synchronized map"
+                            else -> "Gateway is maintaining this repository map automatically"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant
+                    )
+                }
+                synchronized?.let {
+                    val label = when (it.graphText("state")) {
+                        "UP_TO_DATE" -> "Phone map synchronized"
+                        "PARTIAL_INDEX" -> "Phone map has partial source coverage"
+                        "UPDATING" -> "Phone map is synchronizing"
+                        else -> "Phone retains an offline snapshot"
+                    }
+                    Text("$label · ${it.graphText("commit_sha").take(12)}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                }
                 val categories = listOf("indexed" to "indexed", "partial" to "partial", "unsupported" to "unsupported", "failed" to "failed")
                 if (statuses != null) Text(categories.joinToString(" · ") { (key, label) -> "${statuses.graphCount(key) ?: 0} $label" }, style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("github_repository_map_coverage"))
                 if (metadata["processing_complete"] == JsonPrimitive(true) && partial) Text("Processing finished with incomplete source coverage. Missing relationships remain unknown.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)

@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.ClipData
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
@@ -139,16 +141,16 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha, state.commits, state.staged, state.editorDrafts, state.patchStage, state.cachedProfileUid, state.recentChatId) { programmer.bind(state) }
     val navigationTrace = remember(connection.connectionUid, initialChatId) { GitHubNavigationTrace() }
     androidx.compose.runtime.DisposableEffect(navigationTrace) { onDispose { navigationTrace.close() } }
-    // Mount an existing conversation immediately from its saved scope. Remote freshness
-    // still gates workspace edits, and all tools revalidate authority before dispatch.
+    // The saved route labels the workspace while its exact room and privacy policy load.
+    // It must never substitute for the ViewModel's accepted conversation identity.
     val savedContext = initialContext?.takeIf {
         initialChatId != null &&
             initialChatId > 0 &&
             it.connectionUid == connection.connectionUid &&
             (state.selection == null || state.selection == it.repository)
     }
-    val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref } ?: savedContext
-    val visibleProgrammer = if (commandContext != null) programmerState.copy(context = commandContext, chatId = programmerState.chatId ?: initialChatId.takeIf { savedContext != null }) else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), eventCount = 0, eventCountsByRun = emptyMap(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
+    val visibleProgrammer = programmerState.forWorkspaceConversation(connection.connectionUid, state.selection, savedContext, privacyModeLocked)
+    val commandContext = visibleProgrammer.context
     val latestRepositoryFailure = remember(visibleProgrammer.runs) { visibleProgrammer.runs.maxByOrNull { it.createdAt }?.terminalError }
     val repositoryAccessFailure = remember(state.error, visibleProgrammer.error, latestRepositoryFailure) {
         listOf(state.error, visibleProgrammer.error, latestRepositoryFailure).filterNotNull()
@@ -179,8 +181,8 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId, privacyModeLocked) {
         programmer.configureSession(initialProfileUid, initialChatId, newConversation, privacyModeLocked)
     }
-    LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.chatId, state.uiReady, state.setupRequired) {
-        if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
+    LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.conversationResolved, programmerState.chatId, state.uiReady, state.setupRequired) {
+        if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.conversationResolved && programmerState.chatId == null) programmer.ensureConversation()
     }
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
     val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()
@@ -205,9 +207,16 @@ fun GitHubWorkspaceScreen(
     val workspaceScroll = rememberScrollState()
     val setupScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
-    var chatHeaderExpanded by rememberSaveable(connection.connectionUid) { mutableStateOf(false) }
+    val headerState = rememberSaveable(connection.connectionUid, saver = GitHubHeaderState.Saver) { GitHubHeaderState() }
+    LaunchedEffect(connection.connectionUid) {
+        val expanded = withContext(Dispatchers.IO) {
+            workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE)
+                .getBoolean("header_expanded", false)
+        }
+        headerState.restorePreference(expanded)
+    }
     val collapsibleHeader = tab == GitHubWorkspaceDestination.CHAT.id && !state.setupRequired && (state.selection != null || savedContext != null)
-    val headerExpanded = !collapsibleHeader || chatHeaderExpanded
+    val headerExpanded = headerState.isExpanded(collapsibleHeader)
     var exportChatId by rememberSaveable { mutableStateOf<Int?>(null) }
     var recoveryRequest by remember(visibleProgrammer.chatId) { mutableStateOf<dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubRecoveryRequest?>(null) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
@@ -260,7 +269,7 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(branchProposal?.eventId, canNavigate) {
         if (canNavigate && branchProposal != null) {
             acknowledgedBranchEvents = (acknowledgedBranchEvents + branchProposal.eventId).takeLast(100)
-            viewModel.selectBranch(branchProposal.branch, programmerState.chatId)
+            viewModel.selectBranch(branchProposal.branch, visibleProgrammer.chatId)
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalGitHubCompositionTiming provides GitHubCompositionTiming(navigationTrace, state.recentChatId != null || savedContext != null)) {
@@ -319,13 +328,15 @@ fun GitHubWorkspaceScreen(
                             }
                         }
                     }
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        GitHubChatProgress(
-                            visibleProgrammer,
-                            engineeringBinding?.job,
-                            nativeApprovalProgress,
-                            engineeringRunId = engineeringBinding?.localRunId ?: engineeringBinding?.request?.requestId
-                        )
+                    if (headerExpanded) {
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            GitHubChatProgress(
+                                visibleProgrammer,
+                                engineeringBinding?.job,
+                                nativeApprovalProgress,
+                                engineeringRunId = engineeringBinding?.localRunId ?: engineeringBinding?.request?.requestId
+                            )
+                        }
                     }
                     if (headerExpanded && collapsibleHeader && commandContext != null) visibleProgrammer.chatId?.let { GitHubChatChecks(it) }
                 }
@@ -337,9 +348,9 @@ fun GitHubWorkspaceScreen(
                 },
                 containerColor = MaterialTheme.colorScheme.surface,
                 topBar = {
-                    Column(Modifier.zIndex(1f)) {
+                    Column(Modifier.zIndex(1f).animateContentSize(tween(220))) {
                         TopAppBar(
-                            colors = if (overlayChatHeader) {
+                            colors = if (overlayChatHeader || !headerExpanded) {
                                 androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                             } else {
                                 androidx.compose.material3.TopAppBarDefaults.topAppBarColors()
@@ -347,22 +358,24 @@ fun GitHubWorkspaceScreen(
                             expandedHeight = if (collapsibleHeader) 48.dp else 64.dp,
                             title = {
                                 val repository = state.selection ?: savedContext?.repository
-                                Column {
-                                    Text(repository?.fullName ?: "Set up GitHub", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(
-                                        repository?.ref ?: connection.name,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                if (headerExpanded) {
+                                    Column {
+                                        Text(repository?.fullName ?: "Set up GitHub", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            repository?.ref ?: connection.name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             },
-                            navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
+                            navigationIcon = { if (headerExpanded) IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
                             actions = {
                                 if (collapsibleHeader) {
                                     val chatId = visibleProgrammer.chatId
-                                    if (chatId != null && commandContext != null) {
+                                    if (headerExpanded && chatId != null && commandContext != null) {
                                         androidx.compose.runtime.key(chatId, commandContext.repository) {
                                             GitHubChatActions(
                                                 repositoryLoaded = state.selection != null,
@@ -396,14 +409,21 @@ fun GitHubWorkspaceScreen(
                                         }
                                     }
                                     IconButton(
-                                        onClick = { chatHeaderExpanded = !chatHeaderExpanded },
-                                        modifier = Modifier.testTag("github_chat_header_toggle").semantics {
-                                            stateDescription = if (chatHeaderExpanded) "Expanded" else "Collapsed"
+                                        onClick = {
+                                            headerState.toggle()
+                                            val expanded = headerState.expanded
+                                            scope.launch(Dispatchers.IO) {
+                                                workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE)
+                                                    .edit().putBoolean("header_expanded", expanded).apply()
+                                            }
+                                        },
+                                        modifier = Modifier.size(48.dp).testTag("github_chat_header_toggle").semantics {
+                                            stateDescription = if (headerState.expanded) "Expanded" else "Collapsed"
                                         }
                                     ) {
                                         Icon(
-                                            if (chatHeaderExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                            if (chatHeaderExpanded) "Collapse GitHub workspace header" else "Expand GitHub workspace header",
+                                            if (headerState.expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                            if (headerState.expanded) "Collapse GitHub workspace header" else "Expand GitHub workspace header",
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
@@ -437,7 +457,7 @@ fun GitHubWorkspaceScreen(
                             initialProfileUid = initialProfileUid,
                             tab = tab,
                             canNavigate = canNavigate,
-                            chatId = programmerState.chatId,
+                            chatId = visibleProgrammer.chatId,
                             selectionMenus = selectionMenus,
                             repositoryMenu = repositoryMenu,
                             onRepositoryMenuChange = { repositoryMenu = it },
@@ -530,6 +550,10 @@ fun GitHubWorkspaceScreen(
                                             }
                                             visibleProgrammer.error?.let {
                                                 Text(it, color = MaterialTheme.colorScheme.error)
+                                                if (visibleProgrammer.conversationRestoreFailed) {
+                                                    OutlinedButton(onClick = programmer::retryConversationRestore) { Text("Retry opening conversation") }
+                                                }
+                                                OutlinedButton(onClick = { closeWorkspace() }) { Text("Back to conversations") }
                                                 OutlinedButton(onClick = { tab = 5 }) { Text("Repository and AI profile settings") }
                                             }
                                         }
@@ -597,7 +621,7 @@ fun GitHubWorkspaceScreen(
                                     if (state.selection != null) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                         Button(onClick = {
-                                            viewModel.createBranch(branchName.trim(), state.headSha, programmerState.chatId)
+                                            viewModel.createBranch(branchName.trim(), state.headSha, visibleProgrammer.chatId)
                                         }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create working branch") }
                                         WorkspaceAction(Icons.Rounded.Check, "Checks & builds") { tab = 4 }
                                         WorkspaceAction(Icons.Rounded.Refresh, "Refresh repository") { viewModel.refreshBranch() }
@@ -621,7 +645,7 @@ fun GitHubWorkspaceScreen(
                                     if (state.selection?.ref == state.defaultBranch) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                         Button(onClick = {
-                                            viewModel.createBranch(branchName.trim(), state.headSha, programmerState.chatId)
+                                            viewModel.createBranch(branchName.trim(), state.headSha, visibleProgrammer.chatId)
                                         }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create branch") }
                                     }
                                     if (state.staged.isEmpty() && state.patchStage == null) WorkspaceEmpty(Icons.Rounded.Commit, "No staged changes", "Browse files from Settings, then stage your changes for review.")
@@ -827,14 +851,14 @@ private fun WorkspaceCode(content: String) {
 }
 
 @androidx.compose.runtime.Stable
-private class GitHubWorkspaceSelectionMenus {
+internal class GitHubWorkspaceSelectionMenus {
     var installationMenu by mutableStateOf(false)
     var branchMenu by mutableStateOf(false)
 }
 
 /** Keep selector composition separate from the live chat: ART must be able to compile each UI branch. */
 @Composable
-private fun GitHubWorkspaceRepositoryCard(
+internal fun GitHubWorkspaceRepositoryCard(
     state: GitHubWorkspaceState,
     visibleProgrammer: GitHubProgrammerState,
     initialProfileUid: String?,
@@ -878,6 +902,13 @@ private fun GitHubWorkspaceRepositoryCard(
                         )
                     }
                     if (state.moreInstallations) DropdownMenuItem(text = { Text("Load more installations") }, enabled = !state.busy, onClick = viewModel::moreInstallations)
+                }
+                if (state.selection != null && state.moreInstallations && !state.canWrite && installation == null) {
+                    OutlinedButton(
+                        onClick = viewModel::moreInstallations,
+                        enabled = !state.busy && !state.authRefresh && !state.repositoryRefresh,
+                        modifier = Modifier.testTag("github_installation_lookup_continue")
+                    ) { Text("Load more installations") }
                 }
                 OutlinedButton(onClick = { uriHandler.openUri(GitHubPublicAuthConfiguration.project().installationManagementUrl(state.connection?.oauthClientId)) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.Launch, null, Modifier.padding(end = 8.dp))

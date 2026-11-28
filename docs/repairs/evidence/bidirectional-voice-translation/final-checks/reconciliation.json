@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "preservedRemoteHead": "c31abe1ccf77c8dd254da775cfee6508719ae79e",
+  "localMerge": "df4014dcb97fb3d02cab897af4345498e360e16a",
+  "incomingScope": "CI regression classes, secret-history fixture binding, selected unrelated regression expectations and maintained evidence; no Kotlin production source changed.",
+  "translationProductionChanged": false,
+  "behaviorEvidenceReferencesChecked": 135,
+  "documentedFormattingDeltaReferences": 4,
+  "unexpectedSourceMismatches": [],
+  "originalQualificationIndex": "../evidence-index.json",
+  "formattingProof": "../post-qualification-formatting.json",
+  "combinedCanonicalHostGate": {
+    "command": "bash scripts/validate-local.sh fast",
+    "exitCode": 0,
+    "tests": 863,
+    "skipped": 1,
+    "log": "fast-reconciled.log",
+    "logSha256": "3f7897088e89dea70c2d1774944d7541c6c7c3afecff0d93ca832b053249307f"
+  },
+  "mergedEarlyAndroidRegressionClasses": 27,
+  "fullAndroidDeviceAndHostedCI": "Remain separately qualified on the final published head; no new local Android, device or hosted-run success is inferred."
+}

@@ -1,0 +1,390 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-28T06:02:05.532969+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+  "purpose": "Replace production use of a test-only LiteRT switch with explicit public accelerator options, preserving the pinned runtime CPU-fallback policy.",
+  "hostedBaseline": {
+    "schemaVersion": 1,
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "run": 46109771948,
+    "job": 140872122559,
+    "runUrl": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46109771948",
+    "jobUrl": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/46109771948/job/140872122559",
+    "testedHead": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "testedMerge": "10d562a4ff5b501855286b65adf41a868234965d",
+    "reviewedRevision": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+    "task": ":app:lintDebug",
+    "artifact": {
+      "id": 15250134502,
+      "name": "android-lint-reports",
+      "bytes": 1214193,
+      "sha256": "ad3c65297e5338881618fbfe4b93cf508d284f855af98b15529b6f1a998aa5fd",
+      "downloadMatchesGitHubArtifactDigest": true,
+      "xmlSha256": "2f950a4f4ba5cd3d83b42dbe6d97842b415abb0da1901353a770aafdda1e1198"
+    },
+    "lintReportMetadata": {
+      "format": "6",
+      "by": "lint 9.4.1"
+    },
+    "countsByXmlSeverity": {
+      "Warning": 3417,
+      "Error": 1,
+      "Hint": 28
+    },
+    "totalIssues": 3446,
+    "errors": [
+      {
+        "id": "RestrictedApi",
+        "severity": "Error",
+        "message": "Options.disableAutoFallbackToCpu can only be called from tests",
+        "locations": [
+          {
+            "file": "/home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt",
+            "line": "107",
+            "column": "68"
+          }
+        ],
+        "source": "                val accelerated = CompiledModel.Options(requested).disableAutoFallbackToCpu().apply {",
+        "marker": "                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~"
+      }
+    ],
+    "sourceBinding": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt",
+      "sha256AtTestedHead": "f967e6316fdce682ab55cbd1716636f06c1baa93eecaf49d5ce39cf8890ec1ed",
+      "sha256AtReviewedRevision": "f967e6316fdce682ab55cbd1716636f06c1baa93eecaf49d5ce39cf8890ec1ed",
+      "byteIdentical": true
+    },
+    "classification": "Production call to LiteRT 2.4.1 test-only API; the reviewed committed source remains affected.",
+    "requiredRepair": "Use a supported production API or revise explicit fallback capability/evidence to match actual behavior. Do not suppress RestrictedApi or remove the call while retaining an unsupported no-fallback claim.",
+    "limits": [
+      "This receipt diagnoses the older e28 run, not validation of the latest head.",
+      "Only the single error blocks lint; the warning/hint counts are retained without new severity or baseline changes."
+    ]
+  },
+  "pinnedConfigurationInspection": {
+    "runtimeVersion": "2.4.1",
+    "jniX86_64Sha256": "134544f9a2d62db48b4c97a49c93860f2f20cfb8f636b2aaa5579b580f734f9a",
+    "acceleratorEnums": [
+      "NONE=0",
+      "CPU=1",
+      "GPU=2",
+      "NPU=3"
+    ],
+    "jniSwitchDestinations": {
+      "NONE": "0x1f7cc",
+      "CPU": "0x1f771",
+      "GPU": "0x1f776",
+      "NPU": "0x1f77b"
+    },
+    "jniMasks": {
+      "NONE": 0,
+      "CPU": 1,
+      "GPU": 2,
+      "NPU": 4
+    },
+    "cpuInsertion": "Options.getAccelerators inserts CPU only for singleton NPU with autoFallbackToCpu=true. Public NPU,NONE retains NPU,NONE and JNI contributes only the NPU mask.",
+    "method": "javap of exact publisher-verified API jar and objdump of exact AAR x86_64 JNI. Static configuration proof only, no hardware execution.",
+    "apiArtifact": {
+      "name": "LiteRT API2.4.1 classes.jar",
+      "sha256": "c3853a07330b1be8fb62ed880573e08567b827b764d714360d2e1c1c62249088"
+    }
+  },
+  "correction": {
+    "productionApi": "CompiledModel.Options(NPU, NONE) for NPU and Options(GPU) for GPU; unchanged Qualcomm JIT/performance options.",
+    "cpuTransformer": "Unchanged explicit CPU graph with configured thread count.",
+    "restrictedCallsInProduction": false,
+    "suppressionOrLintBaselineChange": false,
+    "dependencyVersionChanged": false,
+    "nativeInterpretation": "The exact pinned JNI contributes zero hardware bits for NONE, so the NPU option set contributes only the NPU mask.",
+    "upgradeGuard": "Repository tests exercise actual dependency option expansion, including plain NPU adding CPU as a positive control.",
+    "measurement": "Configuration only; requested hardware is not observed kernel attribution."
+  },
+  "validation": {
+    "pinnedApiUnitTests": 4,
+    "pinnedApiTestOutput": "JUnit version 4.13.2\n....\nTime: 0.022\n\nOK (4 tests)",
+    "combinedProductionApiCompileExit": 0,
+    "combinedTests": 32,
+    "combinedTestOutput": "JUnit version 4.13.2\n................................\nTime: 0.496\n\nOK (32 tests)",
+    "combinedSourceBindings": {
+      "observedAt": "2026-11-28T06:01:24.459983+00:00",
+      "scope": "isolated Kotlin current-source API compile and JUnit; not a full Android build",
+      "compileExitCode": 0,
+      "testExitCode": 0,
+      "testClasses": [
+        "PocketCaptionTimingTest",
+        "PocketCaptionModelStoreTest",
+        "PocketCaptionAlignerTest",
+        "PocketCaptionVoicePhraseEngineTest",
+        "PocketCompiledDecoderTest",
+        "PocketCompiledTokenizerTest",
+        "PocketCompiledVoicePhraseEngineTest",
+        "PocketCompiledOptionsTest"
+      ],
+      "sourceUnchangedDuringValidation": true,
+      "sourceSha256": [
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngine.kt",
+          "sha256": "f06135a509acee1947811dbc5bc1f60391d2e36603a4f847433d36d98225a361"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStore.kt",
+          "sha256": "b777530d25bc950eb42a17d09926d36f566b4358218687a552baeffaeb5809ef"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionAligner.kt",
+          "sha256": "b3ee3439b95fc84a779dc15b3d8c613171e23523b9beee5f7c79dd366cbaae0c"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTiming.kt",
+          "sha256": "335372f381d593f69020c1f668539a5989b1d70ff5b1d65ed312e3d4e70f3323"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechModelStore.kt",
+          "sha256": "834a9b725773e49bbc8359af4abf3359c5d64642664bd1e5f99606d001f22c92"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt",
+          "sha256": "557e169710ab0410c39eb69824a1b7da7d6524187acd9b31b0e5d20f0395f9d4"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSynthesizer.kt",
+          "sha256": "0e30265cec005dff0446e713a13ae856acc93770bb7ab94a4334c6fded90a7b6"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt",
+          "sha256": "a225655d8c33e1883bc6e3e7ab6d21903bc96d9cfb3c8038546635bad46a4d0f"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineFactory.kt",
+          "sha256": "3f5c30fb43b828ca3ea9d1e04dcb7d72f21c571b00736f5b50e46aa5fc001e8b"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptions.kt",
+          "sha256": "a1aea09554dc37163547b13b408bdb6716ec4436de638411a6a70471d72124fa"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoder.kt",
+          "sha256": "4e258ab645ea0fa0d7cfcf38dd62861a4deabdbb64783298a0728afbc28d6be0"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngine.kt",
+          "sha256": "95d7c5d4587bef8faf49df5879a8d6640b4b47ebe1573c8f1e34ffac35ea4e41"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt",
+          "sha256": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+          "sha256": "47809f3276df6fd587260e1ead271747dc57f5f7fd56cd5463caef7c7d9036bf"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+          "sha256": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt",
+          "sha256": "56b2d46ae9c8564abccce0f45cc5dff73d6bde560a5aa29fae378bc30f4a0d62"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt",
+          "sha256": "3c46ab18e4a5683466405b9b72b79616753e777d270653e4ccdb5e00b65410da"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
+          "sha256": "00d68c1a0c9f5414ce65986fe8a413d87c284fb125d0e4d972a854e942fd9da9"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeEngineGate.kt",
+          "sha256": "272d6d0712a48410f818446146abd5c050839ad1ea6d75852dcdced8a87e47a7"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
+          "sha256": "6d70a6793e30936e51c9dbf0a422ec91ef10db2acbfab3a36ff7df6f123e5a6c"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservation.kt",
+          "sha256": "92f03b7166e1d274392f0242758f5ead0841d044adb7c5afaa51d2556b05ff40"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessor.kt",
+          "sha256": "f927957c20105c6695ac20ffcb4d201c2b78dccdbef83357b7381564cbf9088f"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTimelineTransform.kt",
+          "sha256": "ad221ac36a0b95c60bfe0e11862b25bf43a6da24574f71a85e81a773e9b06732"
+        },
+        {
+          "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeKokoroBucket.kt",
+          "sha256": "ee5d75d6b0c31211b2b60171b7bf595901f64d221a327763c760afe1df633866"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTimingTest.kt",
+          "sha256": "e88edc017b06f46d6687aefee3e67fbdb3d78471c248373acf818c06489dc8ef"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStoreTest.kt",
+          "sha256": "e51e91ad831bcc0d22356a5e0004065ea3640d80adbfa50c13fb0e1c656cee33"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionAlignerTest.kt",
+          "sha256": "c1172dbf4e2474fd98bc281cbd192851d1883d2fcda228d87781962d21751ad7"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngineTest.kt",
+          "sha256": "bb655d5301371898230d646a0343aed80fe63c597ff36d7484a29730270f3bb1"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoderTest.kt",
+          "sha256": "d42eaa32cf1580545c828054526fdcecba64bb002a6f8f2e350d15ca61583ee5"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt",
+          "sha256": "cddc4bdbb0bf73528450094fd9947316b5d5f05d20dda9e0a3c5869a288ae695"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineTest.kt",
+          "sha256": "555cba4dfe6a2b339238648a9334d0451b2644044135693464cb3474046f8b45"
+        },
+        {
+          "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptionsTest.kt",
+          "sha256": "002df744c20228bc0bc6a9ae44609c4c9f0540ac98535c8ec34ad36390b394d7"
+        }
+      ],
+      "classpathArtifactsSha256": [
+        {
+          "path": "/workspace/scratch/d6788699ebc6/pocket-research/moonshine.jar",
+          "sha256": "573286a599f606abce11eb81050eb849dd363b657548d12865d50f0779d8998b"
+        },
+        {
+          "path": "/workspace/scratch/d6788699ebc6/pocket-research/litert-api-2.4.1.jar",
+          "sha256": "c3853a07330b1be8fb62ed880573e08567b827b764d714360d2e1c1c62249088"
+        },
+        {
+          "path": "/workspace/scratch/0f34c62a99bc/voice-jvm/tests.jar",
+          "sha256": "56c42f6db35fe4ba642156a69c97330a8655391a197a911eed1a4e8719395117"
+        },
+        {
+          "path": "/workspace/scratch/0f34c62a99bc/sdk-integration-jvm/tests.jar",
+          "sha256": "d76f9837909f02397f270579645ccd1e9fb9594968dba257e65f75ac36611458"
+        },
+        {
+          "path": "/workspace/scratch/d6788699ebc6/pocket-research/host-tests/tests.jar",
+          "sha256": "c1354b8936a389258787bca382444675d19b93380594c823e7f9ba2a5dba7fb4"
+        }
+      ]
+    },
+    "buildScriptSha256": "c432487f10ec482a301b123e8f05cb3d1ecc3b969c3b6e5fb6133bb26c4ebe29"
+  },
+  "limits": [
+    "The public NONE option behavior is bound to pinned LiteRT2.4.1. Dependency upgrades require the actual API regression and renewed JNI mask inspection; the JVM regression alone does not execute native code.",
+    "Static JNI mask inspection and host API tests do not establish Android model compilation, hardware execution, acoustic alignment or device latency.",
+    "The full Android lint and complete exact-head CI gates remain required."
+  ],
+  "independentArm64ConfigurationInspection": {
+    "aarMatchesApprovedPin": true,
+    "aarSha256": "7579c5566f227643990d7d49e9316ab4a9e2732e36842e76d51e7eb32d1eeeaa",
+    "arm64JniSha256": "d653d65f4e614123ad226cc3d4abbf8ede936374866f99c3e857ebed9a6422bc",
+    "arm64JniBytes": 220808,
+    "x86JniMatchesParentInspection": true,
+    "enumCodes": {
+      "NONE": 0,
+      "CPU": 1,
+      "GPU": 2,
+      "NPU": 3
+    },
+    "jumpTableBytes": [
+      22,
+      0,
+      2,
+      4
+    ],
+    "jumpDestinations": {
+      "NONE": "0x2084c",
+      "CPU": "0x207f4",
+      "GPU": "0x207fc",
+      "NPU": "0x20804"
+    },
+    "nativeMasks": {
+      "NONE": 0,
+      "CPU": 1,
+      "GPU": 2,
+      "NPU": 4
+    },
+    "conclusion": "NONE jumps directly to the loop increment without changing the mask. NPU plus NONE passes mask4, without CPU bit1. Static pinned configuration evidence only."
+  },
+  "independentSourceReview": {
+    "schemaVersion": 1,
+    "reviewedBaseRevision": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+    "scope": "Read-only source review and independent pinned native-configuration inspection; no hardware execution.",
+    "sourceBindings": [
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptions.kt",
+        "sha256": "a1aea09554dc37163547b13b408bdb6716ec4436de638411a6a70471d72124fa"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt",
+        "sha256": "a225655d8c33e1883bc6e3e7ab6d21903bc96d9cfb3c8038546635bad46a4d0f"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledOptionsTest.kt",
+        "sha256": "002df744c20228bc0bc6a9ae44609c4c9f0540ac98535c8ec34ad36390b394d7"
+      }
+    ],
+    "findings": [],
+    "conclusion": "No additional concrete defect found. The public options helper removes the test-only production call while retaining the pinned GPU mask2/NPU mask4 and explicit CPU transformer.",
+    "reviewedProperties": [
+      "Rejects CPU and NONE as accelerated-route inputs.",
+      "NPU requests NPU plus the native no-op NONE sentinel; GPU requests GPU only.",
+      "Retains Qualcomm just-in-time compilation and sustained-high-performance settings.",
+      "Runtime graph order, CPU thread configuration, cancellation checks, cleanup and requested/unqualified receipts are unchanged.",
+      "Tests call the real pinned Options getter, include the singleton-NPU CPU-insertion control, reject CPU/NONE and check Qualcomm policy."
+    ],
+    "nativeEvidence": {
+      "aarMatchesApprovedPin": true,
+      "aarSha256": "7579c5566f227643990d7d49e9316ab4a9e2732e36842e76d51e7eb32d1eeeaa",
+      "arm64JniSha256": "d653d65f4e614123ad226cc3d4abbf8ede936374866f99c3e857ebed9a6422bc",
+      "arm64JniBytes": 220808,
+      "x86JniMatchesParentInspection": true,
+      "enumCodes": {
+        "NONE": 0,
+        "CPU": 1,
+        "GPU": 2,
+        "NPU": 3
+      },
+      "jumpTableBytes": [
+        22,
+        0,
+        2,
+        4
+      ],
+      "jumpDestinations": {
+        "NONE": "0x2084c",
+        "CPU": "0x207f4",
+        "GPU": "0x207fc",
+        "NPU": "0x20804"
+      },
+      "nativeMasks": {
+        "NONE": 0,
+        "CPU": 1,
+        "GPU": 2,
+        "NPU": 4
+      },
+      "conclusion": "NONE jumps directly to the loop increment without changing the mask. NPU plus NONE passes mask4, without CPU bit1. Static pinned configuration evidence only."
+    },
+    "upstreamContext": {
+      "page": "https://github.com/google-ai-edge/LiteRT/issues/7891",
+      "reportedVersions": [
+        "2.3.0",
+        "2.3.2"
+      ],
+      "qualification": "The public issue describes the NONE workaround as implementation-dependent; current 2.4.1 support is established here by pinned API/JNI inspection."
+    },
+    "limits": [
+      "The exact 2.4.1 configuration is supported by artifact inspection; actual accelerator residency and per-op placement remain unmeasured.",
+      "The Kotlin option tests protect Java-side expansion. A dependency update must also revalidate native NONE mapping.",
+      "Runtime host test execution is owned and reported by root; this review did not rerun those tests."
+    ]
+  }
+}

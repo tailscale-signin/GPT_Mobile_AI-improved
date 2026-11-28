@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "pr": 2651,
+  "failed_head": "a6f15fe923e1e03dedec61982209fe19b5dd97fc",
+  "failed_tree": "9db946f886d5c102dc2732ed5963f5f715025acf",
+  "workflow_run": 46139506277,
+  "job": 140962085557,
+  "artifact": 15262551729,
+  "artifact_sha256": "594ed9eb194d1a1a069f6b3f8d979f7c11c97bb3d12f41d9d30e026fa90f041b",
+  "observations": [
+    "The repaired runner starts and executes two semantic-memory tests. Both fail; the downstream GGUF and speech matrix do not execute.",
+    "Artifact logcat shows successful loading of libmediapipe_tasks_jni.so and libobjectbox-jni.so; MediaPipe Graph initialization fails with IllegalStateException: no caller found on the stack for: vr6.",
+    "The same artifact app mapping resolves vr6 to com.google.common.flogger.FluentLogger and shows StackBasedCallerFinder.findLoggingClass inlined into forEnclosingClass. This is a production optimizer boundary, not a test-only missing API."
+  ],
+  "repair": "Retain Flogger classes and members against shrinking, obfuscation and optimization in shared production rules; leave global R8 optimization, existing MediaPipe/protobuf/JNI rules and all test assertions, deadlines and package budgets unchanged.",
+  "references": [
+    "https://github.com/google/flogger/issues/388",
+    "https://github.com/google-ai-edge/mediapipe/issues/6138"
+  ],
+  "validation": {
+    "artifact_digest": "verified",
+    "source_mapping": "verified",
+    "android_r8_runtime": "PENDING_EXACT_CORRECTIVE_HEAD",
+    "physical_device": "NOT_MEASURED"
+  },
+  "remaining": "Require exact-head native memory, GGUF and all four speech matrix cases, package size and all other required checks. Keep draft until full qualification; no merge or release on this evidence alone."
+}

@@ -76,6 +76,10 @@
 # if new app code makes either API reachable without restoring that library.
 -checkdiscard class com.google.mediapipe.tasks.text.textproofreader.TextProofreader
 -checkdiscard class com.google.mediapipe.tasks.text.textsummarizer.TextSummarizer
+# Flogger discovers the enclosing logger class by inspecting the live stack.
+# R8 inlining/class merging breaks that contract during MediaPipe Graph init.
+# Keep only the stack-sensitive logging SDK, in both release and nativeSmoke.
+-keep class com.google.common.flogger.** { *; }
 # MediaPipe's model options use protobuf-lite reflection (including fileContent_).
 # Preserve generated message fields in minified APKs, as required by protobuf-lite.
 -keep class * extends com.google.protobuf.GeneratedMessageLite { *; }

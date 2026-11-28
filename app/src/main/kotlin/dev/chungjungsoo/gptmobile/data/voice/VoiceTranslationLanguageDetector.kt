@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.text.languagedetector.LanguageDetector
 import dev.chungjungsoo.gptmobile.data.memory.MediaPipeJniContract
+import java.lang.ref.Reference
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.Locale
@@ -26,6 +27,62 @@ internal data class VoiceTranslationLanguagePrediction(val languageTag: String, 
 
 internal interface VoiceTranslationLanguageBackend : AutoCloseable {
     fun detect(text: String): List<VoiceTranslationLanguagePrediction>
+}
+
+/** The pinned SDK borrows direct model bytes. Unconfirmed retirement retains its owner and seals new native admission. */
+internal class VoiceTranslationModelOwners {
+    private val retained = mutableSetOf<OwnedBackend>()
+    private var admissionClosed = false
+
+    internal val retainedOwnerCount get() = synchronized(this) { retained.size }
+
+    fun create(model: () -> ByteBuffer, open: (ByteBuffer) -> VoiceTranslationLanguageBackend): VoiceTranslationLanguageBackend {
+        val owner = synchronized(this) {
+            check(!admissionClosed) { "Language detector cleanup is unconfirmed; restart the app before creating another detector." }
+            OwnedBackend(model()).also { retained += it }
+        }
+        try {
+            owner.backend = open(owner.model)
+        } catch (failure: Throwable) {
+            // SDK creation may already have exposed the address to JNI without returning a closeable task.
+            synchronized(this) { admissionClosed = true }
+            throw failure
+        }
+        return owner
+    }
+
+    private inner class OwnedBackend(val model: ByteBuffer) : VoiceTranslationLanguageBackend {
+        var backend: VoiceTranslationLanguageBackend? = null
+
+        @Volatile private var retirementStarted = false
+
+        override fun detect(text: String): List<VoiceTranslationLanguagePrediction> {
+            check(!retirementStarted) { "Language detector retirement has started." }
+            return checkNotNull(backend).detect(text)
+        }
+
+        override fun close() {
+            val closing = synchronized(this@VoiceTranslationModelOwners) {
+                if (this !in retained) return
+                // TaskRunner marks itself stopped before native close, so retrying a failed close cannot prove retirement.
+                check(!retirementStarted) { "Language detector cleanup is unconfirmed." }
+                retirementStarted = true
+                checkNotNull(backend)
+            }
+            try {
+                closing.close()
+            } catch (failure: Throwable) {
+                synchronized(this@VoiceTranslationModelOwners) { admissionClosed = true }
+                throw failure
+            } finally {
+                Reference.reachabilityFence(model)
+            }
+            synchronized(this@VoiceTranslationModelOwners) {
+                backend = null
+                retained -= this
+            }
+        }
+    }
 }
 
 /** Owns the bundled model on one worker; neither source text nor predictions are logged or sent over a network. */
@@ -88,12 +145,11 @@ internal class VoiceTranslationLanguageDetector internal constructor(
             worker.execute {
                 try {
                     backend?.close()
+                    backend = null
                 } catch (_: Exception) {
-                    // Cleanup cannot re-authorize a result or interrupt the owning screen's disposal.
+                    // Keep the backend; the process registry also retains its borrowed bytes after uncertain cleanup.
                 } catch (_: LinkageError) {
                     // A missing native close binding must not crash the application from this worker.
-                } finally {
-                    backend = null
                 }
             }
             worker.shutdown()
@@ -105,10 +161,11 @@ internal class VoiceTranslationLanguageDetector internal constructor(
         internal const val MODEL_ASSET = "voice/language_detector.tflite"
         internal const val MODEL_BYTES = 315_294
         internal const val MODEL_SHA256 = "7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417"
+        private val nativeModelOwners = VoiceTranslationModelOwners()
 
         private fun unavailable(reason: String) = VoiceTranslationLanguageResult(VoiceTranslationLanguageStatus.UNAVAILABLE, reason = reason)
 
-        private fun mediaPipeBackend(context: Context): () -> VoiceTranslationLanguageBackend = {
+        private fun verifiedModel(context: Context): ByteBuffer {
             // Verify the exact shipped model before the native task receives it. This is a bounded asset read, not a download.
             val bytes = ByteArray(MODEL_BYTES)
             context.assets.open(MODEL_ASSET).use { input ->
@@ -126,20 +183,26 @@ internal class VoiceTranslationLanguageDetector internal constructor(
                 rewind()
             }
             MediaPipeJniContract.verify()
-            val detector = LanguageDetector.createFromOptions(
-                context,
-                LanguageDetector.LanguageDetectorOptions.builder()
-                    .setBaseOptions(BaseOptions.builder().setModelAssetBuffer(model).build())
-                    // Keep global competitors: a pair allowlist would turn an unrelated language into a false in-pair choice.
-                    .setMaxResults(3)
-                    .setScoreThreshold(0f)
-                    .build()
-            )
-            object : VoiceTranslationLanguageBackend {
-                override fun detect(text: String) = detector.detect(text).languagesAndScores().map {
-                    VoiceTranslationLanguagePrediction(it.languageCode(), it.probability())
+            return model
+        }
+
+        private fun mediaPipeBackend(context: Context): () -> VoiceTranslationLanguageBackend = {
+            nativeModelOwners.create(model = { verifiedModel(context) }) { model ->
+                val detector = LanguageDetector.createFromOptions(
+                    context,
+                    LanguageDetector.LanguageDetectorOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetBuffer(model).build())
+                        // Keep global competitors: a pair allowlist would turn an unrelated language into a false in-pair choice.
+                        .setMaxResults(3)
+                        .setScoreThreshold(0f)
+                        .build()
+                )
+                object : VoiceTranslationLanguageBackend {
+                    override fun detect(text: String) = detector.detect(text).languagesAndScores().map {
+                        VoiceTranslationLanguagePrediction(it.languageCode(), it.probability())
+                    }
+                    override fun close() = detector.close()
                 }
-                override fun close() = detector.close()
             }
         }
     }

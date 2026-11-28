@@ -134,7 +134,11 @@
     "Bring the exact translation-picker test controls into view before visibility assertions and touch interaction, retaining installation, selection and microphone callback checks at large font sizes.",
     "Keep accepted retained speech playing during preference hydration while separately blocking new capture, draft submission and replay preparation until the screen is ready.",
     "Acknowledge recognition retirement only after cancellation holders and checked native resources have drained; preserve model leases and block new native admission when cleanup is unconfirmed.",
-    "Preserve required host CTest targets across third-party CMake configuration, build the isolated cancellation fixture, and reject empty mandatory test discovery."
+    "Preserve required host CTest targets across third-party CMake configuration, build the isolated cancellation fixture, and reject empty mandatory test discovery.",
+    "Retain accepted translation playback ownership through screen restoration and future capture-mode changes; resolve each automatic or manual reply from its saved language policy while keeping future request preferences separate.",
+    "Retain verified direct model bytes until native language-detector cleanup succeeds; preserve uncertain owners and block new native allocation without limiting healthy simultaneous voice sessions.",
+    "Keep partial native recognition owners, model mappings and libraries alive until every dependent cleanup is confirmed; stop new admission after uncertainty and retain healthy existing-owner retirement.",
+    "Acknowledge confirmed voice-output retirement across benign stop/pause/prewarm cancellation while invalidating acknowledgements after real factory replacement or new native acquisition; preserve the playback-worker barrier."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1234,7 +1238,17 @@
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java",
     "docs/repairs/voice-native-retirement-2026-11-28-task.json",
     "docs/repairs/native-host-test-configuration-2026-11-28-task.json",
-    "scripts/tests/test_kokoro_host_test_configuration.py"
+    "scripts/tests/test_kokoro_host_test_configuration.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePlaybackSelection.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePlaybackSelectionTest.kt",
+    "docs/repairs/voice-translation-model-lifetime-2026-11-28-validation.json",
+    "docs/repairs/voice-translation-playback-integration-2026-11-28-validation.json",
+    "docs/repairs/voice-translation-playback-policy-2026-11-28-validation.json",
+    "docs/repairs/recognition-feature-navigation-2026-11-28-validation.json",
+    "docs/repairs/recognition-host-manifest-2026-11-28-validation.json",
+    "docs/repairs/recognition-scanner-integration-2026-11-28-validation.json",
+    "docs/repairs/recognition-translation-integration-2026-11-28-validation.json",
+    "docs/repairs/recognition-native-retirement-2026-11-28-validation.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

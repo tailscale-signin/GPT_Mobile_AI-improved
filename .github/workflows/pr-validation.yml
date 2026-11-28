@@ -198,6 +198,7 @@ jobs:
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePreferenceStoreTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceBackendViewModelTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceOutputConfigurationEffectTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePlaybackSelectionTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest' 2>&1 | tee "$results_dir/test.log"
 
       - name: Preserve early Android regression evidence

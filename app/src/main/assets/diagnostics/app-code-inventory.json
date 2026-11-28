@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3488d81c41619971b8a6f3c56b18c81ccbb1f59f05280c5ed8b53c36b77b6e35",
-  "file_count": 3316,
-  "indexed_line_count": 570872,
+  "source_digest": "a480fa004344f79e3dc93b507fa48a048ee63e8126527a2cd341f3ae0cd4666e",
+  "file_count": 3317,
+  "indexed_line_count": 571006,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,8 +40,8 @@
     {
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
-      "file_count": 629,
-      "indexed_line_count": 111472
+      "file_count": 630,
+      "indexed_line_count": 111502
     },
     {
       "id": "accessibility_and_localization",
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 275,
-      "indexed_line_count": 50005
+      "indexed_line_count": 50006
     },
     {
       "id": "agent_tools",
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 207,
-      "indexed_line_count": 35439
+      "indexed_line_count": 35542
     },
     {
       "id": "portable_domain",
@@ -2139,8 +2139,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ReviewedAppFeatures.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "99481a92f6c5e2a8d660a5b19f547e4897c31e28d0f51daaf9714bbbb8d7b185",
-      "indexed_lines": 64
+      "sha256": "1a1311dc10ee6526f5079b84c12ccdcc44ac6e4bf4663dad4a762762d7c70fc1",
+      "indexed_lines": 65
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ReviewedFeatureRoute.kt",
@@ -13696,8 +13696,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "f802c746dae7f6558e21dbf702d74d8fadb4a7040d7a3807f4fc399f21592e5c",
-      "indexed_lines": 2022
+      "sha256": "7927a4917ee0b924b9e4a1ec51cb76356cb054c61e9d4b821ac12b3a643b11a0",
+      "indexed_lines": 2031
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
@@ -14711,8 +14711,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "51e6da8e1ac5987fd9ead8b7be6b2821c0629172b01a0a72c2e215b19fe36fb6",
-      "indexed_lines": 181
+      "sha256": "7a2dc7c874994241d85e55f60c5d6ca63b4451478b1d8e27cf94fcaa6d618ebb",
+      "indexed_lines": 244
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt",
@@ -14725,8 +14725,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicy.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "8f6b2708f6cd39b33145583fc1a80420d817e8e559f12ec8216c5287cdf00680",
-      "indexed_lines": 12
+      "sha256": "53135f5ab88a1e975bb1a20fc77370323739b6bac584a09cc4ce60a9badf636c",
+      "indexed_lines": 43
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSource.kt",
@@ -18778,8 +18778,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "02efc80cee426a247e36723ae2d321e5b7645b14e1a4be418b11309d504c50a5",
-      "indexed_lines": 1875
+      "sha256": "ff738237ef7c4cc518659fe8d5f8ba0a42f3bfb9b92389e2b356db4f328b47fa",
+      "indexed_lines": 1884
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
@@ -18894,6 +18894,13 @@
       "indexed_lines": 174
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePlaybackSelection.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "f198238248d370ab7bbfe59304e9252c788fa0bf166b4be25ab38e3525d7a66c",
+      "indexed_lines": 25
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt",
       "area_id": "chat_ui",
       "kind": "source",
@@ -18960,8 +18967,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRuntimeViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "73a9eb87ca55b0d1d9f23d88dac403863ce53301a6d251b3503db05f3f513a24",
-      "indexed_lines": 179
+      "sha256": "11a05ab270d8edbe84a24ef27f4aab261112c305e02e567e95a205c01a480a01",
+      "indexed_lines": 175
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBackendSettings.kt",

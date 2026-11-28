@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.lang.ref.WeakReference
+import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -10,7 +12,10 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -176,5 +181,173 @@ class VoiceTranslationLanguageDetectorTest {
         assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS))
         assertTrue(pending.isCancelled)
         assertFalse(published)
+    }
+
+    @Test fun twoHealthyNativeOwnersRemainIndependentAndReleaseAfterClose() {
+        val owners = VoiceTranslationModelOwners()
+        val closes = mutableListOf<String>()
+        fun open(language: String) = owners.create({ ByteBuffer.allocateDirect(4) }) {
+            object : VoiceTranslationLanguageBackend {
+                override fun detect(text: String) = listOf(prediction(language, 0.99f))
+                override fun close() {
+                    closes += language
+                }
+            }
+        }
+        val english = open("en")
+        val french = open("fr")
+        assertEquals(2, owners.retainedOwnerCount)
+        assertEquals("en", english.detect("Hello").single().languageTag)
+        assertEquals("fr", french.detect("Bonjour").single().languageTag)
+        english.close()
+        assertEquals(1, owners.retainedOwnerCount)
+        val german = open("de")
+        english.close()
+        assertEquals(2, owners.retainedOwnerCount)
+        assertEquals("fr", french.detect("Bonjour").single().languageTag)
+        french.close()
+        german.close()
+        assertEquals(0, owners.retainedOwnerCount)
+        assertEquals(listOf("en", "fr", "de"), closes)
+    }
+
+    @Test fun modelVerificationFailureDoesNotSealAdmissionBeforeNativeCreation() {
+        val owners = VoiceTranslationModelOwners()
+        assertThrows(IllegalArgumentException::class.java) {
+            owners.create({ throw IllegalArgumentException("model integrity mismatch") }) {
+                throw AssertionError("Unverified model must not reach native creation")
+            }
+        }
+        assertEquals(0, owners.retainedOwnerCount)
+        val healthy = owners.create({ ByteBuffer.allocateDirect(4) }) {
+            object : VoiceTranslationLanguageBackend {
+                override fun detect(text: String) = listOf(prediction("en", 0.99f))
+                override fun close() = Unit
+            }
+        }
+        assertEquals("en", healthy.detect("Hello").single().languageTag)
+        healthy.close()
+        assertEquals(0, owners.retainedOwnerCount)
+    }
+
+    @Test fun failedNativeCreationRetainsTheBorrowedBufferAndSealsNewAdmission() {
+        for (failure in listOf(IllegalStateException("native create"), UnsatisfiedLinkError("native create"))) {
+            val owners = VoiceTranslationModelOwners()
+            var model: WeakReference<ByteBuffer>? = null
+            var allocations = 0
+            var nativeOpens = 0
+            val observed = assertThrows(failure.javaClass) {
+                owners.create({
+                    allocations++
+                    ByteBuffer.allocateDirect(4).also { model = WeakReference(it) }
+                }) {
+                    nativeOpens++
+                    throw failure
+                }
+            }
+            assertSame(failure, observed)
+            System.gc()
+            // Assert positive retention only; no test relies on a collector reclaiming a released buffer.
+            assertNotNull(model?.get())
+            assertEquals(1, owners.retainedOwnerCount)
+            assertThrows(IllegalStateException::class.java) {
+                owners.create({
+                    allocations++
+                    ByteBuffer.allocateDirect(4)
+                }) {
+                    nativeOpens++
+                    throw AssertionError("Uncertain creation must seal later native admission")
+                }
+            }
+            assertEquals(1, allocations)
+            assertEquals(1, nativeOpens)
+        }
+    }
+
+    @Test fun failedNativeCloseRetainsItsOwnerWithoutRetryAndAllowsExistingHealthyRetirement() = runBlocking {
+        for (failure in listOf(IllegalStateException("native close"), UnsatisfiedLinkError("native close"))) {
+            val owners = VoiceTranslationModelOwners()
+            val worker = Executors.newSingleThreadExecutor()
+            var model: WeakReference<ByteBuffer>? = null
+            var nativeBackend: WeakReference<VoiceTranslationLanguageBackend>? = null
+            var handle: WeakReference<VoiceTranslationLanguageBackend>? = null
+            var nativeCloses = 0
+            val detector = VoiceTranslationLanguageDetector(createBackend = {
+                owners.create({ ByteBuffer.allocateDirect(4).also { model = WeakReference(it) } }) {
+                    object : VoiceTranslationLanguageBackend {
+                        override fun detect(text: String) = listOf(prediction("en", 0.99f))
+                        override fun close() {
+                            nativeCloses++
+                            throw failure
+                        }
+                    }.also { nativeBackend = WeakReference(it) }
+                }.also { handle = WeakReference(it) }
+            }, worker = worker)
+            assertEquals("en-US", detector.detect("Please translate this sentence.", pair).languageTag)
+            val healthy = owners.create({ ByteBuffer.allocateDirect(4) }) {
+                object : VoiceTranslationLanguageBackend {
+                    override fun detect(text: String) = listOf(prediction("fr", 0.99f))
+                    override fun close() = Unit
+                }
+            }
+            detector.close()
+            assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS))
+            System.gc()
+            assertNotNull(model?.get())
+            assertNotNull(nativeBackend?.get())
+            assertEquals(2, owners.retainedOwnerCount)
+            assertThrows(IllegalStateException::class.java) { checkNotNull(handle?.get()).close() }
+            assertEquals(1, nativeCloses)
+            assertThrows(IllegalStateException::class.java) {
+                owners.create({ throw AssertionError("Sealed admission must not allocate another model") }) {
+                    throw AssertionError("Sealed admission must not create another native task")
+                }
+            }
+            assertEquals("fr", healthy.detect("Bonjour").single().languageTag)
+            healthy.close()
+            assertEquals(1, owners.retainedOwnerCount)
+            assertEquals("closed", detector.detect("Please translate this sentence.", pair).reason)
+        }
+    }
+
+    @Test fun anInFlightNativeCloseRetainsItsBufferWithoutBlockingOtherHealthyOwners() = runBlocking {
+        val owners = VoiceTranslationModelOwners()
+        val closing = CountDownLatch(1)
+        val finishClose = CountDownLatch(1)
+        val worker = Executors.newSingleThreadExecutor()
+        var model: WeakReference<ByteBuffer>? = null
+        val detector = VoiceTranslationLanguageDetector(createBackend = {
+            owners.create({ ByteBuffer.allocateDirect(4).also { model = WeakReference(it) } }) {
+                object : VoiceTranslationLanguageBackend {
+                    override fun detect(text: String) = listOf(prediction("en", 0.99f))
+                    override fun close() {
+                        closing.countDown()
+                        assertTrue(finishClose.await(5, TimeUnit.SECONDS))
+                    }
+                }
+            }
+        }, worker = worker)
+        try {
+            assertEquals("en-US", detector.detect("Please translate this sentence.", pair).languageTag)
+            detector.close()
+            assertTrue(closing.await(5, TimeUnit.SECONDS))
+            System.gc()
+            assertNotNull(model?.get())
+            val concurrent = owners.create({ ByteBuffer.allocateDirect(4) }) {
+                object : VoiceTranslationLanguageBackend {
+                    override fun detect(text: String) = listOf(prediction("fr", 0.99f))
+                    override fun close() = Unit
+                }
+            }
+            assertEquals(2, owners.retainedOwnerCount)
+            assertEquals("fr", concurrent.detect("Bonjour").single().languageTag)
+            concurrent.close()
+            assertEquals(1, owners.retainedOwnerCount)
+        } finally {
+            finishClose.countDown()
+            detector.close()
+            assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS))
+        }
+        assertEquals(0, owners.retainedOwnerCount)
     }
 }

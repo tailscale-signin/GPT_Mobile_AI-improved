@@ -408,6 +408,131 @@ class KokoroStreamingOutputTest {
         }
     }
 
+    @Test fun confirmedWarmReleaseSurvivesRepeatedStopWhileNativeCloseIsPending() {
+        assertConfirmedReleaseAcrossCancellation { output ->
+            output.stop("speech_benchmark_running")
+            output.stop("session_paused")
+        }
+    }
+
+    @Test fun confirmedWarmReleaseSurvivesCancelPrewarmWhileNativeCloseIsPending() {
+        assertConfirmedReleaseAcrossCancellation { output ->
+            output.cancelPrewarm()
+            output.cancelPrewarm()
+        }
+    }
+
+    @Test fun heldSessionAccessRefreshCannotInvalidateConfirmedOutputRetirement() {
+        var session: VoiceSession? = null
+        try {
+            assertConfirmedReleaseAcrossCancellation { output ->
+                val system = object : VoiceAudio {
+                    override fun listen(listener: VoiceAudio.Listener) = error("No microphone is admitted")
+                    override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+                    override fun stop() = Unit
+                    override fun close() = Unit
+                }
+                val local = object : VoiceRecognitionInput {
+                    override var languageTag = "en-US"
+                    override fun listen(listener: VoiceAudio.Listener) = error("No microphone is admitted")
+                    override fun stop() = Unit
+                    override fun close() = Unit
+                }
+                val audio = VoicePluginAudio(system, local, output, releaseSystemRecognition = {})
+                val owner = VoiceSession(audio, { true }, {})
+                session = owner
+                owner.access(true, true, true)
+                owner.holdAudio(true)
+                // The real screen repeats this access update when benchmarkRunning changes.
+                owner.access(true, true, true)
+                assertEquals(VoicePhase.PAUSED, owner.state.phase)
+            }
+        } finally {
+            session?.close()
+        }
+    }
+
+    @Test fun factoryReplacementInvalidatesAPendingReleaseAcknowledgement() {
+        val created = CountDownLatch(1)
+        val closing = CountDownLatch(1)
+        val allowClose = CountDownLatch(1)
+        val acknowledged = AtomicBoolean()
+        val engine = object : VoicePhraseEngine {
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() {
+                closing.countDown()
+                check(allowClose.await(5, TimeUnit.SECONDS))
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, beforeCreate = { created.countDown() }) { output ->
+            try {
+                output.prewarm(KokoroVoice.HEART)
+                assertTrue(created.await(3, TimeUnit.SECONDS))
+                output.releaseWarmModel { acknowledged.set(true) }
+                assertTrue(closing.await(3, TimeUnit.SECONDS))
+                output.configureEngine(object : VoicePhraseEngineFactory {
+                    override val identity = "retirement-replacement-test"
+                    override val requiresKokoroAssets = false
+                    override val selectedBackend = VoiceSpeechBackend.PHONON_CPU
+                    override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine =
+                        error("Replacement configuration must not load the model")
+                })
+            } finally {
+                allowClose.countDown()
+            }
+            val replacementRelease = CountDownLatch(1)
+            output.releaseWarmModel { replacementRelease.countDown() }
+            awaitMain(replacementRelease)
+            assertEquals(0L, replacementRelease.count)
+            assertFalse(acknowledged.get())
+        }
+    }
+
+    private fun assertConfirmedReleaseAcrossCancellation(cancel: (KokoroVoiceOutput) -> Unit) {
+        val created = CountDownLatch(1)
+        val closing = CountDownLatch(1)
+        val allowClose = CountDownLatch(1)
+        val retired = AtomicBoolean()
+        val acknowledged = CountDownLatch(1)
+        val completions = AtomicInteger()
+        val engine = object : VoicePhraseEngine {
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() {
+                closing.countDown()
+                check(allowClose.await(5, TimeUnit.SECONDS))
+                retired.set(true)
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, beforeCreate = { created.countDown() }) { output ->
+            try {
+                output.prewarm(KokoroVoice.HEART)
+                assertTrue(created.await(3, TimeUnit.SECONDS))
+                output.releaseWarmModel {
+                    assertTrue(retired.get())
+                    completions.incrementAndGet()
+                    acknowledged.countDown()
+                }
+                assertTrue(closing.await(3, TimeUnit.SECONDS))
+                cancel(output)
+                shadowOf(Looper.getMainLooper()).idle()
+                assertEquals(1L, acknowledged.count)
+                assertEquals(0, completions.get())
+            } finally {
+                allowClose.countDown()
+            }
+            awaitMain(acknowledged)
+            assertEquals(0L, acknowledged.count)
+            assertEquals(1, completions.get())
+            val secondRelease = CountDownLatch(1)
+            output.releaseWarmModel { secondRelease.countDown() }
+            awaitMain(secondRelease)
+            assertEquals(0L, secondRelease.count)
+            assertEquals(1, completions.get())
+        }
+    }
+
     @Test fun interveningWarmupInvalidatesAPendingReleaseAcknowledgement() {
         val firstCreated = CountDownLatch(1)
         val replacementCreated = CountDownLatch(1)

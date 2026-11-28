@@ -35,4 +35,63 @@ class VoiceTranslationPlaybackPolicyTest {
         assertNull(translationPlaybackTarget(VoiceResponsePolicy.TRANSLATE_FRENCH, VoiceTranslationPair(baseVoiceId = "estelle")))
         assertNull(translationPlaybackTarget(null, VoiceTranslationPair()))
     }
+
+    @Test fun acceptedTranslationSelectionUsesTheSavedDestinationAndItsVoice() {
+        val pair = VoiceTranslationPair(sourceLanguage = "en-US", baseVoiceId = "marius")
+        val french = selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_FRENCH, pair)
+        val english = selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_BRITISH_ENGLISH, pair)
+        assertEquals(VoiceTranslationPlaybackSelection.Translated(VoiceTranslationTarget("en-US", "fr-FR", "estelle")), french)
+        assertEquals(VoiceTranslationPlaybackSelection.Translated(VoiceTranslationTarget("fr-FR", "en-US", "marius")), english)
+    }
+
+    @Test fun unresolvedMetadataCannotClearAnAcceptedVoiceAndKnownOrdinaryRepliesCannotInheritIt() {
+        val pair = VoiceTranslationPair()
+        val retained = requireNotNull(pair.resolve("en"))
+        assertEquals(VoiceTranslationPlaybackSelection.MissingPolicy, selectTranslationPlayback(null, pair, retained))
+        for (policy in listOf(VoiceResponsePolicy.CONVERSATIONAL, VoiceResponsePolicy.RESPONSIVE, VoiceResponsePolicy.REPLY_FRENCH)) {
+            assertEquals(VoiceTranslationPlaybackSelection.Ordinary, selectTranslationPlayback(policy, pair, retained))
+        }
+    }
+
+    @Test fun anOwnedValidatedTargetKeepsItsExactVoiceAfterPreferencesChange() {
+        val original = VoiceTranslationPair(baseVoiceId = "marius")
+        val retainedEnglish = requireNotNull(original.resolve("fr"))
+        val current = VoiceTranslationPair()
+        assertEquals(
+            VoiceTranslationPlaybackSelection.Translated(retainedEnglish),
+            selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_BRITISH_ENGLISH, current, retainedEnglish)
+        )
+
+        val retainedFrench = requireNotNull(original.resolve("en"))
+        val changedPair = VoiceTranslationPair(translationLanguage = "es-ES", translationVoiceId = "lola")
+        assertEquals(
+            VoiceTranslationPlaybackSelection.Translated(retainedFrench),
+            selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_FRENCH, changedPair, retainedFrench)
+        )
+        assertEquals(VoiceTranslationPlaybackSelection.IncompatiblePair, selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_FRENCH, changedPair))
+    }
+
+    @Test fun unrelatedOrInvalidRetainedTargetsNeverSelectTheWrongVoice() {
+        val pair = VoiceTranslationPair()
+        val invalidTargets = listOf(
+            VoiceTranslationTarget("en-US", "fr-FR", "estelle"),
+            VoiceTranslationTarget("fr-FR", "en-US", "estelle"),
+            VoiceTranslationTarget("fr-FR", "en-US", "missing-voice"),
+            VoiceTranslationTarget("en-US", "en-US", "marius"),
+            VoiceTranslationTarget("unknown", "en-US", "marius")
+        )
+        val expected = VoiceTranslationPlaybackSelection.Translated(VoiceTranslationTarget("fr-FR", "en-US", "azelma"))
+        for (retained in invalidTargets) {
+            assertEquals(expected, selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_AMERICAN_ENGLISH, pair, retained))
+        }
+    }
+
+    @Test fun unsupportedAcceptedLanguagesAndInvalidPairsBlockInsteadOfSelectingOrdinarySpeech() {
+        assertEquals(VoiceTranslationPlaybackSelection.IncompatiblePair, selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_GERMAN, VoiceTranslationPair()))
+        assertEquals(VoiceTranslationPlaybackSelection.IncompatiblePair, selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_HINDI, VoiceTranslationPair()))
+        assertEquals(
+            VoiceTranslationPlaybackSelection.IncompatiblePair,
+            selectTranslationPlayback(VoiceResponsePolicy.TRANSLATE_FRENCH, VoiceTranslationPair(baseVoiceId = "estelle"))
+        )
+    }
 }

@@ -24,7 +24,7 @@
     "Concurrent branch reconciliation, exact-commit checks, main validation and release verification",
     "Pocket caption source mapping, tempo and presentation synchronization; actual audio-derived timing for routes without SDK word timestamps"
   ],
-  "status": "FOLLOWUP_CORRECTIONS_VALIDATED_PENDING_EXACT_HEAD_CI",
+  "status": "COMBINED_CORRECTIONS_LOCALLY_VALIDATED_READY_FOR_DRAFT_PUBLICATION",
   "validation": [
     {
       "scope": "native cache contracts",
@@ -141,15 +141,16 @@
     "draftRequiredBeforeMerge": true,
     "mergeRequiresGreenExactHead": true,
     "releaseRequiresGreenMain": true,
-    "state": "READY_PR_CI",
+    "state": "DRAFT_PR_CORRECTION_READY_FOR_EXACT_HEAD_CI",
     "transport": "GitHub Git Data API with expected-head non-forced ref update; preserve all concurrent branch commits.",
     "implementationCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
     "dependencyCorrectionCommit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
-    "publicDeclarationCorrectionCommit": "df074e10b52cc6413db894499706e16609ff5a21"
+    "publicDeclarationCorrectionCommit": "df074e10b52cc6413db894499706e16609ff5a21",
+    "runtimeAndCiCorrectionCommit": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d"
   },
   "remaining": [
-    "Publish the verified combined correction with expected-head protection",
-    "Exact-head full PR CI",
+    "Publish the reviewed combined correction with expected-head protection",
+    "Exact-head full PR CI and all required checks",
     "Protected merge after green and fresh main validation",
     "Signed Android 0.9.66.19 build 153 and Gateway 18.1.6 publication verification"
   ],
@@ -203,9 +204,63 @@
       "previousHead": "df074e10b52cc6413db894499706e16609ff5a21",
       "filesIntegrated": 44,
       "scope": "Preserve bounded admission/approval-wait recovery, retained search evidence, fair authorized checklist discovery, application-owned failure receipts and configured background-index eligibility. Release targets, full required workflows and all prior limitations remain unchanged."
+    },
+    {
+      "observedHead": "c31abe1ccf77c8dd254da775cfee6508719ae79e",
+      "previousHead": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+      "filesIntegrated": 15,
+      "scope": "Immutable historical declaration provenance, preserved160 scanner controls/timeouts, complementary request/report/restored-progress tests, pinned SDK enum identity and additional early Android regressions. Independent review and canonical host gate863/1skip passed; full gates retained."
+    },
+    {
+      "observedHead": "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+      "previousHead": "c31abe1ccf77c8dd254da775cfee6508719ae79e",
+      "filesIntegrated": 93,
+      "scope": "Bidirectional voice translation, saved per-language voices, local language detection and explicit multilingual installation. Release targets and prior limitations retained. Review found retained-playback restoration and accepted-reply routing gaps; narrow ownership corrections under validation."
+    },
+    {
+      "observedHead": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+      "previousHead": "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+      "filesIntegrated": 11,
+      "scope": "Retain preference-readiness output configuration effect, real Compose restoration regression and early Android gate. Merge with accepted-output ownership and capture-mode-independent replay corrections; both changes preserved."
+    },
+    {
+      "observedHead": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "previousHead": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+      "filesIntegrated": 121,
+      "scope": "Preserve published streaming Moonshine Small/Medium, Zipformer English/French, Nemotron CPU/GPU/NPU, input-caption timing, explicit recognition settings and benchmark evidence. Merge retained translation output fixes with recognition configuration. Strict declared public-token scanner exceptions independently checked; all original controls retained, new controls176, bounded integrity-wrapper180s explicit. Normal and partial-construction NPU retirement and benchmark handoff acknowledgement require corrections before readiness."
+    },
+    {
+      "observedHead": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+      "previousHead": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "filesIntegrated": 15,
+      "scope": "Retain e1f strict SDK/host-library manifest separation and e1c lazy-list device-test visibility correction. Preserve the actual orchestration regression and native retirement semantic patch. Source-pinned patch application proves the incoming blank-context normalization and working-patch normalization each preserve all resulting source hashes."
+    },
+    {
+      "observedHead": "606721dc837f3d0a7342b9150094f97872153957",
+      "previousHead": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+      "filesIntegrated": 12,
+      "scope": "Preserve explicit new-work readiness distinct from retained playback authorization, nullable replay preparation ownership, microphone interruption admission and full-host manifest receipt regression. Merge screen ownership/map changes and recompile affected Session/routing/handoff validation before publication."
+    },
+    {
+      "observedHead": "2d26e331ad24062a88dd0b2d30e384d9568cbebe",
+      "previousHead": "606721dc837f3d0a7342b9150094f97872153957",
+      "filesIntegrated": 8,
+      "scope": "Preserve effective native-model memory admission from verified RAM and complete visible cgroup ancestry. Unknown or insufficient headroom fails the mandatory model case; no skipped-case success, compiler-budget change or model-estimate reduction. Kotlin/retirement source bindings remain unchanged."
+    },
+    {
+      "observedHead": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+      "previousHead": "2d26e331ad24062a88dd0b2d30e384d9568cbebe",
+      "filesIntegrated": 19,
+      "scope": "Incoming commit already contains the exact reviewed QNN, JNI registry, decoder and 20-case ownership fixtures. Preserve its additional Java cancellation monitor, five-case JNI scheduling fixture and mandatory host-gate wiring. Independent native and Java lock-order reviews found no concrete blocker; current cancellation/API validation supplements the unchanged source-bound native proof."
+    },
+    {
+      "observedHead": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+      "previousHead": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+      "filesIntegrated": 8,
+      "scope": "Preserve the concurrent native host-test intent fix, mandatory empty-suite error and four behavioral configuration regressions unchanged. The independently validated prior fix remains historical; refresh the narrow full-production dependency configuration and cancellation fixture against the incoming source. All retained-translation/output source bindings remain unchanged."
     }
   ],
-  "currentParent": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+  "currentParent": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
   "hostValidationScope": "Focused receipts bind exact source hashes at execution. Later changes remain explicit; a host subset is not full Android, physical hardware, or acoustic qualification.",
   "ciCorrection": {
     "failedHead": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
@@ -272,6 +327,21 @@
       "failed": 2,
       "currentCorrection": "Focused benchmark dispatch boundary passed after reproducing the stale expectation; report outcome boundary passed, full corrected GitHub session awaits CI.",
       "receipt": "docs/repairs/dispatch-and-report-fixture-2026-11-28-validation.json"
+    },
+    "af8Preview": {
+      "sourceCommit": "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+      "run": 46115364657,
+      "unitJob": 140890093025,
+      "unitJobConclusion": "success",
+      "lintJob": 140890093246,
+      "lintConclusion": "success",
+      "unitArtifact": 15253725721,
+      "suites": 2053,
+      "tests": 15709,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 6,
+      "qualification": "Historical full unit/lint evidence only. It does not qualify later translation, recognition or pending ownership corrections."
     }
   },
   "followupHostValidation": {
@@ -285,5 +355,154 @@
     "xmlFilesChecked": 38,
     "logSha256": "8b69efa988659bf664a5ac81e218032ea7273c204c395bc3293ae926f6f97087",
     "scope": "Current combined correction host checks; full Android and complete reachable-history qualification remain hosted requirements."
-  }
+  },
+  "translationIntegrationCorrection": {
+    "parent": "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+    "policyReceipt": "docs/repairs/voice-translation-playback-policy-2026-11-28-validation.json",
+    "policyTests": 9,
+    "screenReattachmentAndAcceptedReplyRouting": "PASSED: eight old-body regressions reproduced, current routing and selection11/11, actual Compose effect1/1; merged effect API compilation passed",
+    "detectorModelLifetime": "PASSED: pinned direct-buffer borrowing verified; actual-source API compile and18 lifecycle/recognition tests passed",
+    "fullAndroid": "REQUIRES_NEW_EXACT_HEAD_CI",
+    "currentParent": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+    "screenReceipt": "docs/repairs/voice-translation-playback-integration-2026-11-28-validation.json",
+    "detectorReceipt": "docs/repairs/voice-translation-model-lifetime-2026-11-28-validation.json",
+    "focusedTestsPassed": 39,
+    "changedKotlinFormatting": "PASSED: all8 changed Kotlin files",
+    "canonicalHost": {
+      "result": "PASSED",
+      "tests": 863,
+      "skipped": 1,
+      "regexLiteralPatterns": 2350,
+      "regexDynamicPatternsSkipped": 153,
+      "regexErrors": 0,
+      "xmlFilesChecked": 38,
+      "logSha256": "bdc48be3d03bedf21274c00336f49eb49bb395feaeb8051e30a400c79cd82646",
+      "scope": "Final combined production/test sources; final documentation receipt update is followed by regenerated reference checks."
+    },
+    "referenceMap": {
+      "serializedBytes": 519714,
+      "unchangedLimitBytes": 524288,
+      "sourcePathsPreserved": 773,
+      "testPathsPreserved": 604,
+      "historicalLinksPreservedThroughMappedCheckpoints": 9,
+      "review": "Root and independent reviewer checked compact voice constraints, numeric bounds and unchanged routes; no generator/runtime cap increase.",
+      "sourceSha256": "c26f85176f4df53c6f6b11540d47d81939afa31d16dabe24ba43dab507ff21ce"
+    },
+    "validationParent": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+    "reconciledParent": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+    "combinedRecognitionRevalidation": "PASS:12 current routing/selection cases,8 current actual-Session retirement cases, actual Session/API compile,31sourcebindings and244dependencyinputs verified. Previous0ec output reproduces3 expected acknowledgement failures with current606 Session. Source hashes unchanged by2d26; full current-head Android CI remains required."
+  },
+  "concurrentPendingWork": {
+    "source": "PR2651 streaming-recognition-integration draft coordination marker",
+    "observedPublishedHead": "a06e5053c11cb5d9107d785c23443effcdd59ea6",
+    "state": "PUBLISHED_SHARED_WORK_AND_CORRECTIONS_INTEGRATED_REVIEW_COMPLETE",
+    "integrationRule": "Preserve draft until retirement corrections, combined source validation and independent review are complete. Mark ready for the final required aggregate, then merge only after every required current-head check succeeds.",
+    "reviewFinding": {
+      "unpublishedSourceCommit": "01d389d5648b8fcbe40f89f3f075d29db9056695",
+      "state": "NATIVE_RETIREMENT_REVIEW_BLOCKER",
+      "finding": "The reviewed QNN destructor logs child release errors then frees parent resources; nativeDelete can appear successful. Preserve draft until the published implementation confirms or corrects retirement ownership and the combined branch passes its own gates.",
+      "confirmedAtPublishedHead": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "correction": "PASS: checked native retirement and partial initialization ownership;20 actual-QNN fixture cases,4 Android arm64 object compiles,10 decoder/API tests and independent review. Full exact-head CI remains mandatory."
+    },
+    "publishedHead": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+    "handoffFinding": "Generic warmup cancellation generation can drop successful delayed retirement acknowledgement after benign stop, held-session access or cancelPrewarm; use actual acquisition/replacement ownership and preserve failed-close fencing.",
+    "handoffCorrection": "PASS: modelAcquisitionEpoch correction with current606 whole Session;8/8 actual-source cases, prior output3 expected acknowledgement failures. Factory replacement, quarantine and worker-barrier fences preserved."
+  },
+  "integrationValidationReceipts": [
+    "docs/repairs/recognition-feature-navigation-2026-11-28-validation.json",
+    "docs/repairs/recognition-host-manifest-2026-11-28-validation.json",
+    "docs/repairs/recognition-scanner-integration-2026-11-28-validation.json",
+    "docs/repairs/recognition-translation-integration-2026-11-28-validation.json",
+    "docs/repairs/recognition-native-retirement-2026-11-28-validation.json"
+  ],
+  "recognitionIntegrationValidation": {
+    "routingAndRetirementReceipt": "docs/repairs/recognition-translation-integration-2026-11-28-validation.json",
+    "hostManifestReceipt": "docs/repairs/recognition-host-manifest-2026-11-28-validation.json",
+    "hostManifestTests": 26,
+    "nativeRetirementReceipt": "docs/repairs/recognition-native-retirement-2026-11-28-validation.json",
+    "nativeRetirementStatus": "PASS:20 actual patched-QNN C-API fixture cases, baseline failure reproduced,4 Android arm64 API31 ReleaseO3 object compiles,10 complete decoder/API host tests, formatting/whitespace, independent source review. Full native-model/device qualification remains hosted or unmeasured.",
+    "scannerReceipt": "docs/repairs/recognition-scanner-integration-2026-11-28-validation.json",
+    "scannerControls": 176,
+    "historyIntegrityCases": 3,
+    "featureNavigationReceipt": "docs/repairs/recognition-feature-navigation-2026-11-28-validation.json",
+    "featureMapProjectedBytes": 523885,
+    "featureMapLimitBytes": 524288,
+    "independentPhysicalOrAcousticQualification": false,
+    "nativeRetirementSourcesReverifiedAtParent": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "routingAndHandoffCases": 20,
+    "sourceAndDependencyBindings": "31sourcebindings/244dependencyinputs reverified after final readiness-aware host tests",
+    "cancellationReconciliation": "PASS: five actual production-Java/JNI scheduling cases under checked JNI, deterministic unfenced negative failure, refreshed ten decoder/API tests. Previous 20 QNN cases and four arm64 object compiles carry forward only by verified unchanged source hashes."
+  },
+  "combinedRecognitionFinalHostValidation": {
+    "parent": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+    "command": "bash scripts/validate-local.sh fast",
+    "result": "PASSED",
+    "tests": 885,
+    "skipped": 1,
+    "seconds": 25.283,
+    "regexLiteralPatterns": 2352,
+    "regexDynamicPatternsSkipped": 153,
+    "regexErrors": 0,
+    "xmlFilesChecked": 38,
+    "logSha256": "616792f3024ab795a187da53f87b14cf794c882184530171d02cf9f65f45ff7f",
+    "featureMapBytes": 523885,
+    "featureMapLimitBytes": 524288,
+    "scope": "Final combined production/test sources including incoming host-test intent correction and all four new CMake behavior regressions. Final documentation update is followed by regenerated-reference checks. Full exact-head Android, native-model and reachable-history gates remain required.",
+    "environment": {
+      "KOKORO_TEST_CMAKE": "Android SDK CMake3.22.1 executable supplied through the regression suite supported configuration"
+    }
+  },
+  "priorCombinedRecognitionHostValidation": {
+    "parent": "2d26e331ad24062a88dd0b2d30e384d9568cbebe",
+    "command": "bash scripts/validate-local.sh fast",
+    "result": "PASSED",
+    "tests": 881,
+    "skipped": 1,
+    "seconds": 25.914,
+    "regexLiteralPatterns": 2352,
+    "regexDynamicPatternsSkipped": 153,
+    "regexErrors": 0,
+    "xmlFilesChecked": 38,
+    "logSha256": "49f481b201579c93b3b53e492492cf271c759ebd4b15b45f48655ca190d3fe5e",
+    "changedKotlinFilesFormatted": 14,
+    "featureMapBytes": 523885,
+    "featureMapLimitBytes": 524288,
+    "scope": "Historical final combined2d26 host checks, before dbf cancellation/drainage additions. Later native/QNN production hashes are explicitly compared; the final dbf integration requires its own canonical host result."
+  },
+  "nativeHostGateCorrection": {
+    "failedHead": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "run": 46122818374,
+    "job": 140910873882,
+    "artifact": 15254274305,
+    "cause": "Pinned transitive Eigen configuration forces the shared BUILD_TESTING cache option OFF, omitting the app host-test targets and cancellation fixture. CTest reports zero tests with exit zero; the missing fixture subsequently fails the required job.",
+    "change": "Capture the caller host-test choice before dependencies and restore it afterward; retain explicit OFF and Android exclusion. Require CTest --no-tests=error.",
+    "status": "PASSED",
+    "scope": "Two build/gate source changes only; production native algorithms and all mandatory actual-model cases remain unchanged.",
+    "receipt": "docs/repairs/recognition-native-retirement-2026-11-28-validation.json",
+    "validation": "Actual unfixed full graph reproduces zero tests and missing fixture; empty suite now fails with exit 8. Fixed ON/default/reconfigure/OFF-to-ON register exactly all nine app tests and cancellation target; explicit OFF retains no targets. Full-graph fixture builds at the expected path and five checked-JNI scheduling cases pass. No dependency test suites enabled; no model inference rerun.",
+    "adoptedConcurrentCommit": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+    "incomingRegressionScope": "Four behavior tests use the actual production option setup and host-test target block with an explicit dependency cache override; cover ON/reconfigure, explicit OFF, Android exclusion, and actual mandatory empty-suite rejection. This does not execute the full model graph.",
+    "currentSourceRevalidation": "PASS: incoming6bec complete production/transitive graph registers the same nine app CTests and three fixture targets on initial ON and same-tree configure. Only the cancellation target was built, then five actual Java/JNI scheduling cases passed under checked JNI. Nine CTest cases were inventoried, not rerun; QNN/arm64/model proofs remain explicitly historical.",
+    "currentSourceReceiptSha256": "07e5080654897048f505a90284836f93476115f67b0592d925eaeec835a7342b",
+    "currentConfigurationRegressionCases": 4,
+    "independentReview": "Eight incoming source hashes verified against6bec and current bytes; nine inventoried CTests are explicitly distinct from five executed checked-JNI cases. All31 retained translation/readiness source bindings unchanged; no concrete blocker."
+  },
+  "subsequentHistoricalHostValidations": [
+    {
+      "parent": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "tests": 881,
+      "skipped": 1,
+      "seconds": 25.754,
+      "regexLiteralPatterns": 2352,
+      "regexDynamicPatternsSkipped": 153,
+      "regexErrors": 0,
+      "xmlFilesChecked": 38,
+      "logSha256": "175e15150bec1a7504fc8303d1d4e2a772c259b025a87ac7553a35c944d67400",
+      "featureMapBytes": 523885,
+      "featureMapLimitBytes": 524288,
+      "scope": "Final combined production/test sources including cancellation drainage and host-test-intent correction. Final documentation update is followed by regenerated-reference checks. Full exact-head Android, native-model and reachable-history gates remain required."
+    }
+  ]
 }

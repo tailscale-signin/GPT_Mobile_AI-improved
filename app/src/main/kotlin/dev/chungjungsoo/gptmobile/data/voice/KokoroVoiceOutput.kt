@@ -312,6 +312,10 @@ internal class KokoroVoiceOutput(
 
     @Volatile private var warmupGeneration = 0L
 
+    // A cancellation can repeat while native close is still pending. Only new work
+    // or a factory replacement supersedes proof that this owner retired.
+    private val modelAcquisitionEpoch = AtomicLong()
+
     @Volatile private var loaded: LoadedModel? = null
 
     @Volatile private var quarantinedModel: LoadedModel? = null
@@ -438,6 +442,7 @@ internal class KokoroVoiceOutput(
 
     override fun configureEngine(factory: VoicePhraseEngineFactory) {
         if (factory.identity == speechFactory.identity) return
+        modelAcquisitionEpoch.incrementAndGet()
         stop("engine_changed")
         val residencyChanged = factory.residentIdentity != speechFactory.residentIdentity
         speechFactory = factory
@@ -463,6 +468,7 @@ internal class KokoroVoiceOutput(
         if (active != null || calibrating) return completed("Pause playback and finish the current calibration first.")
         if (!speechFactory.selectedBackend.supportsCpuThreadCalibration) return completed("Select on-device CPU or Auto speech to calibrate CPU threads.")
         if ((powerManager?.currentThermalStatus ?: 0) >= PowerManager.THERMAL_STATUS_MODERATE) return completed("Let the phone cool before calibrating speech.")
+        modelAcquisitionEpoch.incrementAndGet()
         cancelPrewarm()
         calibrating = true
         val ticket = ++calibrationTicket
@@ -702,6 +708,7 @@ internal class KokoroVoiceOutput(
             done?.invoke(false)
             return
         }
+        modelAcquisitionEpoch.incrementAndGet()
         warmupRequest = key
         val generation = ++warmupGeneration
         val capturedPrivacy = privacy()
@@ -796,6 +803,7 @@ internal class KokoroVoiceOutput(
 
     override fun openReplyWithFailure(voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit): VoiceReplyPlayback? {
         if (closed) return null
+        modelAcquisitionEpoch.incrementAndGet()
         // A queued or active optional inference yields to the actual reply. Its
         // worker still owns the model until native cancellation has returned.
         val warming = warmupRequest
@@ -1885,7 +1893,8 @@ internal class KokoroVoiceOutput(
     private fun releaseWarmModelWhenRetired(completed: (() -> Unit)?) {
         if (closed) return
         preparingForAnswer = null
-        val generation = ++warmupGeneration
+        val acquisitionEpoch = modelAcquisitionEpoch.get()
+        warmupGeneration++
         warmupRequest = null
         silentWarmup.cancel()
         speechFactory.cancelPending()
@@ -1904,7 +1913,7 @@ internal class KokoroVoiceOutput(
                         output.execute {
                             main.post {
                                 if (!closed &&
-                                    warmupGeneration == generation &&
+                                    modelAcquisitionEpoch.get() == acquisitionEpoch &&
                                     active == null &&
                                     !calibrating &&
                                     loaded == null &&

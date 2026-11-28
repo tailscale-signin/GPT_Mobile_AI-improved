@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "parent": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+  "result": "PASS",
+  "tests": 26,
+  "command": [
+    "python3",
+    "-m",
+    "unittest",
+    "scripts.tests.test_kokoro_native_host_inputs",
+    "scripts.tests.test_streaming_asr_inputs",
+    "-v"
+  ],
+  "baseline": {
+    "parent": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+    "failedRun": 46119554486,
+    "failedJob": 140900824345,
+    "problem": "Native ASR header preparation received the unrelated QNN host-library manifest and failed at dispatchBuild lookup before JNI qualification.",
+    "reproduction": "Exact KeyError dispatchBuild reproduced in the actual host orchestrator/dependency preparation path.",
+    "sourceRecord": {
+      "parent": "0ecce48405f334ee01cf37a62a4b64f7bdff41e9",
+      "failedRun": 46119554486,
+      "failedJob": 140900824345,
+      "problem": "Native ASR header preparation received the unrelated QNN host-library manifest and failed at dispatchBuild lookup before JNI qualification.",
+      "change": "Pass the existing audited QAIRT SDK manifest to ASR dependency/header preparation; retain the existing host-library publisher manifest and record both identities in prepared inputs.",
+      "baseline": "Exact KeyError dispatchBuild reproduced in the actual host orchestrator/dependency preparation path.",
+      "currentTests": 16,
+      "result": "PASSED",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "scripts.tests.test_kokoro_native_host_inputs",
+        "scripts.tests.test_streaming_asr_inputs"
+      ],
+      "sources": [
+        {
+          "path": "scripts/prepare_kokoro_native_host.py",
+          "sha256": "cdd26f1232e33ba0ceb9200a31d328fec6d0460df7220bd2bd87193de94fdefe"
+        },
+        {
+          "path": "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py",
+          "sha256": "b98a7816ddd5aee858fab9cf040b26e143ce9db34474423b702f122c671a4c47"
+        },
+        {
+          "path": "local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py",
+          "sha256": "3b1b106e43d52e51f083f423e847307b79af2326632a0298f60f96538018d131"
+        },
+        {
+          "path": "scripts/tests/test_kokoro_native_host_inputs.py",
+          "sha256": "7e61bc8c844e3e15586d941e1306b1c646939446c5ddd9f7dcc02155b757661a"
+        },
+        {
+          "path": "scripts/tests/test_streaming_asr_inputs.py",
+          "sha256": "9969a981bdf495b00a1b16d7af465e22c6aea2db061d7dd8daf786ac6530d1b3"
+        },
+        {
+          "path": "docs/audits/qnn-runtime-candidate.json",
+          "sha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05"
+        },
+        {
+          "path": "docs/audits/qnn-host-probe-publisher-2.8.json",
+          "sha256": "63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a"
+        }
+      ],
+      "qualification": "Bounded orchestration/manifest regression plus existing archive, download and pin rejection tests. External network/archive/SDK extraction boundaries injected for routing test; no full input provisioning, native JNI or physical execution claimed.",
+      "evidence": [
+        {
+          "artifact": "baseline.log",
+          "bytes": 1259,
+          "sha256": "d0e2b190acaffe3cb13fdbb98098cc547fab95ae3f1fa6a1eb86c7d46127af93",
+          "text": "E\n======================================================================\nERROR: test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/workspace/scratch/d6788699ebc6/gpt-mobile/scripts/tests/test_kokoro_native_host_inputs.py\", line 147, in test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests\n    host.prepare(destination)\n  File \"/workspace/scratch/d6788699ebc6/gpt-mobile/scripts/prepare_kokoro_native_host.py\", line 126, in prepare\n    native_preparer().prepare(dependencies, DEFAULT_MANIFEST)\n  File \"/workspace/scratch/d6788699ebc6/gpt-mobile/local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py\", line 52, in prepare\n    version = json.loads(qnn_manifest.read_text())[\"dispatchBuild\"][\"qairtSdkVersion\"]\n              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\nKeyError: 'dispatchBuild'\n\n----------------------------------------------------------------------\nRan 1 test in 0.003s\n\nFAILED (errors=1)\n"
+        },
+        {
+          "artifact": "current.log",
+          "bytes": 217,
+          "sha256": "1f403753d04e49cd1bc6527cc187d09a135166310a83d060e47a19a11c436170",
+          "text": "Prepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\n................\n----------------------------------------------------------------------\nRan 16 tests in 0.016s\n\nOK\n"
+        },
+        {
+          "artifact": "baseline-sources.json",
+          "bytes": 476,
+          "sha256": "e09309f47142c75abcbe7a62e506e86f6dfc543752ba3dc926ead4513f5a2aad",
+          "text": "[\n  {\n    \"path\": \"scripts/prepare_kokoro_native_host.py\",\n    \"sha256\": \"ce83261fe0da6a10adf18584e6ff998c43510e79728d7b3b75b498284d2ddbc0\"\n  },\n  {\n    \"path\": \"local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py\",\n    \"sha256\": \"b98a7816ddd5aee858fab9cf040b26e143ce9db34474423b702f122c671a4c47\"\n  },\n  {\n    \"path\": \"scripts/tests/test_kokoro_native_host_inputs.py\",\n    \"sha256\": \"7e61bc8c844e3e15586d941e1306b1c646939446c5ddd9f7dcc02155b757661a\"\n  }\n]\n"
+        },
+        {
+          "artifact": "current-sources.json",
+          "bytes": 1085,
+          "sha256": "8c69882df0f456b5852ca6494b656827ed3ded354b4ec0ff781bedc13143f8b9",
+          "text": "[\n  {\n    \"path\": \"scripts/prepare_kokoro_native_host.py\",\n    \"sha256\": \"cdd26f1232e33ba0ceb9200a31d328fec6d0460df7220bd2bd87193de94fdefe\"\n  },\n  {\n    \"path\": \"local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py\",\n    \"sha256\": \"b98a7816ddd5aee858fab9cf040b26e143ce9db34474423b702f122c671a4c47\"\n  },\n  {\n    \"path\": \"local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py\",\n    \"sha256\": \"3b1b106e43d52e51f083f423e847307b79af2326632a0298f60f96538018d131\"\n  },\n  {\n    \"path\": \"scripts/tests/test_kokoro_native_host_inputs.py\",\n    \"sha256\": \"7e61bc8c844e3e15586d941e1306b1c646939446c5ddd9f7dcc02155b757661a\"\n  },\n  {\n    \"path\": \"scripts/tests/test_streaming_asr_inputs.py\",\n    \"sha256\": \"9969a981bdf495b00a1b16d7af465e22c6aea2db061d7dd8daf786ac6530d1b3\"\n  },\n  {\n    \"path\": \"docs/audits/qnn-runtime-candidate.json\",\n    \"sha256\": \"e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05\"\n  },\n  {\n    \"path\": \"docs/audits/qnn-host-probe-publisher-2.8.json\",\n    \"sha256\": \"63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a\"\n  }\n]\n"
+        }
+      ]
+    }
+  },
+  "mergedCorrection": "Preserve e1f2ef3 SDK shape/version/header/provenance checks and distinct QNN_HOST_MANIFEST/QNN_SDK_MANIFEST. Add the actual host-to-dependency orchestration regression with the real SDK validator; inject only archive/network/header-extraction boundaries. Preserve the606 complete-host receipt regression alongside the actual dependency-preparer regression. Preserve effective RAM/cgroup ancestry admission for mandatory Nemotron qualification, including unknown/insufficient failure and unchanged model/compiler budgets.",
+  "sourceBindings": [
+    {
+      "path": "scripts/prepare_kokoro_native_host.py",
+      "bytes": 8511,
+      "sha256": "07ed807df6b7e88bb6d697182c6ab9a63567f5ceff454162e4941f5d0e266b7d"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py",
+      "bytes": 2674,
+      "sha256": "b717befeafad7b0f0af535620fd4af3be62d000dcb88148bf1fe2cbe677ec0bb"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py",
+      "bytes": 7126,
+      "sha256": "8967b4f5840c35e238b050007cf600ccd7b4655195d99b60b42ff21d31009fff"
+    },
+    {
+      "path": "scripts/tests/test_kokoro_native_host_inputs.py",
+      "bytes": 11314,
+      "sha256": "bdbbf06b2aa7d341e44122149e7f3a8f5015e8d6d8e10483ca32d5e3b6aecd8c"
+    },
+    {
+      "path": "scripts/tests/test_streaming_asr_inputs.py",
+      "bytes": 19074,
+      "sha256": "31dc170b522396d17915a0babbed7c73c4c79da85853b8e44d57ebbcb8a258f9"
+    },
+    {
+      "path": "docs/audits/qnn-runtime-candidate.json",
+      "bytes": 3491,
+      "sha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05"
+    },
+    {
+      "path": "docs/audits/qnn-host-probe-publisher-2.8.json",
+      "bytes": 1738,
+      "sha256": "63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a"
+    },
+    {
+      "path": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+      "bytes": 23080,
+      "sha256": "b29684832756f873fe9346a143cd98f870362082dcc5cf98b4a618867965c6db"
+    },
+    {
+      "path": "scripts/check_android_compile_memory.py",
+      "bytes": 5610,
+      "sha256": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b"
+    }
+  ],
+  "qualification": "Bounded orchestration/manifest regression plus existing archive, download and pin rejection tests. External network/archive/SDK extraction boundaries injected for routing test; no full input provisioning, native JNI or physical execution claimed.",
+  "evidence": [
+    {
+      "artifact": "dbf-current.log",
+      "bytes": 5669,
+      "sha256": "026cf3464f3965f132e631e1c3a82360ffb2799bdb702f8f91a32a49ff2fb9f8",
+      "text": "Prepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\nPrepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\ntest_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest) ... ok\ntest_corrupt_or_incomplete_model_cannot_become_prepared_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_corrupt_or_incomplete_model_cannot_become_prepared_inputs) ... ok\ntest_failed_download_does_not_publish_partial_input_directory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_failed_download_does_not_publish_partial_input_directory) ... ok\ntest_full_native_context_execution_is_a_required_workflow_job (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_full_native_context_execution_is_a_required_workflow_job) ... ok\ntest_host_pins_remain_the_actual_production_native_and_model_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_pins_remain_the_actual_production_native_and_model_inputs) ... ok\ntest_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests) ... ok\ntest_model_duplicate_link_and_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_model_duplicate_link_and_traversal_are_rejected) ... ok\ntest_ort_duplicate_symlink_and_path_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_duplicate_symlink_and_path_traversal_are_rejected) ... ok\ntest_ort_requires_real_header_library_and_matching_version_inventory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_requires_real_header_library_and_matching_version_inventory) ... ok\ntest_pinned_model_extracts_only_selected_regular_files (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_pinned_model_extracts_only_selected_regular_files) ... ok\ntest_actual_sdk_manifest_matches_production_version_and_header_provenance (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_actual_sdk_manifest_matches_production_version_and_header_provenance) ... ok\ntest_complete_host_preparation_routes_distinct_sdk_and_host_manifests (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_complete_host_preparation_routes_distinct_sdk_and_host_manifests) ... ok\ntest_failed_dependency_download_preserves_existing_cache_bytes (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_failed_dependency_download_preserves_existing_cache_bytes) ... ok\ntest_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network) ... ok\ntest_ignored_mislabeled_or_truncated_sdk_ranges_fail (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_ignored_mislabeled_or_truncated_sdk_ranges_fail) ... ok\ntest_offline_qnn_headers_cannot_fall_back_to_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_offline_qnn_headers_cannot_fall_back_to_network) ... ok\ntest_production_jni_execution_is_part_of_the_required_native_gate (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_production_jni_execution_is_part_of_the_required_native_gate) ... ok\ntest_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions) ... ok\ntest_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive) ... ok\ntest_valid_sdk_manifest_still_requires_the_complete_audited_header_tree (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_valid_sdk_manifest_still_requires_the_complete_audited_header_tree) ... ok\ntest_exact_model_budget_uses_shared_observations_without_changing_compile_policy (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_exact_model_budget_uses_shared_observations_without_changing_compile_policy) ... ok\ntest_finite_ancestor_constrains_unlimited_and_inheriting_child (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_finite_ancestor_constrains_unlimited_and_inheriting_child) ... ok\ntest_finite_leaf_one_byte_short_is_not_replaced_by_swap (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_finite_leaf_one_byte_short_is_not_replaced_by_swap) ... ok\ntest_hidden_or_unreadable_ancestry_fails_without_exposing_host_details (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_hidden_or_unreadable_ancestry_fails_without_exposing_host_details) ... ok\ntest_low_available_ram_is_not_replaced_by_free_ram_or_swap (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_low_available_ram_is_not_replaced_by_free_ram_or_swap) ... ok\ntest_missing_inputs_fail_unknown_despite_large_ram (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_missing_inputs_fail_unknown_despite_large_ram) ... ok\n\n----------------------------------------------------------------------\nRan 26 tests in 0.030s\n\nOK\n"
+    }
+  ],
+  "priorE1Validation": {
+    "parent": "e1c7ffb0268094cc584a909b345f383672f6bfbb",
+    "result": "PASS",
+    "tests": 20,
+    "sourceBindings": [
+      {
+        "path": "scripts/prepare_kokoro_native_host.py",
+        "bytes": 8511,
+        "sha256": "07ed807df6b7e88bb6d697182c6ab9a63567f5ceff454162e4941f5d0e266b7d"
+      },
+      {
+        "path": "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py",
+        "bytes": 2674,
+        "sha256": "b717befeafad7b0f0af535620fd4af3be62d000dcb88148bf1fe2cbe677ec0bb"
+      },
+      {
+        "path": "local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py",
+        "bytes": 7126,
+        "sha256": "8967b4f5840c35e238b050007cf600ccd7b4655195d99b60b42ff21d31009fff"
+      },
+      {
+        "path": "scripts/tests/test_kokoro_native_host_inputs.py",
+        "bytes": 11314,
+        "sha256": "bdbbf06b2aa7d341e44122149e7f3a8f5015e8d6d8e10483ca32d5e3b6aecd8c"
+      },
+      {
+        "path": "scripts/tests/test_streaming_asr_inputs.py",
+        "bytes": 13406,
+        "sha256": "b8e8a83adb5c8e5ce0903c11fa662be1a75f9f358ec9bf6eaeaf7d081f344d31"
+      },
+      {
+        "path": "docs/audits/qnn-runtime-candidate.json",
+        "bytes": 3491,
+        "sha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05"
+      },
+      {
+        "path": "docs/audits/qnn-host-probe-publisher-2.8.json",
+        "bytes": 1738,
+        "sha256": "63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a"
+      }
+    ],
+    "evidence": [
+      {
+        "artifact": "e1c-current.log",
+        "bytes": 4351,
+        "sha256": "5c79db9996e2fc261229ccb852d2cc413ea2236298e3230faffbca1b941eaa69",
+        "text": "Prepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\ntest_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest) ... ok\ntest_corrupt_or_incomplete_model_cannot_become_prepared_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_corrupt_or_incomplete_model_cannot_become_prepared_inputs) ... ok\ntest_failed_download_does_not_publish_partial_input_directory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_failed_download_does_not_publish_partial_input_directory) ... ok\ntest_full_native_context_execution_is_a_required_workflow_job (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_full_native_context_execution_is_a_required_workflow_job) ... ok\ntest_host_pins_remain_the_actual_production_native_and_model_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_pins_remain_the_actual_production_native_and_model_inputs) ... ok\ntest_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests) ... ok\ntest_model_duplicate_link_and_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_model_duplicate_link_and_traversal_are_rejected) ... ok\ntest_ort_duplicate_symlink_and_path_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_duplicate_symlink_and_path_traversal_are_rejected) ... ok\ntest_ort_requires_real_header_library_and_matching_version_inventory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_requires_real_header_library_and_matching_version_inventory) ... ok\ntest_pinned_model_extracts_only_selected_regular_files (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_pinned_model_extracts_only_selected_regular_files) ... ok\ntest_actual_sdk_manifest_matches_production_version_and_header_provenance (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_actual_sdk_manifest_matches_production_version_and_header_provenance) ... ok\ntest_failed_dependency_download_preserves_existing_cache_bytes (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_failed_dependency_download_preserves_existing_cache_bytes) ... ok\ntest_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network) ... ok\ntest_ignored_mislabeled_or_truncated_sdk_ranges_fail (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_ignored_mislabeled_or_truncated_sdk_ranges_fail) ... ok\ntest_offline_qnn_headers_cannot_fall_back_to_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_offline_qnn_headers_cannot_fall_back_to_network) ... ok\ntest_production_jni_execution_is_part_of_the_required_native_gate (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_production_jni_execution_is_part_of_the_required_native_gate) ... ok\ntest_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions) ... ok\ntest_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive) ... ok\ntest_unknown_or_insufficient_host_memory_fails_admission_without_qualifying_the_model (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_unknown_or_insufficient_host_memory_fails_admission_without_qualifying_the_model) ... ok\ntest_valid_sdk_manifest_still_requires_the_complete_audited_header_tree (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_valid_sdk_manifest_still_requires_the_complete_audited_header_tree) ... ok\n\n----------------------------------------------------------------------\nRan 20 tests in 0.028s\n\nOK\n"
+      }
+    ]
+  },
+  "prior606Validation": {
+    "parent": "606721dc837f3d0a7342b9150094f97872153957",
+    "result": "PASS",
+    "tests": 21,
+    "sourceBindings": [
+      {
+        "path": "scripts/prepare_kokoro_native_host.py",
+        "bytes": 8511,
+        "sha256": "07ed807df6b7e88bb6d697182c6ab9a63567f5ceff454162e4941f5d0e266b7d"
+      },
+      {
+        "path": "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py",
+        "bytes": 2674,
+        "sha256": "b717befeafad7b0f0af535620fd4af3be62d000dcb88148bf1fe2cbe677ec0bb"
+      },
+      {
+        "path": "local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py",
+        "bytes": 7126,
+        "sha256": "8967b4f5840c35e238b050007cf600ccd7b4655195d99b60b42ff21d31009fff"
+      },
+      {
+        "path": "scripts/tests/test_kokoro_native_host_inputs.py",
+        "bytes": 11314,
+        "sha256": "bdbbf06b2aa7d341e44122149e7f3a8f5015e8d6d8e10483ca32d5e3b6aecd8c"
+      },
+      {
+        "path": "scripts/tests/test_streaming_asr_inputs.py",
+        "bytes": 19074,
+        "sha256": "31dc170b522396d17915a0babbed7c73c4c79da85853b8e44d57ebbcb8a258f9"
+      },
+      {
+        "path": "docs/audits/qnn-runtime-candidate.json",
+        "bytes": 3491,
+        "sha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05"
+      },
+      {
+        "path": "docs/audits/qnn-host-probe-publisher-2.8.json",
+        "bytes": 1738,
+        "sha256": "63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a"
+      },
+      {
+        "path": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+        "bytes": 22526,
+        "sha256": "944130509d1ae3d1ec23d313c9372e9d8a07b4b779926b051a63a6f98cc368fc"
+      },
+      {
+        "path": "scripts/check_android_compile_memory.py",
+        "bytes": 5610,
+        "sha256": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b"
+      }
+    ],
+    "evidence": [
+      {
+        "artifact": "606-current.log",
+        "bytes": 4665,
+        "sha256": "be4668f8e54ee434f856a5cd893af3137859a6c6f7a82cc7b3fae97331fecf6d",
+        "text": "Prepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\nPrepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\ntest_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest) ... ok\ntest_corrupt_or_incomplete_model_cannot_become_prepared_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_corrupt_or_incomplete_model_cannot_become_prepared_inputs) ... ok\ntest_failed_download_does_not_publish_partial_input_directory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_failed_download_does_not_publish_partial_input_directory) ... ok\ntest_full_native_context_execution_is_a_required_workflow_job (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_full_native_context_execution_is_a_required_workflow_job) ... ok\ntest_host_pins_remain_the_actual_production_native_and_model_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_pins_remain_the_actual_production_native_and_model_inputs) ... ok\ntest_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests) ... ok\ntest_model_duplicate_link_and_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_model_duplicate_link_and_traversal_are_rejected) ... ok\ntest_ort_duplicate_symlink_and_path_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_duplicate_symlink_and_path_traversal_are_rejected) ... ok\ntest_ort_requires_real_header_library_and_matching_version_inventory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_requires_real_header_library_and_matching_version_inventory) ... ok\ntest_pinned_model_extracts_only_selected_regular_files (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_pinned_model_extracts_only_selected_regular_files) ... ok\ntest_actual_sdk_manifest_matches_production_version_and_header_provenance (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_actual_sdk_manifest_matches_production_version_and_header_provenance) ... ok\ntest_complete_host_preparation_routes_distinct_sdk_and_host_manifests (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_complete_host_preparation_routes_distinct_sdk_and_host_manifests) ... ok\ntest_failed_dependency_download_preserves_existing_cache_bytes (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_failed_dependency_download_preserves_existing_cache_bytes) ... ok\ntest_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network) ... ok\ntest_ignored_mislabeled_or_truncated_sdk_ranges_fail (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_ignored_mislabeled_or_truncated_sdk_ranges_fail) ... ok\ntest_offline_qnn_headers_cannot_fall_back_to_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_offline_qnn_headers_cannot_fall_back_to_network) ... ok\ntest_production_jni_execution_is_part_of_the_required_native_gate (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_production_jni_execution_is_part_of_the_required_native_gate) ... ok\ntest_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions) ... ok\ntest_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive) ... ok\ntest_unknown_or_insufficient_host_memory_fails_admission_without_qualifying_the_model (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_unknown_or_insufficient_host_memory_fails_admission_without_qualifying_the_model) ... ok\ntest_valid_sdk_manifest_still_requires_the_complete_audited_header_tree (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_valid_sdk_manifest_still_requires_the_complete_audited_header_tree) ... ok\n\n----------------------------------------------------------------------\nRan 21 tests in 0.031s\n\nOK\n"
+      }
+    ]
+  },
+  "prior2d26Validation": {
+    "parent": "2d26e331ad24062a88dd0b2d30e384d9568cbebe",
+    "result": "PASS",
+    "tests": 26,
+    "sourceBindings": [
+      {
+        "path": "scripts/prepare_kokoro_native_host.py",
+        "bytes": 8511,
+        "sha256": "07ed807df6b7e88bb6d697182c6ab9a63567f5ceff454162e4941f5d0e266b7d"
+      },
+      {
+        "path": "local-kokoro-runtime/src/main/cpp/prepare_streaming_asr_dependencies.py",
+        "bytes": 2674,
+        "sha256": "b717befeafad7b0f0af535620fd4af3be62d000dcb88148bf1fe2cbe677ec0bb"
+      },
+      {
+        "path": "local-kokoro-runtime/src/main/cpp/prepare_asr_qnn_headers.py",
+        "bytes": 7126,
+        "sha256": "8967b4f5840c35e238b050007cf600ccd7b4655195d99b60b42ff21d31009fff"
+      },
+      {
+        "path": "scripts/tests/test_kokoro_native_host_inputs.py",
+        "bytes": 11314,
+        "sha256": "bdbbf06b2aa7d341e44122149e7f3a8f5015e8d6d8e10483ca32d5e3b6aecd8c"
+      },
+      {
+        "path": "scripts/tests/test_streaming_asr_inputs.py",
+        "bytes": 19074,
+        "sha256": "31dc170b522396d17915a0babbed7c73c4c79da85853b8e44d57ebbcb8a258f9"
+      },
+      {
+        "path": "docs/audits/qnn-runtime-candidate.json",
+        "bytes": 3491,
+        "sha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05"
+      },
+      {
+        "path": "docs/audits/qnn-host-probe-publisher-2.8.json",
+        "bytes": 1738,
+        "sha256": "63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a"
+      },
+      {
+        "path": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+        "bytes": 23080,
+        "sha256": "b29684832756f873fe9346a143cd98f870362082dcc5cf98b4a618867965c6db"
+      },
+      {
+        "path": "scripts/check_android_compile_memory.py",
+        "bytes": 5610,
+        "sha256": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b"
+      }
+    ],
+    "evidence": [
+      {
+        "artifact": "2d26-current.log",
+        "bytes": 5669,
+        "sha256": "d155470a642f7b5bd72ed8c63de370bfa5b295bf6fabb1597de3b33755aa4f47",
+        "text": "Prepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\nPrepared pinned Kokoro and streaming ASR JNI inputs; the required model execution gates have not run.\ntest_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_asr_headers_use_the_sdk_manifest_instead_of_the_host_wheel_manifest) ... ok\ntest_corrupt_or_incomplete_model_cannot_become_prepared_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_corrupt_or_incomplete_model_cannot_become_prepared_inputs) ... ok\ntest_failed_download_does_not_publish_partial_input_directory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_failed_download_does_not_publish_partial_input_directory) ... ok\ntest_full_native_context_execution_is_a_required_workflow_job (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_full_native_context_execution_is_a_required_workflow_job) ... ok\ntest_host_pins_remain_the_actual_production_native_and_model_inputs (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_pins_remain_the_actual_production_native_and_model_inputs) ... ok\ntest_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_host_preparation_routes_sdk_headers_and_host_libraries_to_their_own_manifests) ... ok\ntest_model_duplicate_link_and_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_model_duplicate_link_and_traversal_are_rejected) ... ok\ntest_ort_duplicate_symlink_and_path_traversal_are_rejected (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_duplicate_symlink_and_path_traversal_are_rejected) ... ok\ntest_ort_requires_real_header_library_and_matching_version_inventory (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_ort_requires_real_header_library_and_matching_version_inventory) ... ok\ntest_pinned_model_extracts_only_selected_regular_files (scripts.tests.test_kokoro_native_host_inputs.NativeHostInputsTest.test_pinned_model_extracts_only_selected_regular_files) ... ok\ntest_actual_sdk_manifest_matches_production_version_and_header_provenance (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_actual_sdk_manifest_matches_production_version_and_header_provenance) ... ok\ntest_complete_host_preparation_routes_distinct_sdk_and_host_manifests (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_complete_host_preparation_routes_distinct_sdk_and_host_manifests) ... ok\ntest_failed_dependency_download_preserves_existing_cache_bytes (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_failed_dependency_download_preserves_existing_cache_bytes) ... ok\ntest_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_host_flat_missing_and_mismatched_sdk_manifests_fail_before_cache_or_network) ... ok\ntest_ignored_mislabeled_or_truncated_sdk_ranges_fail (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_ignored_mislabeled_or_truncated_sdk_ranges_fail) ... ok\ntest_offline_qnn_headers_cannot_fall_back_to_network (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_offline_qnn_headers_cannot_fall_back_to_network) ... ok\ntest_production_jni_execution_is_part_of_the_required_native_gate (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_production_jni_execution_is_part_of_the_required_native_gate) ... ok\ntest_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_real_jni_fixtures_use_current_catalog_pins_and_immutable_revisions) ... ok\ntest_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_remote_sdk_reads_exact_ranges_and_never_downloads_the_whole_archive) ... ok\ntest_valid_sdk_manifest_still_requires_the_complete_audited_header_tree (scripts.tests.test_streaming_asr_inputs.StreamingAsrInputsTest.test_valid_sdk_manifest_still_requires_the_complete_audited_header_tree) ... ok\ntest_exact_model_budget_uses_shared_observations_without_changing_compile_policy (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_exact_model_budget_uses_shared_observations_without_changing_compile_policy) ... ok\ntest_finite_ancestor_constrains_unlimited_and_inheriting_child (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_finite_ancestor_constrains_unlimited_and_inheriting_child) ... ok\ntest_finite_leaf_one_byte_short_is_not_replaced_by_swap (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_finite_leaf_one_byte_short_is_not_replaced_by_swap) ... ok\ntest_hidden_or_unreadable_ancestry_fails_without_exposing_host_details (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_hidden_or_unreadable_ancestry_fails_without_exposing_host_details) ... ok\ntest_low_available_ram_is_not_replaced_by_free_ram_or_swap (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_low_available_ram_is_not_replaced_by_free_ram_or_swap) ... ok\ntest_missing_inputs_fail_unknown_despite_large_ram (scripts.tests.test_streaming_asr_inputs.StreamingAsrMemoryAdmissionTest.test_missing_inputs_fail_unknown_despite_large_ram) ... ok\n\n----------------------------------------------------------------------\nRan 26 tests in 0.031s\n\nOK\n"
+      }
+    ]
+  }
+}

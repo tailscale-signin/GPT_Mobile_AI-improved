@@ -17,12 +17,10 @@ import dev.chungjungsoo.gptmobile.data.voice.StreamingVoiceRecognizer
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlayback
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
-import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudio
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSession
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetector
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageResult
-import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationTarget
 import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
 import dev.chungjungsoo.gptmobile.data.voice.shouldCheckpointDraft
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
@@ -33,8 +31,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-
-internal data class VoiceTranslationPlayback(val target: VoiceTranslationTarget, val factory: VoicePhraseEngineFactory)
 
 internal class VoiceRuntime(
     val system: AndroidVoiceAudio,

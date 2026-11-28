@@ -342,18 +342,18 @@
       ],
       "invariants": [
         "Presented audio and reply identity own caption position.",
-        "Synthesis completion does not imply playback completion.",
-        "Physical acceleration and latency require device measurements.",
-        "Plan complete utterances within native bounds and distinguish current execution, profile availability and qualified comparisons.",
-        "Retain exact workload, voice, rate, source and thermal identity; playback measurements do not establish acoustic latency or battery benefits.",
-        "Keep native progress polling separate from synthesis-owned evidence and retain audio/model ownership until actual retirement.",
-        "Playback comparison requires the current controlled workload protocol, independent fixture coverage and observed provider execution.",
-        "Benchmark and Auto ranking require same-run CPU-reference duration, token timing and signal consistency; numeric consistency does not establish perceptual equivalence.",
-        "Compact HTP may retain five exact token shapes only with at least 4 GiB current free memory; the 2 GiB estimate ceiling and 512 MiB reserve remain required. Other providers retain their existing bounds, and unknown memory retains only the active shape.",
-        "One playback-scoped quiet limiter spans streaming callbacks and phrases; validate raw PCM first and account only retained audio in queued frames and cue positions.",
-        "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause.",
-        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone.",
-        "A newer supplied end may revise a queued or active estimated word while its heard onset and source identity remain fixed; completed words never reopen. Same-word clock snapshots retime presentation without restarting emphasis."
+        "Synthesis completion is not playback completion.",
+        "Acceleration and latency require physical device measurements.",
+        "Plan whole utterances within native bounds; distinguish current execution, profile availability and qualified comparisons.",
+        "Bind workload, voice, rate, source and thermal identity; playback metrics prove neither acoustic latency nor battery benefits.",
+        "Separate native progress polling from synthesis evidence; retain audio/model ownership until actual retirement.",
+        "Compare playback only under the current controlled protocol, independent fixture coverage and observed provider execution.",
+        "Benchmark/Auto ranking requires same-run CPU-reference duration, token timing and signal consistency, not perceptual-equivalence claims.",
+        "Compact HTP retains at most five exact token shapes only with 4 GiB free, a 2 GiB estimate ceiling and 512 MiB reserve. Unknown memory permits only the active shape; other providers keep their bounds.",
+        "One quiet limiter spans each playback’s callbacks/phrases. Validate raw PCM first; queue frames and cues count retained audio only.",
+        "An observed cue prefix may extend. Fully trimmed endings clear only the presented word during refill; never advance the clock, consume a later onset or bypass audio-focus pause.",
+        "Learn reserves from retained-PCM gaps before phrase completion, excluding callback/queue waits. Keep one active and eight completed-stream maxima; separate phrase-ratio/word-cost accounting. Preserve reserve, queue, caption, pause and cancellation bounds; synthetic tests prove no phone acoustic continuity.",
+        "New supplied ends may revise queued/active estimated words with fixed heard onset/source identity. Never reopen completed words; same-word clock updates retime without replaying emphasis."
       ],
       "routing": {
         "role": "presentation",
@@ -427,21 +427,19 @@
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
-        "docs/repairs/voice-pronunciation-vocabulary-2026-11-23.md",
         "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json",
         "docs/repairs/voice-literal-pronunciation-order-2026-11-24-task.json",
-        "docs/repairs/evidence/voice-literal-pronunciation-order/required-junit-methods.json",
         "docs/repairs/literal-pronunciation-public-composition-2026-11-24-task.json",
         "docs/architecture/voice-streaming-quality-2026-11-27.md"
       ],
       "invariants": [
-        "Shared projection preserves readable content and append-stable replay without exposing hidden reasoning or encoded source addresses.",
-        "Literal saved corrections precede native tokenization, match whole bounded terms once, and retain original caption ranges.",
-        "Native English normalization and SDK natural-language processing retain their own phonetic frontends.",
-        "Android utterances snapshot pronunciation settings and reject late callbacks after cancellation.",
-        "No raw vocabulary, matched terms or source speech is added to diagnostics; phonetic tests do not establish phone acoustic quality.",
-        "Playback preserves eligible literal spelling only after safety filtering; unmatched defaults follow one-pass correction and captions use the same original spelling. The general-purpose buffer retains its default projection.",
-        "Shared/regional dictionaries admit512 entries each; bounded versioned UTF-8 imports remain staged until Save. English readings stay language-scoped."
+        "Projection preserves readable content and append-stable replay; hide reasoning and encoded source addresses.",
+        "Apply saved literal corrections once to whole bounded terms before native tokenization; preserve original caption ranges.",
+        "Native English normalization and SDK language processing keep their own phonetic frontends.",
+        "Android utterances snapshot pronunciations and reject callbacks after cancellation.",
+        "Diagnostics exclude raw vocabulary, matched terms and source speech; phonetic tests prove no phone acoustic quality.",
+        "Preserve eligible literal spelling after safety filtering. Unmatched defaults get one-pass correction; captions retain original spelling. General-purpose buffering keeps its default projection.",
+        "Shared/regional dictionaries each allow 512 entries; bounded versioned UTF-8 imports await Save. English readings remain language-scoped."
       ],
       "routing": {
         "role": "presentation",
@@ -557,15 +555,15 @@
         "docs/repairs/pocket-benchmark-validation-2026-11-28.json"
       ],
       "invariants": [
-        "Stream PCM with bounded backpressure and retire native handles before releasing model leases.",
-        "SDK estimated word cues and requested delegates must not become native timing or executed-processor proof.",
-        "Only explicit model installation may download a speech pack; private conversations cannot send speech to Gateway.",
-        "Preserve original source ranges and pronunciation overrides when bounding long streaming replies.",
-        "Production accelerator playback requires complete same-run CPU-reference consistency before native open; explicit Recheck publishes its complete requested cohort and cancellation cannot grant partial admission.",
-        "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
-        "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request.",
-        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone.",
-        "Installed packs keep separate voice/language identities. MediaPipe Pocket and Phonon stay CPU-only; separate compiled Pocket GPU/NPU routes require their pinned English graphs and matching runtime, and requested delegates remain unverified hardware placement."
+        "Bound PCM backpressure; retire native handles before releasing model leases.",
+        "SDK estimated cues and requested delegates are not native timing or executed-processor proof.",
+        "Speech-pack downloads require explicit installation; private speech cannot reach Gateway.",
+        "Bound long replies while preserving source ranges and pronunciation overrides.",
+        "Accelerator playback requires complete same-run CPU-reference consistency before native open. Recheck publishes the whole requested cohort; cancellation cannot grant partial admission.",
+        "Numerical consistency and SDK smoke prove neither perceptual equivalence, arbitrary-utterance correctness nor phone accelerator performance.",
+        "Gateway retirement binds the exact admitted Work lease. Cancellation and fixed timeout plus validated audio duration bound transport; never extend synthesis or retire a replacement request.",
+        "Learn reserves from retained-PCM gaps before phrase completion, excluding callback/queue waits. Keep one active and eight completed-stream maxima; separate phrase-ratio/word-cost accounting. Preserve reserve, queue, caption, pause and cancellation bounds; synthetic tests prove no phone acoustic continuity.",
+        "Packs keep distinct voice/language identities. MediaPipe Pocket/Phonon are CPU-only; compiled Pocket GPU/NPU needs pinned English graphs and matching runtime. Requested placement stays unverified."
       ],
       "routing": {
         "role": "executor",
@@ -622,8 +620,8 @@
         "docs/architecture/voice-streaming.md"
       ],
       "invariants": [
-        "Opening the room sends no prompt. Preparation uses the selected profile and the saved conversation policy.",
-        "A spoken lookup update requires the same accepted run and a matching running search. First-answer timing starts tracking playback of actual answer text."
+        "Room opening sends no prompt; preparation uses the selected profile and saved conversation policy.",
+        "Spoken lookup updates require a matching running search in the same accepted run. First-answer timing tracks actual answer playback."
       ],
       "routing": {
         "role": "user_control",
@@ -684,10 +682,10 @@
         "docs/repairs/voice-microphone-turn-cycle-2026-11-27.md"
       ],
       "invariants": [
-        "Idle microphones use neutral colors; accepted capture alone animates, and pending generation or speech keeps a static highlighted Stop.",
-        "One saved navigation-entry intent can start a fresh empty room after readiness and microphone permission; transient room loading, restoration and recomposition cannot rearm it.",
-        "Only completed spoken output can continue an armed conversation. Stop, interruption, error, backgrounding and changed ownership prevent automatic capture and do not enable recognition retries or replay a rejected message.",
-        "One cancellable cue belongs to each admitted capture. Local capture retains PCM suppression; bounded sample preparation cannot queue a sound after cancellation. Saved sound opt-outs and platform silent mode remain authoritative."
+        "Idle microphones stay neutral; only accepted capture animates. Pending generation/speech shows a static highlighted Stop.",
+        "One saved navigation-entry intent starts a fresh empty room only after readiness/permission; loading, restoration and recomposition cannot rearm it.",
+        "Only completed speech continues an armed conversation. Stop, interruption, error, backgrounding or lost ownership forbids automatic capture, recognition retries and rejected-message replay.",
+        "Each admitted capture owns one cancellable cue. Keep local PCM suppression; bounded preparation cannot sound after cancellation. Honor saved opt-outs and silent mode."
       ],
       "routing": {
         "role": "user_control",
@@ -697,6 +695,54 @@
         "decline": "Keep the idle microphone neutral and preserve a rejected or interrupted draft for explicit review",
         "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt#completedSpeechStartsTheNextCaptureOnceAndEachReadyCaptureOwnsOneCue",
         "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceConversationListeningTest.kt#stoppingPausingLosingAccessOrSupersedingSpeechFencesItsLateCompletion",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "voice-local-recognition",
+      "title": "Local streaming recognition and input timing",
+      "terms": [
+        "local ASR",
+        "recognition model",
+        "recognition processor",
+        "input word timing",
+        "Zipformer",
+        "Nemotron"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionConfiguration.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionModelCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionTranscript.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SherpaNativeSpeechDecoder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRecognitionSettings.kt",
+        "local-kokoro-runtime/src/main/cpp/streaming_asr.cpp"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionControllerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionSessionTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/architecture/streaming-recognition-and-timing-2026-11-28.md"
+      ],
+      "invariants": [
+        "Save recognition choices separately from output; require explicit verified pack installation.",
+        "Retain native/file leases until confirmed cleanup; uncertain create/close blocks replacement/removal. Benchmark handoff waits for recognition and output workers.",
+        "Capture, revision and exact UTF-16 text own input timing. Token starts imply no word ends; Input timing never drives reply playback captions.",
+        "Require observed provider kernels/graphs for accelerator claims. Host/JNI tests establish no handset latency, acoustic, energy or thermal qualification."
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionConfiguration.kt",
+        "proof": "Owned capture/revision and confirmed native retirement",
+        "admission": "Verified supported pack, memory admission and owned microphone",
+        "decline": "Preserve draft; block unsupported placement, stale timing or uncertain cleanup",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionSessionTest.kt#timedRevisionsReachTheInputCaptionWithoutBecomingPlaybackIntervals",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionControllerTest.kt#selectionChangeWhileReleaseIsPendingCannotAcknowledgeTheOldRequest",
         "plugins": [],
         "tools": [],
         "decline_terms": []
@@ -1597,30 +1643,27 @@
         "docs/repairs/speech-benchmark-1795470489503-task.json",
         "docs/repairs/speech-benchmark-control-2026-11-23-task.json",
         "docs/architecture/repository-guide.md",
-        "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
-        "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
-        "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
         "docs/repairs/diagnostic-93d824fd-native-preparation-task.json",
         "docs/repairs/speech-sdk-deadline-record-2026-11-24-task.json",
         "docs/repairs/speech-sdk-call-display-2026-11-24-task.json"
       ],
       "invariants": [
-        "Unmeasured PCM is unknown, measured silence is explicit, and signed duration evidence never wraps or invents a zero sum after overflow.",
-        "Native shape residency remains memory admitted under the unchanged estimate ceiling and reserve; cold graph preparation is still required.",
-        "Stop a native candidate at its first known same-run CPU-reference mismatch unless deep diagnostics is explicit; preserve invalid evidence and independent candidates without granting qualification.",
-        "A preparation, chunk or backend deadline requests stop and publishes pending cleanup; only actual retirement permits reuse, and observer errors cannot skip cleanup.",
-        "Synthesis Stability collects20 warm repeats per fixture while percentile eligibility and thermal qualification remain explicit.",
-        "Only installed models may run; starting a benchmark never downloads a model or weakens captured conversation privacy.",
-        "SDK comparisons preserve actual voice, model, runtime and callback receipts without claiming native token timing, observed processor placement or perceptual quality.",
-        "SDK callback traces retain at most128 entries while total frames, costs and omission counts remain explicit; later callbacks never become caption violations solely because the trace is full.",
-        "Keep native generation wall time including graph preparation distinct from native inference and SDK retained-PCM production intervals; complete SDK stream-call time includes callback waits.",
-        "Keep frozen export reports in ViewModel memory and encode onIO; large reports must not enter Android saved-state bundles.",
-        "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to8MiB by evicting older whole runs.",
-        "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner.",
-        "Failed native preparation retains its actual owner until confirmed destruction; a missing returned engine cannot authorize lease release.",
-        "An already-recorded deadline remains effective independently of delayed notification; measured partial PCM never implies completed audio validation.",
-        "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero.",
-        "Streaming candidates require matching PCM processor, voice/rate/fixtures and stable observed route; missing independent acoustic quality stays unknown and cannot replace native Auto qualification."
+        "Unmeasured PCM stays unknown; measured silence is explicit. Signed duration sums cannot wrap or become invented zeros.",
+        "Native shape residency keeps its memory estimate ceiling/reserve; cold graph preparation remains required.",
+        "Stop each native candidate at its first same-run CPU-reference mismatch unless deep diagnostics is explicit. Preserve invalid evidence and independent candidates without qualification.",
+        "Preparation/chunk/backend deadlines request stop and publish pending cleanup. Reuse needs actual retirement; observer errors cannot skip cleanup.",
+        "Stability collects 20 warm repeats per fixture; expose percentile eligibility and thermal qualification.",
+        "Run installed models only; benchmarks neither download models nor weaken captured conversation privacy.",
+        "SDK comparisons retain actual voice/model/runtime/callback receipts, not native timing, observed placement or perceptual-quality claims.",
+        "Keep at most 128 SDK callback records with total frames, costs and omissions. A full trace does not make later callbacks caption violations.",
+        "Distinguish native generation wall time (including graph preparation), native inference and SDK retained-PCM production. Full SDK stream-call time includes callback waits.",
+        "Freeze exports in ViewModel memory; encode on IO. Never place large reports in Android saved state.",
+        "Restore legacy numeric history without stale qualification; cap stored history at 8 MiB by evicting whole older runs.",
+        "Failed native close retains the process owner token/restart requirement across recreation. Stale leases cannot quarantine or release replacement owners.",
+        "Failed native preparation retains its actual owner until confirmed destruction; no returned engine does not imply lease release.",
+        "Recorded deadlines survive delayed notification; partial measured PCM is not complete audio validation.",
+        "Unknown SDK stream-call counts remain unknown in playback displays, never measured zeros.",
+        "Streaming comparisons require matching PCM processor, voice/rate/fixtures and stable observed route. Unknown acoustic quality stays unknown and cannot replace native Auto qualification."
       ],
       "routing": {
         "role": "evidence",
@@ -1701,25 +1744,20 @@
       "documents": [
         "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23.md",
         "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json",
-        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/native-contract-validation.json",
         "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/qnn-context-cache-investigation.json",
-        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json",
-        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/warmup-validation.json",
-        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/benchmark-validation.json",
-        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/ordinary-test-methods.json",
-        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/integration-validation.json",
         "docs/repairs/intelligence-diagnostic-completion-2026-11-27.md",
-        "docs/architecture/pocket-default-and-benchmark-coverage-2026-11-28.md"
+        "docs/architecture/pocket-default-and-benchmark-coverage-2026-11-28.md",
+        "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json"
       ],
       "invariants": [
-        "Optional fixed-phrase CPU inference preparation is silent, bound to one resident model/speaker/rate and known cool thermal state; live speech cancels its attempt before queueing, and its delayed deadline cannot cancel later work.",
-        "Raw native PCM must contain zero clipped samples before delivery; reject contradictory successful clipping receipts and require zero clipping in both sides of CPU-reference protocol v2 without overwriting retained invalid observations.",
-        "Whole-device battery-counter observations retain optional raw endpoints and observed power events, preserve interrupted and unavailable states, and never establish engine-attributable energy, wattage, savings or a ranking winner.",
-        "Advisory first-PCM, RTF, zero-clipping and accelerator-share targets are distinct from observations and do not confer qualification.",
-        "Operator summaries expose only bounded public categories and first-shape profile count/time with explicit reuse and omission; observed CPU placement does not prove an unsupported operator.",
-        "Explicit unknown audio measurement availability stays unknown on restore; only legacy absence may use the existing compatibility inference.",
-        "HTP context files are published only after native audio and profile validation, bound to exact model/runtime/provider/device/shape/options identities, verified on load and revalidated for playback; source-model retry remains bounded. Minimal host context success does not qualify full-model or physical speech.",
-        "Full-turn latency consumes one accepted capture boundary and requires a presented answer clock; replay, retries, cues, privacy resets and utterance-start callbacks cannot qualify it. Draft review and queue delay are included; acoustic loopback remains independent."
+        "Optional silent fixed-phrase CPU preparation binds one resident model/speaker/rate and known cool thermals. Live speech cancels it before queueing; its late deadline cannot cancel later work.",
+        "Reject clipped raw native PCM and contradictory success receipts. CPU-reference v2 requires zero clipping on both sides; preserve invalid observations.",
+        "Whole-device battery observations retain optional raw endpoints, power events and interrupted/unavailable states; infer no engine energy, wattage, savings or ranking winner.",
+        "First-PCM, RTF, zero-clipping and accelerator-share targets are advisory, separate from observations and qualification.",
+        "Operator summaries expose bounded public categories, first-shape count/time, reuse and omissions. Observed CPU placement does not prove unsupported operators.",
+        "Explicit unknown audio availability stays unknown on restore; only legacy absence permits compatibility inference.",
+        "Publish HTP contexts after native audio/profile validation; bind model/runtime/provider/device/shape/options, verify on load and revalidate playback. Bound source retry; minimal host success qualifies neither full-model nor physical speech.",
+        "Full-turn latency consumes one accepted capture boundary and presented answer clock. Exclude replay, retries, cues, privacy resets and utterance-start callbacks; include draft review/queue delay. Acoustic loopback stays separate."
       ],
       "routing": {
         "role": "evidence",
@@ -1785,14 +1823,14 @@
         "docs/audits/qnn-host-probe-publisher-2.8.json"
       ],
       "invariants": [
-        "Original FP32 and compact INT8 installations have distinct model, cache and CPU-comparison identities; default INT8 behavior remains stable.",
-        "All generated model artifacts bind exact source and input hashes, publish atomically and cannot grant listening or playback admission.",
-        "Exact-shape specialization does not pad or truncate tokens, guarantee static data-dependent axes, or replace the production renderer with unvalidated stages.",
-        "QNN capture requires actual provider kernel events; the native precision probe uses the documented GPU graph custom configuration and does not invent an EP option.",
-        "A shared QAIRT upgrade requires a matching verified dispatch, package checksums, native inventory and APK verification; isolated candidate artifacts do not change production pins.",
-        "The embedded-context host emulator regression preserves metadata, CPU nodes and initializers, and requires real QNN plus CPU events; it cannot qualify physical hardware, the full Kokoro graph or speech quality.",
-        "Native host fixtures verify actual plugin/QAIRT package identities and reject disagreement with the compiled application identity; historical2.7 execution cannot be relabelled as current2.8 evidence.",
-        "Model tooling binds the private tensor snapshot to the expected hash before preflight or allocation, validates bounded unambiguous NPY payloads, and prevents atomic reports from aliasing model/manifest/archive inputs."
+        "FP32 and INT8 installs keep distinct model/cache/CPU-comparison identities; preserve default INT8 behavior.",
+        "Generated models bind exact source/input hashes and publish atomically; they grant no listening/playback admission.",
+        "Exact-shape specialization neither pads/truncates tokens, guarantees static data-dependent axes nor substitutes unvalidated render stages.",
+        "QNN capture needs actual provider kernel events; native precision uses documented GPU graph custom configuration, not invented EP options.",
+        "Shared QAIRT upgrades require verified matching dispatch, checksums, native inventory and APK. Isolated candidates cannot change production pins.",
+        "Embedded-context host regressions preserve metadata, CPU nodes and initializers and require real QNN/CPU events; they qualify neither hardware, full Kokoro nor speech quality.",
+        "Host fixtures verify plugin/QAIRT identities against the compiled app; historical 2.7 execution is not current 2.8 evidence.",
+        "Before preflight/allocation, bind private tensor snapshots to expected hashes. Require bounded unambiguous NPY; atomic reports cannot alias model/manifest/archive inputs."
       ],
       "routing": {
         "role": "executor",
@@ -1941,19 +1979,19 @@
       "documents": [
         "docs/repairs/voice-accelerator-rebuild-2026-11-24.md",
         "docs/audits/qnn-host-context-2.8-ort-1.28.json",
-        "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json"
+        "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json"
       ],
       "invariants": [
-        "Cache publication follows successful PCM, timing and observed-provider validation; no context can grant execution or CPU-reference playback admission.",
-        "Canonical private paths, atomic publication, digests, nonblocking process ownership and bounded eviction protect cached artifacts.",
-        "A bad context receives one bounded source-model retry; unsupported GPU context persistence remains disabled.",
-        "Engine load, compilation, disk-context load and resident reuse are distinct observations; legacy absence stays unknown.",
-        "Slow cache finalization does not hold the cancellation lock; completion rechecks accepted cancellation under the same short lock before publishing audio or Ready.",
-        "The Android private directory requires no-follow descriptor, application UID, directory type,0700 mode and stable device/inode/canonical path checks; failure disables disk persistence.",
-        "Full-model context qualification requires the actual JNI production source and pinned model/runtime. Unseeded vocoder nodes use explicit signal consistency controls, not bitwise waveform or listening-equivalence claims.",
-        "Full-model HTP export uses a same-runtime CPU BASIC source snapshot and the supported Compile API embedded-initializer callback, with explicit full QNN optimization. The first inference loads the serialized context before cache publication.",
-        "Private temporary source snapshots require 512 MiB of additional free-space admission and a post-write 512 MiB bound. They are removed before context inference and on every exit; this is not an in-flight file-size cap or a larger retained-cache allowance.",
-        "Cancellation accepted at the source-preparation boundary prevents QNN compilation and any uncached fallback; later cancellation checks prevent further work or publication. Cancellation cannot publish PCM, a Ready state, an orphan profile or a retained source snapshot."
+        "Publish caches after PCM, timing and observed-provider validation; contexts grant no execution or CPU-reference playback admission.",
+        "Protect caches with canonical private paths, atomic publication, digests, nonblocking process ownership and bounded eviction.",
+        "Bad contexts get one bounded source-model retry; unsupported GPU persistence stays disabled.",
+        "Distinguish engine load, compilation, disk-context load and resident reuse; legacy absence stays unknown.",
+        "Finalize slow caches outside the cancellation lock; recheck accepted cancellation under that short lock before audio/Ready publication.",
+        "Private directories require no-follow descriptors, app UID, directory type, 0700 mode and stable device/inode/canonical paths; failures disable persistence.",
+        "Full-model qualification needs actual production JNI and pinned model/runtime. Unseeded vocoder nodes require signal-consistency controls, not bitwise waveform/listening equivalence.",
+        "HTP full-model export uses a same-runtime CPU BASIC source snapshot, supported Compile API embedded-initializer callback and explicit full QNN optimization. First inference loads serialized context before publication.",
+        "Private source snapshots need 512 MiB additional free space and a 512 MiB post-write bound; remove before context inference and on every exit. This grants neither an in-flight size cap nor larger retained cache.",
+        "Cancellation at source preparation prevents QNN compilation and uncached fallback; later checks prevent work/publication. Never publish cancelled PCM, Ready, orphan profiles or retained source snapshots."
       ],
       "routing": {
         "role": "executor",
@@ -2019,13 +2057,13 @@
         "docs/repairs/voice-rebuild-sdk-2026-11-24-task.json"
       ],
       "invariants": [
-        "Incremental SDK input uses one reply stream with exact source mapping, bounded text and PCM delivery, backpressure, cancellation and actual retirement before lease release.",
-        "Token bucket selection reaches the actual SDK API and never truncates the supplied reply; model, backend, bucket and input mode participate in resident identity.",
-        "Supported voice changes reuse immutable model weights while each utterance captures the selected voice; model-variant replacement retires the previous store owner.",
-        "Failed native close retains ownership and prevents replacement; a cancellation or UI return cannot imply retirement.",
-        "Auto CPU scheduling follows the shared device governor; explicit thread selections and benchmark settings remain fixed. Performance hints target only app-owned worker IDs.",
-        "SDK chunk boundaries retain actual separators and original source/UTF-8 ranges for playback and benchmarks; synthetic replacements cannot consume neighboring source text or exceed existing chunk bounds.",
-        "All real SDK checkpoints must deliver PCM before the second fragment and finishInput, then retain complete source cue coverage; open-input cancellation requires retirement and same-task recovery. Android receipt v2 rejects missing or stale source/model/runtime/incremental evidence."
+        "Use one incremental reply stream with exact source mapping, bounded text/PCM, backpressure and cancellation; retire before lease release.",
+        "Apply token buckets through the SDK without truncation; resident identity includes model, backend, bucket and input mode.",
+        "Reuse immutable weights for supported voice changes; snapshot each utterance’s voice. Model-variant changes retire the old store owner.",
+        "Failed native close retains ownership and blocks replacement; cancellation or UI return proves no retirement.",
+        "Auto CPU scheduling follows the shared governor; explicit/benchmark thread counts stay fixed. Hint only app-owned worker IDs.",
+        "SDK chunks retain separators and source/UTF-8 ranges in playback/benchmarks. Synthetic replacements cannot consume adjacent text or exceed chunk bounds.",
+        "Every real SDK checkpoint delivers PCM before fragment two and finishInput, with full source cues. Open-input cancellation needs retirement and same-task recovery. Android receipt v2 rejects missing/stale source/model/runtime/incremental evidence."
       ],
       "routing": {
         "role": "executor",
@@ -2082,12 +2120,12 @@
         "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json"
       ],
       "invariants": [
-        "Exports stream bounded JSON records into validated private artifacts off the UI thread; saved state stores a small receipt ID and never the JSON payload.",
-        "Picker, provider-close and process-recreation failures retain a retryable artifact; publication occurs only after destination close succeeds.",
-        "Protocol v4 sustained tests count only completed, validated, presented audio toward 1, 5 or 10 minutes, retaining exact owner and manifest evidence under repeat and wall-time bounds.",
-        "Cumulative qualification is recomputed from individual receipts; cancelled, thermally interrupted, short or legacy runs cannot claim duration success.",
-        "Sustained elapsed totals do not enter speed ranking because candidates may execute different repeat counts; complete sustained qualification remains required.",
-        "Local history streams under an 8MiB envelope and evicts complete older runs rather than truncating retained evidence."
+        "Stream bounded JSON off the UI thread into validated private artifacts. Saved state holds a small receipt ID, never JSON.",
+        "Picker/provider-close/recreation failures retain retryable artifacts; publish only after successful destination close.",
+        "Protocol v4 counts only completed, validated, presented audio toward 1/5/10 minutes, with exact owner/manifest and repeat/wall-time bounds.",
+        "Recompute cumulative qualification from receipts; cancelled, thermally interrupted, short and legacy runs cannot qualify duration.",
+        "Sustained elapsed totals cannot rank speed across differing repeat counts; full sustained qualification remains required.",
+        "Bound streamed local history to 8 MiB; evict whole older runs without truncating evidence."
       ],
       "routing": {
         "role": "user_control",
@@ -2166,11 +2204,11 @@
       ],
       "documents": [
         "docs/repairs/pronunciation-complete-exponents-2026-11-24-task.json",
-        "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json"
+        "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json"
       ],
       "invariants": [
-        "Integer and squared-unit tokens must not consume a prefix of a decimal, scientific or longer integer exponent; complete numeric fallback preserves the amount and original caption ranges.",
-        "Existing integer and Unicode superscript readings, every prior pronunciation method and bounded phrase output remain required."
+        "Integer/squared-unit tokens cannot consume prefixes of decimal, scientific or longer integer exponents. Complete fallback preserves amount and caption ranges.",
+        "Preserve integer/Unicode superscript readings, all prior pronunciation methods and bounded phrases."
       ],
       "routing": {
         "role": "presentation",
@@ -3770,10 +3808,10 @@
         "docs/repairs/voice-streaming-quality-2026-11-27-task.json"
       ],
       "invariants": [
-        "Every accepted translation utterance remains source data regardless of question, command, task-cancellation or language-change wording. Destination comes from the selected UI policy.",
-        "Translation sends one escaped current source without conversation history, persona, research, recall, tools, delegation, Combined planning or Gateway engineering handoff.",
-        "Request constraints cannot enable tools or Combined execution for translation. Literal text does not become an action claim, local tool frame or app progress event; structured calls remain rejected before execution.",
-        "Deterministic translation routing does not establish perfect provider translation quality; failed providers cannot silently fall back to answering or executing the source."
+        "Questions, commands, cancellation and language-change wording remain source data; the selected UI policy sets the destination.",
+        "Send one escaped current source, excluding history, persona, research, recall, tools, delegation, Combined planning and Gateway engineering handoff.",
+        "Constraints cannot enable translation tools/Combined execution. Literal text cannot become action claims, tool frames or app progress; reject structured calls before execution.",
+        "Deterministic routing proves no perfect translation quality; provider failure cannot fall back to answering or executing the source."
       ],
       "routing": {
         "role": "user_control",
@@ -3819,7 +3857,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLanguageSettings.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffect.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffect.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePlaybackSelection.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPairTest.kt",
@@ -3834,6 +3873,7 @@
         "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceOutputConfigurationEffectTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePlaybackSelectionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt"
       ],
       "commands": [
@@ -3844,17 +3884,24 @@
         "docs/repairs/bidirectional-voice-translation-2026-11-28-task.json",
         "docs/audits/voice-translation-language-model-2026-11-28.json",
         "docs/repairs/voice-output-preference-restoration-2026-11-28-task.json",
+        "docs/repairs/voice-translation-playback-policy-2026-11-28-validation.json",
+        "docs/repairs/voice-translation-playback-integration-2026-11-28-validation.json",
+        "docs/repairs/voice-translation-model-lifetime-2026-11-28-validation.json",
         "docs/repairs/voice-session-readiness-restoration-2026-11-28-task.json"
       ],
       "invariants": [
-        "Each utterance selects the opposite language's saved voice from confident in-pair transcript detection or explicit source. Keep unknown or outside-pair input reviewable.",
-        "Local detection checks global competitors before pair filtering; transcripts cannot qualify ASR accuracy or reliable mixed-language detection.",
-        "Auto capture needs Android 14+, on-device support and both installed locales. Explicit sources require a recognizer/model supporting the language.",
-        "Bind destination/factory to draft ID/text, generation, access and phase before submit. Stop, edits, settings or lost ownership fence late dispatch/playback.",
-        "Replay keeps its fixed accepted destination; missing metadata defers admission. Translation/replay require its local voice, with no prior-language, other-voice or Android TTS substitution. Ordinary recovery is unchanged.",
-        "Azelma/Estelle require an explicitly installed, verified Pocket Multilingual CPU pack. Per-turn snapshots preserve ordinary preferences and each language's voice.",
-        "Translate questions/commands as source text with no tools, persona or conversation history.",
-        "Configure output after saved preferences load. Pending readiness blocks new work while preserving authorized owned retained playback."
+        "Confident in-pair prediction or explicit source choice selects the opposite language and its saved voice. Unknown/outside-pair input keeps a reviewable draft.",
+        "Locally inspect global detector competitors before pair membership; transcript classification proves neither physical ASR accuracy nor reliable mixed-language detection.",
+        "Auto capture needs Android 14+, on-device support and both installed locales. Explicit sources require a supporting recognizer/model; English-only Moonshine needs explicit English.",
+        "Fence immutable destination/factory by draft identity, exact text, generation, access and phase. Stop, edits, settings or lost ownership prevent late dispatch/revival.",
+        "Replay preserves accepted destination; missing metadata defers admission. Never substitute the previous language or unrelated voice.",
+        "Azelma/Estelle require an explicitly installed, verified Pocket Multilingual CPU pack. Turn factories snapshot settings without overwriting ordinary or other-language voices.",
+        "Questions/commands remain isolated source text; preserve no-tools, no-persona and no-history boundaries.",
+        "Translated streams/replays require the selected local voice; synthesis failure cannot substitute Android TTS. Keep ordinary recovery.",
+        "Configure output after saved preferences load. Pending readiness blocks new work while preserving authorized owned retained playback.",
+        "Retained outputs keep factory, language profile and strict local routing across restoration/future-capture changes; clear only on explicit ownership replacement.",
+        "Replay saved accepted language even with translation capture off. Defer missing request metadata; preserve known ordinary legacy playback.",
+        "Own verified direct model bytes until native close succeeds. Failed create/close retains uncertain ownership and blocks new admission, without limiting healthy coexisting owners."
       ],
       "routing": {
         "role": "user_control",
@@ -3905,10 +3952,10 @@
         "docs/repairs/voice-streaming-quality-2026-11-27-task.json"
       ],
       "invariants": [
-        "Normal-rate SDK PCM passes through a per-stream pitch-preserving tempo processor at nondefault speed; input/output anchors map cues to produced PCM without claiming acoustic alignment.",
-        "Final cue and revision endpoints wait until more input or EOS resolves the accepted source frontier, including every drained output frame; heard words and earlier finalized intervals cannot be rewritten.",
-        "Canceled streams discard their processor; slow tempo preserves the output duration ceiling; model residency remains rate-independent while full playback factory identity rebinds rate-specific callbacks.",
-        "Only explicit user calibration may queue a per-device edit. Hydration cannot overwrite saved device values; idle edits bind to the next actually observed output route and route loss clears comparison identity."
+        "Nondefault speed applies per-stream pitch-preserving tempo to normal-rate SDK PCM. Map cues through input/output frame anchors; claim no acoustic alignment.",
+        "Hold cue/revision endpoints until input or EOS resolves the accepted source frontier, including drained frames. Never rewrite heard words or earlier final intervals.",
+        "Discard cancelled processors; slow tempo keeps duration ceilings. Model residency ignores rate; full factory identity rebinds rate-specific callbacks.",
+        "Queue per-device edits only on explicit calibration. Hydration preserves saved values; idle edits await an observed route, and route loss clears comparison identity."
       ],
       "routing": {
         "role": "executor",
@@ -3990,13 +4037,13 @@
         "docs/repairs/pocket-compiled-public-options-2026-11-28.json"
       ],
       "invariants": [
-        "English Pocket CPU is the fresh default; valid saved engines and explicit installation cancellation remain authoritative.",
-        "Compiled Pocket uses independently pinned graph, tokenizer and preset-voice identities; it cannot load a MediaPipe task as a compiled graph.",
-        "GPU and Qualcomm NPU language-model and vocoder requests exclude whole-model CPU fallback; the Mimi transformer explicitly uses CPU. Requests and API success do not prove hardware placement.",
-        "Strict raw PCM validation precedes delivery; cancellation suppresses later output and unconfirmed native retirement preserves the parent environment and model lease.",
-        "Compiled graphs provide no native word alignment; any caption timing requires separate explicit evidence and never invented word boundaries.",
-        "Rate and CPU-transformer thread changes retire incompatible warm engines. English compiled language choices do not overwrite other engines’ saved voices.",
-        "Caption-enabled compiled playback uses final ASR alignment of bounded actual post-tempo audio with exact source-token matching. The independent pack is explicitly installed; missing or mismatched alignment never invents word durations or certifies acoustic accuracy."
+        "Fresh English defaults to Pocket CPU; honor valid saved engines and explicit install cancellation.",
+        "Compiled graphs, tokenizer and preset voices have independent pins; MediaPipe tasks cannot substitute for compiled graphs.",
+        "GPU/Qualcomm NPU LM/vocoder requests forbid whole-model CPU fallback; Mimi transformer explicitly uses CPU. Requests/API success prove no hardware placement.",
+        "Validate raw PCM before delivery; cancellation suppresses late output. Unconfirmed retirement retains the parent environment/model lease.",
+        "Compiled graphs provide no native word alignment; timing needs separate evidence, never invented boundaries.",
+        "Rate/CPU-transformer thread changes retire incompatible warm engines. Compiled English choices preserve other engines’ saved voices.",
+        "Caption-enabled playback aligns bounded post-tempo PCM with final ASR and exact source tokens. Install its separate pack explicitly; absent/mismatched alignment invents no durations and certifies no acoustic accuracy."
       ],
       "routing": {
         "role": "executor",

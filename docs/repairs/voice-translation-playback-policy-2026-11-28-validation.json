@@ -1,0 +1,29 @@
+{
+  "head_before_worktree_patch": "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+  "scope": "Actual complete policy, pair, voice catalog, language and source contracts; actual unchanged LocalVoiceAsset declaration only from Android store",
+  "test_class": "VoiceTranslationPlaybackPolicyTest",
+  "compile_exit": 0,
+  "junit_exit": 0,
+  "passed_tests": 9,
+  "assertions_enabled": true,
+  "full_android": false,
+  "compose_ui_executed": false,
+  "native_device_audio": false,
+  "source_manifest": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicy.kt": "53135f5ab88a1e975bb1a20fc77370323739b6bac584a09cc4ce60a9badf636c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPair.kt": "1df95ede2892959a12918ab19dfd07a4fb319133e592093f20ca31b46343fb03",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePolicy.kt": "596193b7a71486abd0d8636b54949e1720a1ee14c8915d225578389de7f7c3e6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationSource.kt": "cc91ba1f89b5da1fd9a915e38ce9d46d2ae0e4076651979994cb6796da526563",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechVoices.kt": "36cd35cbb3bcff60d50014910685717cdf48446d9dd23b29267a33e0e4d8e113",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt": "767be5bf9a4ec057012b5870adbb340c1a154fe3522988684aadbacd9b5b92e4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt": "3e301d33316c9ecd8faf0bc7f1ff3d6a353a173aa5a08aabbe82cf71008fadc9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionBackend.kt": "326112e3b1eb023a2278f035220a37e865341070d44b3d0d4de755ad1beb961c",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicyTest.kt": "378be821790c0f2fa4aa403c28632b4bea8efa7eaa743eb17f6cb7ddbf2461d7",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": "6d70a6793e30936e51c9dbf0a422ec91ef10db2acbfab3a36ff7df6f123e5a6c",
+    "extracted_unchanged_LocalVoiceAsset": "fba8f83f59380ede0f7225c1cca4568120980680bbb735b96e066bb2f3f9a238"
+  },
+  "junit_log_sha256": "ae9780f243a5fe3751647e6110f9aa618c27da385494696a109229cd0d2db412",
+  "jar_sha256": "241bd54574268772578f6eb07858e448e07488dbeed62baaa7d896ab03ea1fa3",
+  "baseline_scope": "Coverage agent separately owns exact before/after VoiceChatScreen branch extraction; new selector API did not exist in baseline.",
+  "test_output": "JUnit version 4.13.2\n.........\nTime: 0.027\n\nOK (9 tests)"
+}

@@ -91,6 +91,162 @@ class VoiceDraftPreparationTest {
         }
     }
 
+    @Test fun confidentCapturedLanguageTranslatesShortUtterancesInBothDirections() {
+        for ((text, language, expected) in listOf(Triple("No", "en-CA", "fr-FR"), Triple("Oui", "fr-CA", "en-US"))) {
+            val f = Fixture()
+            val pair = VoiceTranslationPair()
+            f.session.translationOnly = true
+            f.session.prepareDraft = { source, complete ->
+                val detected = f.session.recognizedLanguageFor(source, listOf(pair.baseLanguage, pair.translationLanguage))
+                val target = requireNotNull(pair.resolve(detected))
+                complete(VoiceDraftPreparation(commit = { f.selected = target }))
+            }
+            f.session.listenForConversation()
+            val capture = f.audio.listeners.last()
+            capture.detectedLanguage(language)
+            capture.final(text)
+            assertEquals(listOf(text), f.sent)
+            assertEquals(expected, f.submittedTargets.single()?.targetLanguage)
+            assertEquals(text, f.session.state.recognitionLanguage?.text)
+            // A delayed native callback cannot change the accepted utterance's destination.
+            capture.detectedLanguage(if (language.startsWith("en")) "fr-FR" else "en-US")
+            assertEquals(language, f.session.state.recognitionLanguage?.languageTag)
+            f.session.close()
+        }
+    }
+
+    @Test fun revisedOrEditedWordsCannotBorrowCapturedLanguage() {
+        for (directSendEdit in listOf(false, true)) {
+            val f = Fixture()
+            f.session.editBeforeSend = true
+            f.session.listenForConversation()
+            f.audio.listeners.last().detectedLanguage("en-US")
+            f.audio.listeners.last().final("No")
+            assertEquals("en-US", f.session.recognizedLanguageFor("No", listOf("en-US", "fr-FR")))
+            assertNull(f.session.recognizedLanguageFor("Oui", listOf("en-US", "fr-FR")))
+            if (directSendEdit) {
+                f.session.sendDraft("Oui")
+            } else {
+                f.session.editDraft("Oui")
+                // Reverting the edit does not restore the revoked capture receipt.
+                f.session.editDraft("No")
+                f.session.sendDraft()
+            }
+            assertNull(f.session.state.recognitionLanguage)
+            assertNull(f.session.recognizedLanguageFor(f.session.state.transcript, listOf("en-US", "fr-FR")))
+            assertTrue(f.sent.isEmpty())
+            f.session.close()
+        }
+    }
+
+    @Test fun aNewCaptureAndItsUnknownLanguageCannotReuseAnEarlierObservation() {
+        val f = Fixture()
+        f.session.editBeforeSend = true
+        f.session.listenForConversation()
+        val previous = f.audio.listeners.last()
+        previous.detectedLanguage("fr-FR")
+        previous.partial("Oui")
+        assertEquals("fr-FR", f.session.recognizedLanguageFor("Oui", listOf("en-US", "fr-FR")))
+        previous.final("Oui")
+        f.session.discardDraft()
+        assertNull(f.session.state.recognitionLanguage)
+        f.session.resume()
+        val current = f.audio.listeners.last()
+        assertTrue(current !== previous)
+        previous.detectedLanguage("fr-FR")
+        previous.partial("Oui")
+        assertNull(f.session.state.recognitionLanguage)
+        current.final("No")
+        assertNull(f.session.recognizedLanguageFor("No", listOf("en-US", "fr-FR")))
+        f.session.close()
+    }
+
+    @Test fun revokedAndUnsupportedLanguageEvidenceFallsBackWithoutInventingDirection() {
+        val f = Fixture()
+        f.session.editBeforeSend = true
+        f.session.listenForConversation()
+        val capture = f.audio.listeners.last()
+        capture.partial("No")
+        capture.detectedLanguage("en-US")
+        assertEquals("en-US", f.session.recognizedLanguageFor("No", listOf("en-US", "fr-FR")))
+        capture.detectedLanguage(null)
+        assertNull(f.session.state.recognitionLanguage)
+        capture.final("No")
+        assertNull(f.session.recognizedLanguageFor("No", listOf("en-US", "fr-FR")))
+        assertNull(VoiceRecognitionLanguage("de-DE", "No").forSource("No", listOf("en-US", "fr-FR")))
+        assertNull(VoiceRecognitionLanguage("not_a_tag", "No").forSource("No", listOf("en-US", "fr-FR")))
+        assertNull(VoiceRecognitionLanguage("en-US", "No").forSource("No", listOf("en-US", "en-CA")))
+        assertNull(VoiceRecognitionLanguage("en-US", "No").forSource("No", listOf("en-US", "not_a_tag")))
+        assertNull(VoiceRecognitionLanguage("en-US", "No").forSource("No", listOf("en-US")))
+        f.session.close()
+    }
+
+    @Test fun finalTrimmingBindsTheAcceptedWordsAndErrorsFenceLateLanguageCallbacks() {
+        val trimmed = Fixture()
+        trimmed.session.editBeforeSend = true
+        trimmed.session.listenForConversation()
+        val finalizing = trimmed.audio.listeners.last()
+        finalizing.partial("  No  ")
+        finalizing.ending()
+        finalizing.detectedLanguage("en-CA")
+        finalizing.final("  No  ")
+        assertEquals("No", trimmed.session.state.recognitionLanguage?.text)
+        assertEquals("en-US", trimmed.session.recognizedLanguageFor("No", listOf("en-US", "fr-FR")))
+        assertNull(trimmed.session.recognizedLanguageFor("  No  ", listOf("en-US", "fr-FR")))
+        trimmed.session.close()
+
+        val interrupted = Fixture()
+        interrupted.session.listenForConversation()
+        val failed = interrupted.audio.listeners.last()
+        failed.partial("No")
+        failed.detectedLanguage("en-US")
+        failed.failure("Speech service stopped", 0)
+        assertEquals(VoicePhase.ERROR, interrupted.session.state.phase)
+        failed.detectedLanguage("fr-FR")
+        failed.final("Oui")
+        assertEquals("en-US", interrupted.session.recognizedLanguageFor("No", listOf("en-US", "fr-FR")))
+        interrupted.session.resume()
+        interrupted.session.editDraft("Oui")
+        failed.detectedLanguage("en-US")
+        assertNull(interrupted.session.state.recognitionLanguage)
+        assertEquals("Oui", interrupted.session.state.transcript)
+        interrupted.session.close()
+    }
+
+    @Test fun unchangedInterruptedPartialKeepsItsLanguageWhenSendTrimsBoundaryWhitespace() {
+        val f = Fixture()
+        val pair = VoiceTranslationPair()
+        val allowed = listOf(pair.baseLanguage, pair.translationLanguage)
+        f.session.translationOnly = true
+        f.session.prepareDraft = { text, complete ->
+            val target = pair.resolve(f.session.recognizedLanguageFor(text, allowed))
+            complete(
+                if (target == null) {
+                    VoiceDraftPreparation(rejection = "Choose the spoken language")
+                } else {
+                    VoiceDraftPreparation(commit = { f.selected = target })
+                }
+            )
+        }
+        f.session.listenForConversation()
+        val captured = f.audio.listeners.last()
+        captured.detectedLanguage("en-CA")
+        captured.partial("  OK  ")
+        captured.failure("Speech service stopped", 0)
+        assertEquals(VoicePhase.ERROR, f.session.state.phase)
+        assertEquals("en-US", f.session.recognizedLanguageFor("  OK  ", allowed))
+        assertNull(f.session.recognizedLanguageFor("OK", allowed))
+        f.session.listenForConversation()
+        assertEquals(VoicePhase.REVIEWING, f.session.state.phase)
+        f.session.sendDraft()
+        assertEquals(listOf("OK"), f.sent)
+        assertEquals("fr-FR", f.submittedTargets.single()?.targetLanguage)
+        assertEquals("en-US", f.session.recognizedLanguageFor("OK", allowed))
+        assertNull(f.session.recognizedLanguageFor("  OK  ", allowed))
+        assertEquals(VoicePhase.THINKING, f.session.state.phase)
+        f.session.close()
+    }
+
     @Test fun absentAndSynchronousPreparationKeepImmediateSubmissionBehavior() {
         for (synchronous in listOf(false, true)) {
             val f = Fixture()

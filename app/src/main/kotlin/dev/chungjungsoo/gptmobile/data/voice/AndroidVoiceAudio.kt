@@ -350,6 +350,8 @@ class AndroidVoiceAudio internal constructor(
             failedStage = "listener_configuration"
             var becameReady = false
             var finalizing = false
+            val detectedLanguages = mutableSetOf<String>()
+            var ambiguousLanguage = false
             fun active() = !closed && recognitionActive && ticket == generation && recognizer === engine
             fun finalizeCapture() {
                 if (!active() || finalizing) return
@@ -421,6 +423,35 @@ class AndroidVoiceAudio internal constructor(
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
                 override fun onPartialResults(partialResults: Bundle?) {
                     if (active()) listener.partial(partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
+                }
+                override fun onLanguageDetection(results: Bundle) {
+                    if (!active() || !dispatched || !automaticTranslation || Build.VERSION.SDK_INT < 34) return
+                    if (translationRecognitionLanguages(translationLanguages) != translationPair) {
+                        listener.detectedLanguage(null)
+                        return
+                    }
+                    val confidence = results.getInt(SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL, SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_UNKNOWN)
+                    val confident = confidence == SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_CONFIDENT || confidence == SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_HIGHLY_CONFIDENT
+                    val language = if (confident) {
+                        results.getString(SpeechRecognizer.DETECTED_LANGUAGE)?.let { tag ->
+                            runCatching { Locale.Builder().setLanguageTag(tag).build().language }.getOrNull()
+                                ?.takeIf { it.isNotEmpty() && it != "und" }
+                        }
+                    } else {
+                        null
+                    }
+                    val selected = translationPair.firstOrNull { Locale.forLanguageTag(it).language == language }
+                    if (language != null) {
+                        detectedLanguages += language
+                        // Android reports the latest audio chunk. Several confidently
+                        // detected languages cannot identify this whole turn's source.
+                        if (detectedLanguages.size > 1 || selected == null) ambiguousLanguage = true
+                    }
+                    val switchResult = results.getInt(SpeechRecognizer.LANGUAGE_SWITCH_RESULT, SpeechRecognizer.LANGUAGE_SWITCH_RESULT_NOT_ATTEMPTED)
+                    val usableSwitch = switchResult == SpeechRecognizer.LANGUAGE_SWITCH_RESULT_NOT_ATTEMPTED || switchResult == SpeechRecognizer.LANGUAGE_SWITCH_RESULT_SUCCEEDED
+                    // Missing/uncertain language or a failed switch revokes earlier
+                    // evidence. Never substitute the request's initial locale.
+                    listener.detectedLanguage(selected?.takeIf { !ambiguousLanguage && usableSwitch })
                 }
                 override fun onResults(results: Bundle?) {
                     if (!active()) return

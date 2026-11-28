@@ -1,6 +1,20 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.Locale
 import kotlin.math.roundToLong
+
+/** A confident native observation belongs only to its captured source, never to another draft. */
+data class VoiceRecognitionLanguage(val languageTag: String, val text: String) {
+    internal fun forSource(source: String, allowedTags: List<String>): String? {
+        if (text != source || source.isBlank() || allowedTags.size != 2) return null
+        fun language(tag: String): String? = runCatching {
+            Locale.Builder().setLanguageTag(tag).build().language.takeIf { it.isNotBlank() && it != "und" }
+        }.getOrNull()
+        val observed = language(languageTag) ?: return null
+        val pair = allowedTags.map { tag -> (language(tag) ?: return null) to tag }.toMap()
+        return pair.takeIf { it.size == 2 }?.get(observed)
+    }
+}
 
 /** Decoder emission positions are not acoustic word intervals or output-playback alignment. */
 enum class VoiceRecognitionTimingProvenance {

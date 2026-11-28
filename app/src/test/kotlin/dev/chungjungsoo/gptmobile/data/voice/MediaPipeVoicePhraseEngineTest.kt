@@ -17,6 +17,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaPipeVoicePhraseEngineTest {
+    @Test fun aCorrectedOpenEstimateKeepsBothCaptionsWithTimedAudioBuffering() {
+        for (speed in listOf(.5f, 1f, 1.5f, 2f)) {
+            for (backend in listOf(VoiceSpeechBackend.POCKET_CPU, VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU)) {
+                var reads = 0
+                val original = WordTimestamp("one", 0, 3, 0f, 2f)
+                val task = TestTask {
+                    TestStream {
+                        when (++reads) {
+                            1 -> AudioChunk(FloatArray(12_000) { .2f }, wordTimestamps = listOf(original))
+                            2 -> AudioChunk(FloatArray(12_000) { .2f }, chunkIndex = 1, wordTimestamps = listOf(original.copy(startSec = .1f, endSec = .6f)))
+                            3 -> AudioChunk(FloatArray(0), chunkIndex = 2, isFinal = true, wordTimestamps = listOf(WordTimestamp("two", 4, 7, .6f, .9f)))
+                            else -> null
+                        }
+                    }
+                }
+                val frames = VoiceStreamFrames("one two")
+                val captions = VoicePcmCaptions()
+                MediaPipeVoicePhraseEngine(task, AutoCloseable {}, backend, 1f, "freya").use { engine ->
+                    engine.setCaptionAlignmentEnabled(true)
+                    engine.stream("one two", 0, speed) { chunk ->
+                        captions.appendStream(0, "one two", 0, frames.accept(chunk), chunk.samples.size)
+                        true
+                    }
+                }
+                frames.finish()
+                val crossed = mutableListOf<VoicePcmCue>()
+                captions.consumed(frames.frames, onWordCrossed = crossed::add)
+                assertEquals("speed=$speed backend=$backend", listOf(0..2, 4..6), crossed.map { it.range })
+                assertEquals(crossed.first().endFrame, crossed.last().frame)
+                assertEquals(1, crossed.first().revision)
+                assertEquals((24_000 / speed).toLong(), frames.frames)
+            }
+        }
+    }
+
     @Test fun aTimedWordDoesNotReleaseTheFollowingAudioBeforeItsOwnMetadataArrives() {
         var reads = 0
         var emittedFrames = 0

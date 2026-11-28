@@ -110,7 +110,11 @@ internal class VoiceTempoProcessor(
     private fun readyCues(): List<VoiceWordCue> {
         val result = ArrayList<VoiceWordCue>()
         while (pending.isNotEmpty()) {
+            appendReadyRevisions(result)
             val raw = pending.first()
+            // A shortened earlier word can make this word's onset valid. Do not let
+            // a new cue overtake the revision while its timeline waits for lookahead.
+            if (revisions.firstOrNull()?.let { it.startByte < raw.startByte } == true) break
             val previous = prefix?.takeIf { sameWord(it, raw) }
             val start = previous?.startFrame ?: timeline.map(raw.startFrame)
             if (start == null) {
@@ -148,6 +152,12 @@ internal class VoiceTempoProcessor(
                 break
             }
         }
+        appendReadyRevisions(result)
+        return result
+    }
+
+    /** Preserve the mapper's dependency order: original, its revision, then any released word. */
+    private fun appendReadyRevisions(result: MutableList<VoiceWordCue>) {
         while (revisions.isNotEmpty()) {
             val raw = revisions.first()
             if (raw.startByte in suppressedStarts) {
@@ -172,7 +182,6 @@ internal class VoiceTempoProcessor(
                 suppressedStarts.add(raw.startByte)
             }
         }
-        return result
     }
 
     private fun sameWord(first: VoiceWordCue, second: VoiceWordCue): Boolean = first.startByte == second.startByte && first.endByte == second.endByte

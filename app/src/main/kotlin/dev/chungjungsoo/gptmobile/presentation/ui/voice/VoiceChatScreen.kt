@@ -760,12 +760,17 @@ private fun VoiceChatSessionScreen(
                 } else {
                     settingsScope.launch {
                         try {
-                            val detected = if (pair.sourceLanguage == null) {
+                            val recognizedLanguage = if (pair.sourceLanguage == null) {
+                                session.recognizedLanguageFor(text, listOf(pair.baseLanguage, pair.translationLanguage))
+                            } else {
+                                null
+                            }
+                            val detected = if (pair.sourceLanguage == null && recognizedLanguage == null) {
                                 runtimeOwner.detectTranslationLanguage(text, listOf(pair.baseLanguage, pair.translationLanguage))
                             } else {
                                 null
                             }
-                            val target = pair.resolve(pair.sourceLanguage ?: detected?.languageTag?.takeIf { detected.status == VoiceTranslationLanguageStatus.DETECTED })
+                            val target = pair.resolve(pair.sourceLanguage ?: recognizedLanguage ?: detected?.languageTag?.takeIf { detected.status == VoiceTranslationLanguageStatus.DETECTED })
                             if (target == null) {
                                 complete(VoiceDraftPreparation(rejection = "The spoken language is unclear. Choose the spoken language in Translation languages, then send your saved words."))
                             } else {

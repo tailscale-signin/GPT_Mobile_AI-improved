@@ -149,7 +149,8 @@
     "Repair repeated translation capture by retaining qualified Android recognizers after quiet results, preserving cooldown reasons and waiting for confirmed local microphone release before a new capture.",
     "Prewarm the shared multilingual voice model during capture, preserve its opening owner across target-voice selection, and stage Pocket PCM behind supplied word timings before caption-enabled playback; require enabled-caption packet-order receipts in native smoke.",
     "Colocate the audited Qualcomm runtime with compiled Pocket’s private NPU compiler/dispatch, restore LiteRT compiler caching and retain graph-specific GPU/NPU preparation failures without successful fallback claims.",
-    "Keep verified QAIRT header staging private while publishing a read-only-to-non-owners SDK directory accessible to the offline Android build user."
+    "Keep verified QAIRT header staging private while publishing a read-only-to-non-owners SDK directory accessible to the offline Android build user.",
+    "Use confident capture-bound Android language evidence for short translation utterances, preserve unchanged draft recovery and repair Pocket open-word timing revisions through buffering, speed changes, pause trimming and presented-caption retirement."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1279,7 +1280,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledPreparationFailureTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGateTest.kt",
     "docs/repairs/mediapipe-flogger-r8-2026-11-28.json",
-    "docs/repairs/translation-error-recovery-2026-11-28-task.json"
+    "docs/repairs/translation-error-recovery-2026-11-28-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketOpenCaptionRevisionTest.kt",
+    "docs/repairs/translation-pocket-followup-2026-11-28-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

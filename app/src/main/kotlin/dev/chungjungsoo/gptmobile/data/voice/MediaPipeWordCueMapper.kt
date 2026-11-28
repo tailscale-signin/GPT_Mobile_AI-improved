@@ -24,16 +24,22 @@ internal class MediaPipeWordCueMapper(
     private var lastEndFrame = 0L
     private var retiredEndFrame = 0L
     private var openPrefix: VoiceWordCue? = null
+    private var openCorrection: VoiceWordCue? = null
 
     fun appendText(text: String) = boundaries.append(text)
 
     /** Validated SDK metadata may precede the PCM released by the caption buffer. */
     val timestampedThroughFrame: Long
-        get() = maxOf(lastEndFrame, pending.values.maxOfOrNull { it.endFrame } ?: 0L)
+        get() = maxOf(
+            lastEndFrame,
+            corrections.values.maxOfOrNull { it.endFrame } ?: 0L,
+            pending.values.maxOfOrNull { it.endFrame } ?: 0L
+        )
 
     fun accept(timestamps: List<WordTimestamp>, availableFrames: Long): List<VoiceWordCue> {
         require(availableFrames in 0..frameLimit)
         retireHistory(availableFrames)
+        val ready = mutableListOf<VoiceWordCue>()
         for ((index, timestamp) in timestamps.withIndex()) {
             if (index >= cueLimit) break
             val start = timestamp.startChar
@@ -61,9 +67,16 @@ internal class MediaPipeWordCueMapper(
             }
             val open = openPrefix
             if (open != null && start == open.startByte) {
-                // Observed prefixes keep their identity/start. A shorter estimate may
-                // finalize the word, but may never retract the PCM prefix already sent.
-                if (end == open.endByte && startFrame == open.startFrame && endFrame >= open.endFrame) pending[start] = next
+                if (end != open.endByte) continue
+                if (startFrame == open.startFrame && endFrame >= open.endFrame) {
+                    pending[start] = next
+                    openCorrection = null
+                } else {
+                    // Metadata can precede its audio. Retain this correction even when
+                    // the SDK does not repeat it with a later PCM packet.
+                    openCorrection = next
+                    pending[start] = open.copy(endFrame = maxOf(open.endFrame, next.endFrame), finalEnd = true)
+                }
                 continue
             }
             if (start < (open?.endByte ?: lastEndByte)) continue
@@ -75,7 +88,23 @@ internal class MediaPipeWordCueMapper(
             // Repeated SDK packets may improve a word which is still ahead of PCM.
             pending[start] = next
         }
-        val ready = mutableListOf<VoiceWordCue>()
+        val open = openPrefix
+        val correction = openCorrection
+        if (open != null && correction != null && correction.endFrame <= availableFrames) {
+            // Close the prefix already published before revising its estimate. A shorter
+            // end or changed onset must not leave the old estimate open and hide the next
+            // word. Only the presentation queue knows whether the onset has been heard.
+            val completed = open.copy(finalEnd = true)
+            openPrefix = null
+            openCorrection = null
+            pending.remove(open.startByte)
+            emittedCount++
+            lastEndByte = completed.endByte
+            lastEndFrame = completed.endFrame
+            published[open.startByte] = completed
+            ready += completed
+            corrections[open.startByte] = correction.copy(revision = 1)
+        }
         // Adjacent estimates can move a shared boundary in either direction. Stage
         // the whole packet, then publish each correction only when its neighbours
         // permit it. Revisit blocked peers after a neighbour moves; consumers see
@@ -127,6 +156,7 @@ internal class MediaPipeWordCueMapper(
     /** A truncated estimate closes where the audio ended; a wholly unheard word stays unpublished. */
     fun finish(): VoiceWordCue? = openPrefix?.copy(finalEnd = true).also {
         openPrefix = null
+        openCorrection = null
         pending.clear()
         corrections.clear()
         published.clear()

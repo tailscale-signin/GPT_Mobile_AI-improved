@@ -353,7 +353,7 @@
         "One quiet limiter spans each playback’s callbacks/phrases. Validate raw PCM first; queue frames and cues count retained audio only.",
         "An observed cue prefix may extend. Fully trimmed endings clear only the presented word during refill; never advance the clock, consume a later onset or bypass audio-focus pause.",
         "Learn reserves from retained-PCM gaps before phrase completion, excluding callback/queue waits. Keep one active and eight completed-stream maxima; separate phrase-ratio/word-cost accounting. Preserve reserve, queue, caption, pause and cancellation bounds; synthetic tests prove no phone acoustic continuity.",
-        "New supplied ends may revise queued/active estimated words with fixed heard onset/source identity. Never reopen completed words; same-word clock updates retime without replaying emphasis."
+        "Retain source identity and heard onsets. Apply original, correction and dependent-word cues in order through tempo/pause transforms; clear expired intervals, freeze pauses and never reopen words or restart same-word emphasis."
       ],
       "routing": {
         "role": "presentation",
@@ -3890,7 +3890,7 @@
         "docs/repairs/voice-session-readiness-restoration-2026-11-28-task.json"
       ],
       "invariants": [
-        "Confident in-pair prediction or explicit source choice selects the opposite language and its saved voice. Unknown/outside-pair input keeps a reviewable draft.",
+        "Resolve the opposite language/voice from explicit source, confident exact-text capture evidence or text prediction. Keep unknown/outside-pair drafts reviewable.",
         "Locally inspect global detector competitors before pair membership; transcript classification proves neither physical ASR accuracy nor reliable mixed-language detection.",
         "Auto capture needs Android 14+, on-device support and both installed locales. Explicit sources require a supporting recognizer/model; English-only Moonshine needs explicit English.",
         "Fence immutable destination/factory by draft identity, exact text, generation, access and phase. Stop, edits, settings or lost ownership prevent late dispatch/revival.",
@@ -3939,6 +3939,7 @@
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessorTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoCaptionRegressionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketOpenCaptionRevisionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionRouteIdentityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionRouteCalibrationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCueRevisionTest.kt"

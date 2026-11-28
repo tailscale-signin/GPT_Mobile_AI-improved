@@ -33,6 +33,9 @@ interface VoiceAudio {
         fun level(value: Float)
         fun partial(text: String)
         fun final(text: String)
+
+        /** Only confident observed capture language is evidence; null revokes it. A configured locale is not detection. */
+        fun detectedLanguage(languageTag: String?) = Unit
         fun partialTranscript(transcript: VoiceRecognitionTranscript) = partial(transcript.text)
         fun finalTranscript(transcript: VoiceRecognitionTranscript) = final(transcript.text)
         fun error(message: String)
@@ -103,7 +106,9 @@ data class VoiceState(
     val captionPresentationId: Long = 0,
     val translationPrompt: VoiceTranslationPrompt? = null,
     /** Input-audio timestamps belong to this transcript; playback captions keep their own clock. */
-    val recognitionTranscript: VoiceRecognitionTranscript? = null
+    val recognitionTranscript: VoiceRecognitionTranscript? = null,
+    /** Bound to the captured words; edited, typed and restored text cannot borrow a previous capture's language. */
+    val recognitionLanguage: VoiceRecognitionLanguage? = null
 )
 
 internal enum class VoiceMicrophoneAction { LISTEN, FINISH_CAPTURE, STOP }
@@ -229,6 +234,13 @@ class VoiceSession(
     private fun translationPrompt(text: String, captureId: Long = state.translationPrompt?.captureId ?: generation): VoiceTranslationPrompt? =
         if (translationOnly && text.isNotBlank()) VoiceTranslationPrompt(captureId, text) else null
 
+    internal fun recognizedLanguageFor(text: String, allowedTags: List<String>): String? =
+        state.recognitionLanguage?.forSource(text, allowedTags)
+
+    /** Submission trims an untouched captured draft; actual edits already revoked this observation. */
+    private fun languageForSubmittedDraft(prompt: String): VoiceRecognitionLanguage? =
+        state.recognitionLanguage?.takeIf { it.text == state.transcript && it.text.trim() == prompt }?.copy(text = prompt)
+
     var editBeforeSend = false
     var autoContinue = false
 
@@ -269,7 +281,7 @@ class VoiceSession(
         replaceDraft()
         draftPending = true
         val edited = text.take(8000)
-        update(state.copy(phase = VoicePhase.REVIEWING, transcript = edited, translationPrompt = translationPrompt(edited), recognitionTranscript = state.recognitionTranscript?.withText(edited), notice = null))
+        update(state.copy(phase = VoicePhase.REVIEWING, transcript = edited, translationPrompt = translationPrompt(edited), recognitionTranscript = state.recognitionTranscript?.withText(edited), recognitionLanguage = state.recognitionLanguage?.takeIf { it.text == edited }, notice = null))
     }
     private fun continueTurn(completedSpokenReply: Boolean = false) {
         diagnosticTrace.retain()
@@ -288,7 +300,7 @@ class VoiceSession(
         if (state.phase == VoicePhase.CLOSED || waiting) return
         replaceDraft()
         draftPending = false
-        update(state.copy(phase = VoicePhase.PAUSED, notice = null))
+        update(state.copy(phase = VoicePhase.PAUSED, recognitionLanguage = null, notice = null))
     }
     fun sendDraft(text: String = state.transcript) {
         if (state.phase != VoicePhase.REVIEWING || !accessAllowed() || submittedDraft != null) return
@@ -302,7 +314,7 @@ class VoiceSession(
         val pending = PreparingDraft(generation, draftGeneration, prompt)
         preparingDraft = pending
         draftPending = true
-        update(state.copy(phase = VoicePhase.FINALIZING, transcript = prompt, translationPrompt = translationPrompt(prompt), recognitionTranscript = state.recognitionTranscript?.withText(prompt), level = 0f, notice = null))
+        update(state.copy(phase = VoicePhase.FINALIZING, transcript = prompt, translationPrompt = translationPrompt(prompt), recognitionTranscript = state.recognitionTranscript?.withText(prompt), recognitionLanguage = languageForSubmittedDraft(prompt), level = 0f, notice = null))
         if (!ownsPreparation(pending)) return
         try {
             prepare(prompt) { result ->
@@ -361,7 +373,7 @@ class VoiceSession(
         audio.bindDiagnostics(diagnosticProbe)
         waiting = true
         draftPending = awaitsAdmission
-        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, translationPrompt = translationPrompt(prompt), recognitionTranscript = state.recognitionTranscript?.withText(prompt), reply = "", level = 0f, readingDetails = false, replyComplete = false, captionPresentationId = captionPresentationSequence.incrementAndGet()))
+        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, translationPrompt = translationPrompt(prompt), recognitionTranscript = state.recognitionTranscript?.withText(prompt), recognitionLanguage = languageForSubmittedDraft(prompt), reply = "", level = 0f, readingDetails = false, replyComplete = false, captionPresentationId = captionPresentationSequence.incrementAndGet()))
         if (pending != null) {
             if (!ownsPreparation(pending, submitting = true)) return
             preparingDraft = null
@@ -440,7 +452,7 @@ class VoiceSession(
             review -> VoicePhase.REVIEWING
             else -> VoicePhase.PAUSED
         }
-        update(state.copy(transcript = transcript, reply = reply, phase = phase, recognitionTranscript = null, captionPresentationId = captionPresentationSequence.incrementAndGet(), translationPrompt = translationSource?.takeIf(String::isNotBlank)?.let { VoiceTranslationPrompt(generation, it) }))
+        update(state.copy(transcript = transcript, reply = reply, phase = phase, recognitionTranscript = null, recognitionLanguage = null, captionPresentationId = captionPresentationSequence.incrementAndGet(), translationPrompt = translationSource?.takeIf(String::isNotBlank)?.let { VoiceTranslationPrompt(generation, it) }))
     }
     fun replay() {
         val text = state.reply
@@ -662,7 +674,7 @@ class VoiceSession(
         diagnosticProbe.access(permission, foreground, state.muted)
         audio.bindDiagnostics(diagnosticProbe)
         replaceDraft()
-        update(state.copy(phase = VoicePhase.STARTING, transcript = "", recognitionTranscript = null, level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null, captionPresentationId = captionPresentationSequence.incrementAndGet()))
+        update(state.copy(phase = VoicePhase.STARTING, transcript = "", recognitionTranscript = null, recognitionLanguage = null, level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null, captionPresentationId = captionPresentationSequence.incrementAndGet()))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
         fun recognitionFailed(
             message: String,
@@ -707,6 +719,10 @@ class VoiceSession(
             object : VoiceAudio.Listener {
                 private var revisions: VoiceRecognitionRevisions? = null
                 private var terminalTiming: VoiceRecognitionTranscript? = null
+                private var detectedLanguage: String? = null
+
+                private fun capturedLanguage(text: String): VoiceRecognitionLanguage? =
+                    detectedLanguage?.takeIf { text.isNotBlank() }?.let { VoiceRecognitionLanguage(it, text) }
 
                 private fun accept(transcript: VoiceRecognitionTranscript): VoiceRecognitionTranscript? {
                     if (!valid()) return null
@@ -740,12 +756,17 @@ class VoiceSession(
                 override fun level(value: Float) {
                     if (valid()) update(state.copy(level = value.coerceIn(0f, 1f), hasAudioLevel = true))
                 }
+                override fun detectedLanguage(languageTag: String?) {
+                    if (!valid()) return
+                    detectedLanguage = languageTag
+                    update(state.copy(recognitionLanguage = capturedLanguage(state.transcript)))
+                }
                 override fun partial(text: String) {
                     if (valid()) {
                         diagnosticProbe.recognized(text.length)
                         val partial = text.take(8000)
                         val source = translationPrompt(partial, ticket) ?: state.translationPrompt?.takeIf { it.captureId == ticket }
-                        update(state.copy(transcript = partial, translationPrompt = source, recognitionTranscript = null))
+                        update(state.copy(transcript = partial, translationPrompt = source, recognitionTranscript = null, recognitionLanguage = capturedLanguage(partial)))
                     }
                 }
                 override fun partialTranscript(transcript: VoiceRecognitionTranscript) {
@@ -753,7 +774,7 @@ class VoiceSession(
                     val observed = accept(transcript) ?: return
                     diagnosticProbe.recognized(observed.text.length)
                     val source = translationPrompt(observed.text, ticket) ?: state.translationPrompt?.takeIf { it.captureId == ticket }
-                    update(state.copy(transcript = observed.text, translationPrompt = source, recognitionTranscript = observed))
+                    update(state.copy(transcript = observed.text, translationPrompt = source, recognitionTranscript = observed, recognitionLanguage = capturedLanguage(observed.text)))
                 }
                 override fun finalTranscript(transcript: VoiceRecognitionTranscript) {
                     if (!transcript.isFinal) return
@@ -782,7 +803,7 @@ class VoiceSession(
                     }
                     recognitionFailures = 0
                     draftPending = true
-                    update(state.copy(phase = VoicePhase.REVIEWING, transcript = prompt, translationPrompt = translationPrompt(prompt, ticket), recognitionTranscript = terminalTiming?.withText(prompt), level = 0f))
+                    update(state.copy(phase = VoicePhase.REVIEWING, transcript = prompt, translationPrompt = translationPrompt(prompt, ticket), recognitionTranscript = terminalTiming?.withText(prompt), recognitionLanguage = capturedLanguage(prompt), level = 0f))
                     terminalTiming = null
                     if (!editBeforeSend) sendDraft()
                 }

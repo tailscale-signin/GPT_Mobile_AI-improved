@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2651,
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "32cc02c0a8758dd0b81407214a2cf2de7173a89b",
+  "intent": "Investigate current repository issues and repair translation operation and Pocket streaming caption timing on the latest PR branch, preserving concurrent work.",
+  "status": "IMPLEMENTED_AND_HOST_VERIFIED; full Android and physical-device qualification remain separate",
+  "constraints": [
+    "Preserve direct bidirectional translation and language-specific output voices.",
+    "Follow actual presented audio for captions and preserve cancellation, unknown timing and native ownership.",
+    "Publish with a current-head, non-force update; preserve concurrent commits.",
+    "Report scoped regression results separately from complete Android and physical device qualification."
+  ],
+  "issues": [
+    2829,
+    2832,
+    2833
+  ],
+  "validation": {
+    "full_android": {
+      "status": "NOT_RUN_LOCALLY",
+      "reason": "Production compilation preflight returned UNKNOWN effective cgroup headroom and less than the required 8960 MiB observed available RAM; no lowered admission, heap override or full compile attempted. Hosted checks remain required."
+    },
+    "physical_device": {
+      "status": "NOT_MEASURED",
+      "scope": "Handset speech-service quota, microphone/acoustic word boundaries, GPU/NPU execution and thermal performance."
+    },
+    "translation_session": {
+      "passed": 127,
+      "failed": 0,
+      "scope": "Whole selected production and test sources compiled separately with Kotlin friend paths; real serialization and explicit unrelated diagnostic/Room/native ports. No full Android or native speech qualification.",
+      "manifest_sha256": "1ad66abe08a4f223e6b354613e09c82a9734e91b502762947141ea4a63b00d59",
+      "test_log_sha256": "1c85c04ecfd3d3ee6d9057c8cc525d9009e3b924426a392a2e065cf46df3e1ea",
+      "source_bindings_checked": 51,
+      "mismatches": []
+    },
+    "android_recognition": {
+      "passed": 44,
+      "failed": 0,
+      "scope": "Whole production AndroidVoiceAudio, VoiceSession, capture feedback and recognition gate under Robolectric with mocked platform speech service; includes end-to-end short English/French direction tests.",
+      "manifest_sha256": "192464d0993fc81d9ec72a433a7f6ac345b431aefdd6e9c259e4f0d1f7a67900",
+      "test_log_sha256": "4307abe45d8c0197e14edb217dcd6c770e946e7ec36262955f37de16e208a949",
+      "source_bindings_checked": 63,
+      "mismatches": []
+    },
+    "pocket_captions": {
+      "passed": 109,
+      "failed": 0,
+      "scope": "Current production MediaPipe engine, mapper, Sonic tempo processor, silence trim and PCM caption queue with actual pinned SDK packet types and injected native packets. Both Pocket CPU variants, six speeds, delayed revisions, pause/refill and shared stream regressions.",
+      "manifest_sha256": "69a2b7fe90582ea4aa9f015d6922a4363237dea7b0e6a5a5187bb090d3fe9fb5",
+      "test_log_sha256": "691c562cba57485bac108dd962b81a0b59d78fd981cca13c0117ee8fa24d0b3b",
+      "source_bindings_checked": 39,
+      "mismatches": []
+    },
+    "counterfactual": {
+      "pocket": {
+        "starting_head": "32cc02c0a8758dd0b81407214a2cf2de7173a89b",
+        "same_tests": 109,
+        "failures_on_starting_production": 12,
+        "log_sha256": "d26cf0a6e98abbbd51d6fe5c4981ed970c7cf19c5b9508c8e0c20443c8874fd0"
+      },
+      "android_recognition": {
+        "starting_head": "32cc02c0a8758dd0b81407214a2cf2de7173a89b",
+        "scope": "Intake AndroidVoiceAudio with compatible new default listener interface; all five new regression methods fail, six existing translation recognition cases pass.",
+        "log_sha256": "982f3aeccc0e40f08325ce5f30284126ca711f2672bf8bb5156047346dd1fb93"
+      },
+      "whitespace_recovery": {
+        "scope": "127 tests against the pre-normalization patch; only the unchanged interrupted partial regression fails. Same 127 pass with final repair.",
+        "log_sha256": "a0557d5c98d15487095ab8ee417f7110ee12f91f59cca1c1c369e1694dea13e0"
+      }
+    },
+    "counts_note": "Suites overlap in production coverage; counts are separate test executions, not full-application qualification.",
+    "canonical_host": {
+      "command": "KOKORO_TEST_CMAKE=<verified CMake 3.22.1>/bin/cmake bash scripts/validate-local.sh fast",
+      "exit_code": 0,
+      "tests_run": 892,
+      "passed": 891,
+      "expected_skips": 1,
+      "log_sha256": "c35e3a23ccc007122c804b1a9f07c29252878514d1affbd908836b2cb1b33f88",
+      "scope": "Repository generated references/inventory, dependency/provenance, CI policy, scanner and Python behavior tests, regex and Android resources. Full Android and native execution gates are separate."
+    },
+    "formatting": {
+      "tool": "ktlint 1.3.1",
+      "status": "PASS",
+      "scope": "All changed handwritten Kotlin production and test files; source manifests match final tested bytes.",
+      "files": 13,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "review": {
+      "status": "No remaining blocker in final source",
+      "scopes": [
+        "Capture evidence, exact-draft lifecycle, callback delegation and accepted translation policy",
+        "Pocket delayed correction ownership, tempo/pause ordering, active caption, pause and refill"
+      ],
+      "followups": "Independently found future-correction and refill edge cases were repaired and regression-tested."
+    }
+  },
+  "changes": [
+    "Consume confident Android language-detection/switch evidence, bound to the current captured source. Prefer it before text classification for short utterances; preserve fixed destination and language-specific voices.",
+    "Revoke stale, edited, restored, mixed-language and failed-switch evidence. Preserve valid evidence through boundary-whitespace normalization of an unchanged interrupted draft.",
+    "Retain open Pocket word corrections, including one-shot future metadata, and forward them when matching PCM arrives instead of losing later captions.",
+    "Preserve original, correction and dependent-word order through pitch-preserving tempo and silence trimming, preventing spurious stream frame/overlap failures.",
+    "Clear active captions whose corrected interval is already past without changing heard onsets or advancing explicitly paused playback."
+  ],
+  "issue_findings": {
+    "2829": "Pocket multilingual preparation timeout; prior 555a015b repair is preserved. NO_TIMING during PREPARING does not prove a streaming caption defect.",
+    "2832_2833": "Android recognition rate limit at precheck before capture on d8b3ea460d2c5d26d62b37938fa768d56e97791e. Existing qualified-client reuse and 15/30/60-second cooldown are preserved. Underlying handset/service quota remains unqualified; not claimed fixed by language-evidence repair."
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt": "1822c2a997a52cff4189233ce2a4966d52686a60ba67d1b324af06df20c711de",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeWordCueMapper.kt": "ae44a4feea80b582a3a27d0c2985fc82d29816d61139f7e8c4939eb48688fa26",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "325777f808412c36f33fa8a8fc8dcc412009ad50fe57e2534c04e2d57ab584aa",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionTranscript.kt": "090339b833b47cc25fe9a0bacc7d16ed100dba17b8fe912404f7cbe38f3cbae5",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "7bce242c7d981fe6d9b989790b26b720316b8d3fc154c171c9a695037f87d3de",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt": "4853062aab3d6ab77c3c24ecd29f03f5becca53b8ebad26d4f43b6a21018750d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessor.kt": "782833fa67cb451a087ba58a13fdcbbca5933ddbe578edb606b116c8336b6e4b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "1e7a855213211acaf2ac9ee1a22891cd65121f3842e4f2e701dc18e624d72ee6",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidTranslationRecognitionTest.kt": "28a09bfc3f922f2347e68ba4d0f85a63b70025aa4132eb9bfc6028176151ddb7",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineTest.kt": "342b85c45dbea984dd3824c5a86fda08331e078a59a63401c111e0e5af7e623b",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketOpenCaptionRevisionTest.kt": "9e3ec200dec8523300e2a500e35496ac976cfb7c2343e4167114cf18c8d432d9",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDraftPreparationTest.kt": "0eb328ae112926568e39d5cd6e981329864f5768b74da93fdebdeb6378630b3a"
+  }
+}

@@ -134,9 +134,18 @@ internal class VoicePcmCaptions {
                 return
             }
             val marker = pending.firstOrNull() ?: return
-            if (!marker.range.isEmpty() || marker.frame != previous.endFrame || marker.startByte != previous.startByte || marker.streamStart != previous.streamStart) return
+            if (!marker.range.isEmpty() || marker.startByte != previous.startByte || marker.streamStart != previous.streamStart) return
             val following = pending.getOrNull(1)?.frame ?: Long.MAX_VALUE
-            if (mapped.endFrame <= previous.frame || mapped.endFrame > following) return
+            if (mapped.endFrame > following) return
+            if (mapped.endFrame <= previous.frame || marker.frame <= previous.frame) {
+                // The revised interval ended before this word's committed onset. Do
+                // not invent a replacement interval or revive it on a later revision.
+                // Queue only its observed end; the next advancing presentation clears
+                // the old highlight, while an explicitly paused caption stays frozen.
+                pending[0] = mapped.copy(frame = mapped.endFrame, range = IntRange.EMPTY)
+                if (pending.size == 1 && openStreamCue == null) lastStreamEnd = mapped.endFrame
+                return
+            }
             val corrected = previous.copy(endFrame = mapped.endFrame, revision = mapped.revision)
             current = corrected
             currentRevised = true
@@ -236,8 +245,10 @@ internal class VoicePcmCaptions {
             val active = current?.takeUnless { it.range.isEmpty() } ?: return null
             val end = pending.firstOrNull()?.takeIf {
                 it.range.isEmpty() &&
-                    it.frame == active.endFrame &&
+                    (it.frame == active.endFrame || it.frame <= active.frame) &&
                     it.frame <= minOf(frames, lastConsumed, completedThrough) &&
+                    it.streamStart == active.streamStart &&
+                    it.startByte == active.startByte &&
                     it.segment == active.segment &&
                     it.text == active.text &&
                     it.provenance == active.provenance

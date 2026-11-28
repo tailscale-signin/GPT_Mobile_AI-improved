@@ -53,20 +53,27 @@ class AndroidTranslationRecognitionTest {
             answer = { result(RecognitionQualification(status)) }
             if (!deferred) answer()
         }
-        fun finish() {
+        fun listener(): RecognitionListener {
             val listener = ArgumentCaptor.forClass(RecognitionListener::class.java)
             verify(engine, atLeastOnce()).setRecognitionListener(listener.capture())
-            listener.value.onResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("The captured words")) })
+            return listener.value
+        }
+        fun finish() {
+            listener().onResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("The captured words")) })
         }
     }
 
     private class Listener : VoiceAudio.Listener {
         val messages = mutableListOf<String>()
         val codes = mutableListOf<String>()
+        val detectedLanguages = mutableListOf<String?>()
         override fun ready() = Unit
         override fun level(value: Float) = Unit
         override fun partial(text: String) = Unit
         override fun final(text: String) = Unit
+        override fun detectedLanguage(languageTag: String?) {
+            detectedLanguages += languageTag
+        }
         override fun error(message: String) = Unit
         override fun failure(message: String, code: String, retryMillis: Long, retryable: Boolean, recoveryAction: VoiceRecoveryAction?, cause: Throwable?) {
             messages += message
@@ -78,6 +85,160 @@ class AndroidTranslationRecognitionTest {
         val context = RuntimeEnvironment.getApplication()
         shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO)
         return AndroidVoiceAudio(context, Executor { it.run() }, { _, _ -> mock(TextToSpeech::class.java) }, service, RecognitionStartGate(now))
+    }
+
+    private fun languageDetection(
+        language: String?,
+        confidence: Int = SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_HIGHLY_CONFIDENT,
+        switchResult: Int = SpeechRecognizer.LANGUAGE_SWITCH_RESULT_NOT_ATTEMPTED
+    ) = Bundle().apply {
+        putString(SpeechRecognizer.DETECTED_LANGUAGE, language)
+        putInt(SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL, confidence)
+        putInt(SpeechRecognizer.LANGUAGE_SWITCH_RESULT, switchResult)
+    }
+
+    @Test fun androidDetectedLanguageRoutesTheSameShortUtteranceThroughTheRealSessionInBothDirections() {
+        val translationPair = VoiceTranslationPair()
+        val targets = listOf(
+            VoiceTranslationTarget("en-US", "fr-FR", "estelle"),
+            VoiceTranslationTarget("fr-FR", "en-US", "azelma")
+        )
+        for (expected in targets) {
+            val service = Service()
+            val audio = audio(service).apply { translationLanguages = pair }
+            val submitted = mutableListOf<String>()
+            val selected = mutableListOf<VoiceTranslationTarget>()
+            val session = VoiceSession(audio, { text ->
+                submitted += text
+                true
+            }, {}).apply {
+                translationOnly = true
+                microphoneFeedback = { true }
+            }
+            session.prepareDraft = { text, completed ->
+                val language = session.recognizedLanguageFor(text, pair)
+                val target = translationPair.resolve(language)
+                completed(
+                    if (target == null) {
+                        VoiceDraftPreparation(rejection = "Choose a source language")
+                    } else {
+                        VoiceDraftPreparation(commit = { selected += target })
+                    }
+                )
+            }
+            try {
+                session.access(enabled = true, permission = true, foreground = true)
+                session.resume()
+                val platform = service.listener()
+                platform.onReadyForSpeech(Bundle())
+                platform.onLanguageDetection(languageDetection(expected.sourceLanguage))
+                platform.onPartialResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("O")) })
+                platform.onResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("OK")) })
+                assertEquals(listOf(expected), selected)
+                assertEquals(listOf("OK"), submitted)
+                assertEquals(VoicePhase.THINKING, session.state.phase)
+                assertEquals(expected.sourceLanguage, session.recognizedLanguageFor("OK", pair))
+                platform.onLanguageDetection(languageDetection(expected.targetLanguage))
+                assertEquals(expected.sourceLanguage, session.recognizedLanguageFor("OK", pair))
+                assertEquals(listOf(expected), selected)
+            } finally {
+                session.close()
+            }
+        }
+    }
+
+    @Test fun actualDetectedLanguageReachesOnlyItsOwnCaptureAndNeverDefaultsToTheInitialLocale() {
+        var now = 0L
+        val service = Service()
+        val audio = audio(service) { now }.apply { translationLanguages = pair }
+        val first = Listener()
+        try {
+            audio.listen(first)
+            val platform = service.listener()
+            assertTrue(first.detectedLanguages.isEmpty())
+            platform.onLanguageDetection(languageDetection("fr-CA", switchResult = SpeechRecognizer.LANGUAGE_SWITCH_RESULT_SUCCEEDED))
+            assertEquals(listOf("fr-FR"), first.detectedLanguages)
+            service.finish()
+            platform.onLanguageDetection(languageDetection("en-US"))
+            assertEquals(listOf("fr-FR"), first.detectedLanguages)
+            now = 500
+            val second = Listener()
+            audio.listen(second)
+            platform.onLanguageDetection(languageDetection("en-US"))
+            assertTrue(second.detectedLanguages.isEmpty())
+            service.listener().onLanguageDetection(Bundle())
+            assertEquals(listOf<String?>(null), second.detectedLanguages)
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun uncertainMissingOrFailedSwitchEvidenceRevokesThePreviouslyDetectedLanguage() {
+        val service = Service()
+        val audio = audio(service).apply { translationLanguages = pair }
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val platform = service.listener()
+            platform.onLanguageDetection(languageDetection("fr-FR", confidence = SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_CONFIDENT))
+            platform.onLanguageDetection(languageDetection("fr-FR", confidence = SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_NOT_CONFIDENT))
+            platform.onLanguageDetection(languageDetection("fr-FR"))
+            platform.onLanguageDetection(languageDetection(null))
+            platform.onLanguageDetection(languageDetection("fr-FR", switchResult = SpeechRecognizer.LANGUAGE_SWITCH_RESULT_FAILED))
+            platform.onLanguageDetection(languageDetection("fr-FR", switchResult = SpeechRecognizer.LANGUAGE_SWITCH_RESULT_SKIPPED_NO_MODEL))
+            platform.onLanguageDetection(languageDetection("fr-FR", confidence = 99))
+            platform.onLanguageDetection(languageDetection("fr-FR"))
+            assertEquals(listOf("fr-FR", null, "fr-FR", null, null, null, null, "fr-FR"), listener.detectedLanguages)
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun mixedOrOutsidePairChunksCannotChooseTheSourceOfTheWholeUtterance() {
+        for (otherLanguage in listOf("en-GB", "de-DE")) {
+            val service = Service()
+            val audio = audio(service).apply { translationLanguages = pair }
+            val listener = Listener()
+            try {
+                audio.listen(listener)
+                val platform = service.listener()
+                platform.onLanguageDetection(languageDetection("fr-FR"))
+                platform.onLanguageDetection(languageDetection(otherLanguage))
+                platform.onLanguageDetection(languageDetection("fr-FR"))
+                assertEquals(listOf("fr-FR", null, null), listener.detectedLanguages)
+            } finally {
+                audio.close()
+            }
+        }
+    }
+
+    @Test fun undispatchedManualAndChangedPairCallbacksCannotProvideTranslationEvidence() {
+        val service = Service().apply { deferred = true }
+        val audio = audio(service).apply { translationLanguages = pair }
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val platform = service.listener()
+            platform.onLanguageDetection(languageDetection("fr-FR"))
+            assertTrue(listener.detectedLanguages.isEmpty())
+            service.answer()
+            platform.onLanguageDetection(languageDetection("fr-FR"))
+            audio.translationLanguages = listOf("en-US", "es-ES")
+            platform.onLanguageDetection(languageDetection("fr-FR"))
+            assertEquals(listOf("fr-FR", null), listener.detectedLanguages)
+        } finally {
+            audio.close()
+        }
+        val manualService = Service()
+        val manual = audio(manualService).apply { languageTag = "fr-FR" }
+        val manualListener = Listener()
+        try {
+            manual.listen(manualListener)
+            manualService.listener().onLanguageDetection(languageDetection("fr-FR"))
+            assertTrue(manualListener.detectedLanguages.isEmpty())
+        } finally {
+            manual.close()
+        }
     }
 
     @Test fun automaticTranslationRestrictsDetectionAndSwitchingToTheOfflinePair() {

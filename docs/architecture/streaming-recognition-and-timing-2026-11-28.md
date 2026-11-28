@@ -141,6 +141,16 @@ either language continues to use the compatible Android offline recognition
 service; the local Nemotron prompt is not mislabeled as verified automatic
 language detection.
 
+For automatic Android capture, confident in-pair language observations are bound
+to the exact captured words and used before text-only language classification.
+This allows short utterances to retain their observed direction. Unknown or
+failed language switches revoke that observation; mixed-language captures cannot
+borrow the latest chunk's language for the whole turn. New captures, restored
+drafts and edits cannot inherit a previous capture's language. If no usable
+observation remains, the bundled text detector and explicit source choice retain
+their existing roles. Android's callback contract is documented in
+[`RecognitionListener.onLanguageDetection`](https://developer.android.com/reference/android/speech/RecognitionListener#onLanguageDetection(android.os.Bundle)).
+
 Recognition dictionaries use the capture language, while output substitutions use
 the destination voice's language. Changing a pair, source language or ASR model
 invalidates capture ownership before another listen. Asynchronous translation

@@ -15,6 +15,7 @@ import re
 import subprocess
 import tempfile
 from xml.etree import ElementTree
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "8.30.1"
@@ -63,6 +64,24 @@ POCKET_PUBLIC_DECLARATIONS = (
     ("pocket_smoke_digest", "docs/repairs/pocket-caption-validation-2026-11-28.json",
      "scripts/run_mediapipe_android_smoke.sh", "json"),
 )
+POCKET_PROVENANCE_PATH = "docs/repairs/pocket-history-declaration-provenance-2026-11-28.json"
+POCKET_TOKENIZER_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt"
+POCKET_TOKENIZER_TEST_PATH = "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt"
+POCKET_DIAGNOSTICS_PATH = "docs/repairs/pocket-diagnostics-ci-review-2026-11-28.json"
+POCKET_OUTPUT_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt"
+POCKET_VALIDATION_PATH = "docs/repairs/pocket-caption-validation-2026-11-28.json"
+POCKET_SMOKE_PATH = "scripts/run_mediapipe_android_smoke.sh"
+POCKET_RUNTIME_PATH = "docs/audits/pocket-compiled-runtime.json"
+POCKET_LICENSE_PATH = "docs/licenses/pocket-compiled.md"
+POCKET_FIXTURE_PATH = "app/src/test/resources/pocket-compiled/tokenizer.model"
+VERIFICATION_PATH = "gradle/verification-metadata.xml"
+POCKET_HISTORICAL_PATHS = (
+    POCKET_CATALOG_PATH, POCKET_ALIGNMENT_EVIDENCE_PATH, POCKET_TOKENIZER_PATH,
+    POCKET_TOKENIZER_TEST_PATH, POCKET_DIAGNOSTICS_PATH, POCKET_OUTPUT_PATH,
+    POCKET_VALIDATION_PATH, POCKET_SMOKE_PATH, POCKET_RUNTIME_PATH,
+    POCKET_LICENSE_PATH, POCKET_FIXTURE_PATH, VERIFICATION_PATH,
+)
+POCKET_CLASSPATH_LABEL = "/workspace/scratch/d6788699ebc6/pocket-research/litert-api-2.4.1.jar"
 
 
 def model_digest():
@@ -162,14 +181,122 @@ def exact_declaration_cases(name, path, field, digest, alternate_digest):
     ]
 
 
-def pocket_declaration_cases(alternate_digest):
+def pocket_historical_inputs():
+    """Read exact public source blobs, independent of subsequent worktree edits."""
+    proof = json.loads((ROOT / POCKET_PROVENANCE_PATH).read_text(encoding="utf-8"))
+    if proof["schemaVersion"] != 1 or proof["sourceCommit"] != "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748":
+        raise ValueError("pocket_provenance_contract")
+    rows = proof["historicalInputs"]
+    if len(rows) != len(POCKET_HISTORICAL_PATHS) or {row["path"] for row in rows} != set(POCKET_HISTORICAL_PATHS):
+        raise ValueError("pocket_provenance_paths")
+    environment = isolated_environment()
+    inputs = {}
+    for row in rows:
+        blob = row["gitBlob"]
+        if not isinstance(blob, str) or not re.fullmatch(r"[0-9a-f]{40}", blob):
+            raise ValueError("pocket_provenance_object")
+        if quiet(["git", "cat-file", "-t", blob], ROOT, environment) != "blob":
+            raise ValueError("pocket_provenance_object_type")
+        result = subprocess.run(["git", "cat-file", "blob", blob], cwd=ROOT,
+                                env=environment, capture_output=True, timeout=10)
+        if result.returncode:
+            raise ValueError("pocket_provenance_object_unavailable")
+        raw = result.stdout
+        identity = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+        if identity != blob:
+            raise ValueError("pocket_provenance_object_identity")
+        inputs[row["path"]] = raw
+    return inputs
+
+
+def pocket_history_fixture_inputs():
+    # The synthetic integrity repository recreates the same immutable blob IDs
+    # by committing these bytes. Keep its current Gradle metadata for the older
+    # controls and retain the historical copy at one fixed fixture-only path.
+    inputs = pocket_historical_inputs()
+    inputs["history-proof/pocket-verification-metadata.xml"] = inputs.pop(VERIFICATION_PATH)
+    return inputs
+
+
+def verified_pocket_historical_inputs(litert_api_aar=None):
+    proof = json.loads((ROOT / POCKET_PROVENANCE_PATH).read_text(encoding="utf-8"))
+    inputs = pocket_historical_inputs()
+    caption = json.loads(inputs[POCKET_ALIGNMENT_EVIDENCE_PATH])
+    validation = json.loads(inputs[POCKET_VALIDATION_PATH])
+    diagnostics = json.loads(inputs[POCKET_DIAGNOSTICS_PATH])
+    catalog = inputs[POCKET_CATALOG_PATH].decode("utf-8")
+    license_text = inputs[POCKET_LICENSE_PATH].decode("utf-8")
+    tokenizer = proof["tokenizer"]
+    revision = tokenizer["revision"]
+    exact = '    const val TOKENIZER_REVISION = "' + revision + '"'
+    if (not re.fullmatch(r"[0-9a-f]{40}", revision) or catalog.splitlines().count(exact) != 1
+            or tokenizer["publisherCommit"] !=
+            "https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/commit/" + revision
+            or "/tree/" + revision not in license_text
+            or len(inputs[POCKET_FIXTURE_PATH]) != tokenizer["bytes"]
+            or hashlib.sha256(inputs[POCKET_FIXTURE_PATH]).hexdigest() != tokenizer["sha256"]
+            or tokenizer["sha256"] not in catalog or tokenizer["sha256"] not in license_text):
+        raise ValueError("pocket_public_revision_contract")
+    source_rows = (
+        (POCKET_TOKENIZER_PATH,
+         caption["hostValidation"]["sourceSha256"][POCKET_TOKENIZER_PATH]),
+        (POCKET_TOKENIZER_TEST_PATH,
+         caption["hostValidation"]["sourceSha256"][POCKET_TOKENIZER_TEST_PATH]),
+        (POCKET_SMOKE_PATH,
+         validation["direct_tested_source_sha256"][POCKET_SMOKE_PATH]),
+    )
+    for source_path, digest in source_rows:
+        if hashlib.sha256(inputs[source_path]).hexdigest() != digest:
+            raise ValueError("pocket_historical_source_contract")
+    blocks = re.findall(r"(?ms)^    internal data class ModelKey\(.*?^    }\n",
+                        inputs[POCKET_OUTPUT_PATH].decode("utf-8"))
+    if len(blocks) != 1:
+        raise ValueError("pocket_model_extract_shape")
+    extract = ("package dev.chungjungsoo.gptmobile.data.voice\n"
+               "internal class KokoroVoiceOutput {\n" + blocks[0] + "}\n").encode("utf-8")
+    digest = diagnostics["testedExtractSha256"]["modelKey"]
+    if (hashlib.sha256(extract).hexdigest() != digest or proof["modelKeyExtract"]["sha256"] != digest
+            or len(extract) != proof["modelKeyExtract"]["bytes"]):
+        raise ValueError("pocket_model_extract_contract")
+    artifact = proof["litertApi"]
+    runtime = json.loads(inputs[POCKET_RUNTIME_PATH])
+    publishers = [row for row in runtime["publisherArtifacts"]
+                  if (row["artifact"], row["version"]) == ("litert-api", "2.4.1")]
+    verification = ElementTree.fromstring(inputs[VERIFICATION_PATH])
+    approved = [pin.get("value") for component in verification.findall(".//{*}component")
+                if (component.get("group"), component.get("name"), component.get("version")) ==
+                ("com.google.ai.edge.litert", "litert-api", "2.4.1")
+                for item in component.findall("{*}artifact") if item.get("name") == "litert-api-2.4.1.aar"
+                for pin in item.findall("{*}sha256")]
+    digest = caption["hostValidation"]["classpathArtifactsSha256"][POCKET_CLASSPATH_LABEL]
+    if (len(publishers) != 1 or artifact["coordinate"] != "com.google.ai.edge.litert:litert-api:2.4.1"
+            or approved != [artifact["container"]["sha256"]]
+            or publishers[0]["aar"]["sha256"] != artifact["container"]["sha256"]
+            or publishers[0]["aar"]["bytes"] != artifact["container"]["bytes"]
+            or publishers[0]["publisher"] + ".aar" != artifact["publisher"]
+            or artifact["member"]["name"] != "classes.jar" or artifact["member"]["sha256"] != digest):
+        raise ValueError("pocket_dependency_provenance_contract")
+    if litert_api_aar is not None:
+        raw = litert_api_aar.read_bytes()
+        if (len(raw) != artifact["container"]["bytes"]
+                or hashlib.sha256(raw).hexdigest() != artifact["container"]["sha256"]):
+            raise ValueError("pocket_dependency_archive_contract")
+        with zipfile.ZipFile(litert_api_aar) as archive:
+            member = archive.read("classes.jar")
+        if len(member) != artifact["member"]["bytes"] or hashlib.sha256(member).hexdigest() != digest:
+            raise ValueError("pocket_dependency_member_contract")
+    return inputs
+
+
+def pocket_declaration_cases(alternate_digest, litert_api_aar=None):
+    inputs = verified_pocket_historical_inputs(litert_api_aar)
     cases = []
     for name, path, field, syntax in POCKET_PUBLIC_DECLARATIONS:
         if syntax == "kotlin":
             pattern = r'[ \t]*const val ' + re.escape(field) + r' = "([0-9a-f]{40})"[ \t]*'
         else:
             pattern = r'[ \t]*"' + re.escape(field) + r'": "([0-9a-f]{64})",[ \t]*'
-        declarations = [(line, match) for line in (ROOT / path).read_text(encoding="utf-8").splitlines()
+        declarations = [(line, match) for line in inputs[path].decode("utf-8").splitlines()
                         if (match := re.fullmatch(pattern, line))]
         if len(declarations) != 1:
             raise ValueError("pocket_public_declaration_contract")
@@ -272,6 +399,8 @@ def main():
     parser.add_argument("--scanner", required=True, type=Path)
     parser.add_argument("--config", type=Path, default=ROOT / ".gitleaks.toml")
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--litert-api-aar", type=Path,
+                        help="Optionally reproduce the approved AAR-to-classes.jar byte proof")
     args = parser.parse_args()
     scanner, config = args.scanner.resolve(), args.config.resolve()
     summary = {"scannerVersion": VERSION, "cases": [], "passed": False}
@@ -347,17 +476,21 @@ def main():
             cases.extend(exact_declaration_cases(
                 f"routing_requirement_{index}", ROUTING_FIXTURE_PATH, "key", digest, alternate_digest))
         cases.extend(outer_evidence_cases(alternate_digest))
-        cases.extend(pocket_declaration_cases(alternate_digest))
+        cases.extend(pocket_declaration_cases(alternate_digest, args.litert_api_aar))
+        summary["pocketDependencyArchiveBytesVerified"] = args.litert_api_aar is not None
         if len({case[0] for case in cases}) != len(cases):
             raise ValueError("duplicate_scanner_case")
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)
-            # Each case owns its directory/report; map retains declaration order.
-            with ThreadPoolExecutor(max_workers=4) as workers:
-                summary["cases"].extend(workers.map(
+            # Each case owns a separate repository/report. Bound concurrency to
+            # keep the expanded controls inside the existing integrity deadline;
+            # map retains input order and every case's original assertions.
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                summary["cases"] = list(pool.map(
                     lambda case: scan_case(scanner, config, parent, environment, *case), cases))
         summary["passed"] = all(case["passed"] for case in summary["cases"])
-    except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.TimeoutExpired,
+            ElementTree.ParseError, zipfile.BadZipFile):
         # Child output and exception text can contain the fixture values.
         summary["error"] = "scanner_fixture_validation_failed"
     if args.report:

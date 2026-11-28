@@ -120,7 +120,10 @@
     "Preserve authoritative required-tool outcome uncertainty in the merged public failure projection; conflicting earlier negative acceptance and replay hints cannot replace the owning receipt.",
     "Configure strict Pocket GPU/NPU requests through the pinned public LiteRT accelerator options, retaining the explicit CPU transformer and guarding option expansion with actual dependency tests.",
     "Carry the owning GitHub investigation tracker through both tool-batch helper scopes so current result observation compiles and retains session progress.",
-    "Correct stale regression expectations for admission-only request identities and unavailable saved reports, adding explicit dispatch, blocking, empty-evidence and no-execution assertions without changing production behavior."
+    "Correct stale regression expectations for admission-only request identities and unavailable saved reports, adding explicit dispatch, blocking, empty-evidence and no-execution assertions without changing production behavior.",
+    "Bind public-declaration controls to immutable historical source and approved artifact evidence; recreate their inputs in isolated integrity fixtures and run independent controls with bounded concurrency while retaining every existing timeout and rejection assertion.",
+    "Keep the same restored investigation tracker across completed tool batches, and run observed-delivery, retained-report and restored-progress regressions before the complete Android suite.",
+    "Use public pinned LiteRT constructors for strict Pocket accelerator requests, retain Qualcomm policy, and validate the compatibility composition against actual SDK options and native flag evidence without using test-restricted production APIs."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1055,7 +1058,9 @@
     "docs/repairs/pocket-accelerator-options-2026-11-28-validation.json",
     "docs/repairs/agent-runner-progress-binding-2026-11-28-validation.json",
     "docs/repairs/dispatch-and-report-fixture-2026-11-28-validation.json",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt",
+    "docs/repairs/pocket-history-declaration-provenance-2026-11-28.json",
+    "docs/repairs/pocket-compiled-public-options-2026-11-28.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

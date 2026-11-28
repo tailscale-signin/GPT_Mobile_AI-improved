@@ -797,7 +797,8 @@
         "docs/repairs/github-mode-intelligence-2026-11-26.md",
         "docs/repairs/open-issue-sweep-2026-11-27.md",
         "docs/repairs/open-issue-sweep-2026-11-27-task.json",
-        "docs/repairs/intelligence-conversation-repair-2026-11-28.md"
+        "docs/repairs/intelligence-conversation-repair-2026-11-28.md",
+        "docs/repairs/pocket-history-declaration-provenance-2026-11-28.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -3415,7 +3416,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimWindowsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistFairnessTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubChecklistDiscoveryProgressTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFreshProgressRunnerTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFreshProgressRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskTrustTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3650,11 +3652,13 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/UnifiedProfileBenchmarkPanel.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkControls.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkControls.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMetrics.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/UnifiedProfileBenchmarkScoreTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContentTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContentTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3900,7 +3904,8 @@
         "docs/audits/pocket-compiled-runtime.json",
         "docs/repairs/pocket-default-and-voice-benchmark-2026-11-28-task.json",
         "docs/audits/pocket-caption-alignment.json",
-        "docs/repairs/pocket-accelerator-options-2026-11-28-validation.json"
+        "docs/repairs/pocket-accelerator-options-2026-11-28-validation.json",
+        "docs/repairs/pocket-compiled-public-options-2026-11-28.json"
       ],
       "invariants": [
         "English Pocket CPU is the fresh default; valid saved engines and explicit installation cancellation remain authoritative.",

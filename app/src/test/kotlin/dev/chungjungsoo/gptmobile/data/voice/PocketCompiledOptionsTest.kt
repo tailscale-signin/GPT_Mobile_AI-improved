@@ -25,6 +25,7 @@ class PocketCompiledOptionsTest {
         assertEquals(setOf(Accelerator.NPU), expanded - Accelerator.NONE)
         assertFalse(expanded.contains(Accelerator.CPU))
         assertEquals(0, Accelerator.NONE.value)
+        assertEquals(setOf(0, 3), expanded.map { it.value }.toSet())
         assertNull(options.cpuOptions)
     }
 

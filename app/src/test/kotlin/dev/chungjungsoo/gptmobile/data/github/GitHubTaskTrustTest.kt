@@ -282,6 +282,36 @@ class GitHubTaskTrustTest {
         }
     }
 
+    @Test fun retainedPartialReportSurvivesExpiredTaskWithoutProviderOrToolExecution() = runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        var now = 0L
+        fun book() = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name), { now }, load = { saved[it] }, save = { key, value -> saved[key] = value })
+        val evidence = book()
+        evidence.retainTaskContract("Test all GitHub tools.\nBudget: 1 seconds", 1, listOf(read), 10)
+        val report = "The repository work is incomplete. The saved report records the remaining checks."
+        val verdict = buildJsonObject {
+            put("task_outcome", "PARTIAL")
+            put("completion_verified", false)
+        }
+        val (receipts, epoch) = evidence.snapshot()
+        assertTrue(evidence.retainAnswerIfCurrent(report, verdict, epoch, receipts.keys))
+        now = 2_000L
+        val restored = book()
+        assertEquals(0L, restored.remainingTaskMillis())
+        assertEquals(report, restored.retainedAnswer()?.first)
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Retained report delivery cannot invoke the provider")
+        }
+        val session = GitHubVerifiedSession(provider, restored, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, currentRequest = "show the full report")
+        val events = session.streamRound(listOf(read), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.endsWith(report))
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
+        assertEquals("PARTIAL", failure.taskOutcome)
+        assertTrue(restored.snapshot().first.isEmpty())
+    }
+
     @Test fun expiredTaskKeepsItsDeadlineCauseWhenAnOlderApprovalIsStillUnresolved() = runBlocking {
         val write = AgentToolDefinition("github_write", "Stage a patch", JsonObject(emptyMap()))
         val book = GitHubEvidenceBook("expired", "o/r", "feature", setOf(write.name))

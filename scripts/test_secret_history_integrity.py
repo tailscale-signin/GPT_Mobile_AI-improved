@@ -21,11 +21,12 @@ from test_gitleaks_model_pin import (
     MOCKK_EVIDENCE_PATH,
     MODEL_PACK_PATH,
     NATIVE_PATH,
-    POCKET_PUBLIC_DECLARATIONS,
+    POCKET_PROVENANCE_PATH,
     ROUTING_FIXTURE_PATH,
     VERSION,
     WAVEFORM_EVIDENCE_PATH,
     isolated_environment,
+    pocket_history_fixture_inputs,
     quiet,
 )
 
@@ -47,7 +48,7 @@ INPUTS = (
     HISTORY_OUTER_EVIDENCE_PATH,
     MODEL_PACK_PATH,
     "gradle/verification-metadata.xml",
-    *dict.fromkeys(path for _, path, _, _ in POCKET_PUBLIC_DECLARATIONS),
+    POCKET_PROVENANCE_PATH,
 )
 
 
@@ -91,6 +92,7 @@ def main():
             raise ValueError("scanner_version")
         summary["scannerSha256"] = hashlib.sha256(scanner.read_bytes()).hexdigest()
         inputs = {path: (ROOT / path).read_bytes() for path in INPUTS}
+        inputs.update(pocket_history_fixture_inputs())
         summary["sourceInputsSha256"] = {
             path: hashlib.sha256(raw).hexdigest() for path, raw in inputs.items()}
         with tempfile.TemporaryDirectory(prefix="secret-history-integrity-") as temporary:

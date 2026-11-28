@@ -27,7 +27,14 @@ class GitHubFreshProgressRunnerTest {
         assertTrue(events.filterIsInstance<AgentRunEvent.Notice>().any { it.message.contains("Four rounds added no new") })
     }
 
-    private suspend fun runPages(repeatRows: Boolean): Pair<Int, List<AgentRunEvent>> {
+    @Test fun continuingRetainsTheRestoredNoProgressAllowance() = runTest {
+        val (calls, events) = runPages(repeatRows = true, restoredPages = 4)
+        assertEquals(1, calls)
+        assertEquals(1, events.filterIsInstance<AgentRunEvent.ToolStarted>().size)
+        assertTrue(events.filterIsInstance<AgentRunEvent.Notice>().any { it.message.contains("Four rounds added no new") })
+    }
+
+    private suspend fun runPages(repeatRows: Boolean, restoredPages: Int = 0): Pair<Int, List<AgentRunEvent>> {
         var dispatched = 0
         var rounds = 0
         val head = "a".repeat(40)
@@ -80,6 +87,24 @@ class GitHubFreshProgressRunnerTest {
                 )
             }
         }
+        fun pageCall(page: Int, callId: String = "page-$page") = ProviderEvent.ToolCall(
+            callId,
+            ci.definition.name,
+            buildJsonObject {
+                put("action", "runs")
+                put("owner", "owner")
+                put("repo", "repo")
+                put("commit_sha", head)
+                put("page", page)
+                put("per_page", 30)
+            }
+        )
+        val recovered = (1..restoredPages).map { page ->
+            val call = pageCall(page, "restored-$page")
+            AgentToolExchange(listOf(call), listOf(ci.execute(call.callId, call.arguments)))
+        }
+        // Historical fixture observations precede this runner's new dispatches.
+        dispatched = 0
         val session = object : AgentProviderSession {
             override val handlesToolResultRecovery = true
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
@@ -87,26 +112,15 @@ class GitHubFreshProgressRunnerTest {
                 if (tools.isEmpty() || dispatched == 6) {
                     emit(ProviderEvent.TextDelta("Retained workflow observations are partial; skipped runs do not establish passed checks."))
                 } else {
-                    emit(
-                        ProviderEvent.ToolCall(
-                            "page-${dispatched + 1}",
-                            ci.definition.name,
-                            buildJsonObject {
-                                put("action", "runs")
-                                put("owner", "owner")
-                                put("repo", "repo")
-                                put("commit_sha", head)
-                                put("page", dispatched + 1)
-                                put("per_page", 30)
-                            }
-                        )
-                    )
+                    emit(pageCall(dispatched + 1))
                 }
                 emit(ProviderEvent.Completed)
             }
         }
-        val events = AgentRunner(AgentRunLimits(githubTask = true, githubTaskRequest = "Inspect workflow run history", maxToolCalls = 32, maxReplayResultTokens = 64, maxRetainedEvidenceTokens = 1024))
-            .run(session, listOf(ci)).toList()
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, githubTaskRequest = "Inspect workflow run history", maxToolCalls = 32, maxReplayResultTokens = 64, maxRetainedEvidenceTokens = 1024),
+            recoveredInvestigationExchanges = recovered
+        ).run(session, listOf(ci)).toList()
         return dispatched to events
     }
 }

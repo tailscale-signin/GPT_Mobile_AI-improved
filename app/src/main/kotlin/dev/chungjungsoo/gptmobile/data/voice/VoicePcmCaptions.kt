@@ -110,7 +110,11 @@ internal class VoicePcmCaptions {
             !it.range.isEmpty() && it.streamStart == mapped.streamStart && it.startByte == mapped.startByte
         }
         if (index < 0) {
-            val previous = current?.takeIf { it.streamStart == mapped.streamStart && it.startByte == mapped.startByte } ?: return
+            val previous = current?.takeIf { it.streamStart == mapped.streamStart && it.startByte == mapped.startByte }
+            if (previous == null) {
+                reviseOmittedEnd(mapped)
+                return
+            }
             require(
                 previous.segment == mapped.segment &&
                     previous.text == mapped.text &&
@@ -149,17 +153,58 @@ internal class VoicePcmCaptions {
                 previous.provenance == mapped.provenance &&
                 mapped.revision > previous.revision
         ) { "STREAM_CUE_REVISION" }
-        if (lastConsumed > 0 && (previous.frame <= lastConsumed || mapped.frame <= lastConsumed) || previous.provenance == VoiceWordCueProvenance.NATIVE_DURATION) return
+        if (previous.provenance == VoiceWordCueProvenance.NATIVE_DURATION) return
+        // A late onset cannot move a queued word behind the presentation watermark.
+        // Retain its previously accepted onset while applying the observed end, so
+        // a shortened tail can release the following word without stopping its PCM.
+        val corrected = if (lastConsumed > 0 && (previous.frame <= lastConsumed || mapped.frame <= lastConsumed)) {
+            mapped.copy(frame = previous.frame)
+        } else {
+            mapped
+        }
         val marker = pending.getOrNull(index + 1) ?: return
         if (!marker.range.isEmpty() || marker.frame != previous.endFrame || marker.startByte != previous.startByte || marker.streamStart != previous.streamStart) return
         val before = if (index == 0) current?.endFrame ?: 0L else pending[index - 1].endFrame
         val after = pending.getOrNull(index + 2)?.frame ?: Long.MAX_VALUE
+        if (corrected.endFrame <= corrected.frame) {
+            // The entire revised interval precedes the retained onset. This word
+            // has not been presented, so omit its caption instead of inventing a
+            // new interval. Keep its observed end marker to validate later cues.
+            if (mapped.frame < before || mapped.endFrame > after) return
+            val wasTail = index + 2 == pending.size && openStreamCue == null
+            pending[index] = mapped.copy(frame = mapped.endFrame, range = IntRange.EMPTY)
+            pending.removeAt(index + 1)
+            if (wasTail) lastStreamEnd = mapped.endFrame
+            return
+        }
         // A neighbour may have crossed the watermark since the SDK made its
         // correction. Preserve that committed interval instead of overlapping it.
+        if (corrected.frame < before || corrected.endFrame > after) return
+        pending[index] = corrected
+        pending[index + 1] = corrected.copy(frame = corrected.endFrame, range = IntRange.EMPTY)
+        if (index + 2 == pending.size && openStreamCue == null) lastStreamEnd = corrected.endFrame
+    }
+
+    /** An omitted word keeps only its observed end; later estimates must not revive it. */
+    private fun reviseOmittedEnd(mapped: VoicePcmCue) {
+        val index = pending.indexOfFirst {
+            it.range.isEmpty() && it.streamStart == mapped.streamStart && it.startByte == mapped.startByte
+        }
+        if (index < 0) return
+        val previous = pending[index]
+        require(
+            previous.segment == mapped.segment &&
+                previous.text == mapped.text &&
+                previous.endByte == mapped.endByte &&
+                previous.provenance == mapped.provenance &&
+                mapped.revision > previous.revision
+        ) { "STREAM_CUE_REVISION" }
+        if (previous.provenance == VoiceWordCueProvenance.NATIVE_DURATION) return
+        val before = if (index == 0) current?.endFrame ?: 0L else pending[index - 1].endFrame
+        val after = pending.getOrNull(index + 1)?.frame ?: Long.MAX_VALUE
         if (mapped.frame < before || mapped.endFrame > after) return
-        pending[index] = mapped
-        pending[index + 1] = mapped.copy(frame = mapped.endFrame, range = IntRange.EMPTY)
-        if (index + 2 == pending.size && openStreamCue == null) lastStreamEnd = mapped.endFrame
+        pending[index] = mapped.copy(frame = mapped.endFrame, range = IntRange.EMPTY)
+        if (index + 1 == pending.size && openStreamCue == null) lastStreamEnd = mapped.endFrame
     }
 
     @Synchronized fun append(segment: Int, text: String, ranges: List<IntRange>, boundaries: IntArray, frames: Int) {

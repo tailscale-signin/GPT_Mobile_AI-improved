@@ -79,3 +79,37 @@ must pass on the exact integrated commit before release.
 This repair does not claim new physical handset measurements, live model quality,
 GPU/NPU qualification, or completion of the broader Unified Reliability v2
 program. Existing scoped release limitations remain applicable.
+
+## Concurrent integration follow-up
+
+The branch was fast-forwarded through `afbd5c65483e68ded391f15d31ac7ec87d9f7d3d`
+and `fc0f9c62dfb9e86b36c2647d39cb5040c12b1748`, preserving the other workers’
+GitHub restoration/finalization and Pocket streaming/caption implementations.
+Independent review identified two integration defects to correct:
+
+- A screen fallback could mount the original navigation room after the ViewModel
+  rejected its binding or privacy. Presentation now requires a resolved accepted
+  room. Restoration failures retain the selected identity, expose retry, preserve
+  coroutine cancellation, and cannot authorize a blank replacement. An unchanged
+  accepted conversation remains mounted during unrelated settings refreshes.
+- A caption revision could shorten a word behind the playback watermark while
+  leaving a stale queued end. A later valid cue then raised `STREAM_CUE_OVERLAP`
+  and interrupted audio. Reconciliation preserves already accepted presentation
+  identity and observed end boundaries. An interval that cannot remain usable is
+  omitted without inventing new timing or discarding its source-end guard.
+
+The first `fc0f9c6` hosted builds also stopped on an absent verification entry for
+`kotlinx-coroutines-guava-1.8.0.module`. The 3,867-byte module was fetched from
+[Maven Central](https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module)
+and matched both publisher checksum sidecars. Its SHA-256 is
+`da3a1b4f5406c60b2e203ceec0813f1caef1017842d965aeb7f60a35d73a21e5`.
+Only that absent module entry is added; existing verification configuration and
+trusted artifacts are unchanged. The local Gradle dependency-resolution command
+completed successfully with cached core-domain compilation. This does not qualify
+Android compilation or the full unit suite.
+
+The task checkpoint records the focused regression results and their boundaries.
+Every integrated revision still requires current hosted PR checks, a green merged
+main revision, and verified publication of both requested packages.
+
+The final combined canonical host validation passed 863 tests with one expected skip, generated references/inventory, dependency declarations, package integrity, secret scan, Android regex and resources. Caption and presentation source hashes still match their execution receipts. Independent reviews found no further actionable issue in the corrected caption bounds and explicit/implicit conversation pin paths. Full Android/ViewModel and native hosted checks remain pending at the commit that publishes these repairs.

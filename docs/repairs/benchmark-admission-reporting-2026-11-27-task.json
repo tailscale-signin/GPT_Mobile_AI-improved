@@ -7,7 +7,7 @@
   "start_head": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
   "pull_request": 2651,
   "source_export": "benchmarks-1795830169556.json",
-  "state": "ci_fixture_correction_ready",
+  "state": "concurrent_integration_repairs_validated_awaiting_exact_head_ci",
   "authorization": "Implement all findings, push draft, require green checks, merge to main, require main green, publish. Preserve concurrent commits.",
   "workstreams": [
     "bounded resource admission and durable preparation",
@@ -104,12 +104,81 @@
         "generatedReferences": "passed",
         "hostedAndroid": "pending_corrected_commit"
       }
+    },
+    {
+      "check": "Incoming dependency verification blocker",
+      "sourceSha": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+      "failedJobs": [
+        140867719804,
+        140867712534,
+        140867677821,
+        140867674406
+      ],
+      "component": "org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.0",
+      "artifact": "kotlinx-coroutines-guava-1.8.0.module",
+      "bytes": 3867,
+      "sha256": "da3a1b4f5406c60b2e203ceec0813f1caef1017842d965aeb7f60a35d73a21e5",
+      "publisherUrl": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-guava/1.8.0/kotlinx-coroutines-guava-1.8.0.module",
+      "publisherChecks": "Downloaded bytes match official SHA256 and SHA1 sidecars. Only one absent module checksum is added; all existing verification settings and components remain unchanged.",
+      "localGradle": "core-domain:compileKotlinJvm BUILD SUCCESSFUL in 11s; compilation output restored from cache. This is dependency-resolution/configuration evidence, not Android compilation or full-suite execution."
+    },
+    {
+      "check": "Caption watermark-revision pipeline",
+      "result": "passed",
+      "tests": 13,
+      "newRegressionTests": 5,
+      "baselineNewFailures": 4,
+      "assertionsEnabled": true,
+      "method": "Actual mapper, stream frames and captions with SDK timestamp DTO/unused engine ports. Retains observed end guards when an unusable queued interval is omitted.",
+      "limits": "No real SDK/native audio or full Android execution."
+    },
+    {
+      "check": "Saved-room presentation policy",
+      "result": "passed",
+      "tests": 7,
+      "method": "Actual presentation helper and extracted actual state/context DTOs, with platform/entity ports.",
+      "limits": "Six added full ViewModel lookup/persistence/retry/cancellation, explicit/implicit refresh and fallback regressions require hosted Android CI."
+    },
+    {
+      "check": "Combined canonical host validation after concurrent runtime repairs",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "passed",
+      "pythonTests": 863,
+      "expectedSkippedTests": 1,
+      "androidRegexErrors": 0,
+      "xmlFilesChecked": 38,
+      "sourceReceipts": "Caption and presentation execution source hashes still match the final working tree. Full Android/ViewModel execution remains a hosted gate."
+    },
+    {
+      "check": "Independent final integration review",
+      "result": "no_additional_actionable_findings",
+      "scope": "Caption end-marker bounds and immutable native cues; saved-room identity, retry, privacy and explicit/implicit refresh pinning."
     }
   ],
   "release": {
     "merged": false,
     "published": false
   },
-  "concurrentHeadObserved": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
-  "publicationTransport": "Connected GitHub API with expected-head fast-forward update; shell GitHub push credential unavailable."
+  "concurrentHeadObserved": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+  "publicationTransport": "Connected GitHub API with expected-head fast-forward update; shell GitHub push credential unavailable.",
+  "integrationHeads": [
+    {
+      "sha": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+      "parent": "90865091851416a53e1c1c700300dad011bf92a5",
+      "scope": "Saved GitHub conversation restoration, integration finalization, pagination recovery, protected diagnostic limits, isolated early Android regressions",
+      "canonicalFastTests": 851,
+      "expectedSkips": 1
+    },
+    {
+      "sha": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+      "parent": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+      "scope": "Pocket default, compiled GPU/NPU packs, caption alignment, native working-set and voice benchmark repairs",
+      "review": "Runtime/native ownership and authority reviews complete; reproduced screen-restoration and caption pipeline findings corrected with focused regression tests and independent final review."
+    },
+    {
+      "sha": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+      "parent": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+      "scope": "Concurrent worker published the same independently verified coroutine metadata checksum. Preserve their verification entry and evidence record."
+    }
+  ]
 }

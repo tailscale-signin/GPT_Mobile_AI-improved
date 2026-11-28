@@ -103,7 +103,10 @@
     "Preserve bounded diagnostic limit reasons, exact completed pagination recovery chains and blocked report delivery; strengthen the full-suite regressions without weakening runtime or CI guards.",
     "Reopen saved GitHub conversations only after room restoration settles, preserve their exact saved identity and completed history, and require an explicit new-chat request for a replacement.",
     "Run focused Android diagnostic, session, pagination and conversation-restoration regressions before full qualification, with isolated subset artifacts and all full-suite gates retained.",
-    "Preserve the actual runner stop when integration finalization withholds tool schemas; publish retained evidence without another dispatch while keeping initial capability and completion guards."
+    "Preserve the actual runner stop when integration finalization withholds tool schemas; publish retained evidence without another dispatch while keeping initial capability and completion guards.",
+    "Mount a saved GitHub conversation only after identity and privacy validation; recover failed room restoration by retrying the same selected room without allocating a replacement.",
+    "Preserve voice playback when a caption correction crosses the presentation watermark; retain observed timing boundaries and omit unusable caption intervals without fabricating replacement times.",
+    "Verify the newly consulted coroutine-adapter module metadata against Maven Central publisher checksums while retaining strict dependency verification."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1120,7 +1123,10 @@
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
     "scripts/check_local_runtime_apk.py",
     "scripts/tests/test_pocket_compiled_apk.py",
-    "docs/repairs/coroutines-guava-module-verification-2026-11-28.json"
+    "docs/repairs/coroutines-guava-module-verification-2026-11-28.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceConversationPresentation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceConversationPresentationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionWatermarkRevisionTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

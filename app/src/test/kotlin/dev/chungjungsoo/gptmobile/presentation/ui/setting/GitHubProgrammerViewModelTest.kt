@@ -24,6 +24,8 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -315,11 +317,196 @@ class GitHubProgrammerViewModelTest {
         withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
         model.ensureConversation().join()
         assertEquals(null, model.state.value.chatId)
+        assertEquals(null, model.state.value.forWorkspaceConversation("github", context.repository, context).chatId)
         assertTrue(model.state.value.error?.contains("saved GitHub conversation is unavailable") == true)
         assertEquals(mapOf(42 to context), features.value.conversationGitHub)
         assertTrue(rooms.isEmpty())
         coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
         coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+    }
+
+    @Test fun failedRoomLookupRetriesTheExactSavedIdentityWithoutReplacingHistory() = runBlocking {
+        close(model)
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        val attempts = AtomicInteger()
+        coEvery { persistence.getChatRoom(42) } coAnswers {
+            if (attempts.incrementAndGet() == 1) error("Room storage temporarily unavailable")
+            rooms[42]
+        }
+        val handle = androidx.lifecycle.SavedStateHandle()
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true), handle)
+        model.configureSession("coder", 42)
+        model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
+
+        val failed = withTimeout(5000) { model.state.first { it.conversationRestoreFailed } }
+        assertFalse(failed.conversationResolved)
+        assertEquals(null, failed.chatId)
+        assertTrue(failed.error?.contains("Retry opening") == true)
+        assertEquals(42, handle.get<Int>("github_session_chat"))
+        model.ensureConversation().join()
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+
+        model.retryConversationRestore()
+        val reopened = withTimeout(5000) { model.state.first { it.chatId == 42 && it.conversationResolved } }
+        assertFalse(reopened.conversationRestoreFailed)
+        assertEquals(null, reopened.error)
+        assertEquals(42, handle.get<Int>("github_session_chat"))
+        assertEquals(mapOf(42 to context), features.value.conversationGitHub)
+        assertEquals(setOf(42), rooms.keys)
+        coVerify(exactly = 2) { persistence.getChatRoom(42) }
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+    }
+
+    @Test fun unavailableSavedRoomCannotAllocateThroughTheCommandFallback() = runBlocking {
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        rooms.remove(42)
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.conversationResolved && it.error != null } }
+        var accepted = false
+        model.send("Continue the saved review") { accepted = true }
+        withTimeout(5000) { model.state.first { !it.submitting && it.error != null } }
+        assertFalse(accepted)
+        assertEquals(null, model.state.value.chatId)
+        assertTrue(model.state.value.error?.contains("saved GitHub conversation is unavailable") == true)
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+    }
+
+    @Test fun refreshingSettingsKeepsAnAcceptedSavedRoomMounted() = runBlocking {
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.conversationResolved } }
+        val lookupStarted = CompletableDeferred<Unit>()
+        val releaseLookup = CompletableDeferred<Unit>()
+        coEvery { persistence.getChatRoom(42) } coAnswers {
+            lookupStarted.complete(Unit)
+            releaseLookup.await()
+            rooms[42]
+        }
+        try {
+            features.value = features.value.copy(githubPrepareIndex = setOf("github"))
+            withTimeout(5000) { lookupStarted.await() }
+            val visible = model.state.value.forWorkspaceConversation("github", context.repository, context)
+            assertTrue(visible.conversationResolved)
+            assertEquals(42, visible.chatId)
+            assertTrue(visible.prepareIndex)
+            coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+        } finally {
+            releaseLookup.complete(Unit)
+        }
+    }
+
+    @Test fun implicitRestorePinsItsAcceptedRoomAcrossSettingsAndRecentConversationChanges() = runBlocking {
+        close(model)
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        val handle = androidx.lifecycle.SavedStateHandle()
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true), handle)
+        model.configureSession("coder")
+        val workspace = GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha, recentChatId = 42)
+        model.bind(workspace)
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.conversationResolved } }
+        assertEquals(42, handle.get<Int>("github_session_chat"))
+
+        val lookupStarted = CompletableDeferred<Unit>()
+        val releaseLookup = CompletableDeferred<Unit>()
+        coEvery { persistence.getChatRoom(42) } coAnswers {
+            lookupStarted.complete(Unit)
+            releaseLookup.await()
+            rooms[42]
+        }
+        try {
+            features.value = features.value.copy(githubPrepareIndex = setOf("github"))
+            withTimeout(5000) { lookupStarted.await() }
+            val visible = model.state.value.forWorkspaceConversation("github", context.repository, context)
+            assertTrue(visible.conversationResolved)
+            assertEquals(42, visible.chatId)
+            assertTrue(visible.prepareIndex)
+
+            rooms[99] = room.copy(id = 99)
+            every { chats.observeMessageWindow(99, 10) } returns flowOf(emptyList())
+            every { chats.observeAgentRuns(99) } returns flowOf(emptyList())
+            every { chats.observeToolEvents(99) } returns flowOf(emptyList())
+            every { queue.observe(99) } returns flowOf(emptyList())
+            model.bind(workspace.copy(recentChatId = 99, headSha = "b".repeat(40)))
+            features.value = features.value.copy(conversationGitHub = mapOf(42 to context, 99 to context), githubPrepareIndex = emptySet())
+            releaseLookup.complete(Unit)
+            val retained = withTimeout(5000) {
+                model.state.first { it.conversationResolved && !it.prepareIndex && it.context?.commitSha == "b".repeat(40) }
+            }
+            assertEquals(42, retained.forWorkspaceConversation("github", context.repository, context).chatId)
+            assertEquals(42, handle.get<Int>("github_session_chat"))
+            coVerify(exactly = 0) { persistence.getChatRoom(99) }
+            coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+        } finally {
+            releaseLookup.complete(Unit)
+        }
+    }
+
+    @Test fun failedWorkspacePersistenceKeepsTheCollectorAliveForExplicitRetry() = runBlocking {
+        close(model)
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        val attempts = AtomicInteger()
+        val bootstrapper = mockk<GitHubSessionBootstrapper>(relaxed = true)
+        coEvery { bootstrapper.rememberConversation(any(), 42, any()) } coAnswers {
+            if (attempts.incrementAndGet() == 1) error("Workspace storage temporarily unavailable")
+        }
+        val handle = androidx.lifecycle.SavedStateHandle()
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true), handle, bootstrapper)
+        model.configureSession("coder", 42)
+        model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
+
+        val failed = withTimeout(5000) { model.state.first { it.conversationRestoreFailed } }
+        assertEquals(null, failed.chatId)
+        assertEquals(null, failed.forWorkspaceConversation("github", context.repository, context).chatId)
+        model.ensureConversation().join()
+        assertEquals(42, handle.get<Int>("github_session_chat"))
+        model.retryConversationRestore()
+
+        val reopened = withTimeout(5000) { model.state.first { it.chatId == 42 && it.conversationResolved } }
+        assertEquals(42, reopened.forWorkspaceConversation("github", context.repository, context).chatId)
+        assertEquals(null, reopened.error)
+        assertEquals(42, handle.get<Int>("github_session_chat"))
+        coVerify(exactly = 2) { bootstrapper.rememberConversation(any(), 42, any()) }
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun cancelingPendingRestorePropagatesWithoutReportingAStorageFailure() = runBlocking {
+        close(model)
+        val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        val lookupStarted = CompletableDeferred<Unit>()
+        val cancellationObserved = CompletableDeferred<Unit>()
+        coEvery { persistence.getChatRoom(42) } coAnswers {
+            lookupStarted.complete(Unit)
+            try {
+                CompletableDeferred<Unit>().await()
+                rooms[42]
+            } catch (cancelled: CancellationException) {
+                cancellationObserved.complete(Unit)
+                throw cancelled
+            }
+        }
+        val handle = androidx.lifecycle.SavedStateHandle()
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true), handle)
+        model.configureSession("coder", 42)
+        model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
+        withTimeout(5000) { lookupStarted.await() }
+        assertEquals(null, model.state.value.forWorkspaceConversation("github", context.repository, context).chatId)
+
+        close(model)
+        withTimeout(5000) { cancellationObserved.await() }
+        assertFalse(model.state.value.conversationRestoreFailed)
+        assertFalse(model.state.value.conversationResolved)
+        assertEquals(null, model.state.value.error)
+        assertEquals(42, handle.get<Int>("github_session_chat"))
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test fun savedRoomCannotBeReplacedUnderAnotherWorkspaceOrPrivacyPolicy() = runBlocking {
@@ -343,6 +530,7 @@ class GitHubProgrammerViewModelTest {
             withTimeout(5000) { model.state.first { it.draftLoaded && it.conversationResolved } }
             model.ensureConversation().join()
             assertEquals(null, model.state.value.chatId)
+            assertEquals(null, model.state.value.forWorkspaceConversation("github", context.repository, context, privateRoute).chatId)
             assertTrue(model.state.value.error?.contains("saved GitHub conversation is unavailable") == true)
             assertEquals(saved, features.value.conversationGitHub[42])
             assertEquals(savedRoom, rooms[42])

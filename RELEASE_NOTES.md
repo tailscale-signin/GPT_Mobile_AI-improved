@@ -8,7 +8,7 @@
 - Recover one timed-out Android language support probe with a fresh on-device client inside the existing deadline; preserve unavailable reasons and late-callback fencing.
 - Measure detected speech end to presented answer audio once per accepted captured turn, excluding replay and acknowledgment cues and preserving diagnostics privacy.
 - Retain typed size limits and compact diagnostic summaries for oversized checkpoints, preserve resumable capacity deferrals, and correct stale CI assertions while preserving failure and receipt checks.
-- Keep Pocket captions synchronized through word-end corrections, speech-rate changes, trimmed pauses and updated playback clocks. Require complete lexical cue coverage in native smoke checks.
+- Keep Pocket captions synchronized through word-end corrections, speech-rate changes, trimmed pauses and updated playback clocks. Require complete lexical cue coverage in native smoke checks. Corrections that move behind playback retain observed timing boundaries; unusable caption intervals are omitted without interrupting valid audio.
 - Add local final-audio caption alignment for compiled Pocket GPU/NPU with an explicitly installed caption pack, bounded short-phrase buffering and separate alignment provenance. Unmatched words remain untimed instead of receiving invented durations.
 
 Android build **153** and Windows Gateway **18.1.6** use the Gateway 18 contract.
@@ -17,7 +17,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
-- Reopen saved GitHub conversations from the home screen after their original room finishes loading, preserving the completed transcript and run history. Missing or incompatible saved rooms show recovery guidance; an explicit new-chat request still creates a separate conversation.
+- Reopen saved GitHub conversations only after their original room identity and privacy are verified, preserving the completed transcript and run history. Missing or incompatible rooms show recovery guidance; failed storage restoration can retry the same room, and an explicit new-chat request still creates a separate conversation.
 - Preserve the actual stopping reason in a GitHub integration report when execution reaches its limit or stops making progress, retaining completed evidence and unfinished checks.
 - Preserve diagnostic size and shape limit reasons, resumable protected-read deferrals, completed pagination correction chains, and blocked report outcomes. Run the focused Android regressions before the full qualification suite with separate result artifacts.
 - Bound isolated benchmark resource queues, validate profile configuration before admission, and retain preparation phases, queue deadlines and privacy-safe blocker identities.

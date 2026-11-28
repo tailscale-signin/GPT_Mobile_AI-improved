@@ -326,7 +326,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionSynchronizationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionWordCoverageTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCueRevisionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionAlignmentPreferenceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionAlignmentPreferenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionWatermarkRevisionTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -3059,6 +3060,49 @@
         "decline": "Keep setup visible when selection is incomplete. Keep compound requests in the full planner.",
         "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupRouteTest.kt#inventoryAndNumberedReadsPlanOnlyTheirMatchingOperation",
         "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLookupRouteTest.kt#compoundAndQuotedRequestsKeepTheGeneralPlanner",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "github-saved-conversations",
+      "title": "Saved GitHub conversation restoration",
+      "terms": [
+        "saved GitHub conversation",
+        "restore repository chat",
+        "retry conversation",
+        "conversation privacy",
+        "saved room identity"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceConversationPresentation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModelTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceConversationPresentationTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/benchmark-admission-reporting-2026-11-27.md"
+      ],
+      "invariants": [
+        "Only a validated room with matching repository, connection, profile and privacy can mount the composer.",
+        "A saved or implicitly restored conversation keeps its accepted identity across refresh and retry; it cannot silently allocate a replacement.",
+        "Lookup or persistence failure keeps the exact selection recoverable without terminating the settings collector."
+      ],
+      "routing": {
+        "role": "presentation",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceConversationPresentation.kt",
+        "proof": "Accepted conversation identity and matching workspace with known compatible privacy",
+        "admission": "Resolved room for the current connection, repository and profile",
+        "decline": "Keep the composer unavailable and offer retry of the same saved conversation when restoration fails.",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceConversationPresentationTest.kt#resolvedMatchingRoomKeepsItsIdentityAndHistory",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceConversationPresentationTest.kt#unknownOrIncompatiblePrivacyCannotMountAComposer",
         "plugins": [],
         "tools": [],
         "decline_terms": []

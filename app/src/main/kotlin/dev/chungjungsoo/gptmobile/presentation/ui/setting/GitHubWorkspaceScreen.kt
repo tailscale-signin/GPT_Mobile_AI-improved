@@ -141,16 +141,16 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha, state.commits, state.staged, state.editorDrafts, state.patchStage, state.cachedProfileUid, state.recentChatId) { programmer.bind(state) }
     val navigationTrace = remember(connection.connectionUid, initialChatId) { GitHubNavigationTrace() }
     androidx.compose.runtime.DisposableEffect(navigationTrace) { onDispose { navigationTrace.close() } }
-    // Mount an existing conversation immediately from its saved scope. Remote freshness
-    // still gates workspace edits, and all tools revalidate authority before dispatch.
+    // The saved route labels the workspace while its exact room and privacy policy load.
+    // It must never substitute for the ViewModel's accepted conversation identity.
     val savedContext = initialContext?.takeIf {
         initialChatId != null &&
             initialChatId > 0 &&
             it.connectionUid == connection.connectionUid &&
             (state.selection == null || state.selection == it.repository)
     }
-    val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref } ?: savedContext
-    val visibleProgrammer = if (commandContext != null) programmerState.copy(context = commandContext, chatId = programmerState.chatId ?: initialChatId.takeIf { savedContext != null }) else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), eventCount = 0, eventCountsByRun = emptyMap(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
+    val visibleProgrammer = programmerState.forWorkspaceConversation(connection.connectionUid, state.selection, savedContext, privacyModeLocked)
+    val commandContext = visibleProgrammer.context
     val latestRepositoryFailure = remember(visibleProgrammer.runs) { visibleProgrammer.runs.maxByOrNull { it.createdAt }?.terminalError }
     val repositoryAccessFailure = remember(state.error, visibleProgrammer.error, latestRepositoryFailure) {
         listOf(state.error, visibleProgrammer.error, latestRepositoryFailure).filterNotNull()
@@ -269,7 +269,7 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(branchProposal?.eventId, canNavigate) {
         if (canNavigate && branchProposal != null) {
             acknowledgedBranchEvents = (acknowledgedBranchEvents + branchProposal.eventId).takeLast(100)
-            viewModel.selectBranch(branchProposal.branch, programmerState.chatId)
+            viewModel.selectBranch(branchProposal.branch, visibleProgrammer.chatId)
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalGitHubCompositionTiming provides GitHubCompositionTiming(navigationTrace, state.recentChatId != null || savedContext != null)) {
@@ -457,7 +457,7 @@ fun GitHubWorkspaceScreen(
                             initialProfileUid = initialProfileUid,
                             tab = tab,
                             canNavigate = canNavigate,
-                            chatId = programmerState.chatId,
+                            chatId = visibleProgrammer.chatId,
                             selectionMenus = selectionMenus,
                             repositoryMenu = repositoryMenu,
                             onRepositoryMenuChange = { repositoryMenu = it },
@@ -550,6 +550,10 @@ fun GitHubWorkspaceScreen(
                                             }
                                             visibleProgrammer.error?.let {
                                                 Text(it, color = MaterialTheme.colorScheme.error)
+                                                if (visibleProgrammer.conversationRestoreFailed) {
+                                                    OutlinedButton(onClick = programmer::retryConversationRestore) { Text("Retry opening conversation") }
+                                                }
+                                                OutlinedButton(onClick = { closeWorkspace() }) { Text("Back to conversations") }
                                                 OutlinedButton(onClick = { tab = 5 }) { Text("Repository and AI profile settings") }
                                             }
                                         }
@@ -617,7 +621,7 @@ fun GitHubWorkspaceScreen(
                                     if (state.selection != null) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                         Button(onClick = {
-                                            viewModel.createBranch(branchName.trim(), state.headSha, programmerState.chatId)
+                                            viewModel.createBranch(branchName.trim(), state.headSha, visibleProgrammer.chatId)
                                         }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create working branch") }
                                         WorkspaceAction(Icons.Rounded.Check, "Checks & builds") { tab = 4 }
                                         WorkspaceAction(Icons.Rounded.Refresh, "Refresh repository") { viewModel.refreshBranch() }
@@ -641,7 +645,7 @@ fun GitHubWorkspaceScreen(
                                     if (state.selection?.ref == state.defaultBranch) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                         Button(onClick = {
-                                            viewModel.createBranch(branchName.trim(), state.headSha, programmerState.chatId)
+                                            viewModel.createBranch(branchName.trim(), state.headSha, visibleProgrammer.chatId)
                                         }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create branch") }
                                     }
                                     if (state.staged.isEmpty() && state.patchStage == null) WorkspaceEmpty(Icons.Rounded.Commit, "No staged changes", "Browse files from Settings, then stage your changes for review.")

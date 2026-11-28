@@ -7,10 +7,10 @@ import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
+import dev.chungjungsoo.gptmobile.data.localruntime.QualcommSocSupport
 import java.io.File
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
+import org.json.JSONObject
 
 internal class PocketCompiledCleanupFailure(val retainedResources: Any?, cause: Throwable) : IllegalStateException("Pocket native retirement is unconfirmed.", cause)
 
@@ -85,42 +85,49 @@ internal class PocketCompiledRuntime private constructor(
             require(backend.isCompiledPocket && threads in 1..64)
             checkActive()
             val requested = if (backend == VoiceSpeechBackend.POCKET_GPU) Accelerator.GPU else Accelerator.NPU
-            val environment = if (requested == Accelerator.NPU) {
-                check(!BuildConfig.GENIEX_ENABLED) { "POCKET_NPU_REQUIRES_STANDARD_ANDROID_BUILD" }
-                val probe = QnnEnvironment.prepareForExecution(context)
-                check(probe.prerequisitesReady) { "POCKET_NPU_PREREQUISITES_UNAVAILABLE" }
-                val vendor = PocketCompiledNpuLibraries.prepare(context)
-                Environment.create(
+            val environment = preparePocketCompiledGraph(backend, PocketCompiledPreparationGraph.ENVIRONMENT) {
+                val environmentOptions = if (requested == Accelerator.NPU) {
+                    check(!BuildConfig.GENIEX_ENABLED) { "POCKET_NPU_REQUIRES_STANDARD_ANDROID_BUILD" }
+                    val probe = QnnEnvironment.prepareForExecution(context)
+                    check(probe.prerequisitesReady) { "POCKET_NPU_PREREQUISITES_UNAVAILABLE" }
+                    val vendor = PocketCompiledNpuLibraries.prepare(context, probe, checkActive)
                     mapOf(
                         Environment.Option.CompilerPluginLibraryDir to vendor.absolutePath,
                         Environment.Option.DispatchLibraryDir to vendor.absolutePath
                     )
-                )
-            } else {
-                Environment.create(context)
+                } else {
+                    emptyMap()
+                }
+                // The context overload supplies LiteRT's compiler cache directory. The map-only
+                // overload silently disables that cache, recompiling the NPU graphs on every open.
+                Environment.create(context, environmentOptions)
             }
             val opened = ArrayList<Graph>()
             try {
                 checkActive()
                 val accelerated = pocketCompiledAccelerationOptions(requested)
                 val cpu = CompiledModel.Options(Accelerator.CPU).apply { cpuOptions = CompiledModel.CpuOptions(numThreads = threads) }
-                fun graph(name: String, options: CompiledModel.Options): Graph {
+                fun graph(name: String, options: CompiledModel.Options, stage: PocketCompiledPreparationGraph): Graph {
                     checkActive()
-                    return Graph.open(File(directory, name), options, environment).also {
+                    return preparePocketCompiledGraph(backend, stage) { Graph.open(File(directory, name), options, environment) }.also {
                         opened.add(it)
                         checkActive()
                     }
                 }
-                val languageModel = graph(PocketCompiledSpeechCatalog.LM, accelerated)
+                val languageModel = graph(PocketCompiledSpeechCatalog.LM, accelerated, PocketCompiledPreparationGraph.LANGUAGE_MODEL)
                 // The publisher documents degraded Mimi-transformer GPU audio, including FP32.
-                val transformer = graph(PocketCompiledSpeechCatalog.DECODER_TRANSFORMER, cpu)
-                val vocoder = graph(PocketCompiledSpeechCatalog.VOCODER, accelerated)
+                val transformer = graph(PocketCompiledSpeechCatalog.DECODER_TRANSFORMER, cpu, PocketCompiledPreparationGraph.DECODER_TRANSFORMER)
+                val vocoder = graph(PocketCompiledSpeechCatalog.VOCODER, accelerated, PocketCompiledPreparationGraph.VOCODER)
                 return PocketCompiledRuntime(environment, languageModel, transformer, vocoder, requested, threads)
             } catch (error: Throwable) {
                 val graphs = opened.asReversed()
                 val failures = graphs.mapNotNull { runCatching { it.close() }.exceptionOrNull() }
                 if (failures.isNotEmpty() || error is PocketCompiledCleanupFailure) throw PocketCompiledCleanupFailure(listOf(graphs, environment, error), error)
-                environment.close()
+                try {
+                    environment.close()
+                } catch (retirement: Throwable) {
+                    throw PocketCompiledCleanupFailure(listOf(environment, error), retirement)
+                }
                 throw error
             }
         }
@@ -134,44 +141,31 @@ internal class PocketCompiledRuntime private constructor(
  */
 internal object PocketCompiledNpuLibraries {
     const val ASSET_DIRECTORY = "pocket-compiled-npu-2.4.1"
-    private val digests = mapOf(
-        "libLiteRtCompilerPlugin_Qualcomm.so" to "745fe1a13e173950ad2520980728d138085b3c1cc945c7d729f527fc1e7abfab",
-        "libLiteRtDispatch_Qualcomm.so" to "a5cdbc8da207eae2f9822fe6b19c61a8d26a584dbc71bb7a986b82195887a74e"
+    private val artifacts = mapOf(
+        "libLiteRtCompilerPlugin_Qualcomm.so" to (953_512L to "745fe1a13e173950ad2520980728d138085b3c1cc945c7d729f527fc1e7abfab"),
+        "libLiteRtDispatch_Qualcomm.so" to (461_880L to "a5cdbc8da207eae2f9822fe6b19c61a8d26a584dbc71bb7a986b82195887a74e")
     )
 
     @Synchronized
-    fun prepare(context: Context): File {
+    fun prepare(context: Context, probe: QnnEnvironment.QnnProbeStatus, checkActive: () -> Unit): File {
+        check(probe.prerequisitesReady && probe.libraryDigestStatus == "TRUSTED_HASH_PASS") { "POCKET_NPU_PREREQUISITES_UNAVAILABLE" }
         val directory = File(context.noBackupFilesDir, ASSET_DIRECTORY)
-        check(directory.isDirectory || directory.mkdirs()) { "POCKET_NPU_LIBRARY_DIRECTORY" }
-        for ((name, expected) in digests) {
-            val destination = File(directory, name)
-            if (!Files.isSymbolicLink(destination.toPath()) && destination.isFile && digest(destination) == expected) continue
-            val temporary = File(directory, "$name.part")
-            temporary.delete()
-            try {
-                context.assets.open("$ASSET_DIRECTORY/$name").use { input ->
-                    temporary.outputStream().use { output -> input.copyTo(output) }
-                }
-                check(digest(temporary) == expected) { "POCKET_NPU_LIBRARY_DIGEST" }
-                check(temporary.setReadOnly()) { "POCKET_NPU_LIBRARY_PERMISSIONS" }
-                Files.move(temporary.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-            } finally {
-                temporary.delete()
+        val libraries = artifacts.mapValues { (name, artifact) ->
+            PocketCompiledLibraryLayout.Library(artifact.first, artifact.second) { context.assets.open("$ASSET_DIRECTORY/$name") }
+        }.toMutableMap()
+        val audit = JSONObject(context.assets.open("local-runtime-native-libraries.json").bufferedReader().use { it.readText() }).getJSONObject("libraries")
+        // LiteRT's pinned Qualcomm API has no separate QNN-library directory option. Its
+        // loader resolves QNN beside the private dispatch first; changing LD_LIBRARY_PATH
+        // after Android creates the linker namespace cannot establish that dependency path.
+        // Copy only already-audited dependencies, preserving the LiteRT-LM dispatch in place.
+        for (name in QualcommSocSupport.requiredLibraries(probe.socModel).filter { it.startsWith("libQnn") }) {
+            val expected = audit.getJSONObject("lib/arm64-v8a/$name")
+            val source = File(probe.dispatchDir, name)
+            libraries[name] = PocketCompiledLibraryLayout.Library(expected.getLong("bytes"), expected.getString("sha256")) {
+                check(!Files.isSymbolicLink(source.toPath())) { "POCKET_NPU_LIBRARY_SOURCE" }
+                source.inputStream()
             }
         }
-        return directory
-    }
-
-    private fun digest(file: File): String {
-        val hash = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(65_536)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                hash.update(buffer, 0, count)
-            }
-        }
-        return hash.digest().joinToString("") { "%02x".format(it) }
+        return PocketCompiledLibraryLayout.prepare(directory, libraries, File(context.noBackupFilesDir, "model-identity-cache"), checkActive)
     }
 }

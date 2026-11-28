@@ -324,6 +324,10 @@ internal class KokoroVoiceOutput(
 
     @Volatile private var speechFactory: VoicePhraseEngineFactory = TimedKokoroPhraseEngineFactory
 
+    // A per-turn voice can replace the selected factory while its shared model is opening.
+    // Cancellation must still reach that original owner until create() has returned.
+    @Volatile private var openingFactory: VoicePhraseEngineFactory? = null
+
     @Volatile private var pronunciations = VoicePronunciationDictionary.EMPTY
 
     @Volatile private var captionOffset = 0
@@ -443,8 +447,15 @@ internal class KokoroVoiceOutput(
     override fun configureEngine(factory: VoicePhraseEngineFactory) {
         if (factory.identity == speechFactory.identity) return
         modelAcquisitionEpoch.incrementAndGet()
-        stop("engine_changed")
         val residencyChanged = factory.residentIdentity != speechFactory.residentIdentity
+        val pendingWarmup = warmupRequest?.takeUnless { it.assetsOnly }?.model ?: preparingForAnswer
+        val compatibleWarmup = pendingWarmup?.takeIf {
+            active == null &&
+                !calibrating &&
+                !residencyChanged &&
+                it.factory.requiresKokoroAssets == factory.requiresKokoroAssets
+        }
+        stopPlayback("engine_changed", compatibleWarmup)
         speechFactory = factory
         if (residencyChanged) releaseWarmModel()
     }
@@ -688,7 +699,12 @@ internal class KokoroVoiceOutput(
         warmupGeneration++
         warmupRequest = null
         silentWarmup.cancel()
-        if (active == null && !calibrating) speechFactory.cancelPending()
+        if (active == null && !calibrating) cancelPendingPreparation()
+    }
+
+    private fun cancelPendingPreparation(factory: VoicePhraseEngineFactory = speechFactory) {
+        factory.cancelPending()
+        openingFactory?.takeUnless { it === factory }?.cancelPending()
     }
 
     override fun prewarm(voice: KokoroVoice, assetsOnly: Boolean) = prepareWarmup(voice, assetsOnly, true, null)
@@ -810,8 +826,9 @@ internal class KokoroVoiceOutput(
         val requestKey = ModelKey(voice.lexicon, threadCount, speechFactory)
         val handoff = preparingForAnswer
         preparingForAnswer = null
-        if (handoff != null && handoff != requestKey) handoff.factory.cancelPending()
-        if (handoff == requestKey || warming != null && !warming.assetsOnly && warming.model.sameResident(requestKey)) {
+        val compatibleHandoff = handoff?.sameResident(requestKey) == true
+        if (handoff != null && !compatibleHandoff) handoff.factory.cancelPending()
+        if (compatibleHandoff || warming != null && !warming.assetsOnly && warming.model.sameResident(requestKey)) {
             warmupGeneration++
             warmupRequest = null
             silentWarmup.cancel()
@@ -1192,9 +1209,22 @@ internal class KokoroVoiceOutput(
             } else {
                 loaded?.takeIf { it.key.sameResident(playback.key) }?.engine?.let { publishExecution(playback, it) }
             }
-            val message = GatewayVoiceCapabilityUnavailable.find(error)?.userMessage
-                ?: "The selected voice could not synthesize this reply. Your answer remains in chat."
-            main.post { fail(playback, "synthesis_failed", message, cause = error) }
+            val pocketPreparation = error as? PocketCompiledPreparationFailure
+            val message = if (pocketPreparation != null) {
+                val backend = if (pocketPreparation.backend == VoiceSpeechBackend.POCKET_GPU) "Pocket GPU" else "Pocket NPU"
+                val graph = when (pocketPreparation.graph) {
+                    PocketCompiledPreparationGraph.ENVIRONMENT -> "the local runtime"
+                    PocketCompiledPreparationGraph.LANGUAGE_MODEL -> "the language model"
+                    PocketCompiledPreparationGraph.DECODER_TRANSFORMER -> "the audio decoder"
+                    PocketCompiledPreparationGraph.VOCODER -> "the audio generator"
+                    PocketCompiledPreparationGraph.HOST_ASSETS -> "the voice data"
+                }
+                "$backend could not prepare $graph. Choose another speech backend in Voice settings and retry."
+            } else {
+                GatewayVoiceCapabilityUnavailable.find(error)?.userMessage
+                    ?: "The selected voice could not synthesize this reply. Your answer remains in chat."
+            }
+            main.post { fail(playback, if (pocketPreparation == null) "synthesis_failed" else "engine_failed", message, canFallback = pocketPreparation == null, cause = error) }
         } catch (error: LinkageError) {
             releaseModel()
             main.post { fail(playback, "engine_failed", "Voice playback is unavailable. Your answer remains in chat.", cause = error) }
@@ -1652,7 +1682,12 @@ internal class KokoroVoiceOutput(
         try {
             val directory = if (leasedKokoroAssets) models.modelDirectory() else application.noBackupFilesDir
             val words = if (leasedKokoroAssets) readLexicon(key.lexicon) else emptySet()
-            val engine = key.factory.create(directory, key.lexicon, key.threads)
+            val engine = try {
+                openingFactory = key.factory
+                key.factory.create(directory, key.lexicon, key.threads)
+            } finally {
+                openingFactory = null
+            }
             AppLogRecorder.record("VoiceEngine", "kokoro_ready · engineId=$engineId · threads=${key.threads} · durationMs=${SystemClock.elapsedRealtime() - started}")
             return LoadedModel(key, engine, words, leasedKokoroAssets).also { loaded = it }
         } catch (error: Throwable) {
@@ -1897,7 +1932,7 @@ internal class KokoroVoiceOutput(
         warmupGeneration++
         warmupRequest = null
         silentWarmup.cancel()
-        speechFactory.cancelPending()
+        cancelPendingPreparation()
         if (calibrating) {
             calibrationTicket++
             runCatching { loaded?.engine?.cancel() }
@@ -1953,7 +1988,7 @@ internal class KokoroVoiceOutput(
             playback.underruns
         }
         runCatching { playback.measurements?.terminal(underruns, playback.bufferRestarts, playback.longestRefillMs, playback.clockBasis, playback.route) }
-        if (cancelPreparation) playback.key.factory.cancelPending()
+        if (cancelPreparation) cancelPendingPreparation(playback.key.factory)
         runCatching { loaded?.engine?.cancel() }
         runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
         timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"} · bufferRestarts=${playback.bufferRestarts} · longestRefillMs=${playback.longestRefillMs} · rate=${playback.rate} · performance=${playback.performance.name} · pause=${playback.pause.name} · knownWords=${playback.knownWords} · initialisms=${playback.initialisms} · unknownWords=${playback.unknownWords} · spelledLetters=${playback.spelledLetters} · normalizedFormats=${playback.removedFormatCharacters}")
@@ -1987,15 +2022,17 @@ internal class KokoroVoiceOutput(
 
     override fun stop() = stop("audio_stop")
 
-    override fun stop(reason: String) {
+    override fun stop(reason: String) = stopPlayback(reason)
+
+    private fun stopPlayback(reason: String, compatibleWarmup: ModelKey? = null) {
         warmupGeneration++
         warmupRequest = null
         silentWarmup.cancel()
         val playback = active
         // Retire all optional PCM immediately. A local graph already opening for these same
         // weights can finish on the synthesis worker and serve the answer without a second cold load.
-        preparingForAnswer = playback?.takeIf { reason == "answer_ready" && it.preparing && it.key.factory.selectedBackend != VoiceSpeechBackend.GATEWAY_CUDA }?.key
-        if (preparingForAnswer == null) speechFactory.cancelPending()
+        preparingForAnswer = compatibleWarmup ?: playback?.takeIf { reason == "answer_ready" && it.preparing && it.key.factory.selectedBackend != VoiceSpeechBackend.GATEWAY_CUDA }?.key
+        if (preparingForAnswer == null) cancelPendingPreparation()
         calibrationTicket++
         if (calibrating) runCatching { loaded?.engine?.cancel() }
         val origin = reason.takeIf { it.matches(Regex("[a-z_]{1,64}")) } ?: "unspecified"

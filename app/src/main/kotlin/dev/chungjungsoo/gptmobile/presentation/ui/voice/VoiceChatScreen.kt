@@ -537,7 +537,15 @@ private fun VoiceChatSessionScreen(
     } else {
         SpeechLanguages.recognitionBackend(language, recognitionBackend, recognitionModel)
     }
-    val selectedOutputFactory = outputSelection().factory
+    val translationPreparationFactory = selectTranslationPreparationFactory(
+        translationMode,
+        translationPair,
+        translationFactories,
+        translationOutput,
+        state.phase,
+        activeMessage != null || manualMessage || state.awaitingReply
+    )
+    val selectedOutputFactory = translationPreparationFactory ?: outputSelection().factory
     VoiceOutputConfigurationEffect(preferencesApplied, kokoroOutput, selectedOutputFactory)
     var kokoroVoice by savedState.kokoroVoice
     var kokoroThreads by savedState.kokoroThreads
@@ -838,13 +846,14 @@ private fun VoiceChatSessionScreen(
         if (!foregroundVoice) return@LaunchedEffect
         session.awaitSpeechFlush()
     }
-    val localSpeech = translationOutput != null || backend.backend != VoiceSpeechBackend.GATEWAY_CUDA
+    val preparingTranslation = translationOutput != null || translationPreparationFactory != null
+    val localSpeech = preparingTranslation || backend.backend != VoiceSpeechBackend.GATEWAY_CUDA
     val prepareSpeech = voiceScreenActive &&
         preferencesApplied &&
         spokenReplies &&
         backend.loaded &&
-        (if (translationOutput != null || translationMode) translationOutput != null && translationModel?.status == LocalVoiceModelStatus.READY else backend.speechModelReady(kokoroModel)) &&
-        (translationOutput != null || backend.backend.forSynthesis(synthesis) == backend.backend) &&
+        (if (translationOutput != null || translationMode) preparingTranslation && translationModel?.status == LocalVoiceModelStatus.READY else backend.speechModelReady(kokoroModel)) &&
+        (preparingTranslation || backend.backend.forSynthesis(synthesis) == backend.backend) &&
         (localSpeech || voiceReady) &&
         (!chatView || state.awaitingReply)
     val preparation = if (prepareSpeech) {
@@ -863,7 +872,7 @@ private fun VoiceChatSessionScreen(
     // STARTING may cancel an earlier output as the microphone takes ownership. Re-arm the
     // asset stage there, then queue native preparation once capture owns the exclusive gate.
     LaunchedEffect(kokoroOutput, preparation, state.phase, kokoroVoice, rate, kokoroThreads, performance, selectedOutputFactory, enabled, loaded, roomReady, synthesis) {
-        val voice = kokoroVoice
+        val voice = kokoroVoice ?: KokoroVoice.HEART.takeIf { preparingTranslation }
         if (preparation != VoicePreparation.NONE && voice != null && benchmarkOwnership.value == null) {
             kokoroOutput?.prewarm(voice, assetsOnly = preparation == VoicePreparation.ASSETS)
         } else {

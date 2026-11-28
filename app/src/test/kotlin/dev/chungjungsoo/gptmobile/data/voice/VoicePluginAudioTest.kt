@@ -104,6 +104,8 @@ class VoicePluginAudioTest {
         var closes = 0
         val warmReleaseCallbacks = mutableListOf<(() -> Unit)?>()
         val stopsAtWarmRelease = mutableListOf<Int>()
+        var deferCaptureRelease = false
+        val captureReleaseCallbacks = mutableListOf<(Boolean) -> Unit>()
         var failure: String? = null
         override fun listen(listener: VoiceAudio.Listener) {
             starts++
@@ -111,6 +113,10 @@ class VoicePluginAudioTest {
         }
         override fun stop() {
             stops++
+        }
+        override fun stopCapture(released: (Boolean) -> Unit) {
+            stop()
+            if (deferCaptureRelease) captureReleaseCallbacks += released else released(true)
         }
         override fun releaseWarmModel(completed: (() -> Unit)?) {
             warmReleaseCallbacks += completed
@@ -181,6 +187,57 @@ class VoicePluginAudioTest {
         assertEquals(1, system.starts)
         assertEquals(0, local.starts)
         assertTrue(local.stops > 0)
+    }
+
+    @Test fun systemCaptureWaitsForConfirmedLocalMicrophoneReleaseAndStartsOnlyOnce() {
+        local.deferCaptureRelease = true
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        audio.listen(listener)
+        assertEquals(0, system.starts)
+        local.captureReleaseCallbacks.single()(true)
+        assertEquals(1, system.starts)
+        local.captureReleaseCallbacks.single()(true)
+        assertEquals(1, system.starts)
+    }
+
+    @Test fun stoppedOrReconfiguredCaptureCannotStartAfterALateRelease() {
+        local.deferCaptureRelease = true
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        audio.listen(listener)
+        val stopped = local.captureReleaseCallbacks.last()
+        audio.stop()
+        stopped(true)
+        assertEquals(0, system.starts)
+        audio.listen(listener)
+        val reconfigured = local.captureReleaseCallbacks.last()
+        audio.recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
+        reconfigured(true)
+        assertEquals(0, system.starts)
+        assertEquals(0, local.starts)
+        audio.listen(listener)
+        val closed = local.captureReleaseCallbacks.last()
+        audio.close()
+        closed(true)
+        assertEquals(0, local.starts)
+    }
+
+    @Test fun unconfirmedMicrophoneReleaseKeepsItsTypedCauseAndDoesNotStartEitherBackend() {
+        local.deferCaptureRelease = true
+        val failures = mutableListOf<Pair<String, Throwable?>>()
+        val observing = object : VoiceAudio.Listener by listener {
+            override fun failure(message: String, code: String, retryMillis: Long, retryable: Boolean, recoveryAction: VoiceRecoveryAction?, cause: Throwable?) {
+                failures += code to cause
+                assertFalse(retryable)
+            }
+        }
+        audio.recognitionBackend = VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+        audio.listen(observing)
+        local.captureReleaseCallbacks.single()(false)
+        local.captureReleaseCallbacks.single()(true)
+        assertEquals(0, system.starts)
+        assertEquals(0, local.starts)
+        assertEquals("VOICE_MICROPHONE_BUSY", failures.single().first)
+        assertEquals("MICROPHONE_RELEASE_TIMEOUT", (failures.single().second as LocalVoiceCaptureException).code)
     }
 
     @Test fun leavingLocalRequestsWarmReleaseAfterCaptureStopsWithoutClaimingRetirement() {

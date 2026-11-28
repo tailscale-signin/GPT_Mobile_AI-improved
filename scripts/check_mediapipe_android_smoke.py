@@ -110,6 +110,8 @@ def check_receipt(receipt, engine, run_id, abi="x86_64", delegate="CPU"):
         require(type(receipt.get(key)) is int and 0 < receipt[key] <= MAX_FRAMES, f"Missing bounded PCM evidence: {key}")
     for key in ("caption_word_coverage", "recovered_caption_word_coverage"):
         check_word_coverage(receipt.get(key), FIXTURE, key)
+    for key, frames in (("caption_publication", "frames"), ("recovered_caption_publication", "recovered_frames")):
+        check_caption_publication(receipt.get(key), receipt[frames], key)
     require(type(receipt.get("emitted_chunks")) is int and 0 < receipt["emitted_chunks"] <= 4096, "Missing bounded stream chunk evidence")
     for key in ("prepare_ms", "first_pcm_ms"):
         require(type(receipt.get(key)) is int and 0 <= receipt[key] <= 300_000, f"Missing bounded native timing: {key}")
@@ -168,6 +170,19 @@ def check_french_preview(french, expected_frames, voice="ff_siwis"):
     require(type(clipped) is int and clipped == 0 and type(audible) is int and 0 < audible <= count,
             "French signal is missing, silent or clipped")
     check_word_coverage(french.get("caption_word_coverage"), FRENCH_PREVIEW, "french_preview.caption_word_coverage")
+    check_caption_publication(french.get("caption_publication"), count, "french_preview.caption_publication")
+
+
+def check_caption_publication(publication, frames, label):
+    require(isinstance(publication, dict), f"Missing enabled caption publication evidence: {label}")
+    expected = {
+        "measurement_scope": "SDK_PACKET_PUBLICATION_ONLY", "caption_staging_enabled": True,
+        "first_cues_before_pcm": True, "pcm_frames": frames, "acoustic_alignment": "NOT_MEASURED",
+    }
+    for key, value in expected.items():
+        require(type(publication.get(key)) is type(value) and publication[key] == value, f"Caption publication mismatch: {label}.{key}")
+    require(type(publication.get("first_cue_count")) is int and 0 < publication["first_cue_count"] <= 2048,
+            f"Missing bounded first-cue observations: {label}")
 
 
 def check_word_coverage(coverage, text, label):
@@ -197,6 +212,7 @@ def check_incremental_stream(stream, label):
         require(type(stream.get(key)) is type(value) and stream[key] == value, f"Incremental evidence mismatch: {label}.{key}")
     check_word_coverage(stream.get("caption_word_coverage"), FIXTURE, f"{label}.caption_word_coverage")
     require(type(stream.get("frames")) is int and 0 < stream["frames"] <= MAX_FRAMES, f"Missing bounded incremental PCM: {label}")
+    check_caption_publication(stream.get("caption_publication"), stream["frames"], f"{label}.caption_publication")
     require(type(stream.get("emitted_chunks")) is int and 0 < stream["emitted_chunks"] <= 4096, f"Missing bounded incremental chunks: {label}")
     require(type(stream.get("first_pcm_ms")) is int and 0 <= stream["first_pcm_ms"] <= 300_000, f"Missing bounded incremental timing: {label}")
 

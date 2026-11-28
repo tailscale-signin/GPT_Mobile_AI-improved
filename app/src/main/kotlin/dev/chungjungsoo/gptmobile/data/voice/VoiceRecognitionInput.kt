@@ -9,6 +9,12 @@ internal interface VoiceRecognitionInput {
     fun finishListening() = Unit
     fun configureVocabulary(words: List<String>) = Unit
     fun stop()
+
+    /** Asynchronous recorders must confirm microphone release, or finish false after a bounded wait. */
+    fun stopCapture(released: (Boolean) -> Unit) {
+        stop()
+        released(true)
+    }
     fun close()
 }
 

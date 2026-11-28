@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
+import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
@@ -15,6 +16,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePlaybackSelectionTest {
+    @Test fun firstAutomaticTranslationWarmsItsSharedModelWithoutAcceptingADirection() {
+        val pair = VoiceTranslationPair()
+        val french = factory("multilingual-estelle")
+        val cache = VoiceTranslationFactoryCache(factories = mapOf("fr-FR:estelle" to french))
+        for (phase in listOf(VoicePhase.PAUSED, VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING)) {
+            assertSame(french, selectTranslationPreparationFactory(true, pair, cache, null, phase, false))
+        }
+        assertNull("Preparation must not resolve an unknown source", pair.resolve(null))
+        val ordinary = factory("ordinary")
+        val selected = selectVoicePlayback(ordinary, requireNotNull(MediaPipeSpeechVoices.forVoice("alba")), null)
+        assertSame(ordinary, selected.factory)
+        assertFalse("Preparation is not an accepted local reply", selected.requireLocalOutput)
+    }
+
+    @Test fun explicitFrenchSourcePreparesTheMatchingEnglishVoice() {
+        val english = factory("multilingual-azelma")
+        val cache = VoiceTranslationFactoryCache(factories = mapOf("en-US:azelma" to english, "fr-FR:estelle" to factory("french")))
+        assertSame(english, selectTranslationPreparationFactory(true, VoiceTranslationPair(sourceLanguage = "fr-FR"), cache, null, VoicePhase.LISTENING, false))
+    }
+
+    @Test fun preparationNeverReplacesAnAcceptedOrActiveOutput() {
+        val pair = VoiceTranslationPair()
+        val cache = VoiceTranslationFactoryCache(factories = mapOf("fr-FR:estelle" to factory("prepared-french")))
+        val accepted = VoiceTranslationPlayback(VoiceTranslationTarget("fr-FR", "en-US", "azelma"), factory("accepted-english"))
+        for (phase in VoicePhase.entries) {
+            assertNull(selectTranslationPreparationFactory(true, pair, cache, accepted, phase, false))
+            assertNull(selectTranslationPreparationFactory(true, pair, cache, null, phase, true))
+        }
+        for (phase in listOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.THINKING, VoicePhase.ERROR, VoicePhase.CLOSED)) {
+            assertNull(selectTranslationPreparationFactory(true, pair, cache, null, phase, false))
+        }
+    }
+
+    @Test fun absentOrInvalidTranslationPreparationDoesNotSelectAnotherModel() {
+        val pair = VoiceTranslationPair()
+        val cache = VoiceTranslationFactoryCache(factories = mapOf("fr-FR:estelle" to factory("prepared-french")))
+        assertNull(selectTranslationPreparationFactory(false, pair, cache, null, VoicePhase.LISTENING, false))
+        assertNull(selectTranslationPreparationFactory(true, pair.copy(translationLanguage = "en-US"), cache, null, VoicePhase.LISTENING, false))
+        assertNull(selectTranslationPreparationFactory(true, pair, cache.cleared(), null, VoicePhase.LISTENING, false))
+        assertNull(selectTranslationPreparationFactory(true, pair.copy(sourceLanguage = "fr-FR"), cache, null, VoicePhase.LISTENING, false))
+    }
+
     @Test fun retainedFrenchOutputSurvivesDefaultAndRestoredOrdinarySettingsTogether() {
         val translated = factory("multilingual-estelle")
         val retained = VoiceTranslationPlayback(VoiceTranslationTarget("en-US", "fr-FR", "estelle"), translated)

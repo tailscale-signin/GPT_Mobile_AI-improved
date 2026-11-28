@@ -8,6 +8,8 @@ import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
+import com.google.mediapipe.tasks.audio.texttospeech.AudioChunk
+import com.google.mediapipe.tasks.audio.texttospeech.WordTimestamp
 import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import io.mockk.Called
 import io.mockk.every
@@ -282,6 +284,156 @@ class KokoroStreamingOutputTest {
                 }
                 assertTrue(failures.isEmpty())
             }
+        }
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun translationVoiceSelectionReusesTheOpeningMultilingualModel() {
+        assertTranslationPreparationHandoff(changeModel = false, userStops = false)
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun userStopCancelsTheOriginalFactoryAfterTranslationVoiceSelection() {
+        assertTranslationPreparationHandoff(changeModel = false, userStops = true)
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun aDifferentTranslationModelCancelsTheOldPreparationBeforeOpeningAnother() {
+        assertTranslationPreparationHandoff(changeModel = true, userStops = false)
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun compiledPocketPreparationFailureKeepsTheRequestedGraphAndNeverMasqueradesAsFallbackSpeech() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java))).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        for (backend in listOf(VoiceSpeechBackend.POCKET_GPU, VoiceSpeechBackend.POCKET_NPU)) {
+            val models = mockk<LocalVoiceModelStore>()
+            val nativeFailure = IllegalStateException("Unpublished native driver detail")
+            val preparationFailure = PocketCompiledPreparationFailure(backend, PocketCompiledPreparationGraph.LANGUAGE_MODEL, nativeFailure)
+            val result = AtomicReference<Pair<VoicePlaybackFailure, Boolean>>()
+            val finished = CountDownLatch(1)
+            val factory = object : VoicePhraseEngineFactory {
+                override val identity = "preparation-failure:${backend.name}"
+                override val selectedBackend = backend
+                override val requiresKokoroAssets = false
+                override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine = throw preparationFailure
+            }
+            val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build() }, { 1f })
+            PausePcmTrack.writes.clear()
+            try {
+                output.configureEngine(factory)
+                output.speakWithFailure("Hello.", KokoroVoice.HEART, { error("A failed accelerator preparation cannot complete speech") }, { failure, canFallback ->
+                    result.set(failure to canFallback)
+                    finished.countDown()
+                })
+                awaitMain(finished)
+                assertEquals(0L, finished.count)
+                val (failure, canFallback) = requireNotNull(result.get())
+                assertEquals("ENGINE_FAILED", failure.code)
+                assertEquals(VoicePlaybackFailureStage.PREPARATION, failure.stage)
+                assertEquals(backend.name, failure.requestedBackend)
+                assertEquals(null, failure.sourceProvider)
+                assertTrue(failure.cause === preparationFailure)
+                assertTrue(failure.cause?.cause === nativeFailure)
+                assertTrue(failure.message.contains(if (backend == VoiceSpeechBackend.POCKET_GPU) "Pocket GPU" else "Pocket NPU"))
+                assertTrue(failure.message.contains("language model"))
+                assertFalse(failure.message.contains("Unpublished native driver detail"))
+                assertFalse(canFallback)
+                assertTrue(PausePcmTrack.writes.isEmpty())
+                verify { models wasNot Called }
+            } finally {
+                output.close()
+                output.awaitClosed(1_000)
+                ShadowAudioTrack.resetTest()
+                PausePcmTrack.writes.clear()
+            }
+        }
+    }
+
+    private fun assertTranslationPreparationHandoff(changeModel: Boolean, userStops: Boolean) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java))).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        val models = mockk<LocalVoiceModelStore>()
+        val loading = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val loads = AtomicInteger()
+        val cancelledDuringLoad = AtomicBoolean()
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val spokenVoices = CopyOnWriteArrayList<String>()
+        fun factory(voiceId: String, resident: String) = object : VoicePhraseEngineFactory {
+            override val identity = "$resident:$voiceId"
+            override val residentIdentity = resident
+            override val selectedBackend = VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU
+            override val requiresKokoroAssets = false
+            override fun cancelPending() {
+                if (voiceId == "azelma" && loading.count == 0L && release.count > 0L) cancelledDuringLoad.set(true)
+            }
+            override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+                if (loads.incrementAndGet() == 1) {
+                    loading.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                    if (cancelledDuringLoad.get()) throw java.util.concurrent.CancellationException("Original preparation was cancelled")
+                }
+                return object : VoicePhraseEngine {
+                    private var selectedVoice = voiceId
+                    override val supportsStreaming = true
+                    override fun selectVoice(voiceId: String) {
+                        selectedVoice = voiceId
+                    }
+                    override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                        spokenVoices += selectedVoice
+                        emit(VoicePcmChunk(FloatArray(2_400) { .1f }))
+                    }
+                    override fun resetCancellation() = Unit
+                    override fun cancel() = Unit
+                    override fun close() = Unit
+                }
+            }
+            override fun prepareForPlayback(engine: VoicePhraseEngine) = engine.selectVoice(voiceId)
+        }
+        val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build() }, { 1f })
+        PausePcmTrack.writes.clear()
+        try {
+            output.configureEngine(factory("azelma", "multilingual-original"))
+            output.prewarm(KokoroVoice.HEART)
+            awaitMain(loading)
+            assertEquals(0L, loading.count)
+            output.configureEngine(factory("estelle", if (changeModel) "multilingual-replacement" else "multilingual-original"))
+            assertEquals("Only a different resident model cancels the original construction", changeModel, cancelledDuringLoad.get())
+            output.speakWithFailure("Bonjour.", KokoroVoice.HEART, { finished.countDown() }, { failure, _ ->
+                failures += failure
+                finished.countDown()
+            })
+            assertEquals(changeModel, cancelledDuringLoad.get())
+            if (userStops) {
+                output.stop("user_stop")
+                assertTrue("Stop must still reach the factory that owns the opening model", cancelledDuringLoad.get())
+            }
+            release.countDown()
+            if (userStops) {
+                output.close()
+                assertTrue(output.awaitClosed(1_000))
+                assertTrue(spokenVoices.isEmpty())
+                assertTrue(PausePcmTrack.writes.isEmpty())
+            } else {
+                awaitMain(finished, advancePlaybackClock = true)
+                assertEquals(0L, finished.count)
+                assertEquals(listOf("estelle"), spokenVoices)
+                assertEquals(if (changeModel) 2 else 1, loads.get())
+            }
+            assertTrue("Playback failures: ${failures.map { it.code }}", failures.isEmpty())
+            verify { models wasNot Called }
+        } finally {
+            release.countDown()
+            output.close()
+            output.awaitClosed(1_000)
+            ShadowAudioTrack.resetTest()
+            PausePcmTrack.writes.clear()
         }
     }
 
@@ -703,6 +855,18 @@ class KokoroStreamingOutputTest {
     @Config(shadows = [PausePcmTrack::class])
     fun mediaPipeCaptionStartsWhileTheProducerStillOwnsTheRestOfTheWord() {
         VoicePauseDuration.entries.forEach { assertCaptionBeforeWordCompletes(requiresKokoroAssets = false, it) }
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun pocketCaptionsReachThePresentedClockWhenTimingArrivesAfterItsPcm() {
+        assertDelayedPocketCaption(incremental = false)
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun incrementalPocketCaptionsReachThePresentedClockWhenTimingArrivesAfterItsPcm() {
+        assertDelayedPocketCaption(incremental = true)
     }
 
     @Test
@@ -1153,6 +1317,92 @@ class KokoroStreamingOutputTest {
                 observations
             )
             assertEquals(if (pause == VoicePauseDuration.NATURAL) 125L else 0L, output.synthesisFeedback.value.generatedAudioMs)
+        }
+    }
+
+    private fun assertDelayedPocketCaption(incremental: Boolean) {
+        val inputReady = CountDownLatch(if (incremental) 1 else 0)
+        val timingRequested = CountDownLatch(1)
+        val releaseTiming = CountDownLatch(1)
+        val releaseFinish = CountDownLatch(1)
+        val caption = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val queuedPackets = AtomicInteger()
+        val reads = AtomicInteger()
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val timings = CopyOnWriteArrayList<Pair<IntRange, VoiceCaptionTiming>>()
+        val stream = object : MediaPipeSpeechStream {
+            override fun readNext(): AudioChunk? = when (reads.incrementAndGet()) {
+                1 -> {
+                    check(inputReady.await(10, TimeUnit.SECONDS))
+                    AudioChunk(FloatArray(4_800) { .1f })
+                }
+                2 -> {
+                    timingRequested.countDown()
+                    check(releaseTiming.await(10, TimeUnit.SECONDS))
+                    AudioChunk(FloatArray(0), chunkIndex = 1, wordTimestamps = listOf(WordTimestamp("hello", 0, 5, 0f, .2f)))
+                }
+                else -> {
+                    check(releaseFinish.await(10, TimeUnit.SECONDS))
+                    null
+                }
+            }
+            override fun pushText(text: String) {
+                check(text == "hello.")
+                inputReady.countDown()
+            }
+            override fun finishInput() = Unit
+            override fun cancel() {
+                releaseTiming.countDown()
+                releaseFinish.countDown()
+            }
+            override fun close() = Unit
+        }
+        val task = object : MediaPipeSpeechTask {
+            override fun voiceIds() = setOf("azelma")
+            override fun openStream(text: String, voiceId: String) = stream
+            override fun openIncrementalStream(voiceId: String) = stream
+            override fun cancel() = stream.cancel()
+            override fun close() = Unit
+        }
+        val engine = MediaPipeVoicePhraseEngine(task, AutoCloseable {}, VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU, 1f, "azelma", supportsIncrementalInput = incremental)
+        val observer = object : VoicePlaybackMeasurementObserver {
+            override fun pcmQueued() {
+                queuedPackets.incrementAndGet()
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, observer) { output ->
+            output.bindTimedSpokenRange { _, _, range, timing ->
+                timings += range to timing
+                if (!range.isEmpty()) caption.countDown()
+            }
+            try {
+                output.speakWithFailure("hello.", KokoroVoice.HEART, { finished.countDown() }, { failure, _ ->
+                    failures += failure
+                    finished.countDown()
+                })
+                awaitMain(timingRequested)
+                assertEquals(0L, timingRequested.count)
+                assertEquals("Untimed Pocket PCM must wait for its bounded caption metadata", 0, queuedPackets.get())
+                assertTrue(PausePcmTrack.writes.isEmpty())
+                releaseTiming.countDown()
+                awaitMain(caption)
+                assertEquals("Late metadata must produce a live caption while the native stream is still open", 0L, caption.count)
+                val first = timings.first { !it.first.isEmpty() }
+                assertEquals(0..4, first.first)
+                assertEquals(0L, first.second.wordStartFrame)
+                assertEquals(4_800L, first.second.wordEndFrame)
+                assertEquals(VoiceWordCueProvenance.ESTIMATED, first.second.cueProvenance)
+                assertTrue(first.second.presentedFrame in 1L until first.second.wordEndFrame)
+                assertEquals(1L, finished.count)
+            } finally {
+                releaseTiming.countDown()
+                releaseFinish.countDown()
+            }
+            awaitMain(finished, advancePlaybackClock = true)
+            assertEquals(0L, finished.count)
+            assertTrue("Playback failures: ${failures.map { it.code }}", failures.isEmpty())
+            assertEquals(4_800, PausePcmTrack.writes.sumOf { it.size })
         }
     }
 

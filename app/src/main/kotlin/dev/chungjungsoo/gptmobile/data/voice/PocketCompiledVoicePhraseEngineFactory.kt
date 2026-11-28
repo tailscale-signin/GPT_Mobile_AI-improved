@@ -63,7 +63,9 @@ internal class PocketCompiledVoicePhraseEngineFactory(
             checkActive()
             val acquired = modelStore.acquire().also { lease = it }
             val opened = PocketCompiledRuntime.open(application, acquired.directory, backend, threads, checkActive).also { runtime = it }
-            val synth = PocketCompiledSynthesizer(acquired.directory, opened.languageModel, opened.transformer, opened.vocoder, checkActive).also { synthesizer = it }
+            val synth = preparePocketCompiledGraph(backend, PocketCompiledPreparationGraph.HOST_ASSETS) {
+                PocketCompiledSynthesizer(acquired.directory, opened.languageModel, opened.transformer, opened.vocoder, checkActive)
+            }.also { synthesizer = it }
             checkActive()
             val session = object : PocketCompiledSession {
                 override val tokenCount get() = synth.tokenCount

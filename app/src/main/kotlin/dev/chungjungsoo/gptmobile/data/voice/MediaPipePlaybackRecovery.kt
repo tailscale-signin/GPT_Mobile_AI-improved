@@ -22,6 +22,7 @@ internal class MediaPipePlaybackRecovery(
     private var retirementFailed = false
     private var cpuNeeded = false
     private var preparingCpu = false
+    private var captionAlignmentEnabled = false
 
     override val supportsStreaming = true
     override val supportsIncrementalInput = initial.supportsIncrementalInput
@@ -55,6 +56,12 @@ internal class MediaPipePlaybackRecovery(
             current?.selectVoice(voiceId, sameLanguageFallback = true)
             voice = voiceId
         }
+    }
+
+    override fun setCaptionAlignmentEnabled(enabled: Boolean) = synchronized(operations) {
+        synchronized(state) { checkActive() }
+        current?.setCaptionAlignmentEnabled(enabled)
+        captionAlignmentEnabled = enabled
     }
 
     override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
@@ -134,6 +141,7 @@ internal class MediaPipePlaybackRecovery(
             synchronized(state) { preparingCpu = false }
         }
         try {
+            replacement.setCaptionAlignmentEnabled(captionAlignmentEnabled)
             synchronized(state) {
                 checkActive()
                 current = replacement

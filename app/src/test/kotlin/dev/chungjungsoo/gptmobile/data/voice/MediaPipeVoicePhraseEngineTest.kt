@@ -17,6 +17,197 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaPipeVoicePhraseEngineTest {
+    @Test fun aTimedWordDoesNotReleaseTheFollowingAudioBeforeItsOwnMetadataArrives() {
+        var reads = 0
+        var emittedFrames = 0
+        val spoken = mutableListOf<VoiceWordCue>()
+        val stream = TestStream {
+            when (++reads) {
+                1 -> AudioChunk(FloatArray(9_600) { .2f }, wordTimestamps = listOf(WordTimestamp("one", 0, 3, 0f, .2f)))
+                2 -> {
+                    assertEquals(4_800, emittedFrames)
+                    assertEquals(0, spoken.single().startByte)
+                    AudioChunk(FloatArray(0), chunkIndex = 1, isFinal = true, wordTimestamps = listOf(WordTimestamp("two", 4, 7, .2f, .4f)))
+                }
+                else -> null
+            }
+        }
+        val frames = VoiceStreamFrames("one two")
+        engine(TestTask { stream }).use { engine ->
+            engine.setCaptionAlignmentEnabled(true)
+            engine.stream("one two", 0, 1f) { chunk ->
+                frames.accept(chunk)
+                spoken += chunk.wordCues
+                emittedFrames += chunk.samples.size
+                true
+            }
+        }
+        frames.finish()
+        assertEquals(9_600, emittedFrames)
+        assertEquals(listOf(0, 4), spoken.map { it.startByte })
+        assertEquals(listOf(4_800L, 9_600L), spoken.map { it.endFrame })
+    }
+
+    @Test fun trailingCaptionMetadataUsesTheSamePitchPreservingTempoTimelineAsItsPcm() {
+        for (speed in listOf(.5f, 1.5f, 2f)) {
+            var reads = 0
+            val stream = TestStream {
+                when (++reads) {
+                    1 -> AudioChunk(FloatArray(4_800) { (.5 * kotlin.math.sin(2 * Math.PI * 160 * it / VOICE_PCM_SAMPLE_RATE)).toFloat() })
+                    2 -> AudioChunk(FloatArray(0), chunkIndex = 1, isFinal = true, wordTimestamps = listOf(WordTimestamp("word", 0, 4, 0f, .2f)))
+                    else -> null
+                }
+            }
+            val frames = VoiceStreamFrames("word")
+            val captions = VoicePcmCaptions()
+            engine(TestTask { stream }).use { engine ->
+                engine.setCaptionAlignmentEnabled(true)
+                engine.stream("word", 0, speed) { chunk ->
+                    captions.appendStream(0, "word", 0, frames.accept(chunk), chunk.samples.size)
+                    true
+                }
+            }
+            frames.finish()
+            assertEquals((4_800 / speed).toLong(), frames.frames)
+            assertEquals(0..3, captions.consumed(frames.frames / 2)?.range)
+            assertEquals(IntRange.EMPTY, captions.consumed(frames.frames)?.range)
+        }
+    }
+
+    @Test fun captionPreferenceSurvivesAcceleratorRecoveryAndCanBeDisabledForTheNextPlayback() {
+        val accelerator = MediaPipeVoicePhraseEngine(
+            TestTask { TestStream { error("Delegate unavailable") } },
+            AutoCloseable {},
+            VoiceSpeechBackend.LITERT_KOKORO_GPU,
+            1f,
+            "freya",
+            allowDelegateRecovery = true
+        )
+        var reads = 0
+        var callbacks = 0
+        val cpu = MediaPipeVoicePhraseEngine(
+            TestTask {
+                reads = 0
+                TestStream {
+                    when (++reads) {
+                        1 -> AudioChunk(FloatArray(4_800) { .2f })
+                        2 -> AudioChunk(FloatArray(0), chunkIndex = 1, isFinal = true, wordTimestamps = listOf(WordTimestamp("word", 0, 4, 0f, .2f)))
+                        else -> null
+                    }
+                }
+            },
+            AutoCloseable {},
+            VoiceSpeechBackend.LITERT_KOKORO_CPU,
+            1f,
+            "freya"
+        )
+        MediaPipePlaybackRecovery(accelerator, "freya", {}, { cpu }, {}).use { recovery ->
+            recovery.setCaptionAlignmentEnabled(true)
+            recovery.stream("word", 0, 1f) {
+                assertEquals(2, reads)
+                callbacks++
+                true
+            }
+            assertEquals(1, callbacks)
+            recovery.resetCancellation()
+            recovery.setCaptionAlignmentEnabled(false)
+            callbacks = 0
+            recovery.stream("word", 0, 1f) {
+                if (callbacks++ == 0) assertEquals(1, reads)
+                true
+            }
+        }
+    }
+
+    @Test fun enabledCaptionsHoldAudioUntilTheSdkReturnsItsTrailingTiming() {
+        var reads = 0
+        val emitted = mutableListOf<VoicePcmChunk>()
+        val stream = TestStream {
+            when (++reads) {
+                1 -> AudioChunk(FloatArray(4_800) { .2f })
+                2 -> {
+                    assertTrue("Audio must wait for the next packet's timing", emitted.isEmpty())
+                    AudioChunk(FloatArray(0), chunkIndex = 1, isFinal = true, wordTimestamps = listOf(WordTimestamp("word", 0, 4, 0f, .2f)))
+                }
+                else -> null
+            }
+        }
+        val frames = VoiceStreamFrames("word")
+        val captions = VoicePcmCaptions()
+        engine(TestTask { stream }).use { engine ->
+            engine.setCaptionAlignmentEnabled(true)
+            engine.stream("word", 0, 1f) { chunk ->
+                assertEquals(2, reads)
+                captions.appendStream(0, "word", 0, frames.accept(chunk), chunk.samples.size)
+                emitted += chunk
+                true
+            }
+        }
+        frames.finish()
+        assertEquals(4_800, emitted.sumOf { it.samples.size })
+        assertEquals(0..3, captions.consumed(1_200)?.range)
+        assertEquals(IntRange.EMPTY, captions.consumed(4_800)?.range)
+        assertEquals(VoiceWordCueProvenance.ESTIMATED, emitted.single().wordCues.single().provenance)
+    }
+
+    @Test fun captionsWithoutSdkTimingKeepAudioIntactAndMakeProgressAtTheRetentionBound() {
+        val sampleCount = MediaPipeCaptionBuffer.MAX_BUFFERED_FRAMES + 1
+        var reads = 0
+        var emittedFrames = 0
+        val stream = TestStream {
+            if (++reads == 1) AudioChunk(FloatArray(sampleCount) { .2f }, isFinal = true) else null
+        }
+        engine(TestTask { stream }).use { engine ->
+            engine.setCaptionAlignmentEnabled(true)
+            engine.stream("word", 0, 1f) { chunk ->
+                if (emittedFrames == 0) assertEquals(1, reads)
+                assertTrue(chunk.wordCues.isEmpty())
+                assertTrue(chunk.samples.all { it == .2f })
+                emittedFrames += chunk.samples.size
+                true
+            }
+        }
+        assertEquals(sampleCount, emittedFrames)
+    }
+
+    @Test fun cancellationDiscardsCaptionAudioWaitingForAnSdkTimestamp() {
+        val waitingForTiming = CountDownLatch(1)
+        val cancelled = CountDownLatch(1)
+        var reads = 0
+        val stream = object : MediaPipeSpeechStream {
+            override fun readNext(): AudioChunk? {
+                if (++reads == 1) return AudioChunk(FloatArray(4_800) { .2f })
+                waitingForTiming.countDown()
+                check(cancelled.await(3, TimeUnit.SECONDS))
+                throw CancellationException("Native stream cancelled")
+            }
+            override fun cancel() = cancelled.countDown()
+            override fun close() = Unit
+        }
+        val engine = engine(TestTask { stream })
+        engine.setCaptionAlignmentEnabled(true)
+        val worker = Executors.newSingleThreadExecutor()
+        val emitted = AtomicInteger()
+        try {
+            val operation = worker.submit<Throwable?> {
+                runCatching {
+                    engine.stream("word", 0, 1f) {
+                        emitted.incrementAndGet()
+                        true
+                    }
+                }.exceptionOrNull()
+            }
+            assertTrue(waitingForTiming.await(3, TimeUnit.SECONDS))
+            engine.cancel()
+            assertTrue(operation.get(3, TimeUnit.SECONDS) is CancellationException)
+            assertEquals(0, emitted.get())
+            engine.close()
+        } finally {
+            cancelled.countDown()
+            worker.shutdownNow()
+        }
+    }
+
     @Test fun firstOwnedChunkIsEmittedBeforeTheNextNativeRead() {
         val first = floatArrayOf(.1f, .2f)
         var reads = 0
@@ -98,6 +289,7 @@ class MediaPipeVoicePhraseEngineTest {
         )
         val source = VoiceStreamFrames("word", cueLimit = 1)
         val stream = VoiceStreamPause(source, VoiceQuietLimiter(VOICE_PCM_SAMPLE_RATE, 100))
+        engine.setCaptionAlignmentEnabled(true)
         engine.stream("word", 0, 1f) { chunk ->
             val packet = stream.accept(chunk)
             captions.appendStream(0, "word", 0, packet.cues, packet.samples.size)

@@ -27,6 +27,10 @@ internal class MediaPipeWordCueMapper(
 
     fun appendText(text: String) = boundaries.append(text)
 
+    /** Validated SDK metadata may precede the PCM released by the caption buffer. */
+    val timestampedThroughFrame: Long
+        get() = maxOf(lastEndFrame, pending.values.maxOfOrNull { it.endFrame } ?: 0L)
+
     fun accept(timestamps: List<WordTimestamp>, availableFrames: Long): List<VoiceWordCue> {
         require(availableFrames in 0..frameLimit)
         retireHistory(availableFrames)

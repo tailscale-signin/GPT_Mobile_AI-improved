@@ -8,6 +8,8 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -18,6 +20,31 @@ import org.mockito.Mockito.withSettings
 
 class VoiceRecognitionControllerTest {
     @get:Rule val files = TemporaryFolder()
+
+    @Test
+    fun captureHandoffAlsoWaitsForTheRecognizerRetiredByASelectionChange() {
+        val fixture = Fixture(files.newFolder(), permissionAllowed = true)
+        try {
+            // Cancel the queued capture before any injected/native decoder starts.
+            fixture.controller.listen(fixture.listener)
+            assertTrue(fixture.permissionChecks > 0)
+            fixture.controller.configure(VoiceRecognitionConfiguration(VoiceRecognitionModel.MOONSHINE_SMALL))
+            var released: Boolean? = null
+            fixture.controller.stopCapture { released = it }
+            assertNull(released)
+            assertFalse(VoiceMicrophoneLease.acquire("retired-controller-capture"))
+            fixture.drain()
+            assertNull(released)
+            fixture.captureChecks.removeFirst().invoke()
+            assertEquals(true, released)
+            assertTrue(fixture.captureChecks.isEmpty())
+            assertTrue(VoiceMicrophoneLease.acquire("retired-controller-capture"))
+            assertEquals(0, fixture.created)
+        } finally {
+            fixture.close()
+            VoiceMicrophoneLease.release("retired-controller-capture")
+        }
+    }
 
     @Test
     fun selectionChangeWhileReleaseIsPendingCannotAcknowledgeTheOldRequest() {
@@ -92,8 +119,9 @@ class VoiceRecognitionControllerTest {
         }
     }
 
-    private class Fixture(directory: File) {
+    private class Fixture(directory: File, permissionAllowed: Boolean = false) {
         val checks = ArrayDeque<() -> Unit>()
+        val captureChecks = ArrayDeque<() -> Unit>()
         private val callbacks = ArrayDeque<() -> Unit>()
         private val workers = mutableListOf<ManualWorker>()
         val failures = mutableListOf<String>()
@@ -129,10 +157,14 @@ class VoiceRecognitionControllerTest {
                     },
                     hasPermission = {
                         permissionChecks++
-                        false
+                        permissionAllowed
                     },
                     post = { callbacks.addLast(it) },
-                    schedule = { _, _ -> {} },
+                    schedule = { _, action ->
+                        captureChecks.addLast(action)
+                        val cancel: () -> Unit = { captureChecks.remove(action) }
+                        cancel
+                    },
                     decoderFactory = {
                         created++
                         object : LocalSpeechDecoder {

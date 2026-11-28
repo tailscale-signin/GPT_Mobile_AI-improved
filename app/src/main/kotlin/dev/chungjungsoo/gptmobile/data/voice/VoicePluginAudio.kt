@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -260,12 +261,27 @@ internal class VoicePluginAudio(
                     local.listenWithFeedback(listener, feedback)
                 }
                 VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> {
-                    local.stop()
                     system.listenWithFeedback(listener, feedback)
                 }
             }
         }
-        if (interruption == null) startRecognition() else interruption.afterInterruptionStopped(::startRecognition)
+        fun releaseCapture() {
+            if (closed || playbackGeneration != ticket) return
+            val completed = AtomicBoolean()
+            local.stopCapture { released ->
+                if (closed || playbackGeneration != ticket || !completed.compareAndSet(false, true)) return@stopCapture
+                if (released) {
+                    startRecognition()
+                } else {
+                    listener.failure(
+                        "The previous microphone session has not finished releasing. Your words are kept; wait before retrying or reopen Voice.",
+                        "VOICE_MICROPHONE_BUSY",
+                        cause = LocalVoiceCaptureException("Microphone release was not confirmed", "MICROPHONE_RELEASE_TIMEOUT", "capture_release")
+                    )
+                }
+            }
+        }
+        if (interruption == null) releaseCapture() else interruption.afterInterruptionStopped(::releaseCapture)
     }
 
     override fun finishListening() {

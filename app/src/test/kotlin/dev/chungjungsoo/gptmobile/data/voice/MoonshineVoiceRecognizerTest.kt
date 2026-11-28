@@ -433,6 +433,76 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun microphoneHandoffWaitsForCleanupAndDoesNotConfuseStopWithRelease() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val decoder = FakeDecoder {
+            entered.countDown()
+            assertTrue(resume.await(3, TimeUnit.SECONDS))
+        }
+        val fixture = Fixture(decoder)
+        val released = mutableListOf<Boolean>()
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(fixture.capture.started.await(3, TimeUnit.SECONDS))
+            fixture.capture.chunks.add(FloatArray(1600))
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            fixture.audio.stopCapture(released::add)
+            assertTrue(released.isEmpty())
+            assertFalse(VoiceMicrophoneLease.acquire("handoff-test"))
+            resume.countDown()
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.deadlines.single { it.first == 100L }.second()
+            assertEquals(listOf(true), released)
+            assertTrue(VoiceMicrophoneLease.acquire("handoff-test"))
+            assertTrue(fixture.capture.closed)
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            resume.countDown()
+            fixture.close()
+            VoiceMicrophoneLease.release("handoff-test")
+        }
+    }
+
+    @Test fun timedOutMicrophoneHandoffDoesNotReleaseUnconfirmedOwnership() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val decoder = FakeDecoder {
+            entered.countDown()
+            assertTrue(resume.await(3, TimeUnit.SECONDS))
+        }
+        val fixture = Fixture(decoder)
+        val released = mutableListOf<Boolean>()
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(fixture.capture.started.await(3, TimeUnit.SECONDS))
+            fixture.capture.chunks.add(FloatArray(1600))
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            assertTrue(fixture.timersReady.await(3, TimeUnit.SECONDS))
+            fixture.deadlines.clear()
+            fixture.audio.stopCapture(released::add)
+            repeat(80) {
+                val timer = requireNotNull(fixture.deadlines.poll())
+                assertEquals(100L, timer.first)
+                timer.second()
+            }
+            assertEquals(listOf(false), released)
+            assertTrue(fixture.deadlines.isEmpty())
+            assertFalse(VoiceMicrophoneLease.acquire("timed-out-handoff-test"))
+            resume.countDown()
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.audio.stopCapture(released::add)
+            assertEquals(listOf(false, true), released)
+            assertTrue(VoiceMicrophoneLease.acquire("timed-out-handoff-test"))
+        } finally {
+            resume.countDown()
+            fixture.close()
+            VoiceMicrophoneLease.release("timed-out-handoff-test")
+        }
+    }
+
     @Test fun missingModelDoesNotCreateDecoderOpenMicrophoneOrDownload() {
         val fixture = Fixture(FakeDecoder(), modelsPresent = false)
         try {

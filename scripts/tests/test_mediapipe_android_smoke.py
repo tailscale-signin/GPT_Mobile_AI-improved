@@ -28,6 +28,14 @@ def word_coverage(words=12):
     }
 
 
+def caption_publication(frames=72000, words=12):
+    return {
+        "measurement_scope": "SDK_PACKET_PUBLICATION_ONLY", "caption_staging_enabled": True,
+        "first_cue_count": words, "first_cues_before_pcm": True, "pcm_frames": frames,
+        "acoustic_alignment": "NOT_MEASURED",
+    }
+
+
 def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU"):
     model = smoke.MODELS[engine]
     receipt = {
@@ -45,6 +53,8 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
         "utf8_estimated_cue_observed": True,
         "caption_word_coverage": word_coverage(),
         "recovered_caption_word_coverage": word_coverage(),
+        "caption_publication": caption_publication(),
+        "recovered_caption_publication": caption_publication(),
         "abis": abi,
         "frames": 72000,
         "recovered_frames": 72000,
@@ -69,6 +79,7 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
             "voice_id": "ff_siwis", "frames": 12000, "first_pcm_ms": 120, "rms": .1,
             "peak": .8, "clipped_samples": 0, "non_silent_samples": 11600,
             "caption_word_coverage": word_coverage(8),
+            "caption_publication": caption_publication(12000, 8),
         }
         receipt["application_playback"] = {
             "requested_delegate": delegate, "kernel_placement": "unreported_by_task",
@@ -83,6 +94,7 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
             "voice_id": "estelle", "frames": 12000, "first_pcm_ms": 120, "rms": .1,
             "peak": .8, "clipped_samples": 0, "non_silent_samples": 11600,
             "caption_word_coverage": word_coverage(8),
+            "caption_publication": caption_publication(12000, 8),
         }
     return receipt
 
@@ -94,6 +106,7 @@ def incremental_receipt():
         "text_delta_count": 2, "finish_input_calls": 1,
         "first_pcm_before_finish_input": True, "full_input_cues_observed": True,
         "caption_word_coverage": word_coverage(),
+        "caption_publication": caption_publication(),
         "stream_closed": True, "frames": 72000, "emitted_chunks": 3, "first_pcm_ms": 200,
     }
 
@@ -134,6 +147,28 @@ def fixture(directory, engine="phonon", source=SOURCE, abi="x86_64", delegate="C
 
 
 class MediaPipeAndroidReceiptTest(unittest.TestCase):
+    def test_enabled_captions_require_first_metadata_before_its_pcm_without_acoustic_claims(self):
+        receipt = native_receipt("pocket")
+        for label in ("caption_publication", "recovered_caption_publication"):
+            missing = dict(receipt)
+            del missing[label]
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "Missing enabled caption"):
+                smoke.check_receipt(missing, "pocket", RUN_ID)
+            for field, value in (("caption_staging_enabled", False), ("first_cues_before_pcm", False),
+                                 ("pcm_frames", 1), ("acoustic_alignment", "VERIFIED"),
+                                 ("first_cue_count", 0), ("first_cue_count", True)):
+                changed = receipt | {label: receipt[label] | {field: value}}
+                with self.subTest(label=label, field=field, value=value), self.assertRaises(ValueError):
+                    smoke.check_receipt(changed, "pocket", RUN_ID)
+        for label in ("incremental_stream", "incremental_stream_after_cancellation"):
+            changed = receipt | {label: receipt[label] | {"caption_publication": None}}
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "Missing enabled caption"):
+                smoke.check_receipt(changed, "pocket", RUN_ID)
+        multilingual = native_receipt("pocket-multilingual")
+        changed = multilingual | {"french_preview": multilingual["french_preview"] | {"caption_publication": None}}
+        with self.assertRaisesRegex(ValueError, "Missing enabled caption"):
+            smoke.check_receipt(changed, "pocket-multilingual", RUN_ID)
+
     def test_first_and_last_cues_cannot_qualify_missing_middle_or_grouped_words(self):
         receipt = native_receipt("pocket")
         for key in ("caption_word_coverage", "recovered_caption_word_coverage"):

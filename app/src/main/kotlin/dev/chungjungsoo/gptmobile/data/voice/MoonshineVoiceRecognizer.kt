@@ -108,6 +108,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
     @Volatile private var retirementFailure: Throwable? = null
     private val modelEpoch = AtomicLong()
     private val prewarmQueued = AtomicBoolean()
+    private val pendingCaptureReleases = AtomicInteger()
     val retirementUnconfirmed: Boolean get() = retirementFailure != null
     val isRetired: Boolean get() = closed && worker.isTerminated && retirementFailure == null && retainedDecoder == null
     fun awaitClosed(timeoutMs: Long): Boolean = closed && worker.awaitTermination(timeoutMs.coerceAtLeast(0), TimeUnit.MILLISECONDS) && isRetired
@@ -256,6 +257,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             listener.failure("The previous voice session is releasing the microphone. Try again shortly.", "VOICE_MICROPHONE_BUSY", retryMillis = 500, retryable = true)
             return
         }
+        pendingCaptureReleases.incrementAndGet()
         active = run
         observeExecution(emptyMap())
         engineEvent(run, "queued")
@@ -264,6 +266,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         } catch (failure: java.util.concurrent.RejectedExecutionException) {
             active = null
             VoiceMicrophoneLease.release(run.lease)
+            pendingCaptureReleases.decrementAndGet()
             listener.failure("Local speech has closed. Reopen Voice to continue.", "VOICE_RECOGNIZER_UNAVAILABLE", cause = failure)
         }
     }
@@ -476,6 +479,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 queued.recycle(queued.samples)
             }
             VoiceMicrophoneLease.release(run.lease)
+            pendingCaptureReleases.decrementAndGet()
             if (!run.finalQueued.get()) {
                 deliver(run) {
                     active = null
@@ -739,6 +743,21 @@ internal class MoonshineVoiceRecognizer internal constructor(
         run.cancelSilenceDeadline?.invoke()
         run.cancelTurnDeadline?.invoke()
         // The lease remains held until the worker finishes native cleanup; no overlapping mic starts.
+    }
+
+    override fun stopCapture(released: (Boolean) -> Unit) {
+        stop()
+        // stop() is only a cancellation request. Keep the next backend out until
+        // the recording thread and native worker have actually returned its lease.
+        // A stalled worker produces an explicit failure after eight seconds.
+        fun check(remainingChecks: Int) {
+            when {
+                pendingCaptureReleases.get() == 0 -> released(true)
+                remainingChecks == 0 -> released(false)
+                else -> schedule(100) { check(remainingChecks - 1) }
+            }
+        }
+        check(80)
     }
 
     override fun finishListening() {

@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict
@@ -1750,6 +1751,18 @@ class GitHubVerifiedSessionTest {
         val terminal = events.last() as ProviderEvent.Failed
         assertEquals("GITHUB_TASK_INCOMPLETE", terminal.errorCode)
         assertEquals("BLOCKED", terminal.taskOutcome)
+        val failureDetails = requireNotNull(terminal.failureDetails)
+        assertEquals(JsonPrimitive("CAPABILITY_PREREQUISITES_MISSING"), failureDetails["stop_reason"])
+        assertEquals(JsonPrimitive("RESOLVE_CAPABILITY_PREREQUISITE"), failureDetails["recovery_action"])
+        assertEquals(JsonPrimitive(false), failureDetails["resume_allowed"])
+        assertEquals(JsonPrimitive(false), failureDetails["request_replay_allowed"])
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", failureDetails, 1_800_000_000_000)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals("ACCEPTANCE", diagnostic.area)
+        assertEquals(JsonPrimitive("RETAINED_VERDICT"), diagnostic.values["acceptance_evidence_scope"])
+        assertTrue(diagnostic.values["acceptance_prerequisite_blockers"].toString().contains("FIXTURE_APPROVAL_MODE_REQUIRED"))
+        assertTrue(diagnostic.values["acceptance_blocked_operation_families"].toString().contains("github_commit"))
+        assertFalse(diagnostic.toString().contains("test source"))
         assertEquals(JsonPrimitive("CONDITIONAL"), book.fixtureApprovalPreflight()["state"])
         assertEquals(JsonPrimitive(false), book.fixtureApprovalPreflight()["mutation_dispatched"])
         assertEquals(retained, book.snapshot())

@@ -597,6 +597,69 @@ class AndroidRecognitionRecoveryTest {
         verify(service.engine, times(1)).destroy()
     }
 
+    @Test fun quietTranslationTurnsReuseTheQualifiedServiceWithoutNewBindings() {
+        var now = 0L
+        val service = Service()
+        val audio = audio(service, RecognitionStartGate { now }).apply { translationLanguages = listOf("en-US", "fr-FR") }
+        try {
+            for (error in listOf(SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+                val listener = Listener()
+                audio.listen(listener)
+                val old = service.listener()
+                old.onReadyForSpeech(Bundle())
+                old.onError(error)
+                assertTrue(listener.failures.isEmpty())
+                assertEquals("", listener.final)
+                repeat(3) { audio.stop() }
+                verify(service.engine, never()).cancel()
+                verify(service.engine, never()).destroy()
+                now += 500
+                old.onError(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+                assertEquals(0L, audio.retryAfterMillis())
+            }
+            val recovered = Listener()
+            audio.listen(recovered)
+            assertEquals(1, service.creations)
+            assertEquals(1, service.qualifications)
+            verify(service.engine, times(3)).startListening(any(Intent::class.java))
+            service.listener().onResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("Bonjour")) })
+            assertEquals("Bonjour", recovered.final)
+            assertTrue(VoiceMicrophoneLease.acquire("after-quiet-translation"))
+            VoiceMicrophoneLease.release("after-quiet-translation")
+        } finally {
+            audio.close()
+            VoiceMicrophoneLease.release("after-quiet-translation")
+        }
+        verify(service.engine, times(1)).destroy()
+    }
+
+    @Test fun aDeniedRetryRetainsTheRateLimitAndServiceRepairCategoriesAcrossNavigation() {
+        for (error in listOf(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, SpeechRecognizer.ERROR_CLIENT)) {
+            val gate = RecognitionStartGate { 0L }
+            val service = Service()
+            val first = audio(service, gate)
+            val original = Listener()
+            first.listenWithFeedback(original) { false }
+            service.listener().onError(error)
+            first.close()
+            val nextService = Service()
+            val next = audio(nextService, gate)
+            try {
+                repeat(3) {
+                    val denied = Listener()
+                    next.listenWithFeedback(denied) { false }
+                    assertEquals(original.codes, denied.codes)
+                    assertEquals(original.repairs, denied.repairs)
+                    assertEquals(0, denied.retryable)
+                    assertEquals(0, nextService.creations)
+                }
+                assertEquals(if (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS) 15_000L else 5_000L, next.retryAfterMillis())
+            } finally {
+                next.close()
+            }
+        }
+    }
+
     @Test fun requestLimitNeverAutoRestartsAContinuousVoiceSessionBeforeOrAfterReady() {
         for (ready in listOf(false, true)) {
             var now = 0L

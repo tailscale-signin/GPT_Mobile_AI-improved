@@ -263,7 +263,23 @@ class AndroidVoiceAudio internal constructor(
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         observations?.focus(VoiceDiagnosticTrace.Focus.NOT_REQUESTED)
         if (!recognitionGate.acquire(sessionId)) {
-            listener.failure("Speech service is busy. Your chat is still available.", "VOICE_MICROPHONE_BUSY", recognitionGate.remainingMillis())
+            val block = recognitionGate.blocked()
+            val limited = block?.reason == RecognitionStartGate.BlockReason.RATE_LIMITED
+            val unavailable = block?.reason == RecognitionStartGate.BlockReason.SERVICE_UNAVAILABLE
+            listener.failure(
+                when {
+                    limited -> SPEECH_LIMIT_MESSAGE
+                    unavailable -> "The Android speech service is recovering. Wait before trying again, or review its settings. Your chat is still available."
+                    else -> "Speech service is busy. Your chat is still available."
+                },
+                when {
+                    limited -> "VOICE_RECOGNIZER_RATE_LIMITED"
+                    unavailable -> "VOICE_RECOGNIZER_UNAVAILABLE"
+                    else -> "VOICE_MICROPHONE_BUSY"
+                },
+                block?.remainingMillis ?: recognitionGate.remainingMillis(),
+                recoveryAction = if (limited || unavailable) VoiceRecoveryAction.SPEECH_SERVICE else null
+            )
             return
         }
         if (closed) {
@@ -431,6 +447,13 @@ class AndroidVoiceAudio internal constructor(
                         recognitionGate.bindingFailed(sessionId)
                     } else {
                         recognitionGate.failed(false, sessionId)
+                    }
+                    // A quiet turn is a normal terminal response, not a broken Binder.
+                    // Reuse its qualified service just as onResults does. Recreating it
+                    // after every silent turn adds support/bind requests and can exhaust
+                    // Android's connection/request allowance during translation.
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                        recognitionActive = false
                     }
                     stop()
                     val code = when {

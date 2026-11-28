@@ -134,13 +134,16 @@ class MediaPipeSpeechNativeSmokeTest {
             val availableVoices = task.voiceIds()
             val missingVoices = MediaPipeSpeechVoices.ids(kind).toSet() - availableVoices
             assertTrue("Speech pack is missing catalogued voices: $missingVoices", missingVoices.isEmpty())
+            engine.setCaptionAlignmentEnabled(true)
             val frames = VoiceStreamFrames(FIXTURE)
             val coverage = VoiceCaptionWordCoverage(FIXTURE)
+            val captionPublication = CaptionPublication()
             val started = SystemClock.elapsedRealtime()
             var firstPcmMs: Long? = null
             var chunks = 0
             var unicodeCue = false
             engine.stream(FIXTURE, 0, 1f) { chunk ->
+                captionPublication.observe(chunk)
                 chunks++
                 if (chunk.samples.isNotEmpty() && firstPcmMs == null) firstPcmMs = SystemClock.elapsedRealtime() - started
                 val cues = frames.accept(chunk)
@@ -160,7 +163,9 @@ class MediaPipeSpeechNativeSmokeTest {
             engine.resetCancellation()
             val recovered = VoiceStreamFrames(FIXTURE)
             val recoveredCoverage = VoiceCaptionWordCoverage(FIXTURE)
+            val recoveredPublication = CaptionPublication()
             engine.stream(FIXTURE, 0, 1f) {
+                recoveredPublication.observe(it)
                 recoveredCoverage.observe(recovered.accept(it))
                 true
             }
@@ -177,10 +182,12 @@ class MediaPipeSpeechNativeSmokeTest {
                 engine.selectVoice(voiceId)
                 val sample = VoiceStreamFrames(french.preview)
                 val previewCoverage = VoiceCaptionWordCoverage(french.preview)
+                val previewPublication = CaptionPublication()
                 val signal = VoicePcmSignalMeasurement()
                 val start = SystemClock.elapsedRealtime()
                 var firstAudio: Long? = null
                 engine.stream(french.preview, 0, 1f) {
+                    previewPublication.observe(it)
                     if (it.samples.isNotEmpty() && firstAudio == null) firstAudio = SystemClock.elapsedRealtime() - start
                     signal.accept(it.samples)
                     previewCoverage.observe(sample.accept(it))
@@ -192,6 +199,7 @@ class MediaPipeSpeechNativeSmokeTest {
                 JSONObject().put("voice_id", voiceId).put("frames", pcm.samples).put("first_pcm_ms", checkNotNull(firstAudio))
                     .put("rms", pcm.rms).put("peak", pcm.peak).put("clipped_samples", pcm.clipped).put("non_silent_samples", pcm.nonSilent)
                     .put("caption_word_coverage", wordCoverageReceipt(previewCoverage))
+                    .put("caption_publication", previewPublication.receipt())
             } else {
                 null
             }
@@ -218,10 +226,12 @@ class MediaPipeSpeechNativeSmokeTest {
                 .put("first_pcm_ms", firstPcmMs)
                 .put("utf8_estimated_cue_observed", unicodeCue)
                 .put("caption_word_coverage", wordCoverage)
+                .put("caption_publication", captionPublication.receipt())
                 .put("cancel_before_first_read", before)
                 .put("cancel_after_first_chunk", after)
                 .put("recovered_frames", recovered.frames)
                 .put("recovered_caption_word_coverage", recoveredWordCoverage)
+                .put("recovered_caption_publication", recoveredPublication.receipt())
                 .put("incremental_stream", incremental)
                 .put("incremental_cancel_before_first_read", incrementalBefore)
                 .put("incremental_cancel_while_waiting_for_text", incrementalAfter)
@@ -370,6 +380,7 @@ class MediaPipeSpeechNativeSmokeTest {
         val firstPcm = CountDownLatch(1)
         val frames = VoiceStreamFrames(FIXTURE)
         val coverage = VoiceCaptionWordCoverage(FIXTURE)
+        val publication = CaptionPublication()
         val started = SystemClock.elapsedRealtime()
         var firstPcmMs: Long? = null
         var supplied = 0
@@ -389,6 +400,7 @@ class MediaPipeSpeechNativeSmokeTest {
             speaker = 0,
             speed = 1f
         ) { chunk ->
+            publication.observe(chunk)
             check(++chunks <= 4_096)
             if (chunk.samples.isNotEmpty() && firstPcmMs == null) {
                 firstPcmMs = SystemClock.elapsedRealtime() - started
@@ -421,6 +433,7 @@ class MediaPipeSpeechNativeSmokeTest {
             .put("first_pcm_before_finish_input", trace.firstPcmBeforeFinish.get())
             .put("full_input_cues_observed", coverage.result().complete)
             .put("caption_word_coverage", wordCoverage)
+            .put("caption_publication", publication.receipt())
             .put("stream_closed", trace.closed.get())
             .put("frames", frames.frames)
             .put("emitted_chunks", chunks)
@@ -493,6 +506,32 @@ class MediaPipeSpeechNativeSmokeTest {
             .put("input_owner_retired", inputRetired.count == 0L)
             .put("stream_closed", trace.closed.get())
             .put("total_ms", SystemClock.elapsedRealtime() - started)
+    }
+
+    /** Packet ordering proof only; SDK estimates are not acoustic word-boundary qualification. */
+    private class CaptionPublication {
+        private val introduced = mutableSetOf<Pair<Int, Int>>()
+        private var pcmFrames = 0L
+
+        fun observe(chunk: VoicePcmChunk) {
+            for (cue in chunk.wordCues) {
+                if (cue.revision == 0 && introduced.add(cue.startByte to cue.endByte)) {
+                    assertTrue("A new caption arrived after its starting PCM was released", cue.startFrame >= pcmFrames)
+                }
+            }
+            pcmFrames += chunk.samples.size
+        }
+
+        fun receipt(): JSONObject {
+            assertTrue("Expected at least one real SDK word timestamp", introduced.isNotEmpty())
+            return JSONObject()
+                .put("measurement_scope", "SDK_PACKET_PUBLICATION_ONLY")
+                .put("caption_staging_enabled", true)
+                .put("first_cue_count", introduced.size)
+                .put("first_cues_before_pcm", true)
+                .put("pcm_frames", pcmFrames)
+                .put("acoustic_alignment", "NOT_MEASURED")
+        }
     }
 
     /** Observes successful calls to the packaged JNI; every operation delegates to the real SDK. */

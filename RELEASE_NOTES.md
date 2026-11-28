@@ -16,6 +16,14 @@
 
 The expanded recognition request remains subject to its exact-head CI and target-device qualification before merge or publication. See `docs/repairs/streaming-recognition-integration-2026-11-28-task.json` for observed checks and outstanding evidence.
 
+## Translation and Pocket playback repair
+
+- Reuse the qualified Android speech service after quiet recognition turns, preserve rate-limit and service recovery reasons, and wait for confirmed microphone release when switching recognition engines.
+- Prepare the multilingual voice model while listening and retain it when the accepted translation selects another voice from the same model. Stop still cancels the owner performing preparation.
+- With captions enabled, hold a bounded amount of Pocket PCM until its supplied word timing can enter the caption queue before playback. Keep caption timing through supported playback recovery and require native smoke receipts to prove this packet ordering. SDK estimates remain separate from acoustic alignment.
+- Stage verified Qualcomm dependencies beside Pocket's private NPU compiler and dispatch libraries, and enable the context-backed LiteRT compiler cache. GPU/NPU preparation failures identify the failing component and remain failures; native status codes not exposed by the pinned SDK remain unavailable.
+- These repairs do not establish successful physical Pocket GPU/NPU playback, microphone or acoustic accuracy, sustained thermal behavior, or battery qualification. Full checks for the changed revision remain required.
+
 ## Conversation intelligence diagnostic follow-up
 
 - Count fresh CI results before shortening them for the next prompt, and give hidden GitHub tools a bounded discovery turn during all-tools verification.

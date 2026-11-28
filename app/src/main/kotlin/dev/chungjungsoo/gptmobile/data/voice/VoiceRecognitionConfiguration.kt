@@ -152,6 +152,21 @@ internal class StreamingVoiceRecognizer(
     override fun stop() {
         current?.stop()
     }
+    override fun stopCapture(released: (Boolean) -> Unit) {
+        val inputs = synchronized(this) { (retiring + listOfNotNull(current)).distinct() }
+        if (inputs.isEmpty()) {
+            released(true)
+            return
+        }
+        val remaining = AtomicInteger(inputs.size)
+        val confirmed = AtomicBoolean(true)
+        inputs.forEach { input ->
+            input.stopCapture { finished ->
+                if (!finished) confirmed.set(false)
+                if (remaining.decrementAndGet() == 0) released(confirmed.get())
+            }
+        }
+    }
     override fun releaseWarmModel(completed: (() -> Unit)?) {
         val input = current
         if (completed == null) {

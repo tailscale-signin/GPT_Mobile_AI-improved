@@ -145,7 +145,10 @@
     "Preserve accepted single-language recognition intent and captured offline privacy through delayed support checks; reject changed automatic-translation selections and retain current online-consent and room-identity checks.",
     "Keep the complete voice-session saved and transient state in smaller Compose initializer functions while preserving state identity, keys and microphone/translation behavior.",
     "Keep the exact shared runner, database, caption and speech APIs used by the separately compiled minified test APK; preserve constructor/default bridges and instance dispatch, and align the installed-model test label with production status.",
-    "Restore normal release R8 optimization with all native and reflection keep rules retained; require the unchanged APK-size limits and full optimized device gates before publication."
+    "Restore normal release R8 optimization with all native and reflection keep rules retained; require the unchanged APK-size limits and full optimized device gates before publication.",
+    "Repair repeated translation capture by retaining qualified Android recognizers after quiet results, preserving cooldown reasons and waiting for confirmed local microphone release before a new capture.",
+    "Prewarm the shared multilingual voice model during capture, preserve its opening owner across target-voice selection, and stage Pocket PCM behind supplied word timings before caption-enabled playback; require enabled-caption packet-order receipts in native smoke.",
+    "Colocate the audited Qualcomm runtime with compiled Pocket’s private NPU compiler/dispatch, restore LiteRT compiler caching and retain graph-specific GPU/NPU preparation failures without successful fallback claims."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1263,7 +1266,19 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidSpeechQualificationTest.kt",
     "app/proguard-rules.pro",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/LocalVoicePluginInstrumentedTest.kt",
-    "docs/repairs/voice-release-qualification-2026-11-28-task.json"
+    "docs/repairs/voice-release-qualification-2026-11-28-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeCaptionBuffer.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipePlaybackRecovery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledLibraryLayout.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledPreparationFailure.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGate.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeCaptionBufferTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledLibraryLayoutTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledPreparationFailureTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGateTest.kt",
+    "docs/repairs/mediapipe-flogger-r8-2026-11-28.json",
+    "docs/repairs/translation-error-recovery-2026-11-28-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

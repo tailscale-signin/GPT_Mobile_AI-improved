@@ -5,6 +5,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RecognitionStartGateTest {
+    @Test fun blockedAdmissionKeepsItsCauseAndDoesNotExtendTheCooldown() {
+        var time = 0L
+        val gate = RecognitionStartGate { time }
+        assertTrue(gate.acquire("first"))
+        org.junit.Assert.assertEquals(RecognitionStartGate.BlockReason.ACTIVE_CAPTURE, gate.blocked()?.reason)
+        gate.failed(true, "first")
+        repeat(10) {
+            time += 100
+            assertFalse(gate.acquire("replacement"))
+            org.junit.Assert.assertEquals(RecognitionStartGate.BlockReason.RATE_LIMITED, gate.blocked()?.reason)
+            org.junit.Assert.assertEquals(15_000 - time, gate.blocked()?.remainingMillis)
+        }
+        time = 15_000
+        org.junit.Assert.assertNull(gate.blocked())
+        assertTrue(gate.acquire("replacement"))
+        gate.bindingFailed("replacement")
+        org.junit.Assert.assertEquals(RecognitionStartGate.BlockReason.SERVICE_UNAVAILABLE, gate.blocked()?.reason)
+        time += 5_000
+        assertTrue(gate.acquire("recovered"))
+        gate.succeeded("recovered")
+        org.junit.Assert.assertEquals(RecognitionStartGate.BlockReason.REQUEST_SPACING, gate.blocked()?.reason)
+    }
+
     @Test fun retiredOwnerCannotResetOrExtendTheSharedServiceCooldown() {
         var time = 0L
         val gate = RecognitionStartGate { time }

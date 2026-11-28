@@ -222,6 +222,49 @@ class StreamingAsrInputsTest(unittest.TestCase):
         self.assertIn("CPU_HOST_PRODUCTION_JNI_REGRESSION_ONLY", fixture_java)
 
 
+class NativeCTestEvidenceTest(unittest.TestCase):
+    def check(self, cases):
+        with tempfile.TemporaryDirectory() as temporary:
+            report = Path(temporary) / "ctest-results.xml"
+            report.write_text("<testsuite>" + "".join(cases) + "</testsuite>")
+            return host.checked_native_ctest(report)
+
+    def cases(self):
+        return {name: f'<testcase name="{name}" status="run" />' for name in host.REQUIRED_NATIVE_TESTS}
+
+    def test_complete_executed_native_suite_is_bound_to_exact_required_names(self):
+        result = self.check(self.cases().values())
+        self.assertEqual(sorted(host.REQUIRED_NATIVE_TESTS), result["executed_tests"])
+        self.assertEqual(sorted(host.REQUIRED_NATIVE_TESTS), result["required_tests"])
+        self.assertEqual(64, len(result["junit_sha256"]))
+
+    def test_empty_or_nonempty_incomplete_suites_fail(self):
+        with self.assertRaisesRegex(ValueError, "did not execute"):
+            self.check([])
+        for missing in host.REQUIRED_NATIVE_TESTS:
+            cases = self.cases()
+            del cases[missing]
+            cases["unrelated"] = '<testcase name="unrelated" status="run" />'
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, "did not execute"):
+                self.check(cases.values())
+
+    def test_failure_skip_duplicate_or_unexecuted_native_cases_fail(self):
+        name = "speech_asr_checked_qnn_retirement"
+        outcomes = [f'<testcase name="{name}" status="run"><{tag}/></testcase>'
+                    for tag in ("failure", "error", "skipped")]
+        outcomes += [f'<testcase name="{name}" status="notrun" />', f'<testcase name="{name}" />']
+        for outcome in outcomes:
+            cases = self.cases()
+            cases[name] = outcome
+            with self.subTest(outcome=outcome), self.assertRaises(ValueError):
+                self.check(cases.values())
+        cases = list(self.cases().values())
+        with self.assertRaisesRegex(ValueError, "duplicated"):
+            self.check(cases + [cases[0]])
+        with self.assertRaisesRegex(ValueError, "Malformed"):
+            self.check(["<broken>"])
+
+
 class StreamingAsrMemoryAdmissionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -29,6 +29,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[3]
 QAIRT_VERSIONS = {"2.7.0": "2.51.0", "2.8.0": "2.52.0"}
@@ -37,6 +38,17 @@ MEMORY_PROBE = ROOT / "scripts/check_android_compile_memory.py"
 _memory_spec = importlib.util.spec_from_file_location("asr_host_memory", MEMORY_PROBE)
 host_memory = importlib.util.module_from_spec(_memory_spec)
 _memory_spec.loader.exec_module(host_memory)
+REQUIRED_NATIVE_TESTS = frozenset({
+    "english_dictionary_misses",
+    "speech_provider_execution_evidence",
+    "speech_cache_audio_and_device_discovery",
+    "speech_compiled_context_cache",
+    "speech_finalization_cancellation",
+    "speech_live_native_progress",
+    "speech_convex_graph_partitions",
+    "speech_provider_abi_ownership",
+    "speech_asr_checked_qnn_retirement",
+})
 
 
 def digest(path):
@@ -48,6 +60,26 @@ def replace_once(text, before, after):
     if text.count(before) != 1:
         raise AssertionError("Host boundary port no longer matches the production source")
     return text.replace(before, after, 1)
+
+
+def checked_native_ctest(report):
+    """Require execution of every native control, including checked QNN cleanup."""
+    try:
+        root = ET.parse(report).getroot()
+    except ET.ParseError as error:
+        raise ValueError("Malformed native CTest result") from error
+    executed = set()
+    for case in root.iter("testcase"):
+        name = case.get("name")
+        if not name or name in executed or case.get("status") != "run" or any(
+                case.find(outcome) is not None for outcome in ("failure", "error", "skipped")):
+            raise ValueError("Native CTest case failed, skipped or duplicated: " + str(name))
+        executed.add(name)
+    missing = REQUIRED_NATIVE_TESTS - executed
+    if missing:
+        raise ValueError("Required native tests did not execute: " + ", ".join(sorted(missing)))
+    return {"required_tests": sorted(REQUIRED_NATIVE_TESTS), "executed_tests": sorted(executed),
+            "junit_sha256": digest(report)}
 
 
 def checked_provider_inputs(qnn, version, application_java):
@@ -167,8 +199,11 @@ def asr_memory_admission(fixture, reader=host_memory.read_text):
             "isMeasuredModelRss": False, "physicalDeviceQualified": False}
 
 
-def native_ctest_command(cmake, build):
-    return [cmake.parent / "ctest", "--test-dir", build, "--output-on-failure", "--no-tests=error"]
+def native_ctest_command(cmake, build, report=None):
+    command = [cmake.parent / "ctest", "--test-dir", build, "--output-on-failure", "--no-tests=error"]
+    if report is not None:
+        command += ["--output-junit", report]
+    return command
 
 
 def main():
@@ -299,7 +334,10 @@ def main():
     # The same library now also contains the streaming frontend and decoders.
     # Retain all native tests while allowing their additional compilation work.
     assert run("build", [args.cmake, "--build", build, "--parallel", str(args.build_jobs)], timeout=1800) == 0
-    assert run("ctest", native_ctest_command(args.cmake, build)) == 0
+    ctest_report = args.output / "ctest-results.xml"
+    assert run("ctest", native_ctest_command(args.cmake, build, ctest_report)) == 0
+    native_tests = checked_native_ctest(ctest_report)
+    (args.output / "ctest.json").write_text(json.dumps(native_tests, indent=2) + "\n")
     for name, library in provider_files.items():
         if digest(library) != provider_inputs[name]:
             raise ValueError("QNN package input changed during the native build: " + name)
@@ -353,6 +391,7 @@ def main():
         "physical_device_qualified": False,
         "provider_identity": provider_identity,
         "results": results,
+        "native_ctest": native_tests,
         "source_sha256": source_inputs,
         "host_port_sha256": digest(args.output / "host-port.diff"),
         "sherpa_before_fault_port_sha256": sherpa_before,

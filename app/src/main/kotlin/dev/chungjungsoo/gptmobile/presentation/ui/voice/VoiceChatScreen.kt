@@ -367,7 +367,7 @@ private fun VoiceChatSessionScreen(
     var translationMode by remember { mutableStateOf(false) }
     var translationPair by remember { mutableStateOf(VoiceTranslationPair()) }
     var translationSetupNotice by remember { mutableStateOf<String?>(null) }
-    var translationFactories by remember(runtime) { mutableStateOf<Map<String, VoicePhraseEngineFactory>>(emptyMap()) }
+    var translationFactories by remember(runtime) { mutableStateOf(VoiceTranslationFactoryCache()) }
     var translationOutput by runtime.translationOutput
     val translationModel = backend.streamingModels[MediaPipeSpeechEngine.POCKET_MULTILINGUAL]
     fun outputSelection() = selectVoicePlayback(backend.factory, activeSpeechProfile(), translationOutput)
@@ -526,6 +526,18 @@ private fun VoiceChatSessionScreen(
         session.editBeforeSend = editBeforeSend
         session.translationOnly = translationMode
     }
+    fun translationFactorySettings() = VoiceTranslationFactorySettings(rate, kokoroBucket, incrementalSpeech)
+    fun changeSpeechSettings(nextRate: Float = rate, nextBucket: MediaPipeKokoroBucket = kokoroBucket, nextIncremental: Boolean = incrementalSpeech) {
+        audio.stop()
+        val next = VoiceTranslationFactorySettings(nextRate, nextBucket, nextIncremental)
+        val previous = translationFactorySettings()
+        translationOutput = translationPlaybackAfterSettingsChange(translationOutput, previous, next)
+        translationFactories = translationFactories.afterSettingsChange(previous, next)
+        rate = next.rate
+        kokoroBucket = next.bucket
+        incrementalSpeech = next.incrementalInput
+        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
+    }
     fun translationVoiceKey(target: VoiceTranslationTarget) = "${target.targetLanguage}:${target.voiceId}"
     fun applyTranslationOutput(target: VoiceTranslationTarget, factory: VoicePhraseEngineFactory) {
         translationOutput = VoiceTranslationPlayback(target, factory)
@@ -552,10 +564,11 @@ private fun VoiceChatSessionScreen(
     LaunchedEffect(preferencesApplied, translationPlaybackNeeded) {
         if (preferencesApplied && translationPlaybackNeeded) backendOwner.refreshTranslationModel()
     }
-    LaunchedEffect(preferencesApplied, translationPlaybackNeeded, translationPair, translationModel?.status, rate, incrementalSpeech) {
-        translationFactories = emptyMap()
+    LaunchedEffect(preferencesApplied, translationPlaybackNeeded, translationPair, translationModel?.status, translationFactorySettings(), translationFactories.generation) {
+        translationFactories = translationFactories.cleared()
         val pair = translationPair.validated() ?: return@LaunchedEffect
         if (!preferencesApplied || !translationPlaybackNeeded || translationModel?.status != LocalVoiceModelStatus.READY) return@LaunchedEffect
+        val request = translationFactories.preparation(translationFactorySettings(), pair)
         try {
             val targets = listOf(
                 VoiceTranslationTarget(pair.translationLanguage, pair.baseLanguage, pair.baseVoiceId),
@@ -565,7 +578,7 @@ private fun VoiceChatSessionScreen(
                 translationVoiceKey(target) to backendOwner.translationFactory(target.targetLanguage, target.voiceId)
             }
             currentCoroutineContext().ensureActive()
-            translationFactories = prepared
+            translationFactories = translationFactories.publish(request, translationFactorySettings(), translationPair.validated(), prepared)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -1265,9 +1278,7 @@ private fun VoiceChatSessionScreen(
                     },
                     previewKokoro = ::previewSpeech,
                     changeRate = {
-                        audio.stop()
-                        rate = it
-                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
+                        changeSpeechSettings(nextRate = it)
                         savePreferences()
                     },
                     changePause = {
@@ -1279,18 +1290,14 @@ private fun VoiceChatSessionScreen(
                         savePreferences()
                     },
                     useConversationalFast = {
-                        audio.stop()
-                        rate = 1.25f
-                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
+                        changeSpeechSettings(nextRate = 1.25f)
                         pause = VoicePauseDuration.SHORT
                         performance = VoicePerformanceMode.FAST
                         speakWhileGenerating = true
                         savePreferences()
                     },
                     useNaturalSpeech = {
-                        audio.stop()
-                        rate = STANDARD_SPEECH_RATE
-                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
+                        changeSpeechSettings(nextRate = STANDARD_SPEECH_RATE)
                         pause = VoicePauseDuration.NATURAL
                         performance = VoicePerformanceMode.AUTO
                         speakWhileGenerating = true
@@ -1301,15 +1308,11 @@ private fun VoiceChatSessionScreen(
                         savePreferences()
                     },
                     changeKokoroBucket = {
-                        audio.stop()
-                        kokoroBucket = it
-                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
+                        changeSpeechSettings(nextBucket = it)
                         savePreferences()
                     },
                     changeIncrementalSpeech = {
-                        audio.stop()
-                        incrementalSpeech = it
-                        backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
+                        changeSpeechSettings(nextIncremental = it)
                         savePreferences()
                     }
                 ),

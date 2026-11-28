@@ -1,0 +1,67 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "fbc5bab8abe1b1ed03d8f5c9d4555b517a2e106c",
+  "parent_pr": 2651,
+  "authorization": "User requested completion, green checks, merge and verified publication.",
+  "status": "SOURCE_REVIEW_AND_CANONICAL_HOST_GATE_PASSED_PENDING_EXACT_HEAD_CI",
+  "intent": "Preserve inherited accepted translation ownership and invalidate stale playback settings and asynchronous factory results.",
+  "changes": [
+    "Select translated replay from the accepted response policy independently of the mode used for future captures.",
+    "Retain the pinned SDK direct model buffer until confirmed native close; retain uncertain ownership and block new detector admission after failed create/close.",
+    "Stop audio for explicit settings changes, then clear incompatible retained output and both warmed language factories immediately. Preference hydration preserves the accepted playback selection.",
+    "Bind asynchronous factory publication to immutable configuration, selected pair and generation, including a settings-change-back race. Include bucket along with rate and incremental input in factory dependencies."
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetector.kt": "7a2dc7c874994241d85e55f60c5d6ca63b4451478b1d8e27cf94fcaa6d618ebb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicy.kt": "53135f5ab88a1e975bb1a20fc77370323739b6bac584a09cc4ce60a9badf636c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "a006727dc4098f1f1fc25b8b819ff46165605569d492b54690074be10228bb45",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePlaybackSelection.kt": "91ae250676907078b664f8997e46fb1de5947907d807dc8123f7634601ff05cb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRuntimeViewModel.kt": "11a05ab270d8edbe84a24ef27f4aab261112c305e02e567e95a205c01a480a01",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationLanguageDetectorTest.kt": "5a4342710e9322482d9241ccc9073ecea6327c91b68e65d274b51b8cad420dbc",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTranslationPlaybackPolicyTest.kt": "378be821790c0f2fa4aa403c28632b4bea8efa7eaa743eb17f6cb7ddbf2461d7",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePlaybackSelectionTest.kt": "65511d274593ae5abbe998047ec0ce801a3f0c12f49c3cd9774103a7f3fbfe5d"
+  },
+  "validation": {
+    "permanent_selection_cache_cases": 9,
+    "supplemental_exact_caller_cases_passed": 36,
+    "negative_controls": "Both pre-cache and frozen-eight old-screen controls compile and fail eight of the same ten targeted caller cases.",
+    "relocated_bundle_replay": "Compiled and passed 36 cases.",
+    "scope": "Actual selected production code with explicit Android/session/backend ports, not full-screen Android or native model execution.",
+    "scoped_ktlint": "All eight changed Kotlin source/test files pass ktlint 1.3.1.",
+    "independent_review": "No actionable blocker in the final fbc-based union. Frozen source hashes, all 1247 generated feature bindings, preserved memberships and release gates independently verified.",
+    "receipt_sha256": "f4aa0a941cda84ff87319c760d9429c7338ce4c3820b47e059c6b1f6330082c5",
+    "evidence_archive_sha256": "672094417998d4d68cd27404db56fa95614b844f4868a1ad68a4b3397c2291b1",
+    "early_android_filter": "VoicePlaybackSelectionTest added without removing any prior class.",
+    "canonical_host_gate": {
+      "command": "KOKORO_TEST_CMAKE=/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake bash scripts/validate-local.sh fast",
+      "exit": 0,
+      "tests_run": 888,
+      "tests_passed": 887,
+      "tests_skipped": 1,
+      "log_sha256": "8e4cb0b2731e5815fd36d5cc0f22a157cbe1a82acf0a3a0ebfbf4607bbd37948",
+      "scope": "Canonical host checks; full exact-head Android, device, native model and merged-main release checks remain required."
+    },
+    "fbc_residual_replay": {
+      "starting_head": "fbc5bab8abe1b1ed03d8f5c9d4555b517a2e106c",
+      "cases_passed": 36,
+      "permanent_selection_cache_cases": 9,
+      "source_hashes_verified_before_and_after": true,
+      "changed_files": 3,
+      "receipt_sha256": "9650de3cb120d789f24c4dc569048493ba6bd76bf79376105c011a1d96ff585d",
+      "patch_sha256": "9333843b06ccd882a169b5df43f3b0e583ae7d6026dff0fc3f90589937359a65"
+    }
+  },
+  "preserved": [
+    "Readiness gates at every access boundary and preference-guarded output configuration.",
+    "Streaming recognition and timed input, microphone states and automatic turn cycle, translation picker scrolling, and checked native retirement.",
+    "Every existing CI gate, release version and physical qualification limitation."
+  ],
+  "limits": [
+    "Supplemental caller ports and decoder ownership tests do not qualify actual Android UI or physical speech/accelerator behavior.",
+    "Final exact-head full Android/device/native checks and merged-main checks remain required before publication."
+  ],
+  "inherited_source": "The five unchanged detector, policy and runtime files in this receipt were adopted by fbc5bab8a; this residual changes the screen, selection/cache helper and its tests."
+}

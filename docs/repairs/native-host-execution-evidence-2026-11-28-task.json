@@ -1,0 +1,61 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "fbc5bab8abe1b1ed03d8f5c9d4555b517a2e106c",
+  "parent_pr": 2651,
+  "authorization": "User requested completion, green checks, merge and verified publication.",
+  "status": "SOURCE_REVIEW_AND_CANONICAL_HOST_GATE_PASSED_PENDING_EXACT_HEAD_CI",
+  "intent": "Require evidence that every native C++ suite actually executed successfully.",
+  "adopted_unchanged": {
+    "commit": "6bec12646e1c41989b2a74ad37ba5f248d7e4e13",
+    "files": [
+      "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
+      "scripts/tests/test_kokoro_host_test_configuration.py"
+    ],
+    "scope": "Concurrent correction preserves caller host-test intent through dependency setup and adds four configuration regressions."
+  },
+  "changes": [
+    "Preserve native_ctest_command two-argument behavior and optionally emit JUnit.",
+    "Require all nine native test identities to have executed, with no missing, failed, skipped, errored or duplicate cases. Bind this checked execution report into verification.json."
+  ],
+  "source_sha256": {
+    "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": "1ff96a452b77e09d6574eddd3ffb77053e8f4fd8f321d2f122029fab615260dc",
+    "scripts/tests/test_streaming_asr_inputs.py": "2814a0113974dfff55794ad3299813ebc96ee56abfc940158cd759466e889eca"
+  },
+  "validation": {
+    "focused_tests_passed": 32,
+    "skipped": 0,
+    "includes": "All four concurrent configuration regressions and three executed-report controls.",
+    "negative_controls": "Empty/nonempty incomplete suites, each missing identity, failed/skipped/error/unexecuted/duplicate results, malformed XML; real CTest3.22 status format checked.",
+    "scope": "Source-bound host control validation; exact integrated full C++/Java/model execution still required.",
+    "receipt_sha256": "16229fc962a6afbc6d4e20eceeb45b16f0b692f76767c0cc5e818cdcd2da18e3",
+    "canonical_host_gate": {
+      "command": "KOKORO_TEST_CMAKE=/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake bash scripts/validate-local.sh fast",
+      "exit": 0,
+      "tests_run": 888,
+      "tests_passed": 887,
+      "tests_skipped": 1,
+      "log_sha256": "8e4cb0b2731e5815fd36d5cc0f22a157cbe1a82acf0a3a0ebfbf4607bbd37948",
+      "scope": "Canonical host checks; full exact-head Android, device, native model and merged-main release checks remain required."
+    },
+    "independent_review": "No actionable blocker in the final fbc-based union. Frozen source hashes, all 1247 generated feature bindings, preserved memberships and release gates independently verified.",
+    "fbc_union_review": {
+      "result": "No actionable blocker in concurrent Kokoro acquisition-epoch changes, SDK-routing regression, unchanged ASR retirement or final residual execution-evidence guard.",
+      "focused_tests_passed": 33,
+      "skipped": 0,
+      "review_sha256": "a354524c4c16a0af4b8b9d7c20a75a4d48617b7b9d031251ee13836138c53a6a",
+      "scope": "Source and focused host validation; full exact-head native model and device qualification remain required."
+    }
+  },
+  "preserved": [
+    "All mandatory model cases including Nemotron, memory admission, pins, timeouts and original assertions.",
+    "Concurrent CMake and configuration tests unchanged; no duplicate alternate build-setting implementation.",
+    "Concurrent fbc output-retirement acknowledgement and SDK-versus-host-manifest regression remain unchanged."
+  ],
+  "limits": [
+    "The earlier dbf run passed3CPU model fixtures but failed the overall native gate; that diagnostic result does not qualify this revision.",
+    "No physical GPU/NPU, acoustic, thermal or battery qualification is claimed."
+  ]
+}

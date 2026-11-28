@@ -117,7 +117,7 @@ class BenchmarkVersionedExportTest {
         val metrics = benchmarkMetricResults(listOf(legacy, revised)).filter { it.id == "delivery_completion" }
         assertEquals(2, metrics.size)
         assertEquals(setOf(listOf("legacy"), listOf("revised")), metrics.map { it.sourceRunIds }.toSet())
-        assertEquals(setOf("benchmark-metrics-v3", "benchmark-metrics-v4"), metrics.map { it.policyVersion }.toSet())
+        assertEquals(setOf("benchmark-metrics-v3", "benchmark-metrics-v5"), metrics.map { it.policyVersion }.toSet())
         assertTrue(metrics.all { it.sourceCohortIds.size == 1 })
         val root = Json.parseToJsonElement(benchmarkExport(json.encodeToString(BenchmarkBackupPayload.serializer(), BenchmarkBackupPayload(runs = listOf(legacy, revised))), false)).jsonObject
         assertEquals(JsonNull, root.getValue("measurementPolicy"))

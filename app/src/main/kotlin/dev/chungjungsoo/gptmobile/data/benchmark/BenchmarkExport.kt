@@ -79,6 +79,15 @@ internal fun preserveBenchmarkExportUnknown(original: JsonElement?, normalized: 
     else -> normalized
 }
 
+/** Friendly Gateway names can contain the same address that endpoint fields omit. */
+internal fun benchmarkPublicProfileLabel(label: String): String {
+    val urls = Regex("(?i)\\bhttps?://[^\\s]+")
+    val ipv4 = Regex("(?<![\\p{L}\\p{N}])(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5})?(?![\\p{L}\\p{N}])")
+    val ipv6 = Regex("(?i)(?<![\\p{L}\\p{N}])\\[?(?:[0-9a-f]{0,4}:){2,}[0-9a-f:.%_-]*\\]?(?::\\d{1,5})?")
+    val hosts = Regex("(?i)\\b(?:localhost|(?:[a-z0-9-]+\\.)+(?:local|lan|home|internal)|[a-z0-9][a-z0-9.-]*:\\d{2,5})(?::\\d{1,5})?\\b")
+    return DiagnosticRedactor.redact(label).replace(urls, "[address]").replace(ipv4, "[address]").replace(ipv6, "[address]").replace(hosts, "[address]")
+}
+
 internal fun redactBenchmarkExport(value: JsonElement, includePrivateProfileDetails: Boolean = false): JsonElement = when (value) {
     is JsonObject -> buildJsonObject {
         for ((key, item) in value) {
@@ -86,6 +95,24 @@ internal fun redactBenchmarkExport(value: JsonElement, includePrivateProfileDeta
             when {
                 normalized == "pricingsnapshot" && item is JsonObject -> put(key, redactBenchmarkExport(redactBenchmarkPricingSnapshot(item, includePrivateProfileDetails), includePrivateProfileDetails))
                 normalized in setOf("token", "secretref", "apikey", "authorization", "cookie", "password") -> put(key, JsonNull)
+                !includePrivateProfileDetails &&
+                    item is JsonPrimitive &&
+                    item.isString &&
+                    (normalized.endsWith("profilename") || normalized == "name" && "compatibleType" in value) -> put(key, benchmarkPublicProfileLabel(item.content))
+                !includePrivateProfileDetails && normalized == "blockerlabels" && item is JsonArray -> put(
+                    key,
+                    JsonArray(
+                        item.map { label ->
+                            val text = (label as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+                            JsonPrimitive(
+                                text.takeIf {
+                                    it in setOf("Earlier queued measurement", "Earlier queued inference") ||
+                                        it.matches(Regex("(?i)(?:measurement|inference|interactive|background|benchmark)[ :][a-f0-9]{8,64}"))
+                                } ?: "[redacted blocker]"
+                            )
+                        }
+                    )
+                )
                 normalized == "systemprompt" && item is JsonPrimitive && item.isString -> {
                     put("systemPromptDigest", benchmarkHash(item.content))
                     if (includePrivateProfileDetails) put(key, DiagnosticRedactor.redact(item.content))
@@ -141,9 +168,11 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
                 put("runtimeDecisions", "Unjoined runtime-wide planning history; inclusion here does not attribute a decision to a benchmark request.")
                 put("runtimeTrials", "Retained runtime qualification and calibration history; only an exact receipt identity joins it to a case.")
                 put("runtimeExecutions", "Per-sample receipts are joined by physical request, runtime request, worker and native operation; load and generation configuration remain separate.")
+                put("preparation", "Run-level configuration, admission and readiness evidence. A stopped preparation is one incident; dependent dispositions are unstarted cases, not independent provider failures.")
+                put("scoreSelection", "Inclusion fields retain evidence membership. Numerical score eligibility and verified ranking are separate; incomplete or stopped runs cannot acquire a zero quality score from unstarted cases.")
             }
         )
-        put("scoreSelection", benchmarkExportRecords(benchmarkRunSelection(runs, scoreSnapshot, enrollment).asSequence().map { json.encodeToJsonElement(BenchmarkRunSelection.serializer(), it) }))
+        put("scoreSelection", benchmarkExportRecords(source.completeRuns().flatMap { benchmarkRunSelection(listOf(it), scoreSnapshot, enrollment).asSequence() }.map { json.encodeToJsonElement(BenchmarkRunSelection.serializer(), it) }))
         put(
             "unifiedProfileScores",
             benchmarkExportRecords(source.completeRuns().filter { it.mode == BenchmarkMode.STANDARD }.mapNotNull(::unifiedProfileBenchmarkScore).map { json.encodeToJsonElement(UnifiedProfileBenchmarkScore.serializer(), it) })
@@ -162,7 +191,9 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
                         put("measurementCompatibility", run.measurementVersion)
                         put("runScoringCompatibility", run.scoringVersion)
                         put("aggregatePolicy", run.aggregatePolicy?.let(::JsonPrimitive) ?: JsonNull)
-                        put("validatorVersions", JsonArray(run.samples.map { it.validatorVersion }.distinct().map(::JsonPrimitive)))
+                        put("validatorVersions", JsonArray(run.samples.filter { it.validation != null }.map { it.validation?.validatorVersion ?: it.validatorVersion }.distinct().map(::JsonPrimitive)))
+                        put("plannedValidatorVersions", JsonArray(run.caseManifest.orEmpty().map { it.validatorVersion }.distinct().map(::JsonPrimitive)))
+                        put("validatorVersionScope", "validatorVersions records retained validation receipts; plannedValidatorVersions describes fixtures, including unstarted cases. Legacy placeholders do not prove a validator ran.")
                         put("derivedMetricPolicies", JsonArray(benchmarkMetricResults(listOf(run)).map { it.policyVersion }.distinct().map(::JsonPrimitive)))
                         put("cohort", DynamicScoreEngine.cohort(run))
                         put("timingContextExclusion", benchmarkTimingExecutionExclusion(run)?.let(::JsonPrimitive) ?: JsonNull)
@@ -188,6 +219,10 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
                 put("providerTokens", "reported only when explicitly supplied; otherwise unknown or estimated")
                 put("clientPssKb", "Android client process PSS; excludes remote server memory")
                 put("physicalRequestIds", "Admitted generation attempt IDs; admission does not prove network bytes were sent. Empty means unavailable.")
+                put("dispatchEvidence", "requestDispatched records the fixture dispatch boundary; physicalRequestIds alone are admission identities. A provider HTTP status proves an observed response. Preparation may perform separate readiness requests; missing fixture dispatch does not prove no network contact.")
+                put("attemptTimes", "observedStartedAt and observedDeadlineAt belong to observed execution/admission records. Legacy startedAt/deadlineAt on synthesized dispositions are compatibility fields, not evidence of a case start or active deadline.")
+                put("plannedTaskSuccess", "Plan completion progress uses the planned non-warmup manifest. Its percentage is unavailable for incomplete or stopped runs; numerator and denominator remain progress counts, not model accuracy.")
+                put("preparationElapsedMs", "Preparation elapsedMs is a measured monotonic interval. After process loss, lastObservedElapsedMs and queueWaitMs retain the last observation only; a missing final elapsedMs or endedAt is unknown, not zero.")
                 put("phaseElapsedMs", "Sequential client-observed intervals from the attempt monotonic clock, including Android deep sleep. Native segment timing is separate.")
                 put("tokenConfidence", "final_reported is measured final provider/runtime usage; partial_observation, estimated, mixed and unknown are not final measured counts.")
                 put("nativeIdentity", "Worker/session and lease identities join the attempt. Null actual engine/driver/offload fields are unknown; configured settings are not actual execution evidence.")

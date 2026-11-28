@@ -23,6 +23,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+    @Test fun exactNameDiscoveryDoesNotActivateSiblingsWithTheSameNameFragment() = runTest {
+        val anchor = AgentToolDefinition("anchor", "Current operation", JsonObject(emptyMap()))
+        val siblings = (1..80).map { AgentToolDefinition("optional_$it", "Optional operation", JsonObject(emptyMap())) }
+        val definitions = listOf(anchor) + siblings
+        val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, "anchor", setOf(anchor.name)))
+        assertEquals(setOf(anchor.name), catalog.selected(definitions).map { it.name }.toSet())
+        val discovered = catalog.execute("exact", buildJsonObject { put("query", "optional_80") })
+        assertFalse(discovered.isError)
+        assertFalse(discovered.dispatched)
+        assertEquals(setOf(anchor.name, "optional_80"), catalog.selected(definitions).map { it.name }.toSet())
+    }
 
     @Test fun attachmentOnlyRequestPrioritizesItsReaderAndKeepsDeclinedWebOutOfDiscovery() = runTest {
         val schema = buildJsonObject { put("type", "object") }

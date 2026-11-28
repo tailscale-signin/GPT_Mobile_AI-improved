@@ -646,9 +646,8 @@ class ChatRepositoryImpl(
     }
 
     override suspend fun validateBenchmarkProfile(platform: PlatformV2) {
-        check(platform.model.isNotBlank()) { "Choose a model in ${platform.name} first." }
-        if (platform.compatibleType in setOf(ClientType.OPENAI, ClientType.GOOGLE, ClientType.ANTHROPIC, ClientType.GROQ, ClientType.OPENROUTER, ClientType.NVIDIA)) {
-            check(!platform.token.isNullOrBlank()) { "${platform.name} needs an API key. Add one to its provider connection before benchmarking." }
+        dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfileConfigurationIssue(platform, checkCredentials = true)?.let {
+            throw dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProviderFailureException(it, "PROFILE_CONFIGURATION_INVALID")
         }
         if (platform.compatibleType == ClientType.LLAMA) {
             kotlinx.coroutines.currentCoroutineContext()[BenchmarkRequestContext]?.let {

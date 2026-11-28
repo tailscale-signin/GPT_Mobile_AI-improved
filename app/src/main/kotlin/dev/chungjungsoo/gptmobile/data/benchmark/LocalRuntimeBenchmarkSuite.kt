@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.SystemClock
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.BuildConfig
+import dev.chungjungsoo.gptmobile.data.localruntime.AdmissionExpiredException
+import dev.chungjungsoo.gptmobile.data.localruntime.AdmissionOutcome
 import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalConversationConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec
@@ -43,64 +45,86 @@ class LocalRuntimeBenchmarkSuite @Inject constructor(
     val progress = mutableProgress.asStateFlow()
     private val mutableError = MutableStateFlow<String?>(null)
     val error = mutableError.asStateFlow()
+    private val runtimeOwnershipLock = Any()
+    private var ownsRuntime = false
 
     fun start(candidates: List<LocalBenchmarkCandidate>, sustained: Boolean = false): Boolean {
         require(candidates.isNotEmpty() && candidates.size <= 8)
         return coordinator.launch {
             mutableError.value = null
+            val ownerId = "local-comparison:${UUID.randomUUID()}"
+            val queueDeadline = SystemClock.elapsedRealtime() + BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS
             try {
-                InferenceAdmission.benchmark {
-                    runtime.runExclusive {
-                        val duration = if (sustained) (10 + 50 * candidates.size) * 60_000L else 6 * 60_000L
-                        val deadline = SystemClock.elapsedRealtime() + duration
-                        withTimeout(duration) {
-                            var count = 0
-                            val total = candidates.size * 12
-                            // Rotate candidate order to limit systematic warm-up and heat bias.
-                            repeat(6) { repetition ->
-                                for (offset in candidates.indices) {
-                                    val candidate = candidates[(offset + repetition) % candidates.size]
-                                    for (band in listOf(256, 1024)) {
-                                        mutableProgress.value = LocalComparisonProgress(candidate.label, count, total, deadline)
-                                        coordinator.progressMutable.value = BenchmarkProgress(candidate.label, "Local runtime comparison", count, total)
-                                        runTrial(candidate, band, warmup = repetition == 0, cold = repetition == 0, sustained = false)
-                                        count++
-                                    }
-                                }
-                            }
-                            if (sustained) {
-                                repeat(3) { block ->
+                InferenceAdmission.benchmark(ownerId, BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS, onState = { state ->
+                    if (state is AdmissionOutcome.Waiting) {
+                        val label = "Waiting for resources · ${state.queueMillis / 1000}s of ${BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS / 1000}s"
+                        mutableProgress.value = LocalComparisonProgress(label, 0, candidates.size * 12, queueDeadline)
+                        coordinator.progressMutable.value = BenchmarkProgress("Local runtime comparison", label, 0, candidates.size * 12)
+                    }
+                }) {
+                    synchronized(runtimeOwnershipLock) { ownsRuntime = true }
+                    try {
+                        runtime.runExclusive {
+                            val duration = if (sustained) (10 + 50 * candidates.size) * 60_000L else 6 * 60_000L
+                            val deadline = SystemClock.elapsedRealtime() + duration
+                            withTimeout(duration) {
+                                var count = 0
+                                val total = candidates.size * 12
+                                // Rotate candidate order to limit systematic warm-up and heat bias.
+                                repeat(6) { repetition ->
                                     for (offset in candidates.indices) {
-                                        val candidate = candidates[(offset + block) % candidates.size]
-                                        runTrial(candidate, 1024, warmup = true, cold = true, sustained = true)
-                                        val end = SystemClock.elapsedRealtime() + 15 * 60_000L
-                                        while (SystemClock.elapsedRealtime() < end) {
-                                            mutableProgress.value = LocalComparisonProgress("Sustained block ${block + 1}: ${candidate.label}", count++, total, deadline)
-                                            coordinator.progressMutable.value = BenchmarkProgress(candidate.label, "Sustained block ${block + 1}", count, total)
-                                            runTrial(candidate, 1024, warmup = false, cold = false, sustained = true)
+                                        val candidate = candidates[(offset + repetition) % candidates.size]
+                                        for (band in listOf(256, 1024)) {
+                                            mutableProgress.value = LocalComparisonProgress(candidate.label, count, total, deadline)
+                                            coordinator.progressMutable.value = BenchmarkProgress(candidate.label, "Local runtime comparison", count, total)
+                                            runTrial(candidate, band, warmup = repetition == 0, cold = repetition == 0, sustained = false)
+                                            count++
                                         }
                                     }
                                 }
-                            }
-                            store.load()
-                            store.runtimeTrials.value.filter { it.finished && !it.historical && !it.warmup }.groupBy { it.key }.forEach { (key, trials) ->
-                                val measured = trials.filter { it.completed && it.nativeMetrics?.isValid == true }
-                                if (measured.isNotEmpty()) {
-                                    store.saveQualification(
-                                        RuntimeQualificationResult(
-                                            key = key, plan = measured.first().plan, status = QualificationStatus.MEASURED,
-                                            sourceRunIds = trials.map { it.id }, completedRuns = trials.count { it.completed }, failedRuns = trials.count { !it.completed },
-                                            medianDecodeTokensPerSecond = median(measured.map { it.nativeMetrics!!.decodeTokensPerSecond }),
-                                            p95FirstVisibleMs = percentile95(measured.mapNotNull { it.firstVisibleAnswerMs }),
-                                            medianLoadMs = median(measured.filter { it.cold }.mapNotNull { it.loadMs?.toDouble() })?.toLong(),
-                                            sustainedMedianDecodeTokensPerSecond = median(measured.filter { it.sustained && !it.cold }.map { it.nativeMetrics!!.decodeTokensPerSecond }),
-                                            measuredAt = System.currentTimeMillis(), reason = "Measured only; full quality, recovery and backend qualification gates remain required"
+                                if (sustained) {
+                                    repeat(3) { block ->
+                                        for (offset in candidates.indices) {
+                                            val candidate = candidates[(offset + block) % candidates.size]
+                                            runTrial(candidate, 1024, warmup = true, cold = true, sustained = true)
+                                            val end = SystemClock.elapsedRealtime() + 15 * 60_000L
+                                            while (SystemClock.elapsedRealtime() < end) {
+                                                mutableProgress.value = LocalComparisonProgress("Sustained block ${block + 1}: ${candidate.label}", count++, total, deadline)
+                                                coordinator.progressMutable.value = BenchmarkProgress(candidate.label, "Sustained block ${block + 1}", count, total)
+                                                runTrial(candidate, 1024, warmup = false, cold = false, sustained = true)
+                                            }
+                                        }
+                                    }
+                                }
+                                store.load()
+                                store.runtimeTrials.value.filter { it.finished && !it.historical && !it.warmup }.groupBy { it.key }.forEach { (key, trials) ->
+                                    val measured = trials.filter { it.completed && it.nativeMetrics?.isValid == true }
+                                    if (measured.isNotEmpty()) {
+                                        store.saveQualification(
+                                            RuntimeQualificationResult(
+                                                key = key, plan = measured.first().plan, status = QualificationStatus.MEASURED,
+                                                sourceRunIds = trials.map { it.id }, completedRuns = trials.count { it.completed }, failedRuns = trials.count { !it.completed },
+                                                medianDecodeTokensPerSecond = median(measured.map { it.nativeMetrics!!.decodeTokensPerSecond }),
+                                                p95FirstVisibleMs = percentile95(measured.mapNotNull { it.firstVisibleAnswerMs }),
+                                                medianLoadMs = median(measured.filter { it.cold }.mapNotNull { it.loadMs?.toDouble() })?.toLong(),
+                                                sustainedMedianDecodeTokensPerSecond = median(measured.filter { it.sustained && !it.cold }.map { it.nativeMetrics!!.decodeTokensPerSecond }),
+                                                measuredAt = System.currentTimeMillis(), reason = "Measured only; full quality, recovery and backend qualification gates remain required"
+                                            )
                                         )
-                                    )
+                                    }
                                 }
                             }
                         }
+                    } finally {
+                        // Clear ownership before admission can hand the runtime to a successor.
+                        synchronized(runtimeOwnershipLock) { ownsRuntime = false }
                     }
+                }
+            } catch (expired: AdmissionExpiredException) {
+                mutableError.value = if (expired.request.ownerId == ownerId) {
+                    "Resource waiting reached its ${BENCHMARK_ADMISSION_QUEUE_TIMEOUT_MS / 1000}-second limit before any comparison trial started. Try again after the active work finishes."
+                } else {
+                    expired.message
                 }
             } catch (cancelled: CancellationException) {
                 mutableError.value = coordinator.stopReason ?: "Comparison stopped or reached its time limit. Completed trials remain saved."
@@ -114,8 +138,11 @@ class LocalRuntimeBenchmarkSuite @Inject constructor(
     }
 
     fun stop() {
-        coordinator.cancel("Local comparison stopped by user")
-        runtime.cancelActive()
+        coordinator.cancel("Local comparison stopped by user", id = coordinator.sessionId.value)
+        synchronized(runtimeOwnershipLock) {
+            // Keep the ownership check and native cancel atomic with lease handoff.
+            if (ownsRuntime) runtime.cancelActive()
+        }
     }
 
     private suspend fun runTrial(candidate: LocalBenchmarkCandidate, band: Int, warmup: Boolean, cold: Boolean, sustained: Boolean) {

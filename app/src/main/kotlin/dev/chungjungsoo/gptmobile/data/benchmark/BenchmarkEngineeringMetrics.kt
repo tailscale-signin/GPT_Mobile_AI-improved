@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 /** A named eligibility reason replaces the meaningless exclusion of a sample because it PASSED. */
 internal fun benchmarkMetricExclusion(metric: String, sample: BenchmarkSample): String = when {
+    // A skipped case is affected by its root cause; it is not another occurrence of it.
+    sample.dispositionOnly || sample.outcome == BenchmarkOutcome.SKIPPED -> sample.failureCategory ?: "SKIPPED"
     metric.startsWith("intelligence_") || metric == "reasoning_fixture_accuracy" ->
         if (sample.category != IntelligenceBenchmark.CATEGORY) "NOT_AN_INTELLIGENCE_TASK" else sample.failureCategory ?: "SEMANTIC_EVIDENCE_UNAVAILABLE"
     metric.contains("decode_rate") || metric.contains("prefill_rate") || metric.contains("first_visible_text") -> when {

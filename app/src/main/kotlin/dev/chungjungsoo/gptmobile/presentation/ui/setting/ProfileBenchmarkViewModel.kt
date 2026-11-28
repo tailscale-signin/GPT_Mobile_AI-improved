@@ -31,6 +31,7 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkEngineeringComparisons
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkHash
+import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfileConfigurationIssue
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSnapshot
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
@@ -232,10 +233,10 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
     internal val resultPresentations = combine(profiles, history, batches, scoreSnapshot) { list, runs, batches, snapshot ->
         benchmarkResultPresentations(list, runs, batches, snapshot?.rows.orEmpty())
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    internal val backendComparisons = history.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkComparisonMatrix(it) }
+    internal val backendComparisons = history.map { runs -> dev.chungjungsoo.gptmobile.data.benchmark.benchmarkComparisonMatrix(runs).filter { row -> row.cells.any { it.status != dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkComparisonStatus.UNMEASURED } } }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val benchmarkSession = execution.sessionId
-    val auditModelCandidates = profiles.map { list -> list.filter { it.enabled && it.model.isNotBlank() } }
+    val auditModelCandidates = profiles.map { list -> list.filter { benchmarkProfileConfigurationIssue(it) == null } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val mutableAuditLabelWarning = MutableStateFlow<String?>(null)
     val auditLabelWarning = mutableAuditLabelWarning.asStateFlow()
@@ -289,7 +290,7 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings())
     private val selectedBenchmarkUids = MutableStateFlow<Set<String>?>(null)
     private var preparedAuditModelBinding: AppAuditModelBenchmarkBinding? = null
-    val benchmarkCandidates = profiles.map { list -> list.filter { it.enabled && it.model.isNotBlank() } }
+    val benchmarkCandidates = profiles.map { list -> list.filter { benchmarkProfileConfigurationIssue(it) == null } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val selectedBenchmarks = combine(benchmarkCandidates, selectedBenchmarkUids) { list, selected ->
         val ids = selected ?: emptySet()
@@ -572,7 +573,7 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
             mutableError.value = "Context experiments use one unchanged profile and an executable coding or Live GitHub lane."
             return false
         }
-        val targets = selectedProfileUids.mapNotNull { uid -> profiles.value.singleOrNull { it.uid == uid && it.enabled && it.model.isNotBlank() } }
+        val targets = selectedProfileUids.mapNotNull { uid -> profiles.value.singleOrNull { it.uid == uid && benchmarkProfileConfigurationIssue(it) == null } }
         if (targets.size != selectedProfileUids.size) {
             mutableError.value = "A selected profile is unavailable. Its replacement will not be selected automatically."
             return false
@@ -643,7 +644,7 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
     fun startGitHubToolAudit(profileUid: String, allActions: Boolean, strictDeterministic: Boolean = false): Boolean {
         if (execution.isRunning || !mutableReady.value) return false
         val target = profiles.value.singleOrNull {
-            it.uid == profileUid && it.enabled && it.model.isNotBlank()
+            it.uid == profileUid && benchmarkProfileConfigurationIssue(it) == null
         }
         if (target == null) {
             mutableError.value = "Select a currently enabled AI profile for the GitHub tool audit."
@@ -769,6 +770,10 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
             mutableError.value = "Select at least one AI model to benchmark."
             return
         }
+        targets.firstNotNullOfOrNull { benchmarkProfileConfigurationIssue(it) }?.let { issue ->
+            mutableError.value = issue
+            return
+        }
         if (mode in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE) && targets.any { it.compatibleType != ClientType.LITERT_LM }) {
             mutableError.value = "${mode.label} requires only on-device model profiles."
             return
@@ -796,6 +801,10 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
             return
         }
         val reviewer = benchmarkReviewer.value
+        (listOf(primary) + helpers + listOfNotNull(reviewer)).firstNotNullOfOrNull { benchmarkProfileConfigurationIssue(it) }?.let { issue ->
+            mutableError.value = issue
+            return
+        }
         val paired = pairedComparison.value
         val config = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSettings(reviewer?.uid.orEmpty()).copy(taskPlan = if (paired) delegationSettings.value.taskPlan else dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan())
         val batch = BenchmarkBatch(
@@ -831,7 +840,7 @@ class ProfileBenchmarkViewModel @Inject internal constructor(
             item.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) &&
                 (item.failure?.nextEligibleAt?.let { it <= now } ?: true)
         }.mapNotNull { item ->
-            val current = currentProfiles[item.profile.uid]?.takeIf { it.enabled && it.model.isNotBlank() } ?: return@mapNotNull null
+            val current = currentProfiles[item.profile.uid]?.takeIf { benchmarkProfileConfigurationIssue(it) == null } ?: return@mapNotNull null
             if (item.auditModelBinding != null && appAuditBenchmarkProfileHash(current) != item.auditModelBinding.profileSnapshotHash) return@mapNotNull null
             item.copy(profile = current.benchmarkSnapshot(), configKey = benchmarkConfigKey(current, localEnvironment.value, policy))
         }

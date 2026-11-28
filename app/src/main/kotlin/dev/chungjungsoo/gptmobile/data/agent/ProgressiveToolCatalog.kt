@@ -963,7 +963,8 @@ class ProgressiveToolCatalog(
         // Discovery may reveal repository intent after an ordinary first message.
         // This raises only the schema window; runtime context and grants still apply.
         if (advancedTask(query) || names.any { it in candidates && it.contains("github", true) } || exact?.name?.contains("github", true) == true) advanced = true
-        val undiscovered = if (query.isNotBlank() || repositoryHint != null) ranked(query, repositoryHint) else emptyList()
+        // An exact name selects that contract; shared name fragments do not expand a precise lookup.
+        val undiscovered = if (repositoryHint != null || exact == null && query.isNotBlank()) ranked(query, repositoryHint) else emptyList()
         val selectedFeatures = ReviewedFeatureSelection(query.ifBlank { taskText }, taskText)
         val selectedProducts = if (githubMode) IndexedFeatureToolSelection(query.ifBlank { taskText }, taskText) else null
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)

@@ -92,13 +92,16 @@ data class BenchmarkTaskEfficiency(
     val allInOutputTokens: Long? = null,
     val allInApiCostEstimateMicros: Long? = null,
     val allInCostExclusions: Map<String, Int> = emptyMap(),
-    val allInScope: String = "one profile run including preparation, readiness, warmups, failures, retries and cleanup; shared experiment preparation is reported once separately"
+    val allInScope: String = "one profile run including preparation, readiness, warmups, failures, retries and cleanup; shared experiment preparation is reported once separately",
+    val excludedPreparation: Int = 0
 )
 
 fun benchmarkTaskEfficiency(run: BenchmarkRun): BenchmarkTaskEfficiency {
     val measured = run.samples.filterNot { it.warmup }
+    val preparationSamples = measured.filter { it.isRunPreparationSample() }
     val samples = measured.filterNot {
-        it.outcome in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) &&
+        it.isRunPreparationSample() ||
+            (it.dispositionOnly || it.outcome in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED)) &&
             it.requestDispatched == false &&
             it.requestAdmitted != true &&
             !it.hasTaskDispatchEvidence()
@@ -114,16 +117,21 @@ fun benchmarkTaskEfficiency(run: BenchmarkRun): BenchmarkTaskEfficiency {
     val allInCosts = allIn.map { benchmarkSampleApiCost(run, it) }
     val allInElapsed = run.endedAt?.takeIf { run.finished && it >= run.startedAt }?.minus(run.startedAt)
     val readinessDuration = run.readiness?.let { it.finishedAt?.takeIf { end -> end >= it.startedAt }?.minus(it.startedAt) }
+    // Older resumed receipts described only the latest setup; the compatibility total retained both.
+    val preflightDuration = run.preflightDurationMs ?: run.preparation?.elapsedMs
+        ?: run.samples.filter { it.isRunPreparationSample() }.mapNotNull { it.endToEndDurationMs ?: it.durationMs.takeIf { duration -> duration > 0 } }.maxOrNull()
     val setupElapsed = when {
-        run.preflightDurationMs == null && readinessDuration == null -> null
-        else -> exactNonnegativeSum(listOf(run.preflightDurationMs ?: 0L, readinessDuration ?: 0L))
+        run.preparation != null && preflightDuration == null -> null
+        run.readiness != null && readinessDuration == null -> null
+        preflightDuration == null && readinessDuration == null -> null
+        else -> exactNonnegativeSum(listOf(preflightDuration ?: 0L, readinessDuration ?: 0L))
     }
     return BenchmarkTaskEfficiency(
         recordedTasks = samples.size,
         successfulTasks = passed,
         unsuccessfulTasks = samples.size - passed,
         excludedWarmups = run.samples.count { it.warmup },
-        excludedUnattempted = measured.size - samples.size,
+        excludedUnattempted = measured.size - samples.size - preparationSamples.size,
         elapsedMs = elapsed,
         elapsedMsPerSuccessfulTask = elapsed?.takeIf { passed > 0 }?.toDouble()?.div(passed),
         retryMs = retries,
@@ -144,7 +152,8 @@ fun benchmarkTaskEfficiency(run: BenchmarkRun): BenchmarkTaskEfficiency {
         allInInputTokens = benchmarkMeasuredTokenTotal(allIn, input = true),
         allInOutputTokens = benchmarkMeasuredTokenTotal(allIn, input = false),
         allInApiCostEstimateMicros = allIn.takeIf { it.isNotEmpty() }?.let { exactNonnegativeSum(allInCosts.map { value -> value.first }) },
-        allInCostExclusions = allInCosts.mapNotNull { it.second }.groupingBy { it }.eachCount()
+        allInCostExclusions = allInCosts.mapNotNull { it.second }.groupingBy { it }.eachCount(),
+        excludedPreparation = preparationSamples.size
     )
 }
 

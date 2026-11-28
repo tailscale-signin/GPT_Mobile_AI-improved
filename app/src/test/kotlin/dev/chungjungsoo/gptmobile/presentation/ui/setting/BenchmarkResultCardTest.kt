@@ -21,9 +21,11 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkIntelligenceSummary
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMetricResult
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkPreparationReceipt
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStopOrigin
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.localruntime.EngineLoadReceipt
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt
@@ -56,6 +58,22 @@ class BenchmarkResultCardTest {
         val delta = action.positionInRoot.y + action.size.height / 2f - viewport.center.y
         compose.runOnIdle { scrollState.dispatchRawDelta(delta) }
         compose.waitForIdle()
+    }
+
+    @Test fun stoppedPreparationIsPresentedAsSetupWithNoFailedFixture() {
+        val stopped = run("preflight-stop", 1000).copy(
+            state = "INTERRUPTED",
+            canceled = true,
+            cancellationOrigin = BenchmarkStopOrigin.USER_STOP,
+            endedAt = 33_000,
+            preparation = BenchmarkPreparationReceipt("prep", "admission", "CANCELED", 1000, elapsedMs = 32_000, queueWaitMs = 32_000, queueDeadlineMs = 30_000)
+        )
+        show(presentation(listOf(stopped)))
+        compose.onNodeWithText("Latest attempt: stopped by you").assertExists()
+        compose.onNodeWithText("Preparation: admission · stopped by you · 32s observed").assertExists()
+        compose.onNodeWithText("Admission wait: 32s · wait limit 30s").assertExists()
+        compose.onNodeWithText("No fixture attempts are included in the effort calculation. Preparation is not a failed fixture.").assertExists()
+        compose.onNodeWithText("Current failure stage:", substring = true).assertDoesNotExist()
     }
 
     @Test fun collapsedAndExpandedPercentageMetricRenderWithoutInterpretingTheUnit() {

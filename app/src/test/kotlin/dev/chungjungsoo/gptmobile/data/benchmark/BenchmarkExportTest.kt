@@ -14,6 +14,70 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkExportTest {
+    @Test fun coldExportUsesCompleteFixtureEvidenceForScoreEligibility() {
+        val plan = UnifiedProfileBenchmarkSuite.cases(0)
+        val test = plan.first { it.category == "task" }
+        val observed = BenchmarkSample(
+            test.id, test.label, test.category, BenchmarkOutcome.PASSED,
+            workload = test.workload, requestAdmitted = true, requestDispatched = true, terminalReceived = true,
+            outputCharacters = 2, preview = "12", canonicalAnswer = "12",
+            fixtureContentHash = test.contentHash, validatorVersion = test.validatorVersion,
+            validation = BenchmarkValidationResult(test.validatorVersion, true), evidenceScope = "SYNTHETIC_BENCHMARK"
+        )
+        val run = BenchmarkRun("run", "profile", "Profile", "OPENAI", "model", "configuration", false, BenchmarkMode.STANDARD, 1, listOf(observed), finished = false, suiteVersion = 14, measurementVersion = 4, plannedTrials = plan.size, caseManifest = plan, fixtureRotationSeed = 0, executionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1)
+        val snapshot = DynamicScoreEngine.snapshot(listOf(run), 1, 101, mapOf("profile" to "configuration"))
+        val projected = benchmarkExportComparisonRun(run)
+        assertTrue(benchmarkRunSelection(listOf(run), snapshot, null).single().hasMeasuredCapability)
+        assertFalse(benchmarkRunSelection(listOf(projected), snapshot, null).single().hasMeasuredCapability)
+
+        fun selection(source: BenchmarkExportSource): JsonArray {
+            val bytes = java.io.ByteArrayOutputStream()
+            val output = BenchmarkStreamingExport(bytes)
+            writeBenchmarkExport(output, source, false) {}
+            output.finish()
+            return Json.parseToJsonElement(bytes.toString(Charsets.UTF_8.name())).jsonObject.getValue("scoreSelection").jsonArray
+        }
+        val warm = BenchmarkExportSource(listOf(run), emptyList(), snapshot, null, null)
+        val cold = warm.copy(runs = listOf(projected), readCompleteRuns = { sequenceOf(run) })
+        assertEquals(selection(warm), selection(cold))
+        assertEquals(JsonPrimitive(true), selection(cold).single().jsonObject["hasMeasuredCapability"])
+    }
+
+    @Test fun gatewayLabelsAndImportedBlockerNamesDoNotLeakAddressesInEitherPublicExport() {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "gateway", name = "Gateway · 192.0.2.8:8090", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, model = "model")
+        val run = BenchmarkRun("run", profile.uid, profile.name, "LLAMA", "model", "key", false, BenchmarkMode.STANDARD, 1, preparation = BenchmarkPreparationReceipt("prep", "admission", "WAITING", 1, blockerLabels = listOf("INTERACTIVE:0123456789ab", "Earlier queued measurement", "Earlier queued inference", "private owner 192.0.2.8")))
+        val batch = BenchmarkBatch("batch", BenchmarkMode.STANDARD, 1, listOf(BenchmarkQueueItem(0, profile, run.id, "key")))
+        val raw = Json.encodeToString(BenchmarkBackupPayload.serializer(), BenchmarkBackupPayload(runs = listOf(run), batches = listOf(batch)))
+        for (detailed in listOf(false, true)) {
+            val output = benchmarkExport(raw, detailed)
+            assertFalse(output.contains("192.0.2.8"))
+            assertFalse(output.contains("private owner"))
+            assertTrue(output.contains("Gateway · [address]"))
+            assertTrue(output.contains("INTERACTIVE:0123456789ab"))
+            assertTrue(output.contains("Earlier queued measurement"))
+            assertTrue(output.contains("Earlier queued inference"))
+        }
+        for (label in listOf("Gateway · https://private.example:8090/v1", "Gateway · [2001:db8:1234::abcd]:8090", "Gateway · workstation.local:8090")) {
+            assertEquals("Gateway · [address]", benchmarkPublicProfileLabel(label))
+        }
+        assertEquals("GPT-5.6 Luna", benchmarkPublicProfileLabel("GPT-5.6 Luna"))
+        val privateExport = redactBenchmarkExport(buildJsonObject { put("profileName", profile.name) }, includePrivateProfileDetails = true).jsonObject
+        assertEquals(profile.name, privateExport.getValue("profileName").jsonPrimitive.content)
+    }
+
+    @Test fun validatorPolicySeparatesExecutedGradesFromNeverStartedFixtures() {
+        val cases = listOf(BenchmarkCase("passed", "Passed", "task", "Reply ready", validatorVersion = "planned-v8"), BenchmarkCase("skipped", "Skipped", "task", "Reply ready", validatorVersion = "planned-v9"))
+        val samples = listOf(
+            BenchmarkSample("passed", "Passed", "task", BenchmarkOutcome.PASSED, validatorVersion = "legacy-alias", validation = BenchmarkValidationResult("actual-v8", true)),
+            BenchmarkSample("skipped", "Skipped", "task", BenchmarkOutcome.SKIPPED, validatorVersion = "legacy", requestDispatched = false, dispositionOnly = true)
+        )
+        val run = BenchmarkRun("run", "profile", "Profile", "OPENAI", "model", "key", false, BenchmarkMode.STANDARD, 1, samples, caseManifest = cases)
+        val raw = Json.encodeToString(BenchmarkBackupPayload.serializer(), BenchmarkBackupPayload(runs = listOf(run)))
+        val policy = Json.parseToJsonElement(benchmarkExport(raw, false)).jsonObject.getValue("policyDomains").jsonArray.single().jsonObject
+        assertEquals(listOf("actual-v8"), policy.getValue("validatorVersions").jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(listOf("planned-v8", "planned-v9"), policy.getValue("plannedValidatorVersions").jsonArray.map { it.jsonPrimitive.content })
+    }
+
     @Test fun routeBoundPriceSnapshotRoundTripsWithoutPrivateSourceDetails() {
         val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Profile", model = "model")
         val now = requireNotNull(dev.chungjungsoo.gptmobile.data.pricing.reviewTime("2026-11-22")) + 1_000

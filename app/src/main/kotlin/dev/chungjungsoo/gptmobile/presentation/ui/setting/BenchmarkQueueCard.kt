@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -36,6 +37,7 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueueState
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStopOrigin
 import dev.chungjungsoo.gptmobile.data.benchmark.retryCondition
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -46,30 +48,40 @@ internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: 
     var details by remember(batch.id) { mutableStateOf(false) }
     val now = rememberLiveClock(active)
     val runById = remember(runs) { runs.associateBy { it.id } }
+    val stoppedOrdinals = batch.items.filter { runById[it.runId]?.cancellationOrigin == BenchmarkStopOrigin.USER_STOP || it.failure?.code == "USER_STOP" }.map { it.ordinal }.toSet()
+    val failed = batch.items.count { it.ordinal !in stoppedOrdinals && it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED) }
+    val interrupted = batch.items.count { it.ordinal !in stoppedOrdinals && it.state == BenchmarkQueueState.INTERRUPTED }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (active) "Profile ${(batch.activeOrdinal ?: 0) + 1} of ${batch.items.size}" else batch.state.name.lowercase().replace('_', ' '), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-            Text("${batch.handled}/${batch.items.size} handled · ${batch.failed} failed or blocked · ${batch.items.count { it.state == BenchmarkQueueState.SKIPPED }} skipped · ${((batch.endedAt ?: now) - batch.createdAt).coerceAtLeast(0) / 1000}s", style = MaterialTheme.typography.bodySmall)
+            Text("${batch.handled}/${batch.items.size} handled · $failed failed or blocked · $interrupted interrupted · ${stoppedOrdinals.size} stopped by you · ${batch.items.count { it.state == BenchmarkQueueState.SKIPPED }} skipped · ${((batch.endedAt ?: now) - batch.createdAt).coerceAtLeast(0) / 1000}s", style = MaterialTheme.typography.bodySmall)
             Text("Request policy: ${batch.executionPolicy?.label ?: "Unknown (historical run)"}", style = MaterialTheme.typography.labelSmall)
             batch.items.take(100).forEach { item ->
-                val progress = benchmarkQueueProgress(item, runById[item.runId])
+                val run = runById[item.runId]
+                val stopped = item.ordinal in stoppedOrdinals
+                val progress = benchmarkQueueProgress(item, run)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(
-                        when (item.state) {
-                            BenchmarkQueueState.COMPLETED -> Icons.Rounded.CheckCircle
-                            BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED -> Icons.Rounded.ErrorOutline
-                            BenchmarkQueueState.SKIPPED -> Icons.Rounded.SkipNext
-                            else -> Icons.Rounded.HourglassEmpty
+                        if (stopped) {
+                            Icons.Rounded.Stop
+                        } else {
+                            when (item.state) {
+                                BenchmarkQueueState.COMPLETED -> Icons.Rounded.CheckCircle
+                                BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED -> Icons.Rounded.ErrorOutline
+                                BenchmarkQueueState.SKIPPED -> Icons.Rounded.SkipNext
+                                else -> Icons.Rounded.HourglassEmpty
+                            }
                         },
-                        item.state.name.lowercase()
+                        if (stopped) "Stopped by you" else item.state.name.lowercase()
                     )
                     Column(Modifier.weight(1f)) {
                         Text("${item.ordinal + 1}. ${item.profile.name}")
-                        Text(item.failure?.code?.lowercase()?.replace('_', ' ') ?: item.state.name.lowercase(), style = MaterialTheme.typography.labelSmall)
+                        Text(if (stopped) "Stopped by you" else item.failure?.code?.lowercase()?.replace('_', ' ') ?: item.state.name.lowercase(), style = MaterialTheme.typography.labelSmall)
                         Text("Planned ${progress.planned ?: "unknown"} · executed ${progress.executed ?: "unknown"} · passed ${progress.passed ?: "unknown"} · failed ${progress.failed ?: "unknown"} · skipped ${progress.skipped ?: "unknown"}", style = MaterialTheme.typography.labelSmall)
-                        item.failure?.let { Text(it.retryCondition(), style = MaterialTheme.typography.labelSmall) }
+                        run?.let { BenchmarkPreparationDetails(it) }
+                        if (!stopped) item.failure?.let { Text(it.retryCondition(), style = MaterialTheme.typography.labelSmall) }
                         if (item.state == BenchmarkQueueState.RUNNING) {
-                            Text("Current test: ${progress.currentCase ?: "Preparing or awaiting next case"}", style = MaterialTheme.typography.bodySmall)
+                            Text(progress.currentCase?.let { "Current test: $it" } ?: "No fixture is currently executing.", style = MaterialTheme.typography.bodySmall)
                             progress.planned?.takeIf { it > 0 }?.let { planned ->
                                 LinearProgressIndicator(progress = { (progress.completed.toFloat() / planned).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                             }

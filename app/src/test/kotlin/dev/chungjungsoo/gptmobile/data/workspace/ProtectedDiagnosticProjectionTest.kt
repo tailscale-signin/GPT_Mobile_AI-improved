@@ -79,7 +79,10 @@ class ProtectedDiagnosticProjectionTest {
                 capture(fixture(), issued = issued, beforeRead = { if (issued.isNotEmpty()) throw expected })
             }
         }
-        assertTrue(observed === expected)
+        // Coroutine stack-trace recovery may copy the typed exception, retaining
+        // the original as its cause. The deferral must still escape unchanged in
+        // meaning, without becoming a missing-source result.
+        assertTrue(generateSequence(observed as Throwable?) { it.cause }.any { it === expected })
         assertTrue(issued.all { bytes -> bytes.all { it == 0.toByte() } })
     }
 
@@ -87,8 +90,21 @@ class ProtectedDiagnosticProjectionTest {
     fun oversizedSingleTokenFailsClosedWithinTheStreamingProjectionBound() = runBlocking {
         val source = fixture().dropLast(1) + ",\"failure_code\":\"" + "x".repeat(70 * 1024) + "\"}"
         val result = capture(source)
-        assertEquals("PROTECTED_PAYLOAD_INVALID_JSON", result.omissionReason)
+        assertEquals("PROTECTED_PAYLOAD_BYTE_LIMIT", result.omissionReason)
         assertNull(result.payload)
+    }
+
+    @Test(timeout = 10000)
+    fun oversizedSkippedScalarRetainsTheLimitReasonForCompactReceiptFallback() = runBlocking {
+        val source = buildJsonObject {
+            put("failure_code", "conversation_conflict")
+            put("large_checklist", "x".repeat(364_489))
+        }.toString()
+        val issued = mutableListOf<ByteArray>()
+        val result = capture(source, issued = issued)
+        assertEquals("PROTECTED_PAYLOAD_BYTE_LIMIT", result.omissionReason)
+        assertNull(result.payload)
+        assertTrue(issued.all { bytes -> bytes.all { it == 0.toByte() } })
     }
 
     private fun fixture() = buildJsonObject {

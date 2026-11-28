@@ -33,7 +33,27 @@ data class BenchmarkFailure(
     val retryable: Boolean = false,
     val nextEligibleAt: Long? = null,
     val failureScope: BenchmarkFailureScope? = null,
-    val recoveryAction: BenchmarkRecoveryAction? = null
+    val recoveryAction: BenchmarkRecoveryAction? = null,
+    /** Identity of this root incident; dependent dispositions reference it instead. */
+    val eventId: String? = null
+)
+
+/** Preparation is run-level work, never an attempted or graded fixture. */
+@Serializable
+data class BenchmarkPreparationReceipt(
+    val eventId: String,
+    val stage: String,
+    val status: String,
+    val startedAt: Long,
+    val endedAt: Long? = null,
+    val elapsedMs: Long? = null,
+    val queueWaitMs: Long? = null,
+    val queueDeadlineMs: Long? = null,
+    /** Generic inference role plus a hash; never raw owner names, routes or credentials. */
+    val blockerLabels: List<String> = emptyList(),
+    val failure: BenchmarkFailure? = null,
+    /** A process-loss snapshot is a lower bound, not a completed elapsed measurement. */
+    val lastObservedElapsedMs: Long? = null
 )
 
 @Serializable
@@ -114,7 +134,11 @@ data class BenchmarkAttempt(
     val physicalRequestIds: List<String> = emptyList(),
     val logicalRequestId: String? = null,
     val invocationIds: List<String> = emptyList(),
-    val queuedAt: Long? = null
+    val queuedAt: Long? = null,
+    /** Old timestamp aliases remain readable; only observed timestamps establish execution. */
+    val recordKind: String = "LEGACY_UNSPECIFIED",
+    val observedStartedAt: Long? = null,
+    val observedDeadlineAt: Long? = null
 )
 
 @Serializable

@@ -51,7 +51,7 @@ class BenchmarkAuditModelQueueTest {
             val models = mockk<AppAuditSelectedModelServices>()
             coEvery { models.target(fixture.profile.uid) } answers { current }
             val settings = mockk<SettingRepository>()
-            coEvery { settings.fetchPlatformV2s() } returns listOf(fixture.profile)
+            coEvery { settings.fetchPlatformV2s() } returns listOf(fixture.profile.copy(token = "benchmark-test-key"))
             val chats = mockk<ChatRepository>()
             coEvery { chats.validateBenchmarkProfile(any()) } returns Unit
             coEvery { chats.benchmarkContextTokens(any()) } returns null
@@ -76,7 +76,7 @@ class BenchmarkAuditModelQueueTest {
             val run = store.history.value.single { it.id == item.runId }
             val first = run.samples.first()
             assertEquals(BenchmarkBatchState.COMPLETED_WITH_FAILURES, saved.state)
-            assertEquals("AUDIT_MODEL_CONFIGURATION_CHANGED", first.failureCategory)
+            assertEquals("AUDIT_MODEL_CONFIGURATION_CHANGED", if (changedBeforeRun) run.preparation?.failure?.code else first.failureCategory)
             assertEquals(!changedBeforeRun, first.requestDispatched)
             coVerify(exactly = if (changedBeforeRun) 0 else 1) { chats.openBenchmarkSession(any(), any(), any(), any(), any(), any(), any()) }
             if (!changedBeforeRun) {

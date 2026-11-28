@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMetricResult
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStopOrigin
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkTaskEfficiency
 import dev.chungjungsoo.gptmobile.data.benchmark.DynamicScoreEngine
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCoverage
@@ -32,10 +33,11 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(result.profileName, style = MaterialTheme.typography.titleMedium)
-            Text("Latest attempt: ${result.status.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.titleSmall)
+            Text("Latest attempt: ${benchmarkAttemptStatus(run, result.status)}", style = MaterialTheme.typography.titleSmall)
             Text("${run?.model ?: result.latestQueueItem?.profile?.model ?: "No recorded attempt"} · ${benchmarkResultDate(run?.startedAt ?: result.latestQueueItem?.startedAt)}", style = MaterialTheme.typography.labelMedium)
             Text("${result.mode.label} · ${result.executionPolicy?.label ?: "Unknown request policy (historical)"}", style = MaterialTheme.typography.labelSmall)
             BenchmarkRuntimeSummary(run)
+            run?.let { BenchmarkPreparationDetails(it) }
             if (result.mode == BenchmarkMode.GITHUB_INTEGRATION) {
                 val offlineContract = run?.samples?.count { it.workload == "github_ai_fixture_v1" } ?: 0
                 val simulatedEngineering = run?.samples?.count { it.workload == "github_engineering_fixture_v1" } ?: 0
@@ -57,6 +59,7 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
                 val coverage = benchmarkCoverage(run)
                 val planned = if (coverage.plannedKnown) coverage.planned.toString() else "unknown"
                 Text("Planned $planned · executed ${coverage.executed} · passed ${coverage.passed} · failed ${coverage.failed} · skipped ${coverage.skipped}", style = MaterialTheme.typography.bodySmall)
+                if (coverage.canceled > 0 || coverage.notStarted > 0) Text("Canceled ${coverage.canceled} · no fixture attempt ${coverage.notStarted}", style = MaterialTheme.typography.bodySmall)
                 val delivery = result.attemptMetrics.firstOrNull { it.id == "delivery_completion" }
                 if (delivery != null && delivery.denominator > 0) {
                     Text("Delivery: ${delivery.numerator}/${delivery.denominator} requests · $planned planned cases", style = MaterialTheme.typography.bodySmall)
@@ -65,9 +68,11 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
             } else {
                 Text("Attempt coverage: not recorded", style = MaterialTheme.typography.bodySmall)
             }
-            val lastFailure = run?.samples?.lastOrNull { it.failure != null || it.failureCategory != null }
-            val failure = result.failure
-            if (failure != null || lastFailure != null || run?.stoppedReason != null) {
+            val lastFailure = run?.samples?.lastOrNull { !it.dispositionOnly && (it.failure != null || it.failureCategory != null) }
+            val failure = run?.preparation?.failure ?: result.failure
+            if (run?.cancellationOrigin == BenchmarkStopOrigin.USER_STOP) {
+                Text("Stopped by you. Retained evidence stays available; unstarted cases are not failed answers.", style = MaterialTheme.typography.bodySmall)
+            } else if (failure != null || lastFailure != null || run?.stoppedReason != null) {
                 Text("Current failure stage: ${failure?.stage ?: lastFailure?.runtimeStage ?: "Not recorded"} · ${failure?.code ?: lastFailure?.failureCategory ?: "No recorded code"}", color = MaterialTheme.colorScheme.error)
                 (failure?.message ?: lastFailure?.error ?: run?.stoppedReason)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
@@ -78,6 +83,11 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
             if (expanded) BenchmarkResultDetails(result, efficiency)
         }
     }
+}
+
+@Composable
+internal fun BenchmarkPreparationDetails(run: BenchmarkRun) {
+    benchmarkPreparationLines(run).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable
@@ -110,11 +120,15 @@ private fun BenchmarkResultDetails(result: BenchmarkResultPresentation, efficien
     run?.let { recorded ->
         val coverage = benchmarkCoverage(recorded)
         Text("Admitted ${coverage.admitted} · terminal observed ${coverage.terminalized} · passed ${coverage.passed} · failed ${coverage.failed} · partial ${coverage.partial} · blocked ${coverage.blocked} · skipped ${coverage.skipped} · pending ${if (coverage.plannedKnown) coverage.pending else "unknown"}", style = MaterialTheme.typography.bodySmall)
+        Text("Canceled ${coverage.canceled} · no fixture attempt ${coverage.notStarted}. Cases without a fixture attempt are a subset of recorded outcomes; pending planned cases are separate.", style = MaterialTheme.typography.bodySmall)
         Text("Unknown observations: admission ${coverage.admissionUnknown} · execution ${coverage.executionUnknown} · terminal ${coverage.terminalUnknown}", style = MaterialTheme.typography.bodySmall)
     }
     val metrics = result.attemptMetrics.associateBy { it.id }
     fun ratio(id: String) = metrics[id]?.let { "${benchmarkMetricText(it.value, "%", 1)} (${it.numerator}/${it.denominator})" } ?: "Not measured"
-    Text("Answer accuracy ${ratio("answer_correctness")} · delivery ${ratio("delivery_completion")} · planned task success ${ratio("planned_task_success")}", style = MaterialTheme.typography.bodySmall)
+    Text("Answer accuracy ${ratio("answer_correctness")} · delivery ${ratio("delivery_completion")}", style = MaterialTheme.typography.bodySmall)
+    metrics["planned_task_success"]?.let { progress ->
+        Text(benchmarkPlanCompletionDescription(progress), style = MaterialTheme.typography.bodySmall)
+    }
     Text("Answer accuracy here follows the retained fixture grade policy. Per-question semantic intelligence is reported separately.", style = MaterialTheme.typography.labelSmall)
     Text("Raw reference decode rate: ${benchmarkMetricText(metrics["raw_reference_decode_rate"]?.value, "reference text units/s", 1)} · first visible text ${benchmarkMetricText(metrics["raw_first_visible_text"]?.value, "ms", 0)}", style = MaterialTheme.typography.bodySmall)
     Text("Provider-reported decode rate: ${benchmarkMetricText(metrics["raw_reported_provider_decode_rate"]?.value, "provider tokens/s", 1)}", style = MaterialTheme.typography.bodySmall)
@@ -142,13 +156,7 @@ private fun BenchmarkResultDetails(result: BenchmarkResultPresentation, efficien
                 )
             }
             Text(
-                "HTTP request sent: ${if (sample.physicalRequestIds.isNotEmpty() || sample.providerHttpStatus != null) {
-                    "observed"
-                } else if (sample.requestDispatched == false) {
-                    "no"
-                } else {
-                    "unknown"
-                }} · HTTP ${sample.providerHttpStatus ?: "unknown"} · cache ${sample.cacheRegime.replace('_', ' ')}",
+                "${benchmarkDispatchDescription(sample)} · cache ${sample.cacheRegime.replace('_', ' ')}",
                 style = MaterialTheme.typography.labelSmall
             )
             sample.validation?.let { validation ->
@@ -193,11 +201,14 @@ private fun BenchmarkResultDetails(result: BenchmarkResultPresentation, efficien
 
 @Composable
 private fun BenchmarkMetricDetails(metric: BenchmarkMetricResult) {
-    Text("${metric.id.replace('_', ' ')}: ${benchmarkMetricText(metric.value, metric.unit)}", style = MaterialTheme.typography.titleSmall)
+    val label = if (metric.id == "planned_task_success") "plan completion progress" else metric.id.replace('_', ' ')
+    Text("$label: ${benchmarkMetricText(metric.value, metric.unit)}", style = MaterialTheme.typography.titleSmall)
     val planned = if (metric.plannedKnown) metric.planned.toString() else "not recorded"
-    Text("${metric.numerator}/${metric.denominator} · planned $planned · ${metric.population} · ${metric.uniqueFixtureCount} unique fixtures · ${metric.runCount} runs · ${metric.aggregation} · ${metric.policyVersion}", style = MaterialTheme.typography.bodySmall)
+    val ratio = if (metric.id == "planned_task_success" && !metric.plannedKnown) "planned population unavailable" else "${metric.numerator}/${metric.denominator}"
+    Text("$ratio · planned $planned · ${metric.population} · ${metric.uniqueFixtureCount} unique fixtures · ${metric.runCount} runs · ${metric.aggregation} · ${metric.policyVersion}", style = MaterialTheme.typography.bodySmall)
     if (metric.sourceCohortIds.isNotEmpty()) Text("Source cohorts: ${metric.sourceCohortIds.joinToString()}", style = MaterialTheme.typography.labelSmall)
     if (metric.exclusions.isNotEmpty()) Text("Excluded: ${metric.exclusions.entries.joinToString { "${it.key.lowercase()} ${it.value}" }}", style = MaterialTheme.typography.bodySmall)
+    metric.rootIncidentCount?.let { Text("$it root incidents · ${metric.affectedCaseCount} affected cases", style = MaterialTheme.typography.bodySmall) }
     Text("Runs: ${metric.sourceRunIds.joinToString()}\nAttempts: ${metric.sourceAttemptIds.joinToString().ifBlank { "Historical identifiers unavailable" }}\nMeasured: ${benchmarkResultDate(metric.timestamp)}", style = MaterialTheme.typography.labelSmall)
 }
 

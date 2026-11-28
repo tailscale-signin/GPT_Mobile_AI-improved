@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStopOrigin
 import dev.chungjungsoo.gptmobile.data.benchmark.UnifiedBenchmarkCategory
 import dev.chungjungsoo.gptmobile.data.benchmark.UnifiedProfileBenchmarkSuite
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite
@@ -32,7 +33,8 @@ internal fun UnifiedProfileBenchmarkPanel(
     onRun: (() -> Unit)? = null,
     onExport: () -> Unit,
     exportEnabled: Boolean,
-    currentConfigKey: String? = null
+    currentConfigKey: String? = null,
+    configurationIssue: String? = null
 ) {
     val result = remember(run) { run?.let(::unifiedProfileBenchmarkScore) }
     val earlier = remember(previous, run) {
@@ -51,10 +53,14 @@ internal fun UnifiedProfileBenchmarkPanel(
             onRun?.let { start ->
                 Text("${benchmarkSuite(BenchmarkMode.STANDARD).size} cases covering reasoning, tools, research, GitHub engineering and recovery. Uses the selected profile and saves progress automatically.")
                 Button(onClick = start, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("Run Benchmark") }
+                configurationIssue?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                Text("Standard measures the listed capabilities and one short delivery trial. Full uses a separate suite with repeated short, medium and long timing trials for performance comparisons.", style = MaterialTheme.typography.bodySmall)
                 Text("Provider usage is billed normally. GitHub tests use disposable in-memory fixtures.", style = MaterialTheme.typography.bodySmall)
             }
             run?.let {
                 Text("${it.provider} · ${it.model} · ${benchmarkResultDate(it.startedAt)}", style = MaterialTheme.typography.bodySmall)
+                BenchmarkPreparationDetails(it)
+                if (it.cancellationOrigin == BenchmarkStopOrigin.USER_STOP) Text("Stopped by you. Completed evidence is retained; unstarted cases are not failed answers.", style = MaterialTheme.typography.bodySmall)
                 if (currentConfigKey != null && it.configKey != currentConfigKey) {
                     Text("Saved result from an earlier profile configuration. Run again to evaluate the current settings.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 }

@@ -5,6 +5,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IntelligenceIntentTest {
+    @Test fun pureAccountDiscoveryUsesTheSameScopeAsAcceptanceAndCompoundWorkRetainsItsTarget() {
+        for (request in listOf("List my GitHub repositories", "Please show me all my repositories.", "Find the repositories I can access on GitHub")) {
+            assertTrue(request, IntelligenceIntent.accountRepositoryDiscovery(request))
+            assertFalse(request, requiresNativeGitHubAcceptance(request, true))
+            assertFalse(request, IntelligenceIntent.from(request, true).repository)
+        }
+        val compound = "List my GitHub repositories and inspect the selected repository"
+        assertFalse(IntelligenceIntent.accountRepositoryDiscovery(compound))
+        assertTrue(requiresNativeGitHubAcceptance(compound, true))
+        assertTrue(IntelligenceIntent.from(compound, true).repository)
+    }
+
     @Test fun selectedWorkspaceDoesNotTurnGeneralQuestionsIntoRepositoryTasks() {
         for (request in listOf("Hello", "What is photosynthesis?", "Explain why CI pipelines are useful", "Search the web for Android indexing libraries", "Research the latest GitHub pricing", "Review GitHub pricing", "Show GitHub pricing", "Read source materials about climate", "Create a file in Google Drive", "Review Google Drive files", "Create hello.py in Google Drive", "Apply those changes in Google Drive", "Update the file in Dropbox", "What tools can you use in this chat?", "List my GitHub repositories", "Please show me all my repositories.", "Show available GitHub repos", "List accessible repositories", "Find the repositories I can access on GitHub")) {
             assertFalse(request, IntelligenceIntent.from(request, selectedRepository = true).repository)

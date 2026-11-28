@@ -217,4 +217,66 @@ class ResourceAwareInferenceAdmissionTest {
         }
         assertFalse(InferenceAdmission.isExclusiveBusy)
     }
+
+    @Test
+    fun benchmarkQueueBudgetExpiresBeforeAdmissionAndDoesNotReleaseItsBlocker() = kotlinx.coroutines.test.runTest {
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val holder = launch {
+            InferenceAdmission.shared(ResourceRequest.local("held-local-owner")) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        val observations = mutableListOf<AdmissionOutcome>()
+        var enteredBenchmark = false
+        val waiting = async {
+            runCatching {
+                InferenceAdmission.benchmark("bounded-benchmark", 100, { observations += it }) { enteredBenchmark = true }
+            }
+        }
+        advanceTimeBy(101)
+        assertTrue(waiting.await().exceptionOrNull() is AdmissionExpiredException)
+        assertFalse(enteredBenchmark)
+        assertTrue(observations.filterIsInstance<AdmissionOutcome.Waiting>().single().blockingOwners == listOf("held-local-owner"))
+        assertTrue(observations.none { it is AdmissionOutcome.Acquired })
+        assertFalse(InferenceAdmission.blockers.value.any { it.ownerId == "bounded-benchmark" })
+        var localEntered = false
+        val stillBlocked = launch { InferenceAdmission.shared(ResourceRequest.local("next-local-owner")) { localEntered = true } }
+        runCurrent()
+        assertFalse(localEntered)
+        release.complete(Unit)
+        holder.join()
+        stillBlocked.join()
+        InferenceAdmission.benchmark("next-benchmark", 100) { assertTrue(localEntered) }
+    }
+
+    @Test
+    fun boundedBenchmarkPublishesWaitingProgressWithoutChangingItsBlocker() = kotlinx.coroutines.test.runTest {
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val holder = launch {
+            InferenceAdmission.shared(ResourceRequest.remote("ongoing-remote", "endpoint")) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        val waits = mutableListOf<AdmissionOutcome.Waiting>()
+        val waiting = launch {
+            InferenceAdmission.benchmark("observable-benchmark", 20_000, { if (it is AdmissionOutcome.Waiting) waits += it }) { error("Must remain queued") }
+        }
+        runCurrent()
+        advanceTimeBy(5_001)
+        runCurrent()
+        assertTrue(waits.size >= 2)
+        assertTrue(waits.all { it.blockingOwners == listOf("ongoing-remote") })
+        waiting.cancel()
+        waiting.join()
+        assertFalse(InferenceAdmission.blockers.value.any { it.ownerId == "observable-benchmark" })
+        release.complete(Unit)
+        holder.join()
+        assertFalse(InferenceAdmission.isExclusiveBusy)
+    }
 }

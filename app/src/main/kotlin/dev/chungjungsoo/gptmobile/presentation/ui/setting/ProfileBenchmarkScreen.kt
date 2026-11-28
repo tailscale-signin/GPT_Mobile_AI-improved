@@ -256,6 +256,8 @@ fun ProfileBenchmarkScreen(
     var showToolHealth by rememberSaveable { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(debugMode) { if (!debugMode && tab == 7) tab = 6 }
     val selected = profile
+    val configurationIssue = selected?.let { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfileConfigurationIssue(it) }
+    val selectedEligible = selected != null && configurationIssue == null
     val local = selected?.compatibleType == ClientType.LITERT_LM
     val cpuExperimentEligible = selectedBenchmarks.isNotEmpty() && selectedBenchmarks.all { it.compatibleType == ClientType.LITERT_LM }
     androidx.compose.runtime.LaunchedEffect(mode, tab, local, cpuExperimentEligible) {
@@ -308,6 +310,9 @@ fun ProfileBenchmarkScreen(
                         }
                     }
                 }
+            }
+            if (configurationIssue != null && tab != STANDARD_BENCHMARK_TAB) {
+                item { Text(configurationIssue, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
             exportError?.let { message ->
                 item {
@@ -416,11 +421,12 @@ fun ProfileBenchmarkScreen(
                     UnifiedProfileBenchmarkPanel(
                         run = standardHistory.firstOrNull(),
                         previous = standardHistory.drop(1).firstOrNull(),
-                        enabled = selected != null && ready && session == null && progress == null,
+                        enabled = selectedEligible && ready && session == null && progress == null,
                         onRun = { viewModel.start(BenchmarkMode.STANDARD) },
                         onExport = { requestExport(false, null) },
                         exportEnabled = ready && !exporting && !choosingExportDestination,
-                        currentConfigKey = selected?.let { benchmarkConfigKey(it, localEnvironment, BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) }
+                        currentConfigKey = selected?.let { benchmarkConfigKey(it, localEnvironment, BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) },
+                        configurationIssue = configurationIssue
                     )
                 }
             } else if (tab == STANDARD_BENCHMARK_RESULTS_TAB) {
@@ -564,7 +570,7 @@ fun ProfileBenchmarkScreen(
                 item {
                     SettingsPanel("Model diagnostic benchmark") {
                         Text("Runs the selected model's full benchmark suite and records per-test memory, thermal and battery samples alongside timings, tokens, tool results and score dimensions. Provider usage is billed normally.")
-                        Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null) { Text("Run full model diagnostics") }
+                        Button(onClick = viewModel::startDebugBenchmark, enabled = selectedEligible && ready && progress == null) { Text("Run full model diagnostics") }
                         TextButton(onClick = { requestExport(true, null) }, enabled = !exporting && !choosingExportDestination && ready) { Text("Export diagnostic data & score breakdown") }
                         TextButton(onClick = { confirmPrivateProfileExport = true }, enabled = !exporting && !choosingExportDestination && ready) { Text("Export private diagnostics") }
                     }
@@ -659,7 +665,7 @@ fun ProfileBenchmarkScreen(
                                 }
                                 if (delegates.isEmpty()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_44433acfbb))
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ed08a01807, if (delegationMode == BenchmarkMode.QUICK) 5 else 50), style = MaterialTheme.typography.bodySmall)
-                                Button(onClick = { viewModel.startDelegationBatch(delegationMode) }, enabled = ready && progress == null && benchmarkReviewer != null && selectedDelegates.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = { viewModel.startDelegationBatch(delegationMode) }, enabled = selectedEligible && ready && progress == null && benchmarkReviewer != null && selectedDelegates.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                                     Icon(Icons.Rounded.PlayArrow, null)
                                     Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2cf971db8e, delegationMode.label, selectedDelegates.size), Modifier.padding(start = 8.dp))
                                 }
@@ -751,7 +757,7 @@ fun ProfileBenchmarkScreen(
                                         Modifier.padding(start = 8.dp)
                                     )
                                 }
-                                BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c8624a55ae, (selected.name).toString()), Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode, executionPolicy = executionPolicy) }, enabled = ready && progress == null, modifier = Modifier.fillMaxWidth())
+                                BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c8624a55ae, (selected.name).toString()), Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode, executionPolicy = executionPolicy) }, enabled = selectedEligible && ready && progress == null, modifier = Modifier.fillMaxWidth())
                                 if (activeRequests && progress == null) Text("The queue will wait for current work and yield between trials to interactive requests.", style = MaterialTheme.typography.labelSmall)
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f0a6512884), style = MaterialTheme.typography.labelSmall)
                             }

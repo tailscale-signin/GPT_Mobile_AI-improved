@@ -1,10 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
 /** No provider/native timing is fabricated when a case ends while waiting for admission. */
-internal fun benchmarkAdmissionOnlySample(test: BenchmarkCase, failure: BenchmarkFailure, elapsedMs: Long, interrupted: Boolean = false): BenchmarkSample {
+internal fun benchmarkAdmissionOnlySample(test: BenchmarkCase, failure: BenchmarkFailure, elapsedMs: Long): BenchmarkSample {
     val elapsed = elapsedMs.coerceAtLeast(0)
     return BenchmarkSample(
-        test.id, test.label, test.category, if (interrupted) BenchmarkOutcome.CANCELED else failure.outcome(),
+        test.id, test.label, test.category, failure.outcome(),
         durationMs = elapsed, error = failure.message, failure = failure, failureCategory = failure.code,
         runtimeStage = failure.stage, workload = test.workload, warmup = test.warmup,
         requestDispatched = false, requestAdmitted = false, terminalReceived = false,

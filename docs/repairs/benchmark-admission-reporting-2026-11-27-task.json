@@ -1,0 +1,93 @@
+{
+  "task": "Implement all benchmark admission, cancellation, accounting, provenance, UI/export and GitHub audit repairs and publish release",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "start_head": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+  "pull_request": 2651,
+  "source_export": "benchmarks-1795830169556.json",
+  "state": "ready_for_draft_push",
+  "authorization": "Implement all findings, push draft, require green checks, merge to main, require main green, publish. Preserve concurrent commits.",
+  "workstreams": [
+    "bounded resource admission and durable preparation",
+    "typed stop/timeout and causal skip provenance",
+    "manifest metrics, coverage and setup effort",
+    "UI, export privacy and transport evidence",
+    "reconcile existing GitHub scope/catalog repairs",
+    "focused and canonical validation, current-head CI, merge and release"
+  ],
+  "validation": [
+    {
+      "check": "ProtectedDiagnosticProjectionTest + WorkspaceDiagnosticPayloadTest",
+      "result": "passed",
+      "tests": 18,
+      "method": "Exact-source host JVM with coroutine stacktrace recovery enabled; excludes Android Room and vault crypto integration."
+    },
+    {
+      "check": "Gradle 9.8 offline project configuration",
+      "result": "passed",
+      "command": "python3 /workspace/scratch/0f34c62a99bc/run_gradle.py --offline --max-workers=1 help"
+    },
+    {
+      "check": "GitHub request scope JVM slice",
+      "result": "passed",
+      "tests": 16
+    },
+    {
+      "check": "GitHub catalog exact-name and full-inventory visibility JVM slice",
+      "result": "passed",
+      "tests": 2
+    },
+    {
+      "check": "Local Android production compilation",
+      "result": "not_completed",
+      "stage": ":app:kspDebugKotlin",
+      "reason": "Gradle daemon disappeared without a compiler diagnostic. Subsequent memory preflight found roughly 4.9 GB available, below required 8.96 GiB verified headroom. No retry or local full-suite pass claimed; hosted exact-head gates required."
+    },
+    {
+      "check": "Combined benchmark accounting, score, eligibility, presentation, measurement and export JVM slice",
+      "result": "passed",
+      "tests": 77,
+      "method": "Actual-source Kotlin/JUnit with isolated unused platform ports; source hashes verified after final run."
+    },
+    {
+      "check": "InferenceAdmission actual-source JVM suite",
+      "result": "passed",
+      "tests": 11
+    },
+    {
+      "check": "Preparation and typed cancellation actual-source JVM slice",
+      "result": "passed",
+      "tests": 5
+    },
+    {
+      "check": "Canonical host validation",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "passed",
+      "pythonTests": 850,
+      "expectedSkippedTests": 1,
+      "androidRegexErrors": 0,
+      "xmlFilesChecked": 38
+    },
+    {
+      "check": "ktlint1.3.1 and whitespace",
+      "result": "passed",
+      "scope": "Changed production and test sources; generated references validated by canonical fast command."
+    },
+    {
+      "check": "Scoped release manifest against full candidate ancestry",
+      "result": "passed",
+      "qualification": "scoped",
+      "android": "0.9.66.19",
+      "versionCode": 153,
+      "gateway": "18.1.6"
+    }
+  ],
+  "release": {
+    "merged": false,
+    "published": false
+  },
+  "concurrentHeadObserved": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+  "publicationTransport": "Connected GitHub API with expected-head fast-forward update; shell GitHub push credential unavailable."
+}

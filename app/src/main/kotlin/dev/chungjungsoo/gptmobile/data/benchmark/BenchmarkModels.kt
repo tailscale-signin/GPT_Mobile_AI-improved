@@ -204,7 +204,10 @@ data class BenchmarkSample(
     val engineeringVerification: BenchmarkEngineeringVerification? = null,
     val engineeringAttempts: List<BenchmarkEngineeringAttemptReceipt> = emptyList(),
     val adapterRequestSettings: Map<String, String> = emptyMap(),
-    val contextReceipt: BenchmarkContextReceipt? = null
+    val contextReceipt: BenchmarkContextReceipt? = null,
+    /** An unattempted manifest disposition, not an execution or provider failure. */
+    val dispositionOnly: Boolean = false,
+    val causedByEventId: String? = null
 ) {
     val runtimeExecution: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? get() = runtimeExecutions.lastOrNull()
     val rawReferenceSpeed: Double? get() = firstTextMs?.let { first ->
@@ -324,7 +327,8 @@ data class BenchmarkRun(
     val pricingSnapshot: BenchmarkPricingSnapshot? = null,
     val engineeringPlan: BenchmarkEngineeringPlan? = null,
     val engineeringRepeatIndex: Int? = null,
-    val engineeringContextVariant: String? = null
+    val engineeringContextVariant: String? = null,
+    val preparation: BenchmarkPreparationReceipt? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

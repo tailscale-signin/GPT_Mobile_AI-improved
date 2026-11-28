@@ -53,6 +53,9 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
     val text = causes.joinToString(" ") { "${it.javaClass.simpleName} ${it.message.orEmpty()}" }.lowercase()
     val code = when {
         auditFailure != null -> auditFailure.code
+        error is BenchmarkDeadlineExceededException -> "${error.stage.uppercase()}_DEADLINE_EXCEEDED"
+        causes.any { it is dev.chungjungsoo.gptmobile.data.localruntime.AdmissionExpiredException } -> "ADMISSION_DEADLINE_EXCEEDED"
+        causes.any { it is dev.chungjungsoo.gptmobile.data.localruntime.AdmissionCapacityException } -> "ADMISSION_CAPACITY"
         causes.any { it is BenchmarkPolicyBlockedException } || providerCode == "POLICY_BLOCKED" -> "POLICY_BLOCKED"
         causes.any { it is BenchmarkUnsupportedConfigurationException } -> "UNSUPPORTED_OUTPUT_CONTRACT"
         error is TimeoutCancellationException -> "${effectiveStage.uppercase()}_DEADLINE_EXCEEDED"
@@ -85,8 +88,16 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
         else -> "EXECUTION_FAILED"
     }
     val next = limit?.retryAt ?: causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()?.retryAt ?: retryTimestampFromLegacyMessage(message)
-    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in modelLoadBlockers && code !in reasoningChecks && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED", "HTTP_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR", "BENCHMARK_ENDPOINT_REDACTED", "CLIENT_TOOL_RESULTS_REQUIRED"), nextEligibleAt = next)
+    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in modelLoadBlockers && code !in reasoningChecks && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED", "HTTP_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR", "BENCHMARK_ENDPOINT_REDACTED", "CLIENT_TOOL_RESULTS_REQUIRED", "PROFILE_CONFIGURATION_INVALID"), nextEligibleAt = next)
 }
+
+/** The recorded stop owner takes precedence over an implementation-specific coroutine exception. */
+internal fun benchmarkTerminationFailure(error: Throwable, stage: String, origin: BenchmarkStopOrigin?, eventId: String): BenchmarkFailure = when (origin) {
+    BenchmarkStopOrigin.USER_STOP -> BenchmarkFailure("USER_STOP", stage, "Stopped by user.", owner = "user", scope = "batch", failureScope = BenchmarkFailureScope.USER, recoveryAction = BenchmarkRecoveryAction.HONOR_USER_STOP)
+    BenchmarkStopOrigin.USER_SKIP -> BenchmarkFailure("USER_SKIP", stage, "Skipped by user.", owner = "user", failureScope = BenchmarkFailureScope.USER, recoveryAction = BenchmarkRecoveryAction.HONOR_USER_STOP)
+    BenchmarkStopOrigin.SERVICE_INTERRUPTION, BenchmarkStopOrigin.PROCESS_INTERRUPTION -> BenchmarkFailure(origin.name, stage, "Benchmark interrupted; committed measurements are retained.", owner = "lifecycle", scope = "batch", failureScope = BenchmarkFailureScope.BATCH, recoveryAction = BenchmarkRecoveryAction.STOP_BATCH)
+    else -> if (error is TimeoutCancellationException) BenchmarkFailure("CHILD_OPERATION_ABORTED", stage, "A child operation timed out before the benchmark deadline.", retryable = true) else benchmarkFailure(error, stage)
+}.copy(eventId = eventId)
 
 /** Compatibility for older persisted failures; punctuation is never part of an ISO instant. */
 internal fun retryTimestampFromLegacyMessage(message: String): Long? =
@@ -94,6 +105,8 @@ internal fun retryTimestampFromLegacyMessage(message: String): Long? =
         .find(message)?.groupValues?.getOrNull(1)?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
 
 internal fun BenchmarkFailure.outcome(): BenchmarkOutcome = when {
+    code == "USER_SKIP" -> BenchmarkOutcome.SKIPPED
+    code in setOf("USER_STOP", "SERVICE_INTERRUPTION", "PROCESS_INTERRUPTION") -> BenchmarkOutcome.CANCELED
     code == "POLICY_BLOCKED" -> BenchmarkOutcome.POLICY_BLOCKED
     code in setOf("QUOTA_BLOCKED", "COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_BLOCKED") -> BenchmarkOutcome.QUOTA_BLOCKED
     code in setOf("REMOTE_JOB_PENDING", "STREAM_DEGRADED") -> BenchmarkOutcome.PARTIAL
@@ -108,6 +121,7 @@ internal fun BenchmarkSample.executionFailure(): Boolean = outcome in setOf(Benc
 internal fun BenchmarkSample.recoveryAction(allowConfirmedRecovery: Boolean = true): BenchmarkRecoveryAction {
     if (engineeringCleanupPending()) return BenchmarkRecoveryAction.STOP_BATCH
     if (runtimeCleanup?.safeForSuccessor == false || cleanupReceipt == "cleanup_unconfirmed_local_blocked") return BenchmarkRecoveryAction.QUARANTINE_RUNTIME
+    if (failure?.code in setOf("SERVICE_INTERRUPTION", "PROCESS_INTERRUPTION")) return BenchmarkRecoveryAction.STOP_BATCH
     if (outcome == BenchmarkOutcome.CANCELED || failure?.owner == "user") return BenchmarkRecoveryAction.HONOR_USER_STOP
     if (failureCategory?.startsWith("AUDIT_MODEL_") == true || failure?.code?.startsWith("AUDIT_MODEL_") == true) return BenchmarkRecoveryAction.STOP_PROFILE
     if (failureCategory in unsupportedReasoning || failure?.code in unsupportedReasoning) return BenchmarkRecoveryAction.STOP_PROFILE

@@ -6,6 +6,11 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Bound isolated benchmark resource queues, validate profile configuration before admission, and retain preparation phases, queue deadlines and privacy-safe blocker identities.
+- Separate run-level preparation and explicit stop causes from fixture attempts; preserve unstarted fixture identities and link dependent dispositions to one causal incident.
+- Keep manifest-based warmup denominators stable, separate cancellation and not-started coverage, exclude setup from task effort, and distinguish progress, score eligibility and observed quality.
+- Explain Standard benchmark coverage, retain honest dispatch and validator provenance, redact endpoint addresses in friendly profile labels, and distinguish root incidents from affected cases.
+- Share GitHub account-repository discovery scope, prioritize exact tool names, and preserve typed diagnostic size limits and resumable capacity deferrals.
 - Voice benchmark campaigns prioritize quick engine comparisons, retain and resume compatible checkpoints, correctly record microphone and Moonshine probes, isolate recognition discovery per locale, and honor Auto CPU calibration without changing manual thread sweeps.
 - Native Kokoro rejects the benchmark-observed long all-minimum GPU duration pattern; compact HTP can retain four exact shapes under an OS-memory gate and a 2 GiB estimated retention ceiling, with pressure-driven eviction and versioned native receipts.
 - Translate every voice utterance directly into the selected language, including questions and commands. Translation excludes conversation history, persona, tools and task controls; literal translated text cannot become a tool call or progress message.

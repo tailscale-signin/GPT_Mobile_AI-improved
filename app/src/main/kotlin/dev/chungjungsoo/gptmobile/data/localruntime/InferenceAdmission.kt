@@ -24,12 +24,14 @@ internal data class ResourceRequest(
     val benchmark: Boolean = false,
     val isolatedMeasurement: Boolean = benchmark,
     val queueTimeoutMillis: Long? = null,
-    val endpointConcurrency: Int = 4
+    val endpointConcurrency: Int = 4,
+    val queueObservationIntervalMillis: Long? = null
 ) {
     init {
         require(ownerId.isNotBlank() && generation >= 0 && endpointConcurrency > 0)
         require(exclusiveKeys.all { it in resourceKeys })
         require(queueTimeoutMillis == null || queueTimeoutMillis > 0)
+        require(queueObservationIntervalMillis == null || queueObservationIntervalMillis > 0)
         require(resourceKeys.none { it.isBlank() })
     }
     companion object {
@@ -139,6 +141,7 @@ internal object InferenceAdmission {
         var lease: ResourceLease? = null
         suspend fun acquire(): ResourceLease {
             var lastBlocker: Pair<List<String>, Boolean>? = null
+            var refreshObservation = false
             while (true) {
                 var observation: AdmissionOutcome.Waiting? = null
                 val pause = mutex.withLock {
@@ -155,17 +158,25 @@ internal object InferenceAdmission {
                         val ownerNames = owners.map { it.lease.ownerId }.distinct()
                         val benchmark = owners.any { it.request.benchmark } || waiting.values.any { it.id != id && it.request.isolatedMeasurement && it.sequence < waiter.sequence }
                         val key = ownerNames to benchmark
-                        if (lastBlocker != key) {
+                        if (lastBlocker != key || refreshObservation) {
                             observation = AdmissionOutcome.Waiting(request.ownerId, request.resourceKeys, ownerNames, benchmark, (now() - started).coerceAtLeast(0))
                             waitingState.value = waitingState.value.filterNot { it.ownerId == request.ownerId } + requireNotNull(observation)
                             lastBlocker = key
+                            refreshObservation = false
                         }
                         changed
                     }
                 }
                 observation?.let { onState(it) }
                 if (pause == null) return checkNotNull(lease)
-                pause.await()
+                if (request.queueObservationIntervalMillis != null) {
+                    refreshObservation = withTimeoutOrNull(request.queueObservationIntervalMillis) {
+                        pause.await()
+                        false
+                    } ?: true
+                } else {
+                    pause.await()
+                }
             }
         }
         try {
@@ -218,5 +229,9 @@ internal object InferenceAdmission {
 
     suspend fun <T> benchmark(block: suspend () -> T): T = benchmark(onWaiting = {}, block = block)
     suspend fun <T> benchmark(onWaiting: suspend () -> Unit, block: suspend () -> T): T = admit(ResourceRequest(benchmark = true), { if (it is AdmissionOutcome.Waiting) onWaiting() }) { block() }
+
+    /** Resource queue expiry is distinct from the provider deadline, which starts after admission. */
+    suspend fun <T> benchmark(ownerId: String, queueTimeoutMillis: Long, onState: suspend (AdmissionOutcome) -> Unit = {}, block: suspend () -> T): T =
+        admit(ResourceRequest(ownerId = ownerId, benchmark = true, queueTimeoutMillis = queueTimeoutMillis, queueObservationIntervalMillis = 5_000), onState) { block() }
     fun <T> sharedFlow(upstream: Flow<T>, request: ResourceRequest = ResourceRequest(), onState: suspend (AdmissionOutcome) -> Unit = {}): Flow<T> = channelFlow { shared(request, onState) { upstream.collect { send(it) } } }
 }

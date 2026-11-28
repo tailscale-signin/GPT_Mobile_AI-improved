@@ -1,0 +1,47 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "e1f2ef3dfa45359cf230f0ed64600b5d5868e182",
+  "parent_pr": 2651,
+  "intent": "Reach the exact translation controls before device assertions and clicks while preserving all behavior checks.",
+  "authorization": "User requested completion, green checks, merge and verified publication.",
+  "status": "IMPLEMENTED_HOST_CHECKS_PASSED_PENDING_CURRENT_HEAD_DEVICE_VALIDATION",
+  "observed_failure": {
+    "source_head": "e4fd559a40f0d8a9c58dacf5d835b448bea13841",
+    "run": 46116782495,
+    "api34_job": 140895271444,
+    "methods": [
+      "microphoneAndLanguageControlsFollowTheTurnAndPickerState",
+      "translationLanguageChoicesKeepEachVoiceAndOfferSourceRecoveryAndPackInstallation"
+    ],
+    "test_source_unchanged_through_starting_head": true,
+    "cause": "Tests assumed base-language and install-child visibility after scrolling the surrounding list item in the constrained large-font dialog."
+  },
+  "changes": [
+    "Materialize the base-language list item and scroll its control into view before asserting visibility.",
+    "Scroll the actual install button into view and assert visibility before its existing coordinate click."
+  ],
+  "preserved": [
+    "Every callback count, including exactly one install and six microphone actions.",
+    "Independent voice selections, exact pair equality and zero ordinary-language callbacks.",
+    "Required device method names, production callbacks and UI behavior, and all CI gates."
+  ],
+  "test_source_sha256": "78c4aff29c38fe795e6cc1f9ddafb27b0f58e88315f6791bfd65f240dde09df4",
+  "local_validation": [
+    "Scoped ktlint passed.",
+    "Whitespace checks passed.",
+    "Canonical host gate:874 tests passed, one intentional skip; generated references, dependency/provenance, resource and regex checks passed."
+  ],
+  "concurrent_repairs_preserved": {
+    "commit": "e1f2ef3dfa45359cf230f0ed64600b5d5868e182",
+    "scope": "Audited native SDK/host manifest separation, fail-closed manifest validation and byte-equivalent native patch/license whitespace correction.",
+    "native_patch_matches_independent_equivalence_proof": true
+  },
+  "limits": [
+    "Clipping is supported by the sources and failed interactions; no picker screenshot or failure-time node bounds were captured.",
+    "No local emulator or full Android pass is claimed. Current-head API34 and API36 acceptance must confirm both methods before merge.",
+    "Native preparation, actual JNI models, all protected checks and exact-main release verification remain required."
+  ]
+}

@@ -187,7 +187,8 @@ class VoiceConversationInstrumentedTest {
         compose.runOnIdle { assertEquals("fr", current.value.replyLanguage) }
         language.performClick()
         translate.assertIsOff().performClick().assertIsOn()
-        compose.onNodeWithTag("voice_translation_base_language").assertIsDisplayed()
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_base_language"))
+        compose.onNodeWithTag("voice_translation_base_language").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_target_language"))
         compose.onNodeWithTag("voice_translation_target_language").assertIsDisplayed()
         compose.onNodeWithText("Done").performClick()
@@ -244,7 +245,7 @@ class VoiceConversationInstrumentedTest {
         }
         choose("voice_translation_target_language", java.util.Locale.forLanguageTag("fr-FR").displayName)
         compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_pack"))
-        compose.onNodeWithTag("voice_translation_pack_install").performClick()
+        compose.onNodeWithTag("voice_translation_pack_install").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(1, installs)
             assertEquals(0, ordinaryChanges)

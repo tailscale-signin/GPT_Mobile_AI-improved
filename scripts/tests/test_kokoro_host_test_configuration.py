@@ -117,5 +117,78 @@ class KokoroHostTestConfigurationTest(unittest.TestCase):
         self.assertIn("No tests were found", result.stdout + result.stderr)
 
 
+@unittest.skipUnless(CMAKE, "CMake is required for native configuration regressions")
+class StreamingSentencepieceConfigurationTest(unittest.TestCase):
+    def configure(self, parent_setup="", force_shared=False):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        source = Path(temporary.name) / "source"
+        build = Path(temporary.name) / "build"
+        dependency = source / "dependency"
+        dependency.mkdir(parents=True)
+        (dependency / "piece.cc").write_text("int sentencepiece_fixture() { return 1; }\n")
+        # This reproduces the pinned v0.7 policy/option boundary, including its
+        # nested downloader function. Execute the production scoping helper.
+        (dependency / "CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.12)\n'
+            'project(sentencepiece_fixture LANGUAGES CXX)\n'
+            'option(BUILD_SHARED_LIBS "Dependency default" ON)\n'
+            f'add_library(ssentencepiece_core {"SHARED " if force_shared else ""}piece.cc)\n'
+        )
+        (source / "simple-sentencepiece.cmake").write_text(
+            'function(download_simple_sentencepiece)\n'
+            '  add_subdirectory(dependency)\n'
+            'endfunction()\n'
+            'download_simple_sentencepiece()\n'
+        )
+        production = (NATIVE / "streaming_asr.cmake").read_text()
+        helper, boundary, _ = production.partition("function(add_streaming_asr)")
+        self.assertTrue(boundary)
+        (source / "CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.22)\n'
+            'project(streaming_sentencepiece_configuration LANGUAGES CXX)\n'
+            'list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}")\n'
+            + parent_setup
+            + 'set(before_normal "${BUILD_SHARED_LIBS}")\n'
+            + 'set(before_cache "$CACHE{BUILD_SHARED_LIBS}")\n'
+            + 'set(before_policy "${CMAKE_POLICY_DEFAULT_CMP0077}")\n'
+            + helper
+            + 'add_streaming_sentencepiece()\n'
+            + 'get_target_property(observed_type ssentencepiece_core TYPE)\n'
+            + 'if(NOT observed_type STREQUAL "STATIC_LIBRARY")\n'
+            + '  message(FATAL_ERROR "Dependency did not remain static")\n'
+            + 'endif()\n'
+            + 'if(NOT "${before_normal}" STREQUAL "${BUILD_SHARED_LIBS}" OR\n'
+            + '   NOT "${before_cache}" STREQUAL "$CACHE{BUILD_SHARED_LIBS}" OR\n'
+            + '   NOT "${before_policy}" STREQUAL "${CMAKE_POLICY_DEFAULT_CMP0077}")\n'
+            + '  message(FATAL_ERROR "Dependency changed caller settings")\n'
+            + 'endif()\n'
+        )
+        command = [CMAKE, "-S", str(source), "-B", str(build)]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        return result, command
+
+    def test_legacy_dependency_remains_static_without_changing_caller_settings(self):
+        for setup in (
+            "",
+            'set(BUILD_SHARED_LIBS ON)\n',
+            'set(BUILD_SHARED_LIBS ON CACHE BOOL "Caller selection")\n',
+            'set(BUILD_SHARED_LIBS ON CACHE BOOL "Caller selection")\n'
+            'set(BUILD_SHARED_LIBS OFF)\n'
+            'set(CMAKE_POLICY_DEFAULT_CMP0077 OLD)\n',
+        ):
+            with self.subTest(parent_setup=setup):
+                result, command = self.configure(setup)
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                # Existing shared-cache selections must also survive reconfigure.
+                repeated = subprocess.run(command, capture_output=True, text=True, timeout=30)
+                self.assertEqual(0, repeated.returncode, repeated.stdout + repeated.stderr)
+
+    def test_an_unexpected_shared_dependency_fails_configuration(self):
+        result, _ = self.configure(force_shared=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Streaming ASR requires static simple-sentencepiece linkage", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

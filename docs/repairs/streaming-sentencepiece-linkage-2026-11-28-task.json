@@ -1,0 +1,73 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "starting_head": "914b4b007d9146a36540284c415b00cbed9a7990",
+  "parent_pr": 2651,
+  "authorization": "User requested completion, green checks, merge and verified publication.",
+  "intent": "Resolve Android streaming ASR linkage by preserving static sentencepiece intent through its legacy CMake option boundary.",
+  "status": "SOURCE_REVIEW_CONFIGURATION_ANDROID_LINK_AND_CANONICAL_HOST_GATES_PASSED_PENDING_EXACT_HEAD_CI",
+  "observed_failure": {
+    "head": "dbf61eccd0d0b6af7f39b853825a3b066dc4f11d",
+    "api34_job": 140911384116,
+    "scope": "Both API34 and API36 jobs failed native APK packaging before device tests.",
+    "symbols": [
+      "ssentencepiece::Ssentencepiece::Encode",
+      "ssentencepiece::Ssentencepiece::Build"
+    ],
+    "cause": "Pinned simple-sentencepiece v0.7 resets policy to CMake3.12 and option(BUILD_SHARED_LIBS ON) discards a normal OFF value, creating a hidden-symbol shared dependency."
+  },
+  "changes": [
+    "Scope the CMP0077 default and normal static selection inside a dependency helper while preserving the caller normal/cache/default values.",
+    "Reject any unexpected non-static target and retain the existing cstdint compatibility include.",
+    "Exercise the production helper at the nested legacy option boundary, across fresh and repeated configuration and a forced shared-target negative control."
+  ],
+  "source_sha256": {
+    "local-kokoro-runtime/src/main/cpp/streaming_asr.cmake": "706c4497c7bae5644ca46cb55a16a99e1a27adfb447e6f40eb7dd232d89f3da8",
+    "scripts/tests/test_kokoro_host_test_configuration.py": "5865430127828e97e6a6fbceb02a26251ae0acfc7e867412f20101fb2b1727f7"
+  },
+  "validation": {
+    "configuration_test_methods_passed": 6,
+    "original_host_configuration_cases_retained": 4,
+    "configuration_cases_skipped": 0,
+    "android_link_proof": {
+      "dependency": {
+        "name": "simple-sentencepiece",
+        "file": "simple-sentencepiece-0.7.tar.gz",
+        "url": "https://github.com/pkufool/simple-sentencepiece/archive/refs/tags/v0.7.tar.gz",
+        "bytes": 355335,
+        "sha256": "1748a822060a35baa9f6609f84efc8eb54dc0e74b9ece3d82367b7119fdc75af"
+      },
+      "sherpa_archive_sha256": "39416f4bcb4e0535908bda03991c0a5580214617135057f653124b45eb783086",
+      "upstream_module_sha256": "9cdda9bd30bdde64c4c266c3530b42f98250ceedb8e1e670766bb179428e46fb",
+      "toolchain": "Android NDK29.0.14206865, API31",
+      "abis": [
+        "x86_64",
+        "arm64-v8a"
+      ],
+      "baseline": "Both actual pinned-source builds reproduce the two undefined APIs with a shared target.",
+      "fixed": "Both actual pinned-source builds produce a static dependency, successfully link the consumer, resolve both APIs and have no sentencepiece shared-library dependency.",
+      "receipt_sha256": "feca48f90a503e88a108dd28cca160c05a0cc2b8e08542dd6db98b891393c0ce",
+      "scope": "Actual pinned source Android NDK compile/link for the two application ABIs, not the complete app."
+    },
+    "independent_review": "No actionable blocker; frozen source, pinned inputs, baseline failures and both corrected ABI link proofs independently verified. Caller settings and all release gates preserved.",
+    "canonical_host_gate": {
+      "command": "KOKORO_TEST_CMAKE=/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake bash scripts/validate-local.sh fast",
+      "exit": 0,
+      "tests_run": 890,
+      "tests_passed": 889,
+      "tests_skipped": 1,
+      "log_sha256": "1164c38ebbeb296ed4575e6bf2a377f28980f112d185837f5b93769fc86561c5"
+    }
+  },
+  "preserved": [
+    "All dependency/model hashes and provider choices.",
+    "Caller CMake settings, required host tests and cancellation/retirement controls.",
+    "Every existing CI gate, release version and physical qualification limitation."
+  ],
+  "limits": [
+    "Focused NDK link verification does not execute the full app, native speech models or physical devices.",
+    "Full exact-head Android/device/native checks and merged-main checks remain required before publication."
+  ]
+}

@@ -1,6 +1,23 @@
 # Reuse the pinned Sherpa source and ONNX Runtime image already used by Kokoro.
 # Only the ASR archive sees the boundary/provider patches; the TTS source keeps
 # its existing provider, duration and graph-cache behavior.
+function(add_streaming_sentencepiece)
+  # v0.7 sets CMake 3.12 policies, then defaults BUILD_SHARED_LIBS to ON.
+  # Keep its option() from discarding our normal OFF value: the hidden symbols
+  # must be linked into the JNI image, not left in an unexported shared library.
+  # Function scope preserves the caller's policy default and cache selection.
+  set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+  set(BUILD_SHARED_LIBS OFF)
+  include(simple-sentencepiece)
+  get_target_property(sentencepiece_type ssentencepiece_core TYPE)
+  if(NOT sentencepiece_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR "Streaming ASR requires static simple-sentencepiece linkage")
+  endif()
+  # v0.7 uses uint8_t without including cstdint; do not rely on libc++ or
+  # libstdc++ supplying that declaration transitively.
+  target_compile_options(ssentencepiece_core PRIVATE -include cstdint)
+endfunction()
+
 function(add_streaming_asr)
   set(PROJECT_SOURCE_DIR "${sherpa_SOURCE_DIR}")
   list(PREPEND CMAKE_MODULE_PATH "${sherpa_SOURCE_DIR}/cmake")
@@ -52,10 +69,7 @@ function(add_streaming_asr)
   include(openfst)
   include(kaldifst)
   include(kaldi-decoder)
-  include(simple-sentencepiece)
-  # v0.7 uses uint8_t without including cstdint; libc++ supplied it transitively
-  # but a standard host libstdc++ build must not depend on that accident.
-  target_compile_options(ssentencepiece_core PRIVATE -include cstdint)
+  add_streaming_sentencepiece()
   include(json)
   include_directories("${ORT_INCLUDE_DIR}")
   add_subdirectory("${sherpa_SOURCE_DIR}/sherpa-onnx/csrc"

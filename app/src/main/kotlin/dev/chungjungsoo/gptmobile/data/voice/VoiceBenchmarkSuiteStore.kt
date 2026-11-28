@@ -14,14 +14,50 @@ internal class VoiceBenchmarkSuiteStore(private val root: File) {
         ignoreUnknownKeys = true
     }
 
-    fun begin(manifest: VoiceBenchManifest, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?) = synchronized(lock) {
+    fun begin(manifest: VoiceBenchManifest, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, resumeFrom: VoiceBenchManifest? = null) = synchronized(lock) {
         val folder = directory(manifest.runId)
         val previous = preferredDirectory() ?: runs().firstOrNull()
+        require(manifest.resumedFromRunId == resumeFrom?.runId)
+        require(resumeFrom != null || manifest.reusedStageIndices.isEmpty())
+        if (resumeFrom != null) {
+            require(previous == directory(resumeFrom.runId))
+            val saved = read(resumeFrom.runId)
+            require(saved == resumeFrom || saved.state == "RUNNING" && saved.stopped("INTERRUPTED") == resumeFrom)
+            require(manifest.reusedStageIndices.distinct() == manifest.reusedStageIndices)
+            require(manifest.reusedStageIndices.all { index ->
+                index in resumeFrom.results.indices && index in manifest.results.indices &&
+                    manifest.results[index] == resumeFrom.results[index] &&
+                    resumeFrom.results[index].status in setOf(VoiceBenchStatus.MEASURED, VoiceBenchStatus.PARTIAL, VoiceBenchStatus.FAILED)
+            })
+        }
         check(folder.mkdirs())
-        atomic(File(folder, "performance.json")) { writeVoicePerformanceExport(performance, feedback, it) }
-        save(manifest)
-        atomic(File(root, "latest")) { it.write(manifest.runId.toByteArray()) }
+        try {
+            atomic(File(folder, "performance.json")) { writeVoicePerformanceExport(performance, feedback, it) }
+            if (resumeFrom != null) {
+                val source = directory(resumeFrom.runId)
+                for (index in manifest.reusedStageIndices) {
+                    val evidence = File(source, "stage-$index.json")
+                    if (evidence.isFile) {
+                        atomic(File(folder, evidence.name)) { out -> evidence.inputStream().buffered().use { it.copyTo(out) } }
+                    } else {
+                        check(resumeFrom.results[index].measurements == 0) { "Missing saved benchmark evidence" }
+                    }
+                }
+            }
+            save(manifest)
+            atomic(File(root, "latest")) { it.write(manifest.runId.toByteArray()) }
+        } catch (error: Throwable) {
+            folder.deleteRecursively()
+            throw error
+        }
         runs().filterNot { it == folder || it == previous }.forEach { it.deleteRecursively() }
+    }
+
+    /** The immediately preceding interrupted campaign remains independently exportable. */
+    fun previous(manifest: VoiceBenchManifest): VoiceBenchManifest? = synchronized(lock) {
+        manifest.resumedFromRunId?.let { id ->
+            runCatching { read(id) }.getOrNull()?.let { if (it.state == "RUNNING") it.stopped("INTERRUPTED") else it }
+        }
     }
 
     fun save(manifest: VoiceBenchManifest) = synchronized(lock) {

@@ -167,6 +167,10 @@ def asr_memory_admission(fixture, reader=host_memory.read_text):
             "isMeasuredModelRss": False, "physicalDeviceQualified": False}
 
 
+def native_ctest_command(cmake, build):
+    return [cmake.parent / "ctest", "--test-dir", build, "--output-on-failure", "--no-tests=error"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native-source", type=Path, required=True)
@@ -295,7 +299,7 @@ def main():
     # The same library now also contains the streaming frontend and decoders.
     # Retain all native tests while allowing their additional compilation work.
     assert run("build", [args.cmake, "--build", build, "--parallel", str(args.build_jobs)], timeout=1800) == 0
-    assert run("ctest", [args.cmake.parent / "ctest", "--test-dir", build, "--output-on-failure"]) == 0
+    assert run("ctest", native_ctest_command(args.cmake, build)) == 0
     for name, library in provider_files.items():
         if digest(library) != provider_inputs[name]:
             raise ValueError("QNN package input changed during the native build: " + name)

@@ -4,6 +4,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+if(NOT ANDROID)
+    option(BUILD_TESTING "Build Kokoro host tests" ON)
+    # Eigen's dependency setup forces the shared cache option OFF. Preserve
+    # the caller's host-test choice before any dependency configures itself.
+    set(kokoro_host_build_testing "${BUILD_TESTING}")
+endif()
 include(FetchContent)
 find_package(Git REQUIRED)
 
@@ -99,6 +105,9 @@ if(ANDROID)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/streaming_asr.cmake")
 if(NOT ANDROID)
+    # Restore the cache too, so a later CMake regeneration retains that choice.
+    set(BUILD_TESTING "${kokoro_host_build_testing}" CACHE BOOL "Build Kokoro host tests" FORCE)
+    set(BUILD_TESTING "${kokoro_host_build_testing}")
     include(CTest)
     if(BUILD_TESTING)
         add_executable(kokoro_pronunciation_test kokoro_pronunciation_test.cpp)

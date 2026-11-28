@@ -223,10 +223,13 @@ or proof that a fast short fixture will remain fast during sustained listening.
 ## Qualification boundaries
 
 The required host-native gate loads the exact CPU model fixtures through the
-production Java/C++ bridge with JNI checks. Nemotron remains a mandatory case;
-inadequate or unknown runner memory fails the gate instead of becoming a pass or
-an implicit skip. Android builds, unit/Compose tests, shrinker/native checks and
-all other protected workflows must qualify the final published head.
+production Java/C++ bridge with JNI checks. Nemotron remains a mandatory case.
+Memory admission uses the shared bounded RAM and cgroup-ancestry probe against
+the ASR-specific model estimate; the Android compiler's memory budget remains
+separate. Unknown effective limits or insufficient headroom fail the gate without
+executing or qualifying the model. Android builds, unit/Compose tests,
+shrinker/native checks and all other protected workflows must qualify the final
+published head.
 
 Physical Adreno and SM8750 HTP testing is still necessary to establish usable
 processor placement, latency, interruption behavior, battery and thermal results.

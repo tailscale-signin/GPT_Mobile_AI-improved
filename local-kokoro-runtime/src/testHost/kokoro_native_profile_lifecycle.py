@@ -22,6 +22,7 @@ import base64
 import csv
 import difflib
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -32,6 +33,10 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[3]
 QAIRT_VERSIONS = {"2.7.0": "2.51.0", "2.8.0": "2.52.0"}
 HOST_MANIFESTS = {"2.8.0": ROOT / "docs/audits/qnn-host-probe-publisher-2.8.json"}
+MEMORY_PROBE = ROOT / "scripts/check_android_compile_memory.py"
+_memory_spec = importlib.util.spec_from_file_location("asr_host_memory", MEMORY_PROBE)
+host_memory = importlib.util.module_from_spec(_memory_spec)
+_memory_spec.loader.exec_module(host_memory)
 
 
 def digest(path):
@@ -140,21 +145,25 @@ def checked_provider_inputs(qnn, version, application_java):
     return identity, libraries, runtime_directories
 
 
-def asr_memory_admission(fixture, meminfo=None):
+def asr_memory_admission(fixture, reader=host_memory.read_text):
     """An explicit host admission estimate, never measured model RSS or device qualification."""
     model_bytes = sum(record["bytes"] for record in fixture["files"] if not record["file"].startswith("test_wavs/"))
     # Embedded ONNX protobufs can coexist with initialized/prepacked weights.
     # Keep this distinct from GPU external weights and mapped HTP contexts.
     required = 3 * model_bytes + 512 * 1024**2
-    if meminfo is None:
-        try:
-            meminfo = Path("/proc/meminfo").read_text()
-        except OSError:
-            meminfo = ""
-    match = re.search(r"^MemAvailable:\s+(\d+)\s+kB$", meminfo, re.MULTILINE)
-    available = int(match.group(1)) * 1024 if match else None
-    return {"estimatedRequiredBytes": required, "availableHostBytes": available,
-            "admitted": available is not None and available >= required,
+    # Reuse bounded RAM and complete visible cgroup ancestry observations.
+    # The compiler's budget is unrelated to this model estimate: a known
+    # compiler shortfall can fit ASR, but unknown ancestry cannot be admitted.
+    observation = host_memory.observe(reader)
+    known = observation["status"] in ("SUFFICIENT", "INSUFFICIENT")
+    available = observation["availableBytes"] if known else None
+    status = ("SUFFICIENT" if available >= required else "INSUFFICIENT") if known else "UNKNOWN"
+    return {"estimatedRequiredBytes": required,
+            "availableHostBytes": observation["ram"]["MemAvailable"] if observation["ram"] is not None else None,
+            "availableEffectiveBytes": available,
+            "status": status, "admitted": status == "SUFFICIENT",
+            "ram": observation["ram"], "cgroups": observation["cgroups"],
+            "swapCountsAsHeadroom": observation["swapCountsAsHeadroom"],
             "isMeasuredModelRss": False, "physicalDeviceQualified": False}
 
 
@@ -328,7 +337,7 @@ def main():
             fixture["encoder"], fixture["decoder"], fixture["joiner"], fixture["tokens"], fixture["modelType"],
             fixture["language"], str(fixture["chunkMillis"]), fixture["wav"], fixture["expectedPrefix"], args.output / (label + ".json")])
     source_inputs = {str(p): digest(p) for p in sorted(args.native_source.rglob("*")) if p.is_file()}
-    source_inputs.update({str(p): digest(p) for p in [Path(__file__), test_java, context_java, prepared_java, main_java, main_java.with_name("KokoroFrontend.java"),
+    source_inputs.update({str(p): digest(p) for p in [Path(__file__), MEMORY_PROBE, test_java, context_java, prepared_java, main_java, main_java.with_name("KokoroFrontend.java"),
                                                     test_host / "kokoro_profile_fault.h", test_host / "kokoro_profile_fault.cpp",
                                                     asr_java, asr_test_java, asr_fixture_manifest]})
     receipt = {

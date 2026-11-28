@@ -897,6 +897,7 @@
     "docs/audits/recognition-history-declaration-provenance.json",
     "docs/audits/recognition-native-ci-repair.json",
     "docs/audits/recognition-native-integration.json",
+    "docs/audits/recognition-native-memory-admission.json",
     "docs/audits/recognition-output-handoff.json",
     "docs/audits/recognition-session-integration.json",
     "docs/audits/recognition-translation-integration.json",

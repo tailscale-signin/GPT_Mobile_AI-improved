@@ -213,6 +213,7 @@ class StreamingAsrInputsTest(unittest.TestCase):
         driver = (ROOT / "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py").read_text()
         self.assertIn('"dev.melo.kokoro.StreamingAsrNativeIntegration"', driver)
         self.assertIn('results[label] = run(label,', driver)
+        self.assertIn("results[label] = 78", driver)
         self.assertIn('"asr_fixture_sha256": asr_input_pins', driver)
         self.assertIn("all(code == 0 for code in results.values())", driver)
         fixture_java = (ROOT / "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrNativeIntegration.java").read_text()
@@ -220,18 +221,116 @@ class StreamingAsrInputsTest(unittest.TestCase):
         self.assertIn("Arrays.equals(batched.timestampsSeconds, streamed.timestampsSeconds)", fixture_java)
         self.assertIn("CPU_HOST_PRODUCTION_JNI_REGRESSION_ONLY", fixture_java)
 
-    def test_unknown_or_insufficient_host_memory_fails_admission_without_qualifying_the_model(self):
-        fixture = {"files": [{"file": "encoder.onnx", "bytes": 682_000_000}, {"file": "test_wavs/en.wav", "bytes": 200_000}]}
-        unknown = host.asr_memory_admission(fixture, "")
-        low = host.asr_memory_admission(fixture, "MemAvailable: 1900000 kB\n")
-        sufficient = host.asr_memory_admission(fixture, "MemAvailable: 6000000 kB\n")
-        self.assertFalse(unknown["admitted"])
-        self.assertFalse(low["admitted"])
-        self.assertTrue(sufficient["admitted"])
-        self.assertFalse(sufficient["physicalDeviceQualified"])
-        self.assertFalse(sufficient["isMeasuredModelRss"])
-        driver = (ROOT / "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py").read_text()
-        self.assertIn("results[label] = 78", driver)
+
+class StreamingAsrMemoryAdmissionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        fixtures = json.loads((ROOT / "local-kokoro-runtime/src/testHost/streaming_asr_fixtures.json").read_text())["fixtures"]
+        cls.fixture = next(fixture for fixture in fixtures if fixture["id"] == "nemotron-cpu")
+        cls.required = 2_583_516_980
+
+    def files(self, available_mib=12_000, swap_mib=0):
+        mib = 1024 * 1024
+        return {
+            "/proc/meminfo": f"MemTotal: {16_384 * 1024} kB\nMemFree: {16_000 * 1024} kB\nMemAvailable: {available_mib * 1024} kB\nSwapTotal: {swap_mib * 1024} kB\nSwapFree: {swap_mib * 1024} kB",
+            "/proc/self/cgroup": "0::/actions/job",
+            "/proc/self/mountinfo": "31 24 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw",
+            "/sys/fs/cgroup/cgroup.controllers": "memory cpu",
+            "/sys/fs/cgroup/memory.current": str(500 * mib),
+            "/sys/fs/cgroup/actions/memory.max": "max",
+            "/sys/fs/cgroup/actions/memory.current": str(400 * mib),
+            "/sys/fs/cgroup/actions/job/memory.max": "max",
+            "/sys/fs/cgroup/actions/job/memory.current": str(300 * mib),
+        }
+
+    def test_exact_model_budget_uses_shared_observations_without_changing_compile_policy(self):
+        files = self.files()
+        used = int(files["/sys/fs/cgroup/actions/job/memory.current"])
+        files["/sys/fs/cgroup/actions/job/memory.max"] = str(used + self.required)
+        before = host.host_memory.observe(files.get)
+        result = host.asr_memory_admission(self.fixture, files.get)
+        self.assertEqual("INSUFFICIENT", before["status"])
+        self.assertEqual("SUFFICIENT", result["status"])
+        self.assertTrue(result["admitted"])
+        self.assertEqual(self.required, result["estimatedRequiredBytes"])
+        self.assertEqual(self.required, result["availableEffectiveBytes"])
+        self.assertEqual(12_000 * 1024 * 1024, result["availableHostBytes"])
+        for key in ("ram", "cgroups", "swapCountsAsHeadroom"):
+            self.assertEqual(before[key], result[key])
+        self.assertEqual(before["availableBytes"], result["availableEffectiveBytes"])
+        self.assertEqual(before, host.host_memory.observe(files.get))
+        self.assertEqual(8960 * 1024 * 1024, host.host_memory.REQUIRED_BYTES)
+        self.assertFalse(result["physicalDeviceQualified"])
+        self.assertFalse(result["isMeasuredModelRss"])
+
+    def test_finite_leaf_one_byte_short_is_not_replaced_by_swap(self):
+        files = self.files(swap_mib=64_000)
+        used = int(files["/sys/fs/cgroup/actions/job/memory.current"])
+        files["/sys/fs/cgroup/actions/job/memory.max"] = str(used + self.required - 1)
+        result = host.asr_memory_admission(self.fixture, files.get)
+        self.assertEqual("INSUFFICIENT", result["status"])
+        self.assertEqual(self.required - 1, result["availableEffectiveBytes"])
+        self.assertEqual(12_000 * 1024 * 1024, result["availableHostBytes"])
+        self.assertFalse(result["admitted"])
+        self.assertFalse(result["swapCountsAsHeadroom"])
+
+    def test_low_available_ram_is_not_replaced_by_free_ram_or_swap(self):
+        result = host.asr_memory_admission(self.fixture, self.files(available_mib=2000, swap_mib=64_000).get)
+        self.assertEqual("INSUFFICIENT", result["status"])
+        self.assertEqual(2000 * 1024 * 1024, result["availableHostBytes"])
+        self.assertEqual(result["availableHostBytes"], result["availableEffectiveBytes"])
+        self.assertEqual(64_000 * 1024 * 1024, result["ram"]["SwapFree"])
+        self.assertFalse(result["admitted"])
+        self.assertFalse(result["swapCountsAsHeadroom"])
+
+    def test_finite_ancestor_constrains_unlimited_and_inheriting_child(self):
+        for inherited in (False, True):
+            with self.subTest(inherited=inherited):
+                files = self.files()
+                used = int(files["/sys/fs/cgroup/actions/memory.current"])
+                files["/sys/fs/cgroup/actions/memory.max"] = str(used + self.required - 1)
+                if inherited:
+                    files.pop("/sys/fs/cgroup/actions/job/memory.max")
+                    files["/sys/fs/cgroup/actions/cgroup.subtree_control"] = "cpu"
+                result = host.asr_memory_admission(self.fixture, files.get)
+                self.assertEqual("INSUFFICIENT", result["status"])
+                self.assertEqual(self.required - 1, result["availableEffectiveBytes"])
+                self.assertEqual(12_000 * 1024 * 1024, result["availableHostBytes"])
+                self.assertFalse(result["admitted"])
+
+    def test_missing_inputs_fail_unknown_despite_large_ram(self):
+        for missing in ("/proc/meminfo", "/proc/self/cgroup", "/proc/self/mountinfo",
+                        "/sys/fs/cgroup/actions/job/memory.current"):
+            with self.subTest(missing=missing):
+                files = self.files()
+                files.pop(missing)
+                result = host.asr_memory_admission(self.fixture, files.get)
+                self.assertEqual("UNKNOWN", result["status"])
+                self.assertIsNone(result["availableEffectiveBytes"])
+                self.assertEqual(None if missing == "/proc/meminfo" else 12_000 * 1024 * 1024, result["availableHostBytes"])
+                self.assertEqual(self.required, result["estimatedRequiredBytes"])
+                self.assertFalse(result["admitted"])
+
+    def test_hidden_or_unreadable_ancestry_fails_without_exposing_host_details(self):
+        files = self.files()
+        files["/proc/self/mountinfo"] = "31 24 0:25 /actions /sys/fs/cgroup rw - cgroup2 cgroup rw"
+        hidden = host.asr_memory_admission(self.fixture, files.get)
+        files = self.files()
+
+        def unreadable(path):
+            if path.endswith("/memory.max"):
+                raise PermissionError("private-runner-canary")
+            return files.get(path)
+
+        denied = host.asr_memory_admission(self.fixture, unreadable)
+        for result in (hidden, denied):
+            with self.subTest(observation=result):
+                self.assertEqual("UNKNOWN", result["status"])
+                self.assertIsNone(result["availableEffectiveBytes"])
+                self.assertEqual(12_000 * 1024 * 1024, result["availableHostBytes"])
+                self.assertFalse(result["admitted"])
+                self.assertNotIn("private-runner-canary", json.dumps(result))
+                self.assertNotIn("/actions", json.dumps(result))
 
 
 if __name__ == "__main__":

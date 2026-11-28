@@ -107,8 +107,13 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         if (!mutable.value.running) mutable.value.history.getOrNull(index)?.let { report -> mutable.update { it.copy(report = report) } }
     }
 
-    fun startFull(voice: KokoroVoice, threads: Int, rate: Float, captionOffsetMs: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, beforeStart: () -> Unit = {}) {
+    fun startFull(voice: KokoroVoice, threads: Int, rate: Float, captionOffsetMs: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, beforeStart: () -> Unit = {}, resume: Boolean = false) {
         if (!mutable.value.loaded || mutable.value.running || mutable.value.nativeCleanupPending) return
+        val previous = if (resume) mutable.value.suite else null
+        if (resume && (gateway != null || previous?.hasUnfinishedStages != true || previous.continuationSignature == null)) {
+            mutable.update { it.copy(notice = "This benchmark cannot be continued with the current settings. Start a new run.") }
+            return
+        }
         val lease = benchmarkLease.acquire()
         if (lease == null) {
             mutable.update { it.copy(notice = "Another voice benchmark owns the audio device.").withQuarantine(benchmarkLease.quarantineReason.value) }
@@ -123,10 +128,10 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         }
         stopOrigin.set(null)
         cancelled.set(false)
-        mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null, suite = null) }
+        mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null, suite = previous) }
         job = viewModelScope.launch(ConversationPrivacyContext.capture() ?: EmptyCoroutineContext) {
             try {
-                withContext(Dispatchers.IO) { runFull(voice, threads, rate, captionOffsetMs, streamingVoice, performance, feedback, gateway, lease) }
+                withContext(Dispatchers.IO) { runFull(voice, threads, rate, captionOffsetMs, streamingVoice, performance, feedback, gateway, lease, previous) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -141,7 +146,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         }
     }
 
-    private suspend fun runFull(voice: KokoroVoice, threads: Int, rate: Float, offset: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, lease: VoiceSpeechBenchmarkOwnership.Lease) {
+    private suspend fun runFull(voice: KokoroVoice, threads: Int, rate: Float, offset: Int, streamingVoice: String?, performance: VoicePerformanceSnapshot, feedback: VoiceSynthesisFeedback?, gateway: VoicePhraseEngineFactory?, lease: VoiceSpeechBenchmarkOwnership.Lease, previous: VoiceBenchManifest?) {
         val plan = fullVoiceBenchPlan(threads, rate, VoiceCpuSchedulingPolicy.deviceLimit())
         val started = System.currentTimeMillis()
         val id = "$started-${UUID.randomUUID()}"
@@ -159,9 +164,36 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             }
             if (missing) VoiceBenchResult(stage.label, VoiceBenchStatus.UNAVAILABLE, "MODEL_NOT_INSTALLED") else VoiceBenchResult(stage.label)
         }
-        val rotation = fullStore.latest()?.backendOrderSeed?.takeIf { it < Long.MAX_VALUE - plan.size }?.plus(1) ?: 0L
-        val manifest = VoiceBenchManifest(backendOrderSeed = rotation, runId = id, startedAtMillis = started, build = BuildConfig.VERSION_CODE, commit = BuildConfig.APP_COMMIT, androidApi = Build.VERSION.SDK_INT, results = rows)
-        fullStore.begin(manifest, performance, feedback)
+        // The fingerprint contains only local benchmark settings and the frozen plan, never a device key.
+        // Gateway campaigns cannot be continued without a stable remote-route identity.
+        val signature = if (gateway == null) {
+            val parts = listOf(voice.name, threads.toString(), rate.toBits().toString(), offset.toString(), streamingVoice.orEmpty()) +
+                plan.map { it.toString() }
+            val payload = parts.joinToString("") { "${it.length}:$it" }
+            java.security.MessageDigest.getInstance("SHA-256").digest(payload.toByteArray()).joinToString("") { "%02x".format(it) }
+        } else {
+            null
+        }
+        if (previous != null && (signature == null || !previous.canContinue(signature, BuildConfig.VERSION_CODE, BuildConfig.APP_COMMIT, Build.VERSION.SDK_INT, rows))) {
+            mutable.update { it.copy(notice = "Benchmark settings or application revision changed. Start a new run to keep comparisons valid.") }
+            return
+        }
+        val rotation = previous?.backendOrderSeed ?: fullStore.latest()?.backendOrderSeed?.takeIf { it < Long.MAX_VALUE - plan.size }?.plus(1) ?: 0L
+        val reused = previous?.reusableStages(rows).orEmpty()
+        val initialRows = rows.mapIndexed { index, row -> if (index in reused) requireNotNull(previous).results[index] else row }
+        val manifest = VoiceBenchManifest(
+            backendOrderSeed = rotation,
+            runId = id,
+            startedAtMillis = started,
+            build = BuildConfig.VERSION_CODE,
+            commit = BuildConfig.APP_COMMIT,
+            androidApi = Build.VERSION.SDK_INT,
+            results = initialRows,
+            continuationSignature = signature,
+            resumedFromRunId = previous?.runId,
+            reusedStageIndices = reused
+        )
+        fullStore.begin(manifest, performance, feedback, previous)
         mutable.update { it.copy(suite = manifest) }
         val deviceProbes = VoiceBenchProbes(context, streamingModels, gateway, voice, { !cancelled.get() }) { owner -> quarantine(lease, owner) }
         probes.set(deviceProbes)
@@ -224,6 +256,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     }
 
     fun exportSuite(suite: VoiceBenchManifest, output: OutputStream) = fullStore.export(suite, output)
+
+    fun exportPreviousSuite(suite: VoiceBenchManifest, output: OutputStream) = fullStore.export(requireNotNull(fullStore.previous(suite)), output)
 
     private suspend fun execute(configuration: VoiceSpeechBenchmarkConfiguration, ownerLease: VoiceSpeechBenchmarkOwnership.Lease, checkpoint: (VoiceSpeechBenchmarkReport) -> Unit): VoiceSpeechBenchmarkReport {
         val models = KokoroModelPack.store(File(context.noBackupFilesDir, "voice-models"), variant = configuration.nativeModelVariant)

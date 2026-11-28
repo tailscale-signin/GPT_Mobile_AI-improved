@@ -51,6 +51,7 @@ class GitHubCapabilityReadinessTest {
             IssueReportDiagnostics.fromFields(
                 "CHAT_FAILURE",
                 mapOf(
+                    "diagnostic_area" to "INCIDENT",
                     "github_authorized_tool_count" to -1,
                     "github_advertised_tool_count" to "private tool name",
                     "github_prerequisite_observation" to "private connection name"

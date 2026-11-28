@@ -36,7 +36,7 @@ class GitHubFullToolVisibilityTest {
         val optional = (1..80).map { schema("optional_$it") }
         val definitions = github + hidden + optional
         repeat(2) { continuation ->
-            val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, if (continuation == 0) "hello" else "continue", setOf(github.first().name), githubMode = true))
+            val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, if (continuation == 0) "Inspect the repository" else "continue", setOf(github.first().name), githubMode = true))
             val allowed = definitions + catalog.definition
             val initial = catalog.selected(allowed)
             assertTrue(initial.any { GitHubOperationTool.operationName(it.name) == "github_context" })
@@ -272,7 +272,7 @@ class GitHubFullToolVisibilityTest {
         var executions = 0
         val github = tool(AgentToolDefinition("github_read__authorized", "Read details ".repeat(1800), buildJsonObject {})) { executions++ }
         assertTrue(ProgressiveToolCatalog.schemaTokens(github.definition) > ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
-        val catalog = ProgressiveToolCatalog(emptyList(), "hello", acquireCold = { _, _ ->
+        val catalog = ProgressiveToolCatalog(emptyList(), "Inspect the repository", acquireCold = { _, _ ->
             fetched = true
             listOf(github.definition)
         }, githubMode = true)

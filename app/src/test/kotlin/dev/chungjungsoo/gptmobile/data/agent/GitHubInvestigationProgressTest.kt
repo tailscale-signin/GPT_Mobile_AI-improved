@@ -1,9 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -27,6 +30,29 @@ class GitHubInvestigationProgressTest {
         repeat(20) { assertNull(progress.observe(exchange(it))) }
         repeat(3) { assertNull(progress.observe(exchange(19))) }
         assertNotNull(progress.observe(exchange(19)))
+    }
+
+    @Test fun independentNativeSavedPagesRemainProgressWithoutRenewingAnUnchangedPage() {
+        val progress = GitHubInvestigationProgress()
+        val pages = (0 until 6).map { index ->
+            val views = GitHubResultViews(pageBytes = 8192)
+            val source = views.present(
+                "scope",
+                "github_context",
+                "github_context",
+                AgentToolResult("source-$index", ToolResultContent.Json(buildJsonObject { put("body", "retained source ".repeat(600) + index) }), false),
+                buildJsonObject { put("action", "status") }
+            )
+            val recipe = (source.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject
+            val call = ProviderEvent.ToolCall("page-$index", "github_context", recipe.getValue("arguments").jsonObject)
+            val result = views.read("scope", "github_context", call.name, call.arguments.getValue("view_cursor").jsonPrimitive.content, call.callId)
+            assertTrue(!result.isError && !result.dispatched)
+            assertTrue(result.executionReceipt?.get("saved_view_source_sha256") != null)
+            AgentToolExchange(listOf(call), listOf(result))
+        }
+        pages.forEach { assertNull("A distinct retained source is new evidence", progress.observe(it)) }
+        repeat(3) { assertNull(progress.observe(pages.last())) }
+        assertNotNull("The same source interval must still reach the no-progress guard", progress.observe(pages.last()))
     }
 
     @Test fun repeatedPageFailureCanReplanOnceWithoutRemovingUntriedCiReads() {

@@ -162,6 +162,72 @@ is removed. Plain and archived receipt coverage plus a three-page regression
 both fail against the original query and pass against the correction. The local
 SQLite/JVM harness does not substitute for hosted Room/KSP validation.
 
+## Subsequent integration and Windows text decoding
+
+The follow-up preserves the concurrent voice/translation work through `f1003415`.
+Hosted compiler failures identified a missing `captureProviderInvocation` import
+and a missing `flow` import in a new repository test. The corresponding concurrent
+fixes were adopted after source comparison. The new multilingual CPU backend was
+also added to the report receiver's closed enum; the full 249-case authentication
+suite passed after that correction.
+
+At `f100341554a30bd0510f3d9c8d158341c833b2e5`, both Windows Python 3.12 and
+3.13 jobs completed all 2,324 canonical Gateway cases (49 platform skips), all
+seven browser checks and the 50,000-event stress case. Their following
+authentication runs each failed one of 249 cases: the deadline provenance test
+read UTF-8 Kotlin source using the Windows CP1252 default. Explicit UTF-8 decoding
+corrects the test without changing the runtime contract or skipping its checks.
+The original failure was reproduced locally; all 249 authentication cases then
+passed with normal decoding and with CP1252 supplied for otherwise unspecified
+`Path.read_text` encodings. The latter is a local compatibility check, not a
+substitute for the next hosted Windows run.
+
+The same baseline has a completed Windows installer receipt (run `46085949177`,
+artifact `15238374980`), passing Linux Gateway/authentication jobs, and full Android
+production and unit-source compilation. Its unfiltered standard unit run completed
+15,457 cases in 2,016 suites, with 24 failures and six skips. The downloaded result
+artifact `15239504319` matched its published SHA-256
+`a3ebc80ed8157bceaa1621c36ce9d8763fc8de929d8b1ed99c2da8feb285bf4f`.
+The GenieX unfiltered suite independently reproduced the same 24 failing cases
+with identical totals; its downloaded XML artifact `15240752861` also matched its
+published digest. The combined correction passes the canonical host gate (850
+cases, one skip) and formatting for all 23 changed Kotlin files.
+The PR test merge checkout
+`f162c9428d6f61f1ed21b76f64f886b8a3700294` has exactly the same source tree,
+`1a334330c75a33650bad7618ce550f696ebe2850`, as the baseline branch head. The task
+record keeps these revision identities and distinguishes baseline evidence from
+the containing correction's required hosted checks.
+
+### Corrections exposed by the full unit run
+
+The full runner tests exposed integration paths beyond the earlier focused
+harnesses. Repository status and explicit short source reads now retain their
+schemas. A continuation may restore accepted intent only from the same profile
+and conversation; greetings, temporary chats and unrelated external-file work
+remain isolated. Discovery queries are ranked within the authorized catalog.
+Explicit GitHub work within a mixed external-service request remains eligible.
+Shorter repository-target prose restores the existing 2,000-token compact schema
+limit without changing the schemas or their execution permissions.
+
+Cursor-only saved-page reads now use their immutable source/offset identity in
+the progress watchdog. Distinct retained pages no longer become repeated mutable
+status observations. Mandatory saved reading notes also receive the same
+pre-dispatch capacity check in both continuation-planner modes.
+
+The remaining corrections align fixtures with current contracts: authenticated
+Gateway metadata, unchanged page bodies with separate runner instructions,
+bounded multi-window extraction, one coroutine test clock, explicit recovery
+provenance, observed-only voice evidence, actual Room updates and current tool
+revocations. Existing negative evidence, privacy, replay and authorization checks
+are preserved; no timeout, context limit or verification ceiling was raised.
+
+Focused validation passes for routing/history (6 cases), saved-source progress
+and continuation planning (8), extraction/window/identity (8), reserve (11), and
+voice diagnostic projection (6). Baseline copies reproduce the relevant routing,
+progress, capacity and virtual-clock failures. These actual-source harnesses use
+declared application boundaries; the revised full runner, provider, Room and
+Robolectric tests still require the containing commit's hosted run.
+
 ## Coverage of the requested correction areas
 
 “Existing” below means a current runtime path and named behavioral tests were

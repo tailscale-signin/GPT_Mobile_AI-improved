@@ -1085,7 +1085,11 @@ class ProgressiveToolCatalog(
     private fun ranked(query: String, repositoryHint: RepositoryToolHint? = null): List<AgentToolDefinition> {
         val needle = query.lowercase(java.util.Locale.ROOT).trim()
         val words = Regex("[\\p{L}\\p{N}]+").findAll(needle).map { it.value }.filter { it.length > 2 && it !in STOP_WORDS }.toSet()
-        val github = if (IntelligenceIntent.from(query, selectedRepository = githubMode).repository || repositoryHint != null) {
+        val github = if (IntelligenceIntent.from(query, selectedRepository = githubMode).repository ||
+            repositoryHint != null ||
+            query != taskText &&
+            dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTask(query)
+        ) {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query) + if (githubMode && repositoryHint != null) RepositoryToolHint.readOperations else emptySet()
         } else {
             emptySet()

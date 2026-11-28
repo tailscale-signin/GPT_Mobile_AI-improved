@@ -31,7 +31,7 @@ class ExecutionCompletionDiagnosticsTest {
         val record = ProfileFailureRecord.fromProvider(event.message, code, event.failureDetails)
         assertFalse(record.retryAllowed)
         assertEquals(false, record.requestReplayAllowed)
-        val summary = messageSummary(record)
+        val summary = messageSummary(record, expectedSource = "RECOVERY_CHECKPOINT")
         val context = capture(code, summary)
         assertEquals("REVIEW_SAVED_RECOVERY", context.recoveryAction)
         val diagnostics = requireNotNull(context.diagnostics)
@@ -364,7 +364,7 @@ class ExecutionCompletionDiagnosticsTest {
         1_800_000_000_000
     )
 
-    private fun messageSummary(record: ProfileFailureRecord): JsonObject {
+    private fun messageSummary(record: ProfileFailureRecord, expectedSource: String = "MESSAGE_PROFILE_FAILURE"): JsonObject {
         val restored = Json.decodeFromString(ProfileFailureRecord.serializer(), Json.encodeToString(ProfileFailureRecord.serializer(), record))
         val timeline = JsonArray(
             listOf(
@@ -376,8 +376,9 @@ class ExecutionCompletionDiagnosticsTest {
             )
         )
         val evidence = requireNotNull(diagnosticMessageFailureEvidence(77, timeline))
+        assertEquals("MESSAGE_PROFILE_FAILURE", evidence.source)
         val summary = diagnosticFailureSummary("run", "BLOCKED", null, "test", 147, "build", listOf(evidence))
-        assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), summary.getValue("field_sources").jsonObject["failure_code"])
+        assertEquals(JsonPrimitive(expectedSource), summary.getValue("field_sources").jsonObject["failure_code"])
         return summary
     }
 }

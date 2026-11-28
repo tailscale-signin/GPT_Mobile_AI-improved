@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "8d55aaf3134d1614effcc38aa50a3293f29798f1c069b99cd4871ec1e6af933f",
+  "source_digest": "0f022b21c2318ae86e9a34caa03814c84356af0f119bbefdbd761c2c5cfe857a",
   "file_count": 3257,
-  "indexed_line_count": 560764,
+  "indexed_line_count": 560791,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,13 +53,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 273,
-      "indexed_line_count": 49662
+      "indexed_line_count": 49688
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24899
+      "indexed_line_count": 24900
     },
     {
       "id": "mcp_plugins",
@@ -1649,8 +1649,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "33499da163c3d2e87a0976eeec501ba27a32b487302e0c06fc8e736c9bd84e98",
-      "indexed_lines": 185
+      "sha256": "83d418516872c7d1fa4b507a8c6f3cd2e9e2c83ac3c676314d08f7cc05ca9e4c",
+      "indexed_lines": 188
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvocationReceipt.kt",
@@ -1768,8 +1768,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "04d012e342620e99754dc9313aa1d0b1c8adfc9ff3cf7edc76f2666405465b69",
-      "indexed_lines": 106
+      "sha256": "81ce0ba561927ff6b4550c9aa3863427d6ebfc7944cf4aaceae78d5ad53113e1",
+      "indexed_lines": 107
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskRecovery.kt",
@@ -1810,8 +1810,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "cf198eff745913acf228e9891b43c0331923bedeb7e374bb0d353c216eae80c0",
-      "indexed_lines": 51
+      "sha256": "a57fcac7aefc917bd4f4ab3e76a7aebd0d211f3670f3ec6ef5d7832157b698f5",
+      "indexed_lines": 67
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt",
@@ -1922,8 +1922,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "bfeefe3dc23606698df39034518aac625e772c8ae65e429a953166ff5587d20b",
-      "indexed_lines": 1187
+      "sha256": "ce1e8804cfa59a0c87061743b98d26ebbd0df28d18cfbfd7ecf23780512fd5d9",
+      "indexed_lines": 1191
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderLimitResumeWorker.kt",
@@ -2111,8 +2111,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "a489474358b92be8118167ec7d56bf4310277e41e376ea0a4544fab6bd79b262",
-      "indexed_lines": 217
+      "sha256": "030c1a9e45344cb201050de6adbdb361351d1ae94f72b13c7906524da8e44ee1",
+      "indexed_lines": 219
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseRecoveryContext.kt",
@@ -2650,8 +2650,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "8e97cf9f5e28d4841e7f79e90be9313f6af6e703b093a1dbdf4dd496ea781f7d",
-      "indexed_lines": 2451
+      "sha256": "41b526e4c6d91e8c7fcdcdf8c303bde90212c57606155a496d4a060c50c3d37a",
+      "indexed_lines": 2452
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbMcpResultTool.kt",
@@ -8236,7 +8236,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "4cdee6d35bfbdb61f842277bcbd42295ede519aedb845a5a03e9c535cac06e73",
+      "sha256": "2ac6baebe029e5adc2ce90e88edb5e6f6a4ccea9c46158b32af26f45bf015ac4",
       "indexed_lines": 176
     },
     {

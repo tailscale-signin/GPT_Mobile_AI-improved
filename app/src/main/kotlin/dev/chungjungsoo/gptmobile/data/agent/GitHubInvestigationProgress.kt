@@ -148,6 +148,9 @@ internal class GitHubInvestigationProgress(private val acceptedTask: String = ""
     }
 
     private fun mutableObservation(call: ProviderEvent.ToolCall, result: AgentToolResult): String? {
+        // Saved pages have an immutable source/offset identity below. Cursor-only
+        // reads are not implicit status requests, even on the context tool.
+        if ("view_cursor" in call.arguments) return null
         val operation = call.name.githubOperationFamily()
         val action = (call.arguments["action"] as? JsonPrimitive)?.contentOrNull.orEmpty()
         if (operation != "github_context" || action !in setOf("", "status", "checks", "efficiency", "capabilities")) return null

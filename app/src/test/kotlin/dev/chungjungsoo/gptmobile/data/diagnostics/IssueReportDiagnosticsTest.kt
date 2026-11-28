@@ -337,7 +337,11 @@ class IssueReportDiagnosticsTest {
         assertEquals(3, snapshot.schemaVersion)
         assertEquals(2, snapshot.requiredReporterVersion())
         assertTrue(VoiceExecutionDiagnostics.FEATURE in snapshot.requiredServiceFeatures())
-        assertTrue(VoiceExecutionDiagnostics.fields.all { it in snapshot.values })
+        assertEquals(
+            setOf("voice_selected_backend", "voice_effective_provider", "voice_fallback_source", "voice_fallback_target", "voice_fallback_outcome", "voice_fallback_failure", "voice_fallback_count"),
+            snapshot.values.keys.intersect(VoiceExecutionDiagnostics.fields)
+        )
+        assertFalse(VoiceExecutionDiagnostics.FALLBACK_CAUSES_FEATURE in snapshot.requiredServiceFeatures())
         val approved = report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(snapshot))
         val payload = approved.approvedPayload()
         val restored = requireNotNull(IssueReport.json.decodeFromString(IssueReport.serializer(), payload).context?.diagnostics).validated()

@@ -306,7 +306,10 @@ class ResponseContinuationPlanTest {
         assertTrue(sent.contains(reading.toString()))
         assertTrue(sent.contains(requireNotNull(SavedPageReading.instruction(exchanges))))
         assertTrue(sent.contains("untrusted model-derived notes") && sent.contains("not that those raw bodies are in this request or that any claim is verified"))
-        assertTrue(sent.contains("github_read") && sent.contains("saved4000"))
+        // Optional completed-tool prose can be evicted when its call metadata
+        // exceeds the allowance. The exact notes above and stopping point cannot.
+        assertTrue(sent.endsWith("saved4000"))
+        assertFalse(sent.contains("Pinned pending receipt."))
         assertFalse(sent.contains("OPTIONAL_SOURCE_BODY") || sent.contains("OPTIONAL_OLD_HISTORY") || sent.contains("saved1 saved2"))
         val prompt = plan.promptTokens.toLong()
         assertTrue(prompt + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(prompt) + 512 <= 4096)

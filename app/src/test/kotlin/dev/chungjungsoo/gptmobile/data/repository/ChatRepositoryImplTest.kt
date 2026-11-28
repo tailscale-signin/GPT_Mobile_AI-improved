@@ -1519,9 +1519,12 @@ class ChatRepositoryImplTest {
         // Missing retained verification evidence remains a native verifier refusal,
         // not permission to reacquire sources or return a newly generated answer.
         val failure = states.filterIsInstance<ApiState.Error>().single()
-        assertEquals(states.toString(), "GITHUB_TASK_INCOMPLETE", failure.errorCode)
+        assertEquals(states.toString(), "GITHUB_EVIDENCE_REQUIRED", failure.errorCode)
+        assertEquals("PARTIAL", failure.taskOutcome)
         assertEquals(JsonPrimitive("acceptance_verification"), failure.failureDetails?.get("failed_stage"))
-        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        for (key in listOf("dispatched", "resume_allowed", "retryable", "request_replay_allowed")) {
+            assertEquals(key, JsonPrimitive(false), failure.failureDetails?.get(key))
+        }
         io.mockk.coVerify(atLeast = 1) { resolver.resolve(any(), any(), any(), any(), any(), any(), true, any()) }
 
         val ordinaryRetry = repository.completeChat(

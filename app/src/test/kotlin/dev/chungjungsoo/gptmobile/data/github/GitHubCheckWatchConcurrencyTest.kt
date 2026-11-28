@@ -188,10 +188,10 @@ class GitHubCheckWatchConcurrencyTest {
     @Test fun checkWatchUsesTheLiveGitHubChatPolicyForItsBoundRepository() = runBlocking {
         val scope = GitHubConversationContext("connection", "owner", "repo", "main", head, "profile")
         val features = AppFeatureSettings(
-            toolPluginStates = mapOf(ToolPluginId.GITHUB to false),
+            toolPluginStates = mapOf(ToolPluginId.GITHUB to true),
             conversationGitHub = mapOf(1 to scope)
         )
-        val profile = PlatformV2(uid = "profile", name = "Profile", disableRemoteTools = true)
+        val profile = PlatformV2(uid = "profile", name = "Profile")
         val reads = AtomicInteger(0)
         val fixture = fixture(
             api {
@@ -215,6 +215,13 @@ class GitHubCheckWatchConcurrencyTest {
         )
         val disabledFailure = runCatching { fixture.repository.subscribe("connection", "profile", 1, inlineArguments(5)) }.exceptionOrNull()
         assertEquals("PERMISSION_DENIED", (disabledFailure as? GitHubReadValidation)?.code)
+        coEvery { fixture.settings.getFeatureSettings() } returns features.copy(toolPluginStates = mapOf(ToolPluginId.GITHUB to false))
+        val pluginFailure = runCatching { fixture.repository.subscribe("connection", "profile", 1, inlineArguments(5)) }.exceptionOrNull()
+        assertEquals("PERMISSION_DENIED", (pluginFailure as? GitHubReadValidation)?.code)
+        coEvery { fixture.settings.getFeatureSettings() } returns features
+        coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile.copy(disableRemoteTools = true))
+        val remoteFailure = runCatching { fixture.repository.subscribe("connection", "profile", 1, inlineArguments(5)) }.exceptionOrNull()
+        assertEquals("PERMISSION_DENIED", (remoteFailure as? GitHubReadValidation)?.code)
         assertEquals(priorReads, reads.get())
     }
 

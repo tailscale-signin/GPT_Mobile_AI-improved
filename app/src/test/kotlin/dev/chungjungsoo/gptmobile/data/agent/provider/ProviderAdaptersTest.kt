@@ -769,7 +769,7 @@ class ProviderAdaptersTest {
     }
 
     @Test fun gatewayFinalizationPreservesFailedResultIdsWithoutAdvertisingTools() = runBlocking {
-        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "saved"))), emptyFlow())))
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "saved", transportVerified = true))), emptyFlow())))
         val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA))
         session.streamRound(listOf(definition), emptyList()).toList()
         session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result.copy(isError = true))))).toList()

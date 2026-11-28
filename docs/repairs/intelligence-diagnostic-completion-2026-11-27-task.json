@@ -8,7 +8,7 @@
   "workingBranch": "feature/windows-native-benchmark-kit",
   "sourceSha": "b54df163105a38570e7d42b06e9d7bdc7a6c2d15",
   "intent": "Implement remaining diagnostic source-delivery, context, durable-task, acceptance, CI, Gateway and voice corrections on the live PR while preserving concurrent work.",
-  "state": "RECONCILED_AUDIT_LOCAL_VALIDATED_PENDING_EXACT_HEAD_CI",
+  "state": "CI_INTEGRATION_FOLLOWUP_LOCAL_VALIDATED_PENDING_HOSTED_CI",
   "authorization": "User requested implementation of the supplied November 27 diagnostic findings in the latest PR branches.",
   "constraints": [
     "Reconcile current remote head before writes and retain concurrent commits.",
@@ -68,6 +68,16 @@
       "state": "DIAGNOSTIC_SWEEP_RECONCILIATION",
       "sourceSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b",
       "details": "Rebased the audit follow-up onto diagnostic sweep 22443d5c and manifest-provenance-only 2dd0220e. Preserved incoming source, context, reserve, Gateway, voice, schema and scope improvements. Generated artifacts were rebuilt from merged source. Combined source (5), authority (7), reserve (11) and audit (2) focused tests pass; canonical host (848 tests, one skip), Gateway (2,324 tests, 40 skips, 166 modules, seven browser checks and 50,000-event stress), and authentication (249 tests) pass. Superseded 79981ac5 Android unit compilation was canceled before execution; only production compilation passed there."
+    },
+    {
+      "state": "WINDOWS_UTF8_SOURCE_READ_CORRECTION",
+      "sourceSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
+      "details": "Preserved concurrent production/test import repairs and multilingual CPU receiver enum parity. Both exact-f100 Windows Gateway gates passed 2,324 cases with 49 skips, seven browser checks and 50,000-event stress, then authentication failed one of 249 cases on implicit CP1252 decoding of UTF-8 Kotlin source. Reproduced the existing test failure; explicit UTF-8 read passes all 249 authentication cases under normal and simulated Windows-default Path reads. Current full Android production/test compilation passed; unfiltered suites still executing. Publication waits for retained unit evidence."
+    },
+    {
+      "state": "FULL_UNIT_INTEGRATION_CORRECTIONS",
+      "sourceSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
+      "details": "Retained hash-verified unfiltered unit report:15,457 cases,24 failures,6 skips,2,016 suites. Corrected repository/status/source relevance, explicit external destinations, same-conversation intent restoration, authorized discovery ranking, compact target prose, immutable saved-page progress and mandatory continuation capacity. Aligned stale fixtures with authenticated metadata, immutable page bodies, windowed extraction, coherent virtual time, recovery provenance, observed voice fields, Room updates and live opt-outs. No gate, timeout, ceiling or authority bypass. Focused actual-source regressions and independent routing review pass; full revised integration requires hosted execution."
     }
   ],
   "validation": {
@@ -233,6 +243,129 @@
       "windowsPython312": "IN_PROGRESS",
       "windowsPython313": "IN_PROGRESS",
       "scope": "Historical receipt at 79981ac5; incoming 22443d5c Gateway changes require new containing-commit matrix results."
+    },
+    "authenticationUtf8Followup": {
+      "parentSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
+      "status": "PASS_LOCAL",
+      "normalTests": 249,
+      "windowsDefaultReadTests": 249,
+      "beforeCorrection": "Existing deadline-provenance test reproduces the same CP1252 UnicodeDecodeError before the correction.",
+      "scope": "Complete authentication suite with normal reads and with CP1252 used only when Path.read_text receives no explicit encoding. Hosted Windows execution of the containing commit remains required.",
+      "hostCanonical": {
+        "command": "bash scripts/validate-local.sh fast",
+        "tests": 850,
+        "skipped": 1,
+        "status": "PASS_WITH_ENVIRONMENT_SKIPS"
+      }
+    },
+    "hostedBaselineF100": {
+      "headSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
+      "testedMergeSha": "f162c9428d6f61f1ed21b76f64f886b8a3700294",
+      "identicalTreeSha": "1a334330c75a33650bad7618ce550f696ebe2850",
+      "windowsInstaller": {
+        "status": "PASS",
+        "runId": 46085949177,
+        "artifactId": 15238374980,
+        "artifactBytes": 165127649,
+        "githubArtifactSha256": "0549d3531edab931cf8da6f2dd5ea4a04b37f178941b7df83be26719cb0d2b4a"
+      },
+      "gatewayMatrix": {
+        "runId": 46085949326,
+        "linuxPython312": "PASS",
+        "linuxPython313": "PASS",
+        "managedRepositoryDocker": "PASS",
+        "windowsPython312Gateway": "PASS",
+        "windowsPython313Gateway": "PASS",
+        "pythonCases": 2324,
+        "linuxSkipped": 33,
+        "windowsSkipped": 49,
+        "browserTests": 7,
+        "stressEvents": 50000,
+        "linuxAuthentication": "249_PASS",
+        "windowsAuthentication": "249_RUN_1_CP1252_READ_ERROR"
+      },
+      "apkCatalogTests": {
+        "status": "PASS",
+        "runId": 46085949183,
+        "tests": 35,
+        "artifactId": 15239782100
+      },
+      "android": {
+        "status": "FULL_STANDARD_UNIT_RUN_FAILED_WITH_RETAINED_XML",
+        "standardRunId": 46085949269,
+        "standardJobId": 140795517754,
+        "tests": 15457,
+        "suites": 2016,
+        "failures": 24,
+        "errors": 0,
+        "skipped": 6,
+        "artifactId": 15239504319,
+        "artifactBytes": 6771657,
+        "artifactSha256": "a3ebc80ed8157bceaa1621c36ce9d8763fc8de929d8b1ed99c2da8feb285bf4f",
+        "downloadHashVerified": true,
+        "productionCompilation": "PASS",
+        "unitSourceCompilation": "PASS",
+        "debugApkBuild": "PASS",
+        "geniexRunId": 46085949180,
+        "scope": "Unfiltered standard app suite at the verified identical merge/head tree; failures are not qualified as successful acceptance.",
+        "geniexResults": {
+          "status": "FAILED_SAME_24_CASES",
+          "runId": 46085949180,
+          "jobId": 140795508842,
+          "artifactId": 15240752861,
+          "artifactBytes": 1681679,
+          "artifactSha256": "5e5c56f2e7a8119bda013dbc94ae2082dc660143d3fe86b64a2e50058063c860",
+          "downloadHashVerified": true,
+          "tests": 15457,
+          "suites": 2016,
+          "failures": 24,
+          "errors": 0,
+          "skipped": 6,
+          "failureSetMatchesStandard": true
+        }
+      },
+      "scope": "Containing f100 baseline receipts, not a success claim for the subsequent UTF-8 test correction or original diagnostic eight-criterion task."
+    },
+    "ciIntegrationFollowup": {
+      "parentSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
+      "status": "FOCUSED_PASS_FULL_HOSTED_PENDING",
+      "routingAndScopedHistory": {
+        "tests": 6,
+        "status": "PASS",
+        "baselineFailures": 4
+      },
+      "savedSourceProgressAndContinuation": {
+        "tests": 8,
+        "status": "PASS",
+        "baselineProductionFailures": 2
+      },
+      "extractionWindowAndGatewayIdentity": {
+        "tests": 8,
+        "status": "PASS",
+        "baselineSchedulerFailure": true
+      },
+      "verificationReserve": {
+        "tests": 11,
+        "status": "PASS"
+      },
+      "voiceDiagnosticProjection": {
+        "tests": 6,
+        "status": "PASS"
+      },
+      "compactSchemaTokenMaximum": 1991,
+      "unchangedCompactSchemaLimit": 2000,
+      "scope": "Actual production sources or exact slices with declared application/storage/render/network boundary doubles. Full revised runner/provider/Room/Robolectric tests require hosted execution. Token estimate bounds use unchanged exact schema costs and the production UTF-8 estimator.",
+      "hostCanonical": {
+        "command": "bash scripts/validate-local.sh fast",
+        "tests": 850,
+        "skipped": 1,
+        "status": "PASS_WITH_ENVIRONMENT_SKIPS"
+      },
+      "changedKotlinFormatting": {
+        "tool": "ktlint 1.3.1",
+        "files": 23,
+        "status": "PASS"
+      }
     }
   },
   "qualification": {
@@ -317,16 +450,37 @@
   },
   "publishedImplementationSha": "6913b7a26cf28798e93e75d1f4fd0c3869202d65",
   "latestFollowup": {
-    "parentSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b",
+    "parentSha": "f100341554a30bd0510f3d9c8d158341c833b2e5",
     "files": {
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt": "f853763bf18df7e701a6f4853fcdca26731e9fc54f7b0f137a4e28faba23baf0",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt": "8ff2eee2f5e64ec4410cbf77099479ee2ce50f5f8c2ca718867938af6beebd5e",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt": "e9752ad201a8643e2de72b8ead3c5c5a78739f23dde3730b6c9e7bdba734028e"
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": "83d418516872c7d1fa4b507a8c6f3cd2e9e2c83ac3c676314d08f7cc05ca9e4c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt": "81ce0ba561927ff6b4550c9aa3863427d6ebfc7944cf4aaceae78d5ad53113e1",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntent.kt": "a57fcac7aefc917bd4f4ab3e76a7aebd0d211f3670f3ec6ef5d7832157b698f5",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "ce1e8804cfa59a0c87061743b98d26ebbd0df28d18cfbfd7ecf23780512fd5d9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt": "030c1a9e45344cb201050de6adbdb361351d1ae94f72b13c7906524da8e44ee1",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt": "41b526e4c6d91e8c7fcdcdf8c303bde90212c57606155a496d4a060c50c3d37a",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt": "2ac6baebe029e5adc2ce90e88edb5e6f6a4ccea9c46158b32af26f45bf015ac4",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt": "34f8581d3e6e07b490ba548b0a30d4781b975741b07bc6edd7e3234b57ec426a",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt": "294191d7cae94adbe048bf123ca56872155dcf5e812fc5156536e1dd47f98ef7",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligenceIntentTest.kt": "20756199d941088713735223cdbd6abf034b83f2ddb1134ec18f970ddb21d714",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlanTest.kt": "fc08e9620fec6ac1594c82de360fcadb5075a867481a34d6be2fca1df769430d",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchDeliveryProofTest.kt": "bacd06461f756427e299281fa104b4fdf4670e58e26853b88ce4c8a8e64e4ffd",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplayDeliveryRunnerTest.kt": "2ad7b16f7d0e3c7603db480baab6e132f80f4b6d509baa4b211208055eb63cce",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt": "371cb7cdbf1f4d831057375735be60077e8537cc7c367f6e677c2fb5ac352722",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/InterruptedRunDiscardTest.kt": "cab42e7bffcffc147acc3834842677c63222d594475e108c3cd5d6a087a2e917",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnosticsTest.kt": "b31a41a74b013d4b05634cf5e3c3e564d1f1c8459767e3d69ea8adc20da49dfd",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt": "6b5ade464faba2f381aa2b1ab82b768197c4273b64d50368c47561247f43341f",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidenceTest.kt": "dd120695263baf1984399aa651ab7d993b6f9b65c59ac33862fba0c8b741c262",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCapabilityReadinessTest.kt": "7ae8fc22ab127292ae4c8e34b520f5e3f656746e666b2aeda6cd9406d645369c",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt": "60cc54d81bd3e06fe1c8773b9d07de0cbf1e7e870959c894894d7f4aa477881c",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "27eeacb09cb9b690af72b966d73761911f01e643b8c05aad6208587a80905b86",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImplTest.kt": "4718d1ec4dc737da90f8ee621d801fb40bfb1b37452b2af919e5d16a5fd8a437",
+      "authentication/test_incident_report_contract.py": "e74faa41527f9e64781ea9fdcedf27f91547c3072b74b45bf8dba2ead840998b"
     },
-    "change": "Keep legacy exact-receipt choice waits neutral in the bounded session audit, preserving real failures and all 32 visible failure groups."
+    "change": "Repair hosted Windows UTF-8 contract reading and full Android integration failures while preserving accepted authority, exact source identity and existing limits."
   },
   "publishedFollowupShas": [
-    "7bfaf530b0f66c07940358e0c09d204f5be3d20b"
+    "7bfaf530b0f66c07940358e0c09d204f5be3d20b",
+    "86e232f59e02e8abe7e3fc806a0255810f4c01f8"
   ],
   "followupHistory": [
     {
@@ -336,6 +490,16 @@
       },
       "change": "Implement the newly required discardInterrupted DAO method in the recorder test double, preserving its existing unused-write result of zero.",
       "publishedSha": "7bfaf530b0f66c07940358e0c09d204f5be3d20b"
+    },
+    {
+      "parentSha": "2dd0220eb93b54adff0f738debbeb4a6bec1881b",
+      "files": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt": "f853763bf18df7e701a6f4853fcdca26731e9fc54f7b0f137a4e28faba23baf0",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt": "8ff2eee2f5e64ec4410cbf77099479ee2ce50f5f8c2ca718867938af6beebd5e",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt": "e9752ad201a8643e2de72b8ead3c5c5a78739f23dde3730b6c9e7bdba734028e"
+      },
+      "change": "Keep legacy exact-receipt choice waits neutral in the bounded session audit, preserving real failures and all 32 visible failure groups.",
+      "publishedSha": "86e232f59e02e8abe7e3fc806a0255810f4c01f8"
     }
   ]
 }

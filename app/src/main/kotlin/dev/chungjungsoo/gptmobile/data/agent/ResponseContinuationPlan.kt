@@ -107,7 +107,9 @@ internal fun planResponseContinuation(
         retainedTaskContext
     }
     val bare = appendResponseContinuationContext(turns, instruction, "", emptyList(), brief, mandatoryReading)
-    require(!fitProviderBudget || cost(required(bare)) + replayMargin <= promptCeiling) {
+    // Saved reading notes are mandatory even when the caller uses the legacy
+    // planner. Refuse here so continuation recovery sees the same no-dispatch cause.
+    require((!fitProviderBudget && mandatoryReading.isEmpty()) || cost(required(bare)) + replayMargin <= promptCeiling) {
         "CONTINUATION_CONTEXT_CAPACITY: The accepted task, mandatory decisions, correction constraints, retained finding and exact pending tool protocol do not fit the continuation budget. No request was dispatched; saved work remains retained."
     }
     val replayBudget = (promptCeiling - cost(required(bare)) - replayMargin)

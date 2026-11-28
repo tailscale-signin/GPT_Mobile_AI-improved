@@ -1998,7 +1998,7 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("PROVIDER", {"task_deadline_source": "ACCEPTED_TASK_CONTRACT"}))
         root = Path(__file__).resolve().parents[1]
-        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt").read_text()
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt").read_text(encoding="utf-8")
         match = re.search(r"val deadlineSources = setOf\(([^\n]*)\)", source)
         self.assertIsNotNone(match)
         self.assertEqual(sources, set(re.findall(r'"([^"\n]+)"', match.group(1))))

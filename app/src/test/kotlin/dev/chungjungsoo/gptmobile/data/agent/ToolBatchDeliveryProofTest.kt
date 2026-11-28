@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.modelText
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import java.io.File
 import kotlinx.coroutines.flow.flow
@@ -133,7 +134,7 @@ class ToolBatchDeliveryProofTest {
         }
     }
 
-    @Test fun privateProviderRequestContainsOnlyPagesItCanAcknowledgeWhenTheLastPageIsDecorated() = runBlocking {
+    @Test fun privateProviderRequestKeepsEveryNativePageExactWhenWrapUpIsSeparateMetadata() = runBlocking {
         val facts = (0..2).map { "MIXED_PAGE_FACT_$it" }
         val fixtures = facts.map { GitHubSavedPageCapacityTest.Fixture(it) }
         val history = fixtures.mapIndexed { i, fixture ->
@@ -168,25 +169,34 @@ class ToolBatchDeliveryProofTest {
         }
         var privateReads = 0
         var ordinaryReads = 0
+        var wrapUpDelivered = false
+        val privatePageIds = mutableSetOf<String>()
+        val deliveredPageIds = mutableSetOf<String>()
         val model = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                val results = exchanges.flatMap { it.results }
+                results.filter { ToolResultDeliveryProof.digest(it.content) == proofs[it.callId] }.forEach { result ->
+                    deliveredPageIds += result.callId
+                    assertFalse("App instructions cannot change a native page body", "agent_instruction" in (result.content as ToolResultContent.Json).value.jsonObject)
+                    if (result.callId == "page-2") {
+                        wrapUpDelivered = wrapUpDelivered || result.assistMetadata.any { it["schema"] == JsonPrimitive("github.runner-instruction.v1") }
+                    }
+                }
                 if (exchanges.isEmpty()) {
                     group.calls.forEach { emit(it) }
                 } else if (kotlinx.coroutines.currentCoroutineContext()[SavedPageDeliveryRound] != null) {
                     privateReads++
-                    val results = exchanges.flatMap { it.results }
                     val ids = results.map { it.callId }.toSet()
                     assertEquals(ids, exchanges.flatMap { it.calls }.map { it.callId }.toSet())
-                    assertTrue(ids.isNotEmpty() && "page-2" !in ids)
+                    assertTrue(ids.isNotEmpty())
                     results.forEach { assertEquals(proofs[it.callId], ToolResultDeliveryProof.digest(it.content)) }
+                    privatePageIds += ids
                     val body = results.joinToString { ToolHandoffReceipt.payload(it.content) }
-                    assertFalse(facts.last() in body)
                     emit(ProviderEvent.TextDelta(facts.filter { it in body }.joinToString(" ")))
                 } else {
                     ordinaryReads++
-                    val last = exchanges.flatMap { it.results }.single { it.callId == "page-2" }
-                    val body = (last.content as ToolResultContent.Json).value.jsonObject
-                    assertTrue("agent_instruction" in body && facts.last() in body.toString())
+                    val delivered = results.joinToString { it.modelText() }
+                    assertTrue("The final request needs every fact in exact pages or acknowledged private notes", facts.all { it in delivered })
                     emit(ProviderEvent.TextDelta("Read the retained sources."))
                 }
                 emit(ProviderEvent.Completed)
@@ -200,11 +210,14 @@ class ToolBatchDeliveryProofTest {
         assertEquals("Replay allowance $budget, private rounds $privateReads, failures $failures", 1, ordinaryReads)
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().none { it.event is ProviderEvent.Failed })
         assertEquals(group.calls.size, toolExecutions)
+        assertEquals(proofs.keys, deliveredPageIds)
+        assertTrue("The last native page carries the runner's separate wrap-up instruction", wrapUpDelivered)
         val recovered = journal.recoverySnapshot()
         val reading = requireNotNull(recovered.savedPageReading)
-        assertFalse("page-2" in SavedPageReading.fingerprints(reading))
-        assertFalse(facts.last() in reading.toString())
-        assertEquals(proofs["page-2"], ToolResultDeliveryProof.digest(recovered.completedExchanges.flatMap { it.results }.single { it.callId == "page-2" }.content))
+        assertEquals(privatePageIds, SavedPageReading.fingerprints(reading).keys)
+        SavedPageReading.validate(reading, group.calls.associate { it.callId to ToolHandoffReceipt.fingerprint(it) }, recovered.deliveredResultDigests)
+        assertTrue(proofs.all { (id, digest) -> recovered.deliveredResultDigests[id] == digest })
+        assertEquals(proofs, ToolResultDeliveryProof.capture(recovered.completedExchanges.flatMap { it.results }))
     }
 
     @Test fun insufficientPrivateReadingAllowanceRetainsExactPagesWithoutAcknowledgementOrReexecution() = runBlocking {

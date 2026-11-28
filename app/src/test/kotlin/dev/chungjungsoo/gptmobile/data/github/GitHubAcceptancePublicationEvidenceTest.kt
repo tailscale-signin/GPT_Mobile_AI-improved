@@ -25,6 +25,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -343,23 +344,59 @@ class GitHubAcceptancePublicationEvidenceTest {
         assertEquals(missingValues["acceptance_publication_entry"], approvedValues(delivered.single(), retained = true)["acceptance_publication_entry"])
     }
 
-    @Test fun batchLimitPublicationRetainsActualPlanCountWithoutExtractorDispatch() = runBlocking {
+    @Test fun multiWindowPublicationRetainsActualPlanCountAndEveryCompletedBatch() = runBlocking {
         val fixture = fixture()
         val published = mutableListOf<JsonObject>()
         val task = (1..33).joinToString("\n") { "Requirement $it must remain covered" }
+        val requests = mutableListOf<JsonObject>()
         var limits = 0
         val events = session(fixture, published, task, {
             limits++
             8192
-        }) { error("An incomplete batch plan must not dispatch") }
+        }) { prompt ->
+            val request = json(prompt)
+            requests += request
+            answer(
+                buildJsonObject {
+                    put(
+                        "claims",
+                        JsonArray(
+                            request.getValue("requirements").jsonArray.map { requirement ->
+                                buildJsonObject {
+                                    put("kind", "not_measured")
+                                    put("subject", requirement.jsonObject.getValue("id"))
+                                }
+                            }
+                        )
+                    )
+                }.toString()
+            )
+        }
             .streamRound(emptyList(), emptyList()).toList()
 
-        assertEquals(1, limits)
-        assertEquals("GITHUB_EXTRACTION_UNAVAILABLE", (events.last() as ProviderEvent.Failed).errorCode)
+        assertEquals(2, limits)
+        assertEquals((1..9).map(::JsonPrimitive), requests.map { it["batch"] })
+        assertEquals(List(8) { JsonPrimitive(1) } + JsonPrimitive(2), requests.map { it["window"] })
+        assertTrue(requests.all { it["batches"] == JsonPrimitive(9) && it["windows"] == JsonPrimitive(2) })
+        val requirements = requests.flatMap { it.getValue("requirements").jsonArray }
+        assertEquals(33, requirements.size)
+        assertEquals(
+            GitHubRequestCompletion.requirements(task).map(GitHubRequestCompletion::id).toSet(),
+            requirements.map { (it.jsonObject.getValue("id") as JsonPrimitive).content }.toSet()
+        )
+        assertTrue(requests.all { it.getValue("requirements").jsonArray.size in 1..GitHubClaimBatches.REQUIREMENTS_PER_BATCH })
+        assertEquals("GITHUB_EVIDENCE_REQUIRED", (events.last() as ProviderEvent.Failed).errorCode)
         val verdict = published.single()
         val values = approvedValues(verdict)
-        assertObservation(values, "PARTIAL_FALLBACK", "PLAN_BATCH_LIMIT", "PRESENT", 1)
+        assertObservation(values, "CLAIM_EXTRACTION", "COMPLETED", "PRESENT", 1)
         assertEquals(JsonPrimitive(9), values["acceptance_extraction_planned_batches"])
+        assertEquals(JsonPrimitive(9), verdict["extraction_batches_completed"])
+        assertEquals(JsonPrimitive(9), verdict["extraction_batches_total"])
+        assertEquals(JsonPrimitive(2), verdict["extraction_windows_total"])
+        assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+        val retained = requireNotNull(fixture.book.retainedClaimExtraction())
+        assertEquals(9, retained.getValue("batches").jsonArray.size)
+        assertEquals(JsonPrimitive(false), retained["pending"])
         assertNull(values["acceptance_extraction_required_tokens"])
         assertNull(values["acceptance_extraction_input_limit_tokens"])
         assertEquals(JsonPrimitive((verdict["claims"] as JsonArray).size), values["acceptance_claim_count"])

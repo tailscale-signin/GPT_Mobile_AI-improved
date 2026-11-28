@@ -165,12 +165,17 @@ internal data class VoiceBenchManifest(
     val hasUnfinishedStages: Boolean get() = results.any { it.status in setOf(VoiceBenchStatus.PENDING, VoiceBenchStatus.RUNNING, VoiceBenchStatus.INTERRUPTED) }
 
     fun canContinue(signature: String, build: Int, commit: String, api: Int, rows: List<VoiceBenchResult>): Boolean =
-        state in setOf("CANCELLED", "INTERRUPTED", "THERMAL_LIMIT") && hasUnfinishedStages &&
-            continuationSignature == signature && this.build == build && this.commit == commit && androidApi == api &&
+        state in setOf("CANCELLED", "INTERRUPTED", "THERMAL_LIMIT") &&
+            hasUnfinishedStages &&
+            continuationSignature == signature &&
+            this.build == build &&
+            this.commit == commit &&
+            androidApi == api &&
             results.map { it.label } == rows.map { it.label }
 
     fun reusableStages(rows: List<VoiceBenchResult>): List<Int> = results.indices.filter { index ->
-        rows[index].status == VoiceBenchStatus.PENDING && results[index].status in
+        rows[index].status == VoiceBenchStatus.PENDING &&
+            results[index].status in
             setOf(VoiceBenchStatus.MEASURED, VoiceBenchStatus.PARTIAL, VoiceBenchStatus.FAILED)
     }
 

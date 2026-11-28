@@ -6,6 +6,8 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Voice benchmark campaigns prioritize quick engine comparisons, retain and resume compatible checkpoints, correctly record microphone and Moonshine probes, isolate recognition discovery per locale, and honor Auto CPU calibration without changing manual thread sweeps.
+- Native Kokoro rejects the benchmark-observed long all-minimum GPU duration pattern; compact HTP can retain four exact shapes under an OS-memory gate and a 2 GiB estimated retention ceiling, with pressure-driven eviction and versioned native receipts.
 - Translate every voice utterance directly into the selected language, including questions and commands. Translation excludes conversation history, persona, tools and task controls; literal translated text cannot become a tool call or progress message.
 - Preserve voice pitch when changing streaming speech speed, map captions to the adjusted audio, and revise future estimated word timings without moving words already heard.
 - Expand pronunciation dictionaries with regional profiles, technical readings, a correction form, spoken-text previews and reviewed import/export.
@@ -94,6 +96,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Qualification and remaining limits
 
+- GPU duration rejection is a conservative fallback guard, not proof that the underlying driver/model precision defect is repaired. Four-shape HTP admission requires fresh physical-device performance and memory qualification; estimated residency is not a hard allocator limit.
 - Packaged Pocket and Phonon remain CPU-only; no compatible incremental GPU/NPU or smaller replacement runtime is implemented by this change.
 - SDK caption timestamps remain estimates. Forced acoustic alignment, physical-device pitch/naturalness, translation faithfulness across providers, and output-route latency require independent device measurements.
 Publication requires successful validation of the final PR head, main revision and signed artifacts. The release workflow records source identity, checksums, signing/provenance evidence and publication receipts.

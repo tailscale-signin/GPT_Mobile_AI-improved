@@ -98,8 +98,11 @@ internal fun VoiceSpeechBenchmarkSettings(
             Modifier.padding(start = 8.dp)
         )
     }
-    if (!state.running && suite?.hasUnfinishedStages == true && suite.continuationSignature != null &&
-        suite.state in setOf("CANCELLED", "INTERRUPTED", "THERMAL_LIMIT") && gateway == null
+    if (!state.running &&
+        suite?.hasUnfinishedStages == true &&
+        suite.continuationSignature != null &&
+        suite.state in setOf("CANCELLED", "INTERRUPTED", "THERMAL_LIMIT") &&
+        gateway == null
     ) {
         TextButton(
             onClick = {

@@ -24,11 +24,14 @@ internal class VoiceBenchmarkSuiteStore(private val root: File) {
             val saved = read(resumeFrom.runId)
             require(saved == resumeFrom || saved.state == "RUNNING" && saved.stopped("INTERRUPTED") == resumeFrom)
             require(manifest.reusedStageIndices.distinct() == manifest.reusedStageIndices)
-            require(manifest.reusedStageIndices.all { index ->
-                index in resumeFrom.results.indices && index in manifest.results.indices &&
-                    manifest.results[index] == resumeFrom.results[index] &&
-                    resumeFrom.results[index].status in setOf(VoiceBenchStatus.MEASURED, VoiceBenchStatus.PARTIAL, VoiceBenchStatus.FAILED)
-            })
+            require(
+                manifest.reusedStageIndices.all { index ->
+                    index in resumeFrom.results.indices &&
+                        index in manifest.results.indices &&
+                        manifest.results[index] == resumeFrom.results[index] &&
+                        resumeFrom.results[index].status in setOf(VoiceBenchStatus.MEASURED, VoiceBenchStatus.PARTIAL, VoiceBenchStatus.FAILED)
+                }
+            )
         }
         check(folder.mkdirs())
         try {

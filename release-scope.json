@@ -47,7 +47,7 @@
     "Carry issue-intake evidence through Android and the report service. When a truncated tree omits a file, read it only after verifying each directory identity and preserve successful ranges in the same request.",
     "Tap the central microphone to listen or finish speaking. Stop cancels the current voice turn and playback. Choose a reply language beside Text chat to switch the written and spoken reply together, or select Translate only to hear a direct translation.",
     "While the microphone is active, Voice Mode prepares authorized tool catalogues and searches saved memory locally as words settle. Later turns reuse session metadata and exact matching recall. Translation skips these preparations.",
-    "Gateway GitHub chats honor the saved reasoning preference and request the CI tools needed for the current task. Continue keeps the accepted request and verified evidence within the selected model\u2019s context limit, and can restore a displaced tool after verified progress.",
+    "Gateway GitHub chats honor the saved reasoning preference and request the CI tools needed for the current task. Continue keeps the accepted request and verified evidence within the selected model’s context limit, and can restore a displaced tool after verified progress.",
     "Summarize GitHub session failures from preceding turns and show revision-bound review progress. Recover bounded private reading notes and persist reduced claim batches across interruption.",
     "Translation mode shows your words at the top and the translated reply below. The prompt fades in as you speak, stays through playback, and fades away when the microphone starts listening again.",
     "Recover saved GitHub pages displaced by chat history, fit required read schemas to small models, name missing evidence in partial reports, and cite CI failures beyond the first log page.",
@@ -109,7 +109,7 @@
     "Verify the newly consulted coroutine-adapter module metadata against Maven Central publisher checksums while retaining strict dependency verification.",
     "Neutral idle voice microphones, listening-only theme pulse, and static Stop across both voice layouts.",
     "One-shot fresh voice entry and completed-spoken-reply listening with one bounded capture cue, saved sound preferences, and cancellation/ownership fencing.",
-    "Retained action-bound dispositions for issues #2791\u2013#2793, with Gateway and voice-admission behavior receipts.",
+    "Retained action-bound dispositions for issues #2791–#2793, with Gateway and voice-admission behavior receipts.",
     "Preserve application-owned unknown Combined append recovery causes in public diagnostics, retaining saved-cursor review requirements and preventing uncertain request replay.",
     "Verify six public revision/source/artifact declarations independently and permit only their exact whole-line values at exact paths in the history scanner, with adversarial controls and all existing detection/integrity gates retained.",
     "Observe complete current GitHub tool results before replay projection, fairly interleave required discovery with authorized reads, and retain bounded versioned catalog progress without renewing source staleness.",
@@ -141,7 +141,8 @@
     "Acknowledge confirmed voice-output retirement across benign stop/pause/prewarm cancellation while invalidating acknowledgements after real factory replacement or new native acquisition; preserve the playback-worker barrier.",
     "Invalidate both warmed translation factories immediately after explicit rate, bucket or incremental-input changes, and reject delayed preparation from an obsolete configuration or generation.",
     "Require all nine mandatory native C++ suites to report executed passing cases, retaining checked JUnit evidence alongside the model and cancellation verification.",
-    "Keep the pinned sentencepiece dependency static through its legacy CMake option boundary so Android streaming recognition links both required APIs on arm64-v8a and x86_64, without changing caller configuration."
+    "Keep the pinned sentencepiece dependency static through its legacy CMake option boundary so Android streaming recognition links both required APIs on arm64-v8a and x86_64, without changing caller configuration.",
+    "Preserve accepted single-language recognition intent and captured offline privacy through delayed support checks; reject changed automatic-translation selections and retain current online-consent and room-identity checks."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -167,7 +168,7 @@
     "GPU duration rejection is a conservative fallback guard, not proof that the underlying driver/model precision defect is repaired. Five-shape compact HTP admission requires fresh physical-device performance and memory qualification; estimated residency is not a hard allocator limit.",
     "Compiled Pocket GPU/NPU graphs have no native word timestamps. Caption-enabled playback uses local final-audio alignment with extra phrase startup delay; unmatched words remain untimed, and inferred timings do not establish perfect acoustic alignment.",
     "Voice turn-cycle host tests and Android API compilation do not establish physical microphone/speaker behavior or full Android qualification; exact-revision hosted gates remain required.",
-    "Reports #2794\u2013#2827 were individually actioned under the requested closure rule. Guard validation and diagnostic repair do not establish recovery of external DNS, unavailable content, provider quota or intentionally disabled profile tools; retained Android receipts remain baseline evidence.",
+    "Reports #2794–#2827 were individually actioned under the requested closure rule. Guard validation and diagnostic repair do not establish recovery of external DNS, unavailable content, provider quota or intentionally disabled profile tools; retained Android receipts remain baseline evidence.",
     "New diagnostic cause values require an updated report receiver; clients verify support before sending them.",
     "Automatic bilingual recognition requires Android 14 or later, a compatible on-device speech service and both installed language packs. Pocket Multilingual is installed explicitly for paired streaming voices; transcript language detection and host checks do not establish physical recognition or acoustic playback accuracy.",
     "Expanded streaming recognition has no physical Adreno/SM8750 HTP, acoustic boundary, sustained thermal or battery qualification from host tests. Nemotron NPU requires its exact SM8750 context pack; GPU uses a distinct large FP32 pack and may include CPU operations.",
@@ -1254,7 +1255,9 @@
     "docs/repairs/recognition-native-retirement-2026-11-28-validation.json",
     "docs/repairs/voice-replay-ownership-2026-11-28-task.json",
     "docs/repairs/native-host-execution-evidence-2026-11-28-task.json",
-    "docs/repairs/streaming-sentencepiece-linkage-2026-11-28-task.json"
+    "docs/repairs/streaming-sentencepiece-linkage-2026-11-28-task.json",
+    "docs/repairs/android-recognition-accepted-intent-2026-11-28-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidSpeechQualificationTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

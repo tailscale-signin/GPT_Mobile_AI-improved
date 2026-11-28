@@ -569,8 +569,9 @@ class AndroidVoiceAudio internal constructor(
                 }
                 if (!microphonePermitted()) return@supportResult
                 val currentPair = translationRecognitionLanguages(translationLanguages)
-                val currentOnDevice = !currentPair.isNullOrEmpty() || !allowOnlineSpeech || conversationPrivacy()?.enabled == true
-                if (currentPair == null || requestKey != RecognitionRequestKey(currentPair.firstOrNull() ?: languageTag, currentPair, currentOnDevice)) {
+                // The checked intent keeps its captured language and transport. Changing the
+                // automatic translation selection invalidates it; online authorization is rechecked below.
+                if (currentPair == null || currentPair != translationPair) {
                     stop()
                     listener.failure("Speech languages changed before recording started. Tap the microphone to use the current selection.", "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE", recoveryAction = VoiceRecoveryAction.SPEECH_LANGUAGE)
                     return@supportResult

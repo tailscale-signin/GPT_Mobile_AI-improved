@@ -188,6 +188,8 @@ jobs:
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetectorTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.TranslationRecognitionQualificationTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.AndroidSpeechQualificationTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.AndroidVoicePrivacyTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.AndroidTranslationRecognitionTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPlaybackPolicyTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlaybackTest' \

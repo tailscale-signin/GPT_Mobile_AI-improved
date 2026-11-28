@@ -114,6 +114,8 @@ class WorkflowPolicyTest(unittest.TestCase):
             'dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetectorTest',
             'dev.chungjungsoo.gptmobile.data.voice.TranslationRecognitionQualificationTest',
+            'dev.chungjungsoo.gptmobile.data.voice.AndroidSpeechQualificationTest',
+            'dev.chungjungsoo.gptmobile.data.voice.AndroidVoicePrivacyTest',
             'dev.chungjungsoo.gptmobile.data.voice.AndroidTranslationRecognitionTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPlaybackPolicyTest',
             'dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlaybackTest',

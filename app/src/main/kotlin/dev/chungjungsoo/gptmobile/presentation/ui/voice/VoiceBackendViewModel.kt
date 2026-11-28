@@ -33,7 +33,9 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import dev.chungjungsoo.gptmobile.data.voice.isSm8750SpeechDevice
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -247,6 +249,62 @@ internal class VoiceBackendViewModel internal constructor(
         incrementalSpeech = incremental
         nativeModelVariant = modelVariant
         reconcile()
+    }
+
+    /** Prepare a turn-owned voice without changing the selected backend or active playback. */
+    suspend fun translationFactory(targetLanguage: String, voiceId: String): VoicePhraseEngineFactory {
+        val engine = MediaPipeSpeechEngine.POCKET_MULTILINGUAL
+        val target = VoiceTranslationPair.canonicalLanguage(targetLanguage)
+        require(target != null && MediaPipeSpeechVoices.profile(engine, voiceId)?.tag == target) {
+            "Choose a Pocket Multilingual voice that matches the translation language."
+        }
+        val rate = speechRate
+        val bucket = kokoroBucket
+        val incremental = incrementalSpeech
+        val models = streamingModels()
+        return withContext(io) {
+            if (models.localStore(engine).state.value.status != LocalVoiceModelStatus.DOWNLOADING) {
+                models.refresh(engine, forceVerification = false)
+            }
+            if (!models.isReady(engine)) {
+                throw IOException("Install the Pocket Multilingual voice pack in Translation languages, then retry the saved text.")
+            }
+            val evidence = runCatching { SpeechVoiceEvidence(context, models.acceleratorEnvironment) }.getOrNull()
+            MediaPipeVoicePhraseEngineFactory(
+                models,
+                engine,
+                VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU,
+                rate,
+                voiceId,
+                kokoroBucket = bucket,
+                incrementalInput = incremental,
+                onValidatedSynthesis = { id, configured -> evidence?.record(MediaPipeSpeechCatalog.model(engine), configured, id) }
+            )
+        }
+    }
+
+    /** Inspection never downloads or replaces the user's ordinary speech settings. */
+    fun refreshTranslationModel() {
+        val engine = MediaPipeSpeechEngine.POCKET_MULTILINGUAL
+        if (!refreshedStreamingModels.add(engine)) return
+        viewModelScope.launch {
+            val models = streamingModels()
+            if (models.localStore(engine).state.value.status != LocalVoiceModelStatus.DOWNLOADING) {
+                models.refresh(engine, forceVerification = false)
+            }
+        }
+    }
+
+    fun installTranslationModel() {
+        val engine = MediaPipeSpeechEngine.POCKET_MULTILINGUAL
+        if (streamingInstalls[engine]?.isCompleted == false) return
+        streamingInstalls[engine] = viewModelScope.launch { streamingModels().install(engine) }
+    }
+
+    fun cancelTranslationModel() {
+        val engine = MediaPipeSpeechEngine.POCKET_MULTILINGUAL
+        streamingInstalls[engine]?.cancel()
+        streamingStore?.cancelInstall(engine)
     }
 
     fun recheckBackend() {

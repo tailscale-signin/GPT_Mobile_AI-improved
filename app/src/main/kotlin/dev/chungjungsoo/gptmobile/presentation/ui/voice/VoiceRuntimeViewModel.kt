@@ -17,8 +17,12 @@ import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlayback
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudio
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSession
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetector
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageResult
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationTarget
 import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
 import dev.chungjungsoo.gptmobile.data.voice.shouldCheckpointDraft
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
@@ -29,6 +33,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+
+internal data class VoiceTranslationPlayback(val target: VoiceTranslationTarget, val factory: VoicePhraseEngineFactory)
 
 internal class VoiceRuntime(
     val system: AndroidVoiceAudio,
@@ -48,6 +54,9 @@ internal class VoiceRuntime(
     val activeMessage = mutableStateOf<VoiceMessageIdentity?>(null)
     val manualMessage = mutableStateOf(false)
     val refreshMutedBaseline = mutableStateOf(false)
+
+    // The accepted turn owns its output until playback drains, including screen recreation.
+    val translationOutput = mutableStateOf<VoiceTranslationPlayback?>(null)
 }
 
 /** Navigation owns native runtimes; a recreated composition only attaches a presentation. */
@@ -70,6 +79,12 @@ internal class VoiceRuntimeViewModel @Inject constructor(
     private var runtimeStores: VoiceModelStores? = null
     private var modelChangePending = false
     private var eviction: Job? = null
+    private var translationDetector: VoiceTranslationLanguageDetector? = null
+
+    suspend fun detectTranslationLanguage(text: String, languages: List<String>): VoiceTranslationLanguageResult {
+        val detector = translationDetector ?: VoiceTranslationLanguageDetector(context).also { translationDetector = it }
+        return detector.detect(text, languages)
+    }
 
     fun acquire(model: ChatViewModel, stores: VoiceModelStores, restore: (VoiceSession) -> Unit): VoiceRuntime {
         runtime?.takeIf { modelChangePending }?.let { return it }
@@ -154,6 +169,8 @@ internal class VoiceRuntimeViewModel @Inject constructor(
 
     override fun onCleared() {
         eviction?.cancel()
+        translationDetector?.close()
+        translationDetector = null
         runtime?.let(background::releaseScreenOwner)
         runtime = null
         runtimeStores = null

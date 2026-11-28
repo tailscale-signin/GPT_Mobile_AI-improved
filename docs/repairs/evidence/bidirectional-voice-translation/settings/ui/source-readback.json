@@ -1,0 +1,13 @@
+{
+  "kind": "same_compilation_inputs_source_binding_refresh",
+  "root_head": "06dfc0785c1e2f2eb0725c4b015f2903335316b2",
+  "compile_rerun": false,
+  "prior_manifest": "before-local-output/source-manifest.json",
+  "changed_containing_files": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt"
+  ],
+  "compiled_input_count": 11,
+  "all_compiled_inputs_byte_identical": true,
+  "compiled_artifact_sha256": "4b012785edc27c6c75413481a96197facd556b63314fd781b3d2fa05e1cedc39",
+  "explanation": "VoiceChatScreen changed outside the extracted VoiceChoice declaration. The exact full UI components, instrumentation methods/fixtures and every generated compilation input remain byte-identical to the successful compile. The original receipt and source manifest are retained separately."
+}

@@ -78,6 +78,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPrompt
 import dev.chungjungsoo.gptmobile.data.voice.microphoneAction
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
@@ -107,7 +108,10 @@ internal data class VoiceConversationUiState(
     val recognitionBackend: VoiceRecognitionBackend = SpeechLanguages.recognitionBackend(language),
     val replyLanguage: String = SpeechLanguages.default.tag,
     val translationMode: Boolean = false,
-    val replyLanguageProfiles: List<SpeechLanguage> = SpeechLanguages.synthesis
+    val replyLanguageProfiles: List<SpeechLanguage> = SpeechLanguages.synthesis,
+    val translationPair: VoiceTranslationPair = VoiceTranslationPair(),
+    val translationModel: LocalVoiceModelState? = null,
+    val translationSetupNotice: String? = null
 )
 
 internal class VoiceConversationActions(
@@ -127,7 +131,10 @@ internal class VoiceConversationActions(
     val toggleMicrophone: () -> Unit,
     val changeReplyLanguage: (String) -> Unit,
     val changeTranslationMode: (Boolean) -> Unit,
-    val end: () -> Unit
+    val end: () -> Unit,
+    val changeTranslationPair: (VoiceTranslationPair) -> Unit = {},
+    val installTranslationModel: () -> Unit = {},
+    val cancelTranslationModel: () -> Unit = {}
 )
 
 @Composable
@@ -383,23 +390,36 @@ private fun VoiceConversationControls(state: VoiceConversationUiState, actions: 
         Row(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Spacer(Modifier.weight(1f))
             VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, Modifier.weight(1f))
-            val language = state.replyLanguageProfiles.firstOrNull { it.tag == state.replyLanguage }?.label ?: java.util.Locale.forLanguageTag(state.replyLanguage).displayName
+            val language = if (state.translationMode) {
+                val pair = state.translationPair.normalized()
+                "${java.util.Locale.forLanguageTag(pair.baseLanguage).displayLanguage} ↔ ${java.util.Locale.forLanguageTag(pair.translationLanguage).displayLanguage}"
+            } else {
+                state.replyLanguageProfiles.firstOrNull { it.tag == state.replyLanguage }?.label ?: java.util.Locale.forLanguageTag(state.replyLanguage).displayName
+            }
             VoiceControl(
                 language,
                 Icons.Rounded.Language,
                 { choosingLanguage = true },
                 Modifier.weight(1f).testTag("voice_reply_language").semantics {
-                    contentDescription = if (state.translationMode) "Translate into $language" else "Reply language: $language"
+                    contentDescription = if (state.translationMode) "Translation languages: $language" else "Reply language: $language"
                 },
                 canSelect
             )
         }
     }
     if (choosingLanguage && canSelect) {
-        VoiceReplyLanguageDialog(state.replyLanguage, state.translationMode, actions.changeTranslationMode, select = {
-            actions.changeReplyLanguage(it)
-            choosingLanguage = false
-        }, dismiss = { choosingLanguage = false }, profiles = state.replyLanguageProfiles)
+        VoiceReplyLanguageDialog(
+            state.replyLanguage, state.translationMode, actions.changeTranslationMode, select = {
+                actions.changeReplyLanguage(it)
+                choosingLanguage = false
+            }, dismiss = { choosingLanguage = false }, profiles = state.replyLanguageProfiles,
+            translationPair = state.translationPair,
+            changeTranslationPair = actions.changeTranslationPair,
+            translationModel = state.translationModel,
+            installTranslationModel = actions.installTranslationModel,
+            cancelTranslationModel = actions.cancelTranslationModel,
+            translationSetupNotice = state.translationSetupNotice
+        )
     } else if (choosingLanguage) {
         androidx.compose.runtime.LaunchedEffect(Unit) { choosingLanguage = false }
     }

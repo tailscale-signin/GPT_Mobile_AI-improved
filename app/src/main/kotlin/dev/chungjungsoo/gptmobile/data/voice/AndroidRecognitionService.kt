@@ -30,6 +30,10 @@ internal class AndroidRecognitionService(private val context: Context) : Recogni
     }
 
     override fun checkSupport(recognizer: SpeechRecognizer, intent: Intent, onDevice: Boolean, result: (RecognitionQualification) -> Unit) {
+        if (Build.VERSION.SDK_INT < 34 && !intent.getStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES).isNullOrEmpty()) {
+            result(RecognitionQualification(RecognitionSupportStatus.UNSUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED))
+            return
+        }
         if (Build.VERSION.SDK_INT < 33) {
             result(RecognitionQualification(RecognitionSupportStatus.UNVERIFIED))
             return
@@ -39,15 +43,26 @@ internal class AndroidRecognitionService(private val context: Context) : Recogni
             context.mainExecutor,
             object : RecognitionSupportCallback {
                 override fun onSupportResult(support: RecognitionSupport) {
+                    val translationLanguages = intent.getStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES).orEmpty()
                     result(
-                        qualifyRecognitionLanguage(
-                            intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE).orEmpty(),
-                            onDevice,
-                            support.installedOnDeviceLanguages,
-                            support.pendingOnDeviceLanguages,
-                            support.supportedOnDeviceLanguages,
-                            support.onlineLanguages
-                        )
+                        if (translationLanguages.isNotEmpty()) {
+                            qualifyTranslationRecognitionLanguages(
+                                translationLanguages,
+                                onDevice,
+                                support.installedOnDeviceLanguages,
+                                support.pendingOnDeviceLanguages,
+                                support.supportedOnDeviceLanguages
+                            )
+                        } else {
+                            qualifyRecognitionLanguage(
+                                intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE).orEmpty(),
+                                onDevice,
+                                support.installedOnDeviceLanguages,
+                                support.pendingOnDeviceLanguages,
+                                support.supportedOnDeviceLanguages,
+                                support.onlineLanguages
+                            )
+                        }
                     )
                 }
                 override fun onError(error: Int) {
@@ -60,6 +75,34 @@ internal class AndroidRecognitionService(private val context: Context) : Recogni
 
 internal enum class RecognitionSupportStatus { SUPPORTED, UNVERIFIED, LANGUAGE_UNAVAILABLE, UNSUPPORTED, FAILED }
 internal data class RecognitionQualification(val status: RecognitionSupportStatus, val errorCode: Int? = null)
+
+internal data class RecognitionRequestKey(val language: String, val translationLanguages: List<String>, val onDevice: Boolean)
+
+/** Automatic recognition needs two distinct source languages, each with its exact selected locale. */
+internal fun translationRecognitionLanguages(languages: List<String>): List<String>? {
+    if (languages.isEmpty()) return emptyList()
+    if (languages.size != 2) return null
+    val locales = languages.map { language -> runCatching { Locale.Builder().setLanguageTag(language).build() }.getOrNull() ?: return null }
+    if (locales.any { it.language.isEmpty() || it.language == "und" } || locales.map { it.language }.distinct().size != 2) return null
+    return locales.map(Locale::toLanguageTag)
+}
+
+internal fun qualifyTranslationRecognitionLanguages(
+    languages: List<String>,
+    onDevice: Boolean,
+    installed: List<String>,
+    pending: List<String>,
+    supported: List<String>
+): RecognitionQualification {
+    val pair = translationRecognitionLanguages(languages)
+    if (!onDevice || pair.isNullOrEmpty()) {
+        return RecognitionQualification(RecognitionSupportStatus.UNSUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED)
+    }
+    val results = pair.map { qualifyRecognitionLanguage(it, true, installed, pending, supported, emptyList()) }
+    return results.firstOrNull { it.status == RecognitionSupportStatus.UNSUPPORTED }
+        ?: results.firstOrNull { it.status != RecognitionSupportStatus.SUPPORTED }
+        ?: RecognitionQualification(RecognitionSupportStatus.SUPPORTED)
+}
 
 /** Match the requested locale without silently replacing it with another regional language. */
 internal fun qualifyRecognitionLanguage(language: String, onDevice: Boolean, installed: List<String>, pending: List<String>, supported: List<String>, online: List<String>): RecognitionQualification {

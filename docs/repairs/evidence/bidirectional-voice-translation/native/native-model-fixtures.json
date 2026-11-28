@@ -1,0 +1,203 @@
+{
+  "schema": "voice-translation-native-model-fixtures-v1",
+  "runtime": "Official MediaPipe Python 0.10.21 Linux x86_64 wheel, unmodified LanguageDetector/TextClassifierGraph/native binding; package namespace loading omits unrelated optional vision/audio imports.",
+  "model_sha256": "7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417",
+  "model_bytes": 315294,
+  "package_files_sha256": {
+    "mediapipe/tasks/python/text/language_detector.py": "57024029227ce6d9878cfc3bae2cfda28f38ea5c94c0319001354c503e53d025",
+    "mediapipe/python/_framework_bindings.cpython-312-x86_64-linux-gnu.so": "bcd4b6eb96b575bafd184524a310231ee25bda5df856f96390f6eac580aad8b0"
+  },
+  "options": {
+    "max_results": 3,
+    "score_threshold": 0.0,
+    "category_allowlist": null
+  },
+  "required_fixtures_passed": 4,
+  "fixtures": [
+    {
+      "fixture": "english_greeting",
+      "text": "Hello, how are you today?",
+      "expected_language": "en",
+      "predictions": [
+        {
+          "language": "en",
+          "confidence": 0.9996148347854614
+        },
+        {
+          "language": "es",
+          "confidence": 3.6876524973195046e-05
+        },
+        {
+          "language": "la",
+          "confidence": 2.837194006133359e-05
+        }
+      ],
+      "passes_app_confidence_policy": true
+    },
+    {
+      "fixture": "french_greeting",
+      "text": "Bonjour, comment allez-vous aujourd’hui ?",
+      "expected_language": "fr",
+      "predictions": [
+        {
+          "language": "fr",
+          "confidence": 0.9998810291290283
+        },
+        {
+          "language": "ar-Latn",
+          "confidence": 1.6066131138359196e-05
+        },
+        {
+          "language": "en",
+          "confidence": 1.5419689589180052e-05
+        }
+      ],
+      "passes_app_confidence_policy": true
+    },
+    {
+      "fixture": "english_question",
+      "text": "Could you tell me where the nearest train station is?",
+      "expected_language": "en",
+      "predictions": [
+        {
+          "language": "en",
+          "confidence": 0.9999678134918213
+        },
+        {
+          "language": "la",
+          "confidence": 3.6857529721601168e-06
+        },
+        {
+          "language": "ko",
+          "confidence": 3.6424132758838823e-06
+        }
+      ],
+      "passes_app_confidence_policy": true
+    },
+    {
+      "fixture": "french_question",
+      "text": "Pourriez-vous me dire où se trouve la gare la plus proche ?",
+      "expected_language": "fr",
+      "predictions": [
+        {
+          "language": "fr",
+          "confidence": 0.9963222742080688
+        },
+        {
+          "language": "ht",
+          "confidence": 0.0026126306038349867
+        },
+        {
+          "language": "it",
+          "confidence": 0.0005145005998201668
+        }
+      ],
+      "passes_app_confidence_policy": true
+    },
+    {
+      "fixture": "short_english",
+      "text": "Hello",
+      "expected_language": "en",
+      "predictions": [
+        {
+          "language": "en",
+          "confidence": 0.5111955404281616
+        },
+        {
+          "language": "es",
+          "confidence": 0.06581450253725052
+        },
+        {
+          "language": "sv",
+          "confidence": 0.03444809094071388
+        }
+      ],
+      "passes_app_confidence_policy": false
+    },
+    {
+      "fixture": "short_french",
+      "text": "Bonjour",
+      "expected_language": "fr",
+      "predictions": [
+        {
+          "language": "fr",
+          "confidence": 0.84727942943573
+        },
+        {
+          "language": "ht",
+          "confidence": 0.06945044547319412
+        },
+        {
+          "language": "en",
+          "confidence": 0.025116991251707077
+        }
+      ],
+      "passes_app_confidence_policy": true
+    },
+    {
+      "fixture": "outside_pair",
+      "text": "Guten Morgen, wie geht es Ihnen heute?",
+      "expected_language": "de",
+      "predictions": [
+        {
+          "language": "de",
+          "confidence": 0.9996461868286133
+        },
+        {
+          "language": "eu",
+          "confidence": 0.0001356279681203887
+        },
+        {
+          "language": "nl",
+          "confidence": 3.851223300443962e-05
+        }
+      ],
+      "passes_app_confidence_policy": false
+    },
+    {
+      "fixture": "ambiguous",
+      "text": "Paris",
+      "expected_language": null,
+      "predictions": [
+        {
+          "language": "ca",
+          "confidence": 0.17047119140625
+        },
+        {
+          "language": "en",
+          "confidence": 0.11497502028942108
+        },
+        {
+          "language": "fr",
+          "confidence": 0.08804898709058762
+        }
+      ],
+      "passes_app_confidence_policy": false
+    },
+    {
+      "fixture": "mixed",
+      "text": "Hello, je voudrais un café please.",
+      "expected_language": null,
+      "predictions": [
+        {
+          "language": "fr",
+          "confidence": 0.9891504645347595
+        },
+        {
+          "language": "cs",
+          "confidence": 0.003092194674536586
+        },
+        {
+          "language": "gl",
+          "confidence": 0.0023674380499869585
+        }
+      ],
+      "passes_app_confidence_policy": true
+    }
+  ],
+  "limitations": [
+    "This qualifies these text fixtures and model bytes on a Linux host, not Android JNI, Android SpeechRecognizer, acoustic recognition or device performance.",
+    "Short, named and mixed-language cases are observations, not accuracy guarantees. Mixed-language text is outside the publisher model card’s intended scope.",
+    "Native-model runtime version differs from the existing Android Tasks text 1.0.0 / core 1.2.3 dependency; Android API compilation is recorded separately."
+  ]
+}

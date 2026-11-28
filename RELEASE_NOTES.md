@@ -26,6 +26,8 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Translate each voice utterance to the opposite side of a saved language pair, with independent streaming voices, local direction detection and cancellation-safe preparation before submission. English translates to French with Estelle; French translates to English with Azelma by default. Both languages and voices can be changed.
+
 - Preserve application-owned unknown Combined append recovery causes in public diagnostics, retaining saved-cursor review requirements and preventing uncertain request replay.
 
 - Voice Mode shows a neutral microphone while idle, a fading theme highlight while listening, and a steady highlighted Stop while generating or speaking. The same states appear in the transcript view and respect reduced-motion settings.
@@ -164,3 +166,7 @@ Published tags remain immutable, and a passing earlier revision does not qualify
 ### Diagnostic follow-up qualification
 
 Reports #2794–#2827 were individually actioned under the requested closure rule. Guard validation and diagnostic repair do not establish recovery of external DNS, unavailable content, provider quota or intentionally disabled profile tools; retained Android receipts remain baseline evidence.
+
+### Two-way translation qualification
+
+Automatic bilingual recognition requires Android 14 or later, a compatible on-device speech service and both installed language packs. Pocket Multilingual is installed explicitly for paired streaming voices; transcript language detection and host checks do not establish physical recognition or acoustic playback accuracy.

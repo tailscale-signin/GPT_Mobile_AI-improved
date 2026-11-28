@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -28,10 +29,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
+import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import java.util.Locale
 
 @Composable
@@ -101,13 +108,19 @@ internal fun VoiceReplyLanguageDialog(
     changeTranslationMode: (Boolean) -> Unit,
     select: (String) -> Unit,
     dismiss: () -> Unit,
-    profiles: List<SpeechLanguage> = SpeechLanguages.synthesis
+    profiles: List<SpeechLanguage> = SpeechLanguages.synthesis,
+    translationPair: VoiceTranslationPair = VoiceTranslationPair(),
+    changeTranslationPair: (VoiceTranslationPair) -> Unit = {},
+    translationModel: LocalVoiceModelState? = null,
+    installTranslationModel: () -> Unit = {},
+    cancelTranslationModel: () -> Unit = {},
+    translationSetupNotice: String? = null
 ) {
     AlertDialog(
         onDismissRequest = dismiss,
         title = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Reply language", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Text(if (translationMode) "Translation languages" else "Reply language", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 Row(
                     Modifier.toggleable(translationMode, role = Role.Checkbox, onValueChange = changeTranslationMode)
                         .testTag("voice_translation_mode").padding(4.dp),
@@ -122,9 +135,10 @@ internal fun VoiceReplyLanguageDialog(
         text = {
             LazyColumn(Modifier.heightIn(max = 360.dp).testTag("voice_reply_language_list")) {
                 item {
+                    translationSetupNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp)) }
                     Text(
                         if (translationMode) {
-                            "Translate everything you say into the selected language. Questions stay questions and commands stay commands; the app translates them without answering or carrying them out."
+                            "Speak either language to translate into the other, using that language’s voice. Questions stay questions and commands stay commands; the app translates them without answering or carrying them out."
                         } else {
                             "Answer in the selected language and use its voice for playback."
                         },
@@ -132,19 +146,89 @@ internal fun VoiceReplyLanguageDialog(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                 }
-                items(profiles, key = { it.tag }) { language ->
-                    Row(
-                        Modifier.fillMaxWidth().selectable(language.tag == selected, role = Role.RadioButton, onClick = { select(language.tag) })
-                            .testTag("voice_reply_language_${language.tag}").padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        RadioButton(selected = language.tag == selected, onClick = null)
-                        Text(language.label)
+                if (translationMode) {
+                    val pair = translationPair.normalized()
+                    val choices = MediaPipeSpeechVoices.profiles(MediaPipeSpeechEngine.POCKET_MULTILINGUAL)
+                    val base = choices.first { it.tag == pair.baseLanguage }
+                    val target = choices.first { it.tag == pair.translationLanguage }
+                    item {
+                        Column(Modifier.testTag("voice_translation_base_language")) {
+                            VoiceChoice("Base language", base.tag, choices.filter { it.tag != target.tag }.map { it.tag to it.label }, { tag ->
+                                changeTranslationPair(pair.copy(baseLanguage = tag, sourceLanguage = if (pair.sourceLanguage == base.tag) tag else pair.sourceLanguage).normalized())
+                            })
+                        }
+                    }
+                    item {
+                        Column(Modifier.testTag("voice_translation_base_voice").padding(bottom = 12.dp)) {
+                            VoiceChoice("Voice for ${base.label}", pair.baseVoiceId, base.voices.map { it to it.replaceFirstChar(Char::uppercaseChar) }, {
+                                changeTranslationPair(pair.copy(baseVoiceId = it).normalized())
+                            })
+                        }
+                    }
+                    item {
+                        Column(Modifier.testTag("voice_translation_target_language")) {
+                            VoiceChoice("Translation language", target.tag, choices.filter { it.tag != base.tag }.map { it.tag to it.label }, { tag ->
+                                changeTranslationPair(pair.copy(translationLanguage = tag, sourceLanguage = if (pair.sourceLanguage == target.tag) tag else pair.sourceLanguage).normalized())
+                            })
+                        }
+                    }
+                    item {
+                        Column(Modifier.testTag("voice_translation_target_voice").padding(bottom = 12.dp)) {
+                            VoiceChoice("Voice for ${target.label}", pair.translationVoiceId, target.voices.map { it to it.replaceFirstChar(Char::uppercaseChar) }, {
+                                changeTranslationPair(pair.copy(translationVoiceId = it).normalized())
+                            })
+                        }
+                    }
+                    item {
+                        Column(Modifier.testTag("voice_translation_source_language").padding(bottom = 12.dp)) {
+                            VoiceChoice("Spoken language", pair.sourceLanguage.orEmpty(), listOf("" to "Auto · either language", base.tag to base.label, target.tag to target.label), {
+                                changeTranslationPair(pair.copy(sourceLanguage = it.takeIf(String::isNotEmpty)).normalized())
+                            })
+                            Text("If detection is unavailable or the words could belong to either language, choose the language you are speaking, then retry the saved text.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    item {
+                        TranslationVoicePack(translationModel, installTranslationModel, cancelTranslationModel)
+                    }
+                } else {
+                    items(profiles, key = { it.tag }) { language ->
+                        Row(
+                            Modifier.fillMaxWidth().selectable(language.tag == selected, role = Role.RadioButton, onClick = { select(language.tag) })
+                                .testTag("voice_reply_language_${language.tag}").padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            RadioButton(selected = language.tag == selected, onClick = null)
+                            Text(language.label)
+                        }
                     }
                 }
             }
         },
         confirmButton = { TextButton(onClick = dismiss) { Text("Done") } }
     )
+}
+
+@Composable
+private fun TranslationVoicePack(state: LocalVoiceModelState?, install: () -> Unit, cancel: () -> Unit) {
+    val model = MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.POCKET_MULTILINGUAL)
+    val current = state ?: LocalVoiceModelState(totalBytes = model.downloadBytes)
+    Column(Modifier.testTag("voice_translation_pack"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Pocket Multilingual · Offline voices", style = MaterialTheme.typography.titleSmall)
+        when (current.status) {
+            LocalVoiceModelStatus.READY -> Text("Installed and verified", color = MaterialTheme.colorScheme.primary)
+            LocalVoiceModelStatus.CHECKING -> Text("Checking the multilingual voice pack…")
+            LocalVoiceModelStatus.DOWNLOADING -> {
+                VoiceTransferProgress(current.transferStage, current.downloadedBytes, current.totalBytes)
+                TextButton(onClick = cancel, modifier = Modifier.testTag("voice_translation_pack_cancel")) { Text("Cancel download") }
+            }
+            else -> {
+                Text("Both translation voices use this pack. The English-only pack does not provide both languages.", style = MaterialTheme.typography.bodySmall)
+                Button(onClick = install, modifier = Modifier.testTag("voice_translation_pack_install")) {
+                    Text("Download multilingual voices · ${(model.downloadBytes + 524_288) / 1_048_576} MiB")
+                }
+            }
+        }
+        current.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
 }

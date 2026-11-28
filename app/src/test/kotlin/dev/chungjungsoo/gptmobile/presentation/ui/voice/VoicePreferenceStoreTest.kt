@@ -22,7 +22,9 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -64,6 +66,98 @@ class VoicePreferenceStoreTest {
         assertEquals("en-CA", saved.language)
         assertEquals("pt-BR", saved.synthesis.language)
         assertTrue(saved.synthesis.voiceId in saved.synthesis.profile.voices)
+        assertEquals(VoiceTranslationPair(translationLanguage = "pt-BR", translationVoiceId = "rafael"), saved.translationPair)
+    }
+
+    @Test fun translationPairDefaultsStayEnglishAndFrenchIndependentlyOfRecognitionAndReply() {
+        val fresh = readVoicePreferences(mapOf("language" to "de-DE"))
+        assertEquals(VoiceTranslationPair(), fresh.translationPair)
+        assertEquals("de-DE", fresh.language)
+        val english = readVoicePreferences(mapOf("synthesis_language" to "en-GB", "translation_mode" to true))
+        assertTrue(english.translationMode)
+        assertEquals(VoiceTranslationPair(), english.translationPair)
+    }
+
+    @Test fun unsupportedLegacyTranslationRequiresSetupWithoutChangingItsOrdinaryReplyLanguage() {
+        val saved = readVoicePreferences(mapOf("synthesis_language" to "ja", "translation_mode" to true))
+        assertFalse(saved.translationMode)
+        assertEquals("ja", saved.synthesis.language)
+        assertTrue(saved.translationSetupNotice.orEmpty().contains("Choose two supported languages"))
+        assertEquals(VoiceTranslationPair(), saved.translationPair)
+    }
+
+    @Test fun corruptTranslationFieldsCannotSelectAnotherLanguageVoiceOrAnUnrelatedSource() {
+        val saved = readVoicePreferences(
+            mapOf(
+                "translation_mode" to true,
+                "translation_base_language" to "fr-CA",
+                "translation_target_language" to "en-GB",
+                "translation_base_voice" to "azelma",
+                "translation_target_voice" to "estelle",
+                "translation_source_language" to "de-DE"
+            )
+        )
+        assertEquals(VoiceTranslationPair("fr-FR", "en-US", "estelle", "azelma"), saved.translationPair)
+        assertTrue(saved.translationPair.validated() != null)
+        val malformed = readVoicePreferences(mapOf("translation_base_language" to 3, "translation_target_voice" to setOf("estelle")))
+        assertEquals(VoiceTranslationPair(), malformed.translationPair)
+    }
+
+    @Test fun translationPairAndEachVoiceSurvivePreferenceWritesWithoutChangingNormalSpeech() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val saved = context.getSharedPreferences("voice-translation-pair-test", Context.MODE_PRIVATE)
+        saved.edit().clear().commit()
+        val store = VoicePreferenceStore({ saved }, backgroundScope)
+        runCurrent()
+        val original = VoicePreferences(
+            language = "en-CA",
+            synthesis = VoiceSynthesisPreferences("ja", mapOf("ja" to "jf_nezumi")),
+            translationMode = true,
+            translationPair = VoiceTranslationPair(baseVoiceId = "eponine", sourceLanguage = "fr-FR")
+        )
+        store.save(original)
+        runCurrent()
+        val first = readVoicePreferences(saved.all)
+        assertEquals(original.translationPair, first.translationPair)
+        assertEquals(original.synthesis, first.synthesis)
+        assertEquals("en-CA", first.language)
+        store.save(first.copy(translationPair = first.translationPair.copy(sourceLanguage = "en-US")))
+        runCurrent()
+        val second = readVoicePreferences(saved.all)
+        assertEquals("eponine", second.translationPair.baseVoiceId)
+        assertEquals("estelle", second.translationPair.translationVoiceId)
+        assertEquals("en-US", second.translationPair.sourceLanguage)
+        assertEquals(original.synthesis, second.synthesis)
+        store.save(second.copy(translationPair = second.translationPair.copy(sourceLanguage = null)))
+        runCurrent()
+        assertNull(readVoicePreferences(saved.all).translationPair.sourceLanguage)
+        assertFalse(saved.contains("translation_source_language"))
+        assertNull(store.saveError.value)
+    }
+
+    @Test fun legacyStreamingTargetMigratesOnceAndCannotReplaceAnExplicitSavedPair() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val saved = context.getSharedPreferences("voice-legacy-translation-target-test", Context.MODE_PRIVATE)
+        saved.edit().clear().putString("synthesis_language", "en-US").putBoolean("translation_mode", true).commit()
+        val store = VoicePreferenceStore({ saved }, backgroundScope, legacyReplyLanguage = {
+            legacyStreamingReplyLanguage(mapOf("backend" to VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU.name, "streaming_voices" to setOf("POCKET_MULTILINGUAL=rafael")))
+        })
+        runCurrent()
+        val migrated = requireNotNull(store.preferences.value)
+        assertEquals("pt-BR", migrated.translationPair.translationLanguage)
+        assertEquals("rafael", migrated.translationPair.translationVoiceId)
+        assertEquals("en-US", migrated.synthesis.language)
+        store.save(migrated)
+        runCurrent()
+        var legacyReads = 0
+        val restored = VoicePreferenceStore({ saved }, backgroundScope, legacyReplyLanguage = {
+            legacyReads++
+            "fr-FR"
+        })
+        runCurrent()
+        assertEquals(0, legacyReads)
+        assertEquals(migrated.translationPair, restored.preferences.value?.translationPair)
+        assertNull(restored.saveError.value)
     }
 
     @Test fun spokenAcknowledgmentsDefaultOnAndRestoreAnExplicitOptOut() {

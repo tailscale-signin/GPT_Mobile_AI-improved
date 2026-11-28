@@ -1,0 +1,608 @@
+{
+ "schema": "bidirectional-voice-translation-evidence-v1",
+ "assembled_utc": "2026-11-28T06:18:55.462526+00:00",
+ "root_repository_head": "06dfc0785c1e2f2eb0725c4b015f2903335316b2",
+ "source_binding": "Current working-file SHA-256; active uncommitted changes are included. Commit identity alone is not the qualification binding.",
+ "counts": {
+  "copied_files": 42,
+  "generated_index_files": 1,
+  "generated_formatting_proofs": 1,
+  "copied_text_bytes": 116477,
+  "jvm_cases_passed": 145,
+  "original_jvm_cases": 125,
+  "additional_fallback_cases": 20,
+  "core_cases": 103,
+  "settings_cases": 9,
+  "detector_cases": 13,
+  "native_required_fixtures_passed": 4,
+  "native_fixture_observations": 9,
+  "ui_instrumentation_methods_compiled": 2,
+  "ui_instrumentation_methods_executed": 0
+ },
+ "checks": [
+  {
+   "id": "core",
+   "result": "PASS",
+   "cases": 103,
+   "qualification": "core/qualification.json",
+   "manifest": "core/manifest.json",
+   "log": "core/junit.log",
+   "scope": "Nine complete selected portable JUnit classes with actual Session, Pair, Policy, playback selection, translation/source and supporting production classes. Fake audio and explicit unrelated/native DTO ports; Kotlin serialization round trips included."
+  },
+  {
+   "id": "fallback",
+   "result": "PASS",
+   "cases": 20,
+   "qualification": "fallback/qualification.json",
+   "manifest": "fallback/manifest.json",
+   "log": "fallback/junit.log",
+   "scope": "Complete existing VoicePluginAudioTest against source-bound actual core production classes. Full extra pronunciation/microphone-lease files and the exact DeferredKokoroOutput class; explicit native-factory port. Verifies required-local output and fallback ownership with fake audio, not Android TTS/native/device playback."
+  },
+  {
+   "id": "settings",
+   "result": "PASS",
+   "cases": 9,
+   "qualification": "settings/qualification.json",
+   "manifest": "settings/source-manifest.json",
+   "log": "settings/junit.log",
+   "scope": "Actual full Backend ViewModel, preference stores/writer and catalog; exact preference data declaration. Six checked-in preference regression method bodies plus three custom boundary cases. Explicit Android storage/lifecycle, untouched tuning and recording native-factory ports."
+  },
+  {
+   "id": "detector",
+   "result": "PASS",
+   "cases": 13,
+   "qualification": "detector/delivery-receipt.json",
+   "manifest": "detector/manifest.json",
+   "log": "detector/junit.log",
+   "scope": "Actual detector and recognition-service APIs compile against Android 37 and pinned MediaPipe task JARs; policy/lifecycle/cancellation/dual-locale qualification executes using an explicitly injected prediction backend."
+  },
+  {
+   "id": "native-language-model",
+   "result": "PASS_REQUIRED_FIXTURES",
+   "required_fixtures": 4,
+   "observations": 9,
+   "qualification": "native/native-model-fixtures.json",
+   "log": "native/native-model-fixtures.log",
+   "script": "native/native-model-fixtures.py",
+   "provenance": "native/model-provenance.json",
+   "scope": "Actual bundled 315294-byte model with unmodified MediaPipe Python 0.10.21 Linux x86_64 native LanguageDetector. Four full English/French greeting/question assertions passed; remaining five fixtures are observations, not additional required passes."
+  },
+  {
+   "id": "ui-api-compile",
+   "result": "COMPILE_PASS_ONLY",
+   "qualification": "settings/ui/qualification.json",
+   "manifest": "settings/ui/source-manifest.json",
+   "log": "settings/ui/compile.log",
+   "scope": "Full actual dialog/control/microphone files plus exact VoiceChoice/state/model declarations and two instrumentation method/fixture declarations. Android 37/Compose APIs; unrelated widget/popup-motion compile ports. No Compose or instrumentation execution."
+  },
+  {
+   "id": "root-wiring-api-compile",
+   "result": "COMPILE_PASS_ONLY",
+   "qualification": "settings/wiring/qualification.json",
+   "manifest": "settings/wiring/source-manifest.json",
+   "log": "settings/wiring/compile.log",
+   "scope": "Exact root output/capture helpers, effects, draft coroutine+commit/disposal blocks and runtime detector allocation/detect/close statements against actual compiled Session/Pair/Policy/PluginAudio, Backend ViewModel and detector APIs. Surrounding model/system-audio/tuning ports; not whole-screen compilation."
+  }
+ ],
+ "current_source_readback": {
+  "manifest_reference_count": 135,
+  "unique_repository_files": 76,
+  "production_files": 60,
+  "test_files": 15,
+  "manifest_checks": [
+   {
+    "manifest": "core/manifest.json",
+    "hash_field": "sources_sha256",
+    "references_checked": 46
+   },
+   {
+    "manifest": "settings/source-manifest.json",
+    "hash_field": "source_sha256",
+    "references_checked": 15
+   },
+   {
+    "manifest": "settings/ui/source-manifest.json",
+    "hash_field": "source_sha256",
+    "references_checked": 7
+   },
+   {
+    "manifest": "settings/wiring/source-manifest.json",
+    "hash_field": "source_sha256",
+    "references_checked": 11
+   },
+   {
+    "manifest": "detector/manifest.json",
+    "hash_field": "source_sha256",
+    "references_checked": 5
+   },
+   {
+    "manifest": "detector/delivery-receipt.json",
+    "hash_field": "files_sha256",
+    "references_checked": 9
+   },
+   {
+    "manifest": "fallback/manifest.json",
+    "hash_field": "sources_sha256",
+    "references_checked": 5
+   },
+   {
+    "manifest": "fallback/manifest.json",
+    "hash_field": "reused_production_sources_sha256",
+    "references_checked": 37
+   }
+  ],
+  "unexpected_mismatches": [],
+  "documented_formatting_delta_references": [
+   {
+    "manifest": "core/manifest.json",
+    "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+    "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+    "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+   },
+   {
+    "manifest": "settings/ui/source-manifest.json",
+    "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+    "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+    "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+   },
+   {
+    "manifest": "settings/wiring/source-manifest.json",
+    "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+    "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+    "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+   },
+   {
+    "manifest": "fallback/manifest.json",
+    "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+    "expected_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+    "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612"
+   }
+  ],
+  "formatting_proof": "post-qualification-formatting.json",
+  "verified_path_hash_map_sha256": "6683e4615b9741ceb1d0866f05e390942b93c1191afa6948e5da36516d69e185",
+  "native_model_sha256": "7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417",
+  "native_model_bytes": 315294,
+  "native_package_checks": [
+   {
+    "installed_package_file": "mediapipe/tasks/python/text/language_detector.py",
+    "sha256": "57024029227ce6d9878cfc3bae2cfda28f38ea5c94c0319001354c503e53d025",
+    "matches_native_receipt": true
+   },
+   {
+    "installed_package_file": "mediapipe/python/_framework_bindings.cpython-312-x86_64-linux-gnu.so",
+    "sha256": "bcd4b6eb96b575bafd184524a310231ee25bda5df856f96390f6eac580aad8b0",
+    "matches_native_receipt": true
+   }
+  ]
+ },
+ "historical_receipt_exceptions": [
+  {
+   "manifest": "settings/ui/before-local-output/source-manifest.json",
+   "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+   "historical_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+   "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612",
+   "used_for_current_qualification": false,
+   "explanation": "The same documented one-LF formatting delta applies; see post-qualification-formatting.json. No behavior or compiled declaration changed."
+  },
+  {
+   "manifest": "settings/ui/before-local-output/source-manifest.json",
+   "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+   "historical_sha256": "b069180fe44275ed4f0ad9794d6b03dafaeae08f77ac04b178df154aab9f884d",
+   "current_sha256": "47e07aed3cf24c0cfccb3e83e46776323d7d213dcee78a37ec7fce4466171a20",
+   "used_for_current_qualification": false,
+   "explanation": "The containing screen changed outside the extracted VoiceChoice. All 11 exact compiled UI inputs are unchanged; settings/ui/source-readback.json records the no-rerun refresh."
+  },
+  {
+   "manifest": "settings/wiring/before-local-output/source-manifest.json",
+   "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+   "historical_sha256": "5fe1bc6c3f7b77cbb02fbe0beca3ca5806b6a241d7a12ddbcd466a3880716cca",
+   "current_sha256": "343e6f41665cf647dd54f63c387152eb297d665f20bf1273ee5ea7e40a9a0612",
+   "used_for_current_qualification": false,
+   "explanation": "The same documented one-LF formatting delta applies; see post-qualification-formatting.json. No behavior or compiled declaration changed."
+  },
+  {
+   "manifest": "settings/wiring/before-local-output/source-manifest.json",
+   "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+   "historical_sha256": "b069180fe44275ed4f0ad9794d6b03dafaeae08f77ac04b178df154aab9f884d",
+   "current_sha256": "47e07aed3cf24c0cfccb3e83e46776323d7d213dcee78a37ec7fce4466171a20",
+   "used_for_current_qualification": false,
+   "explanation": "Superseded by a fresh successful wiring API compile after the requireLocalOutput guard was added. Current settings/wiring/source-manifest.json binds the updated screen."
+  }
+ ],
+ "limits": [
+  "145 is the sum of103 core, 9 settings, 13 detector and 20 additional fallback host JVM cases. The original 125 and additional 20 are separately recorded. The four required native fixtures are separate; nine native observations are not nine passed assertions.",
+  "No full Android Gradle build, APK/device run, Android JNI detector execution, physical microphone, Pocket TTS PCM/voice quality, caption timing or CPU/GPU/NPU device performance is established by this bundle.",
+  "The six checked-in AndroidTranslationRecognitionTest Robolectric cases were not run locally. The complete Robolectric preference/backend classes were not executed; six exact preference method bodies ran with explicit host storage/lifecycle adapters, and factory boundary cases used recording ports.",
+  "Two UI instrumentation methods compiled but did not execute. Root screen wiring qualification is exact extracted-block API compilation with explicit surrounding ports, not whole-screen compilation or a UI behavior pass.",
+  "Native inference used Linux MediaPipe Python 0.10.21; Android uses existing Tasks text 1.0.0/core 1.2.3 dependencies. Successful Linux fixtures do not qualify the Android native runtime.",
+  "Hello scored 0.51119554 and failed the app confidence gate; Paris remained ambiguous; the outside-pair German result was rejected. A mixed English/French observation scored French 0.98915046 and passed the threshold, so confidence does not guarantee monolingual text. Explicit source selection remains necessary for unresolved or mixed utterances.",
+  "Native log includes an unavailable-GPU/EGL message and then CPU XNNPACK initialization. The four asserted text fixtures completed; no GPU execution is claimed.",
+  "Archived scripts preserve the executed scratch/cache paths and explicit ports. Paths/dependencies must be deliberately adapted to reproduce elsewhere; these files are evidence and are not automatically executed.",
+  "Final successful host receipts are included. Earlier resource-killed host compiler attempts and unexecuted full Android gates are not represented as passing checks."
+ ],
+ "normalization": {
+  "nonempty_text": "UTF-8, LF line endings, exactly one trailing LF; no other content edits.",
+  "empty_compiler_logs": "Preserved as zero bytes. Adding a lone LF would invent output and cause a new-blank-line-at-EOF whitespace error.",
+  "binary_files": "No jars, compiled classes, installed Python packages or model binaries copied."
+ },
+ "files": [
+  {
+   "copy": "core/qualification.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/qualification.json",
+   "original_bytes": 953,
+   "original_sha256": "64c670b6ce98f866885d66ba2edf49c5934e0d596918e1822e4a5cc411290b61",
+   "copied_bytes": 953,
+   "copied_sha256": "64c670b6ce98f866885d66ba2edf49c5934e0d596918e1822e4a5cc411290b61",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "core/manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/manifest.json",
+   "original_bytes": 9041,
+   "original_sha256": "1d65390bfba2395db4622b4e5e71c15b595647e2d55ad78f813f7417022db56f",
+   "copied_bytes": 9041,
+   "copied_sha256": "1d65390bfba2395db4622b4e5e71c15b595647e2d55ad78f813f7417022db56f",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "core/source-readback.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/source-readback.json",
+   "original_bytes": 1471,
+   "original_sha256": "c3639bb082df6ad29b1b9f289235560ef3c5aaad53d9ac75c1af6ec3a60ed1a9",
+   "copied_bytes": 1471,
+   "copied_sha256": "c3639bb082df6ad29b1b9f289235560ef3c5aaad53d9ac75c1af6ec3a60ed1a9",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "core/junit.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/junit.log",
+   "original_bytes": 154,
+   "original_sha256": "fd4091209e059ef2600b226f77aed09f522be57677632f602273f61e3464df86",
+   "copied_bytes": 153,
+   "copied_sha256": "4995efd50ae78c5219107c3450f065c99abe3fd6b69c9ac6792850ea74c396e1",
+   "normalization": "line_endings_and_single_final_lf"
+  },
+  {
+   "copy": "core/compile.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/compile.log",
+   "original_bytes": 34,
+   "original_sha256": "a843f868d1d5bda5e3cde118d4fb2112a1b1de21645d77661f2ef80c1ceab3ae",
+   "copied_bytes": 34,
+   "copied_sha256": "a843f868d1d5bda5e3cde118d4fb2112a1b1de21645d77661f2ef80c1ceab3ae",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "core/compile-production.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/compile-production.log",
+   "original_bytes": 0,
+   "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "copied_bytes": 0,
+   "copied_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "normalization": "empty_log_preserved"
+  },
+  {
+   "copy": "core/compile-tests.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/integrated/compile-tests.log",
+   "original_bytes": 0,
+   "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "copied_bytes": 0,
+   "copied_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "normalization": "empty_log_preserved"
+  },
+  {
+   "copy": "core/build.py",
+   "original": "/workspace/scratch/49479c165f4e/translation-turn-host/build.py",
+   "original_bytes": 11430,
+   "original_sha256": "080e90c74ba2b25f90bb818c336eda489e4209f7ff8dec9b366bef0e31305cda",
+   "copied_bytes": 11430,
+   "copied_sha256": "080e90c74ba2b25f90bb818c336eda489e4209f7ff8dec9b366bef0e31305cda",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/qualification.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/qualification.json",
+   "original_bytes": 675,
+   "original_sha256": "c3486e882c81d6d3001a55f5a331ae670bce7977ec58aed2d8c2a52f88b14675",
+   "copied_bytes": 675,
+   "copied_sha256": "c3486e882c81d6d3001a55f5a331ae670bce7977ec58aed2d8c2a52f88b14675",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/source-manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/source-manifest.json",
+   "original_bytes": 6232,
+   "original_sha256": "a839d93ba0f1df61ea34930e8926d0a3eccdd61b74a6b3fbb3c29b99f05d7c3f",
+   "copied_bytes": 6232,
+   "copied_sha256": "a839d93ba0f1df61ea34930e8926d0a3eccdd61b74a6b3fbb3c29b99f05d7c3f",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/junit.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/junit.log",
+   "original_bytes": 58,
+   "original_sha256": "7e226fa26b8d9ee824968e57fc1bfc7fbbdedc93d4e85c60732a0fec30fe8054",
+   "copied_bytes": 57,
+   "copied_sha256": "da979f693efefb8a40262dfb2ecd67a1e6d6d9ca2fea366e4d0c27590e825ed3",
+   "normalization": "line_endings_and_single_final_lf"
+  },
+  {
+   "copy": "settings/compile.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/compile.log",
+   "original_bytes": 0,
+   "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "copied_bytes": 0,
+   "copied_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "normalization": "empty_log_preserved"
+  },
+  {
+   "copy": "settings/build.py",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/build.py",
+   "original_bytes": 18782,
+   "original_sha256": "242ef414c5c79c07bd22d171fe47ad9abf7756282288b3e0dbf94adc533c5884",
+   "copied_bytes": 18782,
+   "copied_sha256": "242ef414c5c79c07bd22d171fe47ad9abf7756282288b3e0dbf94adc533c5884",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/ui/qualification.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/ui/qualification.json",
+   "original_bytes": 716,
+   "original_sha256": "e2177caec5465b47862a2d20f1f47e4f4fd8aad4ea9a730e96c9b76c3258134b",
+   "copied_bytes": 716,
+   "copied_sha256": "e2177caec5465b47862a2d20f1f47e4f4fd8aad4ea9a730e96c9b76c3258134b",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/ui/source-manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/ui/source-manifest.json",
+   "original_bytes": 2422,
+   "original_sha256": "383913f855b9a04c98a7742cdb37bd4df3eb6ebd10d6400b0393242251f8e882",
+   "copied_bytes": 2422,
+   "copied_sha256": "383913f855b9a04c98a7742cdb37bd4df3eb6ebd10d6400b0393242251f8e882",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/ui/compile.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/ui/compile.log",
+   "original_bytes": 0,
+   "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "copied_bytes": 0,
+   "copied_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "normalization": "empty_log_preserved"
+  },
+  {
+   "copy": "settings/compile-ui.py",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/compile-ui.py",
+   "original_bytes": 8148,
+   "original_sha256": "2b8992eddcdf77df40e74380a79fb56f5d2a57236961699af94568fea39ca6fb",
+   "copied_bytes": 8148,
+   "copied_sha256": "2b8992eddcdf77df40e74380a79fb56f5d2a57236961699af94568fea39ca6fb",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/wiring/qualification.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/wiring/qualification.json",
+   "original_bytes": 672,
+   "original_sha256": "ad76e98015bffb8b3afe64bc223450cd895f408202eb71192884c3e63b772700",
+   "copied_bytes": 672,
+   "copied_sha256": "ad76e98015bffb8b3afe64bc223450cd895f408202eb71192884c3e63b772700",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/wiring/source-manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/wiring/source-manifest.json",
+   "original_bytes": 2270,
+   "original_sha256": "78171f52c78c3c7fa7c542a2d96f6c531b1e83aad5aa0b200ca16e107be03e93",
+   "copied_bytes": 2270,
+   "copied_sha256": "78171f52c78c3c7fa7c542a2d96f6c531b1e83aad5aa0b200ca16e107be03e93",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/wiring/compile.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/wiring/compile.log",
+   "original_bytes": 0,
+   "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "copied_bytes": 0,
+   "copied_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "normalization": "empty_log_preserved"
+  },
+  {
+   "copy": "settings/compile-wiring.py",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/compile-wiring.py",
+   "original_bytes": 5859,
+   "original_sha256": "e9792777f33d9f13de4e8322e287cafcc72aefc00c25cb51fab1f5caf94f4f33",
+   "copied_bytes": 5859,
+   "copied_sha256": "e9792777f33d9f13de4e8322e287cafcc72aefc00c25cb51fab1f5caf94f4f33",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/ui/source-readback.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/ui/source-readback.json",
+   "original_bytes": 824,
+   "original_sha256": "5b957d810da3f39400b4dd96ae0e280f11f1cb07b4fd21571f0a441e71745f12",
+   "copied_bytes": 824,
+   "copied_sha256": "5b957d810da3f39400b4dd96ae0e280f11f1cb07b4fd21571f0a441e71745f12",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/ui/before-local-output/source-manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/ui/before-local-output/source-manifest.json",
+   "original_bytes": 2422,
+   "original_sha256": "48c8e8ba2d06ebd4df25bf6796b32afbf6ed56e654b70ed1e473e50532ecefe6",
+   "copied_bytes": 2422,
+   "copied_sha256": "48c8e8ba2d06ebd4df25bf6796b32afbf6ed56e654b70ed1e473e50532ecefe6",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/ui/before-local-output/qualification.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/ui/before-local-output/qualification.json",
+   "original_bytes": 716,
+   "original_sha256": "e2177caec5465b47862a2d20f1f47e4f4fd8aad4ea9a730e96c9b76c3258134b",
+   "copied_bytes": 716,
+   "copied_sha256": "e2177caec5465b47862a2d20f1f47e4f4fd8aad4ea9a730e96c9b76c3258134b",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/wiring/before-local-output/source-manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/wiring/before-local-output/source-manifest.json",
+   "original_bytes": 2270,
+   "original_sha256": "82b9a9fb6a34c8d3fcb9a0910cf77f03dd49c92f2ca3eac847786a389ee6f4d8",
+   "copied_bytes": 2270,
+   "copied_sha256": "82b9a9fb6a34c8d3fcb9a0910cf77f03dd49c92f2ca3eac847786a389ee6f4d8",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "settings/wiring/before-local-output/qualification.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-settings-host/wiring/before-local-output/qualification.json",
+   "original_bytes": 672,
+   "original_sha256": "ad76e98015bffb8b3afe64bc223450cd895f408202eb71192884c3e63b772700",
+   "copied_bytes": 672,
+   "copied_sha256": "ad76e98015bffb8b3afe64bc223450cd895f408202eb71192884c3e63b772700",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "fallback/manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/voice-plugin-fallback-host/manifest.json",
+   "original_bytes": 8658,
+   "original_sha256": "a016d8e2b5ea885f4fdf2fc3073cb3be993099acabb3a906e373acbe50101385",
+   "copied_bytes": 8658,
+   "copied_sha256": "a016d8e2b5ea885f4fdf2fc3073cb3be993099acabb3a906e373acbe50101385",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "fallback/qualification.json",
+   "original": "/workspace/scratch/49479c165f4e/voice-plugin-fallback-host/qualification.json",
+   "original_bytes": 401,
+   "original_sha256": "5d3e4cc49aa8aab02c47cc76eb2ce10ed2f7659bffc51e98d3f8c86f9930586a",
+   "copied_bytes": 401,
+   "copied_sha256": "5d3e4cc49aa8aab02c47cc76eb2ce10ed2f7659bffc51e98d3f8c86f9930586a",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "fallback/source-readback.json",
+   "original": "/workspace/scratch/49479c165f4e/voice-plugin-fallback-host/source-readback.json",
+   "original_bytes": 577,
+   "original_sha256": "fece8790fc9f97a572cb3c533ed4dc85ceea7257e79485396565b55bb19ca1b6",
+   "copied_bytes": 577,
+   "copied_sha256": "fece8790fc9f97a572cb3c533ed4dc85ceea7257e79485396565b55bb19ca1b6",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "fallback/junit.log",
+   "original": "/workspace/scratch/49479c165f4e/voice-plugin-fallback-host/junit.log",
+   "original_bytes": 70,
+   "original_sha256": "e039f1ed1a4dbd8a0aa83c95890b0d603b93438464fab26f0b5c4f8d10b51acc",
+   "copied_bytes": 69,
+   "copied_sha256": "3a8bb33fe32a0bf7dfa18b4da643cb8f2bcce473cedf5c1bb6956dd3211cfbb1",
+   "normalization": "line_endings_and_single_final_lf"
+  },
+  {
+   "copy": "fallback/compile.log",
+   "original": "/workspace/scratch/49479c165f4e/voice-plugin-fallback-host/compile.log",
+   "original_bytes": 0,
+   "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "copied_bytes": 0,
+   "copied_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "normalization": "empty_log_preserved"
+  },
+  {
+   "copy": "detector/delivery-receipt.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/delivery-receipt.json",
+   "original_bytes": 3237,
+   "original_sha256": "066c649d3117f26112cb8d3291b40ed0ca32de6c62f74786ae60b7bdfe774a7d",
+   "copied_bytes": 3237,
+   "copied_sha256": "066c649d3117f26112cb8d3291b40ed0ca32de6c62f74786ae60b7bdfe774a7d",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "detector/manifest.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/policy/manifest.json",
+   "original_bytes": 3089,
+   "original_sha256": "405ed1d2031b87e066590a517f3fbe226a7193f422fd6ac8ffa3d21d68b9aa3b",
+   "copied_bytes": 3089,
+   "copied_sha256": "405ed1d2031b87e066590a517f3fbe226a7193f422fd6ac8ffa3d21d68b9aa3b",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "detector/compile.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/policy/compile.log",
+   "original_bytes": 436,
+   "original_sha256": "61ff3132869f44f935d8b4028e90f7fffdbafd3c49f24422fcbeae3c19d6dfe1",
+   "copied_bytes": 436,
+   "copied_sha256": "61ff3132869f44f935d8b4028e90f7fffdbafd3c49f24422fcbeae3c19d6dfe1",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "detector/junit.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/policy/junit.log",
+   "original_bytes": 62,
+   "original_sha256": "f4714891d3282c645a7bd1295ec74a70e20de61293cfbaa405e8611c8120c737",
+   "copied_bytes": 61,
+   "copied_sha256": "1d8450f30767785e932157aeb7ec2d5f2bf6c2ce78c795e86aca339b38c2efde",
+   "normalization": "line_endings_and_single_final_lf"
+  },
+  {
+   "copy": "detector/build-policy.py",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/build-policy.py",
+   "original_bytes": 3193,
+   "original_sha256": "a8246722cc6062109a6a53d10ea4bebc6ff26d3cfed0b75ad4d46f8bcace8208",
+   "copied_bytes": 3193,
+   "copied_sha256": "a8246722cc6062109a6a53d10ea4bebc6ff26d3cfed0b75ad4d46f8bcace8208",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "native/native-model-fixtures.json",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/native-model-fixtures.json",
+   "original_bytes": 5692,
+   "original_sha256": "5ea2cc2546d8baf13cbc1f53a7efcec139f1c23b30275a1ad1b39713f6e389bf",
+   "copied_bytes": 5692,
+   "copied_sha256": "5ea2cc2546d8baf13cbc1f53a7efcec139f1c23b30275a1ad1b39713f6e389bf",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "native/native-model-fixtures.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/native-model-fixtures.log",
+   "original_bytes": 6210,
+   "original_sha256": "04d6393296f7ca8df68c23b02ab0010c857a33ccf68375d50eddf95e5f8dc17f",
+   "copied_bytes": 6210,
+   "copied_sha256": "04d6393296f7ca8df68c23b02ab0010c857a33ccf68375d50eddf95e5f8dc17f",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "native/native-model-fixtures.py",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/native-model-fixtures.py",
+   "original_bytes": 3897,
+   "original_sha256": "bfba7979b82b2e2b8ece91047cbf0190dc9b7a5f099faa18337b5699f06aafaf",
+   "copied_bytes": 3897,
+   "copied_sha256": "bfba7979b82b2e2b8ece91047cbf0190dc9b7a5f099faa18337b5699f06aafaf",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "native/python-install.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/python-install.log",
+   "original_bytes": 434,
+   "original_sha256": "0fd4a7559662ad61e2552c826528da9700aefe00a08f1f198ac6ecaf8f1911d6",
+   "copied_bytes": 434,
+   "copied_sha256": "0fd4a7559662ad61e2552c826528da9700aefe00a08f1f198ac6ecaf8f1911d6",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "native/python-text-dependencies.log",
+   "original": "/workspace/scratch/49479c165f4e/translation-detection-host/python-text-dependencies.log",
+   "original_bytes": 828,
+   "original_sha256": "f6d4de9660dcf488a8c5f29f597fb480694b74876bf3602408f6d2c4b44e1e7e",
+   "copied_bytes": 828,
+   "copied_sha256": "f6d4de9660dcf488a8c5f29f597fb480694b74876bf3602408f6d2c4b44e1e7e",
+   "normalization": "unchanged"
+  },
+  {
+   "copy": "native/model-provenance.json",
+   "original": "/workspace/scratch/49479c165f4e/repo/docs/audits/voice-translation-language-model-2026-11-28.json",
+   "original_bytes": 3876,
+   "original_sha256": "58cc389cd330b9246f2b6e904f2014df73d1a185ca9dc85239a0d68456cd7343",
+   "copied_bytes": 3876,
+   "copied_sha256": "58cc389cd330b9246f2b6e904f2014df73d1a185ca9dc85239a0d68456cd7343",
+   "normalization": "unchanged"
+  }
+ ]
+}

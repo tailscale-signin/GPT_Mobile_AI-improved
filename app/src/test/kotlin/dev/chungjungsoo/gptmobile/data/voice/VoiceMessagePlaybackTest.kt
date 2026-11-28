@@ -10,6 +10,33 @@ class VoiceMessagePlaybackTest {
     private fun reply(id: Int, run: String = "run-$id", text: String = "Here is the reply.", complete: Boolean = false) =
         VoiceMessageReply(VoiceMessageIdentity(id, run), text, complete)
 
+    @Test fun preparingADestinationVoiceDoesNotConsumeThePendingReply() {
+        val playback = VoiceMessagePlayback()
+        playback.observe(emptyList(), true)
+        playback.observe(listOf(reply(1, text = "Bonjour")), true)
+        repeat(3) { assertEquals("Bonjour", playback.peek()?.text) }
+        assertNull(playback.active)
+        assertTrue(playback.hasPending)
+        playback.observe(listOf(reply(1, text = "Bonjour, comment allez-vous ?", complete = true)), true)
+        val ready = requireNotNull(playback.next())
+        assertEquals("Bonjour, comment allez-vous ?", ready.text)
+        assertTrue(ready.complete)
+        playback.finish()
+        assertNull(playback.peek())
+    }
+
+    @Test fun aVoicePreparedForARetiredGenerationCannotReadmitIt() {
+        val playback = VoiceMessagePlayback()
+        playback.observe(emptyList(), true)
+        playback.observe(listOf(reply(1, run = "old")), true)
+        assertEquals("old", playback.peek()?.identity?.runId)
+        playback.observe(listOf(reply(1, run = "replacement")), true)
+        assertEquals("replacement", playback.peek()?.identity?.runId)
+        playback.stopRuns(setOf("replacement"))
+        assertNull(playback.peek())
+        assertNull(playback.next())
+    }
+
     @Test fun onlyAFreshAudibleGenerationCanOwnALookupBeforeAnswerText() {
         val playback = VoiceMessagePlayback()
         val historical = reply(1, text = "")

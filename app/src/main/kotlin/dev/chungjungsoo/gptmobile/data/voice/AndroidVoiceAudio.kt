@@ -9,6 +9,7 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -41,7 +42,7 @@ class AndroidVoiceAudio internal constructor(
     private var recognizerInstance: Long? = null
     private var recognizerOnDevice: Boolean? = null
     private var recognitionActive = false
-    private var cachedRecognitionSupport: Pair<String, RecognitionQualification>? = null
+    private var cachedRecognitionSupport: Pair<RecognitionRequestKey, RecognitionQualification>? = null
 
     @Volatile private var tts: TextToSpeech? = null
 
@@ -194,7 +195,7 @@ class AndroidVoiceAudio internal constructor(
         val locale = languageTag.takeIf { it.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8}){0,4}")) } ?: "und"
         diagnostics(
             "VoiceRecognition",
-            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$locale · onDevice=${recognizerOnDevice ?: (!allowOnlineSpeech || conversationPrivacy()?.enabled == true)}",
+            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$locale · onDevice=${recognizerOnDevice ?: (translationLanguages.isNotEmpty() || !allowOnlineSpeech || conversationPrivacy()?.enabled == true)}",
             "W"
         )
     }
@@ -202,10 +203,13 @@ class AndroidVoiceAudio internal constructor(
     private var requestRecognitionFinish: (() -> Unit)? = null
     var synthesisLanguageTag: String? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
+
+    /** Empty keeps single-source recognition. A pair requests qualified offline Android language switching. */
+    var translationLanguages: List<String> = emptyList()
     var allowOnlineSpeech: Boolean = false
     var speechRate: Float = 1f
     var selectedVoice: String? = null
-    val processingLocation: String get() = if (allowOnlineSpeech && conversationPrivacy()?.enabled != true) "System speech service may use the network" else "On device speech only"
+    val processingLocation: String get() = if (translationLanguages.isEmpty() && allowOnlineSpeech && conversationPrivacy()?.enabled != true) "System speech service may use the network" else "On device speech only"
     fun routeName(): String = runCatching { audioManager?.communicationDevice?.productName?.toString() }.getOrNull() ?: "System audio route"
     fun routes(): List<Pair<Int, String>> = audioManager?.availableCommunicationDevices.orEmpty().map { it.id to it.productName.toString() }
     fun selectRoute(id: Int): Boolean = runCatching {
@@ -238,6 +242,23 @@ class AndroidVoiceAudio internal constructor(
         if (closed || recognitionActive) return
         val privacy = conversationPrivacy()
         stop()
+        val translationPair = translationRecognitionLanguages(translationLanguages)
+        if (translationPair == null || translationPair.isNotEmpty() && Build.VERSION.SDK_INT < 34) {
+            listener.failure(
+                if (translationPair == null) {
+                    "Choose two different speech languages for automatic translation, or choose one source language manually."
+                } else {
+                    "Automatic translation recognition requires Android 14 or later with both offline speech languages installed. Choose the source language manually on this device."
+                },
+                "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE",
+                recoveryAction = VoiceRecoveryAction.SPEECH_LANGUAGE
+            )
+            return
+        }
+        val automaticTranslation = translationPair.isNotEmpty()
+        val recognitionLanguage = translationPair.firstOrNull() ?: languageTag
+        val onDevice = automaticTranslation || !allowOnlineSpeech || privacy?.enabled == true
+        val requestKey = RecognitionRequestKey(recognitionLanguage, translationPair, onDevice)
         val observations = diagnosticProbe
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         observations?.focus(VoiceDiagnosticTrace.Focus.NOT_REQUESTED)
@@ -284,13 +305,14 @@ class AndroidVoiceAudio internal constructor(
             )
         }
         try {
-            val onDevice = !allowOnlineSpeech || privacy?.enabled == true
             if (!recognitionService.available(onDevice)) {
                 recognitionGate.bindingFailed(sessionId)
                 recognitionFailure("SPEECH_SERVICE_UNAVAILABLE", failedStage, false, ticket)
                 stop()
                 listener.failure(
-                    if (onDevice) {
+                    if (automaticTranslation) {
+                        "Automatic translation needs an on-device Android speech service and both offline speech languages. Install them in Android speech settings, choose a source language manually, or continue typing."
+                    } else if (onDevice) {
                         "On device speech is unavailable. Choose a compatible speech service, or explicitly allow online speech in Voice settings. You can continue typing in chat."
                     } else {
                         "Speech recognition is unavailable. Install or enable a speech service in Android settings, or continue typing in chat."
@@ -478,10 +500,16 @@ class AndroidVoiceAudio internal constructor(
             })
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, onDevice)
+                if (automaticTranslation && Build.VERSION.SDK_INT >= 34) {
+                    putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
+                    putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, ArrayList(translationPair))
+                    putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_HIGH_PRECISION)
+                    putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, ArrayList(translationPair))
+                }
             }
             started("recognition", ticket)
             failedStage = "support_check"
@@ -499,7 +527,7 @@ class AndroidVoiceAudio internal constructor(
                 if (!active() || qualified) return@supportResult
                 qualified = true
                 event("recognition_support_${support.status.name.lowercase()}", ticket)
-                if (support.status !in setOf(RecognitionSupportStatus.SUPPORTED, RecognitionSupportStatus.UNVERIFIED)) {
+                if (support.status != RecognitionSupportStatus.SUPPORTED && (automaticTranslation || support.status != RecognitionSupportStatus.UNVERIFIED)) {
                     terminal("support_unavailable")
                     val limited = support.errorCode == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS
                     if (limited) recognitionGate.failed(true, sessionId) else recognitionGate.bindingFailed(sessionId)
@@ -507,13 +535,17 @@ class AndroidVoiceAudio internal constructor(
                     stop()
                     val repair = when {
                         support.errorCode == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> VoiceRecoveryAction.MICROPHONE_PERMISSION
-                        support.status in setOf(RecognitionSupportStatus.LANGUAGE_UNAVAILABLE, RecognitionSupportStatus.UNSUPPORTED) || support.errorCode in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) -> VoiceRecoveryAction.SPEECH_LANGUAGE
+                        support.status in setOf(RecognitionSupportStatus.LANGUAGE_UNAVAILABLE, RecognitionSupportStatus.UNSUPPORTED) || support.errorCode in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) || automaticTranslation && support.status == RecognitionSupportStatus.UNVERIFIED -> VoiceRecoveryAction.SPEECH_LANGUAGE
                         else -> VoiceRecoveryAction.SPEECH_SERVICE
                     }
                     listener.failure(
                         when (repair) {
                             VoiceRecoveryAction.MICROPHONE_PERMISSION -> "Microphone permission is needed for voice chat."
-                            VoiceRecoveryAction.SPEECH_LANGUAGE -> "The selected speech language is not ready for this service. Install or select a supported language in Android speech settings."
+                            VoiceRecoveryAction.SPEECH_LANGUAGE -> if (automaticTranslation) {
+                                "Both selected offline speech languages must be confirmed before automatic translation can listen. Install them in Android speech settings, choose the source language manually, or continue typing."
+                            } else {
+                                "The selected speech language is not ready for this service. Install or select a supported language in Android speech settings."
+                            }
                             VoiceRecoveryAction.SPEECH_SERVICE -> if (limited) SPEECH_LIMIT_MESSAGE else "The Android speech service could not confirm this recognition configuration. Review its settings or continue typing."
                             VoiceRecoveryAction.LOCAL_MODEL -> "Install a local speech model in Voice settings, or select Android speech."
                         },
@@ -536,6 +568,13 @@ class AndroidVoiceAudio internal constructor(
                     return@supportResult
                 }
                 if (!microphonePermitted()) return@supportResult
+                val currentPair = translationRecognitionLanguages(translationLanguages)
+                val currentOnDevice = !currentPair.isNullOrEmpty() || !allowOnlineSpeech || conversationPrivacy()?.enabled == true
+                if (currentPair == null || requestKey != RecognitionRequestKey(currentPair.firstOrNull() ?: languageTag, currentPair, currentOnDevice)) {
+                    stop()
+                    listener.failure("Speech languages changed before recording started. Tap the microphone to use the current selection.", "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE", recoveryAction = VoiceRecoveryAction.SPEECH_LANGUAGE)
+                    return@supportResult
+                }
                 if (!onDevice) {
                     val currentPrivacy = conversationPrivacy()
                     if (!allowOnlineSpeech || currentPrivacy?.enabled == true || currentPrivacy?.chatId != privacy?.chatId) {
@@ -544,7 +583,7 @@ class AndroidVoiceAudio internal constructor(
                         return@supportResult
                     }
                 }
-                cachedRecognitionSupport = intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE).orEmpty() to support
+                cachedRecognitionSupport = requestKey to support
                 try {
                     armWatchdog(15_000) {
                         if (active()) {
@@ -566,7 +605,7 @@ class AndroidVoiceAudio internal constructor(
                     failedStart(failure)
                 }
             }
-            val cached = cachedRecognitionSupport?.takeIf { it.first == intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE) }
+            val cached = cachedRecognitionSupport?.takeIf { it.first == requestKey }
             if (cached != null) {
                 event("recognition_support_reused · engineInstance=$recognizerInstance", ticket)
                 handleSupport(cached.second)

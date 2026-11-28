@@ -271,6 +271,7 @@ for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
     'readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh',
     'microphoneAndLanguageControlsFollowTheTurnAndPickerState',
+    'translationLanguageChoicesKeepEachVoiceAndOfferSourceRecoveryAndPackInstallation',
     'translationKeepsTheSourceAboveTheResponseAndControlsAcrossCaptures',
     'translationSourceFadesWithinOneSecondAndKeepsItsOpacityOnPartialCorrections',
     'theProfilePickerChangesProfileOnlyBetweenTurns',

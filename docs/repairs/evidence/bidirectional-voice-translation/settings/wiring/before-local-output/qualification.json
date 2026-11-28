@@ -1,0 +1,5 @@
+{
+  "compile_exit": 0,
+  "scope": "Exact current VoiceChatScreen output/capture helpers, output-factory effect, immutable factory preparation, prepareDraft SideEffect/coroutine/commit callback and disposal block compile against actual full compiled VoiceSession/Pair/Policy/VoicePluginAudio, actual full compiled VoiceBackendViewModel API, and actual MediaPipe detector API. Exact VoiceRuntimeViewModel detector allocation/detect/close statements are compiled. Explicit surrounding model/system-audio/tuning state ports; no whole-screen compilation, Compose/device execution, native PCM or Android permission qualification.",
+  "source_manifest": "source-manifest.json"
+}

@@ -76,6 +76,9 @@ enum class VoiceRecoveryAction { MICROPHONE_PERMISSION, SPEECH_SERVICE, SPEECH_L
 /** The same capture keeps its visual identity through partial recognition, corrections and playback. */
 data class VoiceTranslationPrompt(val captureId: Long, val text: String)
 
+/** Preparation does not dispatch. Its commit runs only while the exact draft still owns submission. */
+internal data class VoiceDraftPreparation(val rejection: String? = null, val commit: () -> Unit = {})
+
 data class VoiceState(
     val phase: VoicePhase = VoicePhase.PAUSED,
     val transcript: String = "",
@@ -143,14 +146,26 @@ class VoiceSession(
     private var foreground = false
     private var audioHeld = false
     private var generation = 0L
+    private var preparingPlaybackOwner: Long? = null
+
+    /** A suspended replay preparation cannot survive any capture/playback cancellation. */
+    internal fun playbackPreparationOwner(): Long = generation.also { preparingPlaybackOwner = it }
+    internal fun ownsPlaybackPreparation(owner: Long): Boolean = preparingPlaybackOwner == owner && generation == owner && accessAllowed() && state.phase == VoicePhase.PAUSED
     private var diagnosticProbe = diagnosticTrace.advance(generation)
     init {
         audio.bindDiagnostics(diagnosticProbe)
     }
     internal var submissionRejection: () -> String? = { null }
+
+    /** Invoke completion on the session's main thread. An unavailable detector should reject, never queue a later send. */
+    internal var prepareDraft: ((String, (VoiceDraftPreparation) -> Unit) -> Unit)? = null
     private var waiting = false
     private var draftPending = false
     private var draftGeneration = 0L
+    private class PreparingDraft(val generation: Long, val draftGeneration: Long, val text: String) {
+        var completed = false
+    }
+    private var preparingDraft: PreparingDraft? = null
     private data class SubmittedDraft(
         val requestId: String?,
         val draftGeneration: Long,
@@ -239,15 +254,16 @@ class VoiceSession(
     internal var performanceMode = VoicePerformanceMode.BALANCED
     internal var synthesisFeedback: () -> VoiceSynthesisFeedback? = { null }
     private fun replaceDraft() {
+        cancelDraftPreparation()
         draftGeneration++
         submittedDraft = null
     }
     fun editDraft(text: String) {
-        if (state.phase != VoicePhase.REVIEWING || waiting) return
+        if ((state.phase != VoicePhase.REVIEWING && !(state.phase == VoicePhase.FINALIZING && preparingDraft != null)) || waiting) return
         replaceDraft()
         draftPending = true
         val edited = text.take(8000)
-        update(state.copy(transcript = edited, translationPrompt = translationPrompt(edited)))
+        update(state.copy(phase = VoicePhase.REVIEWING, transcript = edited, translationPrompt = translationPrompt(edited), notice = null))
     }
     private fun continueTurn(completedSpokenReply: Boolean = false) {
         diagnosticTrace.retain()
@@ -272,6 +288,65 @@ class VoiceSession(
         if (state.phase != VoicePhase.REVIEWING || !accessAllowed() || submittedDraft != null) return
         val prompt = text.trim().take(8000)
         if (prompt.isEmpty()) return
+        val prepare = prepareDraft
+        if (prepare == null) {
+            submitPreparedDraft(prompt)
+            return
+        }
+        val pending = PreparingDraft(generation, draftGeneration, prompt)
+        preparingDraft = pending
+        draftPending = true
+        update(state.copy(phase = VoicePhase.FINALIZING, transcript = prompt, translationPrompt = translationPrompt(prompt), level = 0f, notice = null))
+        if (!ownsPreparation(pending)) return
+        try {
+            prepare(prompt) { result ->
+                if (pending.completed || !ownsPreparation(pending)) return@prepare
+                pending.completed = true
+                if (result.rejection != null) {
+                    rejectPreparation(pending, result.rejection)
+                    return@prepare
+                }
+                try {
+                    result.commit()
+                } catch (_: Exception) {
+                    rejectPreparation(pending)
+                    return@prepare
+                }
+                if (ownsPreparation(pending)) submitPreparedDraft(prompt, pending)
+            }
+        } catch (failure: Exception) {
+            if (pending.completed) throw failure
+            pending.completed = true
+            rejectPreparation(pending)
+        }
+    }
+
+    private fun ownsPreparation(pending: PreparingDraft, submitting: Boolean = false): Boolean =
+        preparingDraft === pending &&
+            generation == pending.generation &&
+            draftGeneration == pending.draftGeneration &&
+            state.transcript == pending.text &&
+            submittedDraft == null &&
+            accessAllowed() &&
+            state.phase == (if (submitting) VoicePhase.THINKING else VoicePhase.FINALIZING) &&
+            waiting == submitting
+
+    private fun rejectPreparation(pending: PreparingDraft, message: String? = null) {
+        if (!ownsPreparation(pending)) return
+        preparingDraft = null
+        draftPending = true
+        automaticRetry = false
+        update(state.copy(phase = VoicePhase.REVIEWING, notice = message?.takeIf(String::isNotBlank) ?: "Could not prepare your message. Review the language settings, then send again.", level = 0f))
+    }
+
+    private fun cancelDraftPreparation() {
+        if (preparingDraft == null) return
+        preparingDraft = null
+        waiting = false
+        draftPending = true
+    }
+
+    private fun submitPreparedDraft(prompt: String, pending: PreparingDraft? = null) {
         // Sending a reviewed draft resumes its reply playback without restarting capture.
         engaged = true
         submittedDraft = null
@@ -281,6 +356,10 @@ class VoiceSession(
         waiting = true
         draftPending = awaitsAdmission
         update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, translationPrompt = translationPrompt(prompt), reply = "", level = 0f, readingDetails = false, replyComplete = false, captionPresentationId = captionPresentationSequence.incrementAndGet()))
+        if (pending != null) {
+            if (!ownsPreparation(pending, submitting = true)) return
+            preparingDraft = null
+        }
         if (submit(prompt)) {
             if (awaitsAdmission) {
                 // The dispatcher publishes its request identity synchronously before returning.
@@ -436,6 +515,8 @@ class VoiceSession(
         return diagnosticTrace.incidentFields() + mapOf("failed_stage" to operation, "operation" to operation)
     }
     private fun stopAudio(reason: String = "session_reset") {
+        cancelDraftPreparation()
+        preparingPlaybackOwner = null
         activeCaptureFeedback?.cancel()
         activeCaptureFeedback = null
         replyAudioCompleted = false
@@ -494,7 +575,7 @@ class VoiceSession(
         this.foreground = foreground
         if (visibilityChanged && interruptionEnabled == true) syncInterruption()
         diagnosticProbe.access(permission, foreground, state.muted)
-        if (!foreground && backgroundPlayback && playbackAllowed()) return
+        if (!foreground && backgroundPlayback && preparingDraft == null && preparingPlaybackOwner == null && playbackAllowed()) return
         if ((!accessAllowed() || !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) && state.phase != VoicePhase.CLOSED) {
             pause(
                 if (!foreground) {

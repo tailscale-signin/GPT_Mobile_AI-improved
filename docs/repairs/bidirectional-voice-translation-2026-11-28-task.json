@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2651,
+  "targetBranch": "feature/windows-native-benchmark-kit",
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "intakeHead": "d652558c122a00c248cc7ddc388ee2f93ea528ab",
+  "localWorkingBranch": "repair/bidirectional-voice-translation",
+  "intent": "Translate between a selected base language and translation language in both directions according to each spoken utterance, with a separately selected streaming voice for each output language. English/Azelma and French/Estelle are the requested example.",
+  "status": "implemented_validated",
+  "constraints": [
+    "Keep questions, commands and quoted instructions as source text to translate, never as actions to perform.",
+    "Preserve isolated translation context, no tools, privacy policy and cancellation ownership.",
+    "Retain the published microphone pulse, first-entry listening and spoken-reply continuation behavior.",
+    "Base implementation on the latest PR branch and preserve concurrent commits.",
+    "Do not claim language recognition or physical playback capabilities without supporting implementation and qualification."
+  ],
+  "reconciledHead": "c31abe1ccf77c8dd254da775cfee6508719ae79e",
+  "behavior": {
+    "freshDefaults": {
+      "baseLanguage": "en-US",
+      "baseVoice": "azelma",
+      "translationLanguage": "fr-FR",
+      "translationVoice": "estelle",
+      "spokenLanguage": "Auto"
+    },
+    "englishInput": {
+      "replyLanguage": "fr-FR",
+      "streamingVoice": "estelle"
+    },
+    "frenchInput": {
+      "replyLanguage": "en-US",
+      "streamingVoice": "azelma"
+    },
+    "direction": "Classify each finalized or edited transcript locally before submitting the existing isolated source-translation request; explicit spoken-language selection can resolve uncertain text.",
+    "unknownSource": "Keep the draft for review with actionable language selection; no guessed direction or provider request.",
+    "capture": "Android on-device bilingual capture requires API34+, a compatible service and both installed locales. Explicit English can retain installed Moonshine; other explicit sources use Android.",
+    "voiceFactory": "Immutable per-turn Pocket Multilingual CPU factory with the exact saved language/voice; explicit pack installation and no global backend preference mutation.",
+    "playback": "Fixed accepted target policy owns replay; missing metadata defers automatic admission. Required local output prevents system-voice substitution.",
+    "cancellation": "Draft generation, text, phase and access fence preparation. Replay preparation has a separate generation owner invalidated by Stop, settings, background and benchmark ownership."
+  },
+  "validation": {
+    "integratedVoiceCore": {
+      "status": "passed",
+      "tests": 103,
+      "assertionsEnabled": true,
+      "scope": "Actual session, pair, fixed policy, playback helper and ledger, source isolation; explicit unrelated host ports."
+    },
+    "settingsAndBackend": {
+      "status": "passed",
+      "tests": 9,
+      "scope": "Preference migration and persistence, exact multilingual factory selection without ordinary preference mutation; explicit storage/native ports."
+    },
+    "detectorAndRecognitionPolicy": {
+      "status": "passed",
+      "tests": 13,
+      "scope": "Actual detector lifecycle/confidence policy and pair qualification against pinned Android/MediaPipe APIs; no Android service execution."
+    },
+    "nativeLanguageModel": {
+      "status": "passed",
+      "requiredFixtures": 4,
+      "observations": 9,
+      "runtime": "Official MediaPipe Python 0.10.21 on Linux",
+      "scope": "Pinned bundled detector; English/French/outside-pair/ambiguous text. Mixed-language detection is not guaranteed."
+    },
+    "androidComposeApi": {
+      "status": "compile_passed",
+      "scope": "Full changed dialog, conversation controls, microphone and two exact instrumentation methods; no device execution."
+    },
+    "rootTranslationWiring": {
+      "status": "compile_passed",
+      "scope": "Exact screen helpers/effects/prepareDraft and runtime detector statements against actual integrated APIs; not whole-screen or full Android compilation."
+    },
+    "strictVoiceRecovery": {
+      "status": "passed",
+      "tests": 20,
+      "assertionsEnabled": true,
+      "scope": "Full VoicePluginAudioTest against actual integrated production sources and explicit host ports; strict streaming/nonstreaming failure rejects Android fallback, ordinary fallback and cancellation remain covered."
+    },
+    "canonicalHostGate": {
+      "status": "passed",
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 863,
+      "skipped": 1,
+      "reasonForInitialRetry": "The new translation settings instrumentation method was initially missing from the acceptance receipt list; it was added without weakening the receipt requirement, and the full gate passed.",
+      "reconciledRemoteHead": "c31abe1ccf77c8dd254da775cfee6508719ae79e"
+    },
+    "ktlint": {
+      "status": "passed",
+      "version": "1.3.1",
+      "kotlinFiles": 27,
+      "formattingCorrection": "One required empty line before a VoiceSession KDoc. Exact whitespace-only proof is retained with the original behavioral test receipts."
+    },
+    "fullAndroid": {
+      "status": "blocked_by_memory_preflight",
+      "requiredRamHeadroomMiB": 8960,
+      "observedMemAvailableBytes": 2220486656,
+      "preflightStatus": "UNKNOWN",
+      "started": false,
+      "reason": "Required verified RAM/cgroup headroom is unavailable. The memory guard is retained."
+    },
+    "androidRobolectric": {
+      "status": "not_executed_locally",
+      "newCheckedInCases": 6,
+      "class": "dev.chungjungsoo.gptmobile.data.voice.AndroidTranslationRecognitionTest"
+    },
+    "deviceAndAcoustic": {
+      "status": "not_executed"
+    },
+    "ciAndReleasePolicy": {
+      "status": "passed",
+      "tests": 29
+    },
+    "changedSourceSecrets": {
+      "status": "passed",
+      "scanner": "Gitleaks8.30.1",
+      "findings": 0,
+      "scope": "Changed-source snapshot at final integration; hosted reachable-history scan remains separate."
+    },
+    "fullPrWhitespace": {
+      "status": "passed",
+      "base": "6435462ac6f306d63b720205a9f2aafc33de1e4d"
+    }
+  },
+  "earlyAndroidRegressionClasses": 27,
+  "evidence": "docs/repairs/evidence/bidirectional-voice-translation/evidence-index.json",
+  "limitations": [
+    "Automatic bilingual ASR depends on Android14+, an on-device service implementing language switching, and installed support for both selected locales.",
+    "Text detection cannot repair misrecognized audio or reliably identify every short or mixed-language utterance. Explicit source selection remains available.",
+    "Azelma and Estelle require explicit installation of the Pocket Multilingual CPU pack. English-only and compiled GPU/NPU packs do not provide the paired voices.",
+    "Host ports and API compilation do not establish full Android, physical microphone, JNI playback, acoustic quality, caption timing, device latency or hosted CI qualification.",
+    "Accepted output language is persisted through the existing fixed response policy. Replay uses that language with the currently configured matching voice; a per-message voice ID is not newly persisted."
+  ],
+  "publication": {
+    "targetBranch": "feature/windows-native-benchmark-kit",
+    "expectedParent": "c31abe1ccf77c8dd254da775cfee6508719ae79e",
+    "method": "Content-addressed Git tree with expected-head lease; preserve newer remote commits before publication.",
+    "mergeRequestedInThisTask": false,
+    "releasePublishedInThisTask": false,
+    "preservedConcurrentHeads": [
+      "af8fe74671f0572e5ea5bb6341d26da4479c8b6d",
+      "c31abe1ccf77c8dd254da775cfee6508719ae79e"
+    ]
+  },
+  "finalChecks": "docs/repairs/evidence/bidirectional-voice-translation/final-checks/qualification.json",
+  "reconciliationEvidence": "docs/repairs/evidence/bidirectional-voice-translation/final-checks/reconciliation.json"
+}

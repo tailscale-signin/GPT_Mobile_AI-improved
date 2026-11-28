@@ -183,10 +183,19 @@ jobs:
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceConversationListeningTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionRoutingTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceSessionAdmissionRecoveryTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPairTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceDraftPreparationTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationLanguageDetectorTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.TranslationRecognitionQualificationTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.AndroidTranslationRecognitionTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPlaybackPolicyTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlaybackTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceListeningEntryTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneAppearanceTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMicrophoneCueReadinessTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePreferenceStoreTest' \
+            --tests 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceBackendViewModelTest' \
             --tests 'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest' 2>&1 | tee "$results_dir/test.log"
 
       - name: Preserve early Android regression evidence

@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.PocketCaptionModelStore
 import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
+import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
 import io.mockk.coEvery
@@ -56,6 +57,98 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoiceBackendViewModelTest {
+    @Test fun translationFactoriesKeepBothVoicesWithoutReplacingTheOrdinaryPlaybackFactory() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            saved.edit().putString("backend", VoiceSpeechBackend.POCKET_CPU.name)
+                .putStringSet("streaming_voices", setOf("POCKET=marius")).commit()
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val models = mockk<MediaPipeSpeechModelStore>(relaxed = true)
+            val multilingual = mockk<LocalVoiceModelStore>(relaxed = true)
+            every { models.state } returns MutableStateFlow(emptyMap())
+            every { models.localStore(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns multilingual
+            every { multilingual.state } returns MutableStateFlow(LocalVoiceModelState(LocalVoiceModelStatus.READY))
+            every { models.isReady(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns true
+            every { models.acceleratorEnvironment } returns "translation-test"
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher, createStreamingStore = { _, _ -> models })
+            owners.put("voice", model)
+            runCurrent()
+            val original = model.state.value.factory
+            val originalPreferences = saved.all.toMap()
+            val english = model.translationFactory("en-GB", "azelma")
+            val french = model.translationFactory("fr-CA", "estelle")
+            assertEquals(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU, english.selectedBackend)
+            assertEquals(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU, french.selectedBackend)
+            assertEquals(english.residentIdentity, french.residentIdentity)
+            assertNotEquals(english.identity, french.identity)
+            assertTrue(english.identity.endsWith("voice=azelma"))
+            assertTrue(french.identity.endsWith("voice=estelle"))
+            val idleEngine = mockk<VoicePhraseEngine>(relaxed = true)
+            english.prepareForPlayback(idleEngine)
+            french.prepareForPlayback(idleEngine)
+            verify(exactly = 1) { idleEngine.selectVoice("azelma") }
+            verify(exactly = 1) { idleEngine.selectVoice("estelle") }
+            assertTrue(runCatching { model.translationFactory("fr-FR", "azelma") }.exceptionOrNull() is IllegalArgumentException)
+            assertSame(original, model.state.value.factory)
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, model.state.value.backend)
+            assertEquals("marius", model.state.value.streamingVoiceId)
+            assertEquals(originalPreferences, saved.all)
+            coVerify(exactly = 0) { models.install(any()) }
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun translationRejectsTheEnglishOnlyPackAndInstallsMultilingualOnlyAfterAnExplicitAction() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val models = mockk<MediaPipeSpeechModelStore>(relaxed = true)
+            val multilingual = mockk<LocalVoiceModelStore>(relaxed = true)
+            every { models.state } returns MutableStateFlow(emptyMap())
+            every { models.localStore(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns multilingual
+            every { multilingual.state } returns MutableStateFlow(LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED))
+            every { models.isReady(MediaPipeSpeechEngine.POCKET) } returns true
+            every { models.isReady(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) } returns false
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher, createStreamingStore = { _, _ -> models })
+            owners.put("voice", model)
+            runCurrent()
+            val original = model.state.value.factory
+            val failure = runCatching { model.translationFactory("fr-FR", "estelle") }.exceptionOrNull()
+            assertTrue(failure is java.io.IOException)
+            assertTrue(failure?.message.orEmpty().contains("Install the Pocket Multilingual voice pack"))
+            model.refreshTranslationModel()
+            runCurrent()
+            coVerify(exactly = 0) { models.install(any()) }
+            model.installTranslationModel()
+            runCurrent()
+            coVerify(exactly = 1) { models.install(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) }
+            coVerify(exactly = 0) { models.install(MediaPipeSpeechEngine.POCKET) }
+            model.cancelTranslationModel()
+            verify(exactly = 1) { models.cancelInstall(MediaPipeSpeechEngine.POCKET_MULTILINGUAL) }
+            assertSame(original, model.state.value.factory)
+            assertEquals(VoiceSpeechBackend.POCKET_CPU, model.state.value.backend)
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun compiledPocketRemovalRetiresTheCombinedInstallBeforeEitherPackIsDeleted() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)

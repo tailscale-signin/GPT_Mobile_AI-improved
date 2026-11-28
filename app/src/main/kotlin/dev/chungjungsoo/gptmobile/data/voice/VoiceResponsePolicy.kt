@@ -48,6 +48,23 @@ enum class VoiceResponsePolicy(
 
     val fixesReplyLanguage: Boolean get() = languagePolicy != null
 
+    /** The accepted fixed target survives queueing and replay; legacy language hints remain unfixed. */
+    val targetLanguageTag: String?
+        get() = when (languagePolicy) {
+            AMERICAN_ENGLISH -> "en-US"
+            BRITISH_ENGLISH -> "en-GB"
+            SPANISH -> "es-ES"
+            FRENCH -> "fr-FR"
+            ITALIAN -> "it-IT"
+            BRAZILIAN_PORTUGUESE -> "pt-BR"
+            HINDI -> "hi"
+            MANDARIN -> "zh"
+            JAPANESE -> "ja"
+            GERMAN -> "de-DE"
+            DUTCH -> "nl-NL"
+            else -> null
+        }
+
     companion object {
         internal fun forLanguage(tag: String?, translate: Boolean = false): VoiceResponsePolicy = when (Locale.forLanguageTag(tag.orEmpty()).language.takeIf { it == "de" || it == "nl" } ?: tag?.let(SpeechLanguages::forLocale)?.tag) {
             "en-US" -> if (translate) TRANSLATE_AMERICAN_ENGLISH else REPLY_AMERICAN_ENGLISH

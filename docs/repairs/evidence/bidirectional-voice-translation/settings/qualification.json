@@ -1,0 +1,7 @@
+{
+  "compile_exit": 0,
+  "test_exit": 0,
+  "unique_cases": 9,
+  "scope": "Exact VoicePreferenceStore/VoicePreferenceWriter/VoiceBackendPreferenceStore and full VoiceBackendViewModel. Exact VoicePreferences data declaration, catalog and runtime pair. Six existing production regression test bodies plus three boundary behavior cases. Explicit Android SharedPreferences/lifecycle/storage/native-factory recording ports; no actual SDK model open, PCM, captions, Compose device execution or Android build claim. The factory recording port verifies target/voice/admission and global-state invariants, not native residency identity.",
+  "source_manifest": "source-manifest.json"
+}

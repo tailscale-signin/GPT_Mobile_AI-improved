@@ -1,0 +1,9 @@
+{
+  "compile_exit": 0,
+  "instrumentation_methods": [
+    "microphoneAndLanguageControlsFollowTheTurnAndPickerState",
+    "translationLanguageChoicesKeepEachVoiceAndOfferSourceRecoveryAndPackInstallation"
+  ],
+  "device_executed": false,
+  "scope": "Actual full VoiceLanguageSettings, VoiceConversationContent and VoiceMicrophoneButton compile against cached pinned Android37/Compose APIs. Exact VoiceChoice, state/model DTO and2 instrumentation method+fixture declarations extracted. Unrelated caption/wave/install widgets and popup motion are explicit compile-only ports. Domain/boundary types imported from settings host artifact. This does not execute Compose, native speech, Android persistence or a device."
+}

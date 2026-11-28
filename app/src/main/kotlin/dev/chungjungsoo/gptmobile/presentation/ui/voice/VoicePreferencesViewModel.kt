@@ -18,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisPreferences
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import dev.chungjungsoo.gptmobile.data.voice.localStore
 import java.io.File
 import javax.inject.Inject
@@ -55,7 +56,9 @@ internal data class VoicePreferences(
     val nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
     val tuning: VoiceTuningPreferences = VoiceTuningPreferences(),
     val synthesis: VoiceSynthesisPreferences = VoiceSynthesisPreferences().selectLanguage(language),
-    val translationMode: Boolean = false
+    val translationMode: Boolean = false,
+    val translationPair: VoiceTranslationPair = VoiceTranslationPair(),
+    val translationSetupNotice: String? = null
 )
 
 internal data class VoiceModelStores(

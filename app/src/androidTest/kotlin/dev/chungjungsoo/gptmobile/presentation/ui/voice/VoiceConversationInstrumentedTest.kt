@@ -25,7 +25,11 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -46,6 +50,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTiming
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPair
 import dev.chungjungsoo.gptmobile.data.voice.VoiceTranslationPrompt
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -176,10 +181,16 @@ class VoiceConversationInstrumentedTest {
         microphone.performClick()
         language.performClick()
         val translate = compose.onNodeWithTag("voice_translation_mode")
-        translate.assertIsOff().performClick().assertIsOn()
+        translate.assertIsOff()
         compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_reply_language_fr"))
         compose.onNodeWithTag("voice_reply_language_fr").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals("fr", current.value.replyLanguage) }
+        language.performClick()
+        translate.assertIsOff().performClick().assertIsOn()
+        compose.onNodeWithTag("voice_translation_base_language").assertIsDisplayed()
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_target_language"))
+        compose.onNodeWithTag("voice_translation_target_language").assertIsDisplayed()
+        compose.onNodeWithText("Done").performClick()
         language.performClick()
         translate.assertIsOn()
         compose.onNodeWithText("Done").performClick()
@@ -189,6 +200,56 @@ class VoiceConversationInstrumentedTest {
             microphone.assertContentDescriptionEquals(if (phase == VoicePhase.LISTENING) "Finish speaking" else "Stop").performClick()
         }
         compose.runOnIdle { assertEquals(6, presses) }
+    }
+
+    @Test fun translationLanguageChoicesKeepEachVoiceAndOfferSourceRecoveryAndPackInstallation() {
+        val pair = mutableStateOf(VoiceTranslationPair())
+        var installs = 0
+        var ordinaryChanges = 0
+        compose.setContent {
+            MaterialTheme {
+                VoiceReplyLanguageDialog(
+                    selected = "ja",
+                    translationMode = true,
+                    changeTranslationMode = {},
+                    select = { ordinaryChanges++ },
+                    dismiss = {},
+                    translationPair = pair.value,
+                    changeTranslationPair = { pair.value = it },
+                    translationModel = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED),
+                    installTranslationModel = { installs++ }
+                )
+            }
+        }
+        fun choose(tag: String, value: String) {
+            compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag(tag))
+            compose.onNode(hasClickAction() and hasAnyAncestor(hasTestTag(tag))).performClick()
+            compose.onNode(hasText(value) and hasAnyAncestor(isPopup())).performClick()
+        }
+        choose("voice_translation_base_voice", "Marius")
+        compose.runOnIdle {
+            assertEquals("marius", pair.value.baseVoiceId)
+            assertEquals("estelle", pair.value.translationVoiceId)
+        }
+        choose("voice_translation_base_language", java.util.Locale.forLanguageTag("en-US").displayName)
+        compose.runOnIdle { assertEquals("marius", pair.value.baseVoiceId) }
+        choose("voice_translation_source_language", java.util.Locale.forLanguageTag("fr-FR").displayName)
+        compose.runOnIdle { assertEquals("fr-FR", pair.value.sourceLanguage) }
+        choose("voice_translation_source_language", "Auto · either language")
+        compose.runOnIdle { assertEquals(null, pair.value.sourceLanguage) }
+        choose("voice_translation_target_language", java.util.Locale.forLanguageTag("es-ES").displayName)
+        compose.runOnIdle {
+            assertEquals("lola", pair.value.translationVoiceId)
+            assertEquals("marius", pair.value.baseVoiceId)
+        }
+        choose("voice_translation_target_language", java.util.Locale.forLanguageTag("fr-FR").displayName)
+        compose.onNodeWithTag("voice_reply_language_list").performScrollToNode(hasTestTag("voice_translation_pack"))
+        compose.onNodeWithTag("voice_translation_pack_install").performClick()
+        compose.runOnIdle {
+            assertEquals(1, installs)
+            assertEquals(0, ordinaryChanges)
+            assertEquals(VoiceTranslationPair(baseVoiceId = "marius"), pair.value)
+        }
     }
 
     @Test fun translationKeepsTheSourceAboveTheResponseAndControlsAcrossCaptures() {

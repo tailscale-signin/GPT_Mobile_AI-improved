@@ -1,0 +1,87 @@
+{
+  "schema": "voice-translation-language-model-v1",
+  "asset": "app/src/main/assets/voice/language_detector.tflite",
+  "publisher": "Google Research / MediaPipe",
+  "model": "language_detector/float32/1",
+  "source_url": "https://storage.googleapis.com/mediapipe-models/language_detector/language_detector/float32/1/language_detector.tflite",
+  "guide_url": "https://developers.google.com/edge/mediapipe/solutions/text/language_detector",
+  "model_card_url": "https://storage.googleapis.com/mediapipe-assets/LanguageDetector%20Model%20Card.pdf",
+  "license": "Apache-2.0",
+  "license_evidence": "Publisher model card, page 1, LICENSED UNDER",
+  "notice_asset": "app/src/main/assets/licenses/mediapipe-language-detector-NOTICES.txt",
+  "retrieved_utc": "2026-11-28",
+  "bytes": 315294,
+  "sha256": "7db4f23dfe1ad8966b050b419a865da451143fd43eb6b606a256aadeeb1e5417",
+  "upstream_object_generation": "1682624733160468",
+  "upstream_last_modified": "Thu, 27 Apr 2023 19:45:33 GMT",
+  "modifications": "None; bundled bytes equal downloaded publisher artifact.",
+  "runtime": "Existing com.google.mediapipe:tasks-text:1.0.0 dependency; no new SDK or network request.",
+  "admission": {
+    "max_characters": 8000,
+    "min_letters": 3,
+    "min_confidence": 0.8,
+    "min_margin": 0.2,
+    "pair_allowlist_in_model": false,
+    "model_hash_verified_before_native_initialization": true
+  },
+  "limits": [
+    "Classifier scores do not prove the language of short names, transliterations, or mixed-language utterances.",
+    "Low-confidence, unknown, out-of-pair, invalid, oversized, unavailable, or cancelled preparation does not choose a translation source.",
+    "Android automatic speech recognition requires API 34 or later and support confirmation for both installed offline locales; service implementations may ignore language-switch hints.",
+    "No acoustic or device execution qualification is implied by the asset hash or host policy tests."
+  ],
+  "host_model_fixture_evidence": {
+    "runtime": "Official MediaPipe Python 0.10.21, Linux x86_64 native TextClassifierGraph; actual bundled bytes.",
+    "options": {
+      "max_results": 3,
+      "score_threshold": 0.0,
+      "category_allowlist": null
+    },
+    "required_fixtures": [
+      {
+        "text": "Hello, how are you today?",
+        "expected_language": "en",
+        "observed_language": "en",
+        "observed_confidence": 0.9996148347854614,
+        "passed": true
+      },
+      {
+        "text": "Bonjour, comment allez-vous aujourd’hui ?",
+        "expected_language": "fr",
+        "observed_language": "fr",
+        "observed_confidence": 0.9998810291290283,
+        "passed": true
+      },
+      {
+        "text": "Could you tell me where the nearest train station is?",
+        "expected_language": "en",
+        "observed_language": "en",
+        "observed_confidence": 0.9999678134918213,
+        "passed": true
+      },
+      {
+        "text": "Pourriez-vous me dire où se trouve la gare la plus proche ?",
+        "expected_language": "fr",
+        "observed_language": "fr",
+        "observed_confidence": 0.9963222742080688,
+        "passed": true
+      }
+    ],
+    "short_text_observations": [
+      {
+        "text": "Hello",
+        "observed_language": "en",
+        "observed_confidence": 0.5111955404281616,
+        "passes_confidence_policy": false
+      },
+      {
+        "text": "Bonjour",
+        "observed_language": "fr",
+        "observed_confidence": 0.84727942943573,
+        "passes_confidence_policy": true
+      }
+    ],
+    "mixed_text_limit": "A mixed English/French fixture received French confidence 0.9891504645; confidence alone cannot establish monolingual source content.",
+    "android_qualification": "Android Tasks text/core APIs compiled separately against actual dependency JARs. Host inference is not Android JNI or acoustic/device qualification."
+  }
+}

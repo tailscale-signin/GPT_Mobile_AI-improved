@@ -1,0 +1,6 @@
+Collecting mediapipe==0.10.21
+  Downloading mediapipe-0.10.21-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (9.7 kB)
+Downloading mediapipe-0.10.21-cp312-cp312-manylinux_2_28_x86_64.whl (35.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 35.6/35.6 MB 90.2 MB/s  0:00:00
+Installing collected packages: mediapipe
+Successfully installed mediapipe-0.10.21

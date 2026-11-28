@@ -209,6 +209,22 @@
       "scope": "nativeSmoke-only shared test API roots; no production optimizer, package budget, deadline, ABI, model payload or test assertion change."
     }
   },
+  "raw_caption_packet_shared_api_followup": {
+    "source_head": "8abb1340f4b23942c32a00b62b44a6db652f25ce",
+    "workflow_run": 46154017214,
+    "passing_memory_job": 141006676737,
+    "failed_speech_jobs": {
+      "phonon": 141018994105,
+      "pocket-multilingual": 141018994114,
+      "pocket": 141018994122,
+      "kokoro": 141018994187
+    },
+    "failure": "All four real checkpoint tests enter the native streaming callback, then fail with NoSuchMethodError getRevision()I on the raw cue in the app APK, from CaptionPublication.observe.",
+    "source_contract": "VoicePcmChunk.wordCues is List<VoiceWordCue>; the observer directly calls revision, startByte, endByte and startFrame. VoicePcmChunk and VoiceStreamCue were retained, but the distinct raw VoiceWordCue was not.",
+    "repair": "Retain the single VoiceWordCue class and members in app-native-smoke-rules.pro, matching the existing shared data-contract roots. The Gradle file applies this rule only to nativeSmoke. No test assertion, production release rule, model or timeout changes.",
+    "status": "SOURCE_REVIEWED_PENDING_FRESH_HOSTED_NATIVE_SMOKE",
+    "limitations": "No local R8 or runtime qualification claimed. Existing failed run must not be treated as passed. All four real speech/cancellation cases and memory gate must pass at the new head."
+  },
   "source_sha256": {
     "app/proguard-rules.pro": "2e5df0831f0e2e238fc7be31ab62dccb901b3654e691559bbab010454f28cfd4",
     "app/app-native-smoke-rules.pro": "6bbfecad2240d6ca2ac428b40f48911af8cfb3f714c784e11219581f8e5b7392",

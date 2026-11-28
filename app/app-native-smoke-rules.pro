@@ -21,6 +21,8 @@
 -keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngine { *; }
 -keep interface dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngine { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoicePcmChunk { *; }
+# The packet-publication assertion reads the raw cue across the app/test APK boundary.
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceWordCue { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceStreamFrames { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceStreamCue { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceWordCueProvenance { *; }

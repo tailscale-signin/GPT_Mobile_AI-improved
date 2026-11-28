@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
+import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import javax.inject.Inject
@@ -21,7 +22,8 @@ import kotlinx.coroutines.launch
 internal data class VoiceBackendPreference(
     val backend: VoiceSpeechBackend = VoiceSpeechBackend.DEFAULT,
     val gatewayUid: String = "",
-    val streamingVoices: Map<String, String> = emptyMap()
+    val streamingVoices: Map<String, String> = emptyMap(),
+    val compiledPocketVoiceId: String = "alba"
 ) {
     fun streamingVoice(engine: MediaPipeSpeechEngine): String = MediaPipeSpeechVoices.selected(engine, streamingVoices[engine.name])
 }
@@ -44,6 +46,7 @@ internal class VoiceBackendPreferenceStore internal constructor(private val open
                     .putString("backend", value.backend.name)
                     .putString("gateway_uid", value.gatewayUid)
                     .putStringSet("streaming_voices", value.streamingVoices.map { (engine, voice) -> "$engine=$voice" }.toSet())
+                    .putString("compiled_pocket_voice", value.compiledPocketVoiceId)
                     .commit()
             )
             null
@@ -63,7 +66,12 @@ internal class VoiceBackendPreferenceStore internal constructor(private val open
                 val backend = VoiceSpeechBackend.entries.firstOrNull { it.name == saved["backend"] }
                 val uid = (saved["gateway_uid"] as? String)?.takeIf { it.length <= 256 }.orEmpty()
                 VoiceBackendPreferenceState(
-                    VoiceBackendPreference(backend ?: VoiceSpeechBackend.DEFAULT, uid, MediaPipeSpeechVoices.restore(saved["streaming_voices"] as? Set<*>)),
+                    VoiceBackendPreference(
+                        backend ?: VoiceSpeechBackend.DEFAULT,
+                        uid,
+                        MediaPipeSpeechVoices.restore(saved["streaming_voices"] as? Set<*>),
+                        (saved["compiled_pocket_voice"] as? String)?.takeIf { it in PocketCompiledSpeechCatalog.VOICES } ?: "alba"
+                    ),
                     "Saved speech settings were invalid. Using ${VoiceSpeechBackend.DEFAULT.label}.".takeIf { saved["backend"] != null && backend == null }
                 )
             } catch (cancelled: CancellationException) {

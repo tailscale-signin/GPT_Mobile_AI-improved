@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-11-28T04:34:53+00:00",
+  "task": "Pocket streaming caption correction, source projection and explicit caption alignment preference",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "workingTreeHead": "90865091851416a53e1c1c700300dad011bf92a5",
+  "revisionScope": "Uncommitted shared-tree source snapshot. Host test evidence does not establish acoustic alignment accuracy, Android AudioTrack behavior, or physical GPU/NPU execution.",
+  "repairs": [
+    {
+      "id": "final_estimate_shortening",
+      "cause": "The SDK mapper discarded a shorter final-word estimate unless a following published word existed. A queued stale tail therefore survived legitimate later timestamps.",
+      "change": "Stage identity-valid estimated revisions and publish them against the current staged neighbor bounds and available audio."
+    },
+    {
+      "id": "adjacent_revision_order",
+      "cause": "Two adjacent timestamp corrections were checked against stale neighbor intervals. One correction or a new following word could be discarded.",
+      "change": "Apply mutually dependent corrections in admissible order, retain blocked revisions until their audio/neighbor bounds become available, and validate pending words after corrected bounds are committed."
+    },
+    {
+      "id": "active_and_completed_tail",
+      "cause": "The presentation queue froze a heard word's stale end and could reject the next valid word after upstream shortening.",
+      "change": "Keep the heard onset/source identity immutable, accept a validated newer end, freeze explicitly paused presentation, and update completed bounds without reopening or replaying a completed word."
+    },
+    {
+      "id": "caption_preference",
+      "cause": "VoiceSession binds range observers even when the Live captions setting is off; observer presence alone would enable optional compiled Pocket alignment.",
+      "change": "Capture the explicit caption setting per Playback, require both enabled setting and observer presence at the synthesis owner, reapply it for resident engines, retain it through deferred creation, and forward the saved/current UI setting. Live edits affect the next playback only."
+    },
+    {
+      "id": "provenance",
+      "change": "Add distinct ASR_ALIGNMENT provenance and an opt-in phrase-engine alignment hook. CPU SDK timing stays ESTIMATED; compiled final alignment supplies its own observed PCM-derived boundaries without invented word divisions."
+    }
+  ],
+  "results": [
+    {
+      "id": "actual_caption_pipeline",
+      "result": "PASS",
+      "testsPassed": 77,
+      "jvmAssertionsEnabled": true,
+      "scope": "Actual current mapper, cue validation, Sonic tempo conversion, silence timeline transformation, source projection and presentation queue with repository tests. Includes speeds 0.75, 1.0, 1.25, 1.5 and 2.0, trimming on/off, UTF-8 Cafe-accent offsets, active/completed corrections and delayed neighbor audio.",
+      "observedSummary": "OK (77 tests)",
+      "harness": "../pocket-caption-pipeline-validation/build.py",
+      "harnessSha256": "3eadc54f55e42daae0f46b056a8b0d744365762494b887ef09651ad76fbdbf91",
+      "testLogSha256": "4088d6152beafff9ef34894d70c7c7593b5cb3eb15155f3fd6c69f09d8149220",
+      "sourceManifestSha256": "f3f66ee8039e3dfcb753906cceae46a5a41b0aaa0ec88da4a49bdcdbc8fc1414",
+      "dependencyBoundary": "Current target Kotlin sources overlay the existing pure voice JVM dependency jar; actual Sonic.java is recompiled and actual pinned MediaPipe 1.2.3 WordTimestamp classes are used. No Android or native inference is simulated as passed.",
+      "sonicJavaSha256": "6a034abae8ceb1d372daab776cfd153f84f8e2e8a2002453677fcfcfff6ae529",
+      "pinnedMediaPipeTasksAudioJarSha256": "7959641ee8339a0914f8dfbccbf858443b32473c17dc570f3867cd514c316c97",
+      "inheritedVoiceDependencyJarSha256": "546ef4a30f182b495785d33502073af3700b31fbd716afe5d96186ff1ddcc314"
+    },
+    {
+      "id": "actual_deferred_caption_preference",
+      "result": "PASS",
+      "testsPassed": 2,
+      "jvmAssertionsEnabled": true,
+      "scope": "Unchanged actual DeferredKokoroOutput and KokoroOutput declarations extracted from their source files, actual VoiceCaptionTiming, repository VoiceCaptionAlignmentPreferenceTest, and a controlled output delegate boundary. No Android output-worker execution.",
+      "observedSummary": "OK (2 tests)",
+      "harness": "../pocket-caption-setting-validation/build.py",
+      "harnessSha256": "52260450fb71ea3e8980d78efb13a464774ecb8d01b60cb47a777b33f5ad6d9f",
+      "testLogSha256": "174e60248266c2e08b94a9f19e7e861fac4267a7500d1c048fcf7e95330116cc",
+      "sourceManifestSha256": "1c94c8a3d778e22d57044080625f0510c3184685ac2b79361db25a39d38963b3",
+      "testedDeclarationExtractSha256": "34defbded78da69024ab3a6ad134682aa3a3a0039d90097eeb7a4084e1b276ae"
+    },
+    {
+      "id": "owned_diff_whitespace",
+      "result": "PASS",
+      "command": "git diff --check -- owned caption production and test paths"
+    }
+  ],
+  "regressionEvidence": {
+    "beforeFixObservations": [
+      "The shortened final word stayed at the old endpoint; at 0.75x the fixture ended at 27212 instead of the corrected reference 17618 frames.",
+      "The new following word was discarded when the previous endpoint was shortened in the same packet.",
+      "Adjacent revisions lost a boundary update until both revisions were staged and applied in dependency order.",
+      "An active stale endpoint produced STREAM_CUE_OVERLAP for a valid next word; completed words needed bound updates without replay."
+    ],
+    "savedBeforeLogs": {
+      "before-test.log": "8ee155cb86d328ec732ee26943368955b73b5499ba069cd06c670a572410210a",
+      "before-adjacent-revisions-test.log": "aab193f8a3ce92ebcb0b0d201b8bd7de87ffff68bdfd5e8a6d42a5f72148f6ef",
+      "before-following-word-test.log": "327d3e101946c4d28e02e8f2065105b1eb2aa140c96c5b61afc6558ff712b331"
+    },
+    "counting": "Earlier integrated 109-case runs include overlapping UI/motion coverage and are not added to this 77-case total."
+  },
+  "sourceHashesAtVerification": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt": "47809f3276df6fd587260e1ead271747dc57f5f7fd56cd5463caef7c7d9036bf",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt": "56b2d46ae9c8564abccce0f45cc5dff73d6bde560a5aa29fae378bc30f4a0d62",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt": "3c46ab18e4a5683466405b9b72b79616753e777d270653e4ccdb5e00b65410da",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "86789e990b409f275000a961c5280370cb77b704b99921a73f3613a335eac030",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeWordCueMapper.kt": "016c28c3a1d03cca70cf2276709d23c0fac2c58074025ba9c65c26cfa09f8747",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMap.kt": "35db58110b0bde95b2de176518fb0cc6ad7a65f21b3e23b2dfec5b9870dd6cb2",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessor.kt": "f927957c20105c6695ac20ffcb4d201c2b78dccdbef83357b7381564cbf9088f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTimelineTransform.kt": "ad221ac36a0b95c60bfe0e11862b25bf43a6da24574f71a85e81a773e9b06732",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt": "00d68c1a0c9f5414ce65986fe8a413d87c284fb125d0e4d972a854e942fd9da9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt": "6130043322f4044753398bcb30c5159a889b2a64d5e141c1c5b5b09cad2c5ed7",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt": "e36df9293cb143042a539d8bc4233d10a5516b909dfccc185f188ac09238804e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalizedVoiceReadings.kt": "4869aff6adc3e6ce216721f9a6a522df551495f38584123167643b6f57910308",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseBoundaries.kt": "7a3fd7fcf7ff96ce62c225351c4093677ef894a1bd93a2d49bb0a12a5fa52e6e",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoCaptionRegressionTest.kt": "673f6c0692becbd6857d0d7b097521e2df82da5d1b8f3c3b341507185b54e250",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCueRevisionTest.kt": "74afc33e15f68469747f6730d0f24b57af950b273618591dd4e2619f9c6965ee",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeWordCueMapperTest.kt": "a65647024c478a58ecaf86febb5d2e40f5b8239ad6d315f4c0a35d0c0e452741",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFramesTest.kt": "c55c1aafecc0f96f4fda11e39bad34248adfc86670154b3e2aadb63d8ae817a5",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPauseTest.kt": "aa6a6395b9a0c51b4bcf2a931d95f8439df1ed30fed0ef3ac0a1539898958888",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt": "9f64893387d76ec92334bc1c0f1ce4ae17eaba30e985394e327e5caed7388fd8",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMapTest.kt": "c8e2354fdd1455ebccbe44c6715849132a696330a4f407fe5ba6377c13d7ba89",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionSynchronizationTest.kt": "6179cda7c8cef81ab7635285a724f981afc298c03010e4015090103ed90c76e4"
+  },
+  "captionSettingSourceHashesAtVerification": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "7b23c949a52c79de608a61cf46591de0477c6b5e20012c5c433ee56c811e3039",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "577abb3f0beedf5350c2d795a14e03b102c41a7b67d680640254665c91ed3076",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt": "479b2edced99998d36fe8453a74db86fc659c1e089f7f9ebf85ae7e196f60bce",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "86789e990b409f275000a961c5280370cb77b704b99921a73f3613a335eac030",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionAlignmentPreferenceTest.kt": "7f6f6ad3a076ddeff171fdb620d0d2ebfdfefb67c64b722c4675f331c9a09c77"
+  },
+  "additionalReviewedSourceHashes": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "99afbfa84210ae3ad06818e207e9a457699a8ce5764e657737de2a8db3ac5b81",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt": "e3127e8c68c0b1d1a7895e013d015d6421d04d95b92cb3923609ee160bf666b1"
+  },
+  "addedButNotExecutedLocally": [
+    "KokoroStreamingOutputTest.captionAlignmentPreferenceIsCapturedPerPlaybackWithBoundObserversAndAWarmEngine: actual output workers, warm engine reuse, captions-off despite bound observers, live edit without cancellation/current-range reset, next-playback enable and no-observer disable.",
+    "Root-owned VoiceBackendViewModelTest.compiledPocketRemovalRetiresTheCombinedInstallBeforeEitherPackIsDeleted: full ViewModel/Robolectric lifecycle test needs CI dependencies."
+  ],
+  "notExecuted": [
+    "Full Android Gradle compile/test: required 8960 MiB headroom could not be established by the mandatory memory preflight; no bypass.",
+    "Robolectric/MockK Android worker and ViewModel tests: required libraries not present in the inspected local cache.",
+    "Physical Pocket CPU/GPU/NPU inference, acoustic word-boundary accuracy, audible quality, route/pause behavior on device, and end-to-end APK linking."
+  ],
+  "qualification": "The repairs ensure accepted supplied word times survive tempo, trimming, correction and presentation transforms. Source coverage and clock consistency are distinct from measured acoustic alignment accuracy; perfect spoken-word synchronization is not established by these host tests.",
+  "sourceBindingRefresh": {
+    "recordedAtUtc": "2026-11-28T04:36:55+00:00",
+    "reason": "Root added the ktlint-required blank line before the actual output captionAlignmentEnabled volatile field.",
+    "verification": "Reran only the two actual-declaration deferred caption preference tests: OK (2 tests). The extracted tested declarations are byte-identical; all 77-case pipeline source bindings still match. No broad tests rerun.",
+    "additionalProductionEdits": false
+  }
+}

@@ -181,12 +181,13 @@ internal data class IssueReportDiagnostics(
         ) {
             add("GITHUB_GRAPH_POLICY_EVIDENCE_V1")
         }
-        if ("voice_install_streaming_status" in values || "voice_install_streaming_status" in omittedFields || values["voice_install_pack"] == JsonPrimitive("LITERT_KOKORO")) add(VOICE_STREAMING_INSTALL_FEATURE)
+        if ("voice_install_streaming_status" in values || "voice_install_streaming_status" in omittedFields || values["voice_install_pack"] in setOf(JsonPrimitive("LITERT_KOKORO"), JsonPrimitive("POCKET"))) add(VOICE_STREAMING_INSTALL_FEATURE)
         if ((values.keys + omittedFields).any { it in voiceInstallEvidenceFields } || values["voice_install_failure"] == JsonPrimitive("WORK_NOT_FOUND")) add("VOICE_INSTALL_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in VoiceExecutionDiagnostics.fields }) add(VoiceExecutionDiagnostics.FEATURE)
         if ((values.keys + omittedFields).any { it in DispatchStageDiagnostics.fields }) add(DispatchStageDiagnostics.FEATURE)
         if (VoiceExecutionDiagnostics.requiresFallbackCauseSupport(values, omittedFields)) add(VoiceExecutionDiagnostics.FALLBACK_CAUSES_FEATURE)
         if (VoiceExecutionDiagnostics.requiresStreamingBackendSupport(values)) add(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE)
+        if (VoiceExecutionDiagnostics.requiresPocketCompiledSupport(values)) add(VoiceExecutionDiagnostics.POCKET_COMPILED_FEATURE)
         if (values["voice_selected_backend"] in setOf(JsonPrimitive("LITERT_KOKORO_GPU_OPTIMIZED"), JsonPrimitive("LITERT_KOKORO_SM8750"))) add(VoiceExecutionDiagnostics.STREAMING_PACK_FEATURE)
         if (values["voice_selected_backend"] == JsonPrimitive("LITERT_KOKORO_NPU")) add(VoiceExecutionDiagnostics.STREAMING_NPU_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
@@ -537,7 +538,7 @@ internal data class IssueReportDiagnostics(
             "voice_install_scheduler" to setOf("JOB_SCHEDULER", "WORK_MANAGER"),
             "voice_install_failure" to setOf("SCHEDULE_REJECTED", "SCHEDULE_EXCEPTION", "ASSET_FAILURE", "WORKER_EXCEPTION", "WORK_NOT_FOUND"),
             "voice_install_pending_reason" to setOf("UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"),
-            "voice_install_pack" to setOf("MOONSHINE", "KOKORO", "LITERT_KOKORO"),
+            "voice_install_pack" to setOf("MOONSHINE", "KOKORO", "LITERT_KOKORO", "POCKET"),
             "voice_install_transfer_stage" to setOf("CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"),
             "voice_install_failure_kind" to setOf("DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"),
             "conflict_active_job_kind" to setOf("generation", "engineering"),
@@ -583,7 +584,7 @@ internal data class IssueReportDiagnostics(
                 "provider_reported_initial", "provider_reported_interim", "runtime_reported_initial", "runtime_reported_interim", "gateway_reported_initial", "gateway_reported_interim", "mixed_reported_initial", "mixed_reported_interim"
             ),
             "acceptance_evidence_scope" to setOf("CURRENT_VERDICT", "RETAINED_VERDICT"),
-            "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE"),
+            "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE", "COMPILED_POCKET"),
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"),
             "voice_playback_failure" to VoiceExecutionDiagnostics.playbackFailures,
             "voice_install_recognition_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 private val OUTPUT_ROUTE_IDENTITY = Regex("(speaker|earpiece|bluetooth|usb|wired|other):[a-f0-9]{32}")
 internal fun isVoiceOutputRouteIdentity(value: String): Boolean = value.matches(OUTPUT_ROUTE_IDENTITY)
+internal val VOICE_CAPTION_ALIGNMENT_STATUSES = setOf("DISABLED", "PACK_UNAVAILABLE", "ALIGNED", "TEXT_MISMATCH", "INVALID_TIMING", "AUDIO_LIMIT", "TEXT_LIMIT", "NATIVE_ERROR")
 
 internal enum class VoiceSpeechPlaybackState { COMPLETE, FAILED, UNSUPPORTED, CANCELLED }
 
@@ -125,9 +126,11 @@ internal data class VoiceSpeechPlaybackResult(
     val firstSdkPcmAfterStreamStartMs: Long? = null,
     val captionNativeTimingWords: Int? = null,
     val captionEstimatedTimingWords: Int? = null,
+    val captionAsrAlignmentTimingWords: Int? = null,
     val captionTimingRevisions: Int? = null,
     val outputRouteIdentity: String? = null,
-    val outputRouteIdentityChanges: Int? = null
+    val outputRouteIdentityChanges: Int? = null,
+    val captionAlignmentStatuses: Set<String> = emptySet()
 ) {
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
@@ -213,6 +216,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     private val nanoTime: () -> Long = System::nanoTime
 ) : VoicePlaybackMeasurementObserver {
     private val started = nanoTime()
+    private val captionAlignmentStatuses = linkedSetOf<String>()
     private var firstPcm: Long? = null
     private var firstQueued: Long? = null
     private var firstPresented: Long? = null
@@ -346,6 +350,9 @@ internal class VoiceSpeechPlaybackMeasurement(
 
     @Synchronized override fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) {
         if (stoppedAt != null) return
+        evidence?.discoverySummary?.takeIf { it.length <= 512 }?.split(';', ',')
+            ?.filter { it.substringBefore('=') == "caption_status" }?.map { it.substringAfter('=') }?.distinct()?.singleOrNull()
+            ?.takeIf { it in VOICE_CAPTION_ALIGNMENT_STATUSES }?.let(captionAlignmentStatuses::add)
         if (firstPcm == null) firstPcm = elapsed()
         val duration = if (backend.isStreamingLocal && sampleRate == VOICE_PCM_SAMPLE_RATE) {
             val before = streamingFrames * 1_000 / sampleRate
@@ -578,6 +585,8 @@ internal class VoiceSpeechPlaybackMeasurement(
             cacheDirectoryPresent = cacheDirectoryPresent, cacheDirectoriesEvicted = cacheDirectoriesEvicted,
             captionNativeTimingWords = timingWords.takeIf { it.isNotEmpty() }?.count { it.value.first == VoiceWordCueProvenance.NATIVE_DURATION },
             captionEstimatedTimingWords = timingWords.takeIf { it.isNotEmpty() }?.count { it.value.first == VoiceWordCueProvenance.ESTIMATED },
+            captionAsrAlignmentTimingWords = timingWords.takeIf { it.isNotEmpty() }?.count { it.value.first == VoiceWordCueProvenance.ASR_ALIGNMENT },
+            captionAlignmentStatuses = captionAlignmentStatuses.toSet(),
             captionTimingRevisions = timingRevisions.takeIf { timingWords.isNotEmpty() },
             outputRouteIdentity = outputRouteIdentity,
             outputRouteIdentityChanges = outputRouteIdentityChanges.takeIf { outputRouteObserved }

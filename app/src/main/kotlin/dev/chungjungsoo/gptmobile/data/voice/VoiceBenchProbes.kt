@@ -12,7 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 @Serializable
-internal data class VoiceBenchObservation(val fixture: String, val status: VoiceBenchStatus, val reason: String? = null, val metrics: Map<String, Double> = emptyMap()) {
+internal data class VoiceBenchObservation(val fixture: String, val status: VoiceBenchStatus, val reason: String? = null, val metrics: Map<String, Double> = emptyMap(), val measurementScope: String? = null) {
     companion object {
         fun unavailable(fixture: String, reason: String) = VoiceBenchObservation(fixture, VoiceBenchStatus.UNAVAILABLE, reason)
     }
@@ -33,10 +33,38 @@ internal fun List<VoiceBenchObservation>.summarize(label: String): VoiceBenchRes
             VoiceSpeechBenchmarkBackendResult.median(times)?.let { add(VoiceBenchMetric(caption, it, "ms", times.size)) }
         }
     }
-    return VoiceBenchResult(label, status, if (isEmpty()) "NO_OBSERVATIONS" else mapNotNull { it.reason }.distinct().singleOrNull(), count { it.metrics.isNotEmpty() || it.status == VoiceBenchStatus.MEASURED }, metrics)
+    val reasons = mapNotNull { it.reason }.distinct()
+    val reason = when {
+        isEmpty() -> "NO_OBSERVATIONS"
+        reasons.size > 1 -> "MULTIPLE_OBSERVATION_REASONS"
+        else -> reasons.singleOrNull()
+    }
+    return VoiceBenchResult(label, status, reason, count { it.metrics.isNotEmpty() || it.status == VoiceBenchStatus.MEASURED }, metrics)
 }
 
 internal fun elapsedVoiceBenchMs(start: Long) = (System.nanoTime() - start) / 1_000_000
+
+/** Preserve each probe's actual measurement boundary in partial checkpoints as well as final exports. */
+internal fun voiceBenchProbeEvidence(stage: VoiceBenchStage, observations: List<VoiceBenchObservation>): List<VoiceBenchObservation> {
+    val probe = requireNotNull(stage.probe)
+    val scope = when (probe) {
+        VoiceBenchProbe.CPU_CALIBRATION -> "CPU_THREAD_TIMING_NOT_CONVERSATION_LATENCY"
+        VoiceBenchProbe.AUDIO_ROUTES -> "ROUTE_AND_SERVICE_CAPABILITY_NOT_BACKGROUND_PLAYBACK"
+        VoiceBenchProbe.MICROPHONE -> "MICROPHONE_CAPTURE_NOT_RECOGNITION_ACCURACY"
+        VoiceBenchProbe.RECOGNITION -> "FIXED_FIXTURE_TRANSCRIPTION_NOT_LIVE_MICROPHONE"
+        VoiceBenchProbe.LANGUAGE -> "SYNTHESIS_SIGNAL_AND_CUE_COUNTS_NOT_PRONUNCIATION_OR_ACOUSTIC_ALIGNMENT"
+        VoiceBenchProbe.SYSTEM_RECOGNITION -> "LOCAL_RECOGNIZER_CAPABILITY_NOT_TRANSCRIPT_ACCURACY"
+        VoiceBenchProbe.SYSTEM_SPEECH -> "SYSTEM_SYNTHESIS_CALLBACK_NOT_SPEAKER_LATENCY"
+        VoiceBenchProbe.GATEWAY -> "GATEWAY_FIXED_FIXTURE_NOT_CONVERSATION_LATENCY"
+        VoiceBenchProbe.DIALOGUE -> "CUE_PLANNING_NOT_ACKNOWLEDGEMENT_PLAYBACK"
+    }
+    return observations.ifEmpty { listOf(VoiceBenchObservation.unavailable(probe.name, "${probe.name}_NO_OBSERVATIONS")) }.map { row ->
+        row.copy(
+            reason = row.reason ?: "${probe.name}_REASON_NOT_RECORDED".takeIf { row.status in setOf(VoiceBenchStatus.UNAVAILABLE, VoiceBenchStatus.FAILED, VoiceBenchStatus.INTERRUPTED) },
+            measurementScope = row.measurementScope ?: scope
+        )
+    }
+}
 
 internal class VoiceBenchProbes(
     private val context: Context,
@@ -51,17 +79,21 @@ internal class VoiceBenchProbes(
         interrupt.get()?.invoke()
     }
 
-    suspend fun run(stage: VoiceBenchStage, checkpoint: (List<VoiceBenchObservation>) -> Unit): List<VoiceBenchObservation> = when (stage.probe) {
-        VoiceBenchProbe.CPU_CALIBRATION -> voiceBenchCpuCalibration(context, stage.variant, voice, stage.rate, active, interrupt, cleanupFailed)
-        VoiceBenchProbe.AUDIO_ROUTES -> voiceBenchAudioRoutes(context)
-        VoiceBenchProbe.MICROPHONE -> microphone(checkpoint)
-        VoiceBenchProbe.SYSTEM_SPEECH -> voiceBenchSystemSpeech(context, active, interrupt, checkpoint)
-        VoiceBenchProbe.GATEWAY -> voiceBenchGateway(context, gateway, active, interrupt, checkpoint)
-        VoiceBenchProbe.SYSTEM_RECOGNITION -> voiceBenchSystemRecognition(context, active)
-        VoiceBenchProbe.RECOGNITION -> voiceBenchMoonshine(context, requireNotNull(stage.listeningStyle), active, cleanupFailed, checkpoint)
-        VoiceBenchProbe.LANGUAGE -> language(requireNotNull(SpeechLanguages.forLocale(requireNotNull(stage.language))), checkpoint)
-        VoiceBenchProbe.DIALOGUE -> voiceBenchDialogue()
-        null -> error("Missing voice benchmark probe")
+    suspend fun run(stage: VoiceBenchStage, checkpoint: (List<VoiceBenchObservation>) -> Unit): List<VoiceBenchObservation> {
+        val scopedCheckpoint: (List<VoiceBenchObservation>) -> Unit = { checkpoint(voiceBenchProbeEvidence(stage, it)) }
+        val observations = when (stage.probe) {
+            VoiceBenchProbe.CPU_CALIBRATION -> voiceBenchCpuCalibration(context, stage.variant, voice, stage.rate, active, interrupt, cleanupFailed)
+            VoiceBenchProbe.AUDIO_ROUTES -> voiceBenchAudioRoutes(context)
+            VoiceBenchProbe.MICROPHONE -> microphone(scopedCheckpoint)
+            VoiceBenchProbe.SYSTEM_SPEECH -> voiceBenchSystemSpeech(context, active, interrupt, scopedCheckpoint)
+            VoiceBenchProbe.GATEWAY -> voiceBenchGateway(context, gateway, active, interrupt, scopedCheckpoint)
+            VoiceBenchProbe.SYSTEM_RECOGNITION -> voiceBenchSystemRecognition(context, active, interrupt)
+            VoiceBenchProbe.RECOGNITION -> voiceBenchMoonshine(context, requireNotNull(stage.listeningStyle), active, cleanupFailed, scopedCheckpoint)
+            VoiceBenchProbe.LANGUAGE -> language(requireNotNull(SpeechLanguages.forLocale(requireNotNull(stage.language))), scopedCheckpoint)
+            VoiceBenchProbe.DIALOGUE -> voiceBenchDialogue()
+            null -> error("Missing voice benchmark probe")
+        }
+        return voiceBenchProbeEvidence(stage, observations)
     }
 
     private fun checkActive() {
@@ -248,7 +280,7 @@ internal fun voiceBenchDictionary(profile: SpeechLanguage): VoiceBenchObservatio
         val projection = dictionary.project(key)
         projection.text == value && projection.sourceRange(0, value.length) == key.indices
     }
-    return VoiceBenchObservation("dictionary-${profile.tag}", if (correct == readings.size) VoiceBenchStatus.MEASURED else VoiceBenchStatus.FAILED, metrics = mapOf("cases" to readings.size.toDouble(), "correctMappings" to correct.toDouble(), "elapsedMicros" to (System.nanoTime() - start) / 1000.0))
+    return VoiceBenchObservation("dictionary-${profile.tag}", if (correct == readings.size) VoiceBenchStatus.MEASURED else VoiceBenchStatus.FAILED, reason = "DICTIONARY_MAPPING_MISMATCH".takeIf { correct != readings.size }, metrics = mapOf("cases" to readings.size.toDouble(), "correctMappings" to correct.toDouble(), "elapsedMicros" to (System.nanoTime() - start) / 1000.0), measurementScope = "TEXT_MAPPING_NOT_SPOKEN_PRONUNCIATION")
 }
 
 internal fun voiceBenchDialogue(): List<VoiceBenchObservation> {

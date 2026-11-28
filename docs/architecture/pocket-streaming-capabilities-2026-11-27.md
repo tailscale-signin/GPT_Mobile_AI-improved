@@ -1,9 +1,11 @@
 # Pocket streaming capabilities and comparison evidence
 
-The implementation uses the existing MediaPipe Tasks Audio **1.2.3** runtime.
-Its Pocket routes execute on CPU. The settings explain that GPU and NPU are
-unavailable for these packs, while retaining the existing Kokoro accelerator
-options. A requested delegate must never be reported as observed kernel execution.
+The MediaPipe Pocket implementation uses Tasks Audio **1.2.3** and executes on
+CPU. English Pocket is now the fresh-install default. The later compiled Pocket
+implementation adds separate experimental GPU/NPU choices and a separate pinned
+English pack; see [the implementation follow-up](pocket-default-and-benchmark-coverage-2026-11-28.md).
+The MediaPipe packs and their accelerator restrictions remain unchanged. A requested
+delegate must never be reported as observed kernel execution.
 
 ## Installed voices and languages
 
@@ -116,7 +118,10 @@ incremental reply stream. The publisher also records device-dependent placements
 and decoder quality differences. It is not interchangeable with a MediaPipe
 `.litertlm` bundle. Integrating that path requires implementing and validating the
 stateful host loop, streaming decoder, GPU/NPU tensor ownership, fallback and
-native cancellation. No working Pocket GPU/NPU path is claimed by this change.
+native cancellation. That separate integration is now recorded in the
+[implementation follow-up](pocket-default-and-benchmark-coverage-2026-11-28.md).
+It supplies incremental PCM with explicit requested placement; physical GPU/NPU
+quality and performance remain unqualified, and the graphs provide no word timing.
 
 The Linux checkpoint smoke now enumerates and synthesizes every advertised
 Pocket and Phonon voice with language-specific fixtures. The Android JNI matrix

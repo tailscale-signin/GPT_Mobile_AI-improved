@@ -106,7 +106,7 @@ internal fun VoicePerformancePanel(history: VoicePerformanceHistory, latest: Voi
         Text("Frame timing samples since reset: ${snapshot.sampledFrames} · dropped metrics callbacks: ${snapshot.droppedFrameSamples}", style = MaterialTheme.typography.bodySmall)
         Text("Capture queue: ${snapshot.captureQueueMs?.let { "$it ms" } ?: "Not measured"}", style = MaterialTheme.typography.bodySmall)
         Text("App memory: ${snapshot.processMemoryKb?.let { "${it / 1024} MB PSS" } ?: "Not measured"} · Thermal: ${thermalLabel(snapshot.thermalStatus)}", style = MaterialTheme.typography.bodySmall)
-        Text("Frame and GPU durations describe Android graphics. CPU, GPU and NPU utilization and full conversation latency are not measured. Speech end uses the detector’s audio boundary, including its smoothing window. Playback timing identifies the output clock; acoustic speaker delay requires a device loopback measurement.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Frame and GPU durations describe Android graphics. CPU, GPU and NPU utilization are not measured. Full-turn timing runs from the detector’s speech boundary to the first answer on the playback clock, including any draft review or queue delay. It excludes acknowledgment cues and replay. Acoustic speaker delay requires a device loopback measurement.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         VoicePerformanceExportControl(snapshot, latest)
     }
 }
@@ -117,6 +117,7 @@ private fun metricLabel(metric: String): String = when (metric) {
     "verification" -> "Model verification"
     "model_load" -> "Model load"
     "speech_end" -> "Detected speech end to final text"
+    "speech_end_to_answer_audio" -> "Speech end to first presented answer"
     "final_to_request" -> "Final text to accepted request"
     "request_to_text" -> "Request to first AI text"
     "audio_track_setup" -> "Android audio track setup"
@@ -159,6 +160,7 @@ private fun engineLabel(engine: String): String? = when (engine) {
     "MEDIAPIPE" -> "Streaming speech · processor unverified"
     "MEDIAPIPE_PHONON" -> "Phonon streaming · processor unverified"
     "MEDIAPIPE_POCKET" -> "Pocket streaming · processor unverified"
+    "COMPILED_POCKET" -> "Pocket compiled · processor unverified"
     "QNN_GPU" -> "Adreno GPU"
     "QNN_HTP" -> "Hexagon NPU"
     "GATEWAY_CUDA" -> "Gateway CUDA"

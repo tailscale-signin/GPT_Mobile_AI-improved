@@ -299,6 +299,64 @@ class VoiceCaptionMotionTest {
         assertEquals(1f, highlights.visible(250_000_000).single().colour, 0f)
     }
 
+    @Test fun aNewSameWordPresentationClockUpdatesColourWithoutReplayingEmphasis() {
+        val highlights = VoiceCaptionHighlights()
+        val range = 2..5
+        highlights.update(range, 1_000_000_000, 1_000_000_000, animate = true)
+        assertEquals(.4f, highlights.visible(1_100_000_000).single().colour, .0001f)
+        // The new clock observes 200 ms of this word, including audio missed by the earlier snapshot.
+        val onset = captionWordOnsetNanos(0, 24_000, 4_800, 24_000, 24_000, 1_100_000_000, 1_100_000_000, true)
+        highlights.refreshClock(range, onset, 1_100_000_000)
+        assertEquals(VoiceCaptionHighlight(range, true, .8f), highlights.visible(1_100_000_000).single())
+        // A later route correction must not replay the colour attack or create another bold owner.
+        highlights.refreshClock(range, 1_050_000_000, 1_150_000_000)
+        assertEquals(VoiceCaptionHighlight(range, true, 1f), highlights.visible(1_150_000_000).single())
+        highlights.refreshClock(7..10, 0, 1_150_000_000)
+        assertEquals(listOf(range), highlights.visible(1_150_000_000).map { it.range })
+    }
+
+    @Test fun repeatedSameWordClockSnapshotsDoNotMoveTheArrivalDeadlineOrRestartColour() {
+        val highlights = VoiceCaptionHighlights()
+        val motion = VoiceCaptionMotion(0f)
+        motion.retarget(1f, 1_000_000_000, animate = true, durationMs = 320)
+        highlights.update(0..2, 1_000_000_000, 1_000_000_000, animate = true)
+        for (elapsed in listOf(100L, 200L, 300L)) {
+            val now = 1_000_000_000 + elapsed * 1_000_000
+            val onset = captionWordOnsetNanos(0, 7_680, elapsed * 24, 7_680, 24_000, now, now, true)
+            val before = motion.sample(now)
+            motion.refreshClock(now, (320 - elapsed).toInt())
+            highlights.refreshClock(0..2, onset, now)
+            assertEquals(before, motion.sample(now))
+        }
+        assertEquals(VoiceCaptionMotionSample(1f, 0f), motion.sample(1_320_000_000))
+        assertEquals(1f, highlights.visible(1_320_000_000).single().colour, 0f)
+    }
+
+    @Test fun aCorrectedClockCanShortenAnInFlightLineWithoutPositionOrVelocityJump() {
+        val motion = VoiceCaptionMotion(0f)
+        motion.retarget(1f, 0, animate = true)
+        val before = motion.sample(100_000_000)
+        motion.refreshClock(100_000_000, 60)
+        assertEquals(before, motion.sample(100_000_000))
+        assertEquals(VoiceCaptionMotionSample(1f, 0f), motion.sample(160_000_000))
+        motion.refreshClock(200_000_000, 420)
+        assertEquals(VoiceCaptionMotionSample(1f, 0f), motion.sample(200_000_000))
+    }
+
+    @Test fun repeatedPausedClockObservationsKeepTheSameWordColourFrozen() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(0..2, 1_000_000_000, 1_000_000_000, animate = true)
+        highlights.playing(false, 1_100_000_000)
+        val held = highlights.visible(1_100_000_000)
+        for (now in listOf(1_200_000_000L, 1_500_000_000L, 2_000_000_000L)) {
+            val onset = captionWordOnsetNanos(0, 24_000, 2_400, 24_000, 24_000, now, now, false)
+            highlights.refreshClock(0..2, onset, now)
+            assertEquals(held, highlights.visible(now))
+        }
+        highlights.playing(true, 2_000_000_000)
+        assertEquals(held, highlights.visible(2_000_000_000))
+    }
+
     @Test fun silenceReleasesBoldImmediatelyAndBoundsTheCosmeticTrail() {
         val highlights = VoiceCaptionHighlights()
         highlights.update(0..3, 0, 0, animate = true)

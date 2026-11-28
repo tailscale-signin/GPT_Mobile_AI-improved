@@ -84,7 +84,6 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
-import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
@@ -407,6 +406,7 @@ private fun VoiceChatSessionScreen(
             audio.kokoroVoice = kokoroVoice
             kokoroOutput?.configureThreads(kokoroThreads)
             kokoroOutput?.configurePacing(pause, performance)
+            kokoroOutput?.configureCaptionAlignment(captions)
             session.performanceMode = performance
             session.speakWhileGenerating = speakWhileGenerating
             if (session.states.value.speaker != spokenReplies) session.speaker()
@@ -448,6 +448,7 @@ private fun VoiceChatSessionScreen(
         audio.kokoroVoice = kokoroVoice
         kokoroOutput?.configureThreads(kokoroThreads)
         kokoroOutput?.configurePacing(pause, performance)
+        kokoroOutput?.configureCaptionAlignment(captions)
         session.performanceMode = performance
         session.speakWhileGenerating = speakWhileGenerating
         session.editBeforeSend = editBeforeSend
@@ -1080,6 +1081,25 @@ private fun VoiceChatSessionScreen(
                             previewError = streamingPreviewError
                         )
                     }
+                    if (backend.backend.isCompiledPocket) {
+                        var pocketPreviewError by remember(backend.backend) { mutableStateOf<String?>(null) }
+                        PocketCompiledModelCard(
+                            state = backend.compiledPocketModel,
+                            captionState = backend.pocketCaptionModel,
+                            voiceId = backend.streamingVoiceId,
+                            selectVoice = backendOwner::selectStreamingVoice,
+                            enabled = backend.loaded && !backend.removingCompiledPocket && !benchmarkRunning && !state.awaitingReply && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
+                            install = backendOwner::installStreamingModel,
+                            cancel = backendOwner::cancelStreamingInstall,
+                            remove = {
+                                audio.stop()
+                                kokoroOutput?.releaseWarmModel()
+                                backendOwner.removeStreamingModel()
+                            },
+                            preview = { previewSpeech(kokoroVoice ?: KokoroVoice.HEART) { pocketPreviewError = it } },
+                            previewError = pocketPreviewError
+                        )
+                    }
                 },
                 tuningContent = {
                     VoiceSpeechBenchmarkSettings(
@@ -1164,7 +1184,7 @@ private fun VoiceChatSessionScreen(
                     recognitionReady = recognitionReady,
                     recognitionBackend = recognitionBackend,
                     replyLanguage = activeSpeechProfile().tag,
-                    replyLanguageProfiles = backend.backend.streamingEngine()?.takeUnless { it.isKokoro }?.let(MediaPipeSpeechVoices::profiles) ?: SpeechLanguages.synthesis,
+                    replyLanguageProfiles = backend.replyLanguageProfiles(synthesis),
                     translationMode = translationMode,
                     enabled = enabled,
                     voiceReady = voiceReady,
@@ -1215,14 +1235,7 @@ private fun VoiceChatSessionScreen(
                     openChat = ::openChat,
                     toggleMicrophone = ::toggleMicrophone,
                     changeReplyLanguage = { tag ->
-                        val streaming = backend.backend.streamingEngine()?.takeUnless { it.isKokoro }
-                        if (streaming != null) {
-                            MediaPipeSpeechVoices.profiles(streaming).firstOrNull { it.tag == tag }?.let { profile ->
-                                if (backend.streamingVoiceId !in profile.voices) backendOwner.selectStreamingVoice(profile.voices.first())
-                            }
-                        } else {
-                            changeSynthesis(synthesis.selectLanguage(tag))
-                        }
+                        backend.selectReplyLanguage(tag, synthesis, backendOwner::selectStreamingVoice, ::changeSynthesis)
                     },
                     changeTranslationMode = { value ->
                         translationMode = value
@@ -1396,7 +1409,15 @@ private fun VoiceSettingsScreen(
                     showThreads = state.speechBackend.supportsCpuThreadCalibration
                 )
             }
-            if (state.speechBackend.isStreamingLocal) {
+            if (state.speechBackend.isCompiledPocket) {
+                VoiceChoice(
+                    "Pocket decoder CPU threads",
+                    state.kokoroThreads.toString(),
+                    listOf("0" to "Default · ${VoiceCpuSchedulingPolicy.initial(0)}") + (1..VoiceCpuSchedulingPolicy.deviceLimit()).map { it.toString() to it.toString() },
+                    { actions.selectKokoroThreads(it.toInt()) }
+                )
+                Text("This setting controls the decoder transformer. Pocket streams audio for each phrase while the next reply text is prepared.", style = MaterialTheme.typography.bodySmall)
+            } else if (state.speechBackend.isStreamingLocal) {
                 VoiceSettingSwitch("Keep one speech stream for each reply", state.incrementalSpeech, actions.changeIncrementalSpeech)
                 Text("New text joins the current stream as it arrives. The full voice benchmark measures both input modes.", style = MaterialTheme.typography.bodySmall)
                 if (state.speechBackend.streamingEngine()?.isKokoro == true) {
@@ -1407,7 +1428,9 @@ private fun VoiceSettingsScreen(
             var sliderRate by remember(state.rate) { androidx.compose.runtime.mutableFloatStateOf(state.rate) }
             Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", sliderRate)}×")
             Text("Speech rate changes how quickly the voice talks. Performance mode changes how soon speech starts.", style = MaterialTheme.typography.bodySmall)
-            if (state.speechBackend.isStreamingLocal) {
+            if (state.speechBackend.isCompiledPocket) {
+                Text("Streaming speed preserves the voice's pitch. With live captions on, each short phrase waits for local alignment of its adjusted audio. Unmatched words remain readable without a timed highlight.", style = MaterialTheme.typography.bodySmall)
+            } else if (state.speechBackend.isStreamingLocal) {
                 Text("Streaming speed preserves the voice's pitch. Captions follow the adjusted audio timing.", style = MaterialTheme.typography.bodySmall)
             }
             Slider(

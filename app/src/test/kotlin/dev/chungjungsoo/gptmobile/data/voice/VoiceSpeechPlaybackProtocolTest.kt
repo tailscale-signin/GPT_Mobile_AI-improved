@@ -66,6 +66,32 @@ class VoiceSpeechPlaybackProtocolTest {
         assertNull(shared.recommendation())
     }
 
+    @Test fun compiledPocketCancellationTargetsItsActualInferencePhaseAndExcludesAlignmentPreparation() {
+        val config = configuration(full = true).copy(
+            engine = VoiceSpeechBenchmarkEngine.POCKET_COMPILED,
+            backends = listOf(VoiceSpeechBackend.POCKET_GPU, VoiceSpeechBackend.POCKET_NPU),
+            engineVoiceId = "alba",
+            playbackScenarios = listOf(VoiceSpeechPlaybackScenario.CANCELLATION)
+        )
+        val plans = VoiceSpeechPlaybackProtocol.plans(config)
+        assertEquals(
+            setOf(VoiceSpeechCancellationTarget.PREPARATION, VoiceSpeechCancellationTarget.INFERENCE, VoiceSpeechCancellationTarget.PLAYBACK),
+            plans.mapNotNull { it.cancellationTarget }.toSet()
+        )
+        assertEquals(plans.mapNotNull { it.cancellationTarget }, plans.mapNotNull { it.recoveryAfter })
+        val plan = plans.first { it.cancellationTarget == VoiceSpeechCancellationTarget.INFERENCE }
+        val measurement = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.POCKET_GPU, 0, plan)
+        measurement.preparationStarted()
+        measurement.engineReady(false)
+        for (stage in listOf(VoiceSpeechStage.PREPARING, VoiceSpeechStage.VALIDATING)) {
+            assertFalse(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, VoiceSpeechProgress(stage, 1, 1, 1, 1, false)))
+        }
+        val inference = VoiceSpeechProgress(VoiceSpeechStage.SYNTHESIS, 1, 2, 1, 2, false)
+        assertTrue(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, inference))
+        assertFalse(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, inference.copy(active = false)))
+        assertFalse(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE, null))
+    }
+
     @Test fun interruptedComparisonKeepsMeasuredProcessorsPartialAndUntouchedProcessorsUnrun() {
         val config = configuration(full = true).copy(backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS)
         val plan = VoiceSpeechPlaybackProtocol.plans(config).first()

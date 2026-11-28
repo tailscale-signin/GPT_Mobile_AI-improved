@@ -8,5 +8,6 @@ internal enum class VoiceSpeechBenchmarkEngine(val label: String, val supportedB
     MEDIAPIPE_KOKORO_SM8750("Kokoro · compiled SM8750 pack", listOf(VoiceSpeechBackend.LITERT_KOKORO_SM8750)),
     PHONON("Phonon · English", listOf(VoiceSpeechBackend.PHONON_CPU)),
     POCKET("Pocket TTS · English", listOf(VoiceSpeechBackend.POCKET_CPU)),
-    POCKET_MULTILINGUAL("Pocket TTS · 7 languages", listOf(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU))
+    POCKET_MULTILINGUAL("Pocket TTS · 7 languages", listOf(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU)),
+    POCKET_COMPILED("Pocket TTS · compiled GPU / NPU", listOf(VoiceSpeechBackend.POCKET_GPU, VoiceSpeechBackend.POCKET_NPU))
 }

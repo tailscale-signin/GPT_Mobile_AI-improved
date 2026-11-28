@@ -3,12 +3,10 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.content.Context
 import android.content.Intent
 import android.speech.RecognizerIntent
-import kotlin.coroutines.resume
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** Public sentences synthesized with CMU Flite slt and rms, mono G.711 mu-law at 16 kHz. */
 internal val voiceBenchRecordings = mapOf("ready" to "The voice is ready for your next question.", "weather" to "Please check the weather and read the answer out loud.")
@@ -113,29 +111,19 @@ internal suspend fun voiceBenchMoonshine(context: Context, style: VoiceListening
 }
 
 /** Query only Android's local recognizer. Capability is observed independently of transcription accuracy. */
-internal suspend fun voiceBenchSystemRecognition(context: Context, active: () -> Boolean): List<VoiceBenchObservation> = withContext(Dispatchers.Main.immediate) {
+internal suspend fun voiceBenchSystemRecognition(context: Context, active: () -> Boolean, interrupt: AtomicReference<(() -> Unit)?>): List<VoiceBenchObservation> = withContext(Dispatchers.Main.immediate) {
     val service = AndroidRecognitionService(context)
     if (!service.available(true)) return@withContext listOf(VoiceBenchObservation.unavailable("android", "NO_ON_DEVICE_RECOGNIZER"))
     SpeechLanguages.synthesis.map { language ->
         if (!active()) throw CancellationException("Voice benchmark stopped")
-        // A timed-out support request must not remain outstanding on the recognizer for the next locale.
-        val recognizer = service.create(true)
-        try {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language.tag).putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            val qualification = withTimeoutOrNull(5_000L) {
-                suspendCancellableCoroutine { continuation ->
-                    service.checkSupport(recognizer, intent, true) { if (continuation.isActive) continuation.resume(it) }
-                }
-            }
-            val status = when (qualification?.status) {
-                RecognitionSupportStatus.SUPPORTED -> VoiceBenchStatus.MEASURED
-                RecognitionSupportStatus.FAILED -> VoiceBenchStatus.FAILED
-                else -> VoiceBenchStatus.UNAVAILABLE
-            }
-            VoiceBenchObservation(language.tag, status, qualification?.status?.name ?: "CAPABILITY_QUERY_TIMEOUT")
-        } finally {
-            recognizer.destroy()
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language.tag).putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        val support = voiceBenchRecognitionSupport(active, interrupt) { voiceBenchRecognitionBinding(service, intent) }
+        val status = when (support.qualification?.status) {
+            RecognitionSupportStatus.SUPPORTED -> VoiceBenchStatus.MEASURED
+            RecognitionSupportStatus.FAILED -> VoiceBenchStatus.FAILED
+            else -> VoiceBenchStatus.UNAVAILABLE
         }
+        VoiceBenchObservation(language.tag, status, support.reason, support.metrics, "LOCAL_RECOGNIZER_CAPABILITY_NOT_TRANSCRIPT_ACCURACY")
     }
 }

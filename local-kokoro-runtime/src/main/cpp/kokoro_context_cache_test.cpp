@@ -199,9 +199,49 @@ void TestPrivatePreparationSource() {
   Check(Rejected([&] { ContextSourceSnapshot invalid((outside.path / "context.onnx").string()); }),
       "Source snapshot escaped the private pending transaction");
 }
+
+int ReplayFiveContextUtterance(ContextCacheLimits limits) {
+  Directory directory;
+  // Preserve the measured per-shape and cache-budget ratios at 1/1024 size.
+  // The real filesystem cache, manifest validation and LRU still execute.
+  const int64_t sizes[] = {118896192, 120142201, 120617637, 119445381, 120216332};
+  const int tokens[] = {26, 59, 71, 39, 72};
+  int exports = 0;
+  for (int repeat = 0; repeat < 3; ++repeat) for (size_t shape = 0; shape < 5; ++shape) {
+    const auto key = Digest("compact-htp-shape-" + std::to_string(tokens[shape]));
+    CompiledContextCache cache(directory.path.string(), key, limits);
+    if (!cache.Lookup().empty()) continue;
+    const auto staging = cache.BeginExport();
+    Check(!staging.empty(), "Five-shape export was not admitted");
+    Put(staging, std::string(sizes[shape] / 1024, 'm'));
+    Check(cache.Commit(), "Five-shape context failed publication");
+    ++exports;
+  }
+  return exports;
+}
+
+void TestFiveContextWorkingSet() {
+  auto current = ContextLimitsForModel(false);
+  current.bytes /= 1024;
+  current.entry_bytes /= 1024;
+  current.free_reserve_bytes /= 1024;
+  auto previous = current;
+  previous.bytes = 512 * 1024;
+  Check(ReplayFiveContextUtterance(previous) == 15, "Fixture no longer reproduces byte-budget cache churn");
+  Check(ReplayFiveContextUtterance(current) == 5, "A complete five-shape utterance was not reusable from disk");
+
+  // The larger byte budget does not remove the independent count bound.
+  Directory directory;
+  const auto oldest = Digest("oldest");
+  Store(directory.path, oldest, current);
+  fs::last_write_time(directory.path / oldest, fs::file_time_type::clock::now() - std::chrono::hours(1));
+  for (size_t index = 0; index < current.entries; ++index) Store(directory.path, Digest(std::to_string(index)), current);
+  Check(!fs::exists(directory.path / oldest), "Count-bound LRU was disabled by the larger byte budget");
+}
 }
 
 int main() {
   TestDigests(); TestPublicationAndIdentity(); TestConfinement(); TestRetentionAndWriteFailure(); TestPrivatePreparationSource();
+  TestFiveContextWorkingSet();
   std::cout << "Compiled-context atomic publication, identity, corruption, confinement, locking and LRU controls passed\n";
 }

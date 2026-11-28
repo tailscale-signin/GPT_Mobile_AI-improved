@@ -28,9 +28,12 @@ internal data class VoiceBenchStage(
 ) {
     fun configuration(voice: KokoroVoice, streamingVoice: String?, offset: Int, order: Long, build: Int, sdk: Int, device: String, commit: String): VoiceSpeechBenchmarkConfiguration {
         val selected = requireNotNull(engine)
+        val compiledPocket = selected == VoiceSpeechBenchmarkEngine.POCKET_COMPILED
         val sdkModel = selected.mediaPipeEngine()?.let(MediaPipeSpeechCatalog::model)
         val standardVoice = voice.streamingVoiceId
         val voiceId = when {
+            compiledPocket -> (selectedVoiceId ?: streamingVoice?.takeIf { calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS })
+                ?.takeIf { it in PocketCompiledSpeechCatalog.VOICES } ?: PocketCompiledSpeechCatalog.DEFAULT_VOICE
             sdkModel == null -> voice.name
             selectedVoiceId != null -> MediaPipeSpeechVoices.selected(sdkModel.engine, selectedVoiceId)
             calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS && streamingVoice != null && MediaPipeSpeechVoices.profile(sdkModel.engine, streamingVoice) != null -> streamingVoice
@@ -38,8 +41,13 @@ internal data class VoiceBenchStage(
             else -> standardVoice
         }
         return VoiceSpeechBenchmarkConfiguration(
-            mode, backends, voice, threads, rate, sdkModel?.sha256 ?: variant.modelSha256,
-            if (sdkModel == null) TimedKokoro.RUNTIME_ID else MediaPipeSpeechCatalog.RUNTIME_ID, build, sdk, device,
+            mode, backends, voice, threads, rate, if (compiledPocket) PocketCompiledSpeechCatalog.MODEL_SHA256 else sdkModel?.sha256 ?: variant.modelSha256,
+            when {
+                compiledPocket -> PocketCompiledSpeechCatalog.RUNTIME_ID
+                sdkModel != null -> MediaPipeSpeechCatalog.RUNTIME_ID
+                else -> TimedKokoro.RUNTIME_ID
+            },
+            build, sdk, device,
             workload = workload, backendOrderSeed = order, sourceCommit = commit.takeIf { it.matches(Regex("[0-9a-f]{40}")) },
             playback = playback.isNotEmpty(), playbackScenarios = playback.ifEmpty { listOf(VoiceSpeechPlaybackScenario.COLD_START) },
             calibrationPolicy = calibration, captionOffsetMs = if (calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS) offset.coerceIn(-500, 500) else 0,
@@ -65,11 +73,16 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
     val configs = VoiceSpeechBenchmarkEngine.entries.flatMap { engine ->
         val native = engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
         (if (native) KokoroModelVariant.entries else listOf(KokoroModelVariant.INT8)).map { variant ->
-            VoiceBenchStage(if (native) "${engine.label} · ${variant.displayName}" else engine.label, engine, variant, threads = selectedThreads, rate = 1f, useCalibratedThreads = native && threads == VoiceCpuSchedulingPolicy.AUTO)
+            VoiceBenchStage(if (native) "${engine.label} · ${variant.displayName}" else engine.label, engine, variant, threads = selectedThreads, rate = 1f, incremental = engine != VoiceSpeechBenchmarkEngine.POCKET_COMPILED, useCalibratedThreads = native && threads == VoiceCpuSchedulingPolicy.AUTO)
         }
     }
     fun addCase(base: VoiceBenchStage, name: String, spec: VoiceBenchStage) {
         add(spec.copy(label = "${base.label} · $name"))
+    }
+    fun screeningRoutes(base: VoiceBenchStage): List<VoiceSpeechBackend> = when (base.engine) {
+        VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> listOf(VoiceSpeechBackend.CPU)
+        VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO -> listOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_CPU)
+        else -> base.backends.filter { it.name.endsWith("_CPU") }.ifEmpty { base.backends }
     }
     // Screen installed engines before expensive accelerator compilation and sustained playback.
     // Pocket is intentionally early so a stopped campaign still compares the lightweight engines.
@@ -82,19 +95,43 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
             else -> 4
         }
     }
-    screeningOrder.forEach { base ->
-        val routes = when (base.engine) {
-            VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> listOf(VoiceSpeechBackend.CPU)
-            VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO -> listOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_CPU)
-            else -> base.backends
-        }
-        addCase(base, "quick synthesis screening", base.copy(backends = routes, mode = VoiceSpeechBenchmarkMode.QUICK))
+    val deferredPacks = setOf(VoiceSpeechBenchmarkEngine.POCKET_COMPILED, VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO_GPU, VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO_SM8750)
+    screeningOrder.filterNot { it.engine in deferredPacks }.forEach { base ->
+        addCase(base, "quick synthesis screening", base.copy(backends = screeningRoutes(base), mode = VoiceSpeechBenchmarkMode.QUICK))
     }
     KokoroModelVariant.entries.forEach { variant -> add(probe("Auto CPU thread calibration · ${variant.displayName}", VoiceBenchProbe.CPU_CALIBRATION).copy(variant = variant)) }
-    configs.forEach { addCase(it, "first audio and warm synthesis", it) }
-    SpeechLanguages.synthesis.forEach { add(probe("Speech, dictionary and word cues · ${it.tag}", VoiceBenchProbe.LANGUAGE, it.tag)) }
+    // Collect audible output, stop/recovery and speed coverage before any exhaustive native run.
+    // Keep scenarios as separate stages so cancellation and resume cannot strand every other engine.
+    val playbackOrder = configs.sortedBy { base ->
+        when (base.engine) {
+            VoiceSpeechBenchmarkEngine.POCKET -> 0
+            VoiceSpeechBenchmarkEngine.POCKET_MULTILINGUAL -> 1
+            VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO -> 2
+            VoiceSpeechBenchmarkEngine.POCKET_COMPILED -> 3
+            VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> 4
+            else -> 5
+        }
+    }
+    val essentialOrder = playbackOrder.filterNot { it.engine in deferredPacks }
+    for (scenario in listOf(VoiceSpeechPlaybackScenario.COLD_START, VoiceSpeechPlaybackScenario.CANCELLATION)) {
+        essentialOrder.forEach { base ->
+            addCase(base, "quick ${scenario.label.lowercase()} screening", base.copy(backends = screeningRoutes(base), mode = VoiceSpeechBenchmarkMode.QUICK, playback = listOf(scenario)))
+        }
+    }
+    essentialOrder.forEach { base ->
+        addCase(base, "quick current rate and caption calibration", base.copy(backends = screeningRoutes(base), mode = VoiceSpeechBenchmarkMode.QUICK, rate = selection, playback = listOf(VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS), calibration = VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS))
+    }
+    for (playbackRate in listOf(.75f, 1.25f, 1.5f, 2f)) {
+        essentialOrder.forEach { base ->
+            addCase(base, "quick $playbackRate× streaming playback", base.copy(backends = screeningRoutes(base), mode = VoiceSpeechBenchmarkMode.QUICK, rate = playbackRate, playback = listOf(VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS)))
+        }
+    }
+    screeningOrder.filter { it.engine in deferredPacks }.forEach { base ->
+        addCase(base, "quick synthesis screening", base.copy(mode = VoiceSpeechBenchmarkMode.QUICK))
+    }
+    playbackOrder.forEach { addCase(it, "first audio and warm synthesis", it) }
     val scenarios = VoiceSpeechPlaybackScenario.entries - VoiceSpeechPlaybackScenario.SUSTAINED
-    configs.forEach { base ->
+    playbackOrder.forEach { base ->
         addCase(base, "playback, captions and interruption", base.copy(playback = scenarios))
         addCase(base, "current rate and caption calibration", base.copy(rate = selection, playback = listOf(VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS), calibration = VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS))
         listOf(.75f, 1.25f, 1.5f, 2f).forEach { rate ->
@@ -105,7 +142,13 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
                 addCase(base, "voice $id · PCM readiness", base.copy(mode = VoiceSpeechBenchmarkMode.QUICK, selectedVoiceId = id))
             }
         }
+        if (base.engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED) {
+            PocketCompiledSpeechCatalog.VOICES.forEach { id ->
+                addCase(base, "voice $id · PCM readiness", base.copy(mode = VoiceSpeechBenchmarkMode.QUICK, selectedVoiceId = id))
+            }
+        }
     }
+    SpeechLanguages.synthesis.forEach { add(probe("Speech, dictionary and word cues · ${it.tag}", VoiceBenchProbe.LANGUAGE, it.tag)) }
     configs.forEach { base ->
         VoiceSpeechBenchmarkWorkload.entries.filterNot { it == base.workload }.forEach { workload ->
             addCase(base, workload.label, base.copy(workload = workload))
@@ -120,7 +163,7 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
         } else {
             val buckets = if (base.engine?.mediaPipeEngine()?.isKokoro == true) MediaPipeKokoroBucket.entries else listOf(MediaPipeKokoroBucket.AUTO)
             for (bucket in buckets) {
-                for (streamed in listOf(false, true)) {
+                for (streamed in if (base.engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED) listOf(false) else listOf(false, true)) {
                     if (bucket == base.bucket && streamed == base.incremental) continue
                     val input = if (streamed) "streamed input" else "sealed input"
                     addCase(base, "${bucket.label} · $input", base.copy(bucket = bucket, incremental = streamed))
@@ -144,6 +187,17 @@ internal data class VoiceBenchMetric(val label: String, val value: Double, val u
 internal data class VoiceBenchResult(val label: String, val status: VoiceBenchStatus = VoiceBenchStatus.PENDING, val reason: String? = null, val measurements: Int = 0, val metrics: List<VoiceBenchMetric> = emptyList(), val recommendedRoute: String? = null, val measuredLatencyCandidate: String? = null)
 
 @Serializable
+internal data class VoiceBenchCoverage(
+    val plannedStages: Int,
+    val statusCounts: Map<String, Int>,
+    val stagesWithMeasurements: Int,
+    val recordedMeasurements: Int,
+    val unavailableReasonCounts: Map<String, Int>,
+    val measurementScope: String = "OBSERVATIONS_NOT_PASSED_TESTS_OR_QUALIFIED_ENGINES",
+    val completionScope: String = "TERMINAL_STAGE_INCLUDES_UNAVAILABLE_FAILED_AND_INTERRUPTED"
+)
+
+@Serializable
 internal data class VoiceBenchManifest(
     val schemaVersion: Int = 1,
     val runId: String,
@@ -163,6 +217,14 @@ internal data class VoiceBenchManifest(
 ) {
     val completed: Int get() = results.count { it.status !in setOf(VoiceBenchStatus.PENDING, VoiceBenchStatus.RUNNING) }
     val hasUnfinishedStages: Boolean get() = results.any { it.status in setOf(VoiceBenchStatus.PENDING, VoiceBenchStatus.RUNNING, VoiceBenchStatus.INTERRUPTED) }
+
+    fun coverage() = VoiceBenchCoverage(
+        results.size,
+        VoiceBenchStatus.entries.associate { status -> status.name to results.count { it.status == status } },
+        results.count { it.measurements > 0 },
+        results.sumOf { it.measurements },
+        results.filter { it.status == VoiceBenchStatus.UNAVAILABLE }.groupingBy { it.reason ?: "REASON_NOT_RECORDED" }.eachCount()
+    )
 
     fun canContinue(signature: String, build: Int, commit: String, api: Int, rows: List<VoiceBenchResult>): Boolean =
         state in setOf("CANCELLED", "INTERRUPTED", "THERMAL_LIMIT") &&
@@ -189,11 +251,18 @@ internal data class VoiceBenchManifest(
 
 internal fun VoiceSpeechBenchmarkReport.suiteResult(label: String): VoiceBenchResult {
     val states = results.map { it.state } + engineResults.map { it.state }
+    val playbackObserved = playbackResults.any { it.state == VoiceSpeechPlaybackState.COMPLETE && it.chunks > 0 || it.quality == VoiceSpeechPlaybackQuality.CANCELLATION_VALIDATED }
+    val playbackIncomplete = configuration.playback &&
+        playbackResults.any {
+            it.quality !in setOf(VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED, VoiceSpeechPlaybackQuality.STREAMING_PLAYBACK_OBSERVED, VoiceSpeechPlaybackQuality.CANCELLATION_VALIDATED)
+        }
     val status = when {
         state in setOf(VoiceSpeechBenchmarkRunState.CANCELLED, VoiceSpeechBenchmarkRunState.INTERRUPTED) -> VoiceBenchStatus.INTERRUPTED
         issue == VoiceSpeechBenchmarkIssue.MODEL_UNAVAILABLE || states.isNotEmpty() && states.all { it == VoiceSpeechBenchmarkBackendState.UNSUPPORTED } -> VoiceBenchStatus.UNAVAILABLE
+        configuration.playback && playbackResults.isNotEmpty() && playbackResults.all { it.state == VoiceSpeechPlaybackState.UNSUPPORTED } -> VoiceBenchStatus.UNAVAILABLE
+        configuration.playback && !playbackObserved -> VoiceBenchStatus.FAILED
         issue != null && completedSamples == 0 -> VoiceBenchStatus.FAILED
-        issue != null || states.distinct().size > 1 || VoiceSpeechBenchmarkBackendState.PARTIAL in states -> VoiceBenchStatus.PARTIAL
+        issue != null || playbackIncomplete || states.distinct().size > 1 || VoiceSpeechBenchmarkBackendState.PARTIAL in states -> VoiceBenchStatus.PARTIAL
         state == VoiceSpeechBenchmarkRunState.COMPLETE && completedSamples > 0 && states.all { it == VoiceSpeechBenchmarkBackendState.COMPLETE } -> VoiceBenchStatus.MEASURED
         else -> VoiceBenchStatus.FAILED
     }
@@ -207,5 +276,12 @@ internal fun VoiceSpeechBenchmarkReport.suiteResult(label: String): VoiceBenchRe
         val kind = if (configuration.playback) "cold first presented audio" else "warm short phrase to first PCM"
         VoiceBenchMetric("${backend.label} · $kind", median, "ms", times.size)
     }
-    return VoiceBenchResult(label, status, issue?.name ?: outcome.name, completedSamples, summary, recommendation()?.label, measuredStreamingCandidate()?.label)
+    val reason = issue?.name ?: when {
+        status == VoiceBenchStatus.INTERRUPTED -> outcome.name
+        configuration.playback && status == VoiceBenchStatus.UNAVAILABLE -> "PLAYBACK_BACKEND_UNAVAILABLE"
+        configuration.playback && !playbackObserved -> "NO_SUCCESSFUL_PLAYBACK_OBSERVATIONS"
+        playbackIncomplete -> "PLAYBACK_QUALITY_INCOMPLETE"
+        else -> outcome.name
+    }
+    return VoiceBenchResult(label, status, reason, completedSamples, summary, recommendation()?.label, measuredStreamingCandidate()?.label)
 }

@@ -42,6 +42,7 @@ internal data class MediaPipeSpeechModel(
 internal object MediaPipeSpeechCatalog {
     const val RUNTIME_VERSION = "1.2.3"
     const val RUNTIME_ID = "mediapipe-tasks-audio-$RUNTIME_VERSION"
+    val DEFAULT_ENGINE = MediaPipeSpeechEngine.POCKET
 
     val models: List<MediaPipeSpeechModel> = listOf(
         MediaPipeSpeechModel(

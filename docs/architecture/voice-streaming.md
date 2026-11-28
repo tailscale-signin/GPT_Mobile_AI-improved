@@ -1,9 +1,10 @@
 # Voice streaming and preparation
 
-Voice Mode starts with **Kokoro LiteRT streaming · CPU (default)** at **1×**.
-Saved engine and rate choices take precedence. The same LiteRT text normalization,
-pronunciation dictionaries and voice IDs serve the CPU, GPU and NPU streaming
-routes. Reply speech and microphone recognition have independent language settings.
+Voice Mode starts with **Pocket streaming · English CPU (default)** at **1×**.
+Saved engine and rate choices take precedence. Each engine keeps its own voice,
+language and model identity. The experimental Pocket GPU and NPU choices use a
+separate compiled English pack; the MediaPipe Pocket packs remain CPU-only.
+Reply speech and microphone recognition have independent language settings.
 
 ## Voice turn ownership and timing
 
@@ -22,6 +23,7 @@ routes. Reply speech and microphone recognition have independent language settin
 | --- | --- | --- |
 | On-device transcription | Moonshine Voice 0.1.6 | Production recognizer and decoder compile against the published Android API. The Android lifecycle tests cover permission changes, route recovery and late callbacks. |
 | Streaming Kokoro, Phonon and Pocket | MediaPipe Tasks Audio 1.2.3 | This SDK includes its own Android speech runtime. LiteRT-LM supplies the separate chat model path. |
+| Compiled Pocket GPU/NPU | LiteRT CompiledModel 2.4.1 | Separate pinned English graphs; the language model and vocoder request the selected accelerator and the decoder transformer uses CPU. Requested placement is not observed processor execution. |
 | Native Android Kokoro | sherpa-onnx 2.0.3 and static ONNX Runtime 1.31.0 | The timing patch, model identity and compiled-context cache are versioned together. Both Android ABIs link against the pinned static archives. |
 | Qualcomm speech execution | QNN execution provider 2.8.0 with QAIRT 2.52.0 | Native code, the provider and its DSP libraries must be qualified together. |
 | Gateway CUDA speech | ONNX Runtime GPU 1.32.0 | The isolated Python environment uses platform-specific, hash-checked wheels. Readiness requires observed CUDA kernel execution during warm-up. |
@@ -29,11 +31,13 @@ routes. Reply speech and microphone recognition have independent language settin
 
 ## Model installation and voice selection
 
-The first visit queues Moonshine recognition, the standard LiteRT Kokoro pack and
+The first visit queues Moonshine recognition, the English Pocket CPU pack and
 the selected native Kokoro pack through the Android background installer. Setup
 shows combined progress, reuses verified installations and supports cancellation
 and manual resume. A new installation selects original FP32 for the native pack.
-Phonon and Pocket are available separately.
+LiteRT Kokoro, Phonon, multilingual Pocket and compiled Pocket accelerator packs
+are available separately. Changing the default does not overwrite a saved engine
+or restart a previously cancelled first-launch installation.
 
 When standard Kokoro is missing, setup can begin its transfer while checking the
 native pack. Native archive installation carries verified file digests through
@@ -44,7 +48,7 @@ pinned GPU pack takes 4,498 output blocks and the SM8750 pack takes 4,511.
 
 | LiteRT Kokoro route | Model on the phone | Installation |
 | --- | --- | --- |
-| CPU, GPU requested, NPU requested | Shared 294,783,298-byte INT8/FP16 pack | Downloaded during initial Voice Mode setup. Switching among these three delegates reuses the pack. |
+| CPU, GPU requested, NPU requested | Shared 294,783,298-byte INT8/FP16 pack | Installed explicitly when selecting Kokoro. Switching among these three delegates reuses the pack. |
 | GPU-optimized vocoder | Publisher's 294,750,530-byte GPU pack | Prepare from standard Kokoro with the 80,198-byte patch included in the app. The full publisher download is also available. |
 | Snapdragon 8 Elite NPU vocoder | 295,602,498-byte pack compiled for SM8750 | Prepare from standard Kokoro with the 2,236,700-byte patch included in the app. A complete verified pack can also be imported. |
 

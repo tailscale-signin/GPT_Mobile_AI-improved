@@ -19,10 +19,19 @@ RUN_ID = "12345678-1234-4234-9234-123456789abc"
 SOURCE = "b" * 40
 
 
+def word_coverage(words=12):
+    return {
+        "measurement_scope": "SOURCE_WORD_SPANS_ONLY", "timing_provenance": "SDK_ESTIMATED",
+        "acoustic_alignment": "NOT_MEASURED", "expected_words": words, "covered_words": words,
+        "individually_timed_words": words, "grouped_word_spans": 0, "partial_word_spans": 0,
+        "provisional_word_spans": 0, "complete": True,
+    }
+
+
 def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU"):
     model = smoke.MODELS[engine]
     receipt = {
-        "schema": "mediapipe-android-jni-smoke-v2",
+        "schema": "mediapipe-android-jni-smoke-v3",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
         "engine": engine.upper().replace("-", "_"),
@@ -34,6 +43,8 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
         "requested_delegate": delegate,
         "sample_rate_hz": 24000,
         "utf8_estimated_cue_observed": True,
+        "caption_word_coverage": word_coverage(),
+        "recovered_caption_word_coverage": word_coverage(),
         "abis": abi,
         "frames": 72000,
         "recovered_frames": 72000,
@@ -57,6 +68,7 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
         receipt["french_preview"] = {
             "voice_id": "ff_siwis", "frames": 12000, "first_pcm_ms": 120, "rms": .1,
             "peak": .8, "clipped_samples": 0, "non_silent_samples": 11600,
+            "caption_word_coverage": word_coverage(8),
         }
         receipt["application_playback"] = {
             "requested_delegate": delegate, "kernel_placement": "unreported_by_task",
@@ -70,6 +82,7 @@ def native_receipt(engine="phonon", run_id=RUN_ID, abi="x86_64", delegate="CPU")
         receipt["french_preview"] = {
             "voice_id": "estelle", "frames": 12000, "first_pcm_ms": 120, "rms": .1,
             "peak": .8, "clipped_samples": 0, "non_silent_samples": 11600,
+            "caption_word_coverage": word_coverage(8),
         }
     return receipt
 
@@ -80,6 +93,7 @@ def incremental_receipt():
         "input_sha256": hashlib.sha256(smoke.FIXTURE.encode("utf-8")).hexdigest(),
         "text_delta_count": 2, "finish_input_calls": 1,
         "first_pcm_before_finish_input": True, "full_input_cues_observed": True,
+        "caption_word_coverage": word_coverage(),
         "stream_closed": True, "frames": 72000, "emitted_chunks": 3, "first_pcm_ms": 200,
     }
 
@@ -120,6 +134,38 @@ def fixture(directory, engine="phonon", source=SOURCE, abi="x86_64", delegate="C
 
 
 class MediaPipeAndroidReceiptTest(unittest.TestCase):
+    def test_first_and_last_cues_cannot_qualify_missing_middle_or_grouped_words(self):
+        receipt = native_receipt("pocket")
+        for key in ("caption_word_coverage", "recovered_caption_word_coverage"):
+            for changes in ({"individually_timed_words": 2, "covered_words": 2},
+                            {"grouped_word_spans": 1}, {"partial_word_spans": 1},
+                            {"provisional_word_spans": 1}, {"expected_words": 2},
+                            {"complete": False}, {"individually_timed_words": True}):
+                with self.subTest(key=key, changes=changes), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                    smoke.check_receipt(receipt | {key: receipt[key] | changes}, "pocket", RUN_ID)
+        for key in ("incremental_stream", "incremental_stream_after_cancellation"):
+            changed = receipt[key] | {"caption_word_coverage": word_coverage() | {"individually_timed_words": 2}}
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                smoke.check_receipt(receipt | {key: changed}, "pocket", RUN_ID)
+
+    def test_missing_word_coverage_and_acoustic_claims_fail_the_structural_smoke_gate(self):
+        receipt = native_receipt("pocket-multilingual")
+        smoke.check_receipt(receipt, "pocket-multilingual", RUN_ID)
+        with self.assertRaisesRegex(ValueError, "schema"):
+            smoke.check_receipt(receipt | {"schema": "mediapipe-android-jni-smoke-v2"}, "pocket-multilingual", RUN_ID)
+        for field, value in (("acoustic_alignment", "PERFECT"), ("timing_provenance", "ACOUSTIC_MEASURED"),
+                             ("measurement_scope", "ACOUSTIC_WORD_ALIGNMENT")):
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                smoke.check_receipt(receipt | {"caption_word_coverage": word_coverage() | {field: value}}, "pocket-multilingual", RUN_ID)
+        for field in word_coverage():
+            coverage = word_coverage()
+            del coverage[field]
+            with self.subTest(missing=field), self.assertRaisesRegex(ValueError, "Source word coverage"):
+                smoke.check_receipt(receipt | {"caption_word_coverage": coverage}, "pocket-multilingual", RUN_ID)
+        for coverage in (None, word_coverage(8) | {"individually_timed_words": 7}):
+            with self.subTest(french=coverage), self.assertRaises(ValueError):
+                smoke.check_receipt(receipt | {"french_preview": receipt["french_preview"] | {"caption_word_coverage": coverage}}, "pocket-multilingual", RUN_ID)
+
     def test_multilingual_requires_every_advertised_voice_and_the_actual_french_voice(self):
         receipt = native_receipt("pocket-multilingual")
         smoke.check_receipt(receipt, "pocket-multilingual", RUN_ID)

@@ -89,6 +89,21 @@ class IssueReportingConfigurationTest(unittest.TestCase):
         readiness["reportDiagnosticFeatures"].append(feature)
         check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
 
+    def test_compiled_pocket_and_its_pack_require_more_than_legacy_streaming_support(self):
+        feature = "VOICE_POCKET_COMPILED_EVIDENCE_V1"
+        self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+        self.assertIn("VOICE_STREAMING_BACKEND_EVIDENCE_V1", readiness["reportDiagnosticFeatures"])
+        self.assertIn("VOICE_STREAMING_INSTALL_EVIDENCE_V1", readiness["reportDiagnosticFeatures"])
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append(feature)
+        body = json.dumps(readiness, separators=(",", ":")).encode()
+        self.assertLessEqual(len(body), MAX_READINESS_BYTES)
+        check_readiness("https://reports.project.org", lambda _: body)
+
     def test_native_route_supports_builds_without_an_invented_service(self):
         self.assertEqual({"nativeGitHub": True, "reportingService": False}, validate("", "true"))
 

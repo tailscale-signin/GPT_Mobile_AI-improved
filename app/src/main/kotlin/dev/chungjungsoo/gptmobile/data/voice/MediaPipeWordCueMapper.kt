@@ -47,13 +47,10 @@ internal class MediaPipeWordCueMapper(
                     corrections.remove(start)
                     continue
                 }
-                val before = published.lowerEntry(start)?.value?.endFrame ?: retiredEndFrame
-                val followingPublished = published.higherEntry(start)?.value
-                val following = followingPublished ?: pending.higherEntry(start)?.value
-                if (startFrame < before || following != null && endFrame > following.startFrame) continue
-                // A heard end cannot be pulled backwards. Until a following finalized
-                // word is published, retain the bound for future first-publication cues.
-                if (followingPublished == null && endFrame < previous.endFrame) continue
+                // PCM production is ahead of presentation. A shorter final-word estimate
+                // must reach the caption queue, which owns the actual heard-word watermark.
+                // Updating lastEndFrame below also keeps a corrected tail from hiding the
+                // next word when its SDK timestamp arrives in a later packet.
                 if (previous.revision == Int.MAX_VALUE) continue
                 corrections[start] = next.copy(revision = previous.revision + 1)
                 continue
@@ -65,27 +62,38 @@ internal class MediaPipeWordCueMapper(
                 if (end == open.endByte && startFrame == open.startFrame && endFrame >= open.endFrame) pending[start] = next
                 continue
             }
-            if (start < (open?.endByte ?: lastEndByte) || startFrame < lastEndFrame) continue
+            if (start < (open?.endByte ?: lastEndByte)) continue
             val queued = pending[start]
             if (queued != null && queued.endByte != end) continue
             if (queued == null && pending.size + emittedCount >= cueLimit) continue
+            // Frame order is checked after this packet's corrections are applied: a
+            // shortened preceding estimate may release this newly reported word.
             // Repeated SDK packets may improve a word which is still ahead of PCM.
             pending[start] = next
         }
         val ready = mutableListOf<VoiceWordCue>()
-        val revised = corrections.entries.iterator()
-        while (revised.hasNext()) {
-            val correction = revised.next().value
-            if (correction.endFrame > availableFrames) continue
-            val before = published.lowerEntry(correction.startByte)?.value?.endFrame ?: retiredEndFrame
-            val following = published.higherEntry(correction.startByte)?.value ?: pending.higherEntry(correction.startByte)?.value
-            if (correction.startFrame >= before && (following == null || correction.endFrame <= following.startFrame)) {
-                published[correction.startByte] = correction
-                if (correction.endByte == lastEndByte) lastEndFrame = correction.endFrame
-                ready += correction
+        // Adjacent estimates can move a shared boundary in either direction. Stage
+        // the whole packet, then publish each correction only when its neighbours
+        // permit it. Revisit blocked peers after a neighbour moves; consumers see
+        // valid, non-overlapping intervals at every step, without losing a revision.
+        var revisedAny: Boolean
+        do {
+            revisedAny = false
+            val revised = corrections.entries.iterator()
+            while (revised.hasNext()) {
+                val correction = revised.next().value
+                if (correction.endFrame > availableFrames) continue
+                val before = published.lowerEntry(correction.startByte)?.value?.endFrame ?: retiredEndFrame
+                val following = published.higherEntry(correction.startByte)?.value ?: pending.higherEntry(correction.startByte)?.value
+                if (correction.startFrame >= before && (following == null || correction.endFrame <= following.startFrame)) {
+                    published[correction.startByte] = correction
+                    if (correction.endByte == lastEndByte) lastEndFrame = correction.endFrame
+                    ready += correction
+                    revised.remove()
+                    revisedAny = true
+                }
             }
-            revised.remove()
-        }
+        } while (revisedAny && corrections.isNotEmpty())
         val entries = pending.entries.iterator()
         while (entries.hasNext()) {
             val cue = entries.next().value

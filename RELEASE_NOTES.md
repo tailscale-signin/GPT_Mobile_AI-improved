@@ -1,5 +1,16 @@
 # Android 0.9.66.19 — GitHub intelligence, voice and Windows Gateway
 
+## Pocket default and benchmark follow-up
+
+- Use English Pocket streaming CPU by default and in first-launch setup while preserving explicit saved engines and cancelled installations.
+- Add separate pinned English Pocket GPU/NPU graph packs, LiteRT CompiledModel streaming, per-pack voice controls and exact benchmark identity with requested hardware kept separate from observed execution.
+- Run essential Pocket/LiteRT playback, interruption recovery and speed trials before long native and language sweeps; export explicit coverage and measurement scopes.
+- Recover one timed-out Android language support probe with a fresh on-device client inside the existing deadline; preserve unavailable reasons and late-callback fencing.
+- Measure detected speech end to presented answer audio once per accepted captured turn, excluding replay and acknowledgment cues and preserving diagnostics privacy.
+- Retain typed size limits and compact diagnostic summaries for oversized checkpoints, preserve resumable capacity deferrals, and correct stale CI assertions while preserving failure and receipt checks.
+- Keep Pocket captions synchronized through word-end corrections, speech-rate changes, trimmed pauses and updated playback clocks. Require complete lexical cue coverage in native smoke checks.
+- Add local final-audio caption alignment for compiled Pocket GPU/NPU with an explicitly installed caption pack, bounded short-phrase buffering and separate alignment provenance. Unmatched words remain untimed instead of receiving invented durations.
+
 Android build **153** and Windows Gateway **18.1.6** use the Gateway 18 contract.
 
 This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 for the intelligence upgrade in PR #2651. PR #2646 requested the earlier versions from main commit `6435462ac6f306d63b720205a9f2aafc33de1e4d`. This release keeps its sixteen build-151 runtime repairs and adds the changes listed below.
@@ -15,7 +26,7 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 - Explain Standard benchmark coverage, retain honest dispatch and validator provenance, redact endpoint addresses in friendly profile labels, and distinguish root incidents from affected cases.
 - Share GitHub account-repository discovery scope, prioritize exact tool names, and preserve typed diagnostic size limits and resumable capacity deferrals.
 - Voice benchmark campaigns prioritize quick engine comparisons, retain and resume compatible checkpoints, correctly record microphone and Moonshine probes, isolate recognition discovery per locale, and honor Auto CPU calibration without changing manual thread sweeps.
-- Native Kokoro rejects the benchmark-observed long all-minimum GPU duration pattern; compact HTP can retain four exact shapes under an OS-memory gate and a 2 GiB estimated retention ceiling, with pressure-driven eviction and versioned native receipts.
+- Native Kokoro rejects the benchmark-observed long all-minimum GPU duration pattern; compact HTP can retain five exact shapes with at least 4 GiB observed free memory and a 2 GiB estimated retention ceiling, with pressure-driven eviction and versioned native receipts.
 - Translate every voice utterance directly into the selected language, including questions and commands. Translation excludes conversation history, persona, tools and task controls; literal translated text cannot become a tool call or progress message.
 - Preserve voice pitch when changing streaming speech speed, map captions to the adjusted audio, and revise future estimated word timings without moving words already heard.
 - Expand pronunciation dictionaries with regional profiles, technical readings, a correction form, spoken-text previews and reviewed import/export.
@@ -104,8 +115,9 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Qualification and remaining limits
 
-- GPU duration rejection is a conservative fallback guard, not proof that the underlying driver/model precision defect is repaired. Four-shape HTP admission requires fresh physical-device performance and memory qualification; estimated residency is not a hard allocator limit.
-- Packaged Pocket and Phonon remain CPU-only; no compatible incremental GPU/NPU or smaller replacement runtime is implemented by this change.
+- Compiled Pocket GPU/NPU graphs have no native word timestamps. Caption-enabled playback uses local final-audio alignment with extra phrase startup delay; unmatched words remain untimed, and inferred timings do not establish perfect acoustic alignment.
+- GPU duration rejection is a conservative fallback guard, not proof that the underlying driver/model precision defect is repaired. Five-shape compact HTP admission requires fresh physical-device performance and memory qualification; estimated residency is not a hard allocator limit.
+- MediaPipe Pocket and Phonon packs remain CPU-only. Experimental compiled Pocket GPU/NPU uses a separate English graph pack; physical processor placement, audio quality and speed still require target-device qualification.
 - SDK caption timestamps remain estimates. Forced acoustic alignment, physical-device pitch/naturalness, translation faithfulness across providers, and output-route latency require independent device measurements.
 Publication requires successful validation of the final PR head, main revision and signed artifacts. The release workflow records source identity, checksums, signing/provenance evidence and publication receipts.
 

@@ -11,6 +11,66 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import smoke_mediapipe_speech as smoke
 
 
+class CaptionWordCoverageTest(unittest.TestCase):
+    def test_first_and_last_source_words_do_not_hide_missing_middle_words(self):
+        words = smoke.lexical_word_spans(smoke.FIXTURE)
+        self.assertEqual(12, len(words))
+        result = smoke.caption_word_coverage(smoke.FIXTURE, [words[0], words[-1]])
+        self.assertFalse(result["complete"])
+        self.assertEqual(2, result["individually_timed_words"])
+        self.assertTrue(smoke.caption_word_coverage(smoke.FIXTURE, words)["complete"])
+
+    def test_one_grouped_timestamp_cannot_qualify_individual_word_highlighting(self):
+        result = smoke.caption_word_coverage("one two three", [(0, 7), (8, 13)])
+        self.assertEqual(3, result["covered_words"])
+        self.assertEqual(1, result["individually_timed_words"])
+        self.assertEqual(1, result["grouped_word_spans"])
+        self.assertFalse(result["complete"])
+
+    def test_unicode_marks_apostrophes_numbers_and_punctuation_keep_exact_utf8_spans(self):
+        text = "“Café”, nai\u0308ve l’été 42 🙂"
+        words = smoke.lexical_word_spans(text)
+        encoded = text.encode("utf-8")
+        self.assertEqual(["Café", "nai\u0308ve", "l’été", "42"], [encoded[start:end].decode("utf-8") for start, end in words])
+        result = smoke.caption_word_coverage(text, words * 4)
+        self.assertEqual(4, result["expected_words"])
+        self.assertEqual(4, result["individually_timed_words"])
+        self.assertTrue(result["complete"])
+        self.assertEqual("SDK_ESTIMATED", result["timing_provenance"])
+        self.assertEqual("NOT_MEASURED", result["acoustic_alignment"])
+
+    def test_truncated_words_and_split_multibyte_codepoints_do_not_qualify(self):
+        result = smoke.caption_word_coverage("Café ready", [(0, 3), (6, 11)])
+        self.assertFalse(result["complete"])
+        self.assertEqual(1, result["partial_word_spans"])
+        with self.assertRaisesRegex(RuntimeError, "splits its UTF-8 source"):
+            smoke.caption_word_coverage("Café", [(0, 4)])
+
+    def test_consumer_retains_latest_sdk_revision_and_requires_every_fixed_fixture_word(self):
+        # The dedicated real-model smoke installs this pinned dependency; generic tooling jobs may not.
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("NumPy is installed by the speech smoke dependency set")
+        spans = smoke.lexical_word_spans(smoke.FIXTURE)
+        words = [SimpleNamespace(start_char=start, end_char=end, start_sec=index / 10, end_sec=(index + .9) / 10)
+                 for index, (start, end) in enumerate(spans)]
+        revised = SimpleNamespace(start_char=spans[0][0], end_char=spans[0][1], start_sec=0.0, end_sec=.06)
+
+        def chunks(timestamps):
+            yield SimpleNamespace(samples=np.full(24_000, .1, dtype=np.float32), sample_rate_hz=24_000, word_timestamps=timestamps, is_final=False)
+            yield SimpleNamespace(samples=np.full(24_000, .1, dtype=np.float32), sample_rate_hz=24_000, word_timestamps=[revised], is_final=True)
+
+        with patch.object(smoke, "input_chunks", return_value=chunks(words)):
+            result = smoke.consume(None, smoke.FIXTURE, np, include_word_cues=True, require_complete_words=True)
+        self.assertEqual(.06, result["word_cues"][0]["end_s"])
+        self.assertEqual(12, result["caption_word_coverage"]["individually_timed_words"])
+        self.assertTrue(result["full_input_cues_observed"])
+        with patch.object(smoke, "input_chunks", return_value=chunks([words[0], words[-1]])):
+            with self.assertRaisesRegex(RuntimeError, "Every lexical source word"):
+                smoke.consume(None, smoke.FIXTURE, np, require_complete_words=True)
+
+
 def chunk(*, final=False, frames=24):
     return SimpleNamespace(samples=SimpleNamespace(size=frames), is_final=final)
 

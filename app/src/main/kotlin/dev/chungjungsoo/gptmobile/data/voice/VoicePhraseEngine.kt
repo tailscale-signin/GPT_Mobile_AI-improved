@@ -9,8 +9,8 @@ internal data class VoicePhraseAudio(val samples: FloatArray, val durations: Lon
 
 internal const val VOICE_PCM_SAMPLE_RATE = 24_000
 
-/** Timing provenance is independent of the measured audio presentation clock. */
-enum class VoiceWordCueProvenance { NATIVE_DURATION, ESTIMATED }
+/** Timing provenance is independent of the measured presentation clock; ASR boundaries remain inferred. */
+enum class VoiceWordCueProvenance { NATIVE_DURATION, ESTIMATED, ASR_ALIGNMENT }
 
 /** UTF-8 byte offsets are end-exclusive in the exact stream input; frames are relative to that call. */
 internal data class VoiceWordCue(
@@ -77,6 +77,9 @@ internal interface VoicePhraseEngine : AutoCloseable {
 
     /** Selected only while the previous synthesis owner has retired. */
     fun selectVoice(voiceId: String): Unit = throw UnsupportedOperationException("This engine uses numeric speakers")
+
+    /** The synthesis owner enables optional audio-derived caption alignment for this playback only. */
+    fun setCaptionAlignmentEnabled(enabled: Boolean) = Unit
 
     /** Optional inference of a fixed public phrase. Discard PCM and keep reply evidence untouched. */
     fun warmFirstInference(speaker: Int, speed: Float): Boolean = false

@@ -85,12 +85,18 @@ internal class VoiceBenchmarkSuiteStore(private val root: File) {
         fun copy(file: File) = file.inputStream().buffered().use { it.copyTo(output) }
         put("{\"suite\":")
         put(json.encodeToString(manifest))
+        put(",\"coverage\":")
+        put(json.encodeToString(manifest.coverage()))
+        put(",\"liveSessionPerformanceWindow\":\"PREEXISTING_SNAPSHOT_ATTACHED_AT_CAMPAIGN_START_NOT_BENCHMARK_STAGE_TIMINGS\"")
+        put(",\"liveSessionPerformanceAttachedAtMillis\":${manifest.startedAtMillis}")
         put(",\"liveSessionPerformance\":")
         copy(File(folder, "performance.json"))
         put(",\"stageEvidence\":[")
         manifest.results.forEachIndexed { index, result ->
             if (index > 0) put(",")
-            put("{\"stageIndex\":$index,\"stageStatus\":\"${result.status.name}\",\"report\":")
+            put("{\"stageIndex\":$index,\"stageStatus\":\"${result.status.name}\",\"stageReason\":")
+            put(json.encodeToString(result.reason))
+            put(",\"report\":")
             val path = File(folder, "stage-$index.json")
             if (path.isFile) {
                 copy(path)

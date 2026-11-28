@@ -11,7 +11,6 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
-import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
@@ -62,7 +61,7 @@ internal data class VoicePreferences(
 internal data class VoiceModelStores(
     val moonshine: LocalVoiceModelStore,
     val kokoro: LocalVoiceModelStore,
-    val streamingKokoro: LocalVoiceModelStore,
+    val defaultStreaming: LocalVoiceModelStore,
     val kokoroVariant: KokoroModelVariant
 )
 
@@ -87,7 +86,7 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                 val directory = File(context.noBackupFilesDir, "voice-models")
                 val variants = KokoroModelVariant.entries.associateWith { KokoroModelPack.store(directory, variant = it) }
                 kokoroStores = variants
-                VoiceModelStores(LocalVoiceModelStore(directory), variants.getValue(selected), MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).localStore(directory), selected)
+                VoiceModelStores(LocalVoiceModelStore(directory), variants.getValue(selected), MediaPipeSpeechCatalog.model(MediaPipeSpeechCatalog.DEFAULT_ENGINE).localStore(directory), selected)
             }
             _modelStores.value = stores
             coroutineScope {
@@ -99,9 +98,9 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     }
 
     suspend fun onVoiceLaunch() {
-        val streaming = modelStores.filterNotNull().first().streamingKokoro
+        val streaming = modelStores.filterNotNull().first().defaultStreaming
         streaming.refresh(forceVerification = false)
-        // A missing standard pack already requires setup. Its download can start while
+        // A missing default pack already requires setup. Its download can start while
         // the installed native pack is still undergoing its first digest check.
         if (streaming.isInstalled()) refreshedNativeModels.await()
         val stores = modelStores.filterNotNull().first()

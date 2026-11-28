@@ -56,10 +56,16 @@ internal data class VoiceStreamingComparison(
     val eligibleForLatencyComparison: Boolean,
     val exclusions: List<String>,
     val quality: VoiceIndependentSpeechQuality?,
-    val outputRouteIdentity: String?
+    val outputRouteIdentity: String?,
+    val asrAlignmentTimingWords: Int? = null,
+    val captionAlignmentStatuses: Set<String> = emptySet()
 ) {
     val cueProvenance: String get() = when {
         nativeTimingWords == null || estimatedTimingWords == null -> "NOT_RECORDED_IN_BENCHMARK"
+        (asrAlignmentTimingWords ?: 0) > 0 && nativeTimingWords > 0 && estimatedTimingWords > 0 -> "MIXED_NATIVE_DURATION_ESTIMATED_AND_ASR_ALIGNMENT"
+        (asrAlignmentTimingWords ?: 0) > 0 && nativeTimingWords > 0 -> "MIXED_NATIVE_DURATION_AND_ASR_ALIGNMENT"
+        (asrAlignmentTimingWords ?: 0) > 0 && estimatedTimingWords > 0 -> "MIXED_ESTIMATED_AND_ASR_ALIGNMENT"
+        (asrAlignmentTimingWords ?: 0) > 0 -> "ASR_ALIGNMENT"
         nativeTimingWords > 0 && estimatedTimingWords > 0 -> "MIXED_NATIVE_DURATION_AND_ESTIMATED"
         estimatedTimingWords > 0 -> "ESTIMATED"
         nativeTimingWords > 0 -> "NATIVE_DURATION"
@@ -92,7 +98,13 @@ internal fun VoiceSpeechBenchmarkReport.streamingComparisons(): List<VoiceStream
         val observed = measured.sumOf { it.manifestWordsObserved ?: 0 }
         val coverage = (observed.toDouble() / expected).takeIf { expected > 0 && measured.all { it.manifestWordsExpected != null && it.manifestWordsObserved != null } }
         val underruns = measured.sumOf { it.activePlaybackUnderruns ?: 0 }.takeIf { measured.isNotEmpty() && measured.all { it.activePlaybackUnderruns != null } }
-        val hasTimingCounts = measured.isNotEmpty() && measured.all { it.captionNativeTimingWords != null && it.captionEstimatedTimingWords != null && it.captionTimingRevisions != null }
+        val hasTimingCounts = measured.isNotEmpty() &&
+            measured.all {
+                it.captionNativeTimingWords != null &&
+                    it.captionEstimatedTimingWords != null &&
+                    it.captionTimingRevisions != null &&
+                    it.captionNativeTimingWords + it.captionEstimatedTimingWords + (it.captionAsrAlignmentTimingWords ?: 0) > 0
+            }
         val quality = independentSpeechQuality.singleOrNull {
             it.backend == backend &&
                 it.modelSha256 == configuration.modelSha256 &&
@@ -160,7 +172,9 @@ internal fun VoiceSpeechBenchmarkReport.streamingComparisons(): List<VoiceStream
             measured.sumOf { it.captionNativeTimingWords ?: 0 }.takeIf { hasTimingCounts },
             measured.sumOf { it.captionEstimatedTimingWords ?: 0 }.takeIf { hasTimingCounts },
             measured.sumOf { it.captionTimingRevisions ?: 0 }.takeIf { hasTimingCounts },
-            exclusions.isEmpty(), exclusions, quality, outputRouteIdentity
+            exclusions.isEmpty(), exclusions, quality, outputRouteIdentity,
+            measured.sumOf { it.captionAsrAlignmentTimingWords ?: 0 }.takeIf { hasTimingCounts && measured.any { it.captionAsrAlignmentTimingWords != null } },
+            speech.flatMap { it.captionAlignmentStatuses }.toSet()
         )
     }
 }

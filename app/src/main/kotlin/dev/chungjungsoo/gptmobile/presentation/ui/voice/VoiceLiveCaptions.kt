@@ -157,7 +157,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
         }
 
         val scrolling = rememberScrollableState(::move)
-        LaunchedEffect(lines, target, active, speaking, animate, reader.following, returningToLive, timing?.playing, timing?.wordStartFrame, timing?.wordEndFrame) {
+        LaunchedEffect(lines, target, active, speaking, animate, reader.following, returningToLive, timing) {
             var now = withFrameNanos { it }
             if (previousLines !== lines) {
                 val current = motion.sample(now).position
@@ -174,6 +174,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
             motion.playing(playbackMoving, now)
             val wordMs = timing?.let { captionWordMotionDurationMs(it.wordStartFrame, it.wordEndFrame, it.frameAt(now), it.sampleRate) } ?: 320
             motion.retarget(reader.position(liveLine, lastLine), now, animate && reader.following, wordMs)
+            if (timing != null && reader.following && animate) motion.refreshClock(now, wordMs)
             val onset = timing?.let {
                 captionWordOnsetNanos(it.wordStartFrame, it.wordEndFrame, it.presentedFrame, it.bufferedEndFrame, it.sampleRate, it.observedAtNanos, now, it.playing)
             } ?: now
@@ -181,6 +182,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                 ?.let { (it.wordEndFrame - it.wordStartFrame) * 1_000_000_000L / it.sampleRate }
             highlights.playing(timing?.playing != false, now)
             highlights.update(active, onset, now, animate, wordNanos)
+            if (timing != null) highlights.refreshClock(active, onset, now)
             do {
                 frameNanos.longValue = now
                 drawnPosition.floatValue = motion.sample(now).position.coerceIn(0f, lastLine.toFloat())

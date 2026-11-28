@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-11-28T04:06:23+00:00",
+  "task": "Pocket diagnostic protocol, existing CI recovery and independent language/residency review",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "workingTreeHead": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+  "revisionScope": "Results describe uncommitted shared-tree sources. Hashes below are the receipt-time snapshot, not a claim of full Android validation or approval.",
+  "originalCi": {
+    "runId": 46100072167,
+    "jobId": 140840347580,
+    "artifactId": 15246218629,
+    "tests": 15498,
+    "failures": 3,
+    "skipped": 6
+  },
+  "ciRepairs": [
+    {
+      "test": "DiagnosticDatabaseSourceTest.oversizedVerificationUsesMatchingCompactEventAndOutputWithoutDroppingTheFailure",
+      "cause": "A valid oversized unretained string was classified as invalid JSON by the retained-token limit.",
+      "repair": "Stream-skip unretained values while preserving the source byte/depth/node bounds, retained-string limits, digest authentication and strict JSON syntax. The original database expectation remains unchanged."
+    },
+    {
+      "test": "GitHubVerifiedSessionTest.testingReportsKeepSavedReceiptsWhileBlockingMissingExecutableTools",
+      "cause": "The assertion still expected partial acceptance after production began reporting blocked task outcome with retained partial coverage.",
+      "repair": "Expect Task outcome: blocked; partial coverage retained; keep existing receipt, missing-tool and no-dispatch assertions."
+    },
+    {
+      "test": "ProtectedDiagnosticProjectionTest.capacityDeferralInsideStreamingReadRemainsResumableInsteadOfBecomingMissingSource",
+      "cause": "Assertion-enabled coroutine stack recovery copies the exception and preserves the original as its cause.",
+      "repair": "Accept direct exception or recovery cause identity while requiring the original message and preserving zeroization checks."
+    }
+  ],
+  "results": [
+    {
+      "id": "ci_projection_recovery",
+      "result": "PASS",
+      "testsPassed": 22,
+      "jvmAssertionsEnabled": true,
+      "scope": "Actual ProtectedDiagnosticProjection, payload, archival codec, redaction and frame sources; repository ProtectedDiagnosticProjectionTest, WorkspaceDiagnosticPayloadTest and FrameTimingWindowTest. Compile-only Room entity receiver signatures; no Room database or Android process.",
+      "harness": "../ci-diagnostic-host-tests.py",
+      "harnessSha256": "db80746e79d12483b7cef05d9844ba9031d93da477cbe4155923b2bb88055cfe",
+      "testLogSha256": "4c3ce3c8a274e3f756f7b28ca6f23c6123ecfe43d96db9db723eb3d2ef30c614",
+      "observedSummary": "OK (22 tests)",
+      "currentTreeVerification": false,
+      "supersededByRevision": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05"
+    },
+    {
+      "id": "ci_blocked_report",
+      "result": "PASS",
+      "testsPassed": 12,
+      "jvmAssertionsEnabled": true,
+      "scope": "Actual GitHubIntegrationReport and coverage helpers with retained checkpoint and explicit unrelated port boundaries. Includes exact test-all-functionality blocked headline and saved receipts; does not execute the full GitHubVerifiedSessionTest class.",
+      "harness": "../ci-report-host-tests/build.py",
+      "harnessSha256": "e6f7ddf1f0daf772f1f0ae461fd8245bdc24a9cf15cbf2ed4006d1f4f8e3bd55",
+      "testLogSha256": "093eabb8cdc4ba1e18e39f76e9487f4fa52688dc0ef3d349abfcd48e75b22e7e",
+      "observedSummary": "OK (12 tests)"
+    },
+    {
+      "id": "hosted_diagnostic_protocol",
+      "result": "PASS",
+      "testsPassed": 224,
+      "command": "python3 -m unittest authentication.test_incident_report_contract authentication.test_app scripts.tests.test_issue_reporting_configuration",
+      "observedSummary": "Ran 224 tests in 1.663s; OK",
+      "scope": "Actual Python parser, HTTP intake, readiness capability negotiation and configuration checker; closed Pocket values, unchanged approved bytes and rejection of fabricated effective providers."
+    },
+    {
+      "id": "kotlin_diagnostic_vocabulary",
+      "result": "PASS",
+      "testsPassed": 7,
+      "jvmAssertionsEnabled": true,
+      "scope": "Actual VoiceExecutionDiagnostics and all seven VoiceExecutionDiagnosticsTest cases; no Android diagnostic serializer/submission execution.",
+      "harness": "../pocket-diagnostics-host-tests.py",
+      "harnessSha256": "3ceffacfd947a14aa228dabd401e5b3dc3502ce9886adbc3aec8d66016d086f2",
+      "testLogSha256": "29da4c819819bc249e31a4f162aba5c45749648919774f19b078536bf19ad45a",
+      "observedSummary": "OK (7 tests)"
+    },
+    {
+      "id": "reply_language_choice",
+      "result": "PASS",
+      "testsPassed": 3,
+      "jvmAssertionsEnabled": true,
+      "scope": "Actual reply-language helper/settings block extracted from VoiceBackendViewModel, actual backend/language/voice catalogs and repository VoiceReplyLanguageSelectionTest. Compile-only unrelated factory/entity/asset boundaries; no Compose or ViewModel lifecycle.",
+      "harness": "../reply-language-review.py",
+      "harnessSha256": "4d0b40879d65fa3c14b674cfc85465bc0c5d6fd327c5e4ff4119a4f16b5716d9",
+      "testLogSha256": "c6d3f54e9a4bc33fc7485d8127cbe3cef26cc1e8a97e1aa9bd696146e2f83571",
+      "observedSummary": "OK (3 tests)"
+    },
+    {
+      "id": "model_residency",
+      "result": "PASS",
+      "testsPassed": 3,
+      "jvmAssertionsEnabled": true,
+      "scope": "Actual ModelKey extracted from KokoroVoiceOutput and factory interface with repository VoiceModelResidencyTest. Compiled Pocket thread changes invalidate residency, MediaPipe remains thread-independent, native Kokoro still matches lexicon and threads; no native engine opened.",
+      "harness": "../model-residency-review.py",
+      "harnessSha256": "a0e7e89df95db149f12e5d084d4e51735532b2a6fd1ca59af8538f55456701c2",
+      "testLogSha256": "6096223ae18439494c91648db5ec843836d37b5159e3a236e394da92287e7212",
+      "observedSummary": "OK (3 tests)"
+    }
+  ],
+  "sourceHashesAtReceipt": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjection.kt": "63cf6f2796bcab45d26f6424ac54949fe524f984f45034374e4a78668cd27bfa",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjectionTest.kt": "0058f76089b6f2be501680a2b0a753149654b6bf519e0fd3bdd4d7492228a1d0",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "6c3790c548584537f1735c869498d848906f8cfc5f85928624861994009d404c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt": "2b62287f16a0ceb8441932f10b410206dab2aedf5dccce2126a17af47ce7aa3a",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnosticsTest.kt": "6d39a1918dc492becca75fd221579414526d6269349efcd30360e2e99a1b94a2",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceReplyLanguageSelectionTest.kt": "085c5c977fa8fc3eec06d75f7dae47126090f0dd5f8ebe3a3b2500615fb87db6",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceModelResidencyTest.kt": "0fa5bd189cd35ca1bff72f5a56a2a251c5b5a873d6199f4b9fec5fe4cabb8259",
+    "authentication/incident_report_contract.py": "085722c188de656c19534828184b9f9258b7acb91d3a69c18776b118571e5a44",
+    "authentication/issue_report_app.py": "18f59f02b768f7cf0fe16b676fe800c284acc4d619c77e7553960bc68d8633b4",
+    "authentication/issue_report_diagnostics.py": "7e331bd719d0cd226488e68d448d57ebcb5acf3ba73dba34a54b474edfc4ac84",
+    "authentication/test_incident_report_contract.py": "023bd2a111e2f22be0468c1e148568f4fbc9dab45c38949cef565633078bc1ca",
+    "authentication/test_app.py": "27158a85ef08aedf7fafeec3da1778e4dcff87864508327d21ae87b1b6d7670c",
+    "scripts/check_issue_reporting_configuration.py": "e3999d4b89b1d9bb1c982604a14d74973dcbcf8fa1a6047531bf66bbd66e9fd5",
+    "scripts/tests/test_issue_reporting_configuration.py": "c0c59b511a17eca4d7622eb617d05a78efb25f4e649d6a7c920b8af7f96b61d9"
+  },
+  "testedExtractSha256": {
+    "replyLanguageHelpers": "efdb037bc5ac9785c84526de191d8e32e8029ff86cc89ee6425ae29690ece92e",
+    "modelKey": "dc6e8f08a052df4f0cd2593187f5843a8d6b140e8cc2ddf23e00e6ab665c0375",
+    "reportSourceManifest": "c738e4ee715beb9a7558f142c262d41f749f55f38c77dd330e7ef13eef678569"
+  },
+  "independentReview": [
+    "Default Pocket download selects the actual Pocket catalog; existing explicit backend and voice settings restore independently. First-launch handled/cancel state is retained.",
+    "Compiled Pocket reply language now exposes only its exact English synthesis profile and cannot rewrite native or MediaPipe voice preferences.",
+    "Compiled Pocket cleanup retains environment and leases when any graph/buffer/model retirement fails; all peers are attempted before quarantine.",
+    "Requested-only LiteRT compilation disables automatic CPU fallback. Accelerator requests are not observed processor evidence.",
+    "Capture-to-presented-answer timing keeps captured-turn and manual-replay generations separate; independent execution evidence belongs to the coverage owner."
+  ],
+  "notExecuted": [
+    "Full Gradle app compile/test: existing mandatory memory preflight could not establish the required 8960 MiB headroom; no bypass.",
+    "Full GitHubVerifiedSessionTest, DiagnosticDatabaseSourceTest, IssueReportDiagnosticsTest, IssueReportSubmissionTest and Android ViewModel/Compose/Robolectric integration.",
+    "Physical Pocket inference, tokenizer parity against native SentencePiece, accelerator kernel attribution, acoustic quality, device cancellation latency and APK native linking."
+  ],
+  "supersession": {
+    "reconciledHead": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+    "scope": "The earlier projection-specific repair and its 22-test source-slice result are superseded. They remain historical observations and are not current-head verification.",
+    "adoptedBehavior": "Remote implementation preserves the 64 KiB bound for all JSON scalar tokens, uses a typed limit to select the compact fallback, and propagates JavaHeapWorkDeferred.",
+    "notRerun": "The superseding projection implementation and test class were adopted during branch reconciliation; their current validation belongs to the integration owner and CI.",
+    "currentProjectionSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjection.kt": "1cbba5b345e9052fc470a2c84e737f7ff2e91499b402fbeb5120a724d257c7e4",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjectionTest.kt": "145e0bed29f5834396cc0a0a21f3492127b08eac0e2e0224c938165530f58f25"
+    }
+  },
+  "subsequentConcurrentGitHubChanges": {
+    "commit": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+    "scope": "Projection, GitHub session and report test sources advanced again. Preserve the original hashes and test observations as historical; current Android qualification is required in CI. The concurrent commit includes the same stronger blocked-headline assertion plus retained-evidence and stop-reason cases."
+  }
+}

@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-11-28T04:34:14.121026+00:00",
+  "workingTreeBaseCommit": "90865091851416a53e1c1c700300dad011bf92a5",
+  "implementationId": "moonshine-0.1.6-pocket-final-v1",
+  "scope": "Compiled Pocket GPU/NPU final short-phrase caption inference; default Pocket CPU keeps SDK timing",
+  "timingProvenance": "ASR_ALIGNMENT",
+  "forcedAlignment": false,
+  "calibratedWordConfidence": false,
+  "acousticAccuracyMeasured": false,
+  "androidNativeExecutionMeasured": false,
+  "hardwareQualified": false,
+  "policy": {
+    "maximumPhraseWords": 8,
+    "maximumPhraseCharacters": 128,
+    "maximumInputCharacters": 2048,
+    "maximumBufferedPcmFrames": 192000,
+    "pcmSampleRate": 24000,
+    "outputPacketFrames": 6000,
+    "requireCompleteTranscript": true,
+    "requireExactCanonicalTokenCorrespondence": true,
+    "analysisOnlyPadding": "ceil to 80 ms block plus one zero block; original playback PCM unchanged",
+    "unmatchedOrInvalidTiming": "no cues; audio preserved",
+    "missingPack": "PACK_UNAVAILABLE; direct unsplit delegate stream; no download",
+    "captionsDisabled": "direct delegate stream; no alignment inference"
+  },
+  "model": {
+    "revision": "tiny-streaming-en/quantized_26_08_21",
+    "mirrorRevision": "0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae",
+    "manifestFormat": "filename:bytes:sha256 newline, sorted by filename",
+    "sha256": "cb069e5b36a52ef17b15dbcf38689c038a3b75a2f0a399babd09eec70dc7b95d",
+    "totalBytes": 77748675,
+    "additionalBytesWithVerifiedRecognitionPack": 32515016,
+    "license": "MIT",
+    "assets": [
+      {
+        "name": "adapter.ort",
+        "bytes": 1319664,
+        "sha256": "22ecc949e146c49667fda28d102d4e30749a107dc88a396292aa8f277ef1347c",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/adapter.ort"
+      },
+      {
+        "name": "cross_kv.ort",
+        "bytes": 1287544,
+        "sha256": "143a36667b8d05fd9d04e8c337b7ee121f37ef299aea6b3d82bdb3d3401950b4",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/cross_kv.ort"
+      },
+      {
+        "name": "decoder_kv.ort",
+        "bytes": 32583720,
+        "sha256": "8852553f312adb6c9aa4d17418015049b30f412209ee569d336548c0044627de",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/decoder_kv.ort"
+      },
+      {
+        "name": "decoder_kv_with_attention.ort",
+        "bytes": 32515016,
+        "sha256": "c1b41adca4ef75ad8dfdfc71875b5d0ae9be959865a14498da01cbddab8c02b8",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/decoder_kv_with_attention.ort"
+      },
+      {
+        "name": "encoder.ort",
+        "bytes": 7675440,
+        "sha256": "a8414e1a5dedf9f2093d7680601dd8a9b0433e7020260eafe0e370ead91134ca",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/encoder.ort"
+      },
+      {
+        "name": "frontend.model.ort",
+        "bytes": 23344,
+        "sha256": "5121b561417b638afce0c6c31b760e37c93cf97f80d9b0031aad1fe7b6f25d61",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/frontend.model.ort"
+      },
+      {
+        "name": "frontend.weights.ort",
+        "bytes": 2093464,
+        "sha256": "217da24ac6f522ebf02da8ef288e77d1ac68d50d4a6821433182e4fbf4204bbd",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/frontend.weights.ort"
+      },
+      {
+        "name": "streaming_config.json",
+        "bytes": 509,
+        "sha256": "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/streaming_config.json"
+      },
+      {
+        "name": "tokenizer.bin",
+        "bytes": 249974,
+        "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d",
+        "url": "https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/0bf2f2e5aff22e6fbba4300b00a4e00bbc4f8aae/model/tiny-streaming-en/quantized_26_08_21/tokenizer.bin"
+      }
+    ]
+  },
+  "nativeBatchSmoke": {
+    "runtime": "moonshine-voice 0.1.6 Linux x86_64 C API",
+    "wheel": {
+      "filename": "moonshine_voice-0.1.6-py3-none-manylinux_2_34_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/54/47/20993e0676642cf05273b6b2fed13076a5b4028156c938dd86136bb71797/moonshine_voice-0.1.6-py3-none-manylinux_2_34_x86_64.whl",
+      "sha256": "04e438f393af3f963ac7988204f379d04a9c8949801595cab4bd68a7ceedf6c7"
+    },
+    "api": "moonshine_transcribe_without_streaming",
+    "modelArchitecture": "TINY_STREAMING",
+    "options": {
+      "word_timestamps": "true",
+      "use_speculative_decoding": "false",
+      "return_audio_data": "false",
+      "log_output_text": "false",
+      "identify_speakers": "false",
+      "vad_window_duration": "0.25",
+      "vad_max_segment_duration": "12"
+    },
+    "fixture": {
+      "source": "https://github.com/moonshine-ai/moonshine/blob/d8d8fa29d05ca67441a7719e70099f9f48917a93/test-assets/beckett.wav",
+      "sha256": "e5a26b3d29e5b0bc8dbd72c11d16a3808a4ec0ac45b21f12a27d2a2fe5c5ae61",
+      "originalAudioConvertedTo24kHz": "scipy.signal.resample_poly; int16 PCM converted to float32",
+      "phraseWindowsSeconds": [
+        [
+          0,
+          1.5
+        ],
+        [
+          1.5,
+          3.1
+        ],
+        [
+          3.1,
+          4.5
+        ],
+        [
+          4.5,
+          6.15
+        ],
+        [
+          6.15,
+          7.7
+        ],
+        [
+          7.7,
+          9.3
+        ]
+      ],
+      "phraseCount": 6,
+      "finalWordMatches": 12,
+      "finalExpectedWords": 12,
+      "callsIncludingUnpaddedControls": 12,
+      "allLinesFinal": true,
+      "allIntervalsInsideOriginalAudio": true,
+      "paddedAndUnpaddedWordOutputsIdentical": true,
+      "humanReferenceWordBoundariesAvailable": false
+    },
+    "hostPaddedCallMilliseconds": [
+      132.472,
+      140.402,
+      113.29,
+      130.394,
+      117.478,
+      126.908
+    ],
+    "androidPerformanceInference": "none",
+    "scriptSha256": "cb8cb210149d8967f514073f8725c7357b508b0d4bdf0fc76ce71f51dfe09cde",
+    "rawResultSha256": "579989ee1bbec50a7d7b4687efd71e413873fd4a9a0a8f76761c89764af15380"
+  },
+  "hostValidation": {
+    "observedAt": "2026-11-28T04:33:39.457060+00:00",
+    "scope": "isolated Kotlin current-source API compile and JUnit; not a full Android build",
+    "compileExitCode": 0,
+    "testExitCode": 0,
+    "testClasses": [
+      "PocketCaptionTimingTest",
+      "PocketCaptionModelStoreTest",
+      "PocketCaptionAlignerTest",
+      "PocketCaptionVoicePhraseEngineTest",
+      "PocketCompiledDecoderTest",
+      "PocketCompiledTokenizerTest",
+      "PocketCompiledVoicePhraseEngineTest"
+    ],
+    "sourceUnchangedDuringValidation": true,
+    "sourceSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngine.kt": "f06135a509acee1947811dbc5bc1f60391d2e36603a4f847433d36d98225a361",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStore.kt": "b777530d25bc950eb42a17d09926d36f566b4358218687a552baeffaeb5809ef",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionAligner.kt": "b3ee3439b95fc84a779dc15b3d8c613171e23523b9beee5f7c79dd366cbaae0c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTiming.kt": "335372f381d593f69020c1f668539a5989b1d70ff5b1d65ed312e3d4e70f3323",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechModelStore.kt": "834a9b725773e49bbc8359af4abf3359c5d64642664bd1e5f99606d001f22c92",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt": "557e169710ab0410c39eb69824a1b7da7d6524187acd9b31b0e5d20f0395f9d4",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSynthesizer.kt": "0e30265cec005dff0446e713a13ae856acc93770bb7ab94a4334c6fded90a7b6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt": "f967e6316fdce682ab55cbd1716636f06c1baa93eecaf49d5ce39cf8890ec1ed",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineFactory.kt": "3f5c30fb43b828ca3ea9d1e04dcb7d72f21c571b00736f5b50e46aa5fc001e8b",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoder.kt": "4e258ab645ea0fa0d7cfcf38dd62861a4deabdbb64783298a0728afbc28d6be0",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngine.kt": "95d7c5d4587bef8faf49df5879a8d6640b4b47ebe1573c8f1e34ffac35ea4e41",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt": "47809f3276df6fd587260e1ead271747dc57f5f7fd56cd5463caef7c7d9036bf",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt": "56b2d46ae9c8564abccce0f45cc5dff73d6bde560a5aa29fae378bc30f4a0d62",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt": "3c46ab18e4a5683466405b9b72b79616753e777d270653e4ccdb5e00b65410da",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt": "00d68c1a0c9f5414ce65986fe8a413d87c284fb125d0e4d972a854e942fd9da9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeEngineGate.kt": "272d6d0712a48410f818446146abd5c050839ad1ea6d75852dcdced8a87e47a7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": "6d70a6793e30936e51c9dbf0a422ec91ef10db2acbfab3a36ff7df6f123e5a6c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservation.kt": "92f03b7166e1d274392f0242758f5ead0841d044adb7c5afaa51d2556b05ff40",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessor.kt": "f927957c20105c6695ac20ffcb4d201c2b78dccdbef83357b7381564cbf9088f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTimelineTransform.kt": "ad221ac36a0b95c60bfe0e11862b25bf43a6da24574f71a85e81a773e9b06732",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeKokoroBucket.kt": "ee5d75d6b0c31211b2b60171b7bf595901f64d221a327763c760afe1df633866",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTimingTest.kt": "e88edc017b06f46d6687aefee3e67fbdb3d78471c248373acf818c06489dc8ef",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStoreTest.kt": "e51e91ad831bcc0d22356a5e0004065ea3640d80adbfa50c13fb0e1c656cee33",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionAlignerTest.kt": "c1172dbf4e2474fd98bc281cbd192851d1883d2fcda228d87781962d21751ad7",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngineTest.kt": "bb655d5301371898230d646a0343aed80fe63c597ff36d7484a29730270f3bb1",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoderTest.kt": "d42eaa32cf1580545c828054526fdcecba64bb002a6f8f2e350d15ca61583ee5",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt": "cddc4bdbb0bf73528450094fd9947316b5d5f05d20dda9e0a3c5869a288ae695",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineTest.kt": "555cba4dfe6a2b339238648a9334d0451b2644044135693464cb3474046f8b45"
+    },
+    "classpathArtifactsSha256": {
+      "/workspace/scratch/d6788699ebc6/pocket-research/moonshine.jar": "573286a599f606abce11eb81050eb849dd363b657548d12865d50f0779d8998b",
+      "/workspace/scratch/d6788699ebc6/pocket-research/litert-api-2.4.1.jar": "c3853a07330b1be8fb62ed880573e08567b827b764d714360d2e1c1c62249088",
+      "/workspace/scratch/0f34c62a99bc/voice-jvm/tests.jar": "56c42f6db35fe4ba642156a69c97330a8655391a197a911eed1a4e8719395117",
+      "/workspace/scratch/0f34c62a99bc/sdk-integration-jvm/tests.jar": "d76f9837909f02397f270579645ccd1e9fb9594968dba257e65f75ac36611458",
+      "/workspace/scratch/d6788699ebc6/pocket-research/host-tests/tests.jar": "c1354b8936a389258787bca382444675d19b93380594c823e7f9ba2a5dba7fb4"
+    },
+    "testsPassed": 28,
+    "newCaptionTestsPassed": 16,
+    "ktlint": "PASS for owned source/tests and PocketCompiledRuntime",
+    "fullAndroidBuild": "not run in this isolated harness",
+    "realSdkApiJars": [
+      "Moonshine Voice 0.1.6 classes.jar",
+      "LiteRT API 2.4.1 classes.jar"
+    ],
+    "nativeInferenceInJUnit": false,
+    "includesUpdatedCompiledFactoryAndGenieXGuard": true
+  },
+  "limitations": [
+    "Host native fixture validates the Linux API and model combination, not Android JNI execution or device latency.",
+    "Cross-attention word boundaries are inferred; no claim of perfect acoustic synchronization or calibrated confidence.",
+    "Recognition mismatches, unresolved numeric readings and invalid timing intentionally yield no word cues.",
+    "Short phrase final alignment increases startup delay and adds local inference; buffering is bounded and captions off bypass it."
+  ]
+}

@@ -202,6 +202,8 @@ internal class VoiceSpeechPlaybackBenchmark(
                     output.configureEngine(strictFactory)
                     output.configureThreads(configuration.threads)
                     output.configurePacing(VoicePauseDuration.NATURAL, VoicePerformanceMode.BALANCED)
+                    // This diagnostic fixture measures captions independently of the display preference.
+                    output.configureCaptionAlignment(true)
                     when (configuration.calibrationPolicy) {
                         VoiceSpeechCalibrationPolicy.CONTROLLED_ZERO -> output.configureFixedCaptionOffset(0)
                         VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS -> output.configureSavedRouteCaptionOffset(configuration.captionOffsetMs)

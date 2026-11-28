@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -204,5 +206,94 @@ class VoiceStreamingComparisonTest {
         assertEquals(1, row.captionTimingRevisions)
         val fresh = VoiceSpeechPlaybackMeasurement(cpu, 0).result(VoiceSpeechPlaybackState.COMPLETE, 0)
         assertNull(fresh.captionEstimatedTimingWords)
+        assertNull(fresh.captionAsrAlignmentTimingWords)
+    }
+
+    @Test fun asrAlignmentCountsStayDistinctAndDoNotQualifyIndependentAcousticAccuracy() {
+        val measurement = VoiceSpeechPlaybackMeasurement(gpu, 0)
+        repeat(3) { measurement.captionTimingObserved(0, 0..3, VoiceWordCueProvenance.ASR_ALIGNMENT) }
+        val measured = measurement.result(VoiceSpeechPlaybackState.COMPLETE, 0)
+        assertEquals(1, measured.captionAsrAlignmentTimingWords)
+        assertEquals(0, measured.captionNativeTimingWords)
+        assertEquals(0, measured.captionEstimatedTimingWords)
+        assertEquals(0, measured.captionTimingRevisions)
+
+        val original = report()
+        val aligned = original.copy(
+            playbackResults = original.playbackResults.map {
+                it.copy(captionEstimatedTimingWords = 0, captionAsrAlignmentTimingWords = it.captionEstimatedTimingWords)
+            }
+        )
+        val comparisons = aligned.streamingComparisons()
+        assertTrue(comparisons.all { it.cueProvenance == "ASR_ALIGNMENT" && checkNotNull(it.asrAlignmentTimingWords) > 0 })
+        assertTrue(comparisons.all { it.eligibleForLatencyComparison && !it.qualifiedForAutomaticSelection && it.independentQualityStatus == "NOT_MEASURED" })
+        val document = speechBenchmarkJson(aligned, local = true)
+        assertEquals(aligned, speechBenchmarkReportFromJson(document))
+        val exported = document.getValue("streamingComparisons").jsonArray.first().jsonObject
+        assertEquals(JsonPrimitive("ASR_ALIGNMENT"), exported["cueProvenance"])
+        assertEquals(JsonPrimitive("TEXT_BOUNDARIES_OBSERVED_NOT_ACOUSTIC_WORD_ACCURACY"), exported["captionCoverageScope"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), exported["independentQualityStatus"])
+        assertEquals(JsonPrimitive(false), exported["qualifiedForAutomaticSelection"])
+    }
+
+    @Test fun newAsrCountsPreserveLegacyReportsButRejectMissingOrImpossibleCounts() {
+        val original = report()
+        fun edited(report: VoiceSpeechBenchmarkReport, edit: (Map<String, kotlinx.serialization.json.JsonElement>) -> Map<String, kotlinx.serialization.json.JsonElement>): JsonObject {
+            val document = speechBenchmarkJson(report, local = true)
+            return JsonObject(document + ("playbackResults" to JsonArray(document.getValue("playbackResults").jsonArray.map { JsonObject(edit(it.jsonObject)) })))
+        }
+        val legacy = edited(original) { it - setOf("captionAsrAlignmentTimingWords", "captionAlignmentStatuses") }
+        assertEquals(original, speechBenchmarkReportFromJson(legacy))
+        assertTrue(original.streamingComparisons().all { it.asrAlignmentTimingWords == null && it.cueProvenance == "ESTIMATED" })
+        for (invalid in listOf(-1, VoiceSpeechCaptionManifest.MAX_WORDS + 1)) {
+            assertNull(speechBenchmarkReportFromJson(edited(original) { it + ("captionAsrAlignmentTimingWords" to JsonPrimitive(invalid)) }))
+        }
+        val aligned = original.copy(
+            playbackResults = original.playbackResults.map {
+                it.copy(captionEstimatedTimingWords = 0, captionAsrAlignmentTimingWords = it.captionEstimatedTimingWords)
+            }
+        )
+        assertNull(speechBenchmarkReportFromJson(edited(aligned) { it - "captionAsrAlignmentTimingWords" }))
+        assertNull(speechBenchmarkReportFromJson(edited(aligned) { it - "captionNativeTimingWords" }))
+        val absent = original.copy(playbackResults = original.playbackResults.map { it.copy(captionNativeTimingWords = 0, captionEstimatedTimingWords = 0) })
+        assertTrue(absent.streamingComparisons().all { !it.eligibleForLatencyComparison })
+    }
+
+    @Test fun mixedAsrAndSdkSourcesRemainVisibleRatherThanCollapsingIntoNativeTiming() {
+        val row = report().streamingComparisons().first()
+        assertEquals("MIXED_ESTIMATED_AND_ASR_ALIGNMENT", row.copy(asrAlignmentTimingWords = 1).cueProvenance)
+        assertEquals("MIXED_NATIVE_DURATION_AND_ASR_ALIGNMENT", row.copy(nativeTimingWords = 1, estimatedTimingWords = 0, asrAlignmentTimingWords = 1).cueProvenance)
+        assertEquals("MIXED_NATIVE_DURATION_ESTIMATED_AND_ASR_ALIGNMENT", row.copy(nativeTimingWords = 1, asrAlignmentTimingWords = 1).cueProvenance)
+    }
+
+    @Test fun captionPackFailuresAreBoundedObservedReasonsAndNeverInventedCueSuccess() {
+        val measurement = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.POCKET_GPU, 0)
+        fun observed(summary: String) = VoiceSpeechExecutionEvidence(
+            VoiceSpeechBackend.POCKET_GPU,
+            "litert-compiled-pocket-gpu-requested",
+            "a".repeat(64),
+            "fixture-runtime",
+            "fixture-device",
+            VoiceSpeechStage.READY,
+            observedAtMillis = 0,
+            discoverySummary = summary
+        )
+        for (summary in listOf("caption_status=PACK_UNAVAILABLE;caption_words=0", "caption_status=TEXT_MISMATCH", "caption_status=PACK_UNAVAILABLE")) {
+            measurement.pcmReady(10, 240, 24_000, observed(summary))
+        }
+        for (summary in listOf("caption_status=private transcript", "caption_status=ALIGNED;caption_status=DISABLED", "caption_status=ALIGNED;" + "a".repeat(512))) {
+            measurement.pcmReady(10, 240, 24_000, observed(summary))
+        }
+        val measured = measurement.result(VoiceSpeechPlaybackState.COMPLETE, 0)
+        assertEquals(setOf("PACK_UNAVAILABLE", "TEXT_MISMATCH"), measured.captionAlignmentStatuses)
+        assertNull(measured.captionAsrAlignmentTimingWords)
+        val original = report()
+        val missing = original.copy(
+            playbackResults = original.playbackResults.map {
+                it.copy(captionAlignmentStatuses = setOf("PACK_UNAVAILABLE"), captionNativeTimingWords = null, captionEstimatedTimingWords = null, captionTimingRevisions = null, manifestWordsObserved = 0, renderedManifestWords = 0)
+            }
+        )
+        assertTrue(missing.streamingComparisons().all { it.captionAlignmentStatuses == setOf("PACK_UNAVAILABLE") && !it.eligibleForLatencyComparison && !it.qualifiedForAutomaticSelection })
+        assertEquals(missing, speechBenchmarkReportFromJson(speechBenchmarkJson(missing, local = true)))
     }
 }

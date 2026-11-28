@@ -8,6 +8,7 @@ import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -75,6 +76,27 @@ class VoiceBenchmarkSuiteTest {
         assertTrue(screens.none { VoiceSpeechBackend.QNN_GPU in it.backends || VoiceSpeechBackend.QNN_HTP in it.backends })
     }
 
+    @Test fun installedStreamingEnginesGetPlaybackCancellationAndRatesBeforeExhaustiveNativeOrLanguageWork() {
+        val firstExhaustive = stages.indexOfFirst {
+            it.label.endsWith("first audio and warm synthesis") || it.probe == VoiceBenchProbe.LANGUAGE
+        }
+        val early = stages.take(firstExhaustive)
+        for (engine in listOf(VoiceSpeechBenchmarkEngine.POCKET, VoiceSpeechBenchmarkEngine.POCKET_MULTILINGUAL, VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO)) {
+            val playback = early.filter { it.engine == engine && it.playback.isNotEmpty() }
+            assertTrue(playback.any { it.playback == listOf(VoiceSpeechPlaybackScenario.COLD_START) })
+            assertTrue(playback.any { it.playback == listOf(VoiceSpeechPlaybackScenario.CANCELLATION) })
+            assertTrue(playback.filter { VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS in it.playback }.map { it.rate }.containsAll(listOf(.75f, 1.25f, 1.5f, 2f)))
+            assertTrue(playback.any { it.calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS })
+            assertTrue(playback.all { it.mode == VoiceSpeechBenchmarkMode.QUICK })
+        }
+        assertTrue(early.none { VoiceSpeechBackend.QNN_GPU in it.backends || VoiceSpeechBackend.QNN_HTP in it.backends })
+        val cancellation = early.filter { it.playback == listOf(VoiceSpeechPlaybackScenario.CANCELLATION) }
+        assertEquals(VoiceSpeechBenchmarkEngine.POCKET, cancellation.first().engine)
+        val pocketConfig = cancellation.first().configuration(KokoroVoice.HEART, "alba", 0, 0, 153, 36, "fixture", "a".repeat(40))
+        assertEquals(VoiceSpeechPlaybackProtocol.cancellationTargets(pocketConfig).toSet(), VoiceSpeechPlaybackProtocol.plans(pocketConfig).mapNotNull { it.cancellationTarget }.toSet())
+        assertTrue(VoiceSpeechPlaybackProtocol.plans(pocketConfig).any { it.recoveryAfter != null })
+    }
+
     @Test fun continuationPreservesCompletedEvidenceAndRetriesInterruptedStages() = runBlocking {
         val plan = stages.take(4)
         val rows = plan.map { VoiceBenchResult(it.label) }
@@ -125,6 +147,71 @@ class VoiceBenchmarkSuiteTest {
         assertEquals("NO_OBSERVATIONS", result.reason)
     }
 
+    @Test fun microphoneAndRecognitionOmissionsKeepTheirIdentityAndCannotAppearMeasured() {
+        for (probe in listOf(VoiceBenchProbe.MICROPHONE, VoiceBenchProbe.RECOGNITION)) {
+            val stage = stages.first { it.probe == probe }
+            val rows = voiceBenchProbeEvidence(stage, emptyList())
+            val summary = rows.summarize(stage.label)
+            assertEquals(VoiceBenchStatus.UNAVAILABLE, summary.status)
+            assertEquals("${probe.name}_NO_OBSERVATIONS", summary.reason)
+            assertEquals(0, summary.measurements)
+            assertTrue(requireNotNull(rows.single().measurementScope).contains("NOT_"))
+        }
+        val stage = stages.first { it.probe == VoiceBenchProbe.MICROPHONE }
+        val missing = voiceBenchProbeEvidence(stage, listOf(VoiceBenchObservation.unavailable("microphone", "MICROPHONE_PERMISSION_MISSING")))
+        assertEquals("MICROPHONE_PERMISSION_MISSING", missing.summarize(stage.label).reason)
+        val multiple = (missing + VoiceBenchObservation.unavailable("capture", "CAPTURE_INITIALIZATION_FAILED")).summarize(stage.label)
+        assertEquals("MULTIPLE_OBSERVATION_REASONS", multiple.reason)
+    }
+
+    @Test fun exportsCountMissingAndInterruptedCoverageWithoutCallingItPassed() {
+        val rows = listOf(
+            VoiceBenchResult("pcm", VoiceBenchStatus.MEASURED, measurements = 5),
+            VoiceBenchResult("capture", VoiceBenchStatus.UNAVAILABLE, "MICROPHONE_PERMISSION_MISSING"),
+            VoiceBenchResult("native", VoiceBenchStatus.INTERRUPTED, "CANCELLED", measurements = 2),
+            VoiceBenchResult("rates")
+        )
+        val initial = manifest(rows)
+        val store = VoiceBenchmarkSuiteStore(temp.newFolder())
+        store.begin(initial, VoicePerformanceSnapshot(), null)
+        store.evidence(initial.runId, 0) { it.write("{\"samples\":5}".toByteArray()) }
+        store.evidence(initial.runId, 2) { it.write("{\"samples\":2}".toByteArray()) }
+        val output = ByteArrayOutputStream()
+        store.export(initial.stopped("CANCELLED", 99), output)
+        val json = Json.parseToJsonElement(output.toString("UTF-8")).jsonObject
+        val coverage = json.getValue("coverage").jsonObject
+        assertEquals(4, coverage.getValue("plannedStages").jsonPrimitive.int)
+        assertEquals(2, coverage.getValue("stagesWithMeasurements").jsonPrimitive.int)
+        assertEquals(7, coverage.getValue("recordedMeasurements").jsonPrimitive.int)
+        assertEquals(1, coverage.getValue("statusCounts").jsonObject.getValue("INTERRUPTED").jsonPrimitive.int)
+        assertEquals(1, coverage.getValue("unavailableReasonCounts").jsonObject.getValue("MICROPHONE_PERMISSION_MISSING").jsonPrimitive.int)
+        assertEquals("OBSERVATIONS_NOT_PASSED_TESTS_OR_QUALIFIED_ENGINES", coverage.getValue("measurementScope").jsonPrimitive.content)
+        assertEquals("PREEXISTING_SNAPSHOT_ATTACHED_AT_CAMPAIGN_START_NOT_BENCHMARK_STAGE_TIMINGS", json.getValue("liveSessionPerformanceWindow").jsonPrimitive.content)
+        assertEquals("MICROPHONE_PERMISSION_MISSING", json.getValue("stageEvidence").jsonArray[1].jsonObject.getValue("stageReason").jsonPrimitive.content)
+        assertEquals(JsonNull, json.getValue("stageEvidence").jsonArray[1].jsonObject["report"])
+    }
+
+    @Test fun playbackStageSummaryRetainsStallsAndFailuresWithoutPromotingCompletedEngineState() {
+        val stage = stages.first { it.engine == VoiceSpeechBenchmarkEngine.POCKET && it.playback == listOf(VoiceSpeechPlaybackScenario.COLD_START) }
+        val config = stage.configuration(KokoroVoice.HEART, "alba", 0, 0, 153, 36, "fixture", "a".repeat(40))
+        val sample = VoiceSpeechPlaybackResult(
+            VoiceSpeechBackend.POCKET_CPU, VoiceSpeechPlaybackState.COMPLETE, firstPresentedAudioMs = 300, totalAudioMs = 1_000, chunks = 1,
+            protocolVersion = VoiceSpeechPlaybackProtocol.VERSION, thermalBefore = 0, thermalAfter = 0, activePlaybackUnderruns = 0,
+            manifestWordsExpected = 1, manifestWordsPrepared = 1, manifestWordsObserved = 1, renderedManifestWords = 1, unexpectedCaptionWords = 0,
+            cleanupState = "RETIRED", requestedDelegate = "CPU", observedProviderStatus = "NOT_EXPOSED_BY_SDK", engineStreamCalls = 1, streamedAudioValidated = true
+        )
+        val report = VoiceSpeechBenchmarkReport(1, config, state = VoiceSpeechBenchmarkRunState.COMPLETE, engineResults = listOf(VoiceSpeechEngineBenchmarkResult(VoiceSpeechBackend.POCKET_CPU, VoiceSpeechBenchmarkBackendState.COMPLETE)), playbackResults = listOf(sample))
+        assertEquals(VoiceSpeechPlaybackQuality.STREAMING_PLAYBACK_OBSERVED, sample.quality)
+        assertEquals(VoiceBenchStatus.MEASURED, report.suiteResult(stage.label).status)
+        assertNull(report.suiteResult(stage.label).recommendedRoute)
+        val stalled = report.copy(playbackResults = listOf(sample.copy(bufferRestarts = 1))).suiteResult(stage.label)
+        assertEquals(VoiceBenchStatus.PARTIAL, stalled.status)
+        assertEquals("PLAYBACK_QUALITY_INCOMPLETE", stalled.reason)
+        val failed = report.copy(playbackResults = listOf(sample.copy(state = VoiceSpeechPlaybackState.FAILED, chunks = 0))).suiteResult(stage.label)
+        assertEquals(VoiceBenchStatus.FAILED, failed.status)
+        assertEquals("NO_SUCCESSFUL_PLAYBACK_OBSERVATIONS", failed.reason)
+    }
+
     @Test fun deviceThreadLimitsAndInvalidRatesCannotCreateUnrunnableStages() {
         for (count in listOf(0, 1, 4, 32)) {
             val plan = fullVoiceBenchPlan(64, Float.NaN, count)
@@ -161,6 +248,23 @@ class VoiceBenchmarkSuiteTest {
                 assertEquals(MediaPipeSpeechVoices.ids(sdk).toSet(), part.mapNotNull { it.selectedVoiceId }.toSet())
             }
         }
+    }
+
+    @Test fun compiledPocketRetainsSeparateArtifactRuntimeVoicesAndActualInputContract() {
+        val compiled = stages.filter { it.engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED }
+        assertEquals(setOf(VoiceSpeechBackend.POCKET_GPU, VoiceSpeechBackend.POCKET_NPU), compiled.flatMap { it.backends }.toSet())
+        assertEquals(PocketCompiledSpeechCatalog.VOICES.toSet(), compiled.mapNotNull { it.selectedVoiceId }.toSet())
+        assertTrue(compiled.none { it.incremental || it.useCalibratedThreads })
+        val configuration = compiled.first { it.calibration == VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS }
+            .copy(threads = 16).configuration(KokoroVoice.HEART, "mary", 90, 0, 153, 36, "fixture", "a".repeat(40))
+        assertEquals(PocketCompiledSpeechCatalog.MODEL_SHA256, configuration.modelSha256)
+        assertEquals(PocketCompiledSpeechCatalog.RUNTIME_ID, configuration.runtimeId)
+        assertEquals("mary", configuration.engineVoiceId)
+        assertEquals(16, configuration.threads)
+        assertEquals("GPU", requestedSpeechDelegate(VoiceSpeechBackend.POCKET_GPU))
+        assertEquals("NPU", requestedSpeechDelegate(VoiceSpeechBackend.POCKET_NPU))
+        val pocketSpeed = stages.indexOfFirst { it.engine == VoiceSpeechBenchmarkEngine.POCKET && it.rate == 2f && it.playback.isNotEmpty() }
+        assertTrue(stages.indexOf(compiled.first()) > pocketSpeed)
     }
 
     @Test fun campaignRunsMeasuredCasesSeriallyAndExportsMoreThanTheFiveLegacyHistorySlots() = runBlocking {
@@ -252,6 +356,7 @@ class VoiceBenchmarkSuiteTest {
             val dictionary = voiceBenchDictionary(profile)
             assertEquals(profile.tag, VoiceBenchStatus.MEASURED, dictionary.status)
             assertEquals(dictionary.metrics["cases"], dictionary.metrics["correctMappings"])
+            assertEquals("TEXT_MAPPING_NOT_SPOKEN_PRONUNCIATION", dictionary.measurementScope)
         }
         assertTrue(voiceBenchDialogue().all { it.status == VoiceBenchStatus.MEASURED && it.metrics.getValue("plannedLookupDelayMs") < it.metrics.getValue("plannedThinkingDelayMs") })
     }

@@ -18,7 +18,6 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
-import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceCpuSchedulingPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
@@ -151,7 +150,7 @@ class VoicePreferenceStoreTest {
             install.onFirstVoiceLaunch(context, variant, installed = false)
             val job = requireNotNull(scheduler.getPendingJob(install.JOB_ID))
             assertEquals(variant.name, job.extras.getString(install.NATIVE_VARIANT))
-            assertEquals(LocalVoiceModelStore.TOTAL_BYTES + variant.downloadBytes + MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).downloadBytes, job.estimatedNetworkDownloadBytes)
+            assertEquals(LocalVoiceModelStore.TOTAL_BYTES + variant.downloadBytes + MediaPipeSpeechCatalog.model(MediaPipeSpeechCatalog.DEFAULT_ENGINE).downloadBytes, job.estimatedNetworkDownloadBytes)
             install.cancel(context)
             install.onFirstVoiceLaunch(context, variant, installed = false)
             assertNull(scheduler.getPendingJob(install.JOB_ID))

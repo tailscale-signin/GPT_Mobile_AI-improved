@@ -20,8 +20,13 @@ import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.PocketCaptionModelStore
+import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledSpeechCatalog
+import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledSpeechModelStore
+import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage
+import dev.chungjungsoo.gptmobile.data.voice.SpeechLanguages
 import dev.chungjungsoo.gptmobile.data.voice.SpeechVoiceEvidence
 import dev.chungjungsoo.gptmobile.data.voice.UnavailableVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
@@ -36,6 +41,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -54,7 +61,10 @@ internal data class VoiceBackendSettings(
     val streamingModels: Map<MediaPipeSpeechEngine, LocalVoiceModelState> = emptyMap(),
     val preparingNpuBase: Boolean = false,
     val npuBaseError: String? = null,
-    val streamingVoiceId: String? = null
+    val streamingVoiceId: String? = null,
+    val compiledPocketModel: LocalVoiceModelState? = null,
+    val pocketCaptionModel: LocalVoiceModelState? = null,
+    val removingCompiledPocket: Boolean = false
 )
 
 internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when (this) {
@@ -70,9 +80,37 @@ internal fun VoiceSpeechBackend.streamingEngine(): MediaPipeSpeechEngine? = when
 internal val VoiceSpeechBackend.usesKokoroVoices: Boolean get() = !isStreamingLocal || streamingEngine()?.isKokoro == true
 
 internal fun VoiceBackendSettings.synthesisProfile(synthesis: VoiceSynthesisPreferences): SpeechLanguage =
-    backend.streamingEngine()?.takeUnless { it.isKokoro }?.let { engine ->
-        MediaPipeSpeechVoices.profile(engine, MediaPipeSpeechVoices.selected(engine, streamingVoiceId))
-    } ?: synthesis.profile
+    if (backend.isCompiledPocket) {
+        SpeechLanguage("en-US", "Hello. This is your selected voice. I am ready when you are.", PocketCompiledSpeechCatalog.VOICES)
+    } else {
+        backend.streamingEngine()?.takeUnless { it.isKokoro }?.let { engine ->
+            MediaPipeSpeechVoices.profile(engine, MediaPipeSpeechVoices.selected(engine, streamingVoiceId))
+        } ?: synthesis.profile
+    }
+
+internal fun VoiceBackendSettings.replyLanguageProfiles(synthesis: VoiceSynthesisPreferences): List<SpeechLanguage> =
+    if (backend.isCompiledPocket) {
+        listOf(synthesisProfile(synthesis))
+    } else {
+        backend.streamingEngine()?.takeUnless { it.isKokoro }?.let(MediaPipeSpeechVoices::profiles) ?: SpeechLanguages.synthesis
+    }
+
+/** Language choices follow the active voice pack without rewriting another engine's saved voice. */
+internal fun VoiceBackendSettings.selectReplyLanguage(
+    tag: String,
+    synthesis: VoiceSynthesisPreferences,
+    selectStreamingVoice: (String) -> Unit,
+    selectSynthesis: (VoiceSynthesisPreferences) -> Unit
+) {
+    val profile = replyLanguageProfiles(synthesis).firstOrNull { it.tag == tag } ?: return
+    if (backend.isCompiledPocket) return
+    val streaming = backend.streamingEngine()?.takeUnless { it.isKokoro }
+    if (streaming != null) {
+        if (streamingVoiceId !in profile.voices) selectStreamingVoice(profile.voices.first())
+    } else {
+        selectSynthesis(synthesis.selectLanguage(profile.tag))
+    }
+}
 
 internal fun VoiceSynthesisPreferences.nativeVoice(previous: KokoroVoice?): KokoroVoice =
     KokoroVoice.fromStreamingId(voiceId) ?: previous ?: KokoroVoice.HEART
@@ -93,6 +131,8 @@ internal class VoiceBackendViewModel internal constructor(
     private val settings: SettingRepository,
     private val preferences: VoiceBackendPreferenceStore,
     private val io: CoroutineDispatcher,
+    private val createCompiledPocketStore: (Context) -> PocketCompiledSpeechModelStore = ::PocketCompiledSpeechModelStore,
+    private val createPocketCaptionStore: (Context) -> PocketCaptionModelStore = ::PocketCaptionModelStore,
     private val createStreamingStore: (Context, CoroutineScope) -> MediaPipeSpeechModelStore = ::MediaPipeSpeechModelStore
 ) : ViewModel() {
     @Inject constructor(
@@ -120,6 +160,10 @@ internal class VoiceBackendViewModel internal constructor(
     private var nativeModelVariant = KokoroModelVariant.INT8
     private val streamingStoreLock = Mutex()
     private var streamingStore: MediaPipeSpeechModelStore? = null
+    private var compiledPocketStore: PocketCompiledSpeechModelStore? = null
+    private var pocketCaptionStore: PocketCaptionModelStore? = null
+    private var compiledPocketInstall: Job? = null
+    private var compiledPocketRemoval: Job? = null
     private val streamingInstalls = mutableMapOf<MediaPipeSpeechEngine, Job>()
     private var npuBaseSource: HttpsVoiceAssetSource? = null
     private val refreshedStreamingModels = ConcurrentHashMap.newKeySet<MediaPipeSpeechEngine>()
@@ -167,6 +211,15 @@ internal class VoiceBackendViewModel internal constructor(
 
     fun selectStreamingVoice(voiceId: String) {
         if (!mutable.value.loaded) return
+        if (mutable.value.backend.isCompiledPocket) {
+            if (voiceId !in PocketCompiledSpeechCatalog.VOICES) return
+            val previous = saved?.value ?: return
+            if (previous.compiledPocketVoiceId == voiceId) return
+            preferences.save(previous.copy(compiledPocketVoiceId = voiceId))
+            saved = preferences.state.value
+            reconcile(force = true)
+            return
+        }
         val engine = mutable.value.backend.streamingEngine()?.takeUnless { it.isKokoro } ?: return
         if (MediaPipeSpeechVoices.profile(engine, voiceId) == null) return
         val previous = saved?.value ?: return
@@ -214,7 +267,41 @@ internal class VoiceBackendViewModel internal constructor(
         }
     }
 
+    private suspend fun compiledPocketModels(): PocketCompiledSpeechModelStore = streamingStoreLock.withLock {
+        compiledPocketStore ?: withContext(io) { createCompiledPocketStore(context) }.also { store ->
+            compiledPocketStore = store
+            viewModelScope.launch {
+                store.state.collect { model -> mutable.value = mutable.value.copy(compiledPocketModel = model) }
+            }
+            viewModelScope.launch { store.refresh() }
+        }
+    }
+
+    private suspend fun pocketCaptionModels(): PocketCaptionModelStore = streamingStoreLock.withLock {
+        pocketCaptionStore ?: withContext(io) { createPocketCaptionStore(context) }.also { store ->
+            pocketCaptionStore = store
+            viewModelScope.launch {
+                store.state.collect { model -> mutable.value = mutable.value.copy(pocketCaptionModel = model) }
+            }
+            viewModelScope.launch { store.refresh() }
+        }
+    }
+
     fun installStreamingModel() {
+        if (mutable.value.backend.isCompiledPocket) {
+            if (compiledPocketInstall?.isCompleted == false || compiledPocketRemoval?.isCompleted == false) return
+            compiledPocketInstall = viewModelScope.launch {
+                val speech = compiledPocketModels()
+                speech.install()
+                currentCoroutineContext().ensureActive()
+                if (speech.isReady()) {
+                    val captions = pocketCaptionModels()
+                    currentCoroutineContext().ensureActive()
+                    captions.install()
+                }
+            }
+            return
+        }
         val engine = mutable.value.backend.streamingEngine() ?: return
         if (streamingInstalls[engine]?.isCompleted == false) return
         streamingInstalls[engine] = viewModelScope.launch {
@@ -255,8 +342,14 @@ internal class VoiceBackendViewModel internal constructor(
     }
 
     fun cancelStreamingInstall() {
+        if (mutable.value.backend.isCompiledPocket) {
+            compiledPocketInstall?.cancel()
+            compiledPocketStore?.cancelInstall()
+            pocketCaptionStore?.cancelInstall()
+            return
+        }
         val engine = mutable.value.backend.streamingEngine() ?: return
-        if (engine == MediaPipeSpeechEngine.KOKORO) VoicePluginInstall.cancel(context)
+        if (engine == MediaPipeSpeechCatalog.DEFAULT_ENGINE) VoicePluginInstall.cancel(context)
         val prerequisite = npuBaseSource.takeIf { engine == MediaPipeSpeechEngine.KOKORO_SM8750 }
         streamingInstalls[engine]?.cancel()
         if (prerequisite != null) {
@@ -268,8 +361,27 @@ internal class VoiceBackendViewModel internal constructor(
 
     /** The caller retires playback first; the model store also holds a native-use lease. */
     fun removeStreamingModel() {
+        if (mutable.value.backend.isCompiledPocket) {
+            if (compiledPocketRemoval?.isCompleted == false) return
+            val installing = compiledPocketInstall
+            installing?.cancel()
+            compiledPocketStore?.cancelInstall()
+            pocketCaptionStore?.cancelInstall()
+            mutable.value = mutable.value.copy(removingCompiledPocket = true)
+            compiledPocketRemoval = viewModelScope.launch {
+                try {
+                    // The combined owner cannot begin the second transfer after removal.
+                    installing?.join()
+                    compiledPocketModels().remove()
+                    pocketCaptionModels().remove()
+                } finally {
+                    mutable.value = mutable.value.copy(removingCompiledPocket = false)
+                }
+            }
+            return
+        }
         val engine = mutable.value.backend.streamingEngine() ?: return
-        if (engine == MediaPipeSpeechEngine.KOKORO) VoicePluginInstall.cancel(context)
+        if (engine == MediaPipeSpeechCatalog.DEFAULT_ENGINE) VoicePluginInstall.cancel(context)
         viewModelScope.launch { streamingModels().remove(engine) }
     }
 
@@ -288,7 +400,7 @@ internal class VoiceBackendViewModel internal constructor(
         mutable.value = mutable.value.copy(
             backend = preference.backend,
             gatewayUid = preference.gatewayUid,
-            streamingVoiceId = engine?.takeUnless { it.isKokoro }?.let(preference::streamingVoice)
+            streamingVoiceId = if (preference.backend.isCompiledPocket) preference.compiledPocketVoiceId else engine?.takeUnless { it.isKokoro }?.let(preference::streamingVoice)
         )
         if (preference.backend == VoiceSpeechBackend.GATEWAY_CUDA && !catalogLoaded) {
             backendStatus = "Loading Gateway connections…"
@@ -380,6 +492,10 @@ internal class VoiceBackendViewModel internal constructor(
                 )
             }
         }
+        VoiceSpeechBackend.POCKET_GPU, VoiceSpeechBackend.POCKET_NPU -> Prepared(
+            PocketCompiledVoicePhraseEngineFactory(context, compiledPocketModels(), value.backend, rate, value.compiledPocketVoiceId, pocketCaptionModels()),
+            "Pocket streams English audio from a separate compiled pack. With live captions on, short phrases wait for local audio alignment before playback. The selected accelerator is requested for the language model and vocoder; the decoder transformer uses CPU. Processor placement has not been verified on this phone."
+        )
         VoiceSpeechBackend.LITERT_KOKORO_CPU, VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_NPU,
         VoiceSpeechBackend.LITERT_KOKORO_GPU_OPTIMIZED, VoiceSpeechBackend.LITERT_KOKORO_SM8750,
         VoiceSpeechBackend.PHONON_CPU, VoiceSpeechBackend.POCKET_CPU, VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU -> {

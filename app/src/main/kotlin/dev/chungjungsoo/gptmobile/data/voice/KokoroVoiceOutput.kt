@@ -74,6 +74,7 @@ internal class DeferredKokoroOutput(
     private var pronunciations: Map<String, String> = emptyMap()
     private var pronunciationLanguage = "en"
     private var captionOffset = 0
+    private var captionAlignmentEnabled = true
     private var pendingCaptionCalibration: Int? = null
     private var speechFactory: VoicePhraseEngineFactory = TimedKokoroPhraseEngineFactory
 
@@ -114,6 +115,7 @@ internal class DeferredKokoroOutput(
                 output.configurePacing(pause, performance)
                 output.configurePronunciation(pronunciations, pronunciationLanguage)
                 output.configureCaptionOffset(captionOffset)
+                output.configureCaptionAlignment(captionAlignmentEnabled)
                 pendingCaptionCalibration?.let(output::calibrateCaptionOffset)
                 pendingCaptionCalibration = null
                 output.configureEngine(speechFactory)
@@ -176,6 +178,14 @@ internal class DeferredKokoroOutput(
             captionOffset = milliseconds.coerceIn(-500, 500)
             if (pendingCaptionCalibration != captionOffset) pendingCaptionCalibration = null
             delegate?.configureCaptionOffset(captionOffset)
+        }
+    }
+
+    override fun configureCaptionAlignment(enabled: Boolean) {
+        synchronized(lock) {
+            if (closed) return
+            captionAlignmentEnabled = enabled
+            delegate?.configureCaptionAlignment(enabled)
         }
     }
 
@@ -296,6 +306,8 @@ internal class KokoroVoiceOutput(
     @Volatile private var pronunciations = VoicePronunciationDictionary.EMPTY
 
     @Volatile private var captionOffset = 0
+
+    @Volatile private var captionAlignmentEnabled = true
     private val captionCalibration = VoiceCaptionCalibration()
     private val routeCalibration = VoiceCaptionRouteCalibration()
 
@@ -356,6 +368,11 @@ internal class KokoroVoiceOutput(
 
     override fun configurePronunciation(overrides: Map<String, String>, language: String) {
         pronunciations = VoicePronunciationDictionary(overrides, language)
+    }
+
+    /** Capture this preference for the next playback without resetting an active word or engine. */
+    override fun configureCaptionAlignment(enabled: Boolean) {
+        captionAlignmentEnabled = enabled
     }
 
     /** Hydrates the global default without changing any device-specific saved calibration. */
@@ -487,9 +504,10 @@ internal class KokoroVoiceOutput(
         }
     }
 
-    private data class ModelKey(val lexicon: String, val threads: Int, val factory: VoicePhraseEngineFactory) {
+    internal data class ModelKey(val lexicon: String, val threads: Int, val factory: VoicePhraseEngineFactory) {
         fun sameResident(other: ModelKey): Boolean = factory.residentIdentity == other.factory.residentIdentity &&
             factory.requiresKokoroAssets == other.factory.requiresKokoroAssets &&
+            (!factory.selectedBackend.isCompiledPocket || threads == other.threads) &&
             (!factory.requiresKokoroAssets || lexicon == other.lexicon && threads == other.threads)
     }
     private data class WarmupKey(val model: ModelKey, val speaker: Int, val rateBits: Int, val assetsOnly: Boolean, val performance: VoicePerformanceMode)
@@ -514,6 +532,7 @@ internal class KokoroVoiceOutput(
         val audioStarted: (() -> Unit)?,
         val onRange: SpokenRangeObserver?,
         val onTimedRange: TimedSpokenRangeObserver?,
+        val captionAlignmentEnabled: Boolean,
         val pause: VoicePauseDuration,
         val performance: VoicePerformanceMode,
         val rate: Float,
@@ -885,11 +904,17 @@ internal class KokoroVoiceOutput(
                 }
             }
         }
-        playback = Playback(replyId, voice, ModelKey(voice.lexicon, effectiveThreads(voice, speed), speechFactory), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, timedSpokenRange, pause, performance, speed, privacy(), pronunciations, threadCount, measurements?.forPlayback())
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, effectiveThreads(voice, speed), speechFactory), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, timedSpokenRange, captionAlignmentEnabled, pause, performance, speed, privacy(), pronunciations, threadCount, measurements?.forPlayback())
         active = playback
         playback.warmAtRequest = reusableModel(playback.key) != null
         measuredSynthesis.value = VoiceSynthesisFeedback(threads = playback.key.threads, warmAtRequest = playback.warmAtRequest, bufferState = "preparing")
-        playback.diagnostics?.engine(if (playback.key.factory.selectedBackend.isStreamingLocal) VoiceDiagnosticTrace.Engine.MEDIAPIPE else VoiceDiagnosticTrace.Engine.KOKORO)
+        playback.diagnostics?.engine(
+            when {
+                playback.key.factory.selectedBackend.isCompiledPocket -> VoiceDiagnosticTrace.Engine.COMPILED_POCKET
+                playback.key.factory.selectedBackend.isStreamingLocal -> VoiceDiagnosticTrace.Engine.MEDIAPIPE
+                else -> VoiceDiagnosticTrace.Engine.KOKORO
+            }
+        )
         playback.diagnostics?.selectedSpeechBackend(playback.key.factory.selectedBackend.name)
         fun acquireFocus(attempt: Int) {
             if (active !== playback) return
@@ -974,6 +999,8 @@ internal class KokoroVoiceOutput(
             } ?: return
             if (active !== playback) return
             model.engine.resetCancellation()
+            if (active !== playback) return
+            model.engine.setCaptionAlignmentEnabled(playback.captionAlignmentEnabled && (playback.onRange != null || playback.onTimedRange != null))
             if (active !== playback) return
             playback.preparing = false
             measuredSynthesis.value = VoiceSynthesisFeedback(threads = playback.key.threads, warm = wasWarm, warmAtRequest = playback.warmAtRequest, engineReused = wasWarm, executionProvider = model.engine.executionProvider, bufferState = "preparing")

@@ -15,6 +15,8 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledSpeechModelStore
+import dev.chungjungsoo.gptmobile.data.voice.PocketCompiledVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.TimedKokoroPhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
@@ -54,6 +56,7 @@ import dev.chungjungsoo.gptmobile.data.voice.fullVoiceBenchPlan
 import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
 import dev.chungjungsoo.gptmobile.data.voice.suiteResult
 import dev.chungjungsoo.gptmobile.data.voice.summarize
+import dev.chungjungsoo.gptmobile.data.voice.voiceBenchProbeEvidence
 import dev.chungjungsoo.gptmobile.data.voice.writeVoiceSpeechBenchmarkExport
 import java.io.File
 import java.io.OutputStream
@@ -83,6 +86,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     private val runner = AtomicReference<VoiceSpeechBenchmarkRunner?>(null)
     private val engineRunner = AtomicReference<VoiceSpeechEngineBenchmarkRunner?>(null)
     private val streamingModels = MediaPipeSpeechModelStore(context, viewModelScope)
+    private val compiledPocketModels = PocketCompiledSpeechModelStore(context)
     private val cleanupQuarantined = AtomicBoolean()
     private val playbackRunner = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private val cancelled = AtomicBoolean(false)
@@ -158,10 +162,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             model.isInstalled()
         }
         streamingModels.refresh(forceVerification = false)
+        compiledPocketModels.refresh(false)
         val rows = plan.map { stage ->
             val missing = when (stage.engine) {
                 null -> false
                 VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> stage.variant !in native
+                VoiceSpeechBenchmarkEngine.POCKET_COMPILED -> !compiledPocketModels.isReady()
                 else -> !streamingModels.isReady(requireNotNull(stage.engine.mediaPipeEngine()))
             }
             if (missing) VoiceBenchResult(stage.label, VoiceBenchStatus.UNAVAILABLE, "MODEL_NOT_INSTALLED") else VoiceBenchResult(stage.label)
@@ -250,7 +256,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     private suspend fun measureProbe(id: String, index: Int, stage: VoiceBenchStage, device: VoiceBenchProbes): VoiceBenchResult {
         var observed = emptyList<VoiceBenchObservation>()
         fun save(rows: List<VoiceBenchObservation>) {
-            observed = rows.toList()
+            observed = voiceBenchProbeEvidence(stage, rows)
             fullStore.evidence(id, index) { it.write(Json.encodeToString(observed).toByteArray()) }
         }
         val rows = try {
@@ -263,7 +269,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             observed + VoiceBenchObservation.unavailable(stage.probe!!.name, "NATIVE_RUNTIME_UNAVAILABLE")
         }
         save(rows)
-        return rows.summarize(stage.label)
+        return observed.summarize(stage.label)
     }
 
     fun exportSuite(suite: VoiceBenchManifest, output: OutputStream) = fullStore.export(suite, output)
@@ -273,14 +279,19 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     private suspend fun execute(configuration: VoiceSpeechBenchmarkConfiguration, ownerLease: VoiceSpeechBenchmarkOwnership.Lease, checkpoint: (VoiceSpeechBenchmarkReport) -> Unit): VoiceSpeechBenchmarkReport {
         val models = KokoroModelPack.store(File(context.noBackupFilesDir, "voice-models"), variant = configuration.nativeModelVariant)
         val sdkEngine = configuration.engine.mediaPipeEngine()
-        val nativeEngine = sdkEngine == null
+        val nativeEngine = configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
+        val compiledPocket = configuration.engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED
         val initialReport = VoiceSpeechBenchmarkReport(System.currentTimeMillis(), configuration, engineResults = if (nativeEngine) emptyList() else configuration.backends.map(::VoiceSpeechEngineBenchmarkResult))
         val writer = BenchmarkReportWriter(initialReport, checkpoint)
         var leased = false
         try {
             if (cancelled.get()) throw CancellationException("Cancelled")
-            if (nativeEngine) leased = models.acquireUse() else streamingModels.refresh(sdkEngine, false)
-            if (nativeEngine && !leased || sdkEngine != null && !streamingModels.isReady(sdkEngine)) {
+            when {
+                nativeEngine -> leased = models.acquireUse()
+                compiledPocket -> compiledPocketModels.refresh(false)
+                else -> streamingModels.refresh(requireNotNull(sdkEngine), false)
+            }
+            if (nativeEngine && !leased || compiledPocket && !compiledPocketModels.isReady() || sdkEngine != null && !streamingModels.isReady(sdkEngine)) {
                 writer.publish(writer.report.copy(state = VoiceSpeechBenchmarkRunState.FAILED, issue = VoiceSpeechBenchmarkIssue.MODEL_UNAVAILABLE, finishedAtMillis = System.currentTimeMillis()))
                 return writer.report
             }
@@ -288,7 +299,11 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             val thermalStatus = { runCatching { thermal?.currentThermalStatus }.getOrNull() }
             val sdkFactory: (VoiceSpeechBackend) -> VoicePhraseEngineFactory = { backend ->
                 val configuration = writer.report.configuration
-                MediaPipeVoicePhraseEngineFactory(streamingModels, checkNotNull(sdkEngine), backend, configuration.speechRate, checkNotNull(configuration.engineVoiceId), kokoroBucket = configuration.kokoroBucket, incrementalInput = configuration.incrementalInput)
+                if (compiledPocket) {
+                    PocketCompiledVoicePhraseEngineFactory(context, compiledPocketModels, backend, configuration.speechRate, checkNotNull(configuration.engineVoiceId))
+                } else {
+                    MediaPipeVoicePhraseEngineFactory(streamingModels, checkNotNull(sdkEngine), backend, configuration.speechRate, checkNotNull(configuration.engineVoiceId), kokoroBucket = configuration.kokoroBucket, incrementalInput = configuration.incrementalInput)
+                }
             }
             when {
                 configuration.playback -> {

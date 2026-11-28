@@ -292,7 +292,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLiveCaptions.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt",
@@ -321,7 +322,11 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionSynchronizationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionWordCoverageTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCueRevisionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionAlignmentPreferenceTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -329,7 +334,10 @@
       "documents": [
         "docs/architecture/repository-guide.md",
         "docs/repairs/speech-playback-reliability-2026-11-23.md",
-        "docs/repairs/voice-stream-pause-2026-11-23-task.json"
+        "docs/repairs/voice-stream-pause-2026-11-23-task.json",
+        "docs/repairs/pocket-caption-validation-2026-11-28.json",
+        "docs/architecture/pocket-default-and-benchmark-coverage-2026-11-28.md",
+        "docs/repairs/pocket-caption-pipeline-2026-11-28.json"
       ],
       "invariants": [
         "Presented audio and reply identity own caption position.",
@@ -340,10 +348,11 @@
         "Keep native progress polling separate from synthesis-owned evidence and retain audio/model ownership until actual retirement.",
         "Playback comparison requires the current controlled workload protocol, independent fixture coverage and observed provider execution.",
         "Benchmark and Auto ranking require same-run CPU-reference duration, token timing and signal consistency; numeric consistency does not establish perceptual equivalence.",
-        "Retain at most three exact accelerator token shapes under observed memory headroom and a hard estimate ceiling; unknown memory retains only the active shape.",
+        "Compact HTP may retain five exact token shapes only with at least 4 GiB current free memory; the 2 GiB estimate ceiling and 512 MiB reserve remain required. Other providers retain their existing bounds, and unknown memory retains only the active shape.",
         "One playback-scoped quiet limiter spans streaming callbacks and phrases; validate raw PCM first and account only retained audio in queued frames and cue positions.",
         "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause.",
-        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
+        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone.",
+        "A newer supplied end may revise a queued or active estimated word while its heard onset and source identity remain fixed; completed words never reopen. Same-word clock snapshots retime presentation without restarting emphasis."
       ],
       "routing": {
         "role": "presentation",
@@ -458,7 +467,11 @@
         "early voice preparation",
         "CPU-reference playback admission",
         "Gateway PCM streaming",
-        "native speech smoke"
+        "native speech smoke",
+        "Pocket default",
+        "Pocket GPU",
+        "Pocket NPU",
+        "compiled Pocket"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt",
@@ -536,7 +549,11 @@
         "docs/architecture/voice-streaming.md",
         "docs/architecture/repository-guide.md",
         "docs/repairs/gateway-stream-ownership-2026-11-23-task.json",
-        "docs/architecture/pocket-streaming-capabilities-2026-11-27.md"
+        "docs/architecture/pocket-streaming-capabilities-2026-11-27.md",
+        "docs/architecture/pocket-default-and-benchmark-coverage-2026-11-28.md",
+        "docs/licenses/pocket-compiled.md",
+        "docs/audits/pocket-compiled-runtime.json",
+        "docs/repairs/pocket-benchmark-validation-2026-11-28.json"
       ],
       "invariants": [
         "Stream PCM with bounded backpressure and retire native handles before releasing model leases.",
@@ -547,7 +564,7 @@
         "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
         "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request.",
         "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone.",
-        "Installed packs keep separate voice/language identities. Packaged Pocket and Phonon are CPU-only; incompatible accelerator conversions cannot be selected."
+        "Installed packs keep separate voice/language identities. MediaPipe Pocket and Phonon stay CPU-only; separate compiled Pocket GPU/NPU routes require their pinned English graphs and matching runtime, and requested delegates remain unverified hardware placement."
       ],
       "routing": {
         "role": "executor",
@@ -1571,7 +1588,8 @@
         "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
         "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
         "scripts/check_speech_native_contracts.sh",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchRecognitionSupport.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt",
@@ -1589,7 +1607,9 @@
         "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
         "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java",
         "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechSustainedSeriesTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechSustainedSeriesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchRecognitionSupportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1606,7 +1626,8 @@
         "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/benchmark-validation.json",
         "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/ordinary-test-methods.json",
         "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/integration-validation.json",
-        "docs/repairs/intelligence-diagnostic-completion-2026-11-27.md"
+        "docs/repairs/intelligence-diagnostic-completion-2026-11-27.md",
+        "docs/architecture/pocket-default-and-benchmark-coverage-2026-11-28.md"
       ],
       "invariants": [
         "Optional fixed-phrase CPU inference preparation is silent, bound to one resident model/speaker/rate and known cool thermal state; live speech cancels its attempt before queueing, and its delayed deadline cannot cancel later work.",
@@ -1615,7 +1636,8 @@
         "Advisory first-PCM, RTF, zero-clipping and accelerator-share targets are distinct from observations and do not confer qualification.",
         "Operator summaries expose only bounded public categories and first-shape profile count/time with explicit reuse and omission; observed CPU placement does not prove an unsupported operator.",
         "Explicit unknown audio measurement availability stays unknown on restore; only legacy absence may use the existing compatibility inference.",
-        "HTP context files are published only after native audio and profile validation, bound to exact model/runtime/provider/device/shape/options identities, verified on load and revalidated for playback; source-model retry remains bounded. Minimal host context success does not qualify full-model or physical speech."
+        "HTP context files are published only after native audio and profile validation, bound to exact model/runtime/provider/device/shape/options identities, verified on load and revalidated for playback; source-model retry remains bounded. Minimal host context success does not qualify full-model or physical speech.",
+        "Full-turn latency consumes one accepted capture boundary and requires a presented answer clock; replay, retries, cues, privacy resets and utterance-start callbacks cannot qualify it. Draft review and queue delay are included; acoustic loopback remains independent."
       ],
       "routing": {
         "role": "evidence",
@@ -3667,6 +3689,90 @@
         "decline": "Reject invalid PCM or tempo and discard canceled stream state",
         "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessorTest.kt#tempoChangesDurationWithoutRaisingOrLoweringTheFundamentalPitch",
         "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTempoProcessorTest.kt#invalidRatesAndNonFiniteSamplesCannotEnterTheProcessor",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "voice-pocket-compiled",
+      "title": "Pocket streaming default and compiled GPU or Qualcomm NPU execution",
+      "terms": [
+        "Pocket default",
+        "Pocket streaming",
+        "Pocket GPU",
+        "Pocket Qualcomm NPU",
+        "compiled Pocket",
+        "Pocket voice pack",
+        "Pocket decoder CPU threads"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledRuntime.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechModelStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSynthesizer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineFactory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/PocketCompiledModelCard.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginInstall.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendPreferenceStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+        "app/build.gradle.kts",
+        "scripts/check_local_runtime_apk.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionWordCoverage.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionAligner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTiming.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngine.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoderTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceModelResidencyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceReplyLanguageSelectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionAlignerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionModelStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionSynchronizationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionTimingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCaptionVoicePhraseEngineTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 -m unittest scripts.tests.test_pocket_compiled_apk"
+      ],
+      "documents": [
+        "docs/architecture/pocket-default-and-benchmark-coverage-2026-11-28.md",
+        "docs/licenses/pocket-compiled.md",
+        "docs/audits/pocket-compiled-runtime.json",
+        "docs/repairs/pocket-default-and-voice-benchmark-2026-11-28-task.json",
+        "docs/audits/pocket-caption-alignment.json"
+      ],
+      "invariants": [
+        "English Pocket CPU is the fresh default; valid saved engines and explicit installation cancellation remain authoritative.",
+        "Compiled Pocket uses independently pinned graph, tokenizer and preset-voice identities; it cannot load a MediaPipe task as a compiled graph.",
+        "GPU and Qualcomm NPU language-model and vocoder requests exclude whole-model CPU fallback; the Mimi transformer explicitly uses CPU. Requests and API success do not prove hardware placement.",
+        "Strict raw PCM validation precedes delivery; cancellation suppresses later output and unconfirmed native retirement preserves the parent environment and model lease.",
+        "Compiled graphs provide no native word alignment; any caption timing requires separate explicit evidence and never invented word boundaries.",
+        "Rate and CPU-transformer thread changes retire incompatible warm engines. English compiled language choices do not overwrite other engines’ saved voices.",
+        "Caption-enabled compiled playback uses final ASR alignment of bounded actual post-tempo audio with exact source-token matching. The independent pack is explicitly installed; missing or mismatched alignment never invents word durations or certifies acoustic accuracy."
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineFactory.kt",
+        "proof": "Validated streamed PCM with exact model identity and separately reported requested delegate",
+        "admission": "Installed verified English graph pack and active speech owner with compatible native runtime",
+        "decline": "Preserve the transcript and explicit failure when the selected runtime cannot prepare, execute or retire",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineTest.kt#successfulStreamingSplitsBoundedPacketsAndKeepsHardwareUnverified",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledDecoderTest.kt#wrongTensorShapeAndNonMonotonicPrefixesFailBeforeAudio",
         "plugins": [],
         "tools": [],
         "decline_terms": []

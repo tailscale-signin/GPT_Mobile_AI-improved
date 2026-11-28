@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseSha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingBranch": "feature/windows-native-benchmark-kit",
+  "startingHead": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+  "pullRequest": 2651,
+  "intent": "Implement the uploaded voice benchmark findings; make Pocket streaming the default; add truthful Pocket GPU/NPU execution support; validate the current shared branch, merge after required checks pass, and publish a verified release.",
+  "sourceEvidence": {
+    "benchmarkBuild": 153,
+    "benchmarkCommit": "f162c9428d6f61f1ed21b76f64f886b8a3700294",
+    "benchmarkFile": "full-voice-benchmark-1795836276981-ae95048b.json",
+    "physicalMeasurementsApplyToSourceBenchmarkOnly": true
+  },
+  "requirements": [
+    "Pocket streaming default and persisted explicit user choices",
+    "Actual Pocket GPU/NPU runtime integration with accurate execution and fallback evidence",
+    "Memory-bounded native HTP graph/context reuse for five-shape playback",
+    "Native GPU output correctness admission and recovery",
+    "Exact Auto CPU thread calibration application",
+    "Useful benchmark ordering, explicit unavailability reasons and recognition recovery",
+    "Playback, captions, pitch, cancellation, quality and sustained coverage remain separately evidenced",
+    "Concurrent branch reconciliation, exact-commit checks, main validation and release verification",
+    "Pocket caption source mapping, tempo and presentation synchronization; actual audio-derived timing for routes without SDK word timestamps"
+  ],
+  "status": "READY_FOR_DRAFT_PUSH",
+  "validation": [
+    {
+      "scope": "native cache contracts",
+      "result": "passed",
+      "command": "bash scripts/check_speech_native_contracts.sh",
+      "physicalHardwareQualified": false
+    },
+    {
+      "scope": "suite, coverage and performance export current-source slice",
+      "result": "passed",
+      "tests": 31,
+      "physicalHardwareQualified": false
+    },
+    {
+      "scope": "recognition support retry current-source slice",
+      "result": "passed",
+      "tests": 5,
+      "androidBinderQualified": false
+    },
+    {
+      "scope": "capture-to-presented-answer actual Trace and Session slice",
+      "result": "passed",
+      "tests": 3,
+      "reportProjectionQualified": false,
+      "physicalHardwareQualified": false
+    },
+    {
+      "scope": "oversized checkpoint and cancellation-recovery source slice",
+      "result": "passed",
+      "tests": 22,
+      "supersededByConcurrentImplementation": true,
+      "currentSourcePassClaimed": false
+    },
+    {
+      "scope": "blocked GitHub report source slice",
+      "result": "passed",
+      "tests": 12,
+      "supersededByConcurrentImplementation": true,
+      "currentSourcePassClaimed": false
+    },
+    {
+      "scope": "Python hosted reporting protocol",
+      "result": "passed",
+      "tests": 224
+    },
+    {
+      "scope": "VoiceExecutionDiagnostics actual Kotlin source",
+      "result": "passed",
+      "tests": 7
+    },
+    {
+      "scope": "full local Android compile",
+      "result": "blocked",
+      "reason": "Mandatory memory preflight cannot establish complete cgroup headroom; no bypass or heap increase."
+    },
+    {
+      "scope": "Compiled Pocket and final-audio alignment current API source slice",
+      "result": "passed",
+      "tests": 28,
+      "receipt": "docs/audits/pocket-caption-alignment.json",
+      "androidNativeExecuted": false
+    },
+    {
+      "scope": "Caption motion, word coverage, playback protocol/export and Python smoke contracts",
+      "result": "passed",
+      "tests": 116,
+      "receipt": "docs/repairs/pocket-caption-validation-2026-11-28.json",
+      "physicalHardwareQualified": false
+    },
+    {
+      "scope": "Caption mapping, tempo, silence trimming and presentation corrections",
+      "result": "passed",
+      "tests": 77,
+      "receipt": "docs/repairs/pocket-caption-pipeline-2026-11-28.json"
+    },
+    {
+      "scope": "Deferred output caption preference actual declarations",
+      "result": "passed",
+      "tests": 2,
+      "receipt": "docs/repairs/pocket-caption-pipeline-2026-11-28.json"
+    },
+    {
+      "scope": "Pinned Moonshine Linux batch native API/model",
+      "result": "passed",
+      "nativeCalls": 12,
+      "fixturePhrases": 6,
+      "androidNativeExecuted": false,
+      "independentAcousticTruthMeasured": false
+    },
+    {
+      "scope": "Canonical host validation",
+      "result": "passed",
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 862,
+      "skipped": 1,
+      "androidRegexErrors": 0,
+      "xmlFilesChecked": 38
+    },
+    {
+      "scope": "New Android playback and ViewModel ownership regressions",
+      "result": "not_run_locally",
+      "reason": "Requires hosted full Android/Robolectric gate; no local memory gate bypass."
+    }
+  ],
+  "publication": {
+    "authorized": true,
+    "draftRequiredBeforeMerge": true,
+    "mergeRequiresGreenExactHead": true,
+    "releaseRequiresGreenMain": true,
+    "state": "NOT_STARTED",
+    "transport": "GitHub Git Data API with expected-head non-forced ref update; preserve all concurrent branch commits."
+  },
+  "remaining": [
+    "Final combined source/reference validation and expected-head draft branch update",
+    "Exact-head full PR CI and ready transition",
+    "Protected merge after green and fresh main validation",
+    "Signed Android 0.9.66.19 build 153 and Gateway 18.1.6 publication verification"
+  ],
+  "latestUserRequirement": "In voice mode, make Pocket streaming match the captions, including the new Pocket routes.",
+  "concurrentReconciliations": [
+    {
+      "observedHead": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+      "previousHead": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+      "filesIntegrated": 54,
+      "previewRepairResolution": "Adopt the concurrent typed scalar-limit and compact-receipt fallback fix; retain the stricter blocked-headline regression assertion. Regenerate reference inventories from combined sources.",
+      "draftRestored": true
+    },
+    {
+      "observedHead": "90865091851416a53e1c1c700300dad011bf92a5",
+      "previousHead": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+      "filesIntegrated": 6,
+      "scope": "Required profile names in three benchmark test fixtures, associated worker receipts and generated reference identity; no voice-source changes."
+    },
+    {
+      "observedHead": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+      "previousHead": "90865091851416a53e1c1c700300dad011bf92a5",
+      "filesIntegrated": 26,
+      "scope": "GitHub conversation restoration, integration-finalization evidence, typed diagnostic limit preservation and separate early Android regression artifacts; full qualification gates retained."
+    }
+  ],
+  "currentParent": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+  "hostValidationScope": "Focused receipts bind exact source hashes at execution. Later changes remain explicit; a host subset is not full Android, physical hardware, or acoustic qualification."
+}

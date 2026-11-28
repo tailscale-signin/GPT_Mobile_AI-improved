@@ -48,7 +48,8 @@ class MediaPipeSpeechVoicesTest {
         assertEquals(listOf(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU), VoiceSpeechBenchmarkEngine.POCKET_MULTILINGUAL.supportedBackends)
         assertTrue(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU.isStreamingLocal)
         assertFalse(VoiceSpeechBackend.POCKET_MULTILINGUAL_CPU.isMediaPipeAccelerator)
-        assertTrue(MediaPipeSpeechVoices.processorAvailability(MediaPipeSpeechEngine.POCKET_MULTILINGUAL)?.contains("GPU and NPU are unavailable") == true)
+        assertTrue(MediaPipeSpeechVoices.processorAvailability(MediaPipeSpeechEngine.POCKET_MULTILINGUAL)?.contains("This Pocket pack runs on CPU") == true)
+        assertTrue(MediaPipeSpeechVoices.processorAvailability(MediaPipeSpeechEngine.POCKET_MULTILINGUAL)?.contains("separate compiled English pack") == true)
     }
 
     @Test fun germanAndDutchReplyPoliciesUseTheSelectedLanguageWithoutChangingLegacyPrompts() {

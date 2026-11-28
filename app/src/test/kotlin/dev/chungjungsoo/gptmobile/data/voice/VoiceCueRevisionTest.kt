@@ -22,7 +22,7 @@ class VoiceCueRevisionTest {
         }
     }
 
-    @Test fun aQueuedWordCanMoveWhileTheHeardWordAndOriginalSourceRemainCommitted() {
+    @Test fun aQueuedWordAndActiveTailCanImproveWhileTheHeardOnsetAndOriginalSourceRemainCommitted() {
         val raw = VoiceStreamFrames("one two three")
         val captions = VoicePcmCaptions()
         val one = VoiceWordCue(0, 3, 0, 100)
@@ -37,7 +37,8 @@ class VoiceCueRevisionTest {
         )
         captions.appendStream(7, "one two three", 0, raw.accept(corrected), 0)
         assertEquals(0L, captions.active()?.frame)
-        assertEquals(100L, captions.active()?.endFrame)
+        assertEquals(90L, captions.active()?.endFrame)
+        assertEquals(0..2, captions.active()?.range)
         assertEquals(IntRange.EMPTY, captions.consumed(140)?.range)
         assertEquals(4..6, captions.consumed(150)?.range)
         assertEquals(230L, captions.active()?.endFrame)
@@ -57,6 +58,19 @@ class VoiceCueRevisionTest {
         captions.appendStream(0, "one two", 0, raw.accept(VoicePcmChunk(FloatArray(0), wordCues = listOf(two.copy(startFrame = 120, revision = 1)))), 0)
         assertNull(captions.consumed(140))
         assertEquals(150L, captions.consumed(150)?.frame)
+    }
+
+    @Test fun aShorterActiveTailDoesNotAdvanceAnExplicitlyPausedCaption() {
+        val raw = VoiceStreamFrames("one")
+        val captions = VoicePcmCaptions()
+        val word = VoiceWordCue(0, 3, 0, 100)
+        captions.appendStream(0, "one", 0, raw.accept(VoicePcmChunk(FloatArray(200) { .1f }, wordCues = listOf(word))), 200)
+        assertEquals(0..2, captions.consumed(50)?.range)
+        captions.appendStream(0, "one", 0, raw.accept(VoicePcmChunk(FloatArray(0), wordCues = listOf(word.copy(endFrame = 40, revision = 1)))), 0)
+        assertNull(captions.consumed(50, advancing = false))
+        assertEquals(0..2, captions.active()?.range)
+        assertEquals(IntRange.EMPTY, captions.consumed(50)?.range)
+        assertNull(captions.consumed(50))
     }
 
     @Test fun theFirstWordCanBeCorrectedBeforeAnyAudioWasPresented() {

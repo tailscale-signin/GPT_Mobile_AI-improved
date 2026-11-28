@@ -69,6 +69,24 @@ internal class VoiceCaptionMotion(position: Float) {
         }
     }
 
+    /** A newer presentation clock can bring arrival forward without restarting a settled line. */
+    fun refreshClock(nowNanos: Long, remainingWordMs: Int) {
+        val now = pausedNanos ?: nowNanos
+        val remaining = durationNanos - (now - startedNanos).coerceAtLeast(0)
+        val requested = remainingWordMs.coerceIn(60, 420) * 1_000_000.0
+        if (durationNanos == 0.0 || remaining <= 0.0 || requested >= remaining) return
+        val current = sample(now)
+        from = current.position
+        velocity = current.velocity
+        startedNanos = now
+        val distance = target.toDouble() - current.position
+        durationNanos = if (distance * current.velocity > 0.0) {
+            minOf(requested, 3.0 * abs(distance) / abs(current.velocity.toDouble()) * 1_000_000_000.0)
+        } else {
+            requested
+        }
+    }
+
     fun seek(position: Float, nowNanos: Long) {
         require(position.isFinite())
         from = position
@@ -140,6 +158,15 @@ internal class VoiceCaptionHighlights {
             next?.let { envelopes[it] = Envelope(it, onsetNanos.coerceAtMost(now), attack, tail) }
         }
         prune(now)
+    }
+
+    /** Retain the same bold owner and envelope; an observed clock never replays already shown colour. */
+    fun refreshClock(range: IntRange?, onsetNanos: Long, nowNanos: Long) {
+        if (range == null || range != active) return
+        val envelope = envelopes[range] ?: return
+        val now = pausedNanos ?: nowNanos
+        val observedOnset = (onsetNanos - (nowNanos - now).coerceAtLeast(0)).coerceAtMost(now)
+        envelope.onset = minOf(envelope.onset, observedOnset)
     }
 
     fun visible(nowNanos: Long): List<VoiceCaptionHighlight> = envelopes.values.mapNotNull {

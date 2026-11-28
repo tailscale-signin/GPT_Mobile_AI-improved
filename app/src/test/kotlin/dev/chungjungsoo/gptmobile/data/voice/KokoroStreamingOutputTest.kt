@@ -44,6 +44,80 @@ import org.robolectric.shadows.ShadowSystemClock
 class KokoroStreamingOutputTest {
     @Test
     @Config(shadows = [PausePcmTrack::class])
+    fun captionAlignmentPreferenceIsCapturedPerPlaybackWithBoundObserversAndAWarmEngine() {
+        val configurations = CopyOnWriteArrayList<Boolean>()
+        val timings = CopyOnWriteArrayList<IntRange>()
+        val caption = CountDownLatch(1)
+        val releaseTail = CountDownLatch(1)
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val calls = AtomicInteger()
+        val creations = AtomicInteger()
+        val cancellations = AtomicInteger()
+        val engine = object : VoicePhraseEngine {
+            override val supportsStreaming = true
+            override fun setCaptionAlignmentEnabled(enabled: Boolean) {
+                configurations += enabled
+            }
+            override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                val first = calls.incrementAndGet() == 1
+                check(emit(VoicePcmChunk(FloatArray(2_400) { .1f }, wordCues = listOf(VoiceWordCue(0, 5, 0, 4_800)))))
+                if (first) check(releaseTail.await(10, TimeUnit.SECONDS))
+                check(emit(VoicePcmChunk(FloatArray(2_400) { .1f })))
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() {
+                cancellations.incrementAndGet()
+            }
+            override fun close() = Unit
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, beforeCreate = { creations.incrementAndGet() }) { output ->
+            output.configureCaptionAlignment(false)
+            output.bindSpokenRange { _, _, _ -> }
+            output.bindTimedSpokenRange { _, _, range, _ ->
+                timings += range
+                if (!range.isEmpty()) caption.countDown()
+            }
+            val firstFinished = CountDownLatch(1)
+            try {
+                output.speakWithFailure("hello.", KokoroVoice.HEART, { firstFinished.countDown() }, { failure, _ ->
+                    failures += failure
+                    firstFinished.countDown()
+                })
+                awaitMain(caption)
+                assertEquals(0L, caption.count)
+                assertEquals(listOf(false), configurations)
+                assertEquals(0..4, timings.last())
+                val cancelledBeforeEdit = cancellations.get()
+                output.configureCaptionAlignment(true)
+                assertEquals(listOf(false), configurations)
+                assertEquals(cancelledBeforeEdit, cancellations.get())
+                assertEquals(0..4, timings.last())
+            } finally {
+                releaseTail.countDown()
+            }
+            awaitMain(firstFinished, advancePlaybackClock = true)
+            assertEquals(0L, firstFinished.count)
+            for (withObservers in listOf(true, false)) {
+                if (!withObservers) {
+                    output.bindSpokenRange(null)
+                    output.bindTimedSpokenRange(null)
+                }
+                val finished = CountDownLatch(1)
+                output.speakWithFailure("hello.", KokoroVoice.HEART, { finished.countDown() }, { failure, _ ->
+                    failures += failure
+                    finished.countDown()
+                })
+                awaitMain(finished, advancePlaybackClock = true)
+                assertEquals(0L, finished.count)
+            }
+            assertTrue(failures.isEmpty())
+            assertEquals(listOf(false, true, false), configurations)
+            assertEquals(1, creations.get())
+        }
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
     fun aFullyVoicedOpenInputPlaysBeforeTheProviderSendsMoreText() {
         val presented = CountDownLatch(1)
         val finished = CountDownLatch(1)

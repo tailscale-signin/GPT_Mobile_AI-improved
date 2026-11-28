@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": "2.4.1",
+  "qairtVersion": "2.52.0",
+  "hardwareQualified": false,
+  "publisherArtifacts": [
+    {
+      "artifact": "litert",
+      "version": "2.4.1",
+      "publisher": "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert/2.4.1/litert-2.4.1",
+      "aar": {
+        "sha256": "0d49ab9546289cba4fd3124fcb4fdec000b782735e666bed4941968e26e73373",
+        "bytes": 8120238,
+        "publisherSha1": "8cca3580edc10f9443f9aa8ef8b891df59194a6d"
+      },
+      "pom": {
+        "sha256": "cfca4695cfb39e5dbc3c63d9036f45fbbb8e84f8fc7b4151ca677f25c54c9198",
+        "bytes": 1167,
+        "publisherSha1": "5fe2c5d9662b33c8e50919601837b3ddd5f6afdb"
+      },
+      "libraries": {
+        "lib/arm64-v8a/libLiteRt.so": {
+          "sha256": "5ec8af1570c2e9e150e0489f3bcdd15e1398ffa73999c3daa2eb5959dd5e5e88",
+          "bytes": 5935696
+        },
+        "lib/armeabi-v7a/libLiteRt.so": {
+          "sha256": "dbe89adbf5da590b9ce95fd0b926dcf51e041e6dd2c5955821792b004c08ab37",
+          "bytes": 3831392
+        },
+        "lib/x86_64/libLiteRt.so": {
+          "sha256": "f29dacaa093d9a1b972372b059c5a74371a05f360eebb7407ccfa7469a99bc61",
+          "bytes": 8256000
+        }
+      }
+    },
+    {
+      "artifact": "litert-api",
+      "version": "2.4.1",
+      "publisher": "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert-api/2.4.1/litert-api-2.4.1",
+      "aar": {
+        "sha256": "7579c5566f227643990d7d49e9316ab4a9e2732e36842e76d51e7eb32d1eeeaa",
+        "bytes": 616129,
+        "publisherSha1": "ded82ce22306671837bac58cd98af583e19872dd"
+      },
+      "pom": {
+        "sha256": "7058a0d1763a8ee92ebbc27393f9e8fc0bfebebd8fbdeff891cd4bc821ebe840",
+        "bytes": 1660,
+        "publisherSha1": "8bf3fad92dbc1944798189dd26f879d870099fd4"
+      },
+      "libraries": {
+        "lib/arm64-v8a/liblitert_jni.so": {
+          "sha256": "d653d65f4e614123ad226cc3d4abbf8ede936374866f99c3e857ebed9a6422bc",
+          "bytes": 220808
+        },
+        "lib/armeabi-v7a/liblitert_jni.so": {
+          "sha256": "ed403e32c8086052524c7bcfbe0fdf8d14d8799bb5c448c539a9a23e72093cc8",
+          "bytes": 135712
+        },
+        "lib/x86_64/liblitert_jni.so": {
+          "sha256": "134544f9a2d62db48b4c97a49c93860f2f20cfb8f636b2aaa5579b580f734f9a",
+          "bytes": 236800
+        }
+      }
+    },
+    {
+      "artifact": "litert-gpu",
+      "version": "2.4.1",
+      "publisher": "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert-gpu/2.4.1/litert-gpu-2.4.1",
+      "aar": {
+        "sha256": "6364a5376c5e5634730dd3b937fc15826e3942ef5ceb7587be2a8b4b06fe6481",
+        "bytes": 4958957,
+        "publisherSha1": "9c543902169bc469a6c25e02e3a44e13cf75d60e"
+      },
+      "pom": {
+        "sha256": "5882b96ca2e18298a94c41723fdcc4d27fcb6a0dc75dcdd29ff5428012350eb3",
+        "bytes": 1174,
+        "publisherSha1": "068307a2f02099309521c92320b61e8994114e61"
+      },
+      "libraries": {
+        "lib/arm64-v8a/libLiteRtClGlAccelerator.so": {
+          "sha256": "89e582f47e3d36c5bf5a644c063897d877c0ac2cafab45b1092ff1c8041aa859",
+          "bytes": 3415408
+        },
+        "lib/armeabi-v7a/libLiteRtClGlAccelerator.so": {
+          "sha256": "cd650406c90578b84eda30aace9e52574e97d637975b6b93a75af5b6500d2670",
+          "bytes": 2462168
+        },
+        "lib/x86_64/libLiteRtClGlAccelerator.so": {
+          "sha256": "f04c1f1c9d5ce2131f3102d6c9366ba15b638854c2abb7d2b310606636734722",
+          "bytes": 4120088
+        }
+      }
+    },
+    {
+      "artifact": "litert-npu-runtime-qualcomm",
+      "version": "2.4.1",
+      "publisher": "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert-npu-runtime-qualcomm/2.4.1/litert-npu-runtime-qualcomm-2.4.1",
+      "aar": {
+        "sha256": "bcdb085afef54baea3624fa6effc98c0535a06aad97e969f7e87b25303e8599d",
+        "bytes": 596163,
+        "publisherSha1": "a5ecffcda35f31deddfa0339d6ff3e28402ce922"
+      },
+      "pom": {
+        "sha256": "bf3f25b3c553babf718cef8686728a5c2f32ac238f1523bdbd302252ad26149a",
+        "bytes": 1012,
+        "publisherSha1": "38e8295ee65030aafc17e59d0592e9280bb9478a"
+      }
+    }
+  ],
+  "libraries": {
+    "lib/arm64-v8a/libLiteRt.so": {
+      "sha256": "5ec8af1570c2e9e150e0489f3bcdd15e1398ffa73999c3daa2eb5959dd5e5e88",
+      "bytes": 5935696
+    },
+    "lib/x86_64/libLiteRt.so": {
+      "sha256": "f29dacaa093d9a1b972372b059c5a74371a05f360eebb7407ccfa7469a99bc61",
+      "bytes": 8256000
+    },
+    "lib/arm64-v8a/liblitert_jni.so": {
+      "sha256": "d653d65f4e614123ad226cc3d4abbf8ede936374866f99c3e857ebed9a6422bc",
+      "bytes": 220808
+    },
+    "lib/x86_64/liblitert_jni.so": {
+      "sha256": "134544f9a2d62db48b4c97a49c93860f2f20cfb8f636b2aaa5579b580f734f9a",
+      "bytes": 236800
+    },
+    "lib/arm64-v8a/libLiteRtClGlAccelerator.so": {
+      "sha256": "89e582f47e3d36c5bf5a644c063897d877c0ac2cafab45b1092ff1c8041aa859",
+      "bytes": 3415408
+    },
+    "lib/x86_64/libLiteRtClGlAccelerator.so": {
+      "sha256": "f04c1f1c9d5ce2131f3102d6c9366ba15b638854c2abb7d2b310606636734722",
+      "bytes": 4120088
+    }
+  },
+  "privateNpuAssets": {
+    "assets/pocket-compiled-npu-2.4.1/libLiteRtCompilerPlugin_Qualcomm.so": {
+      "bytes": 953512,
+      "sha256": "745fe1a13e173950ad2520980728d138085b3c1cc945c7d729f527fc1e7abfab"
+    },
+    "assets/pocket-compiled-npu-2.4.1/libLiteRtDispatch_Qualcomm.so": {
+      "bytes": 461880,
+      "sha256": "a5cdbc8da207eae2f9822fe6b19c61a8d26a584dbc71bb7a986b82195887a74e"
+    }
+  }
+}

@@ -264,7 +264,7 @@ int main() {
   int preparations = 0;
   for (int repeat = 0; repeat < 6; ++repeat) for (int tokens : {84, 71, 39, 72}) {
     const auto found = four.Find(tokens);
-    const auto admitted = kokoro_runtime::AdmitShapeCache(true, 4 * gib, four.Bytes(), found ? 0 : 400 * mib, false, true);
+    const auto admitted = kokoro_runtime::AdmitShapeCache(true, 3 * gib, four.Bytes(), found ? 0 : 400 * mib, false, true);
     Require(admitted.limit == 4 && admitted.reason == kokoro_runtime::ShapeCacheAdmission::BoundedFourShapes);
     four.Configure(admitted);
     if (!found) { four.Insert(tokens, 400 * mib, std::make_unique<Session>(tokens)); ++preparations; }
@@ -274,6 +274,41 @@ int main() {
   four.Configure(kokoro_runtime::AdmitShapeCache(true, 2 * gib, four.Bytes(), 0, false, true));
   Require(four.Size() <= 3 && four.Bytes() <= kokoro_runtime::kShapeCacheMaximumBudgetBytes);
   Require(kokoro_runtime::AdmitShapeCache(true, 4 * gib, 0, 400 * mib, true, true).limit == 3);
+
+  // Replay the observed 26/59/71/39/72-token utterance, not padded variants.
+  // A four-slot LRU misses all five shapes on each repeat; five admitted
+  // exact-shape sessions prepare only once each within the existing ceiling.
+  kokoro_runtime::ShapeCache<Session> four_slots(4, 2 * gib);
+  kokoro_runtime::ShapeCache<Session> five(1, kokoro_runtime::kShapeCacheSingleBudgetBytes);
+  int previous_preparations = 0, repaired_preparations = 0;
+  for (int repeat = 0; repeat < 4; ++repeat) for (int tokens : {26, 59, 71, 39, 72}) {
+    if (!four_slots.Find(tokens)) {
+      four_slots.Insert(tokens, short_bytes, std::make_unique<Session>(tokens));
+      ++previous_preparations;
+    }
+    const auto found = five.Find(tokens);
+    const auto admitted = kokoro_runtime::AdmitShapeCache(true, 4 * gib, five.Bytes(), found ? 0 : short_bytes, false, true);
+    five.Configure(admitted);
+    if (!found) {
+      five.Insert(tokens, short_bytes, std::make_unique<Session>(tokens));
+      ++repaired_preparations;
+    }
+    Require(five.Find(tokens)->value == tokens && five.Bytes() <= 2 * gib);
+  }
+  Require(previous_preparations == 20 && repaired_preparations == 5 && five.Evictions() == 0);
+  Require(five.Size() == 5 && five.Bytes() == 5 * short_bytes);
+  Require(kokoro_runtime::AdmitShapeCache(true, 4 * gib, five.Bytes(), 0, false, true).reason ==
+      kokoro_runtime::ShapeCacheAdmission::BoundedFiveShapes);
+  five.Configure(kokoro_runtime::AdmitShapeCache(true, 3 * gib, five.Bytes(), 0, false, true));
+  Require(five.Size() == 4 && five.Find(72)->value == 72);
+  five.Configure(kokoro_runtime::AdmitShapeCache(true, 0, five.Bytes(), 0, false, true));
+  Require(five.Size() == 1 && five.Find(72)->value == 72);
+  Require(kokoro_runtime::AdmitShapeCache(true, 4 * gib, 0, short_bytes, false, false).limit == 3);
+  Require(kokoro_runtime::AdmitShapeCache(false, 4 * gib, 0, short_bytes, false, true).limit == 1);
+  five.Configure(kokoro_runtime::AdmitShapeCache(true, 4 * gib, five.Bytes(), 1100 * mib, false, true));
+  five.Insert(117, 1100 * mib, std::make_unique<Session>(117));
+  five.Insert(118, 1100 * mib, std::make_unique<Session>(118));
+  Require(five.Size() == 1 && five.Bytes() <= 2 * gib);
 
   using Code = kokoro_runtime::GpuDiscoveryCode;
   Require(kokoro_runtime::ProbeQualcommGpu({}).code == Code::ApiUnavailable);

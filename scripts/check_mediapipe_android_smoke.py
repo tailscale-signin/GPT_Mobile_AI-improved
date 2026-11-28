@@ -12,7 +12,7 @@ import sys
 import uuid
 
 from check_native_memory_smoke import check_instrumentation
-from smoke_mediapipe_speech import FIXTURE, MAX_FRAMES, MODELS, RUNTIME_VERSION, SAMPLE_RATE, verify_catalog
+from smoke_mediapipe_speech import FRENCH_PREVIEW, FIXTURE, MAX_FRAMES, MODELS, RUNTIME_VERSION, SAMPLE_RATE, lexical_word_spans, verify_catalog
 
 
 TEST_CLASS = "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechNativeSmokeTest"
@@ -91,7 +91,7 @@ def check_receipt(receipt, engine, run_id, abi="x86_64", delegate="CPU"):
     require(engine == "kokoro" or delegate == "CPU", "This model supports only CPU smoke")
     model = MODELS[engine]
     expected = {
-        "schema": "mediapipe-android-jni-smoke-v2",
+        "schema": "mediapipe-android-jni-smoke-v3",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
         "engine": engine.upper().replace("-", "_"),
@@ -108,6 +108,8 @@ def check_receipt(receipt, engine, run_id, abi="x86_64", delegate="CPU"):
     require(abi in str(receipt.get("abis", "")).split(","), f"Receipt does not identify the requested ABI {abi}")
     for key in ("frames", "recovered_frames"):
         require(type(receipt.get(key)) is int and 0 < receipt[key] <= MAX_FRAMES, f"Missing bounded PCM evidence: {key}")
+    for key in ("caption_word_coverage", "recovered_caption_word_coverage"):
+        check_word_coverage(receipt.get(key), FIXTURE, key)
     require(type(receipt.get("emitted_chunks")) is int and 0 < receipt["emitted_chunks"] <= 4096, "Missing bounded stream chunk evidence")
     for key in ("prepare_ms", "first_pcm_ms"):
         require(type(receipt.get(key)) is int and 0 <= receipt[key] <= 300_000, f"Missing bounded native timing: {key}")
@@ -165,6 +167,21 @@ def check_french_preview(french, expected_frames, voice="ff_siwis"):
     clipped, audible = french.get("clipped_samples"), french.get("non_silent_samples")
     require(type(clipped) is int and clipped == 0 and type(audible) is int and 0 < audible <= count,
             "French signal is missing, silent or clipped")
+    check_word_coverage(french.get("caption_word_coverage"), FRENCH_PREVIEW, "french_preview.caption_word_coverage")
+
+
+def check_word_coverage(coverage, text, label):
+    require(isinstance(coverage, dict), f"Missing complete source word coverage: {label}")
+    expected_words = len(lexical_word_spans(text))
+    expected = {
+        "measurement_scope": "SOURCE_WORD_SPANS_ONLY", "timing_provenance": "SDK_ESTIMATED",
+        "acoustic_alignment": "NOT_MEASURED", "expected_words": expected_words,
+        "covered_words": expected_words, "individually_timed_words": expected_words,
+        "grouped_word_spans": 0, "partial_word_spans": 0, "provisional_word_spans": 0,
+        "complete": True,
+    }
+    for key, value in expected.items():
+        require(type(coverage.get(key)) is type(value) and coverage[key] == value, f"Source word coverage mismatch: {label}.{key}")
 
 
 def check_incremental_stream(stream, label):
@@ -178,6 +195,7 @@ def check_incremental_stream(stream, label):
     }
     for key, value in expected.items():
         require(type(stream.get(key)) is type(value) and stream[key] == value, f"Incremental evidence mismatch: {label}.{key}")
+    check_word_coverage(stream.get("caption_word_coverage"), FIXTURE, f"{label}.caption_word_coverage")
     require(type(stream.get("frames")) is int and 0 < stream["frames"] <= MAX_FRAMES, f"Missing bounded incremental PCM: {label}")
     require(type(stream.get("emitted_chunks")) is int and 0 < stream["emitted_chunks"] <= 4096, f"Missing bounded incremental chunks: {label}")
     require(type(stream.get("first_pcm_ms")) is int and 0 <= stream["first_pcm_ms"] <= 300_000, f"Missing bounded incremental timing: {label}")

@@ -87,7 +87,7 @@ ENUMS = {
         "provider_reported_initial", "provider_reported_interim", "runtime_reported_initial", "runtime_reported_interim", "gateway_reported_initial", "gateway_reported_interim", "mixed_reported_initial", "mixed_reported_interim",
     },
     "acceptance_evidence_scope": {"CURRENT_VERDICT", "RETAINED_VERDICT"},
-    "voice_engine": {"SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE"},
+    "voice_engine": {"SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE", "COMPILED_POCKET"},
     "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"},
     "voice_focus_result": {"GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"},
     "voice_first_audio_basis": {"UTTERANCE_START", "PLAYBACK_HEAD"},
@@ -276,7 +276,7 @@ VOICE_INSTALL_EVIDENCE_FIELDS = {
 }
 ENUMS["voice_install_failure"].add("WORK_NOT_FOUND")
 ENUMS["voice_install_pending_reason"] = {"UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"}
-ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO", "LITERT_KOKORO"}
+ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO", "LITERT_KOKORO", "POCKET"}
 ENUMS["voice_install_transfer_stage"] = {"CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"}
 ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"}
 COUNTS.add("voice_install_elapsed_ms")

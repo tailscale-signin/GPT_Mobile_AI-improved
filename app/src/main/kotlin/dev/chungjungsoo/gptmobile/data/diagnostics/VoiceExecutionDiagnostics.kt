@@ -11,6 +11,7 @@ internal object VoiceExecutionDiagnostics {
     const val STREAMING_BACKEND_FEATURE = "VOICE_STREAMING_BACKEND_EVIDENCE_V1"
     const val STREAMING_PACK_FEATURE = "VOICE_STREAMING_PACK_EVIDENCE_V1"
     const val STREAMING_NPU_FEATURE = "VOICE_STREAMING_NPU_EVIDENCE_V1"
+    const val POCKET_COMPILED_FEATURE = "VOICE_POCKET_COMPILED_EVIDENCE_V1"
     const val FALLBACK_CAUSES_FEATURE = "VOICE_FALLBACK_CAUSES_V1"
     private val systemFailures = setOf(
         "INITIALIZATION_FAILED", "CATALOG_UNAVAILABLE", "OFFLINE_VOICE_UNAVAILABLE", "LANGUAGE_UNAVAILABLE", "VOICE_UNAVAILABLE",
@@ -31,7 +32,7 @@ internal object VoiceExecutionDiagnostics {
         "voice_fallback_source_observation",
         "voice_system_error_code"
     )
-    private val requestedBackends = setOf("AUTO", "CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_MULTILINGUAL_CPU")
+    private val requestedBackends = setOf("AUTO", "CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU")
     val enums = mapOf(
         "voice_selected_backend" to requestedBackends,
         "voice_effective_provider" to setOf("SYSTEM", "KOKORO_CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA"),
@@ -52,10 +53,23 @@ internal object VoiceExecutionDiagnostics {
             listOf("voice_playback_failure", "voice_fallback_failure").any { (values[it] as? JsonPrimitive)?.contentOrNull in systemFailures }
 
     private val streamingBackendValues = mapOf(
-        "voice_engine" to setOf("MEDIAPIPE"),
-        "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_MULTILINGUAL_CPU"),
+        "voice_engine" to setOf("MEDIAPIPE", "COMPILED_POCKET"),
+        "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU"),
         "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
     )
+
+    private val pocketCompiledValues = mapOf(
+        "voice_engine" to setOf("COMPILED_POCKET"),
+        "voice_selected_backend" to setOf("POCKET_GPU", "POCKET_NPU"),
+        "voice_failure_requested_backend" to setOf("POCKET_GPU", "POCKET_NPU"),
+        "voice_install_pack" to setOf("POCKET")
+    )
+
+    /** Older streaming receivers do not understand compiled Pocket or its newly reported install pack. */
+    fun requiresPocketCompiledSupport(values: Map<String, JsonElement>): Boolean =
+        pocketCompiledValues.any { (field, choices) ->
+            (values[field] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull in choices
+        }
 
     /** Existing field names alone do not require support for newly introduced enum values. */
     fun requiresStreamingBackendSupport(values: Map<String, JsonElement>): Boolean =

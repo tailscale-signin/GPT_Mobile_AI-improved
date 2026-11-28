@@ -254,7 +254,7 @@ class VoiceSession(
         engaged = true
         submittedDraft = null
         resetStream(prompt)
-        diagnosticProbe = diagnosticTrace.beginReply(generation)
+        diagnosticProbe = diagnosticTrace.beginReply(generation, fromCapture = true)
         audio.bindDiagnostics(diagnosticProbe)
         waiting = true
         draftPending = awaitsAdmission

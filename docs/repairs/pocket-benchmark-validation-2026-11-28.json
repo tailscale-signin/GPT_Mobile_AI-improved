@@ -1,0 +1,348 @@
+{
+  "schemaVersion": 1,
+  "task": "Pocket default, requested GPU/NPU routes and truthful voice benchmark evidence",
+  "recordedAtUtc": "2026-11-28T04:01:23Z",
+  "baseCommit": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "workingTreeHead": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+  "revisionScope": "Uncommitted working-tree sources are bound by hashes below; workingTreeHead is not a claim that the changed sources are committed.",
+  "result": {
+    "repositoryTestsPassed": 52,
+    "supplementalPreferenceHostCasesPassed": 3,
+    "totalPassed": 55,
+    "failed": 0
+  },
+  "environment": {
+    "java": "21",
+    "kotlinCompiler": "2.4.20",
+    "junit": "4.13.2",
+    "compilerHeapMiBRange": [
+      1024,
+      1400
+    ],
+    "androidCompileBoundary": "Cached real Android SDK jar; no Android device execution"
+  },
+  "slices": [
+    {
+      "id": "suite_export",
+      "result": "PASS",
+      "testsPassed": 31,
+      "commandFromRepositoryRoot": "python3 ../voice-suite-validation/build.py",
+      "harnessScope": "Session-local source-bound Kotlin/JVM harness; not a repository Gradle task.",
+      "harnessScriptSha256": "a96799cfbcf39d85cf2ca6979bc73727aaae3040dfb14c6c7ffe36bca4894bd2",
+      "sourceManifestSha256": "66dcc7d498024340365a437bf92f9ced3eb8a515fda6bb9edd8c965973c1cff1",
+      "compiledTestJarSha256": "f409794bd55b307e21352348bc3543e99d4994fac5df9927ef0a36719fa5cc2b",
+      "compileLogSha256": "ca6e597c4f68a01244c5105ab0d9dcb94b55be2c3d1fadc551782aa35fe12089",
+      "testLogSha256": "a3573a56e9b84194b08f1d5ad3f276938914f32ac550a66e1b538dbe2eaa758b",
+      "testMethods": {
+        "VoiceBenchmarkSuiteTest": [
+          "everyStageFitsTheRealRunnersAndEverySupportedRouteHasACompleteBaseline",
+          "quickScreeningCoversAllPacksBeforeFullSynthesis",
+          "installedStreamingEnginesGetPlaybackCancellationAndRatesBeforeExhaustiveNativeOrLanguageWork",
+          "continuationPreservesCompletedEvidenceAndRetriesInterruptedStages",
+          "emptyProbeIsNotSilentlyUnavailable",
+          "microphoneAndRecognitionOmissionsKeepTheirIdentityAndCannotAppearMeasured",
+          "exportsCountMissingAndInterruptedCoverageWithoutCallingItPassed",
+          "playbackStageSummaryRetainsStallsAndFailuresWithoutPromotingCompletedEngineState",
+          "deviceThreadLimitsAndInvalidRatesCannotCreateUnrunnableStages",
+          "onlyNativeAutoCasesUseCalibrationAndExplicitSweepsStayFixed",
+          "currentCalibrationUsesTheSelectedStreamingVoiceOnlyInItsOwnPack",
+          "fullCampaignCoversBundledVoicesAndPitchSensitivePlaybackRates",
+          "compiledPocketRetainsSeparateArtifactRuntimeVoicesAndActualInputContract",
+          "campaignRunsMeasuredCasesSeriallyAndExportsMoreThanTheFiveLegacyHistorySlots",
+          "cancellationThermalAndUnconfirmedCleanupLeaveRemainingWorkUnmeasured",
+          "reopeningAfterProcessDeathKeepsPartialStageAndIgnoresIncompleteWrite",
+          "newRunSurvivesWallClockRollbackAndOnePreviousExportRemainsReadable",
+          "fixedRecognitionFixturesAreNonSilentAndWordErrorsCountInsertionsDeletionsAndSubstitutions",
+          "accuracyAndTimingSummariesKeepMissingObservationsOutOfTheMedian"
+        ],
+        "VoicePerformanceExportTest": [
+          "streamingModelAndDelegateRequestNeverBecomeProcessorOrThreadEvidence",
+          "graphicsOnlyExportIdentifiesMissingSpeechAndUtilizationWithoutInventingZeros",
+          "absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance",
+          "conversationLatencyRequiresItsOwnMatchedSampleAndKeepsTheSoftwareClockBoundary",
+          "coldWarmAndActualProvidersKeepTheirOwnRecordedSeries",
+          "unknownLabelsCannotExportConversationTextOrDeviceNames",
+          "frozenExportIsUnaffectedByResetOrSubsequentObservations",
+          "selectedAccelerationAndActualCpuFallbackStayDistinctWithoutDeviceIdentifiers",
+          "cacheAdmissionReportsBudgetAndUnknownMemoryWithoutClaimingUtilization",
+          "collectedProfileKeepsCachedEvidenceDistinctFromCurrentPreparation",
+          "unknownOrUnavailableProfilesCannotExportCountersAndInvalidNumbersStayUnknown",
+          "earlyValidationFailureCannotExportUnmeasuredZeroesAndSignedDurationEvidenceSurvives"
+        ]
+      },
+      "sourcesMatchingCurrentBytes": 21,
+      "formattingOnlySourceDifferences": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt"
+      ],
+      "limits": [
+        "Production plan, persistence and export logic; two pure probe/fixture sections extracted verbatim. Two Android-dependent suite methods excluded: languageDictionaryAndThinkingFixturesExerciseProductionMappings; platformSynthesisOnlyReportsDurationForCompleteValidWaveData.",
+        "No device probe, PCM playback, semantic pronunciation, acoustic alignment or full Android ViewModel execution."
+      ]
+    },
+    {
+      "id": "recognition_support",
+      "result": "PASS",
+      "testsPassed": 5,
+      "commandFromRepositoryRoot": "python3 ../voice-recognition-validation/build.py",
+      "harnessScope": "Session-local source-bound Kotlin/JVM harness; not a repository Gradle task.",
+      "harnessScriptSha256": "c55b44ecc7dbbe5aa016f0b8ba61630a7ff17fcbe2be3e1309fa64200061cc00",
+      "sourceManifestSha256": "9c5065c0483d12202128f4879647cdf8708e280b0461951e189a4dbbf97b90e6",
+      "compiledTestJarSha256": "a656f380a052cf84fa67729a7d64a2fc2bfc3937ca11687732419d0f5750f2e2",
+      "compileLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "testLogSha256": "2aa479975918e0dafc739a9547e8f5ef3b78ece2c2ce53667e8b725fcc2c84e3",
+      "testMethods": {
+        "VoiceBenchRecognitionSupportTest": [
+          "aTimeoutRebindsLocallyOnceAndRecordsRecoveryInsteadOfLosingTheLocale",
+          "lateSuccessFromRetiredBindingCannotQualifyTheNewBinding",
+          "repeatedTimeoutRemainsUnavailableAfterTheBoundedRetry",
+          "explicitUnsupportedOrRateLimitedRepliesAreNotRetriedOrPromoted",
+          "userCancellationReleasesThePendingBindingWithoutRetrying"
+        ]
+      },
+      "sourcesMatchingCurrentBytes": 6,
+      "formattingOnlySourceDifferences": [],
+      "limits": [
+        "Actual support helper, AndroidRecognitionService and loopback compile against the cached real Android SDK. Tests replace only the asynchronous recognition binding with a controlled fake.",
+        "No Android service, microphone, recognition provider, audio fd consumption or physical device is exercised by these host tests."
+      ]
+    },
+    {
+      "id": "engine_runner",
+      "result": "PASS",
+      "testsPassed": 13,
+      "commandFromRepositoryRoot": "python3 ../voice-engine-runner-validation/build.py",
+      "harnessScope": "Session-local source-bound Kotlin/JVM harness; not a repository Gradle task.",
+      "harnessScriptSha256": "c6e5b037af18423b3b936e19ff130df4d0f67f0ac87b2fea930a4e61bdb71650",
+      "sourceManifestSha256": "0578d60da3406bc9fcc31f209b43736340c07764ee58aab0a25afee953b2003b",
+      "compiledTestJarSha256": "606f77a36d5367ed641ce0abfbfdc15300c6fd6f106b68c6e0862fcd70da437e",
+      "compileLogSha256": "df16f6240e1d700609715eb7ca4003e1b19a1a6a21b7c68312bb7f104fc0542c",
+      "testLogSha256": "2a8d1bbe9a85d49f32eced17c67b65b13de627b10db109e56d686de061e90365",
+      "testMethods": {
+        "VoiceSpeechEngineBenchmarkRunnerTest": [
+          "incrementalModeUsesOneStreamPerCompleteFixtureAndKeepsEveryInputByte",
+          "everySdkEngineUsesTheSelectedFactoryAndRetainsAllFixedInputWithoutInventedPlacement",
+          "cancellationRetainsPartialPcmAndNeverDestroysTheBlockedProducer",
+          "chunkDeadlinePreservesTheFirstCallbackAndClosesAfterTheCallReturns",
+          "recordedDeadlineStopsTheOwnerAndSurvivesRetirementBeforeItsCallbackCanRun",
+          "throwingRetirementObserverCannotSkipCloseOrFailedCloseQuarantine",
+          "blockedDeadlinePublishesImmutableEvidenceBeforeReturnAndSurvivesAThrowingObserver",
+          "explicitStopSuppressesLaterDeadlineAndRequestsNativeCancellationOnlyOnce",
+          "failedPreparationRetirementPreventsTheNextDelegateFromStarting",
+          "failedEngineCloseKeepsOwnershipQuarantinedAndDoesNotStartAnotherBackend",
+          "missingModelNeverCreatesAnEngineOrStartsADownload",
+          "silentOrNonFinitePcmFailsWithoutBecomingACompleteSample",
+          "stabilityPercentilesNeedTwentySuccessfulWarmSamplesOfTheSameFixture"
+        ]
+      },
+      "sourcesMatchingCurrentBytes": 5,
+      "formattingOnlySourceDifferences": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt"
+      ],
+      "limits": [
+        "Entire repository runner test class and actual runner source compile; fake VoicePhraseEngine and scheduler boundaries are explicit in the repository tests.",
+        "No Pocket model inference, compiled GPU/NPU execution, AudioTrack or processor placement claim."
+      ]
+    },
+    {
+      "id": "capture_to_answer",
+      "result": "PASS",
+      "testsPassed": 3,
+      "commandFromRepositoryRoot": "python3 ../voice-trace-validation/build.py",
+      "harnessScope": "Session-local source-bound Kotlin/JVM harness; not a repository Gradle task.",
+      "harnessScriptSha256": "e4e89dbe5f55c7a20de80ec94ebffef1e006bf19004580660f00ab33101e48aa",
+      "sourceManifestSha256": "a198f5c64a59b158ac4253a376009f75c8f89ce493cd7c265332344e3d7fef83",
+      "compiledTestJarSha256": "79b670879bcb7d6d1cb2bb332e81f66867eb074110311ba448dd78a967797878",
+      "compileLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "testLogSha256": "4b75d359b8ceae7e5ff7e05c215224b6e5e893e412d83826053d2113e41dad5b",
+      "testMethods": {
+        "VoiceDiagnosticTraceTest": [
+          "completeTurnRequiresCaptureAcceptanceAndPresentedAnswerAndCannotBeReplayed",
+          "incompleteOrUnpresentedTurnNeverInventsEndToEndLatency",
+          "sessionCarriesTheCapturedBoundaryThroughSubmissionAndFencesManualReplay"
+        ]
+      },
+      "sourcesMatchingCurrentBytes": 15,
+      "formattingOnlySourceDifferences": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt"
+      ],
+      "limits": [
+        "Full current VoiceDiagnosticTrace, VoiceSession and VoicePerformanceHistory with the three repository test methods copied verbatim.",
+        "External reporting serialization/retention/delivery and unused ProfileFailureRecord signatures are ports. Production VOICE cleanup field lists, admission enum and cue data declaration are extracted verbatim. No report projection or Android hardware claim."
+      ]
+    },
+    {
+      "id": "preference_storage",
+      "result": "PASS",
+      "testsPassed": 3,
+      "commandFromRepositoryRoot": "python3 ../voice-preference-validation/build.py",
+      "harnessScope": "Session-local source-bound Kotlin/JVM harness; not a repository Gradle task.",
+      "harnessScriptSha256": "157008b0643b7008b8b453c1c97e49b8d4291abd2d71ecc427cdb72b2869c325",
+      "sourceManifestSha256": "969ffe1e4ef1317aa35e3a2768ee09f805c1333aa5646991277842578ec291ae",
+      "compiledTestJarSha256": "3b3af5e74a48f44644049f3c1566deee780dbf7a2b2c985df96c70c0ce7d4d2b",
+      "compileLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "testLogSha256": "ebc06c7d8942549e494737d8722047028a0c4978bf9a35bf840ea00df1b3aadb",
+      "testMethods": {
+        "PreferenceHostTest": [
+          "absentBackendDefaultsToPocketButEveryExplicitKnownBackendSurvivesReload",
+          "compiledVoicePersistsSeparatelyFromSdkVoiceAndLatestBackendSelection",
+          "corruptBackendProducesVisibleFallbackButDoesNotLoseValidCompiledVoice"
+        ]
+      },
+      "sourcesMatchingCurrentBytes": 5,
+      "formattingOnlySourceDifferences": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt"
+      ],
+      "limits": [
+        "Actual VoiceBackendPreferenceStore, VoicePreferenceWriter, backend enum, catalogs and voice mapping; three supplemental host cases use an in-memory SharedPreferences boundary.",
+        "These are supplemental host cases, not execution of the repository Robolectric VoiceBackendViewModelTest class. No Android disk, Hilt graph, ViewModel lifecycle or model-store execution claim."
+      ]
+    }
+  ],
+  "currentSourceHashes": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DispatchStageDiagnostics.kt": "308f2404efa7578b5d89d0869aa98e1efcf591db5b8a3f01d344985ec672a7cf",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt": "ce1c3b3305593c7604153653c79b77d39b288e6ecfadcfe0074ea7eb47cb8c4d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt": "2b62287f16a0ceb8441932f10b410206dab2aedf5dccce2126a17af47ce7aa3a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ConversationPrivacyContext.kt": "e0eeb6263103844f100d119c683b22ef16c30856ca675985bea7dbe98a66436b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionFailure.kt": "25c10dfa9d978ab34398ad25c06ae4f0b18eea384f9804a3e60b939c976ec145",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt": "f271f7f7ccc3d5b71aba7efec37685979209c6aed168db94d9082889778d9195",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt": "767be5bf9a4ec057012b5870adbb340c1a154fe3522988684aadbacd9b5b92e4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechVoices.kt": "36cd35cbb3bcff60d50014910685717cdf48446d9dd23b29267a33e0e4d8e113",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechLanguages.kt": "3e301d33316c9ecd8faf0bc7f1ff3d6a353a173aa5a08aabbe82cf71008fadc9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionFailureDiagnostics.kt": "e668e17938ae70cfd5a58f10cedd550f5033f71faae9d4de4c17290d814d680c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchProbes.kt": "a70fc10ceb787a5f615558dbdd03f83e2d1bcbba0581c2694fe796517734a075",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchRecognition.kt": "a5c376008e4b475ee67e943916814a8a9b83ba47c2676232dbe7458d727edcf9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchRecognitionLoopback.kt": "9ef863ab891dbdb133415e61b06cc2e4f7dc0ffb0eb792c961efbaa241d693da",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchRecognitionSupport.kt": "8efbbb2d03bd7e097abae565cd81deb4524dd515b90d8d6f0dc59c6b0210fe0d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchmarkCampaign.kt": "0edd9c7899cd37c70f028a07cbb9e317f791e92aad9295504ab69227b0f138df",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchmarkSuite.kt": "4b273b8c2226ff250728c7dee1607e0b665a420aa52854dfa8dbc1f1c9932663",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchmarkSuiteStore.kt": "9295a5c7a1c0c091d6d8452aeeebb4a5e5202605bad9231a67b1fc589948c5c9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt": "e00126a2928592a024d9626f08a386388d531cdb9af0f86e81b49783a59733b0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt": "c44c6f5ab354d7326d0a57b25c39939dc2b47f655faee298b6b9a137d572c2a4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceListeningPolicy.kt": "4021997d470f894b14ad6efdf257e519aee8bb3b27393cc3eed73f1c3c683b8d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt": "7e1ecb7b678b537fc3bd1c570dd0b9331806e582a5f0efd37c01b1569e9057b0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceHistory.kt": "53a1e4c4dfdea0feb099426bb73f133063983a615765dd140c3ccad3aa900de6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailure.kt": "5ee58566080cf7b5e6eb396559bc092c86c84932750acb2ed83c001e1ccea20d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePreferenceWriter.kt": "78739a91145d21e5798d621ce100cd9a95cc1e15af84e309ac7ff9de4783c132",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePresentationSignals.kt": "07452e838d73ca758348da9600d6d209c5aa889241de4c148527addcdac3d274",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceRecognitionBackend.kt": "326112e3b1eb023a2278f035220a37e865341070d44b3d0d4de755ad1beb961c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceReplyFailureDiagnostics.kt": "c65b464e2ae4d867f900149fd28c58e9513b6d49498c4307733607b20f9f308f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "fc3ec2073d0bd6c46435dfe8e491f7b75483e969ce1d83f75f4a6f4b591dc9fa",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "48811a93e65f900a2d68a4c60c866990ee41ae5da05da49d57098e405b67af57",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEngine.kt": "ffa0a2443e2869a3616f13b6c8f60655747a6bba409eb9dc47947da1f447e4c7",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt": "d86228669d4e419e8b92562d7ef0e3ec77ae5d713461cb4983a17bae210834d3",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkResult.kt": "1bacce953543ba8ee3b2499f6f4b8791eb923934e6465ea7ddc18591dead2961",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunner.kt": "3630785b133d95dedb325654cdf71537b2645f24dcc8da00a213e95f2eaff0d4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt": "8eccd5ecf6437fa9ddeb0cab9e6c83bffba62903b3d3a315eb8c7b651c005f6c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceThinkingCue.kt": "6df117538e17e4082606817a56939a4c126614499994d83251d5b63ea4e2090a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTurnAdmission.kt": "852adfd400641c428c817e5ad6be2cae40782d1a2e2bdd88141915268e9661f9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendPreferenceStore.kt": "a5569a0c390e02af6913b3ff844b700f0e3fef8495816217b7db5c44e16d463b",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchRecognitionSupportTest.kt": "b4f8554aa4c910b3b9881cc8289803c689df247ed16f0c7904775e009eb9ea3b",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBenchmarkSuiteTest.kt": "03cc0605f14365c26c54bd2f5cd89d4afb7fe7be1881ee156defefb6cab6e8dd",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt": "74ccb5227825528ddf4af3e441de14bc69f6b7c429ccb815378e6c55c876a158",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt": "adf915938e42b92b8536af57cd05c33bf019d3adb70faececa5f8d22f9e3274b",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt": "a3ae10faba550a1cd7b4cd5c89ea1ef28138d98ef4f531f59def995e558af6c4",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/KokoroFrontend.java": "f44c3df7c556cc23488309b1ea276f941dd853903374d0b787e8510e3971b9f5",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": "3c02a73463815def49f10b7aa8e6763a527770ebb1afa19e4bdc5bdc36067a13"
+  },
+  "postTestSourceDifferences": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt",
+      "testedSha256": "6c783d720e00f7c9428cf68d736e70904ce7bcf8bfe61664feeef34c6fb2c26b",
+      "currentSha256": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+      "difference": "A single blank line inserted before the MODEL_SHA256 KDoc. Constants, declarations and expressions are identical.",
+      "appliesToSlices": [
+        "suite_export",
+        "engine_runner",
+        "capture_to_answer",
+        "preference_storage"
+      ]
+    }
+  ],
+  "portableDependencyBinding": {
+    "sourceManifestSha256": "e77e56372a41712c0b59e40c1df5e20c6f4a934764b3f2c70c7bfa72e5d3e1ab",
+    "compiledJarSha256": "d92371650ca467fcbcb5fef73a39128379827d44283b0c0d0621ef89ce9f6832",
+    "manifestEntries": 67,
+    "changedDependenciesRecompiledFromCurrentSources": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEngine.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkResult.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+      "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java"
+    ],
+    "verification": "Every inherited source digest checked against this tree; changed entries were overlaid from current production sources by the suite harness."
+  },
+  "finalReview": {
+    "compiledWordCueEvidence": {
+      "result": "NO_QUALIFICATION_GATE_WEAKENED",
+      "findings": [
+        "Compiled Pocket produces PCM without word cues; VoiceStreamFrames does not synthesize absent cue metadata.",
+        "Playback requires the complete independently prepared caption manifest, observed words and actual rendering. Missing cues fail captionManifestValid and produce CAPTION_MANIFEST_MISMATCH.",
+        "Missing caption coverage and timing provenance exclude the route from controlled latency comparison and automatic selection. Cancellation observation remains a separate bounded gate.",
+        "Synthesis PCM validity, text cue counts, requested accelerator placement and actual acoustic pronunciation/word timing remain separate evidence."
+      ],
+      "reviewedSourceHashes": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngine.kt": "95d7c5d4587bef8faf49df5879a8d6640b4b47ebe1573c8f1e34ffac35ea4e41",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineFactory.kt": "6c4e90aaaffc6fe862d157ac36fcdd04c9a173c7002eae13d9866dbbdf0fc272",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt": "cdbbe16af27aacefa5e0c4b01b61d9df254f3c5c253a92d2260f512bd3ec993c",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt": "56b2d46ae9c8564abccce0f45cc5dff73d6bde560a5aa29fae378bc30f4a0d62",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "7dd37332614aeddfc4467944604011a65469978a9bacde79b24e4447494b2ed5",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": "5d16028e493f665fd63abb47a6f7b98e8281af0d7e22c7adae5b9816f0614577",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt": "982a0b5dda4e7d02bc09f6bbef847dafb6b837b9fb8ee63ef634d90e5dbe2866",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparison.kt": "4c97a271cf1306adb30fc23ca10ecd6d5c35be38db6bc9b43963fab565e50ee3",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparisonExport.kt": "1923d298fad037a00eedffa565ef30b139707d5f663d3fc05ee66bcff38a839c"
+      }
+    }
+  },
+  "notExecuted": [
+    "Full app Gradle compile/tests: blocked by the existing memory preflight (observed free memory below the 8960 MiB requirement; cgroup headroom unknown).",
+    "VoiceSpeechEnginePlaybackBenchmarkTest Robolectric execution and full VoiceBackendViewModelTest execution.",
+    "Physical microphone/ASR, AudioTrack, acoustic speech quality, pitch/word alignment, battery/thermal qualification, runtime model inference and GPU/NPU kernel attribution."
+  ],
+  "runtimeAgentEvidence": "Separate compiled Pocket runtime/API tests belong to the runtime owner and are not counted here.",
+  "subsequentCaptionFollowup": {
+    "scope": "Keep original source bindings as historical evidence. Later caption implementation changed the listed files; original test counts are not a full-current-tree pass.",
+    "changedBindings": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": {
+        "testedOrReviewedAtOriginalReceipt": "48811a93e65f900a2d68a4c60c866990ee41ae5da05da49d57098e405b67af57",
+        "afterCaptionFollowup": "fcc33ffef52b341fba49be23d73e8a61f62a98e5dd187da6e4974f84d7aea800"
+      },
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt": {
+        "testedOrReviewedAtOriginalReceipt": "d86228669d4e419e8b92562d7ef0e3ec77ae5d713461cb4983a17bae210834d3",
+        "afterCaptionFollowup": "e5b1a9d28a23de33a802054dbfb501675828b2f52da8c85b467ed55e5fd547e3"
+      },
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledVoicePhraseEngineFactory.kt": {
+        "testedOrReviewedAtOriginalReceipt": "6c4e90aaaffc6fe862d157ac36fcdd04c9a173c7002eae13d9866dbbdf0fc272",
+        "afterCaptionFollowup": "3f5c30fb43b828ca3ea9d1e04dcb7d72f21c571b00736f5b50e46aa5fc001e8b"
+      },
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": {
+        "testedOrReviewedAtOriginalReceipt": "7dd37332614aeddfc4467944604011a65469978a9bacde79b24e4447494b2ed5",
+        "afterCaptionFollowup": "7b23c949a52c79de608a61cf46591de0477c6b5e20012c5c433ee56c811e3039"
+      },
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": {
+        "testedOrReviewedAtOriginalReceipt": "5d16028e493f665fd63abb47a6f7b98e8281af0d7e22c7adae5b9816f0614577",
+        "afterCaptionFollowup": "75d786523d122becf791cee023653ba0900a282bbc8f2663c8da932c1c8633f9"
+      },
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt": {
+        "testedOrReviewedAtOriginalReceipt": "982a0b5dda4e7d02bc09f6bbef847dafb6b837b9fb8ee63ef634d90e5dbe2866",
+        "afterCaptionFollowup": "f29ef0286cb2c8922895464c48c190bedca968d8c3fde3c6093892a5c50849ed"
+      },
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparison.kt": {
+        "testedOrReviewedAtOriginalReceipt": "4c97a271cf1306adb30fc23ca10ecd6d5c35be38db6bc9b43963fab565e50ee3",
+        "afterCaptionFollowup": "7f084aa48d8e54868c48caff49ecd90177fa4dcbd309a8806610c6691f3507b8"
+      },
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingComparisonExport.kt": {
+        "testedOrReviewedAtOriginalReceipt": "1923d298fad037a00eedffa565ef30b139707d5f663d3fc05ee66bcff38a839c",
+        "afterCaptionFollowup": "95806c6fb00fa17fdf19b0a6121f1a4921efdbca3ad9cc0996f13c16faac5b30"
+      }
+    },
+    "newValidationReceipts": [
+      "docs/repairs/pocket-caption-validation-2026-11-28.json",
+      "docs/repairs/pocket-caption-pipeline-2026-11-28.json",
+      "docs/audits/pocket-caption-alignment.json"
+    ],
+    "fullAndroidCurrentHeadVerification": "REQUIRED_IN_CI"
+  }
+}

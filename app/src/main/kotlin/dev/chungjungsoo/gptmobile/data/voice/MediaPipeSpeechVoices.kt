@@ -67,7 +67,7 @@ internal object MediaPipeSpeechVoices {
 
     fun processorAvailability(engine: MediaPipeSpeechEngine): String? = when (engine) {
         MediaPipeSpeechEngine.POCKET, MediaPipeSpeechEngine.POCKET_MULTILINGUAL ->
-            "Pocket runs on CPU in this speech runtime. GPU and NPU are unavailable for this pack; Kokoro offers accelerator options."
+            "This Pocket pack runs on CPU. Experimental Pocket GPU and NPU options use a separate compiled English pack in the engine selector."
         MediaPipeSpeechEngine.PHONON -> "Phonon runs on CPU in this speech runtime. GPU and NPU are unavailable for this pack."
         else -> null
     }

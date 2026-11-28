@@ -135,8 +135,10 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_streaming_voice_values_roundtrip_only_in_voice_without_claiming_an_observed_delegate(self):
         additions = {
-            "voice_engine": {"MEDIAPIPE"},
-            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_MULTILINGUAL_CPU"},
+            "voice_engine": {"MEDIAPIPE", "COMPILED_POCKET"},
+            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "LITERT_KOKORO_NPU", "LITERT_KOKORO_GPU_OPTIMIZED", "LITERT_KOKORO_SM8750", "PHONON_CPU", "POCKET_CPU", "POCKET_GPU", "POCKET_NPU", "POCKET_MULTILINGUAL_CPU"},
+            "voice_failure_requested_backend": {"POCKET_GPU", "POCKET_NPU"},
+            "voice_install_pack": {"POCKET"},
             "voice_fallback_source": {"LITERT_KOKORO", "PHONON", "POCKET"},
         }
         for field, choices in additions.items():
@@ -334,6 +336,8 @@ class IncidentReportContractTest(unittest.TestCase):
             ("LITERT_KOKORO_NPU", "LITERT_KOKORO"),
             ("PHONON_CPU", "PHONON"),
             ("POCKET_CPU", "POCKET"),
+            ("POCKET_GPU", "POCKET"),
+            ("POCKET_NPU", "POCKET"),
         ):
             with self.subTest(backend=backend):
                 values = {
@@ -363,7 +367,10 @@ class IncidentReportContractTest(unittest.TestCase):
         for field, invalid in (
             ("voice_effective_provider", "LITERT_KOKORO_NPU"),
             ("voice_selected_backend", "PHONON_GPU"),
-            ("voice_selected_backend", "POCKET_GPU"),
+            ("voice_selected_backend", "POCKET_GPU_OPTIMIZED"),
+            ("voice_effective_provider", "POCKET_GPU"),
+            ("voice_effective_provider", "POCKET_NPU"),
+            ("voice_effective_provider", "COMPILED_POCKET"),
             ("voice_selected_backend", "private speech or model path"),
             ("voice_fallback_source", "PHONON_CPU"),
             ("voice_fallback_source", "POCKET_CPU"),

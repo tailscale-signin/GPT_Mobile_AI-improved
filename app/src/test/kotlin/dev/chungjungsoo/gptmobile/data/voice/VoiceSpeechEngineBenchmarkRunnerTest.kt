@@ -577,13 +577,15 @@ class VoiceSpeechEngineBenchmarkRunnerTest {
     }
 
     private fun report(engine: VoiceSpeechBenchmarkEngine = VoiceSpeechBenchmarkEngine.PHONON): VoiceSpeechBenchmarkReport {
-        val model = MediaPipeSpeechCatalog.model(checkNotNull(engine.mediaPipeEngine()))
+        val model = engine.mediaPipeEngine()?.let(MediaPipeSpeechCatalog::model)
+        require(model != null || engine == VoiceSpeechBenchmarkEngine.POCKET_COMPILED)
         return VoiceSpeechBenchmarkReport(
             1,
             VoiceSpeechBenchmarkConfiguration(
                 VoiceSpeechBenchmarkMode.QUICK, engine.supportedBackends, KokoroVoice.HEART, 2, 1f,
-                model.sha256, MediaPipeSpeechCatalog.RUNTIME_ID, 149, 36, "local-test-device",
-                engine = engine, engineVoiceId = model.defaultVoice
+                model?.sha256 ?: PocketCompiledSpeechCatalog.MODEL_SHA256,
+                if (model == null) PocketCompiledSpeechCatalog.RUNTIME_ID else MediaPipeSpeechCatalog.RUNTIME_ID, 149, 36, "local-test-device",
+                engine = engine, engineVoiceId = model?.defaultVoice ?: PocketCompiledSpeechCatalog.DEFAULT_VOICE
             )
         )
     }

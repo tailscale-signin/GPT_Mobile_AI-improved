@@ -24,7 +24,7 @@
     "Concurrent branch reconciliation, exact-commit checks, main validation and release verification",
     "Pocket caption source mapping, tempo and presentation synchronization; actual audio-derived timing for routes without SDK word timestamps"
   ],
-  "status": "READY_FOR_DRAFT_PUSH",
+  "status": "CI_DEPENDENCY_METADATA_CORRECTION",
   "validation": [
     {
       "scope": "native cache contracts",
@@ -127,6 +127,13 @@
       "scope": "New Android playback and ViewModel ownership regressions",
       "result": "not_run_locally",
       "reason": "Requires hosted full Android/Robolectric gate; no local memory gate bypass."
+    },
+    {
+      "scope": "Combined implementation canonical host gate before initial draft publication",
+      "result": "passed",
+      "tests": 863,
+      "skipped": 1,
+      "sourceCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748"
     }
   ],
   "publication": {
@@ -134,8 +141,9 @@
     "draftRequiredBeforeMerge": true,
     "mergeRequiresGreenExactHead": true,
     "releaseRequiresGreenMain": true,
-    "state": "NOT_STARTED",
-    "transport": "GitHub Git Data API with expected-head non-forced ref update; preserve all concurrent branch commits."
+    "state": "DRAFT_PR_PUSHED",
+    "transport": "GitHub Git Data API with expected-head non-forced ref update; preserve all concurrent branch commits.",
+    "implementationCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748"
   },
   "remaining": [
     "Final combined source/reference validation and expected-head draft branch update",
@@ -166,5 +174,13 @@
     }
   ],
   "currentParent": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
-  "hostValidationScope": "Focused receipts bind exact source hashes at execution. Later changes remain explicit; a host subset is not full Android, physical hardware, or acoustic qualification."
+  "hostValidationScope": "Focused receipts bind exact source hashes at execution. Later changes remain explicit; a host subset is not full Android, physical hardware, or acoustic qualification.",
+  "ciCorrection": {
+    "failedHead": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+    "cause": "Missing strict-verification entry for the published kotlinx-coroutines-guava 1.8.0 Gradle module metadata, requested before locked version selection.",
+    "change": "Add only the publisher-verified module SHA-256; keep all previous checksums and selected release versions unchanged.",
+    "receipt": "docs/repairs/coroutines-guava-module-verification-2026-11-28.json",
+    "portableCoreCompile": "PASSED",
+    "fullAndroid": "REQUIRES_NEW_EXACT_HEAD_CI"
+  }
 }

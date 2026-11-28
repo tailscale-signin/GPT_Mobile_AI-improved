@@ -65,6 +65,66 @@ class VoiceBenchmarkSuiteTest {
         }
     }
 
+    @Test fun quickScreeningCoversAllPacksBeforeFullSynthesis() {
+        val screens = stages.filter { it.label.endsWith("quick synthesis screening") }
+        assertEquals(VoiceSpeechBenchmarkEngine.entries.toSet(), screens.mapNotNull { it.engine }.toSet())
+        assertEquals(KokoroModelVariant.entries.toSet(), screens.filter { it.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO }.map { it.variant }.toSet())
+        assertTrue(screens.all { it.mode == VoiceSpeechBenchmarkMode.QUICK })
+        assertTrue(screens.all { stages.indexOf(it) < stages.indexOfFirst { row -> row.label.endsWith("first audio and warm synthesis") } })
+        assertEquals(VoiceSpeechBenchmarkEngine.POCKET, screens.first().engine)
+        assertTrue(screens.none { VoiceSpeechBackend.QNN_GPU in it.backends || VoiceSpeechBackend.QNN_HTP in it.backends })
+    }
+
+    @Test fun continuationPreservesCompletedEvidenceAndRetriesInterruptedStages() = runBlocking {
+        val plan = stages.take(4)
+        val rows = plan.map { VoiceBenchResult(it.label) }
+        val store = VoiceBenchmarkSuiteStore(temp.newFolder())
+        val initial = manifest(rows).copy(continuationSignature = "signature")
+        store.begin(initial, VoicePerformanceSnapshot(), null)
+        store.evidence(initial.runId, 0) { it.write("""{"complete":1}""".toByteArray()) }
+        store.evidence(initial.runId, 1) { it.write("""{"partial":2}""".toByteArray()) }
+        val interrupted = initial.update(0, rows[0].copy(status = VoiceBenchStatus.MEASURED, measurements = 1))
+            .update(1, rows[1].copy(status = VoiceBenchStatus.RUNNING)).stopped("CANCELLED", 10)
+        store.save(interrupted)
+        assertTrue(interrupted.canContinue("signature", initial.build, initial.commit, initial.androidApi, rows))
+        assertFalse(interrupted.canContinue("other", initial.build, initial.commit, initial.androidApi, rows))
+        assertFalse(interrupted.canContinue("signature", initial.build + 1, initial.commit, initial.androidApi, rows))
+        assertFalse(interrupted.canContinue("signature", initial.build, initial.commit, initial.androidApi, rows.reversed()))
+        val reused = interrupted.reusableStages(rows)
+        assertEquals(listOf(0), reused)
+        val next = manifest(rows, initial.startedAtMillis + 1).copy(
+            continuationSignature = "signature",
+            resumedFromRunId = interrupted.runId,
+            reusedStageIndices = reused,
+            results = rows.mapIndexed { index, row -> if (index in reused) interrupted.results[index] else row }
+        )
+        store.begin(next, VoicePerformanceSnapshot(), null, interrupted)
+        val previous = requireNotNull(store.previous(next))
+        assertEquals(interrupted, previous)
+        val oldExport = ByteArrayOutputStream()
+        store.export(previous, oldExport)
+        assertTrue(oldExport.toString("UTF-8").contains("""{"partial":2}"""))
+        val measured = mutableListOf<Int>()
+        VoiceBenchmarkCampaign(store, {}).run(next, plan, { null }, { true }) { index, stage ->
+            measured += index
+            VoiceBenchResult(stage.label, VoiceBenchStatus.MEASURED)
+        }
+        val finished = requireNotNull(store.latest())
+        assertEquals(listOf(1, 2, 3), measured)
+        assertEquals("FINISHED", finished.state)
+        val output = ByteArrayOutputStream()
+        store.export(finished, output)
+        val json = Json.parseToJsonElement(output.toString("UTF-8")).jsonObject
+        assertEquals("1", json.getValue("stageEvidence").jsonArray[0].jsonObject.getValue("report").jsonObject.getValue("complete").jsonPrimitive.content)
+        assertEquals(JsonNull, json.getValue("stageEvidence").jsonArray[1].jsonObject["report"])
+    }
+
+    @Test fun emptyProbeIsNotSilentlyUnavailable() {
+        val result = emptyList<VoiceBenchObservation>().summarize("capture")
+        assertEquals(VoiceBenchStatus.UNAVAILABLE, result.status)
+        assertEquals("NO_OBSERVATIONS", result.reason)
+    }
+
     @Test fun deviceThreadLimitsAndInvalidRatesCannotCreateUnrunnableStages() {
         for (count in listOf(0, 1, 4, 32)) {
             val plan = fullVoiceBenchPlan(64, Float.NaN, count)

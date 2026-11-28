@@ -81,7 +81,7 @@ internal suspend fun voiceBenchMoonshine(context: Context, style: VoiceListening
                     decoder.finish()
                     val words = voiceBenchWords(reference)
                     val errors = voiceBenchWordErrors(words, voiceBenchWords(final))
-                    VoiceBenchObservation(
+                    rows += VoiceBenchObservation(
                         id,
                         if (final.isBlank()) VoiceBenchStatus.FAILED else VoiceBenchStatus.MEASURED,
                         reason = if (final.isBlank()) "NO_FINAL_TRANSCRIPT" else null,
@@ -116,13 +116,14 @@ internal suspend fun voiceBenchMoonshine(context: Context, style: VoiceListening
 internal suspend fun voiceBenchSystemRecognition(context: Context, active: () -> Boolean): List<VoiceBenchObservation> = withContext(Dispatchers.Main.immediate) {
     val service = AndroidRecognitionService(context)
     if (!service.available(true)) return@withContext listOf(VoiceBenchObservation.unavailable("android", "NO_ON_DEVICE_RECOGNIZER"))
-    val recognizer = service.create(true)
-    try {
-        SpeechLanguages.synthesis.map { language ->
-            if (!active()) throw CancellationException("Voice benchmark stopped")
+    SpeechLanguages.synthesis.map { language ->
+        if (!active()) throw CancellationException("Voice benchmark stopped")
+        // A timed-out support request must not remain outstanding on the recognizer for the next locale.
+        val recognizer = service.create(true)
+        try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language.tag).putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            val qualification = withTimeoutOrNull(2_000L) {
+            val qualification = withTimeoutOrNull(5_000L) {
                 suspendCancellableCoroutine { continuation ->
                     service.checkSupport(recognizer, intent, true) { if (continuation.isActive) continuation.resume(it) }
                 }
@@ -133,8 +134,8 @@ internal suspend fun voiceBenchSystemRecognition(context: Context, active: () ->
                 else -> VoiceBenchStatus.UNAVAILABLE
             }
             VoiceBenchObservation(language.tag, status, qualification?.status?.name ?: "CAPABILITY_QUERY_TIMEOUT")
+        } finally {
+            recognizer.destroy()
         }
-    } finally {
-        recognizer.destroy()
     }
 }
